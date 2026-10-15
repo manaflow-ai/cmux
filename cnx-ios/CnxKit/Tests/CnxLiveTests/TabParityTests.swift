@@ -36,9 +36,9 @@ import Testing
 
     /// The Mac's `GroupColor.automatic`: never blue or grey; grey once all are used.
     @Test func nextGroupColor() {
-        #expect(LiveWorkspaceCreationBackend.nextGroupColor(used: []) == "red")
-        #expect(LiveWorkspaceCreationBackend.nextGroupColor(used: ["red", "green"]) == "yellow")
-        #expect(LiveWorkspaceCreationBackend.nextGroupColor(used: ["red", "green", "yellow", "purple", "cyan", "orange", "pink"]) == "grey")
+        #expect(WorkspaceTab.TabGroupRef.nextColor(used: []) == "red")
+        #expect(WorkspaceTab.TabGroupRef.nextColor(used: ["red", "green"]) == "yellow")
+        #expect(WorkspaceTab.TabGroupRef.nextColor(used: ["red", "green", "yellow", "purple", "cyan", "orange", "pink"]) == "grey")
     }
 
     /// The Mac's `NewWorkspaceName` for Move Tab to New Workspace.

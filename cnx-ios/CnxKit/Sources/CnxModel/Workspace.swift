@@ -124,6 +124,12 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
             self.isSaved = isSaved
         }
 
+        /// The Mac's next group color (`GroupColor.automatic`): the first of its automatic order
+        /// not used in the pane, never blue or grey; grey when every one is used.
+        public static func nextColor(used: Set<String>) -> String {
+            ["red", "green", "yellow", "purple", "cyan", "orange", "pink"].first { !used.contains($0) } ?? "grey"
+        }
+
         /// The group's name, else its color ("Red group"), as a phone line reads it.
         public var displayName: String {
             if !name.trimmingCharacters(in: .whitespaces).isEmpty { return name }

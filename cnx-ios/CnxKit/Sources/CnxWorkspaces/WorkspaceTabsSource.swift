@@ -688,7 +688,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         switch edit {
         case .create:
-            store.updateTab(tab.id, in: workspaceID) { $0.group = WorkspaceTab.TabGroupRef(id: "pending-\(tab.id)") }
+            let used = Set((workspace?.tabs ?? []).compactMap { $0.group?.color })
+            store.updateTab(tab.id, in: workspaceID) { $0.group = WorkspaceTab.TabGroupRef(id: "pending-\(tab.id)", color: WorkspaceTab.TabGroupRef.nextColor(used: used)) }
         case .add(let id):
             let target = groups(besides: tab).first { $0.id == id } ?? WorkspaceTab.TabGroupRef(id: id)
             store.updateTab(tab.id, in: workspaceID) { $0.group = target }
@@ -813,10 +814,12 @@ public final class WorkspaceTabsSource: TabsDataSource {
         return items
     }
 
+    /// The card's long-press menu: the Mac's top tab rows and its group rows. TabsKit adds
+    /// Close Tab and Close Other Tabs itself; the moves (the Mac's More) are in the page menu,
+    /// which has room for them.
     public func cardMenu(for kit: TabsKitTab) -> [[TabsKitMenuItem]] {
         guard let tab = workspaceTab(kit.id) else { return [] }
-        let close = TabsKitMenuItem(title: "Close Tab", systemImage: "xmark", isDestructive: true) { [weak self] in Task { _ = await self?.close(kit.id) } }
-        return [editItems(tab), groupItems(tab), moveItems(tab), [close]].filter { !$0.isEmpty }
+        return [editItems(tab), groupItems(tab)].filter { !$0.isEmpty }
     }
 
     public func pageMenu(for kit: TabsKitTab) -> [[TabsKitMenuItem]] {
@@ -995,8 +998,10 @@ struct WorkspaceTabCard: View {
     var body: some View {
         if let workspace = source.workspace, let tab = workspace.tabs.first(where: { $0.id == tabID }) {
             preview(tab, workspace)
-                .overlay(alignment: .bottomLeading) {
-                    if let group = tab.group { TabGroupChip(group: group).padding(8) }
+                // The card shows the top of the page, scaled down: the chip sits there, sized
+                // in page points so it reads like the card's title.
+                .overlay(alignment: .topLeading) {
+                    if let group = tab.group { TabGroupChip(group: group).padding(.leading, 16).padding(.top, 14) }
                 }
         } else {
             Color.cnxBackground
@@ -1028,11 +1033,11 @@ struct TabGroupChip: View {
 
     var body: some View {
         Text(group.displayName)
-            .font(.caption2.weight(.semibold))
+            .font(.system(size: 26, weight: .semibold))
             .lineLimit(1)
             .foregroundStyle(.white)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
             .background(Self.color(group.color), in: .capsule)
             .accessibilityLabel("In tab group \(group.displayName)")
     }

@@ -443,7 +443,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             guard !tab.isPinned else { throw WorkspaceCreationError(Self.pinnedCannotGroup, isForPerson: true) }
             let pane = sync.tree?.tabPlaces[tab.id]?.pane
             let used = Set(workspace.tabs.filter { pane != nil && sync.tree?.tabPlaces[$0.id]?.pane == pane }.compactMap { $0.group?.color })
-            try await run(client, "create-tab-group", ["surfaces": [surface], "color": Self.nextGroupColor(used: used)])
+            try await run(client, "create-tab-group", ["surfaces": [surface], "color": WorkspaceTab.TabGroupRef.nextColor(used: used)])
         case .add(let group):
             guard !tab.isPinned else { throw WorkspaceCreationError(Self.pinnedCannotGroup, isForPerson: true) }
             try await run(client, "add-tabs-to-tab-group", ["group": group, "surfaces": [surface]])
@@ -465,11 +465,6 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// The Mac's refusal (`RefusalStrings.pinnedCannotGroup`), as a sentence.
     nonisolated static let pinnedCannotGroup = "Pinned tabs cannot be grouped."
 
-    /// The Mac's next group color (`GroupColor.automatic`): the first of its automatic order
-    /// not used in the pane, never blue or grey; grey when every one is used.
-    nonisolated static func nextGroupColor(used: Set<String>) -> String {
-        ["red", "green", "yellow", "purple", "cyan", "orange", "pink"].first { !used.contains($0) } ?? "grey"
-    }
 
     private func group(of tab: WorkspaceTab) throws -> String {
         guard let group = tab.group?.id else { throw WorkspaceCreationError("This tab isn't in a group.", isForPerson: true) }

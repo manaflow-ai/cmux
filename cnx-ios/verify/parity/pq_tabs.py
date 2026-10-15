@@ -110,6 +110,13 @@ def card_menu(j, title, item):
     time.sleep(1.0)
 
 
+def open_tab(j, title):
+    """The grid, then the card `title` (its page)."""
+    pq.open_grid(j)
+    j.sim.tap_el(card(j, title))
+    time.sleep(1.5)
+
+
 def page_menu(j, item):
     """The page menu (a tap on the bottom title capsule), then the row `item`."""
     bottom = [e for e in j.sim.find(kind="Button") if e.frame[1] > 740 and e.frame[2] > 120]
@@ -156,28 +163,29 @@ FLOWS = {}
 
 @flow("move-to-workspace")
 def move_to_workspace(j):
-    """Card menu > Move Tab to Workspace… > another workspace: the Mac moves the tab there."""
+    """Page menu > Move Tab to Workspace… > another workspace: the Mac moves the tab there."""
     a, b = seed("move-a"), seed("move-b", terminals=1)
     surface = ws_tabs(a)[1][1]["surface"]
     open_ws(j, a["name"])
-    pq.open_grid(j)
-    card_menu(j, "p2tabs-t2", "Move Tab to Workspace…")
+    open_tab(j, "p2tabs-t2")
+    page_menu(j, "Move Tab to Workspace…")
     dest = j.sim.wait(ident=f"move-to.{b['key']}", timeout=8)
     check(dest, f"{b['name']} not in the picker")
     j.sim.tap_el(dest)
     landed, secs = until(lambda: (where(surface) or {}).get("key") == b["key"], what="the tab in the other workspace")
+    pq.open_grid(j)
     check(not j.sim.find(prefix="p2tabs-t2, tab"), "the card stayed on the phone")
     return f"Mac: surface {surface} in {b['name']} after {secs:.1f} s"
 
 
 @flow("move-to-new-workspace")
 def move_to_new_workspace(j):
-    """Card menu > Move Tab to New Workspace: a new Mac workspace holds the tab, named after it."""
+    """Page menu > Move Tab to New Workspace: a new Mac workspace holds the tab, named after it."""
     a = seed("movenew")
     surface = ws_tabs(a)[1][1]["surface"]
     open_ws(j, a["name"])
-    pq.open_grid(j)
-    card_menu(j, "p2tabs-t2", "Move Tab to New Workspace")
+    open_tab(j, "p2tabs-t2")
+    page_menu(j, "Move Tab to New Workspace")
     ws, secs = until(lambda: (lambda w: w if w and w.get("key") != a["key"] else None)(where(surface)),
                      what="a new workspace")
     return f"Mac: surface {surface} in new workspace {ws.get('name')!r} after {secs:.1f} s"
