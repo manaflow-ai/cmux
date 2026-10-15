@@ -7,6 +7,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
 
 use serde_json::Value;
 use std::io::{Read, Write};
@@ -20,9 +22,20 @@ fn scratch(tag: &str) -> PathBuf {
     dir
 }
 
+/// `acpmux` in the hermetic environment; it starts no agent.
 fn acpmux(exe: &Path, home: &Path) -> Command {
+    acpmux_with(exe, home, daemon_env::Agents::Deny)
+}
+
+/// `acpmux` for a test whose daemon starts its stand-in agent (cmd.exe, or
+/// this test binary as `ctrl_break_agent`); only the system PATH.
+fn acpmux_agents(exe: &Path, home: &Path) -> Command {
+    acpmux_with(exe, home, daemon_env::Agents::StandIn)
+}
+
+fn acpmux_with(exe: &Path, home: &Path, agents: daemon_env::Agents) -> Command {
     let mut cmd = Command::new(exe);
-    daemon_env::apply(&mut cmd, home, daemon_env::Agents::Deny, &[]);
+    daemon_env::apply(&mut cmd, home, agents, &[]);
     cmd.env("ACPMUX_HOME", home)
         .env("ACPMUX_CATALOG_FETCH", "0")
         .env("ACPMUX_REGISTRY_FETCH", "0")
@@ -53,10 +66,19 @@ struct Daemon {
 
 impl Daemon {
     fn start(exe: &Path, home: &Path, log: PathBuf) -> Self {
+        Self::start_with(exe, home, log, daemon_env::Agents::Deny)
+    }
+
+    /// A daemon that starts its stand-in agents.
+    fn start_agents(exe: &Path, home: &Path, log: PathBuf) -> Self {
+        Self::start_with(exe, home, log, daemon_env::Agents::StandIn)
+    }
+
+    fn start_with(exe: &Path, home: &Path, log: PathBuf, agents: daemon_env::Agents) -> Self {
         // Its log lines go to stdout, its errors to stderr: both to `log`.
         let out = std::fs::File::create(&log).unwrap();
         let err = out.try_clone().unwrap();
-        let child = acpmux(exe, home)
+        let child = acpmux_with(exe, home, agents)
             .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--log", "info"])
             .stdout(out)
             .stderr(err)
@@ -615,15 +637,15 @@ fn an_agent_leaves_no_process_behind_when_it_exits() {
     let home = scratch("jobexit");
     let marker = ping_marker(1);
     grand_config(&home, &format!("start /b ping -n 300 {marker}"));
-    let out = acpmux(&exe, &home).args(["daemon", "start"]).output().expect("daemon start");
+    let out = acpmux_agents(&exe, &home).args(["daemon", "start"]).output().expect("daemon start");
     assert!(out.status.success(), "acpmux daemon start failed: {}", text(&out));
-    let new = acpmux(&exe, &home)
+    let new = acpmux_agents(&exe, &home)
         .args(["new", "--detach", "--cwd"])
         .arg(&home)
         .output()
         .expect("run acpmux new");
     let left = wait_pings(&marker, 0, Duration::from_secs(20));
-    let out = acpmux(&exe, &home).arg("shutdown").output().expect("run acpmux shutdown");
+    let out = acpmux_agents(&exe, &home).arg("shutdown").output().expect("run acpmux shutdown");
     assert!(out.status.success(), "acpmux shutdown failed: {}", text(&out));
     assert_eq!(left, 0, "the agent's background ping outlived it (acpmux new: {})", text(&new));
     let _ = std::fs::remove_dir_all(&home);
@@ -639,10 +661,10 @@ fn a_killed_daemon_takes_its_agents_with_it() {
     let marker = ping_marker(2);
     grand_config(&home, &format!("start /b ping -n 300 {marker} & ping -n 300 {marker}"));
     let log = std::env::temp_dir().join(format!("amxw-jobkill-{}.log", std::process::id()));
-    let mut daemon = Daemon::start(&exe, &home, log);
+    let mut daemon = Daemon::start_agents(&exe, &home, log);
     wait_ready(&exe, &home, &mut daemon);
     // The agent never answers `initialize`: `new` waits; the agent runs.
-    let mut new = acpmux(&exe, &home)
+    let mut new = acpmux_agents(&exe, &home)
         .args(["new", "--detach", "--cwd"])
         .arg(&home)
         .stdout(Stdio::null())
@@ -680,9 +702,9 @@ fn a_stopped_agent_gets_ctrl_break_before_its_job_ends() {
     });
     std::fs::write(home.join("config.json"), config.to_string()).unwrap();
     let log = std::env::temp_dir().join(format!("amxw-jobbreak-{}.log", std::process::id()));
-    let mut daemon = Daemon::start(&exe, &home, log);
+    let mut daemon = Daemon::start_agents(&exe, &home, log);
     wait_ready(&exe, &home, &mut daemon);
-    let mut new = acpmux(&exe, &home)
+    let mut new = acpmux_agents(&exe, &home)
         .args(["new", "--detach", "--cwd"])
         .arg(&home)
         .stdout(Stdio::null())
@@ -694,7 +716,7 @@ fn a_stopped_agent_gets_ctrl_break_before_its_job_ends() {
         assert!(Instant::now() < deadline, "the agent did not start:\n{}", daemon.log());
         std::thread::sleep(Duration::from_millis(100));
     }
-    let out = acpmux(&exe, &home).arg("shutdown").output().expect("run acpmux shutdown");
+    let out = acpmux_agents(&exe, &home).arg("shutdown").output().expect("run acpmux shutdown");
     let _ = new.kill();
     let _ = new.wait();
     let _ = daemon.child.wait();

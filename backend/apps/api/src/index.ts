@@ -41,6 +41,8 @@ import { handleCloudBind, handleCloudKeyset } from "./cloud-link.ts"
 import { ACPMUX_PATH, handleCloudAcpmux } from "./cloud-acpmux.ts"
 import { BILLING_LEVELS_PATH, BILLING_SYNC_PATH, handleBillingLevels, handleBillingSync } from "./billing-levels.ts"
 import { BILLING_TEAM_MODE_PATH, handleBillingTeamMode } from "./billing-team-mode.ts"
+import { CREDITS_ADMIN_PATH, handleCreditsAdmin } from "./credits-admin.ts"
+import { CREDITS_PATH, CREDITS_WEBHOOK_PATH, handleCredits, handleCreditsWebhook } from "./credits-routes.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
 export { AutomationTail } from "./automation-tail.ts"
 export { AutomationEgress } from "./automation-egress.ts"
@@ -201,6 +203,11 @@ export default {
     if (url.pathname === BILLING_LEVELS_PATH) return handleBillingLevels(request, env)
     if (url.pathname === BILLING_SYNC_PATH) return handleBillingSync(request, env)
     if (url.pathname === BILLING_TEAM_MODE_PATH) return handleBillingTeamMode(request, env)
+    // Prepaid Cloud Chief credits: balance and top-ups (credits-routes.ts), the top-up webhook, operator grants.
+    const credits = url.pathname.match(CREDITS_PATH)
+    if (credits) return handleCredits(request, env, credits[1]?.startsWith("checkout/") && credits[2] ? "checkout/link" : credits[1], credits[2])
+    if (url.pathname === CREDITS_WEBHOOK_PATH) return handleCreditsWebhook(request, env)
+    if (url.pathname === CREDITS_ADMIN_PATH) return handleCreditsAdmin(request, env)
     if (url.pathname === "/v1/admin/cloud/abandoned/clear") return handleCloudAbandonedClear(request, env)
     if (url.pathname.startsWith("/v1/admin/team-vm/")) return handleTeamVmAdmin(request, env)
     const tvmExport = url.pathname.match(/^\/v1\/team-vm\/export\/(team_[A-Za-z0-9_-]{1,64})\/([0-9a-f]{64})$/)
