@@ -55,10 +55,13 @@ test("durations read as hours and minutes without plural strings", () => {
   expect(formatDuration(200 * 60_000, "en")).toBe("3h 20m");
 });
 
-test("waits under a minute read in seconds", () => {
+test("waits keep their seconds under ten minutes", () => {
   expect(formatWait(0, "en")).toBe("0s");
   expect(formatWait(12_400, "en")).toBe("12s");
   expect(formatWait(59_600, "en")).toBe("1m");
+  expect(formatWait(89_000, "en")).toBe("1m 29s");
+  expect(formatWait(599_000, "en")).toBe("9m 59s");
+  expect(formatWait(14 * 60_000 + 20_000, "en")).toBe("14m");
   expect(formatWait(200 * 60_000, "en")).toBe("3h 20m");
 });
 

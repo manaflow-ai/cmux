@@ -19,11 +19,16 @@ export function formatDuration(ms: number, language: string): string {
   return rest === 0 ? unit(hours, "hour") : `${unit(hours, "hour")} ${unit(rest, "minute")}`;
 }
 
-/** A permission wait: `12s` under a minute, else as `formatDuration`. */
+/** A permission wait: `12s`, `4m 5s` under ten minutes, else as `formatDuration`. */
 export function formatWait(ms: number, language: string): string {
-  const seconds = Math.round(ms / 1000);
-  if (seconds >= 60) return formatDuration(ms, language);
-  return new Intl.NumberFormat(language, { style: "unit", unit: "second", unitDisplay: "narrow" }).format(seconds);
+  const total = Math.round(ms / 1000);
+  if (total >= 600) return formatDuration(ms, language);
+  const unit = (value: number, name: "minute" | "second") =>
+    new Intl.NumberFormat(language, { style: "unit", unit: name, unitDisplay: "narrow" }).format(value);
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  if (minutes === 0) return unit(seconds, "second");
+  return seconds === 0 ? unit(minutes, "minute") : `${unit(minutes, "minute")} ${unit(seconds, "second")}`;
 }
 
 /** One row of the Attention section: a wait in ms, a count, or a ratio. */

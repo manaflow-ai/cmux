@@ -74,7 +74,8 @@ export function mockSummary(
     permissionAuto: Math.round(turns * 0.9),
     permissionAnswered: Math.round(turns * 0.3) - Math.round(turns * 0.01),
     permissionUnanswered: Math.round(turns * 0.01),
-    permissionWaitMs: (Math.round(turns * 0.3) - Math.round(turns * 0.01)) * 38_000,
+    // Summed per question, so two open at once count twice: at least the time spent waiting.
+    permissionWaitMs: Math.round(workingMs * 0.044),
     permissionWaitMaxMs: days.length ? 14 * 60_000 + 20_000 : 0,
     limitErrors: days.length ? 3 : 0,
     workingMs,
