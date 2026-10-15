@@ -63,6 +63,7 @@
         "fontSize": 0,
         "density": "comfortable",
         "scale": 1,
+        "interfaceScale": 1,
         "width": "normal",
         "height": 0,
         "reducedMotion": false,
