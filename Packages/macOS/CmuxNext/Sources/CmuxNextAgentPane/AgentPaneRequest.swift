@@ -32,6 +32,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `command` in `cwd` (``AgentPaneShell``); answers `{id}`. Only with a
     /// real gesture in the pane.
     case shellRun(command: String, cwd: String?)
+    /// `harness.update {id}`: the chat card's Update (cx-1mbnu): this Mac's acpmux runs that agent
+    /// CLI's own update now and answers `{ok, version?, error?}`. Only with a real gesture.
+    case harnessUpdate(id: String)
+    /// `harness.restart {}`: the card's Restart Chat: this chat's agent restarts on the installed
+    /// version and resumes (after its turn); answers `{restarted, after_turn}`. Only with a gesture.
+    case harnessRestart
     /// `shell.read {id, after}`: the run's output from byte `after`.
     case shellRead(id: String, after: Int)
     /// `shell.stop {id}`: interrupt the run's process group.
