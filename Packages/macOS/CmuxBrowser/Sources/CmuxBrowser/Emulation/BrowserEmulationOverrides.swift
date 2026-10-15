@@ -28,8 +28,8 @@ public struct BrowserGeolocationOverride: Equatable, Sendable {
 /// location and network state. The default value changes nothing.
 ///
 /// Engine-independent: the WebKit side applies it with a page-world script
-/// and a content rule list (``BrowserEmulationScript``,
-/// ``BrowserOfflineContentRules``); a Chromium tab maps the same values to
+/// and a content rule list (``pageScript(dispatchesChangeEvents:)``,
+/// ``BrowserWebKitEmulationController``); a Chromium tab maps the same values to
 /// `Emulation.setGeolocationOverride` and `Network.emulateNetworkConditions`.
 public struct BrowserEmulationOverrides: Equatable, Sendable {
     /// The reported position, or `nil` for the real one.
