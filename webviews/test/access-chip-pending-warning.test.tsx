@@ -104,7 +104,7 @@ function reported(sessionId: string, currentModeId: string): Summary {
 }
 
 /// Renders the composer's chips for `summary` (undefined: a new chat whose session has not reported).
-async function render(summary: Summary) {
+async function render(summary: Summary, cwd?: string) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -127,7 +127,7 @@ async function render(summary: Summary) {
     queue: [],
     canLoadOlder: false,
     catalog,
-    summary: summary ?? { sessionId: "", harness: "claude", turnCount: 0 },
+    summary: summary ?? { sessionId: "", harness: "claude", turnCount: 0, ...(cwd ? { cwd } : {}) },
   } as unknown as Snapshot;
   function Host() {
     const picker = usePickerCatalog(snapshot.catalog, { harness: "claude" });
@@ -190,11 +190,11 @@ async function kept(answer: Answer) {
   rememberStartMode("claude", undefined, answer);
 }
 
-async function fresh() {
+async function fresh(cwd?: string) {
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
-  await render(undefined);
+  await render(undefined, cwd);
 }
 
 test("a new chat acpmux starts in full access draws its warning chip on the first frame", async () => {
@@ -233,4 +233,56 @@ test("without an answer from acpmux a new chat names no mode, whatever the last 
   await fresh();
   await answer();
   expect(access()).toBeNull();
+});
+
+test("a folder acpmux has not answered for never names another folder's mode, nor its warning", async () => {
+  const { rememberStartMode } = await import("../src/agent-session/acpmux/startMode");
+  // Another folder's chats start in full access; this folder's profile pins its own mode, so
+  // acpmux sets none here (it answers none). Until it answers, the chip holds its place unnamed.
+  rememberStartMode("claude", "/elsewhere", { modeId: "bypassPermissions", name: "Bypass permissions" });
+  const answer = await acpmux(undefined);
+  await fresh("/here");
+  expect(host.querySelector(".acpmux-chip-pending.acpmux-mode")).not.toBeNull();
+  const first = access()!;
+  expect(first.label).not.toBe("Bypass permissions");
+  expect(first.label).not.toBe("bypassPermissions");
+  expect(first.warning).toBe(false);
+  await answer();
+  expect(access()).toBeNull();
+});
+
+test("a harness switch never draws another folder's start mode as the chat's current mode", async () => {
+  const { rememberStartMode } = await import("../src/agent-session/acpmux/startMode");
+  const { applySwitch } = await import("../src/agent-session/acpmux/harnessSwitch");
+  const { HarnessProfiles } = await import("../src/agent-session/acpmux/harnessProfiles");
+  type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
+  const profiles = new HarnessProfiles(() => undefined);
+  profiles.observe(reported("earlier", "default") as Snapshot["summary"]);
+  rememberStartMode("claude", "/elsewhere", { modeId: "bypassPermissions", name: "Bypass permissions" });
+  const raw = {
+    type: "snapshot",
+    protocolVersion: 1,
+    rows: [],
+    sessions: [],
+    connection: "test",
+    isWorking: false,
+    queue: [],
+    canLoadOlder: false,
+    catalog: [],
+  } as unknown as Snapshot;
+  const view = {
+    intent: {
+      id: 1,
+      harness: "claude",
+      cwd: "/unanswered",
+      phase: "starting" as const,
+      shown: true,
+      queued: [],
+      config: { options: {} },
+    },
+  };
+  expect(applySwitch(raw, view, [], profiles).summary?.modes?.currentModeId).toBeUndefined();
+  // acpmux's answer for this very folder is drawn.
+  rememberStartMode("claude", "/unanswered", { modeId: "bypassPermissions", name: "Bypass permissions" });
+  expect(applySwitch(raw, view, [], profiles).summary?.modes?.currentModeId).toBe("bypassPermissions");
 });
