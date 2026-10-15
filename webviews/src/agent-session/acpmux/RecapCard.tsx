@@ -56,34 +56,47 @@ export function useRecapCard({
   sessionId: string | undefined;
   on: boolean;
   asking: boolean;
-  send(text: string): void;
+  send(text: string): Promise<void>;
   focusComposer(): void;
 }): RecapCardState {
   // Every streamed chunk is a new rows array, but `on` is false while a turn runs.
   const found = useMemo(() => (on ? recapFrom(rows, { asking }) : null), [on, rows, asking]);
   const [dismissed, setDismissed] = useState(() => ({ sessionId, keys: readDismissed(sessionId) }));
-  const keys = dismissed.sessionId === sessionId ? dismissed.keys : readDismissed(sessionId);
-  const recap = found && !keys.includes(found.key) ? found : undefined;
-  const hide = (key: string) => {
-    const next = [...keys.filter((kept) => kept !== key), key].slice(-KEPT);
-    setDismissed({ sessionId, keys: next });
-    writeDismissed(sessionId, next);
-  };
+  // Another chat reads its own hidden cards once, as it shows.
+  let current = dismissed;
+  if (current.sessionId !== sessionId) {
+    current = { sessionId, keys: readDismissed(sessionId) };
+    setDismissed(current);
+  }
+  const recap = found && !current.keys.includes(found.key) ? found : undefined;
+  const hide = (key: string) => setDismissed({ sessionId, keys: withKey(current.keys, key) });
   return {
     recap,
     reply() {
       if (!recap) return;
-      hide(recap.key);
-      send(recap.reply);
+      const { key } = recap;
+      // Hidden while its yes is on the way; kept hidden once sent, and back if the send failed.
+      hide(key);
+      send(recap.reply).then(
+        () => writeDismissed(sessionId, withKey(readDismissed(sessionId), key)),
+        () =>
+          setDismissed((now) =>
+            now.sessionId === sessionId ? { sessionId, keys: now.keys.filter((kept) => kept !== key) } : now,
+          ),
+      );
       focusComposer();
     },
     dismiss() {
       if (!recap) return;
       hide(recap.key);
+      writeDismissed(sessionId, withKey(readDismissed(sessionId), recap.key));
       focusComposer();
     },
   };
 }
+
+/// `keys` with `key` last, the newest KEPT of them.
+const withKey = (keys: readonly string[], key: string) => [...keys.filter((kept) => kept !== key), key].slice(-KEPT);
 
 /// The card: summary (muted, at most three lines), the question, then Yes and Not now.
 /// `keyHint`: ⌘Return on the composer answers yes (not in the Quick Composer, whose ⌘Return opens a window).

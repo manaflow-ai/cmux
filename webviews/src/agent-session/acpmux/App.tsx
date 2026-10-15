@@ -75,6 +75,7 @@ import { acpmuxPerf, type MountedSpan } from "./perf";
 import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
+import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
 import type { ComposerAttachment } from "./attachments";
 import { ComposerPickers, PICKER_LABELS } from "./ComposerPickers";
@@ -4630,8 +4631,9 @@ function AcpmuxPane() {
     rows: snapshot.rows,
     sessionId: snapshot.sessionId,
     on: preview && !snapshot.isWorking,
-    asking: hasBottomAsk || trustPending || Boolean(pendingFolder),
-    send: (text) => void addressThread(text).catch(() => composerHandle.current?.restore(text, [])),
+    // A chat the composer cannot send to (remoteEditing.ts) has no yes to offer.
+    asking: hasBottomAsk || trustPending || Boolean(pendingFolder) || !remoteComposer(snapshot).canSend,
+    send: (text) => addressThread(text),
     focusComposer: () => composerHandle.current?.focus(),
   });
   const asks = hasBottomAsk ? (

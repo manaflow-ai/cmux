@@ -749,7 +749,14 @@ export function Composer({
       return;
     }
     // ⌘Return on an empty prompt after a turn answers the recap card's question (RecapCard.tsx).
-    if (commandReturn && onEmptyCommandReturn && !snapshot.isWorking && !text.trim() && attachments.length === 0) {
+    if (
+      commandReturn &&
+      onEmptyCommandReturn &&
+      remote.canSend &&
+      !snapshot.isWorking &&
+      !text.trim() &&
+      attachments.length === 0
+    ) {
       event.preventDefault();
       onEmptyCommandReturn();
       return;
