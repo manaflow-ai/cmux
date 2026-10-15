@@ -82,3 +82,17 @@ test("a turn without a list draws as before with labs on", () => {
   const rows = [row("u", "user"), tool("edit-a", "in_progress")];
   expect(kinds(live(rows, true))).toEqual(kinds(live(rows, false)));
 });
+
+test("the activity line names an edited file by its name, not its path", () => {
+  const path = "/tmp/demo/storefront/src/components/ProductGrid.module.css";
+  const edit = row("edit-c", "activity", {
+    items: [
+      {
+        kind: "tool",
+        text: `Edit ${path}`,
+        tool: { id: "edit-c", title: `Edit ${path}`, kind: "edit", status: "in_progress", locations: [{ path }] },
+      },
+    ],
+  });
+  expect(live([row("u", "user"), steps, edit], true).at(-1)!.text).toBe("Edit ProductGrid.module.css");
+});
