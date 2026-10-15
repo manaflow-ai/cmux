@@ -225,7 +225,7 @@ async fn discovered_harnesses(d: &Path) -> Value {
     let socket = acp_home.join("s.sock");
     // The stand-in codex in `d/bin`, first on the bare PATH, is only listed:
     // no launch is needed.
-    let mut child = daemon_env::acpmux(&d)
+    let mut child = daemon_env::acpmux(d)
         .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
         .env("PATH", format!("{}:{}", d.join("bin").display(), daemon_env::bare_path(&[])))
         .env("ACPMUX_HOME", &acp_home)
