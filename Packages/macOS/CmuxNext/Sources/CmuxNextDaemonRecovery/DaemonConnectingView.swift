@@ -82,9 +82,9 @@ public final class DaemonConnectingView: NSView {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override func viewDidChangeEffectiveAppearance() {
+    public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         performWithTheme {
             titleLabel.textColor = Palette.textSecondary
@@ -92,7 +92,7 @@ public final class DaemonConnectingView: NSView {
         }
     }
 
-    override func viewDidMoveToWindow() {
+    public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         viewDidChangeEffectiveAppearance()
         if window == nil {
