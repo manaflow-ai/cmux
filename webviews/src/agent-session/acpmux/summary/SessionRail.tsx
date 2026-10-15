@@ -18,12 +18,13 @@ import { homePath, projectLabel } from "../sessionList";
 import { sessionSummary } from "./sessionSummary";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
-type CardId = "environment" | "context" | "outputs";
+type CardId = "environment" | "context" | "connectors" | "outputs";
 type Cards = Record<CardId, boolean>;
 
 const ROW_ICON = rowIconSize(12);
-/// Environment and Outputs start open, Context folded to its share (as in Claude Code desktop).
-const DEFAULT_CARDS: Cards = { environment: true, context: false, outputs: true };
+/// Environment and Outputs start open, Context and Connectors folded to their counts (as in Claude
+/// Code desktop).
+const DEFAULT_CARDS: Cards = { environment: true, context: false, connectors: false, outputs: true };
 /// The last open or closed, a per-viewer convenience: each pane keeps its own in state.
 const OPEN_KEY = "cmux.agentPane.sessionRail.open";
 /// Where the rail stops sitting beside the chat and covers it (summary.css `.acpmux-rail` overlay).
@@ -171,6 +172,22 @@ export function SessionRail({
           </p>
         )}
       </RailCard>
+      {summary?.mcpServers && summary.mcpServers.length > 0 && (
+        <RailCard
+          title={t("rail.connectors")}
+          open={state.connectors}
+          onOpenChange={fold("connectors")}
+          meta={
+            <span className="acpmux-rail-card__value">
+              {t("rail.connected", {
+                count: summary.mcpServers.filter((server) => server.status === "connected").length,
+              })}
+            </span>
+          }
+        >
+          <Connectors servers={summary.mcpServers} />
+        </RailCard>
+      )}
       <RailCard title={t("rail.outputs")} open={state.outputs} onOpenChange={fold("outputs")}>
         {outputs.length > 0 ? (
           <ul className="acpmux-rail-list">
@@ -281,6 +298,27 @@ function Environment({ summary, machineName }: { summary?: Summary; machineName?
           <span className="acpmux-rail-row__name">{summary.branch}</span>
         </li>
       )}
+    </ul>
+  );
+}
+
+/// The MCP servers the harness says it loaded (acpmux `mcpServers`), each with its state when it
+/// is not connected. Only harnesses that report them have the card (Claude Code today).
+function Connectors({ servers }: { servers: NonNullable<Summary["mcpServers"]> }) {
+  const t = useT();
+  return (
+    <ul className="acpmux-rail-list">
+      {servers.map((server) => (
+        <li key={server.name} className="acpmux-rail-row">
+          <Icon name="extension" size={ROW_ICON} row />
+          <span className="acpmux-rail-row__name">{server.name}</span>
+          {server.status !== "connected" && (
+            <span className={`acpmux-rail-row__state is-${server.status}`}>
+              {t(server.status === "failed" ? "rail.connectorFailed" : "rail.connectorPending")}
+            </span>
+          )}
+        </li>
+      ))}
     </ul>
   );
 }
