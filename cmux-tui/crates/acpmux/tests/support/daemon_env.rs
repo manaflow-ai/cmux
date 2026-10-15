@@ -24,8 +24,9 @@
 //! - `PATH`: a private directory with links to the named host tools
 //!   (`python3` always, for the stand-in agents and fake shells), then the
 //!   system directories. No real agent CLI can be found on it;
-//! - `HOME`: `<scratch>/home`, under the scratch directory of the process or
-//!   the test. Never the scratch directory itself: tests use that as the
+//! - `HOME`: `<scratch>/home`, under the scratch directory of the process
+//!   (in Cargo's target tmp, never under the temp directory, which tests use
+//!   as a Web root) or the test. Never the scratch directory itself: tests use that as the
 //!   daemon's home or a chat's folder, and the daemon refuses to start an
 //!   agent in the user's home folder unless a person picks it;
 //! - `TMPDIR`: the test process's temp directory (macOS: the per-user one);
@@ -147,7 +148,10 @@ pub fn enter(process: Process, args: Vec<std::ffi::OsString>) {
         return;
     }
     // A folder an earlier process with this pid left is not this one's.
-    let scratch = std::env::temp_dir().join(format!("amx-proc-{}", std::process::id()));
+    // Under Cargo's target tmp, not the temp directory: tests use the temp
+    // directory as a Web root, and a root that holds HOME is dropped.
+    let scratch =
+        Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("amx-proc-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&scratch);
     std::fs::create_dir_all(home(&scratch)).unwrap();
     let mut env = vars(&scratch, process.agents, &[]);
