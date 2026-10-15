@@ -149,7 +149,7 @@ Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
 }
 ```
 
-- `false` (default): Cmd-T follows the focused pane's tab bar (`tabs.tabBar`). In a pane that shows it (a terminal, a browser tab, the New Tab page) it opens a tab there. In a pane whose tab bar you hid it opens a workspace in the current group. Cmd-N opens a workspace.
+- `false` (default): Cmd-T opens a tab in the focused pane (see `tabs.tabBar`). Cmd-N opens a workspace.
 - `true`: Cmd-T always opens a workspace in the current group and Cmd-N always opens a tab.
 
 Both open the New Tab page. The strip's + button always opens a tab. A key you bind yourself in `shortcuts.bindings` for `newTab` or `newTab.default` wins over the swap. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.swapCmdTAndCmdN true`.
