@@ -10,6 +10,7 @@ import { usePaneLanguage, useT, type PaneLanguage, type Translate } from "../i18
 import type { AcpmuxRow } from "../model";
 import { formatDuration } from "../conversation/turns";
 import type { Subagent } from "./subagentFold";
+import { subagentProgress } from "./subagentProgress";
 
 /// The chat's harness (claude, codex, ...): its subagents run on it, so their avatars carry its mark.
 export const SubagentHarnessContext = createContext<string | undefined>(undefined);
@@ -21,6 +22,10 @@ export const SubagentNavContext = createContext<((id: string | undefined) => voi
 /// (App.tsx, subagentPanes.ts). A group's subagent line uses it; the child view's pill goes back
 /// in place.
 export const SubagentPaneContext = createContext<((id: string) => void) | undefined>(undefined);
+
+/// Stops a running subagent (App.tsx, direct.ts `stopSubagent`), settling with Claude's answer;
+/// absent where the harness cannot.
+export const SubagentStopContext = createContext<((id: string) => Promise<unknown>) | undefined>(undefined);
 
 /// Avatars drawn before "+N".
 const STACK = 3;
@@ -122,18 +127,23 @@ export function SubagentGroupHeader({
   );
 }
 
-/// One subagent in an open group: its avatar with a status dot, name, state or current action,
-/// and time. `edge` rounds the list's first and last rows. A click opens its own view.
+/// One subagent in an open group: its avatar with a status dot, name, state or current action
+/// with what it has spent (subagentProgress.ts), and time. `edge` rounds the list's first and last
+/// rows. A click opens its own view; a running one has a stop button beside it.
 export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const t = useT();
+  const language = usePaneLanguage();
   const nav = useContext(SubagentNavContext);
   const pane = useContext(SubagentPaneContext);
   const open = pane ?? nav;
+  const stop = useContext(SubagentStopContext);
   const agent = row.subagents?.[0];
   const now = useNow(agent ? running(agent) : false);
   if (!agent) return null;
   const label = STATE_LABEL[agent.state as keyof typeof STATE_LABEL] ?? STATE_LABEL.completed;
-  const state = running(agent) ? (agent.action ?? t(label)) : t(label);
+  const state = [running(agent) ? (agent.action ?? t(label)) : t(label), ...subagentProgress(t, language, agent)].join(
+    " · ",
+  );
   const content = (
     <>
       <Avatar agent={agent} dot />
@@ -147,13 +157,11 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       <span className="cv-subagent__time">{formatDuration(elapsed(agent, now))}</span>
     </>
   );
-  if (!open)
-    return (
-      <div id={row.id} className="cv-subagent" data-edge={row.status}>
-        {content}
-      </div>
-    );
-  return (
+  const line = !open ? (
+    <div id={row.id} className="cv-subagent" data-edge={row.status}>
+      {content}
+    </div>
+  ) : (
     <button
       type="button"
       id={row.id}
@@ -164,6 +172,38 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
     >
       {content}
       <Icon name="disclosure.collapsed" size={12} />
+    </button>
+  );
+  if (!stop || !running(agent)) return line;
+  return (
+    <div className="cv-subagent-stoppable">
+      {line}
+      <StopButton agent={agent} stop={stop} />
+    </div>
+  );
+}
+
+/// A running subagent's stop button. It stays off while Claude has the request (and after Claude
+/// takes it, until the subagent ends); when acpmux or Claude refuses, it says so and can be tried
+/// again.
+function StopButton({ agent, stop }: { agent: Subagent; stop: (id: string) => Promise<unknown> }) {
+  const t = useT();
+  const [state, setState] = useState<"idle" | "stopping" | "failed">("idle");
+  const label = t(state === "failed" ? "subagents.stopFailed" : "subagents.stop", { name: agent.name });
+  return (
+    <button
+      type="button"
+      className="cv-subagent__stop"
+      data-state={state}
+      disabled={state === "stopping"}
+      aria-label={label}
+      title={label}
+      onClick={() => {
+        setState("stopping");
+        stop(agent.id).catch(() => setState("failed"));
+      }}
+    >
+      <Icon name="action.stop" size={12} />
     </button>
   );
 }
