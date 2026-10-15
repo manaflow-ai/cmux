@@ -34,22 +34,27 @@ import Testing
             overlays: [.init(rect: card, cornerRadius: 10)]
         )
         let holes = plan.holes
-        #expect(holes.count == 3)
+        #expect(holes.count == 2 * 10 + 1)
         // No two rects overlap: the fork masks even-odd, so an overlap would show the page again.
         for (i, a) in holes.enumerated() {
             for b in holes[(i + 1)...] {
                 #expect(a.intersection(b).isEmpty || a.intersection(b).isNull)
             }
         }
-        // Their union is the card minus its four r x r corners.
+        // Their union is the card minus what lies outside its rounded corners
+        // (about (4 - pi) r^2 in all, within the one-point steps).
         let area = holes.reduce(CGFloat(0)) { $0 + $1.width * $1.height }
-        #expect(area == card.width * card.height - 4 * 10 * 10)
+        let cutAway = card.width * card.height - area
+        #expect(cutAway > 0)
+        #expect(abs(cutAway - (4 - .pi) * 100) < 40)
         let union = holes.dropFirst().reduce(holes[0]) { $0.union($1) }
         #expect(union == card)
         for corner in [CGPoint(x: 101, y: 51), CGPoint(x: 299, y: 51), CGPoint(x: 101, y: 129), CGPoint(x: 299, y: 129)] {
             #expect(!holes.contains { $0.contains(corner) })
         }
         #expect(holes.contains { $0.contains(CGPoint(x: 200, y: 51)) })
+        // Just inside the arc near a corner the card shows.
+        #expect(holes.contains { $0.contains(CGPoint(x: 104, y: 54)) })
     }
 
     @Test func squareBarsAndTinyCardsKeepOneRect() {
@@ -194,7 +199,7 @@ private final class FlippedView: NSView {
         let target = FakeOcclusionTarget()
         coordinator.attach(contentView: page, target: target)
         coordinator.registerOccluding(anchor, id: "card", cornerRadius: 10)
-        #expect(target.pageOcclusionRects.count == 3)
+        #expect(target.pageOcclusionRects.count == 21)
         coordinator.registerOccluding(anchor, id: "card")
         #expect(target.pageOcclusionRects == [CGRect(x: 100, y: 100, width: 200, height: 100)])
         withExtendedLifetime(window) {}
