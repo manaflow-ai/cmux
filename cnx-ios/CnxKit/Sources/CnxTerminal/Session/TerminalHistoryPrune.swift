@@ -1,3 +1,5 @@
+import Foundation
+
 /// Ghostty prunes its oldest scrollback rows a page at a time once the
 /// scrollback is at its cap: the total drops by hundreds of rows, and a
 /// viewport in the scrollback keeps its rows, so its reported top drops by
@@ -49,5 +51,29 @@ struct TerminalFrameCover: Equatable {
     /// None of the visible rows are in the frame: a jump, not a step.
     func isDisjoint(visibleTop: Int, visibleBottom: Int) -> Bool {
         visibleBottom <= presentedTop || visibleTop >= presentedTop + surfaceRows
+    }
+}
+
+/// When the page may move to a scroll target (VERIFY-round8 claim 1a): only
+/// to rows the frame on screen covers. Otherwise the last good frame stays
+/// where it is and the move waits for Ghostty's frame for the target, which
+/// places itself (`surfacePresented`) before the page moves in the same
+/// transaction. A wait that outlives its display-frame fallback keeps the
+/// old frame until `maxWait`; only then does the page move regardless (the
+/// blank watch recovers from there).
+struct TerminalScrollGate {
+    /// The longest a move waits for its frame (T-SCROLL-09: the bottom within 400 ms of the tap).
+    static let maxWait: TimeInterval = 0.3
+
+    /// The frame on screen covers the target's visible rows (rows outside
+    /// the document are the page's own background).
+    static func movesNow(cover: TerminalFrameCover, visibleTop: Int, visibleBottom: Int, documentRows: Range<Int>) -> Bool {
+        TerminalBlankWatch.covers(presentedTop: cover.presentedTop, surfaceRows: cover.surfaceRows, visibleTop: visibleTop,
+                                  visibleBottom: visibleBottom, documentRows: documentRows)
+    }
+
+    /// A wait reached its display-frame limit: move now?
+    static func fallbackMoves(covered: Bool, waited: TimeInterval) -> Bool {
+        covered || waited >= maxWait
     }
 }

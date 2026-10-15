@@ -556,27 +556,24 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // (termqa round 2: a one-frame jump of 2 rows while Codex streamed).
         if fromOutput, scroll.isFollowing, target > scrollView.contentOffset.y + 0.5,
            presentedTop != scrollbar.offset, freezeView == nil {
-            followAwaitsPresent = true
-            armFollowFallback()
+            awaitFrame(ticks: 2)
             updateViewport(visibleMinY: scrollView.contentOffset.y)
             return
         }
-        // A move whose rows the frame on screen does not show (Jump to
-        // bottom from deep history, a restore) waits for the frame that
-        // does; moved at once, the page was black for a frame (V5-1).
-        // Only a jump: none of the target's rows are in the frame on screen
-        // (following output moves a row or a few and keeps its own rule).
-        if Self.jumpAwaitsFrame, !forceScroll, !fromOutput, freezeView == nil, let document, surfaceRows > 0, abs(scrollView.contentOffset.y - target) > 0.5,
-           TerminalFrameCover(presentedTop: presentedTop, surfaceRows: surfaceRows)
-               .isDisjoint(visibleTop: min(document.endRow - 1, originRow + Int(floor(max(0, target) / cell.height))),
-                           visibleBottom: min(document.endRow, originRow + Int(ceil((max(0, target) + view.bounds.height) / cell.height)))) {
-            followAwaitsPresent = true
-            armFollowFallback(ticks: 6)
+        // A move whose rows the frame on screen does not all show (Jump to
+        // bottom, a restore, a prune's renumbering) keeps the last good frame
+        // and waits for the frame that does; moved at once, the page was
+        // black for a frame (V5-1; V8 claim 1a: also a target partly in the
+        // frame, and the fallback's forced move under fast output).
+        if Self.jumpAwaitsFrame, !forceScroll, freezeView == nil, abs(scrollView.contentOffset.y - target) > 0.5,
+           !targetCovered(target) {
+            awaitFrame(ticks: 6)
             updateViewport(visibleMinY: target)
             return
         }
         forceScroll = false
         followAwaitsPresent = false
+        awaitStarted = nil
         if abs(scrollView.contentOffset.y - target) > 0.5 {
             settingOffset = true
             scrollView.contentOffset.y = target
@@ -1514,6 +1511,26 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// The fallback moves the page even if no frame covers it yet.
     private var forceScroll = false
 
+    /// When the current wait for a frame began (`TerminalScrollGate.maxWait`).
+    private var awaitStarted: CFTimeInterval?
+
+    /// The page keeps its frame and waits for Ghostty's next one.
+    private func awaitFrame(ticks: Int) {
+        if !followAwaitsPresent || awaitStarted == nil { awaitStarted = CACurrentMediaTime() }
+        followAwaitsPresent = true
+        armFollowFallback(ticks: ticks)
+    }
+
+    /// The scroll model's target `target` (content y) shows only rows the
+    /// frame on screen covers (`TerminalScrollGate`).
+    private func targetCovered(_ target: CGFloat) -> Bool {
+        guard let document, surfaceRows > 0, cell.height > 0 else { return true }
+        let top = originRow + Int(floor(max(0, target) / cell.height))
+        let bottom = originRow + Int(ceil((max(0, target) + view.bounds.height) / cell.height))
+        return TerminalScrollGate.movesNow(cover: TerminalFrameCover(presentedTop: presentedTop, surfaceRows: surfaceRows),
+                                           visibleTop: top, visibleBottom: bottom, documentRows: document.originRow..<document.endRow)
+    }
+
     private func armFollowFallback(ticks: Int = 2) {
         followFallbackLimit = max(ticks, followFallback == nil ? 0 : followFallbackLimit)
         guard followFallback == nil else { return }
@@ -1522,6 +1539,19 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             guard let self else { return }
             self.followFallbackTicks += 1
             guard self.followFallbackTicks >= self.followFallbackLimit || !self.followAwaitsPresent else { return }
+            if self.followAwaitsPresent, let target = self.pendingTarget,
+               !TerminalScrollGate.fallbackMoves(covered: self.targetCovered(target),
+                                                 waited: CACurrentMediaTime() - (self.awaitStarted ?? 0)) {
+                // The frame for the target is not in yet (fast output, a
+                // busy renderer): the page keeps the frame it has rather
+                // than move to rows it does not cover (V8 claim 1a). Ask
+                // again for the viewport and a frame, and check next frame.
+                if self.followFallbackTicks % 6 == 0 {
+                    self.updateViewport(visibleMinY: target, force: true)
+                    self.surface.setNeedsTerminalDraw()
+                }
+                return
+            }
             self.followFallback?.invalidate()
             self.followFallback = nil
             if self.followAwaitsPresent {
@@ -1532,6 +1562,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }, selector: #selector(DisplayLinkProxy.step))
         link.add(to: .main, forMode: .common)
         followFallback = link
+    }
+
+    /// The scroll model's target now, when the page is not moved by UIKit.
+    private var pendingTarget: CGFloat? {
+        guard !model.isTUI, cell.height > 0 else { return nil }
+        return scroll.target(layout: document, rowHeight: cell.height, topInset: scrollView.contentInset.top, bottomOffsetY: maxOffsetY)
     }
 
     // MARK: Blank page watch (V6-2, V6-3, V6-4)
@@ -1737,6 +1773,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         scroll.began()
         restoredMark = nil
         placesFromReport = false
+        // A finger owns the page: a move waiting for its frame is dropped
+        // (the next one measures its own wait).
+        followAwaitsPresent = false
+        awaitStarted = nil
         fling?.stop()
         fling = nil
     }
