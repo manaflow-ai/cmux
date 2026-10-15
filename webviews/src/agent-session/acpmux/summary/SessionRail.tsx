@@ -3,7 +3,8 @@
 // context window it used (Context) and the files it created or changed (Outputs), each opening its
 // diff. A header button shows and hides it. It reads only acpmux's common snapshot (the summary and
 // the rows), never one harness's fields. With the flag off the pane has neither the button nor the
-// rail. Connectors and Remote Control wait for data acpmux does not report yet.
+// rail. Connectors wait for acpmux to report each session's MCP servers (cx-ncc.105); Remote Control
+// is Claude-only and stays out (Leo, 2026-10-14).
 import { useMemo, useState, type ReactNode } from "react";
 import { useLabsFlag } from "../../../experiments/labs";
 import { Disclosure } from "../../../ui/Disclosure";
