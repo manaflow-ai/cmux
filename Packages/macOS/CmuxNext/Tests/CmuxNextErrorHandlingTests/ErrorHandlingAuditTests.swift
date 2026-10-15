@@ -72,6 +72,6 @@ struct ErrorHandlingAuditTests {
             executable: tool.path
         )
 
-        #expect(!captured)
+        #expect(captured == .failed)
     }
 }

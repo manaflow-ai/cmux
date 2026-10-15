@@ -87,18 +87,12 @@ nonisolated enum AgentPaneGitProcess {
     }
 
     private static func runSync(_ command: Command, input: Data?, timeout: Duration) -> Outcome {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: command.executable)
-        process.arguments = command.arguments
-        process.environment = command.environment
-        if let directory = command.directory { process.currentDirectoryURL = URL(fileURLWithPath: directory) }
-        let output = Pipe(), stdin = Pipe()
-        process.standardError = output
-        process.standardOutput = output
-        process.standardInput = input == nil ? FileHandle.nullDevice : stdin
-        let shared = Shared(input: stdin.fileHandleForWriting)
+        let output = Pipe()
+        let stdin = input.map { _ in Pipe() }
+        let shared = Shared(input: stdin?.fileHandleForWriting ?? .nullDevice)
         // concurrency-allow: runSync runs only inside output's detached task; each wait below has a deadline.
         let ended = DispatchSemaphore(value: 0), exited = DispatchSemaphore(value: 0)
+        let exitStatus = Mutex<Int32?>(nil)
         output.fileHandleForReading.readabilityHandler = { handle in
             // concurrency-allow: FileHandle calls a readability handler on its own background queue, when data is ready.
             let chunk = handle.availableData
@@ -109,21 +103,28 @@ nonisolated enum AgentPaneGitProcess {
                 shared.append(chunk)
             }
         }
-        process.terminationHandler = { _ in exited.signal() }
+        let processID: pid_t
         do {
-            try process.run()
+            processID = try spawn(command, input: stdin?.fileHandleForReading.fileDescriptor,
+                                   output: output.fileHandleForWriting.fileDescriptor)
         } catch {
             output.fileHandleForReading.readabilityHandler = nil
             return Outcome(status: nil, text: error.localizedDescription)
         }
-        let processID = process.processIdentifier
-        // Process has no pre-exec hook; move the leader immediately after launch so every
-        // hook or filter it starts inherits a group we can terminate as one unit.
-        _ = Darwin.setpgid(processID, processID)
-        let processGroupID = Darwin.getpgid(processID) == processID ? processID : nil
+        // The parent no longer needs the pipe ends owned by the child. Closing them here lets the
+        // reader observe EOF once the process group has finished.
+        try? output.fileHandleForWriting.close()
+        try? stdin?.fileHandleForReading.close()
+        DispatchQueue.global(qos: .userInitiated).async {
+            var waitStatus: Int32 = 0
+            var result: pid_t
+            repeat { result = waitpid(processID, &waitStatus, 0) } while result == -1 && errno == EINTR
+            if result == processID { exitStatus.withLock { $0 = Self.exitCode(waitStatus) } }
+            exited.signal()
+        }
         if let input {
-            // Off this thread, so a git that never reads still meets the deadline; a git that exits
-            // first (a hook refused) makes this a failed write, not SIGPIPE.
+            // Off this thread, so a git that never reads still meets the deadline; a hook that exits
+            // first makes this a failed write, not SIGPIPE.
             DispatchQueue.global(qos: .userInitiated).async {
                 _ = fcntl(shared.input.fileDescriptor, F_SETNOSIGPIPE, 1)
                 try? shared.input.write(contentsOf: input)
@@ -133,18 +134,10 @@ nonisolated enum AgentPaneGitProcess {
         let seconds = Double(timeout.components.seconds) + Double(timeout.components.attoseconds) / 1e18
         // concurrency-allow: runSync runs only inside output's detached task, bounded by the deadline.
         guard exited.wait(timeout: .now() + seconds) == .success else {
-            if let processGroupID {
-                _ = Darwin.kill(-processGroupID, SIGTERM)
-            } else {
-                process.terminate()
-            }
+            _ = Darwin.kill(-processID, SIGTERM)
             // concurrency-allow: runSync runs only inside output's detached task; a short grace for SIGTERM.
             _ = exited.wait(timeout: .now() + 2)
-            if let processGroupID {
-                _ = Darwin.kill(-processGroupID, SIGKILL)
-            } else if process.isRunning {
-                process.terminate()
-            }
+            _ = Darwin.kill(-processID, SIGKILL)
             output.fileHandleForReading.readabilityHandler = nil
             return Outcome(status: nil, text: timedOutMessage)
         }
@@ -152,7 +145,59 @@ nonisolated enum AgentPaneGitProcess {
         // concurrency-allow: runSync runs only inside output's detached task; bounded to one second.
         _ = ended.wait(timeout: .now() + 1)
         output.fileHandleForReading.readabilityHandler = nil
-        return Outcome(status: process.terminationStatus, text: shared.text)
+        return Outcome(status: exitStatus.withLock { $0 }, text: shared.text)
+    }
+
+    /// Starts the command in its own process group so a hook or filter cannot outlive a timed-out git.
+    private static func spawn(_ command: Command, input: Int32?, output: Int32) throws -> pid_t {
+        var actions: posix_spawn_file_actions_t?
+        var attributes: posix_spawnattr_t?
+        guard posix_spawn_file_actions_init(&actions) == 0 else { throw POSIXError(.EIO) }
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        guard posix_spawnattr_init(&attributes) == 0 else { throw POSIXError(.EIO) }
+        defer { posix_spawnattr_destroy(&attributes) }
+
+        let inputConfigured: Bool
+        if let input {
+            inputConfigured = posix_spawn_file_actions_adddup2(&actions, input, STDIN_FILENO) == 0
+        } else {
+            inputConfigured = "/dev/null".withCString {
+                posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, $0, O_RDONLY, 0) == 0
+            }
+        }
+        let configured = inputConfigured
+            && posix_spawn_file_actions_adddup2(&actions, output, STDOUT_FILENO) == 0
+            && posix_spawn_file_actions_adddup2(&actions, output, STDERR_FILENO) == 0
+            && (command.directory.map { folder in
+                folder.withCString { posix_spawn_file_actions_addchdir_np(&actions, $0) == 0 }
+            } ?? true)
+            && posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)) == 0
+            && posix_spawnattr_setpgroup(&attributes, 0) == 0
+        guard configured else { throw POSIXError(.EINVAL) }
+
+        let arguments = [command.executable] + command.arguments
+        let variables = command.environment.map { "\($0.key)=\($0.value)" }
+        var processID: pid_t = 0
+        let status = withCStrings(arguments) { argv in
+            withCStrings(variables) { envp in
+                command.executable.withCString {
+                    posix_spawn(&processID, $0, &actions, &attributes, argv, envp)
+                }
+            }
+        }
+        guard status == 0 else { throw POSIXError(POSIXErrorCode(rawValue: status) ?? .EIO) }
+        return processID
+    }
+
+    private static func withCStrings<R>(_ strings: [String], _ body: ([UnsafeMutablePointer<CChar>?]) -> R) -> R {
+        let pointers = strings.map { strdup($0) } + [nil]
+        defer { for pointer in pointers { free(pointer) } }
+        return body(pointers)
+    }
+
+    private static func exitCode(_ waitStatus: Int32) -> Int32 {
+        guard waitStatus & 0x7f == 0 else { return 128 + (waitStatus & 0x7f) }
+        return (waitStatus >> 8) & 0xff
     }
 
     /// The user's own git settings (HOME) and none of the App's environment; never a terminal
