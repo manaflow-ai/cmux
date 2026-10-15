@@ -25,8 +25,15 @@ final class BrowserChromiumProfileEngineStore: BrowserProfileEngineStoreManaging
     /// Cookie database files a profile keeps (older and current Chromium layouts).
     static let cookieFileNames = ["Cookies", "Cookies-journal", "Network/Cookies", "Network/Cookies-journal"]
 
+    /// `UserDefaults` key: Chromium permission answers to reset once a page of
+    /// their profile runs (cmux forgot them while Chromium had not opened it).
+    static let pendingPermissionResetsKey = "browserProfiles.chromiumPendingPermissionResets.v1"
+
+    private let defaults: UserDefaults
+
     init(runtime: CEFRuntime, defaults: UserDefaults = .standard) {
         self.runtime = runtime
+        self.defaults = defaults
         storage = BrowserChromiumProfileStorage(root: runtime.storage.root)
         cleanup = BrowserChromiumProfileStorageCleanup(storage: storage, defaults: defaults)
         sitePermissions = BrowserSitePermissionStoreRegistry(storage: storage)
@@ -43,6 +50,10 @@ final class BrowserChromiumProfileEngineStore: BrowserProfileEngineStoreManaging
         guard runtime.unavailableReason != .notBundled else { return nil }
         let store = BrowserChromiumProfileEngineStore(runtime: runtime)
         profiles.addEngineStore(store)
+        runtime.addEventObserver { [weak store] event in
+            guard case let .loadStart(browser, _, _) = event else { return }
+            store?.applyPendingPermissionResets(browser: browser)
+        }
         let previous = runtime.beforeInitialize
         runtime.beforeInitialize = { [weak store] in
             previous?()
@@ -52,9 +63,13 @@ final class BrowserChromiumProfileEngineStore: BrowserProfileEngineStoreManaging
     }
 
     func clearAllData(forProfileID profileID: UUID) async -> [String] {
+        // Only what existed is reported: a profile Chromium never stored
+        // anything for clears nothing, so the reply matches a build without
+        // Chromium.
         var kinds: [String] = []
-        sitePermissions.reset(profileID: profileID)
-        kinds.append("sitePermissions")
+        let forgotten = sitePermissions.reset(profileID: profileID)
+        resetChromiumPermissions(forgotten, profileID: profileID)
+        if !forgotten.isEmpty { kinds.append("sitePermissions") }
         let directory = storage.cachePath(forProfileID: profileID)
         guard FileManager.default.fileExists(atPath: directory.path) else { return kinds }
         if runtime.hasOpened(profile: profileID) {
@@ -84,7 +99,9 @@ final class BrowserChromiumProfileEngineStore: BrowserProfileEngineStoreManaging
     }
 
     func profileWasDeleted(_ profileID: UUID) {
-        sitePermissions.reset(profileID: profileID)
+        sitePermissions.retire(profileID: profileID)
+        var pending = pendingPermissionResets
+        if pending.removeValue(forKey: profileID.uuidString) != nil { pendingPermissionResets = pending }
         cleanup.markDeleted(profileID)
         let runtime = runtime
         let directories = cleanup.takeRemovable { runtime.hasOpened(profile: $0) }
@@ -105,6 +122,57 @@ final class BrowserChromiumProfileEngineStore: BrowserProfileEngineStoreManaging
         } catch {
             logger.error("chromium cookie import failed: \(String(describing: error), privacy: .public)")
             return 0
+        }
+    }
+
+    // MARK: Chromium's own saved permission answers
+
+    /// Chromium saves every prompt answer in its content settings; when cmux
+    /// forgets answers it resets Chromium's copies to "ask", now through a
+    /// live page of the profile, or once one runs.
+    private func resetChromiumPermissions(_ forgotten: [BrowserSitePermissionStore.Entry], profileID: UUID) {
+        let pairs = forgotten.compactMap { entry -> [String]? in
+            BrowserChromiumPermissionRequest.contentSettingType(forKindKey: entry.kind).map { [entry.origin, $0] }
+        }
+        guard !pairs.isEmpty else { return }
+        if let browser = runtime.liveBrowser(ofProfile: profileID)?.browserID {
+            apply(pairs, browser: browser)
+            return
+        }
+        var pending = pendingPermissionResets
+        let existing = pending[profileID.uuidString] ?? []
+        pending[profileID.uuidString] = existing + pairs.filter { !existing.contains($0) }
+        pendingPermissionResets = pending
+    }
+
+    private func applyPendingPermissionResets(browser: Int32) {
+        var pending = pendingPermissionResets
+        guard !pending.isEmpty, let page = runtime.browser(id: browser),
+              let profileID = pending.keys.compactMap(UUID.init(uuidString:)).first(where: {
+                  page.contextKey == runtime.storage.contextKey(for: $0, offTheRecord: false)
+              }),
+              let pairs = pending.removeValue(forKey: profileID.uuidString) else { return }
+        apply(pairs, browser: browser)
+        pendingPermissionResets = pending
+    }
+
+    private func apply(_ pairs: [[String]], browser: Int32) {
+        for pair in pairs where pair.count == 2 {
+            runtime.setContentSetting(
+                browser: browser, origin: pair[0], type: pair[1],
+                value: BrowserChromiumPermissionRequest.contentSettingDefault
+            )
+        }
+    }
+
+    private var pendingPermissionResets: [String: [[String]]] {
+        get { defaults.dictionary(forKey: Self.pendingPermissionResetsKey) as? [String: [[String]]] ?? [:] }
+        set {
+            if newValue.isEmpty {
+                defaults.removeObject(forKey: Self.pendingPermissionResetsKey)
+            } else {
+                defaults.set(newValue, forKey: Self.pendingPermissionResetsKey)
+            }
         }
     }
 

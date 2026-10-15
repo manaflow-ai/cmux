@@ -45,13 +45,31 @@ extension CEFRuntime {
         return (Int(reply.value), 0)
     }
 
+    /// Sets Chromium's saved permission answer for `origin` through a page:
+    /// content settings belong to the page's request context, so this
+    /// reaches every page of its profile. `value` is a
+    /// `cef_content_setting_values_t` (0 default = ask again).
+    /// - Parameters:
+    ///   - type: The shim's content-setting name (`camera`, `location`, ...).
+    /// - Returns: Whether the shim took it.
+    @discardableResult
+    public func setContentSetting(browser: Int32, origin: String, type: String, value: Int32) -> Bool {
+        guard let shim else { return false }
+        return origin.withCString { url in type.withCString { shim.setContentSetting(browser, url, $0, value) } } == 1
+    }
+
+    /// A live page of a profile, for calls that act on its request context.
+    public func liveBrowser(ofProfile profile: UUID) -> CEFBrowser? {
+        let key = storage.contextKey(for: profile, offTheRecord: false)
+        return liveBrowsers.first { $0.contextKey == key && $0.browserID != nil }
+    }
+
     /// Clears the HTTP cache of a profile Chromium has open, through one of its
     /// live pages (`Network.clearBrowserCache` clears the whole profile's cache).
     /// - Returns: Whether a live page of the profile cleared it.
     @discardableResult
     public func clearCache(ofOpenedProfile profile: UUID) async -> Bool {
-        let key = storage.contextKey(for: profile, offTheRecord: false)
-        guard let browser = liveBrowsers.first(where: { $0.contextKey == key }) else { return false }
+        guard let browser = liveBrowser(ofProfile: profile) else { return false }
         return (try? await browser.devTools(method: "Network.clearBrowserCache")) != nil
     }
 }
