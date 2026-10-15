@@ -267,6 +267,7 @@ struct CloudWelcomeTests {
     }
 
     @Test("any persisted welcome marker prevents a repeat")
+    @MainActor
     func nonStringCampaignMarkerAlsoSuppressesWelcome() throws {
         let suiteName = "CloudWelcomeTests.nonStringMarker.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
