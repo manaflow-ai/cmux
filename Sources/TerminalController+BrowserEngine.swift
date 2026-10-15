@@ -28,28 +28,22 @@ extension TerminalController {
         return (engine, nil)
     }
 
-    /// Why a WebKit panel is not on the engine the app prefers, when the
-    /// preferred engine (`CMUX_BROWSER_ENGINE`, then `browser.engine`) is
-    /// another one that cannot open now; nil when the panel has the preferred
-    /// engine. A panel opened with an explicit `--engine webkit` reports the
-    /// same reason while the preferred engine is unavailable.
+    /// Why a WebKit panel is not on the engine it wanted (`CMUX_BROWSER_ENGINE`,
+    /// an inherited engine or `browser.engine` named one that could not open,
+    /// or its Chromium runtime failed to start); nil otherwise, including for
+    /// an explicit `--engine webkit`.
     @MainActor
-    func v2BrowserEngineFallbackReason(
-        _ panel: BrowserPanel,
-        runtime: BrowserEngineRuntime = .shared
-    ) -> BrowserEngineUnavailableReason? {
-        guard panel.engineKind == .webkit,
-              case .open(let choice) = runtime.resolve(requested: nil) else {
-            return nil
-        }
-        return choice.fallback
+    func v2BrowserEngineFallbackReason(_ panel: BrowserPanel) -> BrowserEngineUnavailableReason? {
+        // The panel records why it is WebKit although Chromium was wanted
+        // (at creation or after a start failure).
+        panel.activeEngineKind == .webkit ? panel.engineFallbackReason : nil
     }
 
     /// The `engine` (and, after a fallback, `engine_fallback_reason`) fields
     /// browser results carry, so a script can tell which engine it drives.
     @MainActor
     func v2BrowserEngineFields(_ panel: BrowserPanel) -> [String: Any] {
-        var fields: [String: Any] = ["engine": panel.engineKind.rawValue]
+        var fields: [String: Any] = ["engine": panel.activeEngineKind.rawValue]
         if let reason = v2BrowserEngineFallbackReason(panel) {
             fields["engine_fallback_reason"] = reason.code
         }
