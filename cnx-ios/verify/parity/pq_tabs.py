@@ -36,6 +36,9 @@ _DAEMON = r"""
 import glob, json, os, socket, sys
 paths = glob.glob(os.path.join(os.environ.get("TMPDIR", "/tmp"), "cmux-tui-501", "cmux-app-%s.sock" % sys.argv[1]))
 s = socket.socket(socket.AF_UNIX); s.connect(paths[0]); f = s.makefile("rw")
+# Chat tabs read as `conversation` (with their agent session) only for a client that says it knows them.
+f.write(json.dumps({"id": 0, "cmd": "set-client-info", "name": "pq_tabs", "kind": "cli",
+                    "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1"]}) + "\n")
 f.write(sys.argv[2] + "\n"); f.flush()
 while True:
     line = f.readline()
@@ -323,6 +326,12 @@ def reorder(j):
         "CODE_SIGN_STYLE=Manual", "CODE_SIGN_IDENTITY=-", "DEVELOPMENT_TEAM=",
         "-only-testing:CnxAppUITests/TabReorderUITests", "test-without-building"],
         capture_output=True, text=True, timeout=540, env=env)
+    # The test ends with the app closed, and the simulator's accessibility tree (which the
+    # other flows read through axe) stays empty until it restarts: restart it, open the app.
+    for args in (["shutdown"], ["boot"], ["bootstatus", "-b"], ["launch"]):
+        tail = [pq.BUNDLE] if args == ["launch"] else []
+        subprocess.run(["xcrun", "simctl", *args, st["udid"], *tail], capture_output=True, env=env, timeout=300)
+    time.sleep(5)
     lines = [ln for ln in r.stdout.splitlines() if "CNX_UI_" in ln or "error:" in ln or "TEST " in ln]
     check(r.returncode == 0, "XCUITest failed: " + " | ".join(lines)[-600:])
     after, secs = until(lambda: (lambda o: o if o != before else None)([t["surface"] for _, t in ws_tabs(mac_workspace(key=a["key"]))]),
