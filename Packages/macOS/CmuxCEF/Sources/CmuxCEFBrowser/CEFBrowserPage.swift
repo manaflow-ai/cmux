@@ -14,6 +14,8 @@ public import Foundation
 public final class CEFBrowserPage: BrowserPage {
     /// The wrapped Chromium page.
     public let browser: CEFBrowser
+    /// DevTools, native find, zoom and the context menu of the page.
+    public let features: CEFPageFeatures
     /// The app's decision handler, held weakly.
     public weak var uiDelegate: (any BrowserPageUIDelegate)?
 
@@ -29,13 +31,26 @@ public final class CEFBrowserPage: BrowserPage {
     /// The capabilities of every Chromium page.
     public static let engineCapabilities: BrowserEngineCapabilities = [
         .devTools, .devToolsProtocol, .trustedInput, .snapshots, .paneFullscreen,
-        .crossOriginFrames, .userScripts, .findMatchCount,
+        .crossOriginFrames, .userScripts, .findMatchCount, .nativeFind,
     ]
 
     /// Wraps a CEF browser and starts receiving its events.
-    /// - Parameter browser: The Chromium page.
-    public init(browser: CEFBrowser) {
+    /// - Parameters:
+    ///   - browser: The Chromium page.
+    ///   - shim: The shim calls the page's features make, `nil` while CEF is not running.
+    ///   - devToolsLayoutStore: Remembers the DevTools dock side and sizes.
+    public init(
+        browser: CEFBrowser,
+        shim: @escaping @MainActor () -> CEFShimLibrary?,
+        devToolsLayoutStore: BrowserDevToolsLayoutStore
+    ) {
         self.browser = browser
+        features = CEFPageFeatures(
+            shim: CEFShimPageFeatures(library: shim),
+            browserID: { [weak browser] in browser?.browserID },
+            pageView: browser.hostView,
+            layoutStore: devToolsLayoutStore
+        )
         browser.onEvent = { [weak self] event in
             self?.handle(event)
         }
@@ -50,8 +65,8 @@ public final class CEFBrowserPage: BrowserPage {
     /// Chromium draws in a window of its own that tracks ``contentView``.
     public var presentation: BrowserPagePresentation { .childWindow }
 
-    /// The view the Chromium window tracks.
-    public var contentView: NSView { browser.hostView }
+    /// The page with its docked DevTools; the Chromium window tracks the page's host view inside it.
+    public var contentView: NSView { features.paneView }
 
     /// The page state in engine-neutral form.
     public var state: BrowserPageState {
@@ -198,11 +213,11 @@ public final class CEFBrowserPage: BrowserPage {
     /// `true` while Chromium's DevTools are open for this page.
     public var isDevToolsVisible: Bool { devToolsVisible }
 
-    /// Opens Chromium's DevTools.
-    public func showDevTools() { browser.showDevTools() }
+    /// Opens Chromium's DevTools, docked by the pane's DevTools layout.
+    public func showDevTools() { features.devTools.perform(.show) }
 
     /// Closes Chromium's DevTools.
-    public func closeDevTools() { browser.closeDevTools() }
+    public func closeDevTools() { features.devTools.perform(.close) }
 
     /// Sends a DevTools Protocol command.
     /// - Parameters:
@@ -296,6 +311,7 @@ public final class CEFBrowserPage: BrowserPage {
     public func close() {
         guard !isClosed else { return }
         isClosed = true
+        features.tearDown()
         browser.close()
         eventContinuation?.finish()
         eventContinuation = nil
@@ -324,6 +340,8 @@ public final class CEFBrowserPage: BrowserPage {
         case .closeRequested:
             emit(.closeRequested)
         case .closed:
+            // The runtime routes Chromium's before-close to the browser, not as a shim event.
+            features.tearDown()
             eventContinuation?.finish()
         case .shim(let shimEvent):
             handle(shimEvent)
@@ -331,6 +349,7 @@ public final class CEFBrowserPage: BrowserPage {
     }
 
     private func handle(_ event: CEFShimEvent) {
+        features.handle(event)
         switch event {
         case .devToolsOpened:
             devToolsVisible = true

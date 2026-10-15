@@ -32,18 +32,18 @@ public final class CEFDevToolsEngineDriver: BrowserDevToolsEngineDriving {
         guard let browserID = browserID() else { return }
         switch request {
         case .show:
-            shim.devToolsCommand(browser: browserID, command: CEFShimLibrary.DevToolsCommand.show, x: 0, y: 0)
+            shim.devToolsCommand(browser: browserID, command: CEFShimLibrary.DevToolsCommand.show.rawValue, x: 0, y: 0)
         case .console:
-            shim.devToolsCommand(browser: browserID, command: CEFShimLibrary.DevToolsCommand.console, x: 0, y: 0)
+            shim.devToolsCommand(browser: browserID, command: CEFShimLibrary.DevToolsCommand.console.rawValue, x: 0, y: 0)
         case .inspectElement:
-            shim.devToolsCommand(browser: browserID, command: CEFShimLibrary.DevToolsCommand.inspect, x: 0, y: 0)
+            shim.devToolsCommand(browser: browserID, command: CEFShimLibrary.DevToolsCommand.inspect.rawValue, x: 0, y: 0)
         case .inspectAt(let x, let y):
             shim.devToolsCommand(
-                browser: browserID, command: CEFShimLibrary.DevToolsCommand.inspectAt,
+                browser: browserID, command: CEFShimLibrary.DevToolsCommand.inspectAt.rawValue,
                 x: Int32(clamping: x), y: Int32(clamping: y)
             )
         case .close:
-            shim.devToolsCommand(browser: browserID, command: CEFShimLibrary.DevToolsCommand.close, x: 0, y: 0)
+            shim.devToolsCommand(browser: browserID, command: CEFShimLibrary.DevToolsCommand.close.rawValue, x: 0, y: 0)
         }
     }
 
