@@ -84,7 +84,6 @@ private struct BrowserPermissionPromptCard: View {
         )
         .shadow(color: .black.opacity(0.11), radius: metrics.promptBarShadowRadius, y: metrics.promptBarShadowOffsetY)
         .accessibilityElement(children: .contain)
-        .accessibilityAddTraits(.isModal)
     }
 
     @ViewBuilder
@@ -97,7 +96,7 @@ private struct BrowserPermissionPromptCard: View {
                 button(BrowserPermissionPromptText.allowWhileVisiting, prominent: true) { answer(.allowAndRemember) }
             case .blockOrAllow:
                 button(BrowserPermissionPromptText.block, prominent: false) { answer(.block) }
-                button(BrowserPermissionPromptText.allow, prominent: true) { answer(.allowAndRemember) }
+                button(BrowserPermissionPromptText.allow, prominent: true) { answer(prompt.allowAnswer) }
             }
         }
         .fixedSize()

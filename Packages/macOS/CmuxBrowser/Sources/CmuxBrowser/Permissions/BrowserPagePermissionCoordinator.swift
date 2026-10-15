@@ -41,29 +41,53 @@ public final class BrowserPagePermissionCoordinator {
         profileID: UUID,
         sessionGrants: Set<String>?
     ) async -> BrowserPagePermissionDecision {
+        await decideDetailed(request, profileID: profileID, sessionGrants: sessionGrants).decision
+    }
+
+    /// A decision and whether a grant holds for this request only.
+    public struct Outcome: Equatable, Sendable {
+        public var decision: BrowserPagePermissionDecision
+        /// The engine must not keep the grant ("Allow this time", a session
+        /// tab's grant). Chromium saves every accepted prompt in its own
+        /// content settings, so the Chromium adapter resets the kinds to
+        /// "ask" for the origin right after accepting.
+        public var isOneTime: Bool
+
+        public init(_ decision: BrowserPagePermissionDecision, isOneTime: Bool = false) {
+            self.decision = decision
+            self.isOneTime = isOneTime
+        }
+    }
+
+    /// Decides one request, reporting grants the engine must not keep.
+    public func decideDetailed(
+        _ request: BrowserPagePermissionRequest,
+        profileID: UUID,
+        sessionGrants: Set<String>?
+    ) async -> Outcome {
         switch policy.decide(request, sessionGrants: sessionGrants) {
         case .grant:
-            return .grant
+            return Outcome(.grant, isOneTime: true)
         case .deny:
-            return .deny
+            return Outcome(.deny)
         case .ask(let kinds):
-            guard let origin = request.origin else { return .deny }
+            guard let origin = request.origin else { return Outcome(.deny) }
             let profileStore = store(profileID)
             let settings = kinds.map { profileStore.setting($0, for: origin) }
-            if settings.contains(.block) { return .deny }
-            if settings.allSatisfy({ $0 == .allow }) { return .grant }
+            if settings.contains(.block) { return Outcome(.deny) }
+            if settings.allSatisfy({ $0 == .allow }) { return Outcome(.grant) }
             let answer = await ask(BrowserPermissionPrompt(kinds: kinds, origin: origin))
             switch answer {
             case .allowAndRemember?:
                 profileStore.set(.allow, for: kinds, at: origin)
-                return .grant
+                return Outcome(.grant)
             case .allowOnce?:
-                return .grant
+                return Outcome(.grant, isOneTime: true)
             case .block?:
                 profileStore.set(.block, for: kinds, at: origin)
-                return .deny
+                return Outcome(.deny)
             case nil:
-                return .prompt
+                return Outcome(.prompt)
             }
         }
     }

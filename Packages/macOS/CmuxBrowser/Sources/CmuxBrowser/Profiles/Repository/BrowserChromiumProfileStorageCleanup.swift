@@ -41,16 +41,25 @@ public final class BrowserChromiumProfileStorageCleanup {
         save(pending)
     }
 
-    /// Takes the pending profiles Chromium has not opened in this process off
-    /// the list and returns their store directories for ``removeDirectories(_:)``.
+    /// The store directories of pending profiles Chromium has not opened in
+    /// this process, for ``removeDirectories(_:fileManager:)``. A profile stays
+    /// pending until its directory is gone, so a crash between this call and
+    /// the deletion never orphans a store: the next call (at the latest, the
+    /// next launch) finds it again.
     /// - Parameter isOpened: Whether Chromium opened the profile in this process.
     /// - Returns: Store directories to remove.
-    public func takeRemovable(isOpened: (UUID) -> Bool) -> [URL] {
+    public func takeRemovable(isOpened: (UUID) -> Bool, fileManager: FileManager = .default) -> [URL] {
         let pending = pendingProfileIDs
-        let ready = pending.filter { !isOpened($0) }
-        guard !ready.isEmpty else { return [] }
-        save(pending.filter { isOpened($0) })
-        return ready.map { storage.cachePath(forProfileID: $0) }
+        var keep: [UUID] = []
+        var removable: [URL] = []
+        for id in pending {
+            let directory = storage.cachePath(forProfileID: id)
+            guard fileManager.fileExists(atPath: directory.path) else { continue }
+            keep.append(id)
+            if !isOpened(id) { removable.append(directory) }
+        }
+        if keep != pending { save(keep) }
+        return removable
     }
 
     /// Deletes store directories (missing ones are fine). Each directory is

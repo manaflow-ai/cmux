@@ -56,9 +56,19 @@ public struct BrowserChromiumPermissionRequest: OptionSet, Hashable, Sendable {
     }
 
     /// Desktop audio or video capture from a media access request. Not a CEF
-    /// prompt bit (CEF reports it only through media access); kept outside
-    /// the prompt bit range so it never collides with one.
+    /// prompt bit (CEF reports it only through media access); bit 31, above
+    /// every CEF prompt bit (the highest is 29). Raw prompt bits must come
+    /// through ``init(rawValue:)`` masked to ``cefPromptBits``.
     public static let screenCapture = Self(rawValue: 1 << 31)
+
+    /// Every bit CEF may set in `requested_permissions` (bits 0...30).
+    public static let cefPromptBits = Self(rawValue: ~(UInt32(1) << 31))
+
+    /// A request from CEF's `OnShowPermissionPrompt` bits; bit 31 is never
+    /// taken from CEF, so it cannot pose as ``screenCapture``.
+    public init(cefPromptBits: UInt32) {
+        self.init(rawValue: cefPromptBits & Self.cefPromptBits.rawValue)
+    }
 
     /// The engine-neutral kinds of this request, in a stable order (camera
     /// before microphone, so one prompt reads "camera and microphone").
@@ -67,6 +77,9 @@ public struct BrowserChromiumPermissionRequest: OptionSet, Hashable, Sendable {
     public var pageKinds: [BrowserPagePermissionRequest.Kind] {
         var kinds: [BrowserPagePermissionRequest.Kind] = []
         var rest = self
+        // Pan-tilt-zoom upgrades a camera request (getUserMedia {pan: true}):
+        // asked as the camera. Alone it stays its own (denied) kind.
+        if rest.contains(.camera) { rest.remove(.cameraPanTiltZoom) }
         for (bit, kind) in Self.namedKinds where contains(bit) {
             kinds.append(kind)
             rest.remove(bit)
