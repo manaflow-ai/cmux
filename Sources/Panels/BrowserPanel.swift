@@ -6150,7 +6150,8 @@ final class BrowserPanel: Panel, ObservableObject {
     @discardableResult
     func navigateSmart(_ input: String, dialogOwner: BrowserDialogOwner = .user) -> WKNavigation? {
         takeBrowserDialogOwnership(dialogOwner)
-        if openCmuxPageForChromiumRoute(input) { return nil }
+        // Only a person's address bar opens Settings; automation never takes focus.
+        if dialogOwner == .user, openCmuxPageForChromiumRoute(input) { return nil }
         guard let navigation = resolveSmartNavigation(from: input) else { return nil }
         return navigate(
             to: navigation.url,
