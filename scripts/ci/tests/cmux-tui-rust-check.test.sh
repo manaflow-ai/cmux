@@ -39,7 +39,7 @@ ARGS=(all 'cmux_link::')
 (umask 077; run CMUX_CI_STEP_KEY=k) >/dev/null || fail "fleet step refused"
 grep -q '^0022 .*/.build/cmux-tui-rust-target fmt --all --check$' "$TMP/calls" || fail "fmt: $(cat "$TMP/calls")"
 grep -q '^0022 .*/.build/cmux-tui-rust-target clippy --workspace --all-targets --locked -- -D warnings$' "$TMP/calls" || fail "clippy: $(cat "$TMP/calls")"
-grep -q '^0022 .*/.build/cmux-tui-rust-target test --workspace --locked cmux_link::$' "$TMP/calls" || fail "test: $(cat "$TMP/calls")"
+grep -q '^0022 .*/.build/cmux-tui-rust-target test --workspace --locked --no-fail-fast cmux_link::$' "$TMP/calls" || fail "test: $(cat "$TMP/calls")"
 rm -f "$TMP/calls"
 ARGS=(test 'x; rm -rf /')
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "accepted a filter with shell syntax"
