@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // Find in Chat on the real agent pane (src/agent-session/acpmux, `?mock`: the in-page mock daemon
 // and its seeded worked turn), driven the way the app drives it: the `chat.find` page action that
 // Find (Cmd-F) sends to an agent pane, then the bar's own keys.

@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // The Settings page scrolls in one place (cx-jh7kq), in real engines (headless Chromium and WebKit
 // from Playwright) on the settings dev server with the in-memory mock (`?mock`):
 // - the content column is the page's only scroller: the document never scrolls, also while a

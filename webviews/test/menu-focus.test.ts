@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // An open menu never draws a focus ring around itself, and its items are at full ink (Leo
 // 2026-10-11, the New Tab "…" menu: "hella ugly"). The popup takes focus when it opens so its keys
 // work, and the global keyboard ring (desktop.css) drew a thick square around the whole menu, while

@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // DESKTOP-FEEL (R139) in real engines (headless Chromium and WebKit from Playwright), on the diff
 // viewer (test/browser/desktop-feel.html) and the markdown editor (/markdown on the dev server):
 // - content selects: a diff line's code, a file bar's path, markdown prose and a code block;

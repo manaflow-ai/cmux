@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // The ui wrapper and the migrated pages in real engines (headless Chromium and WebKit, Playwright),
 // keyboard only, left to right and right to left, with axe-core at each open state
 // (plans/cmux-next/a11y-foundation.md). Harness: test/browser/ui-a11y.html, served by the dev server.

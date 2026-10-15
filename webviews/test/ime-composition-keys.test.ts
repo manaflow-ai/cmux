@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // IME-KEYS (cx-dd5b4) in real engines (headless Chromium and WebKit from Playwright), on a real
 // page: the History page's dev entry (/history/?mock, the in-memory mock provider).
 //

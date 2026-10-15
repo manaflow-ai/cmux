@@ -46,15 +46,21 @@ export async function warmDevServer(base: string, page: string, { timeoutMs = 10
   follow(html, page, IMPORT);
 
   const running = new Set<Promise<void>>();
+  let failure: unknown;
   while (queue.length > 0 || running.size > 0) {
     while (queue.length > 0 && running.size < jobs) {
       const path = queue.shift()!;
       const visit: Promise<void> = fetchText(path)
         .then((code) => follow(code, path, IMPORT))
+        .catch((error: unknown) => {
+          failure ??= error;
+        })
         .finally(() => running.delete(visit));
       running.add(visit);
     }
     await Promise.race(running);
+    // The first failure ends the warm-up; the visits still running end on the same deadline.
+    if (failure !== undefined) throw failure;
   }
   return seen.size;
 }

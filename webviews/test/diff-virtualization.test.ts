@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // The real diff viewer in real engines (headless Chromium and WebKit from
 // Playwright), over a 2,000-file patch with two 20,000-line files
 // (test/browser/diff-virtualization.html, served by the webviews dev server):

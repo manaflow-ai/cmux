@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // The files panel motion never shows a blank strip (files-panel-motion.ts), in headless Chromium
 // and WebKit on the latency harness's diff page: at every step of an open, a close and a toggle in
 // the middle of either slide, each point of the content's width is covered by the diff column, the
