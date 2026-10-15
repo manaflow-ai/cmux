@@ -43,7 +43,7 @@ public final class MacScreenTab {
         if view.isShown { pane.resume() }
     }
 
-    /// Before the saved Macs are read: nothing (the black background).
+    /// Before the saved Macs are read: nothing.
     func showLoading() {
         clear()
         view.fill(with: nil, focus: nil)
@@ -74,8 +74,6 @@ public final class MacScreenTabView: NSView {
 
     public init() {
         super.init(frame: .zero)
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.black.cgColor
     }
 
     @available(*, unavailable)

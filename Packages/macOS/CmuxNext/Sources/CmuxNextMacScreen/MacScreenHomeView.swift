@@ -90,7 +90,7 @@ public struct MacScreenHomeView: View {
         .frame(width: 320)
         .font(MacScreenType.body)
         .foregroundStyle(colors.primary)
-        .background(colors.page)
+        .background(colors.popup)
     }
 
     private func rename(_ mac: SavedMac) {

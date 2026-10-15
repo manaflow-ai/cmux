@@ -9,8 +9,8 @@ import SwiftUI
 /// again on every theme change. Until then, the app theme's
 /// (`ThemeTokens.unresolved`), never macOS's grays or blue.
 struct MacScreenColors: Equatable {
-    /// The home page.
-    var page = ThemeTokens.unresolved.contentBackground.withAlpha(1).swiftUIColor
+    /// The home page: the pane's fill, like other page tabs (clear over a window backdrop).
+    var page = Color.clear
     /// The screen's toolbar.
     var chrome = ThemeTokens.unresolved.chromeBackground.swiftUIColor
     /// A card over the screen (connect, connecting, failed).
@@ -44,7 +44,7 @@ struct MacScreenColors: Equatable {
         let card = view.themeTokens.cardFill.swiftUIColor
         return view.performWithTheme {
             MacScreenColors(
-                page: color(Palette.surfaceOverride(.internalPage) ?? Palette.pageBackground), chrome: color(Palette.chromeBackground),
+                page: color(Palette.surfaceOverride(.internalPage) ?? Palette.paneFill), chrome: color(Palette.chromeBackground),
                 popup: color(Palette.popupSurface), card: card,
                 primary: color(Palette.textPrimary), secondary: color(Palette.textSecondary), tertiary: color(Palette.textTertiary),
                 hover: color(Palette.hoverFill), selection: color(Palette.selectionFill), pressed: color(Palette.pressedFill),
