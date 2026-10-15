@@ -125,6 +125,29 @@ pub(crate) fn segment(packet: &[u8]) -> Option<Segment> {
     })
 }
 
+/// Where the TCP header of a packet [`segment`] parses starts.
+fn tcp_offset(packet: &[u8]) -> Option<usize> {
+    let offset = match packet.first()? >> 4 {
+        4 => usize::from(packet[0] & 0x0F) * 4,
+        6 => 40,
+        _ => return None,
+    };
+    (packet.len() >= offset + 20).then_some(offset)
+}
+
+/// A one's-complement checksum after a 32-bit field changed from `old` to
+/// `new` (RFC 1624, eqn. 3).
+fn checksum_replace(checksum: u16, old: u32, new: u32) -> u16 {
+    let mut sum = u32::from(!checksum);
+    for (old, new) in [(old >> 16, new >> 16), (old & 0xFFFF, new & 0xFFFF)] {
+        sum += u32::from(!(old as u16)) + new;
+    }
+    while sum > 0xFFFF {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+    !(sum as u16)
+}
+
 /// `a` is after `b` in sequence space.
 fn after(a: u32, b: u32) -> bool {
     (a.wrapping_sub(b) as i32) > 0
@@ -383,6 +406,43 @@ impl Pacer {
             connection.rcv_max = Some(end);
         }
         fresh
+    }
+
+    /// Raise the ACK of a received data segment that is below what the peer
+    /// already acknowledged (fixing the TCP checksum), so the stack keeps
+    /// its data. True when the packet changed.
+    ///
+    /// A segment overtaken by newer ones of its connection (a roam, a relay
+    /// copy racing a direct copy, a carrier resending what went into a dead
+    /// route) arrives with an ACK below SND.UNA. RFC 9293 3.10.7.4 ignores
+    /// such an ACK and keeps the segment's data; smoltcp drops the whole
+    /// segment. With data flowing both ways no pure duplicate ACKs trigger a
+    /// fast retransmit, so the hole would wait for the 1 s minimum RTO. The
+    /// new ACK is one the peer did send, so it says nothing new. Pure ACKs
+    /// are left alone (raised, they would count as duplicate ACKs), and so
+    /// are SYN and RST segments.
+    pub(crate) fn refresh_stale_ack(&self, packet: &mut [u8]) -> bool {
+        let Some(segment) = segment(packet) else { return false };
+        let (Some(ack), true, false, false) =
+            (segment.ack, segment.len > 0, segment.syn, segment.reset)
+        else {
+            return false;
+        };
+        let flow =
+            (segment.destination.0, segment.destination.1, segment.source.0, segment.source.1);
+        let Some(una) = self.connections.get(&flow).and_then(|connection| connection.snd_una)
+        else {
+            return false;
+        };
+        if !after(una, ack) {
+            return false;
+        }
+        let Some(tcp) = tcp_offset(packet) else { return false };
+        packet[tcp + 8..tcp + 12].copy_from_slice(&una.to_be_bytes());
+        let checksum = u16::from_be_bytes([packet[tcp + 16], packet[tcp + 17]]);
+        let checksum = checksum_replace(checksum, ack, una);
+        packet[tcp + 16..tcp + 18].copy_from_slice(&checksum.to_be_bytes());
+        true
     }
 
     /// The next packet allowed to leave at `now`, by class (see the module

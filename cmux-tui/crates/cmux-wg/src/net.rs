@@ -482,7 +482,9 @@ impl Driver {
                         if self.pacer.received(packet, Instant::now()) {
                             self.schedule.on_activity(Instant::now());
                         }
-                        self.stack.push_rx(packet.to_vec(), None);
+                        let mut packet = packet.to_vec();
+                        self.pacer.refresh_stale_ack(&mut packet);
+                        self.stack.push_rx(packet, None);
                     }
                     break;
                 }
