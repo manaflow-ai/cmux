@@ -11,6 +11,7 @@ import {
   GO_CHECKOUT_URL,
   PRO_CHECKOUT_URL,
   TEAM_CHECKOUT_URL,
+  TEAM_MAX_CHECKOUT_URL,
   withCheckoutInterval,
 } from "../../../lib/billing";
 import {
@@ -65,6 +66,7 @@ import {
   MAX_PRICING_USD,
   GO_PRICING_USD,
   PRO_PRICING_USD,
+  TEAM_MAX_PRICING_USD,
   TEAM_PRICING_USD,
 } from "../../../../services/billing/plans";
 import { isVaultEnabled } from "../../../../services/vault/config";
@@ -272,6 +274,10 @@ function PricingContent({
     year: withCheckoutInterval(proCheckoutURL, "year"),
   };
   const teamCheckoutHref = withCheckoutInterval(teamCheckoutURL, "month");
+  const teamMaxCheckoutHref = withCheckoutInterval(
+    withCheckoutAttribution(TEAM_MAX_CHECKOUT_URL, attribution),
+    "month",
+  );
   const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${t("perMonth")}`;
   const teamMonthlyComparePrice = t("teamMonthlyComparePrice", {
     monthly: TEAM_PRICING_USD.month.monthlyEquivalent,
@@ -295,6 +301,7 @@ function PricingContent({
   });
   const maxFeatures = t.raw("max.features") as string[];
   const teamFeatures = t.raw("team.features") as string[];
+  const teamMaxFeatures = t.raw("teamMax.features") as string[];
   const enterpriseFeatures = t.raw("enterprise.features") as string[];
   const compareRows = visibleCompareRows(
     t.raw("compare.rows") as CompareRow[],
@@ -506,7 +513,7 @@ function PricingContent({
       id="team-enterprise-pricing-category"
       title={t("categories.business.title")}
       description={t("categories.business.description")}
-      columns="two"
+      columns="three"
     >
       {/* Team */}
       <PlanCard
@@ -524,6 +531,24 @@ function PricingContent({
         </PricingCheckoutButton>
         <p className="mt-5 text-sm font-medium">{t("team.featuresLead")}</p>
         <FeatureList items={teamFeatures} />
+      </PlanCard>
+
+      {/* Team Max */}
+      <PlanCard
+        name={t("teamMax.name")}
+        price={`$${TEAM_MAX_PRICING_USD.month.billedAmount}`}
+        period={t("perUserMonth")}
+      >
+        <PricingCheckoutButton
+          href={teamMaxCheckoutHref}
+          requiresSignIn={!pending && !snapshot.authenticated}
+          location="pricing_page"
+          plan="team_max"
+        >
+          {t("teamMax.cta")}
+        </PricingCheckoutButton>
+        <p className="mt-5 text-sm font-medium">{t("teamMax.featuresLead")}</p>
+        <FeatureList items={teamMaxFeatures} />
       </PlanCard>
 
       {/* Enterprise */}

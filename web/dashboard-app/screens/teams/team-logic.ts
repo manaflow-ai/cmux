@@ -101,7 +101,7 @@ export function parseMaxUses(raw: string): { ok: true; value: number | null } | 
   return { ok: true, value: parsed };
 }
 
-export const KNOWN_PLAN_IDS = ["free", "go", "pro", "max", "team"] as const;
+export const KNOWN_PLAN_IDS = ["free", "go", "pro", "max", "team", "team_max"] as const;
 export type KnownPlanId = (typeof KNOWN_PLAN_IDS)[number];
 
 /** Plan ids the UI has a label for. Unknown or missing ids read as Free. */

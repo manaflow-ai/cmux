@@ -9,6 +9,7 @@ import { resolveProPlanStatus } from "@/services/billing/pro";
 import { claimPendingProBilling, type ProBillingClaimUser } from "@/services/billing/purchase";
 import { isStripeBillingConfigured } from "@/services/billing/stripe";
 import { applySubscriptionAction, type SubscriptionAction } from "@/services/billing/subscriptionManagement";
+import { applyTeamPlanChange, previewTeamPlanChange } from "@/services/billing/teamPlanChange";
 import { resolveTeamBillingAccess, type TeamBillingAccessUser } from "@/services/billing/teamBillingAccess";
 import { authed } from "./base";
 import { dashboardRefusal } from "./errors";
@@ -29,8 +30,9 @@ const current = authed
     return { planId: status.planId, isPro: status.isPro, billingManagement: status.billingManagement };
   });
 
-const previewSchema = z.object({
-  plan: targetPlan,
+const teamTargetPlan = z.enum(["team", "team_max"]);
+
+const previewFields = {
   direction: z.enum(["upgrade", "downgrade"]),
   currency: z.string(),
   amountDueToday: z.number().int(),
@@ -38,7 +40,10 @@ const previewSchema = z.object({
   nextRenewalAt: z.string().nullable(),
   nextInvoiceAmount: z.number().int(),
   prorationDate: z.number().int(),
-});
+};
+
+const previewSchema = z.object({ plan: targetPlan, ...previewFields });
+const teamPreviewSchema = z.object({ plan: teamTargetPlan, ...previewFields });
 
 function requireBilling() {
   if (!isStripeBillingConfigured()) throw dashboardRefusal(503, "billing_unavailable");
@@ -137,4 +142,34 @@ const resume = authed
     return { ok: true as const };
   });
 
-export const billingRouter = { current, previewChange, change, cancel, resume };
+const teamId = z.string().trim().min(1).max(200);
+
+/** What switching a team between Team and Team Max costs; team admins only. */
+const previewTeamChange = authed
+  .input(z.object({ teamId, plan: teamTargetPlan }))
+  .output(teamPreviewSchema)
+  .handler(async ({ context, input }) => {
+    requireBilling();
+    const owner = await subscriptionOwner(context.user, input.teamId);
+    try {
+      return await previewTeamPlanChange({ teamId: owner.ownerId, target: input.plan });
+    } catch (error) {
+      throw planChangeRefusal(error);
+    }
+  });
+
+/** Switch a team between Team and Team Max in place, prorated as previewed. */
+const changeTeam = authed
+  .input(z.object({ teamId, plan: teamTargetPlan, prorationDate: z.number().int() }))
+  .output(z.object({ plan: teamTargetPlan }))
+  .handler(async ({ context, input }) => {
+    requireBilling();
+    const owner = await subscriptionOwner(context.user, input.teamId);
+    try {
+      return await applyTeamPlanChange({ teamId: owner.ownerId, target: input.plan, prorationDate: input.prorationDate });
+    } catch (error) {
+      throw planChangeRefusal(error);
+    }
+  });
+
+export const billingRouter = { current, previewChange, change, previewTeamChange, changeTeam, cancel, resume };

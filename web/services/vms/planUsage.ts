@@ -12,7 +12,7 @@
 // subscription. A machine is metered at its current recorded shape, so a
 // resize also re-rates the period's earlier runtime of that machine.
 
-import { and, desc, eq, gt, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { cloudVmRuntimeIntervals, cloudVms, stripeSubscriptions } from "../../db/schema";
@@ -255,7 +255,7 @@ export type PlanBudgetUsage = {
 };
 
 /** Team-billed machines draw from the team's plan, not this allowance. */
-const personalMachine = or(isNull(cloudVms.billingPlanId), ne(cloudVms.billingPlanId, "team"));
+const personalMachine = or(isNull(cloudVms.billingPlanId), notInArray(cloudVms.billingPlanId, ["team", "team_max"]));
 
 /**
  * The caller's Pro or Max allowance this billing period, or null when no

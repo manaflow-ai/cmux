@@ -129,7 +129,7 @@ function expandedCustomer(
 
 /** Where a recorded, paid checkout lands: the team, the dashboard page that started it, or the success page. */
 function paidSessionDestination(request: NextRequest, session: Stripe.Checkout.Session, scheme: string): URL {
-  if (session.metadata?.plan === "team") return teamWelcomeURL(request, session);
+  if (session.metadata?.plan === "team" || session.metadata?.plan === "team_max") return teamWelcomeURL(request, session);
   const dashboardReturn = dashboardWelcomeURL(request, session);
   if (dashboardReturn) return dashboardReturn;
   const success = new URL("/billing/success", requestOrigin(request));

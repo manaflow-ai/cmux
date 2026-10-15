@@ -17,7 +17,7 @@ import {
   ACTIVE_STRIPE_PRO_STATUSES,
   PERSONAL_PLAN_IDS,
   PRO_PLAN_ID,
-  TEAM_PLAN_ID,
+  TEAM_PLAN_IDS,
   isPaidPlanId,
   manualVmPlanOverride,
 } from "../billing/pro";
@@ -216,7 +216,7 @@ export async function listStripeTeamSubscriptionRows(
       and(
         isNotNull(stripeSubscriptions.stackTeamId),
         eq(stripeSubscriptions.scope, "team"),
-        eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
+        inArray(stripeSubscriptions.plan, TEAM_PLAN_IDS),
         inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
       ),
     )

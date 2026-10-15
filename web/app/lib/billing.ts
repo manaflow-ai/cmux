@@ -24,7 +24,7 @@ export const APP_PRICING_NATIVE_RETURN_QUERY_PARAMS = [
   CHECKOUT_NATIVE_RETURN_SIGNATURE_PARAM,
 ] as const;
 export const CHECKOUT_PATH = "/api/billing/checkout";
-export type CheckoutPlan = "go" | "pro" | "max" | "team";
+export type CheckoutPlan = "go" | "pro" | "max" | "team" | "team_max";
 export type CheckoutInterval = "month" | "year";
 export type AppPricingCheckoutRelayParameters = {
   plan: CheckoutPlan | null;
@@ -38,10 +38,12 @@ export const PRO_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "pro");
 export const GO_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "go");
 export const MAX_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "max");
 export const TEAM_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "team");
+export const TEAM_MAX_CHECKOUT_PATH = withCheckoutPlan(CHECKOUT_PATH, "team_max");
 export const PRO_CHECKOUT_URL = withExternalBrowserIntent(PRO_CHECKOUT_PATH);
 export const GO_CHECKOUT_URL = withExternalBrowserIntent(GO_CHECKOUT_PATH);
 export const MAX_CHECKOUT_URL = withExternalBrowserIntent(MAX_CHECKOUT_PATH);
 export const TEAM_CHECKOUT_URL = withExternalBrowserIntent(TEAM_CHECKOUT_PATH);
+export const TEAM_MAX_CHECKOUT_URL = withExternalBrowserIntent(TEAM_MAX_CHECKOUT_PATH);
 
 const DEFAULT_APP_PRICING_CHECKOUT_URL = "https://cmux.com/api/billing/checkout";
 const APP_PRICING_RELAY_TTL_SECONDS = 5 * 60;
@@ -134,7 +136,7 @@ export function verifiedAppPricingRelayScheme(requestURL: URL): string | null {
   const signature = requestURL.searchParams.get(CHECKOUT_RELAY_SIGNATURE_PARAM);
   const secret = appPricingRelaySecret();
   if (
-    (plan !== "go" && plan !== "pro" && plan !== "max" && plan !== "team") ||
+    (plan !== "go" && plan !== "pro" && plan !== "max" && plan !== "team" && plan !== "team_max") ||
     (interval !== "month" && interval !== "year") ||
     !expires ||
     !signature ||

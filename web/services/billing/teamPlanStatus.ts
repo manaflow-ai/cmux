@@ -1,16 +1,18 @@
 import {
   FREE_PLAN_ID,
+  TEAM_MAX_PLAN_ID,
   TEAM_PLAN_ID,
-  hasActiveTeamSubscriptionForTeam,
+  activeTeamPlanIdForTeam,
   isPaidPlanId,
   isStripePortalRecoverable,
   manualVmPlanOverride,
   stripeBillingStatusForTeam,
   type BillingManagementKind,
+  type TeamPlanId,
 } from "./pro";
 
 export type TeamPlanStatus = {
-  readonly planId: typeof FREE_PLAN_ID | typeof TEAM_PLAN_ID;
+  readonly planId: typeof FREE_PLAN_ID | TeamPlanId;
   readonly billingManagement: BillingManagementKind;
   /** True for an operator team grant (`cmuxVmPlan`) with no subscription. */
   readonly granted: boolean;
@@ -21,14 +23,15 @@ export async function teamPlanStatusForTeam(team: {
   readonly id: string;
   readonly clientReadOnlyMetadata?: unknown;
 }): Promise<TeamPlanStatus> {
-  const stripeActive = await hasActiveTeamSubscriptionForTeam(team.id);
-  if (stripeActive) {
-    return { planId: TEAM_PLAN_ID, billingManagement: "stripe", granted: false };
+  const stripePlanId = await activeTeamPlanIdForTeam(team.id);
+  if (stripePlanId) {
+    return { planId: stripePlanId, billingManagement: "stripe", granted: false };
   }
-  // An operator team grant (`cmuxVmPlan` on the team) is the Team plan
-  // without a subscription to manage.
-  if (isPaidPlanId(manualVmPlanOverride(team.clientReadOnlyMetadata))) {
-    return { planId: TEAM_PLAN_ID, billingManagement: "none", granted: true };
+  // An operator team grant (`cmuxVmPlan` on the team) is the Team plan, or
+  // Team Max for a `team_max` grant, without a subscription to manage.
+  const override = manualVmPlanOverride(team.clientReadOnlyMetadata);
+  if (isPaidPlanId(override)) {
+    return { planId: override === TEAM_MAX_PLAN_ID ? TEAM_MAX_PLAN_ID : TEAM_PLAN_ID, billingManagement: "none", granted: true };
   }
   // Mirror the personal-plan rule: the portal is only useful when it has a
   // recoverable subscription to manage. Terminally canceled teams and

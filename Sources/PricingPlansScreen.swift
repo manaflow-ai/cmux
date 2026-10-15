@@ -114,6 +114,28 @@ enum ProUpgradePresenter {
         NSWorkspace.shared.open(checkoutURL(source: source, plan: plan))
     }
 
+    /// Opens the upgrade for a plan the server named (`memoryUpgradePlanId`,
+    /// a locked size's plan): personal plans start checkout, Team Max opens
+    /// the selected team's billing page, or pricing when no team is selected.
+    @MainActor
+    static func presentPlanUpgrade(
+        planID: String?,
+        source: ProUpgradeSource,
+        analytics: ProductAnalytics = .app
+    ) {
+        let teamID = AppDelegate.shared?.auth?.accountFlow.selectedTeamID
+        switch PlanUpgradeDestination(planID: planID, teamID: teamID) {
+        case .checkout(let plan):
+            presentCheckout(source: source, plan: plan, analytics: analytics)
+        case .teamBilling(let teamID):
+            analytics.track(.upgradeOpened(source, planID: PlanUpgradeDestination.teamMaxPlanID, destination: .pricingPage))
+            NSWorkspace.shared.open(CheckoutAttribution.applying(to: AuthEnvironment.teamBillingURL(teamID: teamID), source: source))
+        case .pricing:
+            analytics.track(.upgradeOpened(source, planID: PlanUpgradeDestination.teamMaxPlanID, destination: .pricingPage))
+            presentAppPricingWeb(source: source)
+        }
+    }
+
     /// The checkout URL a surface opens: the billing origin's checkout route,
     /// the requested plan, and the source attribution.
     nonisolated static func checkoutURL(
@@ -238,16 +260,29 @@ private final class NativePricingWindowController: NSWindowController {
     }
 }
 
-private enum NativePricingPlanID: String, Decodable, Sendable {
+private enum NativePricingPlanID: String, Sendable {
     case free
     case go
     case pro
     case max
+
+    /// The personal card a tier marks as current. Team, Team Max and
+    /// Founder's Edition ids map through their tier, so a plan id this enum
+    /// does not list never fails the plan read.
+    init(tier: CmuxPlanTier) {
+        switch tier {
+        case .free: self = .free
+        case .go: self = .go
+        case .pro: self = .pro
+        case .max: self = .max
+        }
+    }
 }
 
 /// `GET /api/billing/plan`. `planId` stays "free" | "pro" for older clients
 /// (a Max subscriber reports "pro" there, `isPro` true); `subscriptionPlanId`
-/// carries the real subscription and wins when present.
+/// carries the real subscription and wins when present. Both are read as
+/// strings so a newer plan id (such as `team_max`) cannot fail the decode.
 private struct NativeBillingPlanResponse: Decodable {
     struct User: Decodable {
         let primaryEmail: String?
@@ -255,18 +290,17 @@ private struct NativeBillingPlanResponse: Decodable {
 
     let authenticated: Bool
     let billingAvailable: Bool
-    let planId: NativePricingPlanID
+    let planId: String?
     let subscriptionPlanId: String?
     let isPro: Bool
     let user: User?
 
     /// The plan the pricing cards mark as current.
     var resolvedPlanId: NativePricingPlanID {
-        if let subscriptionPlanId,
-           let resolved = NativePricingPlanID(rawValue: subscriptionPlanId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
-            return resolved
-        }
-        return planId
+        let tier = CmuxPlanTier(planID: subscriptionPlanId)
+            ?? CmuxPlanTier(planID: planId)
+            ?? (isPro ? .pro : .free)
+        return NativePricingPlanID(tier: tier)
     }
 }
 

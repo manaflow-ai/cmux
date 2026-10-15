@@ -12,6 +12,15 @@ extension ProductAnalyticsEvent {
         .upgradeEntrypointOpened(source: source.rawValue, plan: plan.rawValue, destination: destination)
     }
 
+    /// An upgrade click for a plan with no personal checkout (Team Max).
+    static func upgradeOpened(
+        _ source: ProUpgradeSource,
+        planID: String,
+        destination: UpgradeDestination
+    ) -> Self {
+        .upgradeEntrypointOpened(source: source.rawValue, plan: planID, destination: destination)
+    }
+
     /// An upgrade entrypoint from `source` became visible.
     static func upgradeShown(_ source: ProUpgradeSource, plan: CheckoutPlan = .pro) -> Self {
         .upgradePromptShown(source: source.rawValue, plan: plan.rawValue)

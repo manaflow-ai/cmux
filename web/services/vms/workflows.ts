@@ -112,6 +112,7 @@ import {
   maxActiveVmsForPlan,
   maxDiskMbForPlan,
   maxMemoryMbForPlan,
+  maxTierUpgradePlanId,
   maxVcpusForPlan,
   legacyPoolReservationForPlan,
   resourcePoolPolicyForPlan,
@@ -4679,7 +4680,7 @@ export function resizeVm(input: {
       if (requested !== undefined && requested > max) {
         return yield* Effect.fail(new VmResizePlanLimitError({
           vmId: input.providerVmId, resource, requested, max, planId,
-          ...(planId === "max" ? {} : { upgradePlanId: "max" }),
+          ...(maxTierUpgradePlanId(planId) ? { upgradePlanId: maxTierUpgradePlanId(planId)! } : {}),
         }));
       }
     }

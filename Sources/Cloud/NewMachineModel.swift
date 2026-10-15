@@ -1,5 +1,6 @@
 import CmuxCloud
 import CmuxCloudResizeCore
+import CMUXMobileCore
 import CmuxProductAnalytics
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -148,26 +149,29 @@ final class NewMachineModel {
     /// The plan that sells the ladder's 64 GB row and the larger pool
     /// (`MEMORY_UPGRADE_PLAN_ID` on the server).
     nonisolated static let maxPlanId = "max"
+    /// The team plan that sells the same rows and pool to every member of a
+    /// Team-plan team.
+    nonisolated static let teamMaxPlanId = PlanUpgradeDestination.teamMaxPlanID
     /// The largest machine Pro, Team, and Founder's Edition may start
     /// (16 GB / 8 vCPU, the `lg` row).
     nonisolated static let standardPlanMaxMemoryMb = 16384
     /// The largest machine a free or unknown plan may start, where an operator
     /// opens free provisioning (`PLAN_MAX_MEMORY_MB` on the server).
     nonisolated static let freePlanMaxMemoryMb = 8192
-    /// Mirrors `maxMemoryMbForPlan` without its env overrides: Max gets the
-    /// whole ladder (64 GB), Pro, Team, and Founder's Edition stop at 16 GB,
-    /// Go at 4 GB, and a free or unknown plan at 8 GB.
+    /// Mirrors `maxMemoryMbForPlan` without its env overrides: Max and Team
+    /// Max get the whole ladder (64 GB), Pro, Team, and Founder's Edition stop
+    /// at 16 GB, Go at 4 GB, and a free or unknown plan at 8 GB.
     /// The server's `limits.lockedMemoryOptionsMb` wins whenever it is sent;
     /// this mirror only covers a control plane that predates that field.
     nonisolated static func maxMemoryMb(planId: String?) -> Int {
-        switch normalizedPlanId(planId) {
-        case "go":
+        switch CmuxPlanTier(planID: planId) {
+        case .go:
             return 4096
-        case maxPlanId:
+        case .max:
             return memoryOptionsMb.max() ?? standardPlanMaxMemoryMb
-        case "pro", "team", "founders":
+        case .pro:
             return standardPlanMaxMemoryMb
-        default:
+        case .free, nil:
             return freePlanMaxMemoryMb
         }
     }
@@ -183,11 +187,24 @@ final class NewMachineModel {
     nonisolated static func normalizedPlanId(_ planId: String?) -> String {
         (planId ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
+    /// Whether the plan already has the Max sizes and pool (Max, Team Max).
+    nonisolated static func isMaxTier(_ planId: String?) -> Bool {
+        CmuxPlanTier(planID: planId) == .max
+    }
+    /// The plan that sells the Max rows to `planId` when the server does not
+    /// name one: Team Max for a Team plan, Max otherwise, nil when the plan
+    /// already has them.
+    nonisolated static func defaultMemoryUpgradePlanId(for planId: String?) -> String? {
+        if isMaxTier(planId) { return nil }
+        return normalizedPlanId(planId) == "team" ? teamMaxPlanId : maxPlanId
+    }
     /// The plan name shown next to a locked size ("Requires Max").
     nonisolated static func planDisplayName(_ planId: String) -> String {
         switch normalizedPlanId(planId) {
         case maxPlanId:
             return String(localized: "machines.new.plan.name.max", defaultValue: "Max")
+        case teamMaxPlanId:
+            return String(localized: "machines.new.plan.name.teamMax", defaultValue: "Team Max")
         case "pro":
             return String(localized: "machines.new.plan.name.pro", defaultValue: "Pro")
         default:
@@ -294,7 +311,7 @@ final class NewMachineModel {
         if let memoryUpgradePlansByMb { return memoryUpgradePlansByMb[String(memoryMb)] }
         guard memoryUpgradePlanId != nil else { return nil }
         if Self.normalizedPlanId(plan?.planId) == "go", memoryMb <= Self.standardPlanMaxMemoryMb { return "pro" }
-        return Self.maxPlanId
+        return memoryUpgradePlanId == Self.teamMaxPlanId ? Self.teamMaxPlanId : Self.maxPlanId
     }
 
     func selectSize(_ memoryMb: Int) {
@@ -414,9 +431,7 @@ final class NewMachineModel {
         } else if let memoryUpgradePlanId, !Self.normalizedPlanId(memoryUpgradePlanId).isEmpty {
             self.memoryUpgradePlanId = Self.normalizedPlanId(memoryUpgradePlanId)
         } else {
-            self.memoryUpgradePlanId = Self.normalizedPlanId(plan?.planId) == Self.maxPlanId
-                ? nil
-                : Self.maxPlanId
+            self.memoryUpgradePlanId = Self.defaultMemoryUpgradePlanId(for: plan?.planId)
         }
         self.submit = submit
         self.selectionWindowID = selectionWindowID
@@ -518,7 +533,9 @@ final class NewMachineModel {
     /// action so a mixed Go ladder always offers the complete upgrade.
     var highestLockedMemoryUpgradePlanId: String? {
         lockedMemoryOptions.compactMap { upgradePlan(for: $0) }
-            .max { lhs, rhs in (lhs == "max" ? 2 : 1) < (rhs == "max" ? 2 : 1) }
+            .max { lhs, rhs in
+                (CmuxPlanTier(planID: lhs) ?? .free) < (CmuxPlanTier(planID: rhs) ?? .free)
+            }
     }
 
     /// "32 GB RAM · 128 GB disk · Requires Max" for a locked row.
@@ -580,7 +597,7 @@ final class NewMachineModel {
               let shortfall = pool.shortfall(vcpus: size.vcpus, memoryMb: size.memoryMb) else { return nil }
         return CloudVMResourcePool.shortfallText(
             shortfall,
-            offersUpgrade: Self.normalizedPlanId(plan?.planId) != Self.maxPlanId
+            offersUpgrade: !Self.isMaxTier(plan?.planId)
         )
     }
 

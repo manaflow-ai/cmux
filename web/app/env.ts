@@ -303,6 +303,7 @@ export const env = createEnv({
       "STRIPE_TEAM_MONTHLY_60_PRICE_ID",
     ),
     STRIPE_TEAM_MONTHLY_60_PRICE_ID: z.string().min(1).optional(),
+    STRIPE_TEAM_MAX_MONTHLY_220_PRICE_ID: z.string().min(1).optional(),
     STRIPE_TEAM_YEARLY_PRICE_ID: retiredEnvValue(
       "STRIPE_TEAM_YEARLY_PRICE_ID",
       "STRIPE_TEAM_YEARLY_576_PRICE_ID",
@@ -536,6 +537,7 @@ export const env = createEnv({
     ),
     STRIPE_TEAM_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_MONTHLY_PRICE_ID),
     STRIPE_TEAM_MONTHLY_60_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_MONTHLY_60_PRICE_ID),
+    STRIPE_TEAM_MAX_MONTHLY_220_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_MAX_MONTHLY_220_PRICE_ID),
     STRIPE_TEAM_YEARLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_YEARLY_PRICE_ID),
     STRIPE_TEAM_YEARLY_576_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_YEARLY_576_PRICE_ID),
     CMUX_APP_PRICING_CHECKOUT_URL: trimEnv(

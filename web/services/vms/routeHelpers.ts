@@ -21,6 +21,7 @@ import {
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
+  maxTierUpgradePlanId,
   resolveVmEntitlements,
   upgradePlanForMemory,
   type VmEntitlements,
@@ -45,7 +46,6 @@ import {
   type VmWorkflowError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
-import { planIncludes } from "../billing/planTier";
 import { authProviderErrorResponse } from "./authErrors";
 import { goCapacityConstraint } from "./goUsage";
 import { isSyntheticAccountEmail, rememberSyntheticUser } from "../analytics/syntheticAccounts";
@@ -603,6 +603,14 @@ export async function vmMemoryUnavailableResponse(maxMemoryMb: number, locale: L
   return vmErrorResponse({ error: "vm_memory_unavailable", status: 409, message: copy.message, action: copy.action, displayTitle: copy.title, phase: "billing" });
 }
 
+/** The product name for a plan id in VM upgrade copy ("Max", "Team Max"). */
+function vmPlanDisplayName(planId: string): string {
+  return planId
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
 export async function vmMemoryRequiresPlanResponse(input: {
   readonly memoryMb: number;
   readonly maxMemoryMb: number;
@@ -611,7 +619,7 @@ export async function vmMemoryRequiresPlanResponse(input: {
 }, locale: Locale = "en"): Promise<Response> {
   const memoryGb = Math.round(input.memoryMb / 1024);
   const maxGb = Math.round(input.maxMemoryMb / 1024);
-  const upgradeName = input.upgradePlanId.charAt(0).toUpperCase() + input.upgradePlanId.slice(1);
+  const upgradeName = vmPlanDisplayName(input.upgradePlanId);
   const upgradeUrl = `https://cmux.com/api/billing/checkout?plan=${encodeURIComponent(input.upgradePlanId)}&cmux_source=vm_memory_limit`;
   const copy = await vmMemoryErrorCopy("memoryPlan", locale, {
     memory: memoryGb, max: maxGb, plan: upgradeName, planId: input.upgradePlanId, upgradeUrl,
@@ -709,16 +717,19 @@ export async function vmResourcePoolExceededResponse(
   error: VmResourcePoolExceededError,
   locale: Locale,
 ): Promise<Response> {
-  const upgradePlanId = planIncludes(error.planId, "max") ? null : "max";
+  const upgradePlanId = maxTierUpgradePlanId(error.planId);
   const memory = error.resource === "memoryMb";
   const copy = await vmResourcePoolCopy(locale, {
     resource: error.resource,
     used: memory ? poolGb(error.used.memoryMb) : error.used.vcpus,
     pool: memory ? poolGb(error.pool.memoryMb) : error.pool.vcpus,
     requested: memory ? poolGb(error.requested.memoryMb) : error.requested.vcpus,
-    canUpgrade: upgradePlanId !== null,
+    upgrade: upgradePlanId === null ? null : upgradePlanId === "team_max" ? "team_max" : "max",
   });
-  const upgradeUrl = upgradePlanId ? `https://cmux.com/api/billing/checkout?plan=${upgradePlanId}` : null;
+  // Team Max is bought for the team that owns the pool.
+  const upgradeUrl = upgradePlanId === "team_max"
+    ? `https://cmux.com/api/billing/checkout?plan=team_max&teamId=${encodeURIComponent(error.billingTeamId)}`
+    : upgradePlanId ? `https://cmux.com/api/billing/checkout?plan=${upgradePlanId}` : null;
   return vmErrorResponse({
     error: "vm_resource_pool_exceeded",
     status: 402,
@@ -1035,7 +1046,7 @@ export const vmWorkflowErrorResponders = {
     error: "vm_resize_plan_limit",
     status: 403,
     message: `Your ${error.planId} plan cannot resize ${error.resource} beyond ${error.resource === "cpu" ? error.max : `${Math.round(error.max / 1024)} GiB`}.`,
-    action: error.upgradePlanId ? `Upgrade to ${error.upgradePlanId} to use larger VM sizes.` : "Choose a smaller VM size.",
+    action: error.upgradePlanId ? `Upgrade to ${vmPlanDisplayName(error.upgradePlanId)} to use larger VM sizes.` : "Choose a smaller VM size.",
     phase: "resize",
     retryable: false,
     details: { resource: error.resource, requested: error.requested, max: error.max, planId: error.planId, upgradePlanId: error.upgradePlanId ?? null },

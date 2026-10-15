@@ -68,7 +68,7 @@ const MONTHLY_AMOUNT: Readonly<Record<SwitchTargetPlan, number>> = {
   max: MAX_PRICING_USD.month.billedAmount * 100,
 };
 /** A preview older than this, or from the future, is not reused for the charge. */
-const PRORATION_DATE_MAX_AGE_SECONDS = 3_600;
+export const PRORATION_DATE_MAX_AGE_SECONDS = 3_600;
 
 type Switch = {
   readonly customerId: string;
@@ -110,7 +110,7 @@ async function resolveSwitch(
   };
 }
 
-function prorationBehavior(direction: Switch["direction"]) {
+export function prorationBehavior(direction: "upgrade" | "downgrade") {
   return direction === "upgrade" ? ("always_invoice" as const) : ("create_prorations" as const);
 }
 
@@ -120,7 +120,7 @@ type PreviewLine = { readonly amount: number; readonly parent?: { readonly subsc
  * The credit a downgrade leaves: the unused time on the old plan minus the
  * remaining time charged on the new one (both are proration lines).
  */
-function prorationCredit(invoice: Stripe.Invoice): number {
+export function prorationCredit(invoice: Stripe.Invoice): number {
   const lines = (invoice.lines?.data ?? []) as unknown as readonly PreviewLine[];
   const net = lines
     .filter((line) => (line.parent?.subscription_item_details?.proration ?? line.proration) === true)
@@ -156,7 +156,12 @@ export async function previewPersonalPlanChange(
   };
 }
 
-function isCardError(error: unknown): boolean {
+/** The previewed proration date when it is recent, else now. */
+export function chargeProrationDate(prorationDate: number, now: number): number {
+  return prorationDate <= now && now - prorationDate <= PRORATION_DATE_MAX_AGE_SECONDS ? prorationDate : now;
+}
+
+export function isCardError(error: unknown): boolean {
   const type = typeof error === "object" && error !== null ? (error as { type?: unknown }).type : undefined;
   return type === "StripeCardError" || type === "card_error";
 }
@@ -167,13 +172,12 @@ export async function applyPersonalPlanChange(
 ): Promise<{ readonly plan: SwitchTargetPlan }> {
   const change = await resolveSwitch(input.userId, input.target, deps);
   const now = deps.now();
-  const fresh = input.prorationDate <= now && now - input.prorationDate <= PRORATION_DATE_MAX_AGE_SECONDS;
   let updated: Stripe.Subscription;
   try {
     updated = await deps.stripe().subscriptions.update(change.subscription.id, {
       items: [{ id: change.itemId, price: change.price }],
       proration_behavior: prorationBehavior(change.direction),
-      proration_date: fresh ? input.prorationDate : now,
+      proration_date: chargeProrationDate(input.prorationDate, now),
       // An upgrade that cannot be paid fails whole instead of leaving an
       // unpaid invoice on a changed plan.
       payment_behavior: "error_if_incomplete",

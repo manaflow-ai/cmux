@@ -22,13 +22,16 @@ public struct BillingPlanID: RawRepresentable, Hashable, Sendable, Codable, Comp
     public static let pro = BillingPlanID(rawValue: "pro")
     /// The Max plan.
     public static let max = BillingPlanID(rawValue: "max")
+    /// The Team Max plan: a per-seat team plan with the Max tier for every member.
+    public static let teamMax = BillingPlanID(rawValue: "team_max")
 
-    /// Ordering rank: Go < Pro < Max, unknown plans sort before Go.
+    /// Ordering rank: Go < Pro < Max (and Team Max, the same tier), unknown
+    /// plans sort before Go.
     public var rank: Int {
         switch rawValue {
         case Self.go.rawValue: 1
         case Self.pro.rawValue: 2
-        case Self.max.rawValue: 3
+        case Self.max.rawValue, Self.teamMax.rawValue: 3
         default: 0
         }
     }

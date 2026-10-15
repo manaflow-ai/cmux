@@ -371,11 +371,13 @@ max_product_id="$(canonical_product "cmux-max-monthly-200" "cmux Max" "max")"
 echo "Resolved Max product." >&2
 team_product_id="$(canonical_product "cmux-team-monthly" "cmux Team" "team")"
 echo "Resolved Team product." >&2
+team_max_product_id="$(canonical_product "cmux-team-max-monthly-220" "cmux Team Max" "team_max")"
+echo "Resolved Team Max product." >&2
 
 # Checkout shows the product description. Keep it on the plan limits in
 # web/services/vms/machineSpec.ts and entitlements.ts (5 VMs per paid seat sharing
 # vCPU and RAM pools: 20 vCPU / 40 GB per paid seat, pooled across a Team, or
-# 80 vCPU / 160 GB on Max). Updating a description is
+# 80 vCPU / 160 GB on Max and per paid seat on Team Max). Updating a description is
 # idempotent, so every run converges on this copy.
 ensure_product_description() {
   local product_id="$1"
@@ -387,6 +389,7 @@ ensure_product_description() {
 ensure_product_description "$pro_product_id" "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the cmux iOS app."
 ensure_product_description "$max_product_id" "Everything in Pro, with up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM."
 ensure_product_description "$team_product_id" "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support."
+ensure_product_description "$team_max_product_id" "Max machines for every member: up to 5 Cloud VMs per paid seat, sharing 80 vCPUs and 160 GB RAM per paid seat across the team, plus the cmux iOS app and priority support."
 
 # Current catalog (web/services/billing/plans.ts). Stripe Price amounts are
 # immutable, so each price change mints a new lookup key carrying the amount.
@@ -397,6 +400,10 @@ ensure_price "$go_product_id" "cmux-go-monthly-10" "1000" "month" "cmux Go Month
 ensure_price "$max_product_id" "cmux-max-monthly-200" "20000" "month" "cmux Max Monthly"
 ensure_price "$max_product_id" "cmux-max-yearly-1920" "192000" "year" "cmux Max Yearly"
 ensure_price "$team_product_id" "cmux-team-monthly-60" "6000" "month" "cmux Team Monthly"
+# Team Max is per seat like Team and monthly only. Team <-> Team Max is a
+# server-side price swap on the same subscription (services/billing/teamPlanChange.ts),
+# so it needs no portal configuration.
+ensure_price "$team_max_product_id" "cmux-team-max-monthly-220" "22000" "month" "cmux Team Max Monthly"
 # Grandfathered Prices stay active for the subscriptions already on them
 # (LEGACY_PRICE_LOOKUP_KEYS); no new checkout may use these keys.
 ensure_price "$pro_product_id" "cmux-pro-monthly" "3000" "month" "cmux Pro Monthly (Legacy \$30)"

@@ -345,7 +345,8 @@ export async function vmResourcePoolCopy(
     readonly used: number;
     readonly pool: number;
     readonly requested: number;
-    readonly canUpgrade: boolean;
+    /** The plan the action offers, or null when there is nothing to upgrade to. */
+    readonly upgrade: "max" | "team_max" | null;
   },
 ): Promise<VmRequiresProCopy> {
   const t = createTranslator({
@@ -357,7 +358,7 @@ export async function vmResourcePoolCopy(
   return {
     title: t("title"),
     message: t(values.resource === "memoryMb" ? "memoryMessage" : "vcpuMessage", numbers),
-    action: t(values.canUpgrade ? "upgradeAction" : "action"),
+    action: t(values.upgrade === "team_max" ? "upgradeTeamMaxAction" : values.upgrade === "max" ? "upgradeAction" : "action"),
   };
 }
 

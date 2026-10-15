@@ -76,7 +76,9 @@ export function PlanPicker({
       case "checkout": {
         const plan = card.action.plan;
         // Checkout is a route handler that redirects to Stripe: a full document navigation.
-        const href = plan === "team" ? teamCheckoutHref(teamId ?? "") : personalCheckoutHref(plan, scope.kind === "personal" ? scope.returnTo : "/dashboard/billing");
+        const href = plan === "team" || plan === "team_max"
+          ? teamCheckoutHref(teamId ?? "", plan)
+          : personalCheckoutHref(plan, scope.kind === "personal" ? scope.returnTo : "/dashboard/billing");
         return (
           <a href={href} className={settingsButtonClass("primary", "sm")}>
             {t("upgradeTo", { plan: name })}
@@ -135,7 +137,7 @@ export function PlanPicker({
         </div>
       ) : null}
 
-      <ChangePlanDialog plan={switchTo} onOpenChange={(open) => { if (!open) setSwitchTo(null); }} />
+      <ChangePlanDialog plan={switchTo} teamId={teamId} onOpenChange={(open) => { if (!open) setSwitchTo(null); }} />
       {paidCurrent ? (
         <CancelPlanDialog open={cancelling} onOpenChange={setCancelling} plan={paidCurrent} endsOn={periodDate} teamId={teamId} />
       ) : null}
