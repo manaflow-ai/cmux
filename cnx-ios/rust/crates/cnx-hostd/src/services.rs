@@ -332,6 +332,14 @@ async fn splice(
                 if let Some(canonical) = canonical {
                     line = canonical;
                 }
+                // The daemon lane: the phone's objects confirmed by the Mac's own state.
+                let verdict = match (&terminal_folders, verdict) {
+                    (Some(path), Verdict::Forward) => owned_check(path, line.clone(), Verdict::Forward).await,
+                    (Some(path), Verdict::Rewrite(checked)) => {
+                        owned_check(path, checked.clone(), Verdict::Rewrite(checked)).await
+                    }
+                    (_, verdict) => verdict,
+                };
                 match verdict {
                     Verdict::Forward => {
                         if let Some(path) = &terminal_folders {
@@ -735,14 +743,36 @@ async fn daemon_folders(config: &ServiceConfig) -> Result<Vec<PathBuf>, Refusal>
 
 /// The daemon at `path`'s `list-workspaces` reply (at most 5 s).
 async fn list_workspaces(path: &Path) -> Result<Value, Refusal> {
+    daemon_query(path, b"{\"cmd\":\"list-workspaces\",\"id\":\"cnx-upload\"}\n", "cnx-upload").await
+}
+
+/// The verdict for a line the policy let through, once the Mac's own state
+/// (read on a separate connection) confirms the phone's object
+/// (`policy::ownership`); a refusal otherwise, or when the Mac cannot answer.
+async fn owned_check(path: &Path, line: Vec<u8>, verdict: Verdict) -> Verdict {
+    use crate::policy::{Ownership, is_pinned_workspace_tile, not_owned, ownership, owns_personal_workspace};
+    let Some(what) = ownership(&line) else { return verdict };
+    let owned = match &what {
+        Ownership::PersonalWorkspace { session, key } => {
+            list_workspaces(path).await.is_ok_and(|reply| owns_personal_workspace(&reply, session, key))
+        }
+        Ownership::PinnedWorkspaceTile { item } => {
+            let request = b"{\"protocol\":\"cmux.protocol/2\",\"type\":\"request\",\"id\":\"cnx-layout\",\"operation\":\"sidebar_layout.get\",\"params\":{\"machine\":\"current\",\"session\":\"current\"}}\n";
+            daemon_query(path, request, "cnx-layout")
+                .await
+                .is_ok_and(|reply| is_pinned_workspace_tile(&reply, item))
+        }
+    };
+    if owned { verdict } else { Verdict::Refuse(not_owned(&line, &what)) }
+}
+
+/// One request on a fresh connection to the daemon socket, its reply (`id` matched).
+async fn daemon_query(path: &Path, request: &[u8], id: &str) -> Result<Value, Refusal> {
     let unavailable = |e: &dyn std::fmt::Display| Refusal::new("unavailable", format!("cmux-tui: {e}"));
     let read = async {
         let socket = UnixStream::connect(&path).await.map_err(|e| unavailable(&e))?;
         let (read, mut write) = socket.into_split();
-        write
-            .write_all(b"{\"cmd\":\"list-workspaces\",\"id\":\"cnx-upload\"}\n")
-            .await
-            .map_err(|e| unavailable(&e))?;
+        write.write_all(request).await.map_err(|e| unavailable(&e))?;
         let mut reader = BufReader::new(read);
         loop {
             let mut line = Vec::new();
@@ -750,7 +780,7 @@ async fn list_workspaces(path: &Path) -> Result<Value, Refusal> {
                 return Err(unavailable(&"closed"));
             }
             let Ok(value) = serde_json::from_slice::<Value>(&line) else { continue };
-            if value.get("id").and_then(Value::as_str) == Some("cnx-upload") {
+            if value.get("id").and_then(Value::as_str) == Some(id) {
                 return Ok(value);
             }
         }

@@ -213,11 +213,11 @@ public struct WorkspaceInbox: Hashable, Sendable {
     /// Newest activity first. A row with no known activity time (live: no
     /// event since the phone connected) goes after every row with one, in
     /// the Mac's focus order, then the Mac's own order.
-    /// Rows whose Mac told its sidebar order come first, in that order (Mac
-    /// by Mac); the rest newest activity first.
+    /// Rows whose Mac told its sidebar order come first, Mac by Mac in that
+    /// order (never interleaved across Macs); the rest newest activity first.
     static func isNewer(_ a: Workspace, _ b: Workspace, order: [String: Int]) -> Bool {
         switch (a.sidebarIndex, b.sidebarIndex) {
-        case let (x?, y?): return (x, a.macID) == (y, b.macID) ? (order[a.id] ?? 0) < (order[b.id] ?? 0) : (x, a.macID) < (y, b.macID)
+        case let (x?, y?): return (a.macID, x) == (b.macID, y) ? (order[a.id] ?? 0) < (order[b.id] ?? 0) : (a.macID, x) < (b.macID, y)
         case (.some, nil): return true
         case (nil, .some): return false
         case (nil, nil): break
@@ -241,11 +241,12 @@ public struct WorkspaceInbox: Hashable, Sendable {
 
     public var isEmpty: Bool { needsYou.isEmpty && pinned.isEmpty && recent.isEmpty && folds.isEmpty }
 
-    /// The rows Move Up / Down moves among: the workspace's own section (pinned
-    /// or not), on its Mac, in the Mac's order.
+    /// The rows Move Up / Down moves among: the unpinned rows of the workspace's
+    /// Mac, in its order. None for a pinned workspace: the Mac orders its pinned
+    /// tiles with a layout move a phone may not send.
     public func macOrder(of workspace: Workspace) -> [Workspace] {
-        let section = workspace.isPinned ? pinned : recent
-        return section.filter { $0.macID == workspace.macID && status($0) != .needsYou }
+        guard !workspace.isPinned else { return [] }
+        return recent.filter { $0.macID == workspace.macID && status($0) != .needsYou }
     }
 
     /// One Mac's live rows as its sidebar shows them (pinned first, then the

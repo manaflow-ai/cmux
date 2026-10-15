@@ -381,8 +381,8 @@ public struct WorkspacesList: View {
                 if creator.canArrange(ws) {
                     Button(ws.isPinned ? "Unpin Workspace" : "Pin Workspace") { creator.setPinned(ws, !ws.isPinned) }
                     let order = inbox.macOrder(of: ws)
-                    if order.first?.id != ws.id { Button("Move Workspace Up") { creator.move(ws, by: -1, among: order) } }
-                    if order.last?.id != ws.id { Button("Move Workspace Down") { creator.move(ws, by: 1, among: order) } }
+                    if order.count > 1, order.first?.id != ws.id { Button("Move Workspace Up") { creator.move(ws, by: -1, among: order) } }
+                    if order.count > 1, order.last?.id != ws.id { Button("Move Workspace Down") { creator.move(ws, by: 1, among: order) } }
                 }
                 Button("Rename") { startRename(ws) }
                 Button("Close") { confirmClose(ws) }

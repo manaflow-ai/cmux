@@ -23,14 +23,46 @@ struct DaemonLanePolicyResourceTests {
         for request in [
             resource("notification.clear", current, key: "cnx-ios-notification-clear-1"),
             resource("sidebar_layout.get", current),
-            resource("sidebar_layout.update", current.merging(["op": ["kind": "item.remove", "id": "itm_abcdefgh234567ab"]]) { a, _ in a },
-                     key: "cnx-ios-unpin-1"),
         ] {
             guard case .rewrite(let sent) = policy.evaluate(request) else {
                 Issue.record("refused \(String(decoding: request, as: UTF8.self))")
                 continue
             }
             #expect(sent == request)
+        }
+    }
+
+    /// This lane cannot read the Mac's layout or tree to confirm the phone's object,
+    /// so Unpin and the sidebar order stay refused here (cnx-hostd checks them).
+    @Test func ownershipLinesAreRefusedOnThisLane() {
+        let unpin = resource("sidebar_layout.update", current.merging(["op": ["kind": "item.remove", "id": "itm_abcdefgh234567ab"]]) { a, _ in a },
+                             key: "cnx-ios-unpin-1")
+        guard case .refuse = policy.evaluate(unpin) else { Issue.record("forwarded an unpin"); return }
+        guard case .refuse = policy.evaluate(line(["cmd": "set-personal-workspace", "id": "m2", "session_id": "reg",
+                                                   "workspace_key": "k", "index": 3])) else {
+            Issue.record("forwarded set-personal-workspace")
+            return
+        }
+    }
+
+    /// A duplicate key reaches the daemon only as the one value this policy checked.
+    @Test func duplicateKeysAreSentAsChecked() {
+        let raw = Data(#"{"protocol":"cmux.protocol/2","type":"request","id":"r1","operation":"pane.run","operation":"sidebar_layout.get","params":{"machine":"current","session":"current"}}"#.utf8)
+        switch policy.evaluate(raw) {
+        case .rewrite(let sent):
+            let text = String(decoding: sent, as: UTF8.self)
+            #expect(text.components(separatedBy: "\"operation\"").count == 2)
+            #expect(!text.contains("pane.run"))
+        case .refuse: break
+        case .forward: Issue.record("a duplicate key was forwarded as sent")
+        }
+    }
+
+    @Test func indexIsAnIntegerPlace() {
+        #expect(DaemonLanePolicy.isPlace(3))
+        #expect(DaemonLanePolicy.isPlace(0))
+        for bad: Any in [3.0, -1, true, UInt64.max, "3"] {
+            #expect(!DaemonLanePolicy.isPlace(bad), "\(bad)")
         }
     }
 
@@ -60,9 +92,7 @@ struct DaemonLanePolicyResourceTests {
 
     @Test func personalOrderIsAPlaceOnly() {
         #expect(policy.evaluate(line(["cmd": "list-personal", "id": "m1"])) == .forward)
-        #expect(policy.evaluate(line(["cmd": "set-personal-workspace", "id": "m2", "session_id": "reg_01abc",
-                                      "workspace_key": "0b8f6c2e-1d2a-4f00-9a7b-1c2d3e4f5a6b", "index": 3])) == .forward)
-        for extra: [String: Any] in [["remote_localhost": true], ["group": "g"], ["theme": "x"], ["browser_profile_id": "p"], ["index": -1]] {
+        for extra: [String: Any] in [["remote_localhost": true], ["group": "g"], ["theme": "x"], ["browser_profile_id": "p"], ["index": -1], ["index": 3.5]] {
             var object: [String: Any] = ["cmd": "set-personal-workspace", "id": 1, "session_id": "s", "workspace_key": "k"]
             object.merge(extra) { _, b in b }
             guard case .refuse = policy.evaluate(line(object)) else {

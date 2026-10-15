@@ -203,6 +203,15 @@ import Testing
         #expect(store.workspaces.first { $0.id == "c" }?.sidebarIndex == 2)
     }
 
+    @Test func aPinnedWorkspaceDoesNotMove() async {
+        let (store, creator, recorder) = setup()
+        store.updateWorkspace("b") { $0.isPinned = true }
+        let order = store.workspaces
+        creator.move(order[1], by: -1, among: order)
+        await creator.settle()
+        #expect(recorder.calls.isEmpty)
+    }
+
     @Test func bulkCloseClosesEach() async {
         let (store, creator, recorder) = setup()
         let order = store.workspaces
