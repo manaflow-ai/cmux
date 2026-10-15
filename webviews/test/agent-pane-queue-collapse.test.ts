@@ -270,17 +270,24 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
             ),
         );
       expect(await sight()).toEqual({ focused: "fold", inSight: true, foldInSight: true, wholeRows: true });
-      // ↑ through every row and ↓ back to the fold: the focused one is always whole and in sight.
+      /// The same, but where the list rests mid-scroll a row its edge cuts may show.
+      const steady = async () => {
+        const { wholeRows: _, ...rest } = await sight();
+        return rest;
+      };
+      // ↑ through every row and ↓ back to the fold: the focused one is always whole and in sight. A
+      // row the edge cuts mid-scroll still draws (f1a737b blanked it, which read as a missing prompt),
+      // so whole rows are asked of the list at rest at its top, above.
       for (let i = 8; i >= 1; i--) {
         await page.keyboard.press("ArrowUp");
-        expect(await sight()).toEqual({ focused: `q-${i}`, inSight: true, foldInSight: true, wholeRows: true });
+        expect(await steady()).toEqual({ focused: `q-${i}`, inSight: true, foldInSight: true });
       }
       for (let i = 2; i <= 8; i++) {
         await page.keyboard.press("ArrowDown");
-        expect(await sight()).toEqual({ focused: `q-${i}`, inSight: true, foldInSight: true, wholeRows: true });
+        expect(await steady()).toEqual({ focused: `q-${i}`, inSight: true, foldInSight: true });
       }
       await page.keyboard.press("ArrowDown");
-      expect(await sight()).toEqual({ focused: "fold", inSight: true, foldInSight: true, wholeRows: true });
+      expect(await steady()).toEqual({ focused: "fold", inSight: true, foldInSight: true });
       await page.close();
     });
 
@@ -384,11 +391,11 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       expect(await drawn(page)).toEqual(clean);
       for (let i = 8; i >= 1; i--) {
         await page.keyboard.press("ArrowUp");
-        expect({ i, ...(await drawn(page)) }).toEqual({ i, ...clean });
+        expect({ i, ...(await drawn(page)), cut: 0 }).toEqual({ i, ...clean });
       }
       for (let i = 2; i <= 8; i++) {
         await page.keyboard.press("ArrowDown");
-        expect({ i, ...(await drawn(page)) }).toEqual({ i, ...clean });
+        expect({ i, ...(await drawn(page)), cut: 0 }).toEqual({ i, ...clean });
       }
       await page.close();
     });

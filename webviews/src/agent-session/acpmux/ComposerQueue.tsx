@@ -32,27 +32,17 @@ const FOLD_SHOWS = 2;
 /** The chats whose long queue is open, for this page's life. */
 const openQueues = new Set<string>();
 
-// The list shows whole rows only (captures of 436917b, 2026-10-15). Its height is the bottom of the
-// last row that fits under its cap: the CSS cap folded, the third row's bottom opened (so opening
-// moves the chat above by about a row, whatever the rows' heights). A row the list cuts at an edge
-// while it scrolls is not drawn (data-cut), and a row that takes focus scrolls in whole, its
-// "Queued" header with it at the top.
+// The list rests on whole rows (captures of 436917b and f1a737b, 2026-10-15). Its height is the
+// bottom of the last row that fits under its cap: the CSS cap folded, the third row's bottom opened
+// (so opening moves the chat above by about a row, whatever the rows' heights), and opening lands at
+// its top. A row that takes focus scrolls in whole, its "Queued" header with it at the top; a row
+// the edge cuts while the list scrolls still draws (a blank slot read as a missing prompt).
 
 /** Where `el` sits in the list's content, from its top (not moved by scrolling). */
 function offsets(list: HTMLElement, el: Element) {
   const origin = list.getBoundingClientRect().top - list.scrollTop;
   const rect = el.getBoundingClientRect();
   return { top: rect.top - origin, bottom: rect.bottom - origin };
-}
-
-/** Marks the parts the list's edges cut, which it then does not draw. */
-function markCut(list: HTMLElement) {
-  const box = list.getBoundingClientRect();
-  for (const el of list.children) {
-    const rect = el.getBoundingClientRect();
-    const cut = rect.top < box.top - 0.5 || rect.bottom > box.bottom + 0.5;
-    if (cut !== el.hasAttribute("data-cut")) el.toggleAttribute("data-cut", cut);
-  }
 }
 
 /** Sizes the list to whole rows under its cap. */
@@ -64,17 +54,15 @@ function fitList(list: HTMLElement) {
   const items = [...list.children].filter((el) => !el.hasAttribute("hidden"));
   const rows = items.filter((el) => el.classList.contains("acpmux-queued"));
   const opened = list.hasAttribute("data-unfolded") && rows.length > 3;
-  const cap = opened
-    ? offsets(list, rows[2]).bottom + pad
-    : parseFloat(style.getPropertyValue("--acpmux-queue-max")) || 132;
-  let fit = 0;
-  for (const el of items) {
-    const bottom = offsets(list, el).bottom + pad;
-    if (bottom <= cap + 0.5) fit = bottom;
-  }
-  const height = `${fit > 0 ? fit : cap}px`;
+  // Where the list would end after each part: at its bottom, or after the last one, below the
+  // list's padding (the padding under a row the list cuts off would show the next row's top).
+  const ends = items.map((el, index) => offsets(list, el).bottom + (index === items.length - 1 ? pad : 0));
+  let cap = opened ? offsets(list, rows[2]).bottom : parseFloat(style.getPropertyValue("--acpmux-queue-max")) || 132;
+  // The header and the next prompt always show whole, even one opened past the cap.
+  if (rows[0]) cap = Math.max(cap, ends[items.indexOf(rows[0])]);
+  const fit = ends.filter((end) => end <= cap + 0.5).at(-1) ?? cap;
+  const height = `${fit}px`;
   if (list.style.maxHeight !== height) list.style.maxHeight = height;
-  markCut(list);
 }
 
 /** Scrolls the list so `row` shows whole, starting at a row's top (its header's, for the first). */
@@ -91,7 +79,6 @@ function reveal(list: HTMLElement, row: HTMLElement) {
     to = starts.find((start) => start >= bottom - view - 0.5) ?? bottom - view;
   }
   if (Math.abs(to - list.scrollTop) > 0.5) list.scrollTop = to;
-  markCut(list);
 }
 
 /** Shows the full prompt as a tooltip only when its two lines (the button's inner text) cut it off. */
@@ -168,9 +155,13 @@ export function ComposerQueue({
   }, [queue, editing, onLost]);
   // Whole rows only: the list's height, after every draw and when its width changes.
   const watched = useRef<{ list: HTMLElement; observer: ResizeObserver }>(undefined);
+  const wasOpen = useRef(unfolded);
   useLayoutEffect(() => {
     const current = list.current;
     if (current) fitList(current);
+    // Opening lands at the top: the header and the next prompt (row snapping kept it on row 2).
+    if (current && unfolded && !wasOpen.current) current.scrollTop = 0;
+    wasOpen.current = unfolded;
     if (watched.current?.list !== current) {
       watched.current?.observer.disconnect();
       watched.current = undefined;
@@ -454,7 +445,6 @@ export function ComposerQueue({
           const row = (event.target as HTMLElement).closest("li");
           if (row && list.current) reveal(list.current, row);
         }}
-        onScroll={(event) => markCut(event.currentTarget)}
         aria-label={`${t("composer.queue")} (${shown.length})`}
       >
         {paused && (
