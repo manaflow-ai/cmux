@@ -139,6 +139,10 @@ public protocol BrowserPage: AnyObject, BrowserFindScriptEvaluating {
 
     /// `true` while page audio is muted.
     var isMuted: Bool { get set }
+    /// Answers an unresponsive page (``BrowserPageEvent/unresponsiveChanged(_:)``).
+    /// - Parameter terminate: `true` ends the page's content process; `false`
+    ///   keeps waiting.
+    func answerUnresponsive(terminate: Bool)
     /// The back/forward history with page state, for restoring later.
     /// - Returns: The state, or `nil` when the engine cannot export it now.
     func exportRestoreState() -> BrowserPageRestoreState?
@@ -147,6 +151,10 @@ public protocol BrowserPage: AnyObject, BrowserFindScriptEvaluating {
 }
 
 extension BrowserPage {
+    /// Engines that never report an unresponsive page have nothing to answer.
+    /// - Parameter terminate: Ignored.
+    public func answerUnresponsive(terminate: Bool) {}
+
     /// Runs a find-in-page script in the page world, so the shared find
     /// service works on every engine.
     /// - Parameter script: The find script.
