@@ -28,6 +28,10 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
         var awaitingHandoff: [String: Bool] = [:]
         /// sessionId -> the folder the daemon reported for it (bounded; ``observeFolder(_:replyTo:)``).
         var folders: [String: String] = [:]
+        /// sessionId -> the agent acpmux reports it runs (bounded; ``observeFolder(_:replyTo:)``).
+        var harnesses: [String: String] = [:]
+        /// Told each harness the daemon reports for a session (``onHarness(_:)``).
+        var harnessObserver: (@Sendable (_ session: String, _ harness: String) -> Void)?
     }
 
     private let state = Mutex(State())
@@ -44,22 +48,48 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
     /// The folder (cwd) the daemon reported for `session`, from ``observeFolder(_:replyTo:)``.
     public func folder(of session: String) -> String? { state.withLock { $0.folders[session] } }
 
+    /// The agent acpmux reports `session` runs (its summary's `harness`, else its `family`), from
+    /// ``observeFolder(_:replyTo:)``: what the tab records so its brand mark shows (cx-w4bbw).
+    public func harness(of session: String) -> String? { state.withLock { $0.harnesses[session] } }
+
+    /// Calls `observer` (off the main thread) with each session and harness a daemon reply names.
+    public func onHarness(_ observer: @escaping @Sendable (_ session: String, _ harness: String) -> Void) {
+        state.withLock { $0.harnessObserver = observer }
+    }
+
     /// The replies whose result names a session and its folder: `_acpmux/attach`
     /// (`result.session.{sessionId, cwd}`) and `session/new` (`result.sessionId`,
     /// `result._meta.acpmux.cwd`). Read only from those fixed places, never from content.
     static let folderReplies: Set<String> = ["_acpmux/attach", "session/new"]
 
-    /// A daemon reply to `method`: the session folder it reports (an absolute path).
+    /// A daemon reply to `method`: the session folder it reports (an absolute path) and the agent
+    /// the session runs.
     func observeFolder(_ object: [String: Any], replyTo method: String?) {
         guard let method, Self.folderReplies.contains(method), let result = object["result"] as? [String: Any] else { return }
         let session: [String: Any]? = method == "_acpmux/attach"
             ? result["session"] as? [String: Any]
             : ((result["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]).map { $0.merging(["sessionId": result["sessionId"] ?? NSNull()]) { _, new in new } }
-        guard let id = session?["sessionId"] as? String, let cwd = session?["cwd"] as? String, cwd.hasPrefix("/") else { return }
+        guard let id = session?["sessionId"] as? String else { return }
+        if let harness = [session?["harness"], session?["family"]].lazy.compactMap({ $0 as? String }).first(where: Self.isHarness) {
+            let observer = state.withLock { state in
+                if state.harnesses.count >= 1024, state.harnesses[id] == nil { state.harnesses.removeAll() }
+                state.harnesses[id] = harness
+                return state.harnessObserver
+            }
+            observer?(id, harness)
+        }
+        guard let cwd = session?["cwd"] as? String, cwd.hasPrefix("/") else { return }
         state.withLock { state in
             if state.folders.count >= 1024, state.folders[id] == nil { state.folders.removeAll() }
             state.folders[id] = cwd
         }
+    }
+
+    /// A harness the store records (cmux-tui `validate_harness`): 1 to 64 ASCII letters, digits or
+    /// `_ . - /`. Anything else is not sent, so a bind never fails on it.
+    static func isHarness(_ value: String) -> Bool {
+        (1...64).contains(value.utf8.count)
+            && value.unicodeScalars.allSatisfy { ($0.isASCII && $0.properties.isAlphabetic) || ("0"..."9").contains($0) || "_.-/".unicodeScalars.contains($0) }
     }
 
     /// The requests whose reply is a handoff record (`handoffId`, `source.sessionId`).

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36";
+pub const ir_sha256 = "b361091265178dd9ec9384d1d87a114698d475eacb0844d79cd90e9b2d685442";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3107,6 +3107,8 @@ pub fn attachSurface(client: anytype, request: AttachSurfaceRequest) !client_run
 pub const BindConversationTabSessionRequest = struct {
     /// The tab's current session, or null for a tab without one; the bind applies only when it matches.
     expected_session: wire.Nullable([]const u8),
+    /// The agent the session runs, as its machine's acpmux reports it; written in the same commit. A bind of the tab's own session with another harness changes the harness alone.
+    harness: wire.Field([]const u8) = .absent,
     session: []const u8,
     surface: Id,
 };

@@ -99,8 +99,8 @@ extension AgentTabStore {
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
                 if let close = pendingCloses.removeValue(forKey: key) {
                     close(created.key)
-                } else if let started = sessions[created.key], started != session, !remote {
-                    // A chat its page started before the store answered binds now.
+                } else if let started = sessions[created.key], !remote {
+                    // A chat its page started (or the harness acpmux reported) before the store answered binds now.
                     sendSession(started, for: created.key)
                 }
                 return created
@@ -224,14 +224,15 @@ extension AgentTabStore {
             }
             return
         }
-        // The record the tab shows already holds every pending bind: the next one expects it.
-        let expected = record.session
-        guard expected != session, let store = lookup(key)?.store, let surface = store.tab(id: key)?.surface else { return }
+        // The record holds every pending bind: the next expects it. A new harness (acpmux's, cx-w4bbw) alone binds too.
+        let (expected, harness) = (record.session, views[key]?.model.transport.sessions.harness(of: session))
+        guard expected != session || (harness != nil && harness != record.harness), let store = lookup(key)?.store,
+              let surface = store.tab(id: key)?.surface else { return }
         let transaction = ClientTransactionID.generate()
-        store.intend(.bindAgentSession(surface: surface, session: session), transaction: transaction)
+        store.intend(.bindAgentSession(surface: surface, session: session, harness: harness), transaction: transaction)
         // task-owner: one compare-and-swap; its answer settles or rejects the intent
         Task { [weak self] in
-            let (outcome, sequence) = await self?.bind(key, surface, expected, session) ?? (.failed, nil)
+            let (outcome, sequence) = await self?.bind(key, surface, expected, session, harness) ?? (.failed, nil)
             switch outcome {
             case .taken:
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
