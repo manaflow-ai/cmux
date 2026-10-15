@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { webkit, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -30,6 +31,7 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/test/browser/thread-minimap.html");
     browser = await webkit.launch({ headless: true });
   });
   afterAll(async () => {
