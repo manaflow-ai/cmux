@@ -3393,6 +3393,7 @@ function AcpmuxPane() {
       },
       applyTheme(theme) {
         applyAgentTheme(theme as never);
+        configureChatWidth(theme.chatWidth);
       },
       applyShortcuts(labels) {
         setShortcuts(readShortcuts(labels));
@@ -3436,7 +3437,6 @@ function AcpmuxPane() {
         if (customization.layout) {
           configureDictation(customization.layout);
           configureQuickActions(customization.layout);
-          configureChatWidth(customization.layout);
           window.cmuxAcpmuxRegistry?.configure(customization.layout);
         }
       },

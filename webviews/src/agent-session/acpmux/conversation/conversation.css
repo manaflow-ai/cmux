@@ -37,7 +37,7 @@
   --cv-font: system-ui;
   --cv-mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
-/* A wider column on a wide pane (layout.json `chatWidth`, chatWidth.ts, cx-ncc.107): `wide` caps
+/* A wider column on a wide pane (Debug Settings agent.chatWidth, chatWidth.ts, cx-ncc.107): `wide` caps
    everything at 960px; `wideBlocks` gives code, diffs, tables, tool output and cards 1120px while
    prose keeps the standard 800px measure (--cv-prose) at the column's left edge. */
 :root[data-chat-width="wide"] {

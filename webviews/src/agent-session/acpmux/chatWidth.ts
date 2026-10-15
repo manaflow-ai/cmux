@@ -1,11 +1,10 @@
 import { useSyncExternalStore } from "react";
 
 /// How wide the chat's one column draws on a wide pane (cx-ncc.107, Leo 2026-10-14: "try a wider
-/// max width for chat content"). A trial, not a setting yet: the person picks it in
-/// `agent-pane/layout.json` next to `cmux.json` (the file the App watches and pushes through
-/// `applyCustomization`), and Leo picks the default from the three.
-///
-///     {"chatWidth": "wide"}
+/// max width for chat content"). A trial in Debug Settings (`agent.chatWidth`,
+/// CmuxNextAgentPane AgentPaneTunables.chatWidth), which the app pushes with the theme
+/// (`theme.chatWidth`, AgentPaneTheme.swift) and again when it changes; Leo picks the default
+/// from the three before it moves to real Settings.
 ///
 /// - `standard` (the default): 720px, widening with the pane to an 800px cap, for everything.
 /// - `wide`: the same, to a 960px cap, for everything.
@@ -36,15 +35,12 @@ const isChatWidth = (value: unknown): value is ChatWidth =>
 let current: ChatWidth = "standard";
 const listeners = new Set<() => void>();
 
-/// `layout.chatWidth`, or `standard` when it is missing or unknown.
-export function readChatWidth(layout: Record<string, unknown> | undefined): ChatWidth {
-  const value = layout?.chatWidth;
-  return isChatWidth(value) ? value : "standard";
-}
+/// The theme's `chatWidth`, or `standard` when it is missing or unknown.
+export const readChatWidth = (value: unknown): ChatWidth => (isChatWidth(value) ? value : "standard");
 
-/// The host pushed `layout.json` (or `{}` when it was removed): the column follows at once.
-export function configureChatWidth(layout: Record<string, unknown> | undefined): void {
-  const next = readChatWidth(layout);
+/// The host pushed the theme: the column follows at once.
+export function configureChatWidth(value: unknown): void {
+  const next = readChatWidth(value);
   if (next === current) return;
   current = next;
   if (typeof document !== "undefined") {

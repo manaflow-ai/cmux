@@ -326,7 +326,7 @@ const SCROLLBAR_HEIGHT = 15;
 /// Where text can't be measured (no canvas), a generous character width.
 const FALLBACK_CHAR_WIDTH = 8;
 /// The chat's one column (`--cv-column` and `--cv-inset` in conversation/conversation.css): 720px,
-/// 62.5% of a wider pane up to 800px (or the cap layout.json's `chatWidth` picks, chatWidth.ts),
+/// 62.5% of a wider pane up to 800px (or the cap Debug Settings' `agent.chatWidth` picks, chatWidth.ts),
 /// centered, at least the page edge from each side.
 const PAGE_EDGE = 18;
 export function transcriptColumn(paneWidth: number, { min, max, share }: ChatColumn = chatColumn()) {

@@ -1,6 +1,6 @@
 // The chat column's width trial (chatWidth.ts, cx-ncc.107, Leo: "try a wider max width for chat
-// content"): layout.json's `chatWidth` picks the column's cap on a wide pane, and everything in
-// the chat shares that one column (#20391's column edge):
+// content"): Debug Settings agent.chatWidth, which the app pushes with the theme, picks the
+// column's cap on a wide pane, and everything in the chat shares that one column (#20391's edge):
 //   - `standard` (no choice) keeps today's 800px cap;
 //   - `wide` caps the transcript and the composer at 960px;
 //   - `wideBlocks` gives code, tables and tools 1120px while prose keeps the 800px measure.

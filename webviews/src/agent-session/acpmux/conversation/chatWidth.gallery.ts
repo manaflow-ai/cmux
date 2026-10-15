@@ -1,9 +1,8 @@
 // l10n-allow-file: gallery fixtures (sample prompts, replies and code), not shipped UI.
 // The chat column's width trial (chatWidth.ts, cx-ncc.107): one turn with prose, tool calls, a
-// table and wide code, in each `chatWidth` that layout.json can pick. Render it at 1440 and 1920.
+// table and wide code, in each Debug Settings `agent.chatWidth`. Render it at 1440 and 1920.
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
-import type { PlayContext } from "../../../gallery/play";
 
 const REPLY = [
   "The fetch helper now retries transient failures with exponential backoff and full jitter, so a burst of 429s from the API no longer fails the whole sync. Requests that are not safe to repeat still fail at once unless the caller passes a policy, and every retry is logged with its attempt number and delay so the support bundle shows what happened.",
@@ -52,21 +51,11 @@ const rows = chat([
   summary(5, { status: "completed", durationMs: 48_000, toolCount: 4 }),
 ]);
 
-/// The pane as the app would push layout.json's `chatWidth`.
-const pick =
-  (chatWidth: string) =>
-  async (ctx: PlayContext): Promise<void> => {
-    const page = ctx.document.defaultView as unknown as {
-      cmuxAcpmuxBridge?: { applyCustomization(customization: { layout?: Record<string, unknown> }): void };
-    };
-    page.cmuxAcpmuxBridge?.applyCustomization({ layout: { chatWidth } });
-    await ctx.waitFor(() => (ctx.document.documentElement.dataset.chatWidth ?? "standard") === chatWidth);
-  };
-
+/// The pane as the app pushes the Debug Settings `agent.chatWidth` with the theme.
 const variant = (chatWidth: string, note: string): AgentPaneVariant => ({
   note,
   snapshot: rows,
-  play: pick(chatWidth),
+  theme: { chatWidth },
 });
 
 export default agentPaneEntry({
@@ -77,10 +66,10 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/App.tsx#VirtualTranscript"],
   variants: {
     standard: variant("standard", "Today: 720px, widening to an 800px cap, for everything."),
-    wide: variant("wide", 'layout.json chatWidth "wide": a 960px cap for everything.'),
+    wide: variant("wide", 'Debug Settings chat width "wide": a 960px cap for everything.'),
     "wide-blocks": variant(
       "wideBlocks",
-      'layout.json chatWidth "wideBlocks": code, tables and tools to 1120px; prose keeps the 800px measure.',
+      'Debug Settings chat width "wideBlocks": code, tables and tools to 1120px; prose keeps the 800px measure.',
     ),
   },
 });
