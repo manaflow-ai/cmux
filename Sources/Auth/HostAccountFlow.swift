@@ -20,6 +20,7 @@ import Observation
 final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     let coordinator: AuthCoordinator
     private let browserSignIn: HostBrowserSignInFlow
+    private let billingPlanClient: BillingPlanClient
     private(set) var billingPlanState = BillingPlanState.unknown
     var isProActive: Bool { billingPlanState.isPro }
     /// The signed-in account's tier, or nil while it is unknown.
@@ -68,10 +69,12 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     init(
         coordinator: AuthCoordinator,
         browserSignIn: HostBrowserSignInFlow,
+        billingPlanClient: BillingPlanClient = BillingPlanClient(),
         analytics: ProductAnalytics = .app
     ) {
         self.coordinator = coordinator
         self.browserSignIn = browserSignIn
+        self.billingPlanClient = billingPlanClient
         self.analytics = analytics
         startCoordinatorObservation()
         syncAnalytics()
@@ -298,7 +301,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         let tokens = try? await coordinator.currentTokens()
 
         do {
-            let details = try await BillingPlanClient().fetch(
+            let details = try await billingPlanClient.fetch(
                 from: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"),
                 accessToken: tokens?.accessToken,
                 refreshToken: tokens?.refreshToken
