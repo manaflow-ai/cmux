@@ -85,7 +85,11 @@ would do it, spring curves", "proper physics". Design:
   on `tabMove` when released. Widths: max 200 compact / 240 comfortable (today's
   maxima, appearance tabMaxWidth), every tab
   shrinks evenly to 56, then the inactive ones to 32 (active stays 56), pinned 64
-  (`motion.tabStrip`). Reduce Motion, speed off and a live resize: 0 ms. Geometry and
+  (`motion.tabStrip`). All four are settings (Tabs group, `appearance.metrics.tabMaxWidth`,
+  `tabMinActiveWidth`, `tabMinInactiveWidth`, `tabPinnedWidth`; Lawrence 2026-10-15 "keep chrome's
+  minimums but needs to be customizable"): unset is the token default, the strip keeps the active
+  minimum between the icon-and-close floor and the max, and the inactive minimum at most the active
+  one. Reduce Motion, speed off and a live resize: 0 ms. Geometry and
   tweens come from cmux-motion through the app FFI (`MotionTween`, `MotionTabStrip`).
 - New workspace: the row opens at its index and the rows below slide; the
   whole-sidebar snap for Cmd-N is gone, and rows open only on animated
