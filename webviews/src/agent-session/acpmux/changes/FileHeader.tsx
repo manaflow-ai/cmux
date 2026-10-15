@@ -53,7 +53,6 @@ export function FileHeader({
       <button
         type="button"
         className="acpmux-fh-name"
-        title={file.path}
         aria-expanded={!view.collapsed}
         onClick={() => on.toggleCollapsed(file.path)}
       >
@@ -64,11 +63,7 @@ export function FileHeader({
       {file.created && index === 0 && <span className="acpmux-fh-badge">{t("changes.badgeNew")}</span>}
       {file.deleted && <span className="acpmux-fh-badge">{t("changes.badgeDeleted")}</span>}
       {file.edits.length > 1 && <span className="acpmux-fh-badge">{`Edit ${index + 1} of ${file.edits.length}`}</span>}
-      {file.outside && (
-        <span className="acpmux-fh-badge acpmux-fh-outside" title={t("turn.outside.title")}>
-          {t("turn.outside")}
-        </span>
-      )}
+      {file.outside && <span className="acpmux-fh-badge acpmux-fh-outside">{t("turn.outside")}</span>}
       <span className="acpmux-fh-spacer" />
       <Counts additions={additions} deletions={deletions} />
       <button

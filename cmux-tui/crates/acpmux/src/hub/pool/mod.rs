@@ -312,6 +312,11 @@ impl Hub {
                 "a remote-origin connection never uses the session pool",
             ));
         }
+        if crate::launch_policy::agent_launch_disabled() {
+            return Ok(
+                json!({"accepted": false, "reason": crate::launch_policy::DISABLED_MESSAGE}),
+            );
+        }
         if !self.pool_enabled().await {
             return Ok(json!({"accepted": false, "reason": "the session pool is off"}));
         }

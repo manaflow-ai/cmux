@@ -4,8 +4,8 @@
 // panes, as Codex and Claude desktop do. While a reply streams the view stays at its latest line
 // unless the reader scrolls up, and nothing it shows moves when a queue appears or a row opens.
 //
-// A prompt is a solid bubble on the composer's surface, its text inset evenly, with one Copy on
-// hover; a tool row shows none (a turn's answer has its own in the footer).
+// A prompt is a solid bubble on the composer's surface, its text inset evenly; a hover shows no Copy
+// on it or on a tool row (both are on right-click; a turn's answer has its own in the footer).
 //
 // Before: the transcript's rows used a 720px column inside 26.5px gutters and the composer a 760px
 // column inside 16px ones, so their edges never met and the narrow-pane inset was neither. The
@@ -23,6 +23,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -139,6 +140,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/");
     browser = await chromium.launch({ headless: true });
     // A cold dev server's first load can stall in CI: load it here, again if it stalls.
     for (let attempt = 1; ; attempt++) {
@@ -499,7 +501,9 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await page.close();
   });
 
-  test("a hover shows one Copy on a prompt and none on a tool row", async () => {
+  // Leo dogfood 2026-10-13 (hover buttons everywhere): a prompt's Copy and a tool row's are on the
+  // right-click menu (Copy Message, Copy Output), so a hover shows neither.
+  test("a hover shows no Copy on a prompt or a tool row", async () => {
     const page = await open(newChat(), 900);
     /// The Copy buttons in the row holding `text` that show, by their own and their parents' opacity.
     const shown = (text: string) =>
@@ -522,7 +526,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const onPrompt = await shown("Why does the build retry?");
     await commandToggle(page).hover();
     await page.waitForTimeout(250);
-    expect({ onPrompt, onTool: await shown("ls build") }).toEqual({ onPrompt: 1, onTool: 0 });
+    expect({ onPrompt, onTool: await shown("ls build") }).toEqual({ onPrompt: 0, onTool: 0 });
     await page.close();
   });
 });
