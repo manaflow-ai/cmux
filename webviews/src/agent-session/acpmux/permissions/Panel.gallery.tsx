@@ -19,16 +19,16 @@ const askStyles: Record<Exclude<AskStyle, "current">, string> = {
   // One joined control at the row's end: equal segments on one rim, Allow filled.
   segmented: `
     [data-ask-style="segmented"] .acpmux-ask-actions { gap: 0; border-radius: 6px; overflow: hidden;
-      box-shadow: inset 0 0 0 0.5px var(--cv-card-ring); }
+      box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--cv-card-ring); }
     [data-ask-style="segmented"] .acpmux-ask-action { min-width: 58px; border-radius: 0; text-align: center; }
     [data-ask-style="segmented"] .acpmux-ask-action.is-secondary,
-    [data-ask-style="segmented"] .acpmux-ask-action + .acpmux-ask-action { box-shadow: inset 0.5px 0 0 var(--cv-card-ring); }`,
+    [data-ask-style="segmented"] .acpmux-ask-action + .acpmux-ask-action { box-shadow: inset var(--cmux-hairline, .5px) 0 0 var(--cv-card-ring); }`,
   // Quiet text answers at the row's end: Allow in the accent, the others dim, no fills or rims.
   text: `
     [data-ask-style="text"] .acpmux-ask-actions { gap: 2px; }
     [data-ask-style="text"] .acpmux-ask-action { padding: 0 6px; color: var(--cv-text-dim); }
     [data-ask-style="text"] .acpmux-ask-action.is-primary { background: transparent; color: var(--agent-accent);
-      font-weight: 600; }
+      font-weight: 500; }
     [data-ask-style="text"] .acpmux-ask-action.is-secondary { box-shadow: none; }`,
 };
 
