@@ -90,6 +90,9 @@ struct ControlCommandExecutionPolicyTests {
             "agent.message.send", "agent.message.list", "agent.message.claim",
             "agent.message.ack",
             "agent.message.mark_read", "agent.message.poll", "agent.message.settings",
+            // Chief awaits its owner actor and the store's send; never inline on main.
+            "chief.open", "chief.send", "chief.status", "chief.conversations",
+            "chief.read", "chief.stop", "chief.debug",
         ] {
             #expect(
                 ControlCommandExecutionPolicy(forMethod: method)

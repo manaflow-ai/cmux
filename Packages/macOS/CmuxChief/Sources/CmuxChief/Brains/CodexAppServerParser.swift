@@ -49,6 +49,8 @@ struct CodexAppServerParser: Sendable {
     private var openTextItem: String?
     private var streamedItems: Set<String> = []
     private var startedTools: Set<String> = []
+    /// Commands of started `commandExecution` items, for approvals that omit theirs.
+    private var itemCommands: [String: String] = [:]
 
     init(threadID: String? = nil) {
         self.threadID = threadID
@@ -102,7 +104,7 @@ struct CodexAppServerParser: Sendable {
     private func serverRequest(_ method: String, id: ChiefJSON, params: ChiefJSON) -> [CodexOutput] {
         switch method {
         case "item/commandExecution/requestApproval":
-            let command = params["command"]?.string
+            let command = params["command"]?.string ?? params["itemId"]?.string.flatMap { itemCommands[$0] }
             let prompt = command.map { "Run `\(ChiefToolPolicy.truncate(ChiefToolPolicy.unwrapShell($0), to: 300))`?" }
                 ?? Self.reasonPrompt(params, fallback: "Allow this command?")
             return [.approval(requestID: id, kind: .command, command: command, prompt: prompt)]
@@ -140,6 +142,7 @@ struct CodexAppServerParser: Sendable {
             guard accepts(params["turnId"]?.string), let item = params["item"], let id = item["id"]?.string,
                   let tool = Self.toolTitle(item), !startedTools.contains(id) else { return [] }
             startedTools.insert(id)
+            if let command = item["command"]?.string { itemCommands[id] = command }
             return endSegment() + [.event(.toolStarted(id: id, title: tool.title, detail: tool.detail))]
         case "item/completed":
             guard accepts(params["turnId"]?.string), let item = params["item"], let id = item["id"]?.string else { return [] }
@@ -170,6 +173,7 @@ struct CodexAppServerParser: Sendable {
             return endSegment() + [.event(.textDelta(text)), .event(.textSegmentEnd)]
         }
         guard startedTools.remove(id) != nil else { return [] }
+        itemCommands.removeValue(forKey: id)
         let status = item["status"]?.string ?? "completed"
         var ok = status == "completed"
         if let exit = item["exitCode"]?.number, exit != 0 { ok = false }

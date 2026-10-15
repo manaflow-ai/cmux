@@ -181,6 +181,221 @@ extension CMUXCLI {
     }
 }
 
+// `cmux chief open|send|status|conversations|read|stop|debug`: the running
+// app's Chief over the socket (`chief.*` v2 methods).
+extension CMUXCLI {
+    /// Flags and positionals of one socket subcommand.
+    struct ChiefSocketArguments {
+        var conversation: String?
+        var from: String?
+        var limit: Int?
+        var noReply = false
+        var mine = false
+        var dy: Double?
+        var text: String?
+        var positionals: [String] = []
+    }
+
+    static func parseChiefSocketArguments(_ args: [String]) throws -> ChiefSocketArguments {
+        var parsed = ChiefSocketArguments()
+        var index = 0
+        func value(_ flag: String) throws -> String {
+            guard index + 1 < args.count else {
+                throw CLIError(message: String(
+                    format: String(localized: "cli.chief.error.missingValue", defaultValue: "%@ needs a value."),
+                    flag
+                ))
+            }
+            index += 1
+            return args[index]
+        }
+        while index < args.count {
+            let arg = args[index]
+            switch arg {
+            case "--":
+                parsed.positionals.append(contentsOf: args[(index + 1)...])
+                index = args.count
+                continue
+            case "--conversation", "-c":
+                parsed.conversation = try value(arg)
+            case "--from":
+                parsed.from = try value(arg)
+            case "--limit", "-n":
+                let raw = try value(arg)
+                guard let limit = Int(raw), limit > 0 else {
+                    throw CLIError(message: String(
+                        localized: "cli.chief.error.invalidLimit",
+                        defaultValue: "--limit must be a positive whole number."
+                    ))
+                }
+                parsed.limit = limit
+            case "--no-reply":
+                parsed.noReply = true
+            case "--mine":
+                parsed.mine = true
+            case "--dy":
+                let raw = try value(arg)
+                guard let dy = Double(raw), dy.isFinite else {
+                    throw CLIError(message: String(
+                        format: String(localized: "cli.chief.error.invalidNumber", defaultValue: "%@ must be a number."),
+                        arg
+                    ))
+                }
+                parsed.dy = dy
+            case "--text":
+                parsed.text = try value(arg)
+            default:
+                if arg.hasPrefix("--") {
+                    throw CLIError(message: String(
+                        format: String(localized: "cli.chief.error.unknownFlag", defaultValue: "Unknown flag: %@"),
+                        arg
+                    ))
+                }
+                parsed.positionals.append(arg)
+            }
+            index += 1
+        }
+        return parsed
+    }
+
+    /// Runs a socket subcommand (``chiefCommandNeedsSocket(_:)`` is true).
+    func runChiefSocketCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        windowOverride: String?,
+        environment: [String: String]
+    ) throws {
+        guard let verb = commandArgs.first?.lowercased() else {
+            print(Self.chiefUsage)
+            return
+        }
+        let args = try Self.parseChiefSocketArguments(Array(commandArgs.dropFirst()))
+        var params: [String: Any] = [:]
+        if let conversation = args.conversation { params["conversation"] = conversation }
+        switch verb {
+        case "open":
+            try rejectChiefExtraArguments(args.positionals)
+            if let window = try normalizeWindowHandle(windowOverride, client: client) {
+                params["window_id"] = window
+            } else if let workspace = environment["CMUX_WORKSPACE_ID"], !workspace.isEmpty {
+                params["workspace_id"] = workspace
+            }
+            let payload = try client.sendV2(method: "chief.open", params: params)
+            print(jsonOutput ? jsonString(payload) : "OK")
+        case "send":
+            var text = args.positionals.joined(separator: " ")
+            if args.positionals == ["-"] {
+                text = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
+            }
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw CLIError(message: String(
+                    localized: "cli.chief.send.usage",
+                    defaultValue: "Usage: cmux chief send [--conversation <id>] [--from <name>] [--no-reply] <text|->"
+                ))
+            }
+            params["text"] = text
+            if let from = args.from {
+                params["from"] = from
+                params["start_turn"] = !args.noReply
+            } else if args.noReply {
+                throw CLIError(message: String(
+                    localized: "cli.chief.error.noReplyNeedsFrom",
+                    defaultValue: "--no-reply only applies with --from."
+                ))
+            }
+            let payload = try client.sendV2(method: "chief.send", params: params)
+            if jsonOutput {
+                print(jsonString(payload))
+            } else if payload["queued"] as? Bool == true {
+                print(String(
+                    localized: "cli.chief.send.queued",
+                    defaultValue: "Queued: Chief isn't connected yet; the message sends when it is."
+                ))
+            } else {
+                print("OK \(payload["message_id"] as? String ?? payload["conversation"] as? String ?? "")")
+            }
+        case "status":
+            try rejectChiefExtraArguments(args.positionals)
+            let payload = try client.sendV2(method: "chief.status", params: params)
+            if jsonOutput {
+                print(jsonString(payload))
+                return
+            }
+            let working = payload["working"] as? [String] ?? []
+            print("home\t\(payload["home"] as? String ?? "")")
+            print("harness\t\(payload["harness_name"] as? String ?? payload["harness"] as? String ?? "")")
+            print("model\t\(payload["model"] as? String ?? "")")
+            if let effort = payload["effort"] as? String, !effort.isEmpty { print("effort\t\(effort)") }
+            print("unread\t\(payload["unread"] as? Int ?? 0)")
+            print("conversations\t\(payload["conversation_count"] as? Int ?? 0)")
+            print("working\t\(working.isEmpty ? "-" : working.joined(separator: ","))")
+            if let failure = payload["start_failure"] as? String { print("error\t\(failure)") }
+        case "conversations", "list", "ls":
+            try rejectChiefExtraArguments(args.positionals)
+            let payload = try client.sendV2(method: "chief.conversations", params: params)
+            if jsonOutput {
+                print(jsonString(payload))
+                return
+            }
+            for row in payload["conversations"] as? [[String: Any]] ?? [] {
+                let flags = [(row["working"] as? Bool == true) ? "working" : nil, (row["pinned"] as? Bool == true) ? "pinned" : nil]
+                    .compactMap { $0 }.joined(separator: ",")
+                print([row["id"] as? String ?? "", "\(row["unread"] as? Int ?? 0)", flags.isEmpty ? "-" : flags,
+                       row["title"] as? String ?? "", Self.chiefOneLine(row["preview"] as? String ?? "")]
+                    .joined(separator: "\t"))
+            }
+        case "read":
+            try rejectChiefExtraArguments(args.positionals)
+            if let limit = args.limit { params["limit"] = limit }
+            let payload = try client.sendV2(method: "chief.read", params: params)
+            if jsonOutput {
+                print(jsonString(payload))
+                return
+            }
+            for message in payload["messages"] as? [[String: Any]] ?? [] {
+                let at = message["at"] as? String ?? ""
+                let author = message["author"] as? String ?? ""
+                let text = message["text"] as? String ?? ""
+                let parts = (message["parts"] as? [String] ?? []).filter { $0 != "text" }
+                let suffix = parts.isEmpty ? "" : " [\(parts.joined(separator: ","))]"
+                print("\(at) \(author): \(text)\(suffix)")
+            }
+            if payload["working"] as? Bool == true {
+                print(String(localized: "cli.chief.read.working", defaultValue: "(Chief is replying…)"))
+            }
+        case "stop":
+            try rejectChiefExtraArguments(args.positionals)
+            let payload = try client.sendV2(method: "chief.stop", params: params)
+            if jsonOutput {
+                print(jsonString(payload))
+            } else if payload["stopped"] as? Bool == true {
+                print("OK")
+            } else {
+                print(String(localized: "cli.chief.stop.idle", defaultValue: "Chief isn't replying."))
+            }
+        case "debug":
+            // DEBUG builds only; hidden from help. Always prints JSON.
+            guard let action = args.positionals.first else {
+                throw CLIError(message: "Usage: cmux chief debug <tapback|geometry|rows|messages|scroll|set-draft|send-draft|theme> [--conversation <id>] [--mine] [--dy <points>] [--limit <n>] [--text <text>|<text>]")
+            }
+            params["action"] = action
+            if args.mine { params["mine"] = true }
+            if let dy = args.dy { params["dy"] = dy }
+            if let limit = args.limit { params["limit"] = limit }
+            let rest = args.positionals.dropFirst()
+            if let text = args.text ?? (rest.isEmpty ? nil : rest.joined(separator: " ")) { params["text"] = text }
+            print(jsonString(try client.sendV2(method: "chief.debug", params: params)))
+        default:
+            throw CLIError(message: Self.chiefUnknownSubcommandMessage + "\n\n" + Self.chiefUsage)
+        }
+    }
+
+    private static func chiefOneLine(_ text: String) -> String {
+        text.split(whereSeparator: \.isNewline).joined(separator: " ")
+    }
+}
+
 /// One saved fact, as stored in memory.jsonl.
 struct CLIChiefMemoryFact: Codable, Equatable {
     let id: String

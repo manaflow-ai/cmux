@@ -45,7 +45,7 @@ struct ChiefSettingsCard: View {
                 controlWidth: controlWidth
             ) {
                 Picker("", selection: Binding(get: { harnessSelection }, set: { harnessModel.set($0.rawValue) })) {
-                    ForEach(ChiefHarness.allCases, id: \.self) { harness in
+                    ForEach(ChiefHarnessSetting.allCases, id: \.self) { harness in
                         Text(Self.displayName(for: harness)).tag(harness)
                     }
                 }
@@ -87,11 +87,11 @@ struct ChiefSettingsCard: View {
         }
     }
 
-    private var harnessSelection: ChiefHarness {
-        ChiefHarness(rawValue: harnessModel.current) ?? .defaultHarness
+    private var harnessSelection: ChiefHarnessSetting {
+        ChiefHarnessSetting(rawValue: harnessModel.current) ?? .defaultHarness
     }
 
-    private static func displayName(for harness: ChiefHarness) -> String {
+    private static func displayName(for harness: ChiefHarnessSetting) -> String {
         switch harness {
         case .claude:
             return String(localized: "settings.automation.chief.harness.claude", defaultValue: "Claude Code", bundle: .module)

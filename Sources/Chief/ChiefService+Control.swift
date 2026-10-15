@@ -93,9 +93,10 @@ enum ChiefControlFailure: Error, Sendable {
 // through the same owner and store the Home UI uses.
 extension ChiefService {
     /// The started owner, or why there is none.
-    func controlOwner() throws(ChiefControlFailure) -> ChiefConversationOwner {
+    /// - Throws: ``ChiefControlFailure/unavailable(_:)`` when the Chief home could not be opened.
+    func controlOwner() throws -> ChiefConversationOwner {
         start()
-        guard let owner else { throw .unavailable(startFailure ?? ChiefStrings.unavailable) }
+        guard let owner else { throw ChiefControlFailure.unavailable(startFailure ?? ChiefStrings.unavailable) }
         return owner
     }
 
@@ -134,9 +135,11 @@ extension ChiefService {
     /// `chief.send` without `from`: the user's message through the store,
     /// exactly as Return in the compose field sends plain text
     /// (`HomeStore.perform(.sendMessage)`), so the transcript shows it the same.
-    func controlSendAsUser(text: String, conversation raw: String?) async throws(ChiefControlFailure) -> ChiefControlSendResult {
+    ///
+    /// - Throws: ``ChiefControlFailure``.
+    func controlSendAsUser(text: String, conversation raw: String?) async throws -> ChiefControlSendResult {
         _ = try controlOwner()
-        guard let store else { throw .unavailable(startFailure ?? ChiefStrings.unavailable) }
+        guard let store else { throw ChiefControlFailure.unavailable(startFailure ?? ChiefStrings.unavailable) }
         let conversation = controlConversationID(raw)
         if store.isConfirmed(conversation) || store.summary(conversation) != nil {
             // Known: fall through to the send.
@@ -155,7 +158,7 @@ extension ChiefService {
         } catch let rejection as HomeRejection {
             throw ChiefControlFailure.from(rejection)
         } catch {
-            throw .rejected(code: "internal_error", message: String(describing: error))
+            throw ChiefControlFailure.rejected(code: "internal_error", message: String(describing: error))
         }
     }
 

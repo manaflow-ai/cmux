@@ -424,7 +424,7 @@ extension CmuxSettingsFileStore {
         } else if section.keys.contains("enabled") {
             logInvalid("chief.enabled", sourcePath: sourcePath)
         }
-        if let raw = jsonString(section["harness"]), let harness = ChiefHarness(rawValue: raw) {
+        if let raw = jsonString(section["harness"]), let harness = ChiefHarnessSetting(rawValue: raw) {
             snapshot.managedUserDefaults[keys.harness.userDefaultsKey] = .string(harness.rawValue)
         } else if section.keys.contains("harness") {
             logInvalid("chief.harness", sourcePath: sourcePath)

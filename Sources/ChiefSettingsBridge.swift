@@ -29,10 +29,10 @@ enum ChiefSettings {
         keys.enabled.value(in: defaults)
     }
 
-    /// `chief.harness`, falling back to ``ChiefHarness/defaultHarness`` for an
+    /// `chief.harness`, falling back to ``ChiefHarnessSetting/defaultHarness`` for an
     /// unknown stored value.
-    static func harness(in defaults: UserDefaults) -> ChiefHarness {
-        ChiefHarness(rawValue: keys.harness.value(in: defaults)) ?? .defaultHarness
+    static func harness(in defaults: UserDefaults) -> ChiefHarnessSetting {
+        ChiefHarnessSetting(rawValue: keys.harness.value(in: defaults)) ?? .defaultHarness
     }
 
     /// `chief.model`, or `nil` when empty (use the harness default).
@@ -46,7 +46,7 @@ enum ChiefSettings {
     }
 
     static var isEnabled: Bool { isEnabled(in: .standard) }
-    static var harness: ChiefHarness { harness(in: .standard) }
+    static var harness: ChiefHarnessSetting { harness(in: .standard) }
     static var model: String? { model(in: .standard) }
     static var effort: String? { effort(in: .standard) }
 
@@ -56,7 +56,7 @@ enum ChiefSettings {
     }
 
     /// Persists `chief.harness`.
-    static func setHarness(_ harness: ChiefHarness, in defaults: UserDefaults = .standard) {
+    static func setHarness(_ harness: ChiefHarnessSetting, in defaults: UserDefaults = .standard) {
         keys.harness.set(harness.rawValue, in: defaults)
     }
 

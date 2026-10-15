@@ -1,0 +1,31 @@
+import AppKit
+
+extension AppDelegate {
+    /// Starts Chief at launch when `chief.enabled` is on, so the sidebar's
+    /// Home row shows unread replies before Home is first opened, and wires
+    /// the first-run rows that open a terminal or an agent.
+    ///
+    /// Starting is cheap: it loads the conversation logs and starts the
+    /// store. No agent process runs until the user sends a message.
+    func startChiefIfEnabled() {
+        guard ChiefSettings.isEnabled else { return }
+        let service = ChiefService.shared
+        service.onFirstRunAction = { [weak self] action in
+            self?.performChiefFirstRunAction(action)
+        }
+        service.start()
+    }
+
+    /// A first-run row: a new workspace (leaving Home), with the user's agent
+    /// started in it for "Start an agent".
+    private func performChiefFirstRunAction(_ action: ChiefFirstRunAction) {
+        guard let tabManager else { return }
+        switch action {
+        case .openTerminal:
+            _ = tabManager.addWorkspace(select: true)
+        case .startAgent:
+            let command = ChiefSettings.harness == .codex ? "codex" : "claude"
+            _ = tabManager.addWorkspace(initialTerminalInput: command + "\n", select: true)
+        }
+    }
+}

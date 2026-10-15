@@ -276,7 +276,7 @@ actor ClaudeConversation {
             lastSession = id
             continuation?.yield(event)
         case .failed(let message):
-            if retryFreshSession() { return }
+            if retryFreshSession(after: message) { return }
             end(.failed(message))
         case .finished:
             end(.finished)
@@ -286,10 +286,11 @@ actor ClaudeConversation {
         }
     }
 
-    /// A resumed session that fails before any output (its transcript is
-    /// gone): start a new session once and send the prompt again.
-    private func retryFreshSession() -> Bool {
-        guard var turn = current, turn.resumed, !turn.retried, !turnOutput, let broken = lastSession else { return false }
+    /// A resumed session whose transcript is gone ("No conversation found")
+    /// fails before any output: start a new session once and send the prompt again.
+    private func retryFreshSession(after failure: String) -> Bool {
+        guard failure.localizedCaseInsensitiveContains("no conversation found"),
+              var turn = current, turn.resumed, !turn.retried, !turnOutput, let broken = lastSession else { return false }
         brokenSessions.insert(broken)
         lastSession = nil
         turn.retried = true
@@ -306,8 +307,8 @@ actor ClaudeConversation {
         parser.processExited()
         approvals = [:]
         guard continuation != nil else { return }
-        if retryFreshSession() { return }
         let detail = child.stderrText
+        if retryFreshSession(after: detail) { return }
         end(.failed(detail.isEmpty ? "Claude Code exited unexpectedly." : "Claude Code exited: \(ChiefToolPolicy.truncate(detail, to: 600))"))
     }
 

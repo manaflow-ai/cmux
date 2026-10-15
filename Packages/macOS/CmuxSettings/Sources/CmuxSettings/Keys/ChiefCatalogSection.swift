@@ -1,14 +1,14 @@
 import Foundation
 
 /// The agent harness Chief runs its conversations on (`chief.harness`).
-public enum ChiefHarness: String, CaseIterable, Sendable {
+public enum ChiefHarnessSetting: String, CaseIterable, Sendable {
     /// Claude Code, the default harness.
     case claude
     /// OpenAI Codex.
     case codex
 
     /// The harness used when `chief.harness` is unset or invalid.
-    public static let defaultHarness: ChiefHarness = .claude
+    public static let defaultHarness: ChiefHarnessSetting = .claude
 }
 
 /// Settings under the dotted-id prefix `chief.*`.
@@ -24,7 +24,7 @@ public struct ChiefCatalogSection: SettingCatalogSection {
         userDefaultsKey: "chiefEnabled"
     )
 
-    /// The harness raw value, one of ``ChiefHarness`` (`"claude"` or `"codex"`).
+    /// The harness raw value, one of ``ChiefHarnessSetting`` (`"claude"` or `"codex"`).
     public let harness = DefaultsKey<String>(
         id: "chief.harness",
         defaultValue: "claude",

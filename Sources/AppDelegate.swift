@@ -1682,6 +1682,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // menu mounts: it is lazy, and its consumers only observe its
         // notification, so nothing else would bring it up (#10866).
         BrowserAvailabilityMonitor.shared.activate()
+        startChiefIfEnabled()
         // Composition root for surfaces: this Mac's panes and every cloud machine's
         // cmux-tui session feed one catalog, and the sidebar, drag/drop, socket and CLI all
         // open through `SurfaceCatalog.project`.

@@ -45,6 +45,18 @@ import Testing
         ])
     }
 
+    /// An approval without `command` takes the command of its started item.
+    @Test func approvalFallsBackToTheItemCommand() {
+        var parser = CodexAppServerParser(threadID: "t")
+        parser.beginTurn()
+        let outputs = feed(&parser, [
+            #"{"method":"item/started","params":{"threadId":"t","turnId":"u","item":{"type":"commandExecution","id":"c","command":"/bin/zsh -lc 'cmux tree'","status":"inProgress"}}}"#,
+            #"{"id":0,"method":"item/commandExecution/requestApproval","params":{"threadId":"t","turnId":"u","itemId":"c","startedAtMs":1}}"#,
+        ])
+        #expect(outputs.last == .approval(requestID: 0, kind: .command, command: "/bin/zsh -lc 'cmux tree'",
+                                          prompt: "Run `cmux tree`?"))
+    }
+
     @Test func unstreamedMessageArrivesWhole() {
         var parser = CodexAppServerParser(threadID: "t")
         parser.beginTurn()

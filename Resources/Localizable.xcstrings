@@ -656077,17 +656077,6 @@
         }
       }
     },
-    "chief.name": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief"
-          }
-        }
-      }
-    },
     "chief.send.refused.generic": {
       "extractionState": "manual",
       "localizations": {

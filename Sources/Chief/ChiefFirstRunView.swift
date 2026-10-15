@@ -74,7 +74,10 @@ final class ChiefFirstRunView: NSView {
             stack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
-        for view in [headline] + starterRows + actionRows as [NSView] { stack.addArrangedSubview(view) }
+        var views: [NSView] = [headline]
+        views += starterRows
+        views += actionRows
+        for view in views { stack.addArrangedSubview(view) }
         stack.setCustomSpacing(18, after: headline)
         if let last = starterRows.last, !actionRows.isEmpty { stack.setCustomSpacing(14, after: last) }
     }

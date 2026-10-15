@@ -50,7 +50,8 @@ enum ChiefControlRequest: Equatable, Sendable {
             return .open(target: ChiefControlWindowTarget(windowID: try optionalString(params, "window_id", maxLength: 200),
                                                           workspaceID: try optionalString(params, "workspace_id", maxLength: 200)))
         case "chief.send":
-            guard let raw = params["text"] as? String else { throw ChiefControlParamError.missing("text") }
+            guard let value = params["text"], !(value is NSNull) else { throw ChiefControlParamError.missing("text") }
+            guard let raw = value as? String else { throw ChiefControlParamError.invalid("text") }
             let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { throw ChiefControlParamError.invalid("text") }
             guard text.utf8.count <= maxTextBytes else { throw ChiefControlParamError.tooLong("text") }

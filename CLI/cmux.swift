@@ -6496,7 +6496,7 @@ struct CMUXCLI {
         if command == "socket-status" { try runSocketControlStatusCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, environment: processEnv); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
-        if command == "chief" { try runChiefCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, environment: processEnv, bundleIdentifier: cliBundleIdentifier); return }
+        if command == "chief", !chiefCommandNeedsSocket(commandArgs) { try runChiefCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, environment: processEnv, bundleIdentifier: cliBundleIdentifier); return }
         if command == "welcome" { printWelcome(); return }
         if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
         if command == "glaeda" { try runGlaedaCommand(commandArgs: commandArgs); return }
@@ -8504,6 +8504,15 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 idFormat: idFormat,
                 windowOverride: windowId
+            )
+
+        case "chief":
+            try runChiefSocketCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                windowOverride: windowId,
+                environment: processEnv
             )
 
         case "comments":

@@ -199,7 +199,13 @@ extension TerminalController {
 
     private nonisolated func chiefOwner() async throws -> ChiefConversationOwner {
         let result = try await v2MainAsync { () -> Result<ChiefConversationOwner, ChiefControlFailure> in
-            Result { () throws(ChiefControlFailure) in try ChiefService.shared.controlOwner() }
+            do {
+                return .success(try ChiefService.shared.controlOwner())
+            } catch let failure as ChiefControlFailure {
+                return .failure(failure)
+            } catch {
+                return .failure(.unavailable(String(describing: error)))
+            }
         }
         return try result.get()
     }
