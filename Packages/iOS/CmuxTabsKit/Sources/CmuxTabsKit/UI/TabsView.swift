@@ -94,6 +94,14 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// The pinch that drives the zoom (page -> grid, card -> page, or grabbing a running zoom).
     @State private var pinchSession = ZoomPinchSession()
     @State private var zoomPinchActive = false
+    /// The insets the grid last had on screen: a page that hides a tab bar or
+    /// the status bar has smaller ones, and a card revealed or laid out
+    /// against them landed under the grid's bar once they came back
+    /// (cmux-next real host, Back to Terminals: 63 pt short).
+    @State private var gridTop: CGFloat = 0
+    @State private var gridBottom: CGFloat = 0
+    private var gridSafeTop: CGFloat { max(safeTop, gridTop) }
+    private var gridSafeBottom: CGFloat { max(safeBottom, gridBottom) }
     @State private var overviewPosition = ScrollPosition(y: 0)
     @State private var menuExpanded = false
     @State private var menuContent = false
@@ -119,7 +127,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     }
 
     private var overviewLayout: OverviewLayout {
-        OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: newTabSlot?.cardCount(in: tabs.map(\.id)) ?? tabs.count,
+        OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: newTabSlot?.cardCount(in: tabs.map(\.id)) ?? tabs.count,
                        pinned: pinnedCount)
     }
 
@@ -244,6 +252,12 @@ struct TabsScreen<Source: TabsDataSource>: View {
         .gesture(ZoomPinchGesture { handlePinch($0) })
         .onChange(of: size.width, initial: true) { _, w in zoomDriver.span = Double(w - overviewLayout.cardWidth) }
         .onChange(of: overviewVisible) { _, visible in source.overviewVisibilityChanged(visible) }
+        .onChange(of: zoomState.phase == .overview ? safeTop : -1) { _, top in
+            if top >= 0 { gridTop = top }
+        }
+        .onChange(of: zoomState.phase == .overview ? safeBottom : -1) { _, bottom in
+            if bottom >= 0 { gridBottom = bottom }
+        }
         .onChange(of: zoomState.phase == .overview) { _, onGrid in
             if onGrid {
                 if let id = activeID, source.showStaticCard(for: id) { staticCardID = id }
@@ -396,7 +410,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// The active tab's card in the grid's content coordinates.
     private var activeCardContentRect: CGRect {
         let index = activeIndex ?? 0
-        return OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount).card(index)
+        return OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount).card(index)
     }
 
     /// The tab beside the page during a toolbar swipe (its card content at
@@ -461,7 +475,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     private func zoomEndpoint() -> CGRect {
         if let id = newTabZoomID, id == zoomTabId {
             guard newTabZoom.fromLoneSlot else { return newTabZoom.rect(in: fullRect) }
-            let lone = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: 1)
+            let lone = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: 1)
             return lone.zoomEndpoint(0, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
         }
         let index: Int
@@ -470,7 +484,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         } else {
             index = zoomTabId.flatMap { id in tabs.firstIndex { $0.id == id } } ?? (activeIndex ?? 0)
         }
-        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount)
+        let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount)
         return grid.zoomEndpoint(index, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
     }
 
@@ -527,7 +541,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         source.overviewWillAppear()
         // Safari: before the page shrinks into its card, the grid jumps (no
         // animation) so the card is fully on screen.
-        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: count, pinned: pinnedCount)
+        let grid = OverviewLayout(size: size, safeTop: gridSafeTop, safeBottom: gridSafeBottom, count: count, pinned: pinnedCount)
         let offset = grid.offset(revealing: index, from: overviewScroll)
         if abs(offset - overviewScroll) > 0.5 {
             var t = Transaction()
