@@ -1176,24 +1176,36 @@ fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
         }
         let acpmux = acpmux_bin.map(Path::to_path_buf).unwrap_or_else(|| "acpmux".into());
         let user = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
-        let mut command = std::process::Command::new(acpmux);
-        command
-            .args(["daemon", "shutdown", "--end-agents"])
-            .env_clear()
-            .env("ACPMUX_HOME", &old)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        for key in ["PATH", "HOME", "USER", "TMPDIR"] {
-            if let Some(value) = user(key) {
-                command.env(key, value);
+        let stop = |end_flag: bool| {
+            let mut command = std::process::Command::new(&acpmux);
+            command.args(["daemon", "shutdown"]);
+            if end_flag {
+                command.arg("--end-agents");
             }
-        }
+            command
+                .env_clear()
+                .env("ACPMUX_HOME", &old)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            for key in ["PATH", "HOME", "USER", "TMPDIR"] {
+                if let Some(value) = user(key) {
+                    command.env(key, value);
+                }
+            }
+            command.status().ok()
+        };
         // On this thread only: `daemon shutdown --end-agents` ends that daemon's agents
-        // first (acpmux bounds its own grace), then the folder goes.
-        // No acpmux to ask: its daemon may still run there; keep the folder.
-        let Ok(mut child) = command.spawn() else { continue };
-        let _ = child.wait();
+        // first (acpmux bounds its own grace), then the folder goes. An acpmux of a build
+        // before the flag refuses it (usage error, exit 2); its plain shutdown ends them.
+        // No acpmux to ask, or a stop that failed: its daemon may still run; keep the folder.
+        let stopped = match stop(true) {
+            Some(status) if status.code() == Some(2) => stop(false),
+            other => other,
+        };
+        if !stopped.is_some_and(|status| status.success()) {
+            continue;
+        }
         if let Err(error) = std::fs::remove_dir_all(&old) {
             eprintln!("cmux-tui: removing {}: {error}", old.display());
         }

@@ -24,17 +24,17 @@ SH
 cat > "$BRAIN/bin/acpmux" <<'SH'
 #!/usr/bin/env bash
 echo "acpmux $* ACPMUX_HOME=$ACPMUX_HOME" >> "$LOG"
-if [[ "$*" == "daemon shutdown" ]]; then pkill -U "$(id -u)" -f "$(dirname "$0")/agent-host" || true; fi
+if [[ "$*" == "daemon shutdown --end-agents" ]]; then pkill -U "$(id -u)" -f "$(dirname "$0")/agent-host" || true; fi
 SH
 chmod 755 "$tmp/path/launchctl" "$BRAIN/bin/agent-host" "$BRAIN/bin/acpmux"
 "$BRAIN/bin/agent-host" &
 session=$!
 PATH="$tmp/path:$PATH" "$here/rollback.sh" --brain "$BRAIN" > "$tmp/out.log" 2>&1
 fail() { echo "FAIL: $*"; cat "$LOG" "$tmp/out.log"; exit 1; }
-grep -q "^acpmux daemon shutdown ACPMUX_HOME=$BRAIN/acpmux$" "$LOG" || fail "no acpmux daemon shutdown with the brain's ACPMUX_HOME"
+grep -q "^acpmux daemon shutdown --end-agents ACPMUX_HOME=$BRAIN/acpmux$" "$LOG" || fail "no acpmux daemon shutdown --end-agents with the brain's ACPMUX_HOME"
 line() { grep -n "$1" "$LOG" | head -1 | cut -d: -f1; }
 host=$(line "bootout gui/[0-9]*/ai.manaflow.chief-brain.host")
-shutdown=$(line "acpmux daemon shutdown")
+shutdown=$(line "acpmux daemon shutdown --end-agents")
 agent=$(line "bootout gui/[0-9]*/ai.manaflow.chief-brain.acpmux")
 [[ -n "$host" && -n "$agent" && "$host" -lt "$shutdown" && "$shutdown" -lt "$agent" ]] || fail "order: host bootout, then acpmux shutdown, then the acpmux LaunchAgent"
 sleep 0.5

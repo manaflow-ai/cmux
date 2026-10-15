@@ -658,7 +658,7 @@ pub enum DaemonCmd {
     Shutdown {
         /// Accepted for callers of older builds, where a plain shutdown ended
         /// the agents; hosted agents keep running anyway.
-        #[arg(long, conflicts_with = "end_agents")]
+        #[arg(long, hide = true, conflicts_with = "end_agents")]
         keep_agents: bool,
         /// End every agent process too, hosted agents and their hosts included.
         #[arg(long)]
