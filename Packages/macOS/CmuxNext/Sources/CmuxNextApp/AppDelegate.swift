@@ -186,7 +186,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WebAuthSessionHandler.install(webAuthHandler)
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
-        services.windows.onContentDidAppear = { [weak services] _ in services?.externalOpen.flush() }
+        services.windows.onContentDidAppear = { [weak services] controller in
+            services?.externalOpen.flush()
+            if let window = controller.window { services?.pageHostPool.windowDidAppear(window) }
+        }
         NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen)
     }
 

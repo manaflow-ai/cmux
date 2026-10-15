@@ -18,6 +18,23 @@ import Testing
         #expect(pool.target === window, "the pool started with a main window on screen and parked its spare nowhere")
     }
 
+    /// The launch window shows once the daemon's workspaces load, after the pool started, and an
+    /// app launched in the background never makes it key. A second window leaves the spare where it is.
+    @Test func aMainWindowShownAfterStartTakesTheSpare() {
+        let pool = PageHostPool(activity: { 0 }, isTrackingMenu: { false })
+        defer { pool.dropSpare() }
+        pool.start(isMainWindow: { _ in false }, fallback: { _ in nil })
+        pool.noteLikely()
+        let window = Self.shownWindow()
+        defer { window.close() }
+        pool.windowDidAppear(window)
+        #expect(pool.target === window)
+        let second = Self.shownWindow()
+        defer { second.close() }
+        pool.windowDidAppear(second)
+        #expect(pool.target === window, "a second window took the spare from a window on screen")
+    }
+
     static func shownWindow() -> NSWindow {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: -4_000, y: -4_000, width: 900, height: 640),
