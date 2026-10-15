@@ -8,7 +8,8 @@ Built from s7-proof-v3.py.
 1. The app launches (unsigned DEV): its owner connection is not verified and the owner is idle, so the app restarts the
    owner once with the install key (debug.home chief_owner.daemon_pid changes, connected again).
 2. Page Chief create WITHOUT a gesture: refused (gesture_required).
-3. New Chief through the page with a REAL pointer click on Create Chief: the Chief is created on the owner (chief list),
+3. New Chief through the page with ONE REAL pointer click on Create Chief while cmux is inactive (debug.focus
+   deactivate; the window stays in place): the Chief is created on the owner (chief list),
    the page shows no "needs a verified cmux app connection".
 4. The owner restarts while the page is open: page relay calls during and after the restart answer within the relay
    deadline (16 s, checked at 18 s), and a second real
@@ -260,7 +261,7 @@ def find_elements(obj, out):
     return out
 
 
-def real_click_link(pid, mark, text, role="link"):
+def real_click_link(pid, mark, text, role="link", front=True):
     """Finds the link (AXLink whose label or value names `text`/`mark`) in the app's accessibility
     tree and clicks its center with a real pointer event. Returns what it did."""
     wins = cua("list_windows", {"pid": pid})
@@ -270,7 +271,8 @@ def real_click_link(pid, mark, text, role="link"):
         return {"error": "no window", "windows": str(wins)[:800]}
     win = max(rows, key=lambda w: (w.get("z_index") or 0))
     # The input job has the GUI session alone: the window comes forward so the click is not a first-mouse activation.
-    R["front"] = cua("bring_to_front", {"pid": pid, "window_id": win["window_id"]})
+    if front:
+        R["front"] = cua("bring_to_front", {"pid": pid, "window_id": win["window_id"]})
     # Web content sits deep in the AX tree (WKWebView): past the default depth 25.
     state = cua("get_window_state", {"pid": pid, "window_id": win["window_id"], "include_screenshot": False, "query": text,
                                      "max_depth": 80, "max_elements": 8000})
@@ -405,7 +407,12 @@ try:
     # A real click into the Name field first (the window gets real input before the gesture click, as in v3).
     R["name_click"] = real_click_link(app.pid, name, name, role="textfield")
     until(lambda: None, 1)  # proof pacing: the first click's activation settles before the gesture click
-    R["create_click"] = real_click_link(app.pid, "Create Chief", "Create Chief", role="button")
+    # The person works in another app: cmux is inactive, its window stays where it is. ONE click on Create Chief
+    # must make the Chief (the first click on an inactive window reaches the page, as on the native controls).
+    R["deactivate"] = res(rpc("debug.focus", {"deactivate": True}, 30)) or {}
+    inactive = until(lambda: (res(rpc("debug.focus", {}, 30)) or {}).get("app_active") is False, 10)
+    check("app_inactive_before_create_click", bool(inactive), {"app_active": (res(rpc("debug.focus", {}, 30)) or {}).get("app_active")})
+    R["create_click"] = real_click_link(app.pid, "Create Chief", "Create Chief", role="button", front=False)
     # What the host holds right after the click: the page's calls still running (id, op, age).
     R["in_flight_after_click"] = [(lambda s: {"t": round(time.time(), 3), "in_flight": s.get("in_flight"), "hash": s.get("hash")})(page_state())
                                   for _ in range(1) ]

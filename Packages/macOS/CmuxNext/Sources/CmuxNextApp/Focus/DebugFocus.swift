@@ -6,6 +6,9 @@ import CmuxNextSettings
 /// (plans/cmux-next/focus.md section 6). Pane and tab ids match
 /// `debug.surfaces` and the compat tree.
 enum DebugFocus {
+    /// The app resigns active; its windows stay where they are.
+    static func deactivateApp() { NSApp.deactivate() }
+
     static func report(services: AppServices) -> JSONValue {
         let ghostty = services.cache.focusedTerminalTabs
         let windows = services.windows.controllers.map { window(of: $0, ghostty: ghostty) }
