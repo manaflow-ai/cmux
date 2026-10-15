@@ -502,6 +502,17 @@ fn caller(mux: &Mux, client: u64, store: &ChiefStore) -> Result<Caller, Resource
     }
 }
 
+/// Every Chief's current name by participant id, for the Home rows
+/// (`home-inbox`). Best effort: a registry that cannot open gives none, and
+/// the rows fall back to the conversations' titles.
+pub(super) fn chief_names(mux: &Mux) -> std::collections::BTreeMap<String, String> {
+    with_store(mux, Op::ChiefProfileList, |store| {
+        store.list().map_err(|error| internal(Op::ChiefProfileList, &error))
+    })
+    .map(|records| records.into_iter().map(|record| (record.id, record.display_name)).collect())
+    .unwrap_or_default()
+}
+
 fn with_store<T>(
     mux: &Mux,
     operation: Op,
