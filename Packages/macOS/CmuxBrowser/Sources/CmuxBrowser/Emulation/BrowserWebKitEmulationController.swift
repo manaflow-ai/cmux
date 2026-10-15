@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 public import WebKit
 
 /// Applies ``BrowserEmulationOverrides`` to a WKWebView and keeps them for
