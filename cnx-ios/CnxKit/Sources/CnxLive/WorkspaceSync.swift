@@ -25,7 +25,7 @@ public final class WorkspaceSync {
     @ObservationIgnored private var refreshing = false
     @ObservationIgnored private var dirty = false
     @ObservationIgnored private var agents = AgentStates()
-    /// The Mac's sidebar order and pins (`list-personal`, `sidebar_layout.get`),
+    /// The Mac's sidebar order, groups and pins (`list-personal`, `sidebar_layout.get`),
     /// read again after a topology or personal change (`arrangementStale`).
     @ObservationIgnored public private(set) var arrangement: SidebarArrangement?
     @ObservationIgnored private var arrangementStale = true
@@ -235,6 +235,9 @@ public final class WorkspaceSync {
         var next = SidebarArrangement()
         if let reply = try? Self.check(await client.request("list-personal")) {
             next.rows = SidebarArrangement.rows(personal: reply)
+            next.groups = SidebarArrangement.groups(personal: reply)
+            next.rooms = SidebarArrangement.rooms(personal: reply)
+            next.roomPins = SidebarArrangement.roomPins(personal: reply)
         }
         if let line = try? await client.resourceRequest("sidebar_layout.get", deadline: .seconds(10)),
            let reply = try? Self.checkResource(line) {

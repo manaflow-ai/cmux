@@ -44,6 +44,9 @@ public struct Workspace: Identifiable, Hashable, Sendable, Codable {
     /// The Mac's Home workspace (daemon `kind: "home"`): its tabs stay in it, as the Mac
     /// refuses to promote one ("Home's tabs stay in Home.").
     public var isHome: Bool = false
+    /// The Mac's workspace group the workspace is in (its personal sidebar
+    /// group, `list-personal`), if any.
+    public var group: MacWorkspaceGroup?
 
     public init(
         id: String, macID: String, title: String, directory: String, branch: String? = nil,
@@ -73,7 +76,7 @@ extension Workspace {
     enum CodingKeys: String, CodingKey {
         case id, macID, title, directory, branch, tabs, lastActivityAt, hasActivityTime, focusOrder, activeTabID
         case needsAttention, isWorking, hasUnread, colorHex, icon
-        case isPinned, pinIndex, pinItemID, sidebarIndex, resourceID, hasCustomTitle, isHome
+        case isPinned, pinIndex, pinItemID, sidebarIndex, resourceID, hasCustomTitle, isHome, group
     }
 
     /// Snapshots saved before a field existed still load (it takes its default).
@@ -103,6 +106,7 @@ extension Workspace {
         resourceID = try c.decodeIfPresent(String.self, forKey: .resourceID)
         hasCustomTitle = try c.decodeIfPresent(Bool.self, forKey: .hasCustomTitle) ?? false
         isHome = try c.decodeIfPresent(Bool.self, forKey: .isHome) ?? false
+        group = try c.decodeIfPresent(MacWorkspaceGroup.self, forKey: .group)
     }
 }
 

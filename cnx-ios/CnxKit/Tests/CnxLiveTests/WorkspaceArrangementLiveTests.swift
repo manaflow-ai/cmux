@@ -113,3 +113,32 @@ import Testing
                 == [.queueOrder(["p2", "p1"])])
     }
 }
+
+/// Parity round 3: the lines the phone sends for the Mac's workspace groups.
+@Suite struct WorkspaceGroupLiveTests {
+    @Test func placeNamesTheWorkspacesResource() throws {
+        var ws = Workspace(id: "k", macID: "m", title: "w", directory: "~", tabs: [], lastActivityAt: Date())
+        #expect(throws: WorkspaceCreationError.self) { try LiveWorkspaceCreationBackend.placeParams(ws, group: "grp_1") }
+        ws.resourceID = "ws_1"
+        let into = try LiveWorkspaceCreationBackend.placeParams(ws, group: "grp_1")
+        #expect(into["workspace"] as? String == "ws_1" && into["group"] as? String == "grp_1")
+        let out = try LiveWorkspaceCreationBackend.placeParams(ws, group: nil)
+        #expect(out["group"] is NSNull)
+    }
+
+    @Test func createdGroupIDFromTheResponse() {
+        #expect(LiveWorkspaceCreationBackend.createdGroupID(["ok": true, "result": ["value": ["id": "grp_9", "name": "x"]]]) == "grp_9")
+        #expect(LiveWorkspaceCreationBackend.createdGroupID(["ok": true, "result": ["id": "grp_8"]]) == "grp_8")
+        #expect(LiveWorkspaceCreationBackend.createdGroupID(["ok": true]) == nil)
+    }
+
+    /// The tree takes the Mac's groups from `list-personal`.
+    @Test func treeCarriesGroups() throws {
+        var tree = try DaemonTree(reply: WorkspaceArrangementLiveTests.reply, macID: "m")
+        let group = MacWorkspaceGroup(id: "grp_1", name: "Ship", color: "red")
+        tree.apply(SidebarArrangement(rows: [.init(session: "reg_1", key: "k-a", index: 0, group: "grp_1"),
+                                             .init(session: "reg_1", key: "k-b", index: 1)], groups: [group]))
+        #expect(tree.workspaces.map { $0.group?.id } == ["grp_1", nil, nil])
+        #expect(tree.workspaces.map(\.sidebarIndex) == [2, 0, 1])
+    }
+}

@@ -47,6 +47,32 @@ extension Workspace {
     public var place: String { branch ?? directory }
 }
 
+/// A run of `WorkspaceInbox.recent`: loose rows, or one Mac workspace group's
+/// members under its header.
+public struct RecentSection: Hashable, Sendable, Identifiable {
+    public var macID: String
+    /// Nil: loose rows.
+    public var group: MacWorkspaceGroup?
+    public var workspaces: [Workspace]
+
+    public var id: String {
+        group.map { "group-\(macID)-\($0.id)" } ?? "loose-\(macID)-\(workspaces.first?.id ?? "")"
+    }
+
+    /// Consecutive rows of one Mac and one group make one section.
+    static func runs(_ rows: [Workspace]) -> [RecentSection] {
+        var sections: [RecentSection] = []
+        for ws in rows {
+            if let last = sections.last, last.macID == ws.macID, last.group?.id == ws.group?.id {
+                sections[sections.count - 1].workspaces.append(ws)
+            } else {
+                sections.append(RecentSection(macID: ws.macID, group: ws.group, workspaces: [ws]))
+            }
+        }
+        return sections
+    }
+}
+
 /// The Workspaces list for a Mac filter and a search (SPEC 11.1, the
 /// "Inbox"): Needs You first, then Recent, then one folded line per Mac
 /// whose list is not live (offline, or online but not linked).
@@ -124,6 +150,9 @@ public struct WorkspaceInbox: Hashable, Sendable {
     public var recent: [Workspace]
     /// `recent` follows the Mac's sidebar order (a live Mac told it).
     public var isMacOrder: Bool
+    /// `recent` in runs as the Mac's sidebar shows them: loose workspaces, and
+    /// each workspace group of a Mac under its header (in the Mac's order).
+    public var recentSections: [RecentSection]
     public var folds: [Fold]
     public var statuses: [String: WorkspaceStatus]
     /// Recent mixes several Macs, so idle rows name their Mac.
@@ -179,6 +208,9 @@ public struct WorkspaceInbox: Hashable, Sendable {
             .sorted { ($0.pinIndex ?? .max, order[$0.id] ?? 0) < ($1.pinIndex ?? .max, order[$1.id] ?? 0) }
         recent = sorted(live.filter { statuses[$0.id] != .needsYou && !$0.isPinned })
         isMacOrder = recent.contains { $0.sidebarIndex != nil }
+        // Newest first (no Mac order known) shows no groups: its rows are not in runs.
+        recentSections = isMacOrder ? RecentSection.runs(recent)
+            : recent.isEmpty ? [] : [RecentSection(macID: "", group: nil, workspaces: recent)]
         let online = scoped.filter(\.isOnline)
         let asleep = scope == .all && !scoped.isEmpty && online.isEmpty
         allAsleep = asleep
@@ -246,7 +278,8 @@ public struct WorkspaceInbox: Hashable, Sendable {
     /// tiles with a layout move a phone may not send.
     public func macOrder(of workspace: Workspace) -> [Workspace] {
         guard !workspace.isPinned else { return [] }
-        return recent.filter { $0.macID == workspace.macID && status($0) != .needsYou }
+        // Within its own group (or among the loose rows): Move Up / Down never changes the group.
+        return recent.filter { $0.macID == workspace.macID && $0.group?.id == workspace.group?.id && status($0) != .needsYou }
     }
 
     /// One Mac's live rows as its sidebar shows them (pinned first, then the
