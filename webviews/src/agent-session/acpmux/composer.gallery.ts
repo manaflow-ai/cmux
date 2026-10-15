@@ -793,7 +793,10 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
+        // Effort rides in the model chip: its menu opens from the model menu's Reasoning row.
+        await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-effort"));
+        await ctx.click({ selector: ".acpmux-mp-effort" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
       },
     },
@@ -851,7 +854,10 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
+        // Effort rides in the model chip: its menu opens from the model menu's Reasoning row.
+        await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-effort"));
+        await ctx.click({ selector: ".acpmux-mp-effort" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
         await ctx.click({ role: "menuitemradio", name: /^Fast/ });
         await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-effort-menu"));
@@ -939,7 +945,10 @@ export default agentPaneEntry({
         },
       }),
       play: async (ctx) => {
-        await ctx.click({ selector: '[data-menu="Effort"]' });
+        // Effort rides in the model chip: its menu opens from the model menu's Reasoning row.
+        await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-effort"));
+        await ctx.click({ selector: ".acpmux-mp-effort" });
         await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
       },
     },
@@ -1078,7 +1087,10 @@ export default agentPaneEntry({
         await ctx.press("ArrowDown");
         await ctx.press("Escape");
         await ctx.waitFor(() => !ctx.document.querySelector('.ui-popup[role="menu"]'));
-        await ctx.click({ selector: '[data-menu="Effort"]' });
+        // Effort rides in the model chip: its menu opens from the model menu's Reasoning row.
+        await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-effort"));
+        await ctx.click({ selector: ".acpmux-mp-effort" });
         await ctx.waitFor(() => ctx.document.querySelector('.ui-popup[role="menu"] [role="menuitemradio"]'));
       },
     },

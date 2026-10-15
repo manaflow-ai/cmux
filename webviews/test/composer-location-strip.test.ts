@@ -162,7 +162,6 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
           ).length,
           plus: left(".acpmux-composer-plus"),
           model: left(".acpmux-model"),
-          effort: left(".acpmux-effort"),
           access: left(".acpmux-access"),
           send: left(".acpmux-send"),
         };
@@ -174,7 +173,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     const arrived = await controls("reported");
     expect(loading.placeholders).toBe(0);
     expect(arrived.placeholders).toBe(0);
-    for (const name of ["plus", "model", "effort", "access", "send"] as const) {
+    // Effort rides in the model chip (composerRowFit.ts): the model chip holds its width too.
+    for (const name of ["plus", "model", "access", "send"] as const) {
       expect(loading[name]).toBeDefined();
       expect(Math.abs(loading[name]! - arrived[name]!)).toBeLessThanOrEqual(1);
     }

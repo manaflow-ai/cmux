@@ -14,6 +14,12 @@ export type ModelPickerProps = {
   model?: string;
   /// The chip's text: the current model's name, or its id when the catalog doesn't list it.
   label: string;
+  /// What the composer's controls row draws in the chip (composerRowFit.ts): the name without its
+  /// vendor ("Opus 5.5"), its family ("Opus") for a narrow row, and the dim suffix ("Fast", "Med");
+  /// `title` is the chip's tooltip, the full value. Away from the row the chip shows `label`.
+  chip?: { short?: string; family?: string; fast?: string; effort?: string; title?: string };
+  /// The effort menu, opened from this menu's Reasoning row: the row draws effort in this chip.
+  effortMenu?: { title: string; value: string; open(): void };
   /// A harness switch in flight: the chip draws this harness's mark and name until it starts.
   switching?: { harness: string; name: string; mark?: string };
   /// The chip's secondary text after the model: the chosen effort, when it is not the default.

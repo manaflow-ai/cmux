@@ -305,9 +305,6 @@
 }
 .acpmux-composer-bar .acpmux-mode-text {
   display: inline;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .acpmux-composer-bar .acpmux-access-trigger {
@@ -373,33 +370,124 @@
 }
 /* The row's two clusters (hq#1957 item 15): + and the chips (model, effort, permission mode,
    Plan) on the left, hugging their controls; the mic and Send (or Stop) on the right
-   (.acpmux-composer-actions, margin-left: auto). The row's free space sits only between the two,
-   so no chip is cut while there is room. No context ring and no granted-permission status sit in
-   it: one lock, the mode's, and a running turn shows on Stop alone. A short row gives up the
-   permission label first (composerRowFit.ts marks it data-fit="icons": the lock alone), then
-   effort shortens, the model last: their flex-shrink weights are far enough apart that each
-   reaches its min width before the next gives up a pixel. Neither the bar nor the footer ever
-   shrinks. */
+   (.acpmux-composer-actions, margin-left: auto). The row's free space sits only between the two.
+   No context ring and no granted-permission status sit in it: one lock, the mode's, and a running
+   turn shows on Stop alone. Neither the bar nor the footer ever shrinks, and no control shrinks
+   either: a label is never cut or ellipsized (Leo 2026-10-14). A short row steps its labels down
+   instead, one control at a time in the order composerRowFit.ts FIT_STEPS lists: to a short label
+   ("Opus 5.5", "Med"), then to its icon alone, the full value in its tooltip. */
 .acpmux-composer-bar { flex: none; }
 .acpmux-composer-bar .acpmux-chips { flex: 0 1 auto; min-width: 0; }
 .acpmux-composer-bar > :not(.acpmux-chips),
 .acpmux-composer-bar .acpmux-chips > * { flex: none; }
-.acpmux-composer-bar .acpmux-chips > .acpmux-effort { flex: 0 100000 auto; min-width: 44px; }
-.acpmux-composer-bar .acpmux-chips > .acpmux-model { flex: 0 1 auto; min-width: 56px; }
-.acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
-.acpmux-composer-bar .acpmux-model .acpmux-picker-button { min-width: 0; max-width: 100%; }
-.acpmux-composer-bar .acpmux-picker-button > :not(span) { flex: none; }
-/* Out of the row but still laid out, so composerRowFit.ts knows the width it would take back. */
-.acpmux-composer-bar[data-fit="icons"] .acpmux-mode-text {
+.acpmux-composer-bar .acpmux-picker-button > * { flex: none; }
+/* The row swaps whole units as the pane narrows (composerRowFit.ts COMPOSER_FIT_STEPS, the
+   compact-composer verdict): the access label at 460 px, Fast at 400, the mic and the model's full
+   name (for its family) at 340, the model's name and the effort suffix (for the mark alone) at 300.
+   A unit's part shows in the forms its data-fit-forms lists; a part of another form is laid out of
+   the row, absolute and invisible, so composerRowFit.ts still knows its width, and its control
+   clips it so it adds no scroll width. The container queries are the pane's widths (literals:
+   test/composer-fit-steps.test.ts holds them to the table); composerRowFit.ts marks the row with
+   data-fit-<unit> when a label is too long for its width's step. The short labels and the suffix
+   are drawn from data-label, so a chip's text stays its full value. */
+.acpmux-main, .acpmux-quick { container: acpmux-pane / inline-size; }
+[data-fit-part]:not([data-fit-forms~="full"]),
+.acpmux-model-short,
+.acpmux-model-suffix { display: none; }
+.acpmux-composer-bar .acpmux-picker-button { position: relative; overflow: clip; }
+.acpmux-composer-bar .acpmux-picker-button [data-fit-part] { display: block; white-space: nowrap; }
+.acpmux-composer-bar .acpmux-picker-button > span { overflow: visible; text-overflow: clip; }
+.acpmux-composer-bar .acpmux-model-name[data-short] { display: none; }
+.acpmux-composer-bar .acpmux-model-short { color: var(--agent-text); }
+.acpmux-composer-bar .acpmux-model-suffix { color: var(--agent-muted); }
+.acpmux-fit-label::before { content: attr(data-label); }
+.acpmux-composer-bar .acpmux-composer-actions { position: relative; }
+.acpmux-fit-mic { display: inline-flex; }
+/* A mic hidden from the row by its menu leaves no empty slot (and no gap) before Send. */
+.acpmux-fit-mic:empty { display: none; }
+/* Effort rides in the model chip; its own menu stays mounted for the chip's menu and automation to
+   open (Reasoning in the model menu, openPicker), anchored at the chips' start, out of sight. */
+.acpmux-composer-bar .acpmux-chips { position: relative; }
+.acpmux-composer-bar .acpmux-chips > .acpmux-effort {
   position: absolute;
-  top: 0;
-  left: 0;
+  inset-inline-start: 0;
+  bottom: 0;
+  width: 1px;
+  height: 28px;
+  overflow: hidden;
   visibility: hidden;
   pointer-events: none;
 }
+.acpmux-composer-bar[data-fit-model="family"] [data-fit-part="model"][data-fit-forms~="family"] {
+  position: static;
+  visibility: visible;
+  pointer-events: auto;
+}
+.acpmux-composer-bar [data-fit-part]:not([data-fit-forms~="full"]),
+.acpmux-composer-bar[data-fit-access="icon"] [data-fit-part="access"]:not([data-fit-forms~="icon"]),
+.acpmux-composer-bar[data-fit-fast="hidden"] [data-fit-part="fast"]:not([data-fit-forms~="hidden"]),
+.acpmux-composer-bar[data-fit-mic="hidden"] [data-fit-part="mic"]:not([data-fit-forms~="hidden"]),
+.acpmux-composer-bar[data-fit-model="family"] [data-fit-part="model"]:not([data-fit-forms~="family"]),
+.acpmux-composer-bar[data-fit-model="icon"] [data-fit-part="model"]:not([data-fit-forms~="icon"]),
+.acpmux-composer-bar[data-fit-effort="hidden"] [data-fit-part="effort"]:not([data-fit-forms~="hidden"]) {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+@container acpmux-pane (max-width: 460px) {
+  .acpmux-composer-bar [data-fit-part="access"]:not([data-fit-forms~="icon"]) {
+    position: absolute;
+    top: 0;
+    inset-inline-start: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
+@container acpmux-pane (max-width: 400px) {
+  .acpmux-composer-bar [data-fit-part="fast"]:not([data-fit-forms~="hidden"]) {
+    position: absolute;
+    top: 0;
+    inset-inline-start: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
+@container acpmux-pane (max-width: 340px) {
+  .acpmux-composer-bar [data-fit-part="model"][data-fit-forms~="family"] {
+    position: static;
+    visibility: visible;
+    pointer-events: auto;
+  }
+  .acpmux-composer-bar [data-fit-part="mic"]:not([data-fit-forms~="hidden"]),
+  .acpmux-composer-bar [data-fit-part="model"]:not([data-fit-forms~="family"]) {
+    position: absolute;
+    top: 0;
+    inset-inline-start: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
+@container acpmux-pane (max-width: 300px) {
+  .acpmux-composer-bar [data-fit-part="model"]:not([data-fit-forms~="icon"]),
+  .acpmux-composer-bar [data-fit-part="effort"]:not([data-fit-forms~="hidden"]) {
+    position: absolute;
+    top: 0;
+    inset-inline-start: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
+/* A listening mic stays in any row: its waveform shows the dictation and a click stops it. */
+.acpmux-composer-bar .acpmux-fit-mic[data-fit-part="mic"]:has(.acpmux-mic[aria-pressed="true"]) {
+  position: static;
+  visibility: visible;
+  pointer-events: auto;
+}
 /* Keep the complete control rail usable in a very narrow pane: preserve every action and only
    tighten their rhythm. */
-@media (max-width: 220px) {
+@container acpmux-pane (max-width: 220px) {
   .acpmux-composer-bar { --acpmux-row-group-gap: 8px; --acpmux-row-edge: 8px; }
   .acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button { width: 24px; }
 }
