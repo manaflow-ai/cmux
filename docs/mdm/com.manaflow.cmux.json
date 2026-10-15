@@ -628,6 +628,31 @@
       "title" : "Focused Pane",
       "type" : "string"
     },
+    "appearance.fonts.chatSize" : {
+      "default" : 14,
+      "description" : "The size of chat messages.",
+      "maximum" : 20,
+      "minimum" : 11,
+      "title" : "Chat Text Size",
+      "type" : "number"
+    },
+    "appearance.fonts.code" : {
+      "description" : "The face of code in chats, diffs and files. Unset, code uses the terminal's font.",
+      "title" : "Code Font",
+      "type" : "string"
+    },
+    "appearance.fonts.ui" : {
+      "default" : "system",
+      "description" : "The face of chats, the composer, pages and the window's own text.",
+      "enum" : [
+        "system",
+        "rounded",
+        "serif",
+        "mono"
+      ],
+      "title" : "Text Font",
+      "type" : "string"
+    },
     "appearance.glassTransparency" : {
       "default" : 0,
       "description" : "How much of the desktop or wallpaper shows through the glass.",
@@ -2800,6 +2825,39 @@
       "description" : "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused.",
       "title" : "Swap Cmd-T and Cmd-N",
       "type" : "boolean"
+    },
+    "tabs.tabBar.agent" : {
+      "default" : "auto",
+      "description" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette.",
+      "enum" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "title" : "Tab Bar in Agent Chats",
+      "type" : "string"
+    },
+    "tabs.tabBar.browser" : {
+      "default" : "auto",
+      "description" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette.",
+      "enum" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "title" : "Tab Bar in Browser Panes",
+      "type" : "string"
+    },
+    "tabs.tabBar.terminal" : {
+      "default" : "auto",
+      "description" : "Every pane shows its tab bar by default, agent chats included. Show or hide one pane's tab bar from the command palette.",
+      "enum" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "title" : "Tab Bar in Terminal Panes",
+      "type" : "string"
     },
     "tabs.toolbarButtons" : {
       "default" : [
