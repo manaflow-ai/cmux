@@ -328,7 +328,7 @@ describe("devbox image template", () => {
         writeFileSync(path.join(directory, "files", "alpha-two"), "");
         writeFileSync(
           path.join(directory, "history"),
-          `echo older-entry\necho accepted-ghost\nclaude --dangerously-skip-permissions\necho ${"x".repeat(70_000)}\n`,
+          `echo older-entry\necho accepted-ghost\nclaude --dangerously-skip-permissions\necho ${"x".repeat(70_000)}\necho \u001b[31munsafe\n`,
         );
         // PS1 is set after ghost.bash loads, as a user's ~/.bashrc does after
         // /etc/cmux/bashrc, and carries \[ \] color spans like the cmux prompt.
@@ -361,6 +361,10 @@ os.write(fd, b"c"); expect(gray + rb"laude --dangerously-skip-permissions")
 os.write(fd, b"l"); expect(gray + rb"aude --dangerously-skip-permissions")
 os.write(fd, b"\r"); out = expect(rb"[\r\n]ran-cl\r\n[\s\S]*" + prompt)
 if b"ran-claude" in out: sys.exit("Enter ran the suggestion instead of the typed text")
+# Control bytes in history are display data, never terminal controls.
+os.write(fd, b"echo "); out = expect(prompt)
+if gray in out or b"\x1b[31m" in out: sys.exit("control bytes from history reached the terminal")
+os.write(fd, b"\x03"); expect(prompt)
 # Right accepts; Enter runs the accepted line.
 os.write(fd, b"echo acc"); expect(gray + rb"epted-ghost")
 run(b"\x1b[C\r", rb"[\r\n]accepted-ghost\r\n")
