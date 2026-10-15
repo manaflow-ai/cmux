@@ -194,6 +194,7 @@ import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { sideChatRow } from "./header/sideChatRow";
 import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
+import { FoldMotion } from "./conversation/foldMotion";
 import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { HostError } from "./HostError";
@@ -796,6 +797,11 @@ function glide(node: HTMLElement | null, step: number): void {
   });
 }
 const GLIDE_MS = 180;
+/// The thread's top padding (styles.css `.acpmux-thread`): rows are placed under it.
+const THREAD_TOP = 16;
+/// Room under the transcript's last row, over the composer (Leo 2026-10-14, #20610): with the last
+/// row's own padding the action row clears the composer by 20px.
+const END_ROOM = 12;
 
 /// Whether `updates` change any drawn height in `current`.
 function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, DrawnHeight>): boolean {
@@ -830,6 +836,7 @@ function RowFrame({
   report,
   enter,
   onEntered,
+  onLeave,
   active,
   selected,
   tabStop,
@@ -855,6 +862,8 @@ function RowFrame({
   /// The row arrived live: it enters with the shared motion on this, its first mount.
   enter: boolean;
   onEntered: (id: string) => void;
+  /// The row unmounts, its node still drawn: a fold that closes fades it out (foldMotion.ts).
+  onLeave: (id: string, node: HTMLElement) => void;
   active: boolean;
   selected: boolean;
   tabStop: boolean;
@@ -874,6 +883,14 @@ function RowFrame({
   useLayoutEffect(() => {
     if (entering) onEntered(row.id);
     // Only the first mount enters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    return () => {
+      if (node) onLeave(row.id, node);
+    };
+    // The row's key is its id; onLeave is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useLayoutEffect(() => {
@@ -1187,6 +1204,9 @@ export function VirtualTranscript({
   }, [rows, sessionChanged, sessionKey]);
   // Rows that arrive live (a reply, a tool call, a status line) enter once. The rows at the first
   // render, and many at once (a session switch, older history), are a load and do not.
+  const thread = useRef<HTMLDivElement>(null);
+  const foldMotion = useMemo(() => new FoldMotion(), []);
+  useEffect(() => () => foldMotion.finish(), [foldMotion]);
   const knownRows = useRef<Set<string> | null>(null);
   const knownFor = useRef<AcpmuxRow[] | null>(null);
   const enteringRows = useRef(new Set<string>());
@@ -1202,9 +1222,21 @@ export function VirtualTranscript({
       if (!knownRows.current.has(rows[index]!.id)) arrived.push(rows[index]!);
     for (const row of arrived) knownRows.current.add(row.id);
     if (arrived.length <= LIVE_ROWS_PER_UPDATE) for (const row of arrived) enteringRows.current.add(row.id);
+    // A turn that ends folds its steps under "Worked for": they go as the rows that stay move.
+    if (arrived.length <= LIVE_ROWS_PER_UPDATE && arrived.some((row) => row.kind === WORKED))
+      foldMotion.arm(thread.current);
   }
   knownFor.current = rows;
   const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
+  const onLeave = useCallback((id: string, node: HTMLElement) => foldMotion.leave(id, node), [foldMotion]);
+  /// Opening or closing a turn's fold moves its rows; its header keeps its place on screen.
+  const toggleActivity = useCallback(
+    (id: string) => {
+      if (id.startsWith(`${WORKED}-`)) foldMotion.arm(thread.current, id);
+      onToggleActivity(id);
+    },
+    [foldMotion, onToggleActivity],
+  );
   const reportDrawn = useCallback<ReportDrawn>(
     (id, version, drawnHeight) => {
       // Zero is a row not laid out (hidden, or no layout at all), not a height.
@@ -1337,7 +1369,6 @@ export function VirtualTranscript({
   /// The pane's width changed and no new content has come since: rows settling to their drawn
   /// heights at the new width are that resize, not growth, and never glide.
   const reflowing = useRef(false);
-  const thread = useRef<HTMLDivElement>(null);
   // The reader scrolls: a glide in flight ends at once, so the view goes where they scroll.
   useEffect(() => {
     const node = ref.current;
@@ -1441,7 +1472,13 @@ export function VirtualTranscript({
       first: last?.first ?? 0,
       last: last?.last ?? 0,
     };
-    return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
+    // The rows start under the thread's top padding, so the transcript ends that much past their
+    // heights, and END_ROOM more: followed to its end, the last turn's time, Copy and Fork sit
+    // clear of the composer (and its shadow), not under its edge.
+    return {
+      layout: { ...layout, totalHeight: layout.totalHeight + THREAD_TOP + END_ROOM },
+      ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0,
+    };
   }, [estimated, drawn, registry, rows, sessionId, width]);
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view (a footer cut under the recap card).
@@ -1646,7 +1683,11 @@ export function VirtualTranscript({
       // At the latest row also at offset 0: a new chat's first pass can overshoot on estimated
       // heights and settle back to fit, and its reply must still be followed once it overflows
       // (cx-ubd1y). Away from it, at the first row nothing above can move it.
-      if (didOpenAtLatest.current && atLatest) {
+      // A fold the reader toggles keeps its header where it is: the rows above it do not change,
+      // so the offset stays, and the transcript stops following when the fold opens past the end.
+      const folding = foldMotion.anchor !== undefined;
+      if (folding && followingRef.current && node.scrollTop < layout.totalHeight - node.clientHeight - 1) follow(false);
+      if (didOpenAtLatest.current && atLatest && !folding) {
         // At the latest row: stay there as rows settle to their drawn heights.
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
         const step = latest - node.scrollTop;
@@ -1661,9 +1702,16 @@ export function VirtualTranscript({
         // text an estimate's error too low, then slid it past its place, at every token.
         // A resize (a window edge dragged, cx-sqj3h) reflows the rows in the same way, estimate
         // then drawn height, at every frame of the drag: none of that glides, and a glide in
-        // flight ends, so the text sits at the end of the view on every frame.
+        // flight ends, so the text sits at the end of the view on every frame. A fold in motion
+        // moves its own rows (foldMotion.ts).
         if (rewrapped) for (const animation of thread.current?.getAnimations?.() ?? []) animation.finish();
-        if (Math.abs(step) > 0.5 && Math.abs(step) < node.clientHeight && !resized && !reflowing.current)
+        if (
+          Math.abs(step) > 0.5 &&
+          Math.abs(step) < node.clientHeight &&
+          !resized &&
+          !reflowing.current &&
+          !foldMotion.active
+        )
           glide(thread.current, step);
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
@@ -1716,6 +1764,8 @@ export function VirtualTranscript({
         setSeeking(false);
       }
     }
+    if (switched) foldMotion.finish();
+    else foldMotion.committed(thread.current);
     previousLayout.current = layout;
     previousRows.current = rows;
     previousViewport.current = { height, width };
@@ -2039,6 +2089,7 @@ export function VirtualTranscript({
                       report={reportDrawn}
                       enter={enteringRows.current.has(row.id)}
                       onEntered={onEntered}
+                      onLeave={onLeave}
                       active={effectiveActiveRowId === row.id}
                       selected={selectedRows.has(absoluteIndex)}
                       tabStop={tabStopId === row.id}
@@ -2053,7 +2104,7 @@ export function VirtualTranscript({
                     >
                       <Component
                         row={row}
-                        onToggleActivity={onToggleActivity}
+                        onToggleActivity={toggleActivity}
                         onOpenDiff={onOpenDiff}
                         expanded={isExpanded}
                         controls={controls}
