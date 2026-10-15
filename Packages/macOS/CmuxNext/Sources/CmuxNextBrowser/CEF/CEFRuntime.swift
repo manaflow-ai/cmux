@@ -307,12 +307,13 @@ final class CEFRuntime {
         pump.start()
 
         storage.prepareForLaunch()
+        let builtInPlan = CEFBuiltInExtensions(adBlockerEnabled: builtInAdBlockerSetting())
+            .plan(resources: Bundle.main.resourceURL, profiles: storage.root)
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(),
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment,
-            builtInExtensions: CEFBuiltInExtensions(adBlockerEnabled: builtInAdBlockerSetting())
-                .folders(resources: Bundle.main.resourceURL)
+            builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled
         )
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")
