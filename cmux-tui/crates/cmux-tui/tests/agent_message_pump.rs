@@ -552,4 +552,23 @@ mod agent_message_pump {
         assert_eq!(state(&reply["result"]["value"]["message"], "acp:far"), "queued", "{reply}");
         assert!(!daemon.withdrawals().is_empty(), "acpmux was never asked");
     }
+
+    #[test]
+    fn an_unsettled_delivery_to_an_unreachable_peer_is_never_called_unsent() {
+        let (daemon, a, (_, alpha)) = two_agents_in("unsend-peer-down");
+        // A peer daemon runs `far` and stops answering once the prompt went
+        // out: acpmux cannot say whether the peer holds it.
+        daemon.place_unreachable_peer_session("far", &alpha);
+        daemon.silent("far", 1000);
+        let message = id(&daemon.sent(Some(&a), to("acp:far", "over there")));
+        let waited = daemon.wait_for(&message, "a noted attempt", |m| {
+            delivery(m, "acp:far")["attempts"] != "0" || state(m, "acp:far") != "queued"
+        });
+        assert_eq!(state(&waited, "acp:far"), "queued", "{waited}");
+        let reply = unsend(&daemon, Some(&a), &message);
+        let pending = entry(&reply, "acp:far");
+        assert_eq!(pending["outcome"], "failed", "{reply}");
+        assert_eq!(pending["error"]["reason"], "acpmux_unavailable", "{reply}");
+        assert_eq!(state(&reply["result"]["value"]["message"], "acp:far"), "queued", "{reply}");
+    }
 }

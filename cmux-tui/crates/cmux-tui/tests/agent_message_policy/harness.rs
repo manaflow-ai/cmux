@@ -65,6 +65,9 @@ struct FakeAcpmux {
     /// Sessions a peer daemon runs: `_acpmux/info` and prompts reach them,
     /// but a withdraw is answered on this daemon only (`no session matches …`).
     peers: Mutex<std::collections::HashSet<String>>,
+    /// Peer sessions whose peer daemon is unreachable: after one prompt went
+    /// out, a forwarded `_acpmux/info` fails (-32603).
+    unreachable_peers: Mutex<std::collections::HashSet<String>>,
     /// Sessions whose withdraws wait, unanswered, until released.
     withdraw_gates: Mutex<std::collections::HashSet<String>>,
     withdraw_gate_opened: Condvar,
@@ -248,6 +251,14 @@ impl Daemon {
     pub fn place_peer_session(&self, session: &str, workspace_key: &str) {
         self.fake.peers.lock().unwrap().insert(session.to_owned());
         self.place_session(session, workspace_key);
+    }
+
+    /// [`Self::place_peer_session`] whose peer daemon becomes unreachable
+    /// once a prompt went out: a forwarded `_acpmux/info` then fails with
+    /// an error other than `no session matches`.
+    pub fn place_unreachable_peer_session(&self, session: &str, workspace_key: &str) {
+        self.fake.unreachable_peers.lock().unwrap().insert(session.to_owned());
+        self.place_peer_session(session, workspace_key);
     }
 
     /// The params of every prompt the fake acpmux took, in order.
@@ -607,10 +618,18 @@ fn answer(stream: UnixStream, sessions: &Sessions, fake: &FakeAcpmux) {
             (Some("_acpmux/info"), workspace) => {
                 fake.lookups.fetch_add(1, Ordering::SeqCst);
                 fake.looked_up.lock().unwrap().push(session.to_owned());
+                let prompted =
+                    fake.prompts.lock().unwrap().iter().any(|p| p["sessionId"] == session);
+                let unreachable =
+                    prompted && fake.unreachable_peers.lock().unwrap().contains(session);
                 match workspace {
+                    Some(_) if unreachable => json!({"jsonrpc": "2.0", "id": id, "error":
+                        {"code": -32603, "message": "peer daemon unreachable"}}),
                     Some(workspace) => json!({"jsonrpc": "2.0", "id": id, "result":
                         {"sessionId": session, "sessionEnv": {"CMUX_WORKSPACE_ID": workspace}}}),
-                    None => error(-32602, "unknown session", Value::Null),
+                    // acpmux's session lookup (`Hub::resolve`), with no `data`.
+                    None => json!({"jsonrpc": "2.0", "id": id, "error":
+                        {"code": -32002, "message": format!("no session matches {session:?}")}}),
                 }
             }
             (Some("session/prompt"), Some(_)) => {
