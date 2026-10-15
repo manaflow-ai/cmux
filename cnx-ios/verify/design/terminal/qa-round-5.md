@@ -14,8 +14,12 @@ WireGuard + relay (G-T). Laptop load was 8-24 during this round, so there are no
 | V3-3 drop during a fling loses the place | disruptive | **fixed, rig 1 of 1** | below |
 | V2-3 position lost once row counts diverge | disruptive | **fixed in unit tests; rig 1 of 1** (counts 1115 -> 1118) | below |
 | V3-1 black page after a second reset | disruptive | **fixed**: a second reset before the reader moves reuses the restored mark. Its trigger (the D4 double replay) is gone on the daemon | below |
-| PR 20809 review | - | **findings fixed and posted** | https://github.com/manaflow-ai/cmux/pull/20809#issuecomment-6183326812 |
-| D5, V3-4, rotation, V2-2/D7, V2-6, D10, D1, D6, D11, D12, unknown surface 14, T-LIFE-08, G-04 | | not started this round | |
+| D5 never-opened card black | noticeable | **fixed, rig 1 of 1** (`c5b4b2ac`) | `round5/r5-d5-grid1s.jpg`: e2e-t2's card shows its rows 1 s after the grid opens |
+| V3-4 / T-TABS-14 hidden controls in cards | noticeable | **fixed for ours, rig 2 of 2** (`f27e2c75`); kit-owned ones are in UPSTREAM-REQUESTS.md U8 | AX dump in the grid: 5 page elements exposed before, 0 after |
+| "unknown surface 14" on every reattach | minor | **fixed** (red `86be059f`, green `c622a001`) | not re-checked on the rig: it needs a closed tab's session |
+| Rotation rows (T-SIZE-04, rotation during a trip) | - | **not applicable on iPhone; needs a decision** | the app is portrait-only (`project.yml` `UISupportedInterfaceOrientations: [Portrait]`) |
+| PR 20809 review | - | **findings fixed and posted; CI green except an outside reservation** | https://github.com/manaflow-ai/cmux/pull/20809#issuecomment-6183326812 and #issuecomment-6183852910 |
+| V2-2/D7, V2-6, D10, D1, D6, D11, D12, T-LIFE-08, G-04 timing | | not started this round | |
 
 ### Reconnect latency after a hostd kill
 
@@ -62,3 +66,67 @@ WebRTC uses the same presence path and supervisor, so the same fix applies to it
 - **Rig, fling-drop (20:00:21):** a fling was started and the kill sent at the same moment. At the
   reset: `reading mark row 690 of 1118: kept`, then `restored row 690 -> 690`. The page rests on
   items 216-220, where the fling was when the reset came, not at the live bottom or the top of history.
+
+### D5 (`c5b4b2ac`, red `cbe800df`)
+
+The tab grid card of a tab not opened in this launch fetches its terminal's screen
+(`read-screen`, which hostd's policy allows) over a short-lived `daemon` channel. The fetch
+happens when the card is built, at most every 3 s, and the card shows the text in monospaced
+rows. Its saved frame from an earlier launch had been a blank screen with a cursor. Once the
+tab is opened, its live snapshot is used as before. Pure chooser: `TerminalCardContent`
+(3 tests).
+
+### V3-4 (`f27e2c75`)
+
+TabsKit keeps the active page in place while the grid is open and does not lay it out again,
+and SwiftUI's `accessibilityHidden` does not reach a representable's UIKit views. When the grid
+opens (`prepareCard`), the page's view now gets `accessibilityElements = []`, the hidden flag,
+and no user interaction; its next interactive update restores them. Rig check, 2 trips: 0 page
+elements exposed in the grid, and the composer and Return come back on the page.
+
+### Rotation
+
+The iPhone app supports portrait only, so a rotation never happens there and T-SIZE-04 cannot be
+run. Enabling landscape is a product and design decision that affects every screen. It is
+listed for the user. A DEBUG geometry hook was not added, because it would be refused under a
+portrait-only plist.
+
+## Tests this round
+
+- CnxKit on mini-cmux11s, `swift test --filter 'CnxTerminalTests|CnxLiveTests|CnxTransportTests|CnxWorkspacesTests'`:
+  301 passed at `c622a001`. Note: `git archive` stamps files with the commit time, so touch
+  the sources after the rsync or SwiftPM may reuse a newer build.
+- CmuxNext Swift suites (cmux-ci, 4 shards, Xcode 26.6): 288 of 288 at `3df9ff77`.
+- cmux-tui on rbx: clippy is clean. nextest at `e960080b` passed 5171 of 5173; the 2 failures
+  were load flakes and pass alone. After the merge of `feat-cmux-next` it passed 5182 of 5183,
+  with 1 flake that passes alone. The crash ratchet is ok.
+- Every iOS Demo build succeeded (`ARCHS=arm64 ONLY_ACTIVE_ARCH=YES`, DerivedData `cnx-ios/build/dd`).
+
+## SHAs
+
+| Repo / branch | SHA | Change |
+| --- | --- | --- |
+| cmux `feat-cnx-ios-machost` | `f59ff1b9` red, `3df9ff77` | supervisor: a run online for 5 s restarts at the first delay |
+| cmux `feat-cmux-next-tui-attach-size` (PR 20809) | `6bb49632` red, `e960080b`, `1a756bcc`, merge, `1071f4a0`, `9db5f180` | review fixes, ratchet, fmt |
+| `feat-cnx-ios-termqa` | `5411a38a` red, `e24da1c6`; `cbe800df` red, `c5b4b2ac`; `f27e2c75`; `86be059f` red, `c622a001` | V2-3/V3-1/V3-2/V3-3, D5, V3-4, surface 14 |
+
+## Rig state for the next verifier
+
+- Simulator `cnx-termqa-1` (`C906E217-BD51-4BC7-82D8-584AB67695B7`), booted and headless, with the
+  `c622a001` Demo build installed (binary sha256 `10e5721c5f7e5fb6…`). The app is open on
+  `e2e-t1` over WireGuard + relay.
+- Mac `cnx-e2e-604fc689` on mini-cmuxs-mac-mini-2, daemon f18e13c9 (round 4). Its Mac app still
+  has the **old** hostd supervisor, so space `pkill -9 cnx-hostd` drops more than 60 s apart,
+  or the restart backoff will dominate. The original daemon backup is still at
+  `~/cnx-ios-e2e/termqa/stage-640c9d5f/cmux.604fc689.bak`.
+- The PR 20809 head (`9db5f180`) adds the review fixes on top of the rig's daemon (f18e13c9). The
+  rig daemon does not have them: a phone returning at a larger size is still capped there.
+
+## Next (in order)
+
+1. The user decides on landscape for the iPhone app: rotation rows are N/A until then.
+2. V2-2/D7 (one-row jump while following), V2-6, D10, D1, D6, D11, D12, T-LIFE-08 (9-13 black
+   frames on deep-history and WebRTC drops).
+3. G-04 in-app frame timing (signposts and a display-link interval log), or the simulator on a
+   remote Mac, so that timing rows can count.
+4. Rebuild the rig's Mac app with `3df9ff77` (supervisor) and swap in a daemon from PR 20809's head.
