@@ -1163,3 +1163,29 @@ main thread is idle then (every pass under 13 ms in the trace), so it is
 the render server; it stays within one frame.
 
 Open: the downward reorder (above) and 4b.
+
+## Round 23: re-audit 5 (tabs-parity-reaudit-5.md)
+
+mini-cmux15, slot `impl3` (its own iPhone 17 Pro simulator, headless, no
+hardware keyboard). The kit demo is built in `~/nx-ios/impl3-kit` from a
+copy of impl2-kit's generated project (xcodegen is not installed on the
+mini) and installed on the same simulator.
+
+### 1. Long-press menu placement (b08374ea9277, kit e0db9d3ca0b3)
+
+Cause: the preview controller (`previewProvider`). With one, UIKit keeps
+the menu below the card and pushes the preview up to make room, even with
+8 rows (tried with dummy rows); it never flipped above. Safari passes no
+preview controller: the targeted card lifts and UIKit grows it itself.
+With no preview controller and the card at scale 1 as the targeted
+preview, the AX frames are Safari's exactly: preview 16, 109, 195.7 × 275,
+rows at 410 / 452 / …; the pinned capsule 16, 119.7, 203 × 34.7 (Safari
+the same; it was 204 × 34). A row-2 card's menu opens above it, so an
+upward move stays in the menu, and a downward move over a row 300 pt
+below runs that row on release (Select Tabs), as in Safari. The
+container of the target (window, view controller) made no difference.
+
+`grid-reorder.sh` now requires up and down to keep the order (down also
+in Select mode afterwards) and takes `--app kit`: app 3 of 3 per
+direction, kit 1 of 1 per direction; `grid-menu-restore.sh` app and kit
+all green.
