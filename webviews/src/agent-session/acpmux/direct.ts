@@ -22,6 +22,8 @@ import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
 import { questionFromPermission } from "./question/model";
+import { isNotification, typedRequest } from "./protocol/client";
+import type { SessionChanged, SessionSummary } from "./protocol/generated/types";
 import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
 import { AcpmuxRpcError, supportsHandoff } from "./handoff/protocol";
 import { sessionEnforcement } from "./handoff/review";
@@ -32,6 +34,7 @@ import { translate } from "./i18n";
 import { experimentArm } from "../../experiments/experiment";
 import { sessionOffer as sessionOfferExperiment } from "./offer/sessionOffer.experiment";
 import { errorMessage } from "./transportErrors";
+import { SessionPager } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
@@ -146,9 +149,6 @@ const OPEN_PAGE_BYTES = 128 * 1024;
 const OLDER_PAGE_BYTES = 256 * 1024;
 /// An agent's secret card and its answer (cx-ncc.42): not transcript, so attach asks for them by kind.
 const SECRET_KINDS = ["secret_request", "secret_decision"];
-/// An agent's offer of a parallel chat and its answer (cx-807da): transcript on acpmux that has
-/// them (`paging.rs`); asked for by kind too, so an older acpmux's attach still brings them.
-const OFFER_KINDS = ["session_offer", "session_offer_decision"];
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
@@ -541,6 +541,8 @@ export class AcpmuxDirectClient {
   private events: EventRecord[] = [];
   private rows = new OrderedRows();
   private sessions: Session[] = [];
+  /// The session list a page at a time: the newest page opens the chat, the rest follow (cx-2lv1k).
+  private readonly sessionPages = new SessionPager<Session>((method, params) => this.request(method, params));
   /// Sidebar entries by acpmux session object. A changed session arrives as a new object, so unchanged rows keep their entry and skip rendering.
   private sessionEntries = new WeakMap<Session, AcpmuxSessionEntry>();
   private selectedSessionId?: string;
@@ -807,8 +809,20 @@ export class AcpmuxDirectClient {
             .map((peer: any) => (typeof peer?.name === "string" ? peer.name : undefined))
             .filter((peer: string | undefined): peer is string => Boolean(peer))
         : [];
-      const watched = await this.request("_acpmux/watch", { enabled: true });
-      this.sessions = this.reread(watched?.sessions);
+      const first = await this.sessionPages.first();
+      let laterPages = first?.next;
+      const linkedLater =
+        first !== undefined &&
+        laterPages !== undefined &&
+        this.selectedSessionId !== undefined &&
+        !first.sessions.some((session) => session.sessionId === this.selectedSessionId);
+      if (first && !linkedLater) this.sessions = first.sessions;
+      else {
+        // A linked chat older than the first page, or a lagged watch restarted the list: read the
+        // whole list before calling the chat missing.
+        this.sessions = this.sessionPages.settle(await this.sessionPages.whole());
+        laterPages = undefined;
+      }
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
         // A linked session the daemon lacks is refused, never replaced by the most recent chat.
         if (this.host.sessionMustExist) this.missingSession = this.selectedSessionId;
@@ -841,6 +855,7 @@ export class AcpmuxDirectClient {
         sessions: this.sessions.length,
       });
       this.emit("connected");
+      if (laterPages) void this.readLaterSessions(laterPages);
     } catch (error) {
       this.wire.lifecycle("connect failed", {
         message: error instanceof Error ? error.message : String(error),
@@ -956,8 +971,8 @@ export class AcpmuxDirectClient {
         kind: String(notification.params?.update?.sessionUpdate ?? ""),
         msg: { method: "session/update", params: { update: notification.params?.update } },
       });
-    } else if (notification.method === "_acpmux/session_changed") this.sessionChanged(notification.params);
-    else if (notification.method === "_acpmux/permission_pending") this.applyPermission(notification.params);
+    } else if (isNotification(notification, "_acpmux/session_changed")) this.sessionChanged(notification.params);
+    else if (isNotification(notification, "_acpmux/permission_pending")) this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
     else if (notification.method === "_acpmux/harnesses_changed") this.onHarnessesChanged?.();
     // A new chat's start mode may have changed (a pick in any pane, a config reload): pending
@@ -1013,8 +1028,16 @@ export class AcpmuxDirectClient {
   /// A selection made while the request was out is newer than the list.
   private async refreshSessions(): Promise<void> {
     const generation = this.selectionGeneration;
-    const watched = await this.request("_acpmux/watch", { enabled: true });
-    this.sessions = this.reread(watched?.sessions);
+    const first = await this.sessionPages.first();
+    // A newer reread started meanwhile; it sets the list.
+    if (!first) return;
+    let list = first.sessions;
+    const add = (more: Session[]) => {
+      list = [...list, ...more];
+    };
+    if (first.next && !(await this.sessionPages.rest(first.next, () => list, add))) return;
+    // Changes that came while the pages did are newer than the pages.
+    this.sessions = this.sessionPages.settle(list);
     const missing =
       this.selectedSessionId !== undefined &&
       !this.sessions.some((session) => session.sessionId === this.selectedSessionId);
@@ -1034,11 +1057,16 @@ export class AcpmuxDirectClient {
     if (this.selectedSessionId) void this.attach(this.selectedSessionId, generation).catch(() => undefined);
   }
 
-  /// A full session list from `_acpmux/watch`. acpmux owns `unread` (cx-n8ou): the pane only
-  /// tells it whether it shows its chat (`attach` `visible`, `_acpmux/view`).
-  private reread(sessions: Session[] | undefined): Session[] {
-    return (sessions ?? []).filter((session) => session.sessionId);
+  /// The pages after the first, read once the chat is open. acpmux owns `unread` (cx-n8ou): the
+  /// pane only tells it whether it shows its chat (`attach` `visible`, `_acpmux/view`).
+  private async readLaterSessions(cursor: string): Promise<void> {
+    await this.sessionPages.rest(cursor, () => this.sessions, this.addSessions).catch(() => undefined);
   }
+
+  private addSessions = (more: Session[]): void => {
+    this.sessions = [...this.sessions, ...more];
+    if (!this.opening) this.emit("session changed");
+  };
 
   /// The page was hidden or shown (a tab in a background workspace, an occluded window): acpmux
   /// leaves a turn that ends while nobody shows the chat unread, and showing it is seeing it.
@@ -1248,7 +1276,9 @@ export class AcpmuxDirectClient {
       limit: 400,
       // The most opening a chat downloads, however large its tool output (a remote session's open).
       maxBytes: OPEN_PAGE_BYTES,
-      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND, BOOKMARKS_KIND, ...SECRET_KINDS, ...OFFER_KINDS],
+      // At most 8 kinds: a remote cmux-tui before cx-kpd0v refuses more. Session offers come with
+      // "transcript" (acpmux paging.rs, since offers exist).
+      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND, BOOKMARKS_KIND, ...SECRET_KINDS],
       eventStream: true,
       visible,
     });
@@ -1323,9 +1353,11 @@ export class AcpmuxDirectClient {
     this.emit("commands");
   }
 
-  private sessionChanged(params: any): void {
-    const session = params?.session;
+  private sessionChanged(params: SessionChanged): void {
+    // Only a purge carries the id alone; every other change carries the whole summary.
+    const session = params?.session as SessionSummary | undefined;
     if (params?.kind === "purged" && session?.sessionId) {
+      this.sessionPages.purgedSession(session.sessionId);
       this.sessions = this.sessions.filter((item) => item.sessionId !== session.sessionId);
       if (session.sessionId === this.selectedSessionId && this.handoff.state.busy !== "discarding")
         this.selectFallbackSession("session purged");
@@ -1333,15 +1365,12 @@ export class AcpmuxDirectClient {
       return;
     }
     if (!session?.sessionId) return;
+    this.sessionPages.changedSession(session);
     this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
       // A change that doesn't carry the queue keeps the one already mapped.
-      if (session.queue)
-        this.queue = session.queue.map((entry: any) => ({
-          id: String(entry.promptId),
-          prompt: String(entry.prompt ?? entry.preview ?? ""),
-        }));
+      if (session.queue) this.queue = session.queue.map((entry) => ({ id: entry.promptId, prompt: entry.prompt }));
     }
     // The picker lists every session, so a change elsewhere still needs a snapshot.
     this.emit("session changed");
@@ -2167,12 +2196,17 @@ export class AcpmuxDirectClient {
   /// undefined: `refresh` checks again; `rescan` has acpmux look for harnesses first (after an
   /// install from the Harnesses page).
   async harnessHealth(id: string, options: { refresh?: boolean; rescan?: boolean } = {}): Promise<unknown> {
+    const rows = await this.harnessHealthRows(options);
+    return rows.find((row) => (row as { id?: unknown } | null)?.id === id);
+  }
+  /// Every harness's health row from this Mac's acpmux (`_acpmux/harness/health`): its last check
+  /// unless `refresh`; the model picker's rail reads which ones are signed out (cx-ae9eb).
+  async harnessHealthRows(options: { refresh?: boolean; rescan?: boolean } = {}): Promise<unknown[]> {
     const reply = await this.request("_acpmux/harness/health", {
       ...(options.refresh ? { refresh: true } : {}),
       ...(options.rescan ? { rescan: true } : {}),
     });
-    const rows: unknown[] = Array.isArray(reply?.harnesses) ? reply.harnesses : [];
-    return rows.find((row) => (row as { id?: unknown } | null)?.id === id);
+    return Array.isArray(reply?.harnesses) ? reply.harnesses : [];
   }
   /// Changes a waiting prompt (`_acpmux/queue_edit`): `update` its text, `move` it to `index`
   /// (0 runs next) or `send_now`. `ok` is false when it no longer waits.
@@ -2196,7 +2230,7 @@ export class AcpmuxDirectClient {
             (reply) => reply?.ticket,
             () => undefined,
           );
-    await this.request("_acpmux/permission_respond", {
+    await typedRequest((method, params) => this.request(method, params), "_acpmux/permission_respond", {
       sessionId,
       permissionId,
       ...(optionId === undefined ? {} : { optionId }),
@@ -2675,6 +2709,7 @@ export class AcpmuxDirectClient {
   /// The socket's own onclose ignores a socket close() already let go of, so settle requests here.
   close(): void {
     this.closed = true;
+    this.sessionPages.stop();
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
@@ -2871,6 +2906,8 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     models: (harness.models ?? []).map((model: any) => catalogModel(model)),
     ...(typeof harness.family === "string" && harness.family ? { family: harness.family } : {}),
     ...(typeof harness.icon === "string" && harness.icon ? { icon: harness.icon } : {}),
+    // A terminal harness (Muse Code) runs in a terminal tab, never as a chat: no picker lists it.
+    ...(harness.kind === "terminal" ? { pickable: false } : {}),
     ...(harnessStart(harness.start) ? { start: harnessStart(harness.start) } : {}),
     ...(typeof harness.auth?.login === "string" && harness.auth.login.trim()
       ? { auth: { login: harness.auth.login.trim() } }

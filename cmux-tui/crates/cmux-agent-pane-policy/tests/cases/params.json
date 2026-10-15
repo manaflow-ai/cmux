@@ -482,11 +482,41 @@
    "id": 1,
    "method": "_acpmux/watch",
    "params": {
-    "enabled": 1
+    "enabled": 1,
+    "limit": 1
    }
   },
   "mode_fields": null,
   "breaks": false
+ },
+ {
+  "name": "_acpmux/sessions every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/sessions",
+   "params": {
+    "limit": 1,
+    "cursor": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/sessions unknown param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/sessions",
+   "params": {
+    "limit": 1,
+    "cursor": "k1.2",
+    "query": "x"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
  },
  {
   "name": "_acpmux/events every known param",

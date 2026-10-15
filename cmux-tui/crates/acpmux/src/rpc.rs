@@ -284,6 +284,13 @@ pub mod method {
     /// Agent CLI health (hq #1875; `hub/health_view.rs`): the unix socket
     /// and the local app.
     pub const MUX_HARNESS_HEALTH: &str = "_acpmux/harness/health";
+    /// Update Everything (cx-1mbnu; `hub/health_view.rs`): run now the
+    /// no-sudo updater of the named outdated harnesses. The unix socket only.
+    pub const MUX_HARNESS_UPDATE: &str = "_acpmux/harness/update";
+    /// Update Everything: restart the live sessions' harness processes on
+    /// the installed version and resume them (`hub/route_switch.rs`). The
+    /// unix socket only.
+    pub const MUX_SESSIONS_RESTART_HARNESS: &str = "_acpmux/sessions/restart_harness";
     // Routes: how a harness reaches its model provider (ROUTES R1-R3;
     // server/routes.rs). add, edit, remove, restore: the unix socket only;
     // the rest also the local app. Never Web or peer.

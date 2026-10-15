@@ -445,7 +445,7 @@ impl Hub {
             };
             let fresh_id =
                 if resume.is_none() { Some(uuid::Uuid::now_v7().to_string()) } else { None };
-            let effort = current_option(&meta, "effort").unwrap_or_else(|| "default".into());
+            let effort = current_effort(&meta).unwrap_or_else(|| "default".into());
             let fast = current_option(&meta, "fast-mode").as_deref() == Some("on");
             let mode = meta
                 .modes
@@ -514,7 +514,9 @@ impl Hub {
                     Some((&session.id, &meta.name)),
                 )
                 .await
-                .map_err(|e| RpcError::internal(e.to_string()))?
+                .map_err(|e| {
+                    crate::launch_policy::spawn_error(e, |e| RpcError::internal(e.to_string()))
+                })?
             }
         } else if self.agent_hosts_enabled() {
             self.spawn_hosted_child(session, profile, &meta, None, None, tap).await?
@@ -530,7 +532,9 @@ impl Hub {
                 Some((&session.id, &meta.name)),
             )
             .await
-            .map_err(|e| RpcError::internal(e.to_string()))?
+            .map_err(|e| {
+                crate::launch_policy::spawn_error(e, |e| RpcError::internal(e.to_string()))
+            })?
         };
         {
             // The shutdown marks itself started, then takes each session's
@@ -815,6 +819,11 @@ impl Hub {
         wait: bool,
         only: Option<std::collections::BTreeSet<String>>,
     ) {
+        // A probe starts the agent: none while launches are off (cx-9ettq).
+        if crate::launch_policy::agent_launch_disabled() {
+            tracing::info!("agent launch is disabled; model probes skipped");
+            return;
+        }
         let picked = |n: &str| only.as_ref().is_none_or(|o| o.contains(n));
         let agents: Vec<(String, HarnessProfile)> = {
             let cfg = self.config.read().await;
