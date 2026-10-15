@@ -32,6 +32,7 @@ CLI_TASK_HELP = ROOT / "CLI" / "CMUXCLI+TaskHelp.swift"
 CLI_CODEROUTER = ROOT / "CLI" / "CMUXCLI+Coderouter.swift"
 CLI_HIBERNATION = ROOT / "CLI" / "CMUXCLI+AgentHibernation.swift"
 GUEST_CLI = ROOT / "web" / "services" / "vms" / "guestCli.ts"
+OPENCODE_PLUGIN = ROOT / "Resources" / "opencode-plugin.js"
 CAPABILITIES = ROOT / "Sources" / "TerminalController+Capabilities.swift"
 CONTRACT = ROOT / "docs" / "cli-contract.md"
 FEED_DOC = ROOT / "docs" / "feed.md"
@@ -157,6 +158,7 @@ def cli_docs_drift_failures() -> list[str]:
     coderouter = CLI_CODEROUTER.read_text(encoding="utf-8")
     hibernation = CLI_HIBERNATION.read_text(encoding="utf-8")
     guest_cli = GUEST_CLI.read_text(encoding="utf-8")
+    opencode_plugin = OPENCODE_PLUGIN.read_text(encoding="utf-8")
     feed = FEED_DOC.read_text(encoding="utf-8")
     workspace = WORKSPACE_SKILL.read_text(encoding="utf-8")
     browser_commands = BROWSER_COMMANDS.read_text(encoding="utf-8")
@@ -202,7 +204,7 @@ def cli_docs_drift_failures() -> list[str]:
         failures.append("could not read the CLI's default socket path")
     else:
         path = default_socket.group(1)
-        if path not in feed or "~/.config/cmux/cmux.sock" in feed:
+        if path not in feed:
             failures.append("feed docs use a stale socket path")
         if ".local/state/cmux/cmux.sock" not in workspace or "/tmp/cmux.sock" in workspace:
             failures.append("workspace skill uses a stale socket fallback")
@@ -210,6 +212,14 @@ def cli_docs_drift_failures() -> list[str]:
             failures.append("could not read the CLI's tagged/debug socket discovery guidance")
         elif "auto-discovers tagged/debug sockets" not in feed or "auto-discovers tagged/debug sockets" not in workspace:
             failures.append("socket docs omit the CLI's tagged/debug socket discovery guidance")
+        plugin_default = re.search(
+            r"const DEFAULT_SOCKET = `\$\{os\.homedir\(\)\}(/\.config/cmux/cmux\.sock)`",
+            opencode_plugin,
+        )
+        if plugin_default is None:
+            failures.append("could not read the OpenCode plugin's default socket path")
+        elif f"~{plugin_default.group(1)}" not in feed:
+            failures.append("feed docs omit the OpenCode plugin's default socket path")
     return failures
 
 
