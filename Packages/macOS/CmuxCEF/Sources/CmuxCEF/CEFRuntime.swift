@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxCEFMallocZone
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -202,6 +203,9 @@ public final class CEFRuntime {
             try initialize(library)
             state = .ready
             windowGuard.start()
+            if cmux_cef_early_malloc_zone_installed() == 0 {
+                logger.error("CEF started without the early malloc zone; a free() racing the framework load can crash")
+            }
             logger.notice("CEF ready shim_abi=\(CEFShimABI.short(library.shimABI), privacy: .public) fork_api=\(library.shim.forkAPIVersion()) initialize=\(ContinuousClock.now - started, privacy: .public)")
             onReady?()
         } catch {
@@ -217,14 +221,14 @@ public final class CEFRuntime {
         case shim(CEFShimLibrary.LoadError)
         case framework(String)
         /// NSApp does not conform to CefAppProtocol.
-        case application
+        case application(String)
         case initialize
 
         var description: String {
             switch self {
             case .shim(let error): "shim: \(error)"
             case .framework(let message): message
-            case .application: "NSApp does not conform to CefAppProtocol"
+            case .application(let detail): "NSApp does not conform to CefAppProtocol (\(detail))"
             case .initialize: "CefInitialize failed"
             }
         }
@@ -254,7 +258,9 @@ public final class CEFRuntime {
         let shim = library.shim
         let layout = library.layout
         applicationSupport.install(application: NSApplication.shared)
-        guard shim.prepareApplication() == 1 else { throw .application }
+        guard shim.prepareApplication() == 1 else {
+            throw .application(applicationSupport.diagnosis(application: NSApplication.shared))
+        }
         self.shim = shim
 
         let pump = CEFMessagePump(
