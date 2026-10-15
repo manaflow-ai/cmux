@@ -318,11 +318,19 @@ try:
         check(False, "series: samples on both sides of the second change")
     pixels = frame_colors(series_dir, 0.12, 0.75)  # a blank spot low in the sidebar
     report["series_pixels"] = pixels
+    try:
+        times = json.load(open(os.path.join(series_dir, "frames.json"))).get("times") or []
+    except (OSError, ValueError):
+        times = []
     if len(pixels) > 10:
-        steps = [distance(a, b) for a, b in zip(pixels, pixels[1:])]
+        # Each step per one 60 Hz frame: the recorder captures on the main thread, which a theme
+        # change keeps busy, so one recorded step can span several display frames (a 40 ms gap is
+        # 2.4 frames of smooth motion). A jump changes the color within one displayed frame.
+        gaps = [max((b - a) * 1000, 1000 / 60) for a, b in zip(times, times[1:])] if len(times) == len(pixels) else []
+        steps = [distance(a, b) * ((1000 / 60) / gaps[i] if gaps else 1) for i, (a, b) in enumerate(zip(pixels, pixels[1:]))]
         total = max(distance(pixels[0], p) for p in pixels)
         check(total > 0.1, f"series pixels: the window recolored on screen (moved {total:.3f})")
-        check(max(steps) < 0.25 * total, f"series pixels: no frame jumps (largest frame step {max(steps):.3f} of {total:.3f})")
+        check(max(steps) < 0.25 * total, f"series pixels: no frame jumps (largest step per 60 Hz frame {max(steps):.3f} of {total:.3f})")
     else:
         check(False, f"series pixels: frames recorded ({len(pixels)})")
 
