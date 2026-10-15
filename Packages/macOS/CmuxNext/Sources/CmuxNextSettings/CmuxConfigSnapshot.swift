@@ -61,6 +61,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `layout.stripScrollbar`; "auto" when unset or invalid.
     public var stripScrollbar: StripScrollbarMode = StripScrollbarSetting.fallback
     public var sidebarSections = SidebarSectionsPreferences.defaults
+    /// `sidebar.hoverCards.*`: hover cards on, and their delay.
+    public var hoverCards = HoverCardSettings()
     /// `layout.splitSizing`, `layout.newColumnWidth`, docked defaults and the
     /// minimum pane size (`ColumnLayoutSettings`).
     public var splitSizing: SplitSizing = ColumnLayoutSettings.splitSizingFallback
@@ -242,6 +244,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if let closeFocusDiagnostic { snapshot.diagnostics.append(closeFocusDiagnostic) }
         snapshot.defaultColumnWidth = DefaultColumnWidthSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sidebarSections = SidebarSectionsSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.hoverCards = HoverCardSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.chromeStyle = ChromeStyleSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sidebarBorder = SidebarBorderSetting.parse(root, defaultShows: snapshot.chromeStyle.sidebarBorder ?? false,
                                                             diagnostics: &snapshot.diagnostics)

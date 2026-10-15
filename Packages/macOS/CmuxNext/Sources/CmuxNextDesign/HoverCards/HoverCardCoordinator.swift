@@ -64,6 +64,13 @@ public final class HoverCardCoordinator {
     /// Cards show only while the app is active (always in a no-activate
     /// test run, which is never active); tests inject one.
     public var appIsActive: () -> Bool = { NSApp.isActive || WindowPlacement.noActivate }
+    /// `sidebar.hoverCards.enabled`: off, the pointer gives no target a card
+    /// (a row's, a tab's or a user's custom one); Show Resource Usage still
+    /// pins one. Tests inject one.
+    public var hoverCardsEnabled: () -> Bool = { DesignSettings.shared.hoverCardsEnabled }
+    /// A mouse button is down (a press, a drag, a selection): the pointer
+    /// gives no target a card, as in Chrome. Tests inject one.
+    public var mouseButtonDown: () -> Bool = { NSEvent.pressedMouseButtons != 0 }
 
     public init(clock: any Clock<Duration> = ContinuousClock()) {
         timer = DemandTimer(owner: "HoverCards.delay", clock: clock)
@@ -75,6 +82,9 @@ public final class HoverCardCoordinator {
     private func installObserversIfNeeded() {
         guard observers.isEmpty else { return }
         let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: DesignSettings.hoverCardsDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.hoverCardsSettingChanged() } // main-proof: observer on queue: .main
+        })
         observers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { if !WindowPlacement.noActivate { self?.dismiss(.appDeactivated) } } // main-proof: observer on queue: .main
         })
@@ -169,6 +179,13 @@ public final class HoverCardCoordinator {
     }
 
     public func dismiss(_ reason: HoverDismissal) { send(.dismiss(reason)) }
+
+    /// Hover cards were turned off: a pending or shown card goes now. Turned
+    /// on: the next pointer move starts one.
+    private func hoverCardsSettingChanged() {
+        guard !hoverCardsEnabled(), machine.activeTarget != nil else { return }
+        dismiss(.action)
+    }
     public func suppress(_ reason: HoverSuppression) { send(.suppress(reason)) }
 
     public func unsuppress(_ reason: HoverSuppression) {
@@ -305,7 +322,7 @@ public final class HoverCardCoordinator {
     /// The target under the pointer now, from the sources of the window
     /// on top at that point.
     private func hitTest() -> HoverCardHit? {
-        guard appIsActive() else { return nil }
+        guard appIsActive(), hoverCardsEnabled(), !mouseButtonDown() else { return nil }
         let point = currentPointer()
         let top = (WindowPlacement.noActivate ? ownTopWindowNumber(at: point) : nil)
             ?? windowNumberAt?(point) ?? Self.topWindowNumber(at: point, excluding: panel?.windowNumber)
@@ -335,6 +352,10 @@ public final class HoverCardCoordinator {
 
     // MARK: Verification
 
+    private static func milliseconds(_ duration: Duration) -> Int {
+        Int(duration.components.seconds) * 1_000 + Int(duration.components.attoseconds / 1_000_000_000_000_000)
+    }
+
     /// The single-card invariant, checked live in debug builds
     /// (`debug.desync`): at most one card window exists and shows, and it
     /// shows what the machine says.
@@ -353,6 +374,10 @@ public final class HoverCardCoordinator {
             "phase": "\(machine.phase)",
             "last_hit": machine.lastHit?.id.rawValue ?? "-",
             "suppressions": machine.suppressions.map(\.rawValue).sorted().joined(separator: ","),
+            "enabled": "\(hoverCardsEnabled())",
+            "delay_ms": "\(Self.milliseconds(DesignSettings.shared.hoverCardDelay))",
+            "pending_target": { if case .pending(let target, _) = machine.phase { target.id.rawValue } else { "-" } }(),
+            "shown_target": machine.shownTarget?.id.rawValue ?? "-",
             "quiet": "\(machine.quiet)",
             "card_windows": "\(HoverCardPanel.liveInstances)",
             "card_showing": "\(panel?.isShowingCard == true)",

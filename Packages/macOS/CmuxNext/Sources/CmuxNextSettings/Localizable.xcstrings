@@ -91821,6 +91821,530 @@
           }
         }
       }
+    },
+    "settings.sidebar.hoverCards.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Hover Cards"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار البطاقات عند التمرير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži kartice pri prelasku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis kort ved hover"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hover-Karten anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar tarjetas al pasar el cursor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les cartes au survol"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra schede al passaggio del puntatore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホバーカードを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញកាតពេលដាក់ទស្សន៍ទ្រនិច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호버 카드 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis kort ved peking"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuj karty po najechaniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar cartões ao passar o cursor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать карточки при наведении"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงการ์ดเมื่อวางเมาส์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Üzerine gelince kartları göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати картки під час наведення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện thẻ khi di chuột"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示悬停卡片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示懸停卡片"
+          }
+        }
+      }
+    },
+    "settings.sidebar.hoverCards.enabled.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A card with details opens when the pointer rests on a workspace or a tab."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُفتح بطاقة بالتفاصيل عندما يستقر المؤشر على مساحة عمل أو علامة تبويب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartica s detaljima se otvara kada pokazivač miruje na radnom prostoru ili kartici."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et kort med detaljer åbner, når markøren hviler på et arbejdsområde eller en fane."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Karte mit Details öffnet sich, wenn der Zeiger auf einem Workspace oder Tab ruht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se abre una tarjeta con detalles cuando el puntero se detiene sobre un espacio de trabajo o una pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une carte détaillée s'ouvre quand le pointeur reste sur un espace de travail ou un onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si apre una scheda con i dettagli quando il puntatore si ferma su uno spazio di lavoro o una scheda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポインタをワークスペースやタブの上に置くと、詳細を示すカードが開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កាតដែលមានព័ត៌មានលម្អិតបើកនៅពេលទស្សន៍ទ្រនិចនៅលើកន្លែងធ្វើការ ឬផ្ទាំង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포인터를 워크스페이스나 탭 위에 두면 세부 정보 카드가 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et kort med detaljer åpnes når pekeren hviler på et arbeidsområde eller en fane."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karta ze szczegółami otwiera się, gdy wskaźnik zatrzyma się na obszarze roboczym lub karcie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um cartão com detalhes abre quando o ponteiro para sobre um espaço de trabalho ou uma aba."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Карточка с подробностями открывается, когда указатель задерживается на рабочем пространстве или вкладке."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การ์ดพร้อมรายละเอียดจะเปิดขึ้นเมื่อวางตัวชี้ไว้บนเวิร์กสเปซหรือแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İşaretçi bir çalışma alanı veya sekme üzerinde durduğunda ayrıntıları içeren bir kart açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Картка з подробицями відкривається, коли вказівник зупиняється на робочому просторі або вкладці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một thẻ chi tiết sẽ mở khi con trỏ dừng trên một không gian làm việc hoặc một tab."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指针停留在工作区或标签页上时，会打开一张详情卡片。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指標停留在工作區或分頁上時，會開啟一張詳細資訊卡片。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.hoverCards.delay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hover Card Delay"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تأخير البطاقات عند التمرير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kašnjenje kartica pri prelasku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forsinkelse for hover-kort"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verzögerung der Hover-Karten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retraso de las tarjetas al pasar el cursor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Délai des cartes au survol"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ritardo delle schede al passaggio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホバーカードの遅延"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការពន្យារពេលកាតពេលដាក់ទស្សន៍ទ្រនិច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호버 카드 지연 시간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forsinkelse for kort ved peking"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opóźnienie kart po najechaniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atraso dos cartões ao passar o cursor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Задержка карточек при наведении"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความหน่วงของการ์ดเมื่อวางเมาส์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Üzerine gelme kartı gecikmesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Затримка карток під час наведення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Độ trễ thẻ khi di chuột"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "悬停卡片延迟"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "懸停卡片延遲"
+          }
+        }
+      }
+    },
+    "settings.sidebar.hoverCards.delay.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المدة التي يستقر فيها المؤشر على مساحة عمل أو علامة تبويب قبل فتح بطاقتها. أثناء ظهور بطاقة، تُفتح البطاقة التالية فورًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koliko dugo pokazivač miruje na radnom prostoru ili kartici prije nego što se otvori njegova kartica. Dok je kartica prikazana, sljedeća se otvara odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor længe markøren hviler på et arbejdsområde eller en fane, før dets kort åbner. Mens et kort vises, åbner det næste med det samme."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie lange der Zeiger auf einem Workspace oder Tab ruht, bevor sich seine Karte öffnet. Solange eine Karte angezeigt wird, öffnet sich die nächste sofort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuánto tiempo se detiene el puntero sobre un espacio de trabajo o una pestaña antes de que se abra su tarjeta. Mientras se muestra una tarjeta, la siguiente se abre al instante."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durée pendant laquelle le pointeur reste sur un espace de travail ou un onglet avant l'ouverture de sa carte. Tant qu'une carte est affichée, la suivante s'ouvre aussitôt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per quanto tempo il puntatore resta su uno spazio di lavoro o una scheda prima che si apra la sua scheda. Mentre una scheda è visibile, la successiva si apre subito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースやタブの上にポインタを置いてからカードが開くまでの時間です。カードの表示中は、次のカードがすぐに開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រយៈពេលដែលទស្សន៍ទ្រនិចនៅលើកន្លែងធ្វើការ ឬផ្ទាំង មុនពេលកាតរបស់វាបើក។ ពេលកាតមួយកំពុងបង្ហាញ កាតបន្ទាប់បើកភ្លាមៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카드가 열리기 전에 포인터가 워크스페이스나 탭 위에 머무르는 시간입니다. 카드가 표시되는 동안에는 다음 카드가 바로 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor lenge pekeren hviler på et arbeidsområde eller en fane før kortet åpnes. Mens et kort vises, åpnes det neste med en gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak długo wskaźnik musi pozostać na obszarze roboczym lub karcie, zanim otworzy się jego karta. Gdy karta jest widoczna, następna otwiera się od razu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanto tempo o ponteiro fica sobre um espaço de trabalho ou uma aba antes de o cartão abrir. Enquanto um cartão está visível, o próximo abre na hora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сколько указатель должен задержаться на рабочем пространстве или вкладке, прежде чем откроется её карточка. Пока карточка видна, следующая открывается сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระยะเวลาที่ตัวชี้ต้องวางบนเวิร์กสเปซหรือแท็บก่อนที่การ์ดจะเปิด ขณะที่การ์ดแสดงอยู่ การ์ดถัดไปจะเปิดทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartı açılmadan önce işaretçinin bir çalışma alanı veya sekme üzerinde ne kadar durduğu. Bir kart görünürken sonraki hemen açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скільки вказівник має затриматися на робочому просторі або вкладці, перш ніж відкриється її картка. Поки картка видима, наступна відкривається одразу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thời gian con trỏ dừng trên một không gian làm việc hoặc tab trước khi thẻ của nó mở. Khi một thẻ đang hiện, thẻ tiếp theo mở ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指针在工作区或标签页上停留多久后打开其卡片。卡片显示时，下一张会立即打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指標在工作區或分頁上停留多久後開啟其卡片。卡片顯示時，下一張會立即開啟。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
