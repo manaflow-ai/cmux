@@ -184,7 +184,8 @@ load_base_red() {
 # when more than CMUX_RUST_CHECK_RERUN_MAX (default 12) tests failed, when
 # nextest failed for another reason than a red test (build, list), and with
 # CMUX_RUST_CHECK_FAIL_FAST=1. CMUX_RUST_CHECK_RERUN_MAX=0 turns the rerun off.
-# Doc tests (nextest does not run them) are their own step, without a filter.
+# Doc tests (nextest does not run them) are their own step, only without a filter.
+# A filter that matches no test is red (--no-tests=fail; cargo test was green).
 nextest_version=0.9.148
 ensure_nextest() {
   local have dir asset sha archive sum
@@ -208,8 +209,10 @@ ensure_nextest() {
         echo "error: cargo-nextest archive sha256 ${sum%% *} is not the pinned $sha" >&2
         return 3
       fi
-      tar -xzf "$archive" -C "$dir" cargo-nextest || { echo "error: cargo-nextest archive did not extract" >&2; return 3; }
-      rm -f "$archive"
+      # extract beside it and rename, so a broken extract never looks installed
+      rm -rf "$dir/x" && mkdir -p "$dir/x" && tar -xzf "$archive" -C "$dir/x" cargo-nextest && mv "$dir/x/cargo-nextest" "$dir/cargo-nextest" \
+        || { rm -rf "$dir/x" "$archive"; echo "error: cargo-nextest archive did not extract" >&2; return 3; }
+      rm -rf "$dir/x" "$archive"
     fi
     export PATH="$dir:$PATH"
     have="$(cargo nextest --version 2>/dev/null | head -n 1 || true)"
@@ -222,7 +225,7 @@ junit_full="$root/.build/cmux-tui-rust-check-junit.xml"
 junit_rerun="$root/.build/cmux-tui-rust-check-rerun-junit.xml"
 rerun_max="${CMUX_RUST_CHECK_RERUN_MAX:-12}"
 [[ "$rerun_max" =~ ^[0-9]{1,3}$ ]] || { echo "error: CMUX_RUST_CHECK_RERUN_MAX must be a number" >&2; exit 2; }
-flaky_notes=()
+rerun_notes=()
 # a reused checkout never shows an older run's table
 rm -f "$test_log" "$junit_full" "$junit_rerun"
 junit_tool() { # failed FULL | expr FULL | verdict FULL RERUN | table FULL RERUN
@@ -284,7 +287,8 @@ PY
 # macOS only: sample the number of allocated PTYs (/dev/ttysNNN) every 2 s
 # during the full run and report the peak against kern.tty.ptmx_max (511 by
 # default): a fleet Mac ran out of PTYs in one full run (cx-leo45). A sampler,
-# not a synchronization: the run never waits on it.
+# not a synchronization: the run never waits on it. macOS removes a ttys node
+# when its PTY is freed (xnu ptmx_free), so the count is PTYs in use.
 pty_note=""
 pty_watch_pid=""
 pty_peak_file="$root/.build/cmux-tui-rust-check-pty-peak"
@@ -297,8 +301,10 @@ pty_watch_start() {
       n="$(pty_count)"
       if [[ "$n" -gt "$peak" ]]; then peak="$n"; echo "$peak" >"$pty_peak_file"; fi
       sleep 2
-    done ) &
+    done ) >/dev/null 2>&1 </dev/null &
   pty_watch_pid=$!
+  # a killed step must not leave the sampler running
+  trap '[[ -z "$pty_watch_pid" ]] || kill "$pty_watch_pid" 2>/dev/null || true' EXIT
 }
 pty_watch_stop() { # START
   [[ -n "$pty_watch_pid" ]] || return 0
@@ -350,7 +356,7 @@ workspace_tests() {
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
     echo "$line"
-    flaky_notes+=("$line")
+    rerun_notes+=("$line")
   done <<<"$verdict"
   [[ "$vrc" -eq 0 && "$rrc" -eq 0 ]] && return 0
   return "$rc"
@@ -379,7 +385,7 @@ finish() {
     crate_table
   fi
   [[ "${#skip_notes[@]}" -eq 0 ]] || printf '%s\n' "${skip_notes[@]}"
-  [[ "${#flaky_notes[@]}" -eq 0 ]] || printf '%s\n' "${flaky_notes[@]}"
+  [[ "${#rerun_notes[@]}" -eq 0 ]] || printf '%s\n' "${rerun_notes[@]}"
   [[ -z "$pty_note" ]] || echo "$pty_note"
   if [[ "$first_rc" -ne 0 ]]; then
     echo "cmux-tui-rust-check: RED (first red step exit $first_rc)"
