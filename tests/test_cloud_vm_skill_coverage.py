@@ -178,7 +178,7 @@ def cli_docs_drift_failures() -> list[str]:
     owned = re.search(r"cmuxOwnedCoderouterVerbs: Set<String> = \[(?P<verbs>[^]]+)\]", coderouter)
     if owned is None or "agent" not in QUOTED_RE.findall(owned.group("verbs")):
         failures.append("coderouter source no longer declares agent as an owned verb")
-    if "`cmux coderouter <status|machines|claude|agent>`" not in contract:
+    if "`cmux coderouter <status\\|machines\\|claude\\|agent>`" not in contract:
         failures.append("cli contract omits the app-owned coderouter agent verb")
 
     hibernation_has_target_form = "cmux agent-hibernation <hibernate|wake> <surface>" in hibernation
