@@ -693,7 +693,7 @@ impl Mux {
 
     fn end_expired_terminal_grid_hold(&self, runtime: SurfaceId) {
         let _lifecycle = self.lock_client_sizing_lifecycle();
-        let sizing = self.client_sizing.lock().unwrap();
+        let sizing = self.client_sizing.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(entry) = sizing.terminal_sizing.get(&runtime) else { return };
         if entry.hold.get().is_some_and(|(_, until)| Instant::now() < until) {
             return; // Extended by a later departure; its own timer ends it.
@@ -706,7 +706,7 @@ impl Mux {
     /// The terminals (placements) `client` has a view of, for
     /// `release_terminal_grid_holds` after it is disconnected.
     pub(crate) fn terminal_placements_of_client(&self, client: u64) -> Vec<SurfaceId> {
-        let sizing = self.client_sizing.lock().unwrap();
+        let sizing = self.client_sizing.lock().unwrap_or_else(PoisonError::into_inner);
         sizing
             .surfaces
             .iter()
@@ -723,7 +723,7 @@ impl Mux {
             return;
         }
         let _lifecycle = self.lock_client_sizing_lifecycle();
-        let sizing = self.client_sizing.lock().unwrap();
+        let sizing = self.client_sizing.lock().unwrap_or_else(PoisonError::into_inner);
         let held = sizing
             .terminal_sizing
             .iter()

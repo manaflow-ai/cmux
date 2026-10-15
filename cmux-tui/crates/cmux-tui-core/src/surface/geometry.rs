@@ -22,7 +22,7 @@ impl Surface {
             Surface::Pty(pty) => {
                 #[cfg(any(unix, windows))]
                 {
-                    matches!(&*pty.runtime.lock().unwrap(), PtyRuntime::Hosted(_))
+                    matches!(&*pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner), PtyRuntime::Hosted(_))
                 }
                 #[cfg(not(any(unix, windows)))]
                 {
@@ -88,7 +88,7 @@ impl Surface {
         let desired = (cols.max(1), rows.max(1));
         match self {
             Surface::Pty(pty) => {
-                let geometry = *pty.geometry.lock().unwrap();
+                let geometry = *pty.geometry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 (geometry.cols, geometry.rows) != desired
             }
             Surface::Browser(browser) => browser.resize_needed(desired.0, desired.1),
@@ -106,7 +106,7 @@ impl Surface {
         #[cfg(any(unix, windows))]
         {
             // Only the request is sent under the runtime lock; the wait is not.
-            let barrier = match &*pty.runtime.lock().unwrap() {
+            let barrier = match &*pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
                 PtyRuntime::Hosted(host) => host.begin_viewer_size_barrier(),
                 _ => return true,
             };
@@ -118,12 +118,12 @@ impl Surface {
             // mirror to reach the size last asked.
             loop {
                 let observed = pty.stream_progress.revision();
-                let target = match &*pty.runtime.lock().unwrap() {
+                let target = match &*pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
                     PtyRuntime::Hosted(host) => host.viewer_size(),
                     _ => None,
                 };
                 let Some(target) = target else { return true };
-                let geometry = *pty.geometry.lock().unwrap();
+                let geometry = *pty.geometry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 if (geometry.cols, geometry.rows) == target {
                     return true;
                 }
@@ -207,7 +207,7 @@ impl Surface {
     pub fn size(&self) -> (u16, u16) {
         match self {
             Surface::Pty(pty) => {
-                let geometry = *pty.geometry.lock().unwrap();
+                let geometry = *pty.geometry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 (geometry.cols, geometry.rows)
             }
             Surface::Browser(browser) => browser.size(),
@@ -217,7 +217,7 @@ impl Surface {
     pub(crate) fn cell_pixel_size(&self) -> (u16, u16) {
         match self {
             Surface::Pty(pty) => {
-                let geometry = *pty.geometry.lock().unwrap();
+                let geometry = *pty.geometry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 (geometry.cell_width, geometry.cell_height)
             }
             Surface::Browser(browser) => browser.cell_pixel_size(),
