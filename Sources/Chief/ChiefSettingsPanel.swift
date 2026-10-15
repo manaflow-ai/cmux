@@ -465,7 +465,7 @@ final class ChiefSettingsFadeView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layer?.addSublayer(gradient)
-        indicator.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)?
+        indicator.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)
         indicator.imageScaling = .scaleProportionallyUpOrDown
         indicator.contentTintColor = indicatorColor
         indicator.alphaValue = 0.8
