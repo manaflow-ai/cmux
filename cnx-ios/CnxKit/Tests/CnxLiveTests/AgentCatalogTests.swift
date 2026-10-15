@@ -92,3 +92,24 @@ import Testing
         #expect(AgentCatalog(harnesses: try json(#"{"harnesses": {}}"#)).unavailableReason == "No agents are set up in cmux on this Mac.")
     }
 }
+
+/// New Workspace in a folder (Recent Directories): the new terminal changes to it as the
+/// person would type; the phone never sends `cwd`. Agent chats never start in a home folder.
+@Suite struct WorkspaceFolderTests {
+    @Test func changeDirectoryLines() {
+        #expect(LiveWorkspaceCreationBackend.changeDirectoryLine("~/Development/cmux") == "cd ~/'Development/cmux' && clear\n")
+        #expect(LiveWorkspaceCreationBackend.changeDirectoryLine("/tmp/it's here") == "cd '/tmp/it'\\''s here' && clear\n")
+        #expect(LiveWorkspaceCreationBackend.changeDirectoryLine("~") == nil)
+        #expect(LiveWorkspaceCreationBackend.changeDirectoryLine("relative") == nil)
+        #expect(LiveWorkspaceCreationBackend.changeDirectoryLine("/x\nrm -rf ~") == nil)
+    }
+
+    @Test func homeAndAboveAreNoProject() {
+        for path in ["/", "/Users", "/Users/aziz", "/Users/aziz/", "/var/root"] {
+            #expect(LiveWorkspaceCreationBackend.isHomeOrAbove(path), "\(path)")
+        }
+        for path in ["/Users/aziz/Projects/mario", "/tmp/x", "/Volumes/work"] {
+            #expect(!LiveWorkspaceCreationBackend.isHomeOrAbove(path), "\(path)")
+        }
+    }
+}

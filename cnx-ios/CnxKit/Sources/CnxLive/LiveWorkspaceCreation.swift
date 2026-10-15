@@ -37,8 +37,23 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         link.target?.macID == macID && link.phase.isConnected && sync.daemon != nil && sync.macID == macID
     }
 
+    /// Recent Directories are the folders of this Mac's workspaces (and the ones used here):
+    /// the new workspace's terminal changes to it with `cd`, as the person would type, since
+    /// the phone never sends a working directory (`cwd`) to the daemon.
     public func options(on macID: String) -> WorkspaceCreationOptions {
-        WorkspaceCreationOptions(directories: false, agents: [], browser: true, cloneFromGit: false)
+        WorkspaceCreationOptions(directories: true, agents: [], browser: true, cloneFromGit: false)
+    }
+
+    /// The line the new terminal runs for `directory` ("~/x" or "/x"): `cd` to it, then a
+    /// clear screen, as a new workspace in that folder starts on the Mac. Nil for home.
+    nonisolated static func changeDirectoryLine(_ directory: String) -> String? {
+        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "~", trimmed != "~/" else { return nil }
+        guard !trimmed.contains(where: { $0.isNewline || $0 == "\u{0}" }) else { return nil }
+        func quoted(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        if trimmed.hasPrefix("~/") { return "cd ~/\(quoted(String(trimmed.dropFirst(2)))) && clear\n" }
+        guard trimmed.hasPrefix("/") else { return nil }
+        return "cd \(quoted(trimmed)) && clear\n"
     }
 
     public func create(_ request: NewWorkspaceRequest, placeholder: Workspace) async throws -> Workspace {
@@ -53,6 +68,9 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 throw WorkspaceCreationError("The Mac didn't say which workspace it created")
             }
             var opening = DaemonTree.tabID(surface: surface)
+            if let directory = request.directory, let line = Self.changeDirectoryLine(directory) {
+                _ = try? await client.request("send", params: ["surface": surface, "text": line])
+            }
             if request.start == .browser {
                 // No pane: the active pane, which is the new workspace's. If
                 // the Mac has no browser runtime the workspace still stands,
@@ -183,6 +201,10 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         guard let cwd = workspace.tabs.lazy.compactMap({ directories[$0.id] }).first else {
             throw WorkspaceCreationError("This workspace has no folder on the Mac yet. Open a terminal tab first.", isForPerson: true)
         }
+        guard !Self.isHomeOrAbove(cwd) else {
+            throw WorkspaceCreationError("Agent chats start in a project folder. Open this workspace in one (New Workspace › Recent Directories) or cd into one in its terminal.",
+                                         isForPerson: true)
+        }
         let catalog = try await agentCatalog(on: workspace.macID)
         guard let (choice, model) = catalog.resolve(start) else {
             if let id = start.harness, let reason = catalog.harness(id)?.unavailableReason {
@@ -211,6 +233,15 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             }
         }
         return (choice.id, session)
+    }
+
+    /// `/`, `/Users`, or a home folder (`/Users/<name>`, `/var/root`): acpmux never starts a
+    /// remote chat there (`web_roots` drops the home folder and everything above it).
+    nonisolated static func isHomeOrAbove(_ path: String) -> Bool {
+        let parts = path.split(separator: "/").map(String.init)
+        if parts.isEmpty { return true }
+        if parts == ["var", "root"] || parts == ["var"] { return true }
+        return parts.first == "Users" && parts.count <= 2
     }
 
     /// `close-surface` on the Mac, then a fresh list.
