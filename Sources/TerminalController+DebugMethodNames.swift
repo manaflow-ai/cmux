@@ -27,6 +27,7 @@ extension TerminalController {
         "debug.browser.favicon",
         "debug.browser.crashes",
         "debug.browser.page_status",
+        "debug.browser.find",
         "debug.right_sidebar.focus",
         "debug.sidebar.visible",
         "debug.terminal.is_focused",

@@ -47,6 +47,14 @@ extension ControlCommandCoordinator {
             ?? .err(code: "internal_error", message: "Browser operation failed", data: nil)
     }
 
+    /// `debug.browser.find` — drives and reads a browser panel's find bar
+    /// (`needle`, `action`: `next` | `previous` | `close`). A documented
+    /// passthrough like `debug.browser.favicon`: the app resolves the panel.
+    func debugBrowserFind(_ params: [String: JSONValue]) -> ControlCallResult {
+        debugContext?.controlDebugBrowserFind(params: params)
+            ?? .err(code: "internal_error", message: "Browser operation failed", data: nil)
+    }
+
     // MARK: - debug.right_sidebar.focus / debug.sidebar.visible
 
     /// `debug.right_sidebar.focus` — reveal and focus the right sidebar.
