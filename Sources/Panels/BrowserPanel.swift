@@ -2161,7 +2161,8 @@ final class BrowserPanel: Panel, ObservableObject {
     }
     /// Whether the non-WebKit page is on screen, as its host last reported.
     var isEnginePageVisible = false
-    private var webKitPageAdapter: WebKitBrowserPage?
+    /// Held weakly so a replaced web view is not kept alive by a stale adapter.
+    private weak var webKitPageAdapter: WebKitBrowserPage?
     private(set) var localFileEncodingPolicy: BrowserLocalFileEncodingPolicy
     private let surfaceSelectionReader = WebSurfaceSelectionReader()
     let viewportHostView = BrowserViewportHostView(frame: .zero)
