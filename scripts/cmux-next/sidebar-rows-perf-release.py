@@ -120,7 +120,25 @@ def perf_names():
     return set(re.findall(r'"(perf-(?:tick-)?\d+)"', out.stdout or ""))
 
 
+def quit_app(sock):
+    """The in-app quit (action.run quitEndSessions, as NX_APP_STOP asks it) of the app serving `sock`."""
+    import socket as so
+    try:
+        with so.socket(so.AF_UNIX, so.SOCK_STREAM) as conn:
+            conn.settimeout(20)
+            conn.connect(sock)
+            conn.sendall((json.dumps({"id": 1, "method": "action.run", "params": {"id": "quitEndSessions"}}) + "\n").encode())
+            conn.recv(65536)
+        return True
+    except OSError:
+        return False
+
+
 def launch(frame="40,40,1100,820"):
+    # A copy of this tag left running by a cancelled run of this script: quit it first (never a kill).
+    if os.path.exists(SOCKET) and quit_app(SOCKET):
+        wait(lambda: app_pid() is None, 60)
+        print(f"quit a leftover {TAG} app", flush=True)
     if os.path.exists(SOCKET):
         os.unlink(SOCKET)
     env = ["CMUX_NEXT_NO_ACTIVATE=1", "CMUX_NEXT_SOCKET_MODE=automation", "CMUX_NEXT_TEST_WINDOW_SCREEN=last",
@@ -474,15 +492,8 @@ def install_b():
 
 def stop_b(app):
     """Quits the B app as NX_APP_STOP quits A: the in-app quit, then its terminal server."""
-    import socket as so
-    try:
-        with so.socket(so.AF_UNIX, so.SOCK_STREAM) as conn:
-            conn.settimeout(20)
-            conn.connect(app["socket"])
-            conn.sendall((json.dumps({"id": 1, "method": "action.run", "params": {"id": "quitEndSessions"}}) + "\n").encode())
-            conn.recv(65536)
-    except OSError as error:
-        print(f"B quit: {error}", flush=True)
+    if not quit_app(app["socket"]):
+        print("B quit: no reply", flush=True)
     wait(lambda: not os.path.exists(app["socket"]) or app_pid() is None, 30)
     tui = os.path.join(app["app"], "Contents/Resources/bin/cmux-tui")
     if os.access(tui, os.X_OK):
@@ -545,6 +556,8 @@ def pty_count():
     return len([n for n in os.listdir("/dev") if n.startswith("ttys")])
 
 
+import signal
+signal.signal(signal.SIGTERM, lambda *_: sys.exit("FAIL ended by SIGTERM (job cancel or input cap)"))
 summary["ptys_before"] = pty_count()
 print(f"ptys in use before: {summary['ptys_before']}", flush=True)
 A = {"label": opts.label, "app": APP, "tag": TAG, "socket": SOCKET, "cli": CLI,
