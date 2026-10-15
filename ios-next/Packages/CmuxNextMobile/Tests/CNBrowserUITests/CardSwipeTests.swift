@@ -17,11 +17,16 @@ struct CardSwipeTests {
         }
     }
 
-    /// tabs-parity-reaudit D3a: a slow 100 pt drag (about 100 pt/s at
-    /// release) springs back in Safari, every time.
-    @Test func slowDragSpringsBack() {
-        for v: CGFloat in [0, -50, -100, -150, -200] {
-            #expect(!CardSwipe.commits(offset: -104.6, velocity: v, cardWidth: w))
+    /// Safari on one simulator, same AXe inputs (round 21): the 100 pt
+    /// drag over 1 s that slows to a stop (about −70 pt/s at release)
+    /// springs back; the 100 pt swipe over 1 s that leaves moving (about
+    /// −190 pt/s) closes.
+    @Test func slowStopSpringsBackMovingReleaseCloses() {
+        for v: CGFloat in [0, -50, -66, -76, -100] {
+            #expect(!CardSwipe.commits(offset: -100, velocity: v, cardWidth: w))
+        }
+        for v: CGFloat in [-170, -190, -200] {
+            #expect(CardSwipe.commits(offset: -100, velocity: v, cardWidth: w))
         }
     }
 
