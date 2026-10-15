@@ -65,6 +65,24 @@ actor RemoteTmuxSSHTransport {
         return RemoteTmuxSessionListParser.parse(result.stdout)
     }
 
+    /// Creates one detached, exactly named tmux session on the remote host.
+    ///
+    /// `new-session -s` deliberately does not use tmux's attach-or-create mode:
+    /// callers use this operation for an explicit `ssh-tmux new` request, where
+    /// an existing name must fail instead of silently attaching to another task.
+    /// The optional working directory is passed as a tmux argument and is shell
+    /// quoted by ``run(_:)``, so paths containing spaces remain one remote value.
+    func createSession(named sessionName: String, workingDirectory: String? = nil) async throws {
+        var arguments = ["new-session", "-d", "-s", sessionName]
+        if let workingDirectory, !workingDirectory.isEmpty {
+            arguments += ["-c", workingDirectory]
+        }
+        let result = try await runTmux(arguments)
+        guard result.succeeded else {
+            throw commandFailure(result)
+        }
+    }
+
     /// Probes the remote tmux client version via `tmux -V`.
     ///
     /// - Returns: the parsed version, or `nil` when `tmux -V` succeeds but its

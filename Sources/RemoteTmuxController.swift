@@ -112,6 +112,23 @@ final class RemoteTmuxController {
         try await transport(for: host).listSessions()
     }
 
+    /// Creates a detached named session through the host's shared SSH transport.
+    ///
+    /// The command intentionally uses tmux's strict `new-session -s` form, so an
+    /// existing name is reported as a command failure and never becomes an
+    /// implicit attach. The caller can then mirror the exact name through the
+    /// normal ``attachHost(host:windowTarget:activate:workspaceName:sessionName:)`` path.
+    func createRemoteSession(
+        host: RemoteTmuxHost,
+        sessionName: String,
+        workingDirectory: String? = nil
+    ) async throws {
+        try await transport(for: host).createSession(
+            named: sessionName,
+            workingDirectory: workingDirectory
+        )
+    }
+
     /// Tears down a host's shared SSH master (used when removing a host).
     func disconnect(host: RemoteTmuxHost) async {
         await transportRegistry.disconnectMaster(host: host)

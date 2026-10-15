@@ -653591,6 +653591,65 @@
           }
         }
       }
+    },
+    "cli.help.ssh-tmux.newSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subcommands:\n  attach <session>                   Mirror one existing named session (fails if missing)\n  new <session> [-c <remote-cwd>]    Create a named detached session, then mirror it"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unterbefehle:\n  attach <session>                   Eine vorhandene benannte Sitzung spiegeln (schlägt fehl, wenn sie fehlt)\n  new <session> [-c <remote-cwd>]    Eine benannte getrennte Sitzung erstellen und spiegeln"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-commandes :\n  attach <session>                   Reproduire une session nommée existante (échec si elle est absente)\n  new <session> [-c <remote-cwd>]    Créer une session nommée détachée, puis la reproduire"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأوامر الفرعية:\n  attach <session>                   عكس جلسة مسماة موجودة (يفشل إذا لم تكن موجودة)\n  new <session> [-c <remote-cwd>]    إنشاء جلسة مسماة منفصلة ثم عكسها"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subcomandos:\n  attach <session>                   Reflejar una sesión con nombre existente (falla si falta)\n  new <session> [-c <remote-cwd>]    Crear una sesión separada con nombre y reflejarla"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子命令：\n  attach <session>                   鏡像現有的命名工作階段（不存在時失敗）\n  new <session> [-c <remote-cwd>]    建立命名的分離工作階段，然後鏡像它"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子命令：\n  attach <session>                   镜像现有的命名会话（不存在时失败）\n  new <session> [-c <remote-cwd>]    创建命名的分离会话，然后镜像它"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 명령:\n  attach <session>                   기존 이름 있는 세션을 미러링합니다(없으면 실패).\n  new <session> [-c <remote-cwd>]    이름 있는 분리 세션을 만든 후 미러링합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブコマンド:\n  attach <session>                   既存の名前付きセッションをミラーリング（ない場合は失敗）\n  new <session> [-c <remote-cwd>]    名前付きの切り離しセッションを作成してミラーリング"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
