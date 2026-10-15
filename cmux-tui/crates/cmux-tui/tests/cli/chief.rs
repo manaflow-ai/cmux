@@ -6,6 +6,8 @@ use super::*;
 use serde_json::{Value, json};
 use std::os::fd::FromRawFd;
 
+#[path = "chief_adopt.rs"]
+mod adopt;
 #[path = "chief_autostart.rs"]
 mod autostart;
 #[cfg(unix)]

@@ -23,6 +23,8 @@ import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
 import { questionFromPermission } from "./question/model";
+import { isNotification, typedRequest } from "./protocol/client";
+import type { SessionChanged, SessionSummary } from "./protocol/generated/types";
 import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
 import { AcpmuxRpcError, supportsHandoff } from "./handoff/protocol";
 import { sessionEnforcement } from "./handoff/review";
@@ -991,8 +993,8 @@ export class AcpmuxDirectClient {
         kind: String(notification.params?.update?.sessionUpdate ?? ""),
         msg: { method: "session/update", params: { update: notification.params?.update } },
       });
-    } else if (notification.method === "_acpmux/session_changed") this.sessionChanged(notification.params);
-    else if (notification.method === "_acpmux/permission_pending") this.applyPermission(notification.params);
+    } else if (isNotification(notification, "_acpmux/session_changed")) this.sessionChanged(notification.params);
+    else if (isNotification(notification, "_acpmux/permission_pending")) this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
     else if (notification.method === "_acpmux/harnesses_changed") this.onHarnessesChanged?.();
   }
@@ -1132,6 +1134,14 @@ export class AcpmuxDirectClient {
       level,
       ...(this.selectedSessionId ? { sessionId: this.selectedSessionId } : {}),
     });
+  }
+
+  /// Stops one of the selected session's running subagents (a Claude agent or workflow); acpmux
+  /// sends Claude's stop_task and answers with Claude's answer, and the subagent ends as cancelled
+  /// when Claude stops it. A Claude that never answers fails it after 10 s.
+  stopSubagent(subagentSessionId: string): Promise<unknown> {
+    if (!this.selectedSessionId) return Promise.reject(new Error());
+    return this.request("_acpmux/subagent_stop", { sessionId: this.selectedSessionId, subagentSessionId }, 10_000);
   }
 
   /// Reads the selected session's durable composer draft from acpmux.
@@ -1370,8 +1380,9 @@ export class AcpmuxDirectClient {
     this.emit("commands");
   }
 
-  private sessionChanged(params: any): void {
-    const session = params?.session;
+  private sessionChanged(params: SessionChanged): void {
+    // Only a purge carries the id alone; every other change carries the whole summary.
+    const session = params?.session as SessionSummary | undefined;
     if (params?.kind === "purged" && session?.sessionId) {
       this.sessionPages.purgedSession(session.sessionId);
       this.sessions = this.sessions.filter((item) => item.sessionId !== session.sessionId);
@@ -1386,11 +1397,7 @@ export class AcpmuxDirectClient {
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
       // A change that doesn't carry the queue keeps the one already mapped.
-      if (session.queue)
-        this.queue = session.queue.map((entry: any) => ({
-          id: String(entry.promptId),
-          prompt: String(entry.prompt ?? entry.preview ?? ""),
-        }));
+      if (session.queue) this.queue = session.queue.map((entry) => ({ id: entry.promptId, prompt: entry.prompt }));
     }
     if (this.offerChildIds().includes(session.sessionId)) this.childChanged(session.sessionId);
     // The picker lists every session, so a change elsewhere still needs a snapshot.
@@ -2335,7 +2342,7 @@ export class AcpmuxDirectClient {
             (reply) => reply?.ticket,
             () => undefined,
           );
-    await this.request("_acpmux/permission_respond", {
+    await typedRequest((method, params) => this.request(method, params), "_acpmux/permission_respond", {
       sessionId,
       permissionId,
       ...(optionId === undefined ? {} : { optionId }),
