@@ -4,10 +4,10 @@ import Foundation
 import Observation
 
 /// Whether a pane shows its horizontal tab bar (cx-soza): the pane's own
-/// Show Tab Bar choice, else its kind's `tabs.tabBar.<kind>`, whose
-/// Automatic is the chat rule (``ChatDockChrome``: the chat dock and a lone
-/// chat hide it until they hold two tabs; a lone New Tab page set to an agent
-/// chat hides it too, as the chat it becomes, cx-ncc.58).
+/// Show Tab Bar choice, else its kind's `tabs.tabBar.<kind>`. Every pane,
+/// agent chats and the chat dock included, shows it by default: only the
+/// person hides it, with Show Tab Bar in the command palette (Lawrence
+/// 2026-10-15, cx-v4dmy) or `tabs.tabBar.<kind>: never`.
 @Observable
 final class PaneTabBarChoices {
     /// The panes remembered, newest last; older choices are dropped.
@@ -42,13 +42,12 @@ final class PaneTabBarChoices {
 
 enum PaneTabBar {
     /// Whether the pane hides its tab bar: its own choice, else its kind's
-    /// mode, whose Automatic is `automatic` (the chat rule).
-    static func hides(choice: Bool?, mode: PaneTabBarMode, automatic: () -> Bool) -> Bool {
+    /// mode. Automatic shows it, like Always: nothing hides it on its own.
+    static func hides(choice: Bool?, mode: PaneTabBarMode) -> Bool {
         if let choice { return !choice }
         switch mode {
-        case .always: return false
+        case .auto, .always: return false
         case .never: return true
-        case .auto: return automatic()
         }
     }
 
@@ -77,11 +76,9 @@ extension PaneController {
         return PaneTabBar.kind(tabs)
     }
 
-    /// Whether the pane hides its tab bar now, holding `tabCount` tabs.
-    func hidesTabBar(tabCount: Int) -> Bool {
+    /// Whether the pane hides its tab bar now.
+    var hidesTabBar: Bool {
         let mode = (services.settings?.snapshot.paneTabBars ?? PaneTabBarDefaults())[tabBarKind]
-        return PaneTabBar.hides(choice: services.paneTabBars.choice(for: paneKey), mode: mode) {
-            ChatDockChrome.hidesStrip(self, tabCount: tabCount)
-        }
+        return PaneTabBar.hides(choice: services.paneTabBars.choice(for: paneKey), mode: mode)
     }
 }

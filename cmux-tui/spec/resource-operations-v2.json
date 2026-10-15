@@ -545,6 +545,40 @@
             "max_length": 64
           },
           "description": "RFC 3339 UTC with milliseconds."
+        },
+        "brain": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ChiefBrainStart"
+          },
+          "description": "Only in the answer of chief.profile.create and chief.profile.adopt (not a replay): what happened to the new Chief's brain, from the daemon's brain supervisor."
+        }
+      },
+      "extra": false
+    },
+    "ChiefBrainStart": {
+      "kind": "object",
+      "fields": {
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 32
+          },
+          "description": "started or not_started."
+        },
+        "reason": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "With not_started: no_supervisor (this daemon runs no Chief brains), launch_disabled (agents are off in this build session), supervisor_starting (it starts once the supervisor runs), error (the start failed; the daemon log says why) or unconfirmed (the supervisor did not answer in time; it may still start)."
         }
       },
       "extra": false
@@ -14771,7 +14805,7 @@
               "min_length": 3,
               "max_length": 16
             },
-            "description": "Fit a desktop layout instead of a device: an aspect ratio W:H such as 16:9 (whole numbers of 1 to 64, at most 4:1 either way), or a fixed layout width in CSS px such as 1280 (640 to 3840). Give it alone."
+            "description": "Fit a desktop layout instead of a device: an aspect ratio W:H such as 16:9 (whole numbers of 1 to 64, at most 4:1 either way), or a fixed layout width in CSS px such as 1280 (640 to 3840), or off to end the emulation (as browser.tab.emulate.clear). Give it alone."
           },
           "expected_revision": {
             "required": false,
@@ -15465,7 +15499,7 @@
         "Callers: the owner (a registered Unix client with no link peer record whose conversation principal is user_local) and the Chiefs (a Unix connection bound with conversation-bind to the participant id of a live record). A page, WebSocket, relayed or remote connection, or an agent that is not a Chief, is refused with origin.forbidden.",
         "The daemon owns the registry: chiefs.sqlite3 in the session state directory (memory for an in-memory session). The default Chief agent_mux exists from the first read. A deleted id is never reused.",
         "An unknown or deleted Chief is operation.failed details.reason chief_not_found.",
-        "A Chief may change only its own record and only the fields its self_edit lists (the person's rule); any other request of a Chief is operation.failed details.reason chief_self_edit_denied with extra.fields, and nothing is written. tools, harnesses, the engine fields and self_edit are the owner's only. A Chief may set its own picture when its self_edit lists avatar (the default).",
+        "A Chief changes its own record only in the fields its self_edit lists (the person's rule; else operation.failed details.reason chief_self_edit_denied with extra.fields); its own tools, harnesses, engine fields and self_edit are the owner's only. A Chief whose tools hold chiefs may change another Chief within its own grant: the new values and the target's current grant within the caller's (grant_exceeds_caller, target_exceeds_caller), never the default Chief's grant (chief_default_grant), and on a Chief the person made only display_name, role and the picture (chief_person_made_fields); without chiefs every write on another Chief is chief_manage_denied. The ledger records such a write as <agent id> via chief. Nothing is written on a refusal. A Chief may set its own picture when its self_edit lists avatar (the default).",
         "data with media_type, or clear true; anything else is validation.invalid. Bytes are stored once by SHA-256 and deleted when no Chief names them.",
         "expected_rev, when given, must be the record's rev, else operation.failed details.reason rev_mismatch with extra.rev the current one.",
         "The idempotency key is per caller (the last 256 keys of each caller are kept): the same key with the same params answers the committed record with replayed true; other params under the key are idempotency.conflict."
@@ -15608,7 +15642,7 @@
         "validation.invalid"
       ],
       "constraints": [
-        "Owner only; a Chief is refused with chief_self_edit_denied. Callers: the owner (a registered Unix client with no link peer record whose conversation principal is user_local) and the Chiefs (a Unix connection bound with conversation-bind to the participant id of a live record). A page, WebSocket, relayed or remote connection, or an agent that is not a Chief, is refused with origin.forbidden.",
+        "The owner, or a Chief whose tools hold chiefs (chief_manage_denied without it): a Chief gives the new Chief only tools, harnesses, engine fields and self_edit it holds itself (grant_exceeds_caller with extra.fields; omitted grant fields come from the caller), never more than MAX_CHIEFS, and the answer's brain says whether the new Chief's brain started. Callers: the owner (a registered Unix client with no link peer record whose conversation principal is user_local) and the Chiefs (a Unix connection bound with conversation-bind to the participant id of a live record). A page, WebSocket, relayed or remote connection, or an agent that is not a Chief, is refused with origin.forbidden.",
         "The daemon owns the registry: chiefs.sqlite3 in the session state directory (memory for an in-memory session). The default Chief agent_mux exists from the first read. A deleted id is never reused.",
         "The new id is agent_ then 26 Crockford base32 characters. At most 64 live Chiefs: operation.failed details.reason too_many_chiefs.",
         "The idempotency key is per caller (the last 256 keys of each caller are kept): the same key with the same params answers the committed record with replayed true; other params under the key are idempotency.conflict."
@@ -15910,7 +15944,7 @@
         "Callers: the owner (a registered Unix client with no link peer record whose conversation principal is user_local) and the Chiefs (a Unix connection bound with conversation-bind to the participant id of a live record). A page, WebSocket, relayed or remote connection, or an agent that is not a Chief, is refused with origin.forbidden.",
         "The daemon owns the registry: chiefs.sqlite3 in the session state directory (memory for an in-memory session). The default Chief agent_mux exists from the first read. A deleted id is never reused.",
         "An unknown or deleted Chief is operation.failed details.reason chief_not_found.",
-        "A Chief may change only its own record and only the fields its self_edit lists (the person's rule); any other request of a Chief is operation.failed details.reason chief_self_edit_denied with extra.fields, and nothing is written. tools, harnesses, the engine fields and self_edit are the owner's only.",
+        "A Chief changes its own record only in the fields its self_edit lists (the person's rule; else operation.failed details.reason chief_self_edit_denied with extra.fields); its own tools, harnesses, engine fields and self_edit are the owner's only. A Chief whose tools hold chiefs may change another Chief within its own grant: the new values and the target's current grant within the caller's (grant_exceeds_caller, target_exceeds_caller), never the default Chief's grant (chief_default_grant), and on a Chief the person made only display_name, role and the picture (chief_person_made_fields); without chiefs every write on another Chief is chief_manage_denied. The ledger records such a write as <agent id> via chief. Nothing is written on a refusal.",
         "The self_edit rule binds a Chief's bound connection. A Chief turn that has a shell runs as the same OS user as the person, so the rule guards against the model, not against the OS user; an owner connection is any unbound trusted local client, as for chief.engine.*.",
         "An absent field is unchanged; a change that leaves the record as it was keeps its rev.",
         "expected_rev, when given, must be the record's rev, else operation.failed details.reason rev_mismatch with extra.rev the current one.",
@@ -21871,7 +21905,7 @@
       ],
       "constraints": [
         "A person sets only their own picture: the connection's principal is that person (user_local on the owner's Unix or authenticated WebSocket connection, or a person bound with a person credential). Nobody sets another person's: operation.failed details.reason avatar_not_yours.",
-        "A Chief's picture is the chief.profile.avatar.set write: the owner (a registered Unix client acting as user_local) sets any Chief's, a Chief only its own and only when its self_edit lists avatar (else operation.failed details.reason chief_self_edit_denied), every other caller is origin.forbidden; the Chief record's rev moves and its brain is told (a picture never restarts a brain). The CLI (cmux avatar set) refuses an agent caller.",
+        "A Chief's picture is the chief.profile.avatar.set write: the owner (a registered Unix client acting as user_local) sets any Chief's, a Chief its own only when its self_edit lists avatar (else operation.failed details.reason chief_self_edit_denied), and another Chief's when its tools hold chiefs and that Chief's grant is within its own (else chief_manage_denied or target_exceeds_caller), every other caller is origin.forbidden; the Chief record's rev moves and its brain is told (a picture never restarts a brain). The CLI (cmux avatar set) refuses an agent caller.",
         "The daemon keeps ONE avatar store for people and Chiefs: chiefs.sqlite3 in the session state directory (memory for an in-memory session). Bytes are stored once by SHA-256 and deleted when no participant references them.",
         "The media type comes from the bytes: PNG, JPEG, GIF or WebP, 1 to 1048576 bytes; anything else is validation.invalid on bytes.",
         "bytes or clear true; anything else is validation.invalid. Setting the same picture again changes nothing; a committed change publishes participant-avatar-changed on subscribe to connections that echoed participant-avatars-v1.", "The idempotency key is per participant for a person (the last 256 keys are kept) and per caller for a Chief: the same key with the same params answers the committed result with replayed true; other params under the key are idempotency.conflict. revision is the Chief record's rev for a Chief and the people's avatar revision (it moves on every change of any person's picture) for a person."
