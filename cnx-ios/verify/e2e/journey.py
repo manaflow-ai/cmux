@@ -1998,6 +1998,116 @@ w("\r\x1b[2KSTREAMDONE\n")
         return {"notes": f"3 hostd kills: link up {[r['reconnect_s'] for r in rows]} s (median {median:.2f}, worst {worst:.2f}), "
                          f"paths {[r['path'] for r in rows]}; terminal input reached the Mac after each", "kills": rows}
 
+    def _agent_folder(self):
+        """A trusted project folder the seed workspace's terminals sit in (phone agent chats
+        start only in a project folder, and a new folder needs the person's Trust)."""
+        # Agent chats from a phone start in a project folder (never the home folder):
+        # the seed workspace's terminals move to one, which the Mac hands acpmux.
+        proj = os.path.expanduser("~/cnx-ios-e2e/codexchat-proj")
+        os.makedirs(proj, exist_ok=True)
+        for k in ("term1", "term2"):
+            self.mac_write(self.seed[k], f"cd {proj} && clear\n")
+        time.sleep(3)
+        # The folder-trust question is the person's, on the Mac (a phone may not answer it):
+        # the rig answers Trust on the rig Mac's own acpmux socket, as Trust in the Mac app does.
+        import glob as _glob, json as _json, socket as _socket
+        socks = [p for p in _glob.glob(os.path.expanduser("~/.acpmux/tags/*/acpmux.sock"))
+                 if self.mac.tag.replace("-", "") in p.replace("-", "").replace(".", "")]
+        check(socks, f"no acpmux socket for the rig tag {self.mac.tag}")
+        conn = _socket.socket(_socket.AF_UNIX); conn.settimeout(20); conn.connect(socks[0]); f = conn.makefile("rw")
+        def acp(i, m, p):
+            f.write(_json.dumps({"jsonrpc": "2.0", "id": i, "method": m, "params": p}) + "\n"); f.flush()
+            while True:
+                v = _json.loads(f.readline())
+                if v.get("id") == i:
+                    return v
+        acp(1, "initialize", {"protocolVersion": 1})
+        trust = acp(2, "acp.trust.set", {"cwd": os.path.realpath(proj), "level": "trusted"})
+        conn.close()
+        check("error" not in trust, f"acp.trust.set refused: {trust}")
+        return proj
+
+    def _face_id(self, match=True):
+        sp = ["xcrun", "simctl", "spawn", self.sim.udid, "notifyutil"]
+        subprocess.run(sp + ["-s", "com.apple.BiometricKit.enrollmentChanged", "1"], capture_output=True)
+        subprocess.run(sp + ["-p", "com.apple.BiometricKit.enrollmentChanged"], capture_output=True)
+        if match is not None:
+            time.sleep(1.5)
+            subprocess.run(sp + ["-p", "com.apple.BiometricKit_Sim.pearl." + ("match" if match else "nomatch")], capture_output=True)
+
+    def _start_agent_chat(self, harness):
+        """+ > New Agent Chat With… > `harness` (exact row) > Start Chat; returns seconds to open."""
+        s = self.sim
+        if not s.find(label="1 Tab") and not s.find(contains=" Tabs"):
+            b = s.find(label="Tabs", kind="Button")
+            check(b, "no Tabs button")
+            s.tap_el(b[0]); time.sleep(1.5)
+        s.tap(62, 812); time.sleep(1.5)
+        e = s.wait(label="New Agent Chat With…", kind="Button", timeout=5)
+        check(e, "no 'New Agent Chat With…' in the + menu")
+        s.tap_el(e); time.sleep(0.8)
+        rows = [r for r in s.find(kind="Button") if (r.label or "").split(",")[0].strip() == harness]
+        check(rows, f"no {harness!r} row in the agent chooser")
+        s.tap_el(rows[0]); time.sleep(0.8)
+        start = s.wait(label="Start Chat", kind="Button", timeout=5)
+        check(start, "no Start Chat")
+        t = time.time()
+        s.tap_el(start)
+        while time.time() < t + 120:
+            time.sleep(0.5)
+            bad = [e.label for e in s.find(contains="Couldn")] + [e.label for e in s.find(contains="Trust ")] + \
+                  [e.label for e in s.find(contains="start in a project folder")] + [e.label for e in s.find(contains="hasn't been trusted")]
+            check(not bad, f"the chat did not start: {bad[:1]}")
+            if not s.find(contains="Opening") and time.time() - t > 3:
+                break
+        return time.time() - t
+
+    def s_claude_shell(self):
+        """A phone-started Claude chat runs one shell command (the /tmp fix, parity round 3):
+        Allow once + Face ID on the phone, the file appears in the Mac's project folder and
+        the reply carries the command's output."""
+        if os.environ.get("CNX_E2E_REAL_CLAUDE") != "1":
+            raise Blocked("needs CNX_E2E_REAL_CLAUDE=1 (the real Claude makes model calls)")
+        s = self.sim
+        proj = self._agent_folder()
+        out_file = os.path.join(proj, "claude-shell.txt")
+        if os.path.exists(out_file):
+            os.remove(out_file)
+        self.open_seed_workspace()
+        self._face_id(match=None)
+        video = os.path.join(self.out, f"claude-shell-{self.run_id}.mp4")
+        s.record_start(video)
+        notes = []
+        try:
+            opened = self._start_agent_chat("Claude Code")
+            notes.append(f"Claude chat open {opened:.1f} s")
+            t = self._chat_send("Use your Bash tool to run exactly: echo macnext-$((6*7)) > claude-shell.txt && cat claude-shell.txt  Then reply with only its output.")
+            allowed, reply = 0, None
+            while time.time() - t < 240:
+                allow = s.find(label="Allow once", kind="Button") or s.find(label="Allow Once", kind="Button")
+                if allow:
+                    if not allowed:
+                        s.shot(f"claude-shell-ask-{self.run_id}")
+                    s.tap_el(allow[0]); time.sleep(1.5)
+                    self._face_id(True); time.sleep(2)
+                    allowed += 1
+                    continue
+                hits = [e for e in s.find(contains="macnext-42") if len(e.label or "") < 60
+                        and "Use your Bash" not in (e.label or "") and e.kind not in ("TextView", "TextField")]
+                if hits and os.path.exists(out_file):
+                    reply = time.time() - t
+                    break
+                check(not s.find(contains="Agent stopped"), "Agent stopped")
+                time.sleep(1)
+            s.shot(f"claude-shell-done-{self.run_id}")
+            on_mac = open(out_file).read().strip() if os.path.exists(out_file) else None
+            check(on_mac == "macnext-42", f"the command did not run on the Mac (file: {on_mac!r}, {allowed} allow(s))")
+            check(reply is not None, "no reply with the command's output within 240 s")
+            notes.append(f"{allowed} permission(s) allowed with Face ID; command ran on the Mac (claude-shell.txt = macnext-42); reply with its output in {reply:.1f} s")
+        finally:
+            s.record_stop()
+        return {"notes": "; ".join(notes) + f"; video {os.path.relpath(video, self.out)}"}
+
     def _axe_type(self, text):
         subprocess.run(["axe", "type", text, "--udid", self.sim.udid], capture_output=True, timeout=60)
 
@@ -2031,59 +2141,14 @@ w("\r\x1b[2KSTREAMDONE\n")
         if os.environ.get("CNX_E2E_REAL_CODEX") != "1":
             raise Blocked("needs CNX_E2E_REAL_CODEX=1 (the real Codex makes model calls)")
         s = self.sim
-        # Agent chats from a phone start in a project folder (never the home folder):
-        # the seed workspace's terminals move to one, which the Mac hands acpmux.
-        proj = os.path.expanduser("~/cnx-ios-e2e/codexchat-proj")
-        os.makedirs(proj, exist_ok=True)
-        for k in ("term1", "term2"):
-            self.mac_write(self.seed[k], f"cd {proj} && clear\n")
-        time.sleep(3)
-        # The folder-trust question is the person's, on the Mac (a phone may not answer it):
-        # the rig answers Trust on the rig Mac's own acpmux socket, as Trust in the Mac app does.
-        import glob as _glob, json as _json, socket as _socket
-        socks = [p for p in _glob.glob(os.path.expanduser("~/.acpmux/tags/*/acpmux.sock"))
-                 if self.mac.tag.replace("-", "") in p.replace("-", "").replace(".", "")]
-        check(socks, f"no acpmux socket for the rig tag {self.mac.tag}")
-        conn = _socket.socket(_socket.AF_UNIX); conn.settimeout(20); conn.connect(socks[0]); f = conn.makefile("rw")
-        def acp(i, m, p):
-            f.write(_json.dumps({"jsonrpc": "2.0", "id": i, "method": m, "params": p}) + "\n"); f.flush()
-            while True:
-                v = _json.loads(f.readline())
-                if v.get("id") == i:
-                    return v
-        acp(1, "initialize", {"protocolVersion": 1})
-        trust = acp(2, "acp.trust.set", {"cwd": os.path.realpath(proj), "level": "trusted"})
-        conn.close()
-        check("error" not in trust, f"acp.trust.set refused: {trust}")
+        proj = self._agent_folder()
         self.open_seed_workspace()
         video = os.path.join(self.out, f"codex-chat-{self.run_id}.mp4")
         s.record_start(video)
         notes = []
         try:
-            if not s.find(label="1 Tab") and not s.find(contains=" Tabs"):
-                b = s.find(label="Tabs", kind="Button")
-                check(b, "no Tabs button")
-                s.tap_el(b[0]); time.sleep(1.5)
-            s.tap(62, 812); time.sleep(1.5)
-            e = s.wait(label="New Agent Chat With…", kind="Button", timeout=5)
-            check(e, "no 'New Agent Chat With…' in the + menu")
-            s.tap_el(e); time.sleep(0.8)
-            row = s.wait(prefix="Codex", kind="Button", timeout=15)
-            check(row, "no Codex row in the agent chooser")
-            s.tap_el(row); time.sleep(0.8)
-            start = s.wait(label="Start Chat", kind="Button", timeout=5)
-            check(start, "no Start Chat")
-            t = time.time()
-            s.tap_el(start)
-            deadline = t + 120
-            while time.time() < deadline:
-                time.sleep(0.5)
-                bad = [e.label for e in s.find(contains="Couldn")] + [e.label for e in s.find(contains="Trust ")] + \
-                      [e.label for e in s.find(contains="start in a project folder")]
-                check(not bad, f"the chat did not start: {bad[:1]}")
-                if not s.find(contains="Opening") and time.time() - t > 3:
-                    break
-            notes.append(f"Codex chat open {time.time()-t:.1f} s")
+            opened = self._start_agent_chat("Codex")
+            notes.append(f"Codex chat open {opened:.1f} s")
             prompt = "Reply with exactly the word PONG and nothing else."
             t = self._chat_send(prompt)
             reply = None
@@ -2192,6 +2257,7 @@ w("\r\x1b[2KSTREAMDONE\n")
             ("feed", "Feed events and inline answer", "approvals", self.s_feed),
             ("feed_terminal", "Feed: a terminal agent's events (real Codex), Needs input opens the tab", "feedterm", self.s_feed_terminal),
             ("transport_wireguard", "Settings > Transport: WireGuard (stays on for the next steps)", "fastconn", self.s_transport_wireguard),
+            ("claude_shell", "Claude chat from the phone runs a shell command (real Claude)", "parity", self.s_claude_shell),
             ("codex_chat", "Codex chat from the phone: replies, asks before a command (real Codex)", "parity", self.s_codex_chat),
             ("browser_stream", "Browser tab streams to the phone (https://example.com)", "rbhost", self.s_browser_stream),
             ("hostd_kill_reconnect", "Terminal back within ~2 s after a cnx-hostd kill", "machost", self.s_hostd_kill_reconnect),
