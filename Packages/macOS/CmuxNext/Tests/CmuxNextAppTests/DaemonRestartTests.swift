@@ -235,7 +235,9 @@ struct DaemonRestartTests {
         defer { launched.stop() }
         let standIn = launched.standIn
         let controller = try #require(launched.services.windows.controllers.first)
-        #expect(controller.content != nil, "the launch snapshot's layout is drawn")
+        // The window's workspace observer draws the snapshot's layout on its first turn.
+        await Self.wait(within: .seconds(10)) { controller.content != nil }
+        try #require(controller.content != nil, "the launch snapshot's layout is never drawn")
         await Self.wait(within: .seconds(40)) { launched.services.daemon.startup.isUnavailable }
         try #require(launched.services.daemon.startup.isUnavailable, "startup never gave up on the stuck owner")
 
