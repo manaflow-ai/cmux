@@ -13,7 +13,7 @@ describe("Cloud VM smoke create retry", () => {
     const sleeps: number[] = [];
     const result = await createVmWithRetry({
       idempotencyKey: "smoke-key",
-      send: async (key) => {
+      send: async (key: string) => {
         idempotencyKeys.push(key);
         return responses.shift()!;
       },
