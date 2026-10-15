@@ -29,6 +29,7 @@ enum AgentPanePageHost {
         events.append(.preview(view.previewFeatures))
         events.append(.deviceChats(AgentPaneDeviceChat.shown(view.deviceChats, in: view)))
         events.append(.recentlyClosed(view.recentlyClosed))
+        events.append(.stashedCount(AgentPaneStashedCount.current))
         events.append(.editedFiles(view.editedFiles))
         events.append(.composer(view.model.composer))
         events.append(.diffColors(view.model.diffColors))
