@@ -489,7 +489,7 @@ export function ComposerPickers({
   const modelChip = modelName
     ? { ...(modelShort ? { short: modelShort } : {}), ...(familyShown ? { family: familyShown } : {}), title: modelName }
     : undefined;
-  const shortLevelKey = !ultracodeOn && effortChoice ? SHORT_LEVEL_KEYS[effortChoice.id] : undefined;
+  const effortShort = !ultracodeOn && effortChoice ? shortLevel(effortChoice, t) : undefined;
   const usage = summary?.usage;
   const usageNote =
     showContextUsage && usage && usage.size > 0
@@ -551,7 +551,7 @@ export function ComposerPickers({
           current={effortValue}
           defaulted={effortDefaulted}
           ultracode={ultracode}
-          {...(shortLevelKey ? { short: t(shortLevelKey) } : {})}
+          {...(effortShort ? { short: effortShort } : {})}
           speed={
             // Fast mode only where the running model honors it (Claude Code offers it on every model).
             fastMode &&
@@ -1248,6 +1248,17 @@ const SHORT_LEVEL_KEYS: Record<string, StringKey> = {
 function shortLevelName(name: string, t: (key: StringKey) => string): string {
   const id = Object.keys(SHORT_LEVEL_KEYS).find((level) => LEVEL_KEYS[level] && t(LEVEL_KEYS[level]!) === name);
   return id ? t(SHORT_LEVEL_KEYS[id]!) : name;
+}
+
+/// A level's short name for a narrow controls row, whole words only: its own ("Med" for Medium),
+/// else, for a level of several words ("Medium Fast"), its first word's ("Med"). Undefined when the
+/// level has none shorter than its name.
+function shortLevel(choice: Choice, t: (key: StringKey) => string): string | undefined {
+  const key = SHORT_LEVEL_KEYS[choice.id];
+  if (key) return t(key);
+  const first = choice.name.trim().split(/\s+/)[0] ?? "";
+  if (first.length < 3 || first === choice.name.trim()) return undefined;
+  return shortLevelName(first, t);
 }
 
 /// A model's name without its vendor, for the controls row: `short`, the catalog's own short

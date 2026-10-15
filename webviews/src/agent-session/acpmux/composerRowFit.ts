@@ -5,8 +5,8 @@ import { type RefObject, useLayoutEffect } from "react";
 // "move it back out"), the permission mode and the mic each take a shorter form or leave, and +,
 // the access glyph, Send or Stop and every chevron always stay.
 //
-// The steps are pane widths, in COMPOSER_FIT_STEPS. composerLocation.css applies them with
-// container queries on the pane (`acpmux-pane`, the chat column), whose widths are literals that
+// The steps are composer widths, in COMPOSER_FIT_STEPS. composerLocation.css applies them with
+// container queries on the composer (`composer`, #20548), whose widths are literals that
 // test/composer-fit-steps.test.ts holds to this table. This hook is the safety net for labels too
 // long for their step (a long model name, a long mode in another language): it measures the row
 // and, while its controls would not fit, applies the next steps too, writing each unit's form on
@@ -17,39 +17,46 @@ import { type RefObject, useLayoutEffect } from "react";
 // invisible, so its width is still known: the decision never toggles to measure. It runs when the
 // row is resized and when a control in it changes, never on a keystroke in the prompt.
 
-/** The pane widths (px, at or under) where the composer's rows give up a unit. Shared with the
+/** The composer widths (px, at or under; about the pane less 36) where the composer's rows give up a unit. Shared with the
  *  location strip above the row (its owner reads the machine and folder steps). To retune the
  *  collapse, change a width here; composerLocation.css's container queries use the same numbers
  *  (test/composer-fit-steps.test.ts holds the two together). */
 export const COMPOSER_FIT_STEPS = {
+  /** The location strip tightens its gap and caps its controls' width. */
+  locationTight: 480,
+  /** The effort chip shows the level's short name ("Med"). */
+  effortShort: 470,
   /** The location strip's machine shows its laptop icon alone. */
   machineIconOnly: 460,
+  /** The model shows its family ("Opus"). */
+  modelFamily: 440,
   /** The permission mode's label goes; its glyph and chevron stay. */
-  accessLabelHidden: 460,
-  /** The effort chip shows the level's short name ("Med"). */
-  effortShort: 400,
-  /** The location strip's folder name truncates in the middle. */
-  folderMiddleTruncate: 340,
+  accessLabelHidden: 420,
+  /** The model shows its harness mark alone, its name in its tooltip. */
+  modelMark: 370,
   /** The mic leaves the row. */
   micHidden: 340,
-  /** The model shows its family ("Opus"). */
-  modelFamily: 340,
-  /** The model shows its harness mark alone, its name in its tooltip. */
-  modelMark: 300,
+  /** The location strip's folder name truncates in the middle. */
+  folderMiddleTruncate: 340,
+  /** The row's group gap narrows and the card reaches 10px from the pane's edges (#20548). */
+  rowTight: 297,
   /** The row tightens its gap and padding and narrows +. */
-  barTight: 220,
+  barTight: 260,
 } as const;
 
 export type FitUnit = "access" | "effort" | "mic" | "model";
 export type FitForm = "full" | "short" | "family" | "icon" | "hidden";
 
-/** The row's steps: at its width (COMPOSER_FIT_STEPS) `unit` takes the form `to`. A row too
- *  long for its width's steps takes the next ones too, in this order: the mic goes last, so a
- *  transient control (Steer while a turn runs) never moves it. One table: the steps change here. */
+/** The row's steps: at its width (COMPOSER_FIT_STEPS) `unit` takes the form `to`. Labels shorten
+ *  early and whole, a little before the row runs out of room: effort's short name, the model's
+ *  family, the permission label (its glyph stays), the model's mark alone (its name only while the
+ *  row can hold it, #20548); the mic leaves only when nothing is left to shorten. A row too long for its
+ *  width's steps takes the next ones too, in this order, so a transient control (Steer while a turn
+ *  runs) takes the mic last. One table: the steps change here. */
 export const ROW_FIT_STEPS: readonly { step: keyof typeof COMPOSER_FIT_STEPS; unit: FitUnit; to: FitForm }[] = [
-  { step: "accessLabelHidden", unit: "access", to: "icon" },
   { step: "effortShort", unit: "effort", to: "short" },
   { step: "modelFamily", unit: "model", to: "family" },
+  { step: "accessLabelHidden", unit: "access", to: "icon" },
   { step: "modelMark", unit: "model", to: "icon" },
   { step: "micHidden", unit: "mic", to: "hidden" },
 ];
@@ -136,9 +143,13 @@ export function fitStep(
   return last;
 }
 
-/** The pane the row's steps follow: the chat column or the quick surface (the CSS's `acpmux-pane` container). */
+/** The width the row's steps follow: the composer's content box (the CSS's `composer` container,
+ *  #20548), so a split pane, the New Tab card and the quick surface step down alike. */
 function paneWidth(bar: HTMLElement): number {
-  return (bar.closest(".acpmux-main, .acpmux-quick") ?? bar.ownerDocument.documentElement).clientWidth;
+  const composer = bar.closest<HTMLElement>(".acpmux-composer, .nt-composer");
+  if (!composer) return bar.ownerDocument.documentElement.clientWidth;
+  const style = getComputedStyle(composer);
+  return composer.clientWidth - px(style.paddingLeft) - px(style.paddingRight);
 }
 
 /** The extra steps `bar` takes now (`data-fit-extra`). */
@@ -194,7 +205,7 @@ export function useRowFit(bar: RefObject<HTMLElement | null>): void {
   useLayoutEffect(() => {
     const element = bar.current;
     if (!element) return;
-    // The forms follow the pane's width too, so they are written on every pass.
+    // The forms follow the composer's width too, so they are written on every pass.
     const fit = () => show(element, rowStep(element));
     fit();
     // The row's own width (the pane), and a chip's (a new model or mode name, a chip that comes or goes).
