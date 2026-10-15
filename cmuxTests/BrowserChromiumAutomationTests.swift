@@ -21,6 +21,12 @@ private final class ScriptedChromiumPage: BrowserPage {
     /// runtime never started).
     var failure: BrowserEngineError?
 
+    /// False for a page whose engine content is not up (released by Memory
+    /// Saver, or never created); `startForAutomation` counts the requests.
+    var isLiveForAutomation = true
+    private(set) var startRequests = 0
+    func startForAutomation() { startRequests += 1 }
+
     func reply(_ method: String, _ json: String) { replies[method] = json }
     func devToolsMethods() -> [String] { devToolsCalls.map(\.method) }
 
@@ -84,6 +90,8 @@ private final class ScriptedChromiumPage: BrowserPage {
     func exportRestoreState() -> BrowserPageRestoreState? { nil }
     func close() {}
 }
+
+extension ScriptedChromiumPage: BrowserEnginePageAutomationStarting {}
 
 @MainActor
 private final class ScriptedChromiumProvider: BrowserEngineProviding {
@@ -217,6 +225,62 @@ struct BrowserChromiumAutomationTests {
             let data = failed["data"] as? [String: Any]
             #expect(data?["reason"] as? String == "startFailed", "\(method): \(failed)")
         }
+    }
+
+    /// A command on a Chromium page that is not up (Memory Saver released it,
+    /// or its pane was never shown) starts it and waits for it, instead of
+    /// failing with engine_unavailable; an engine that cannot start is not
+    /// waited for.
+    @Test func automationStartsAndWaitsForAChromiumPageThatIsNotUp() async throws {
+        let provider = ScriptedChromiumProvider()
+        let registry = BrowserEngineRuntime.shared.registry
+        let previousProvider = registry.provider(for: .chromium)
+        registry.register(provider)
+        let manager = TabManager()
+        defer {
+            if let previousProvider {
+                registry.register(previousProvider)
+            } else {
+                provider.availability = .unavailable(.notBundled)
+            }
+            TerminalController.shared.setActiveTabManager(nil)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+        }
+        let workspace = try #require(manager.selectedWorkspace)
+        let sourceID = try #require(workspace.focusedPanelId)
+        TerminalController.shared.setActiveTabManager(manager)
+        let opened = try successfulResult(await call(method: "browser.open_split", params: [
+            "workspace_id": workspace.id.uuidString,
+            "surface_id": sourceID.uuidString,
+            "url": "https://example.com/",
+            "engine": "chromium",
+            "focus": false,
+        ]))
+        let surfaceID = try #require(opened["surface_id"] as? String)
+        let panelID = try #require(UUID(uuidString: surfaceID))
+        let panel = try #require(workspace.panels[panelID] as? BrowserPanel)
+        let page = try #require(provider.pages.last)
+        panel.applyEnginePageState(BrowserPageState(url: URL(string: "https://example.com/")))
+
+        page.isLiveForAutomation = false
+        async let evaluated = call(method: "browser.eval", params: ["surface_id": surfaceID, "script": "1 + 1"])
+        // The command asked the page to start, and waits for it.
+        while page.startRequests == 0 { await Task.yield() }
+        #expect(page.evaluations.isEmpty)
+        page.isLiveForAutomation = true
+        panel.handleEnginePageEvent(.stateChanged(BrowserPageState(url: URL(string: "https://example.com/"))))
+        let result = try successfulResult(await evaluated)
+        #expect((result["value"] as? NSNumber)?.intValue == 2)
+        #expect(page.evaluations.count == 1)
+
+        // An engine that cannot start answers at once with its reason.
+        page.isLiveForAutomation = false
+        provider.availability = .unavailable(.startFailed("runtime did not start"))
+        page.failure = .unavailable(.chromium, .startFailed("runtime did not start"))
+        let requestsBefore = page.startRequests
+        let failed = try errorPayload(await call(method: "browser.eval", params: ["surface_id": surfaceID, "script": "1"]))
+        #expect(failed["code"] as? String == "engine_unavailable")
+        #expect(page.startRequests == requestsBefore)
     }
 
     @Test func navigationsAndCrashesOnAChromiumPanelReportWhatHappened() async throws {
