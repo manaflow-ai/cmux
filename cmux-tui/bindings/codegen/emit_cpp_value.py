@@ -24,6 +24,13 @@ Rules that the emitted code follows:
 - Optional or nullable fields are ``std::optional``. Absent and null both
   decode to ``std::nullopt``; ``std::nullopt`` encodes as an absent key for an
   optional field and as ``null`` for a required nullable field.
+- A field that is optional and nullable in a type the browser sends (a
+  request or a type reached from one) is ``OptionalNullable<T>``: absent,
+  explicit ``null`` and a value are three states, because the daemon reads
+  them as three (``Option<Option<T>>``; for example ``null`` clears a tab's
+  profile and an absent key keeps it).
+- ``float32`` and ``float64`` are ``double`` (the contract maps every decimal
+  to ``double``).
 - Decoders ignore unknown fields. A missing required field is a
   ``DecodeError`` whose path names the field, for example
   ``result.panes[2].id``.
@@ -75,7 +82,9 @@ _CPP_RESERVED = frozenset(
 )
 
 # Names the generated header defines itself.
-_RESERVED_TYPE_NAMES = frozenset({"DecodeError", "UnknownEvent", "Event"})
+_RESERVED_TYPE_NAMES = frozenset(
+    {"DecodeError", "UnknownEvent", "Event", "OptionalNullable"}
+)
 
 _SCALAR_TYPES = {
     "string": "std::string",
@@ -85,7 +94,7 @@ _SCALAR_TYPES = {
     "uint32": "uint32_t",
     "int64": "int64_t",
     "uint64": "uint64_t",
-    "float32": "float",
+    "float32": "double",
     "float64": "double",
 }
 
@@ -97,7 +106,7 @@ _SCALAR_DEFAULTS = {
     "uint32": "0",
     "int64": "0",
     "uint64": "0",
-    "float32": "0.0f",
+    "float32": "0.0",
     "float64": "0.0",
 }
 
@@ -731,8 +740,9 @@ class CppValueEmitter:
         """Return (shape, member C++ type, default initializer).
 
         Shapes: ``constant`` (a required, non-null literal; no member),
-        ``plain``, ``optional`` (``std::optional``) and ``pointer``
-        (``std::unique_ptr``; null means absent).
+        ``plain``, ``optional`` (``std::optional``), ``tristate``
+        (``OptionalNullable``: an optional, nullable field of a type that is
+        encoded) and ``pointer`` (``std::unique_ptr``; null means absent).
         """
 
         expression = field["type"]
@@ -741,8 +751,16 @@ class CppValueEmitter:
         if expression["kind"] == "literal" and not optional and not nullable:
             return "constant", None, None
         base = self.cpp_type(expression, owner, "member")
+        tristate = optional and nullable and owner in self.write_models
         if base.startswith("std::unique_ptr<"):
+            if tristate:
+                raise GenerationError(
+                    f"{owner}: an optional, nullable field that holds a recursive "
+                    "type is not supported in an encoded type"
+                )
             return "pointer", base, None
+        if tristate:
+            return "tristate", f"OptionalNullable<{base}>", None
         if optional or nullable:
             return "optional", f"std::optional<{base}>", None
         return "plain", base, self._member_default(expression, base)
@@ -830,8 +848,19 @@ class CppValueEmitter:
             lines.append(f"struct {model.name} {{}};")
             return lines
         lines.append(f"struct {model.name} {{")
+        members: dict[str, str] = {}
+        if expression["additional_properties"]:
+            members["additional_properties"] = "(extra properties)"
         for wire_name, field in expression["fields"].items():
             shape, member_type, default = self._field_shape(model.name, field)
+            if shape != "constant":
+                member_name = cpp_field_name(wire_name)
+                if member_name in members:
+                    raise GenerationError(
+                        f"{model.name}: wire fields {members[member_name]!r} and "
+                        f"{wire_name!r} both map to the C++ member {member_name}"
+                    )
+                members[member_name] = str(wire_name)
             if shape == "constant":
                 continue
             notes: list[str] = []
@@ -869,6 +898,7 @@ class CppValueEmitter:
             "#include <optional>",
             "#include <string>",
             "#include <string_view>",
+            "#include <utility>",
             "#include <variant>",
             "#include <vector>",
             "",
@@ -885,6 +915,29 @@ class CppValueEmitter:
             "struct DecodeError {",
             "  std::string path;",
             "  std::string message;",
+            "};",
+            "",
+            "// A request field that the spec makes optional and nullable. The daemon",
+            "// reads an absent key and an explicit null as different requests (for",
+            "// example, null clears a tab's profile; an absent key keeps it).",
+            "// `value` set: the value is sent. Else `is_null`: null is sent. Else the",
+            "// key is absent.",
+            "template <typename T>",
+            "struct OptionalNullable {",
+            "  static OptionalNullable Null() {",
+            "    OptionalNullable field;",
+            "    field.is_null = true;",
+            "    return field;",
+            "  }",
+            "  static OptionalNullable Of(T item) {",
+            "    OptionalNullable field;",
+            "    field.value = std::move(item);",
+            "    return field;",
+            "  }",
+            "  bool is_absent() const { return !value.has_value() && !is_null; }",
+            "",
+            "  std::optional<T> value;",
+            "  bool is_null = false;",
             "};",
             "",
         ]
@@ -1071,6 +1124,33 @@ class CppValueEmitter:
                     "    }",
                 ]
             )
+        elif shape == "tristate" and expression["kind"] == "literal":
+            literal = expression["value"]
+            lines.extend(
+                [
+                    "    if (field && field->is_none()) {",
+                    f"      {member}.is_null = true;",
+                    "    } else if (field) {",
+                    f"      if ({_literal_mismatch('field', literal)}) {{",
+                    f"        return Fail(context, {cpp_string('expected ' + json.dumps(literal))});",
+                    "      }",
+                    f"      {member}.value = {_literal_cpp_value(literal)};",
+                    "    }",
+                ]
+            )
+        elif shape == "tristate":
+            lines.extend(
+                [
+                    "    if (field && field->is_none()) {",
+                    f"      {member}.is_null = true;",
+                    "    } else if (field) {",
+                    f"      {member}.value.emplace();",
+                    f"      if (!ReadValue(*field, context, *{member}.value)) {{",
+                    "        return false;",
+                    "      }",
+                    "    }",
+                ]
+            )
         elif expression["kind"] == "literal":
             # An optional or nullable literal: std::optional of its C++ type.
             literal = expression["value"]
@@ -1139,6 +1219,19 @@ class CppValueEmitter:
         optional = field["presence"] == "optional"
         if shape == "constant":
             return [f"  dict.Set({key}, {_literal_value_expression(expression['value'])});"]
+        if shape == "tristate":
+            value = (
+                _literal_value_expression(expression["value"])
+                if expression["kind"] == "literal"
+                else f"WriteValue(*{member}.value)"
+            )
+            return [
+                f"  if ({member}.value) {{",
+                f"    dict.Set({key}, {value});",
+                f"  }} else if ({member}.is_null) {{",
+                f"    dict.Set({key}, base::Value());",
+                "  }",
+            ]
         if expression["kind"] == "literal":
             value = _literal_value_expression(expression["value"])
             if optional:
@@ -1706,7 +1799,8 @@ base::Value WriteValue(const T& in) {
     base::ListValue list;
     list.reserve(in.size());
     for (const auto& item : in) {
-      list.Append(WriteValue(item));
+      // The explicit type also reads a std::vector<bool> bit reference.
+      list.Append(WriteValue<typename T::value_type>(item));
     }
     return base::Value(std::move(list));
   } else if constexpr (IsStringMap<T>::value) {

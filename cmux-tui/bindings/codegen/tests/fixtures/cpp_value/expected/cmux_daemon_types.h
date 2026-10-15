@@ -13,6 +13,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -30,6 +31,29 @@ inline constexpr std::string_view kSpecIrSha256 =
 struct DecodeError {
   std::string path;
   std::string message;
+};
+
+// A request field that the spec makes optional and nullable. The daemon
+// reads an absent key and an explicit null as different requests (for
+// example, null clears a tab's profile; an absent key keeps it).
+// `value` set: the value is sent. Else `is_null`: null is sent. Else the
+// key is absent.
+template <typename T>
+struct OptionalNullable {
+  static OptionalNullable Null() {
+    OptionalNullable field;
+    field.is_null = true;
+    return field;
+  }
+  static OptionalNullable Of(T item) {
+    OptionalNullable field;
+    field.value = std::move(item);
+    return field;
+  }
+  bool is_absent() const { return !value.has_value() && !is_null; }
+
+  std::optional<T> value;
+  bool is_null = false;
 };
 
 using Id = uint64_t;
@@ -99,7 +123,7 @@ struct LayoutSplit {
   std::unique_ptr<Layout> a;
   std::unique_ptr<Layout> b;
   SplitDirection dir = SplitDirection::kUnknown;
-  float ratio = 0.0f;
+  double ratio = 0.0;
   // since 8
   std::optional<Id> split;
 };
@@ -130,7 +154,7 @@ struct Pane {
 struct ReportFocusParams {
   std::string client_id;
   Id pane = 0;
-  std::optional<uint64_t> tab;
+  OptionalNullable<uint64_t> tab;
 };
 
 // Spec type Settings.

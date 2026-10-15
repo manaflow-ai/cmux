@@ -212,6 +212,33 @@ class EnumAndNumberRuleTests(unittest.TestCase):
         self.assertIn('field = dict.Find("clientId");', self.source)
 
 
+class PresenceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        files = emit(load_ir(FIXTURE_SCHEMA), load_allowlist(FIXTURE_ALLOWLIST))
+        self.header = files[HEADER_NAME].decode("utf-8")
+        self.source = files[SOURCE_NAME].decode("utf-8")
+
+    def test_an_optional_nullable_request_field_has_three_states(self) -> None:
+        # report-focus `tab` is optional and nullable: the daemon reads an
+        # absent key and null differently (Option<Option<T>>).
+        self.assertIn("  OptionalNullable<uint64_t> tab;", self.header)
+        self.assertIn(
+            '  if (in.tab.value) {\n    dict.Set("tab", WriteValue(*in.tab.value));\n'
+            '  } else if (in.tab.is_null) {\n    dict.Set("tab", base::Value());\n  }',
+            self.source,
+        )
+
+    def test_an_optional_nullable_result_field_stays_std_optional(self) -> None:
+        self.assertIn("  std::optional<std::string> client_id;", self.header)
+
+    def test_wire_names_that_map_to_one_member_are_rejected(self) -> None:
+        document = _fixture_document()
+        fields = document["commands"]["report-focus"]["request"]["fields"]
+        fields["client-id"] = copy.deepcopy(fields["client_id"])
+        with self.assertRaisesRegex(GenerationError, "client_id"):
+            emit(load_ir_document(document), _allowlist(["report-focus"], []))
+
+
 class AllowlistTests(unittest.TestCase):
     def test_rejects_malformed_allowlists(self) -> None:
         cases = {

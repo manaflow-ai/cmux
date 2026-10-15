@@ -265,7 +265,8 @@ base::Value WriteValue(const T& in) {
     base::ListValue list;
     list.reserve(in.size());
     for (const auto& item : in) {
-      list.Append(WriteValue(item));
+      // The explicit type also reads a std::vector<bool> bit reference.
+      list.Append(WriteValue<typename T::value_type>(item));
     }
     return base::Value(std::move(list));
   } else if constexpr (IsStringMap<T>::value) {
@@ -625,8 +626,10 @@ base::DictValue WriteObject(const ReportFocusParams& in) {
   base::DictValue dict;
   dict.Set("client_id", WriteValue(in.client_id));
   dict.Set("pane", WriteValue(in.pane));
-  if (in.tab) {
-    dict.Set("tab", WriteValue(*in.tab));
+  if (in.tab.value) {
+    dict.Set("tab", WriteValue(*in.tab.value));
+  } else if (in.tab.is_null) {
+    dict.Set("tab", base::Value());
   }
   return dict;
 }
