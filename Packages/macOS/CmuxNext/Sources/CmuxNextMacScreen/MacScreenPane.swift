@@ -57,6 +57,10 @@ public struct MacScreenPaneHandlers {
     /// Whether this screen holds the keyboard may have changed (focus, the
     /// release chord, the session's phase): the system shortcut tap follows.
     public var keyboardChanged: () -> Void = {}
+    /// The pane is about to start a connection (showing the tab, Connect,
+    /// Try Again): the host ends the other screens of this Mac, since the
+    /// host takes one viewer and the newest wins.
+    public var willConnect: () -> Void = {}
 
     public init() {}
 }
@@ -93,6 +97,8 @@ public final class MacScreenPane {
         view = MacScreenPaneView(model: model)
         view.input.sink = sink
         wire(session)
+        // A new screen never takes the keyboard before a click on the picture.
+        view.input.waitForClick()
     }
 
     /// A tab whose Mac is gone (forgotten, or another app's record).
@@ -139,7 +145,7 @@ public final class MacScreenPane {
             view.input.waitForClick()
             handlers.confirm()
             // A person pressed Connect, so the tab is on screen even if no reveal reached it.
-            if visible { connectSession(session) } else { resume() }
+            if visible { start(session) } else { resume() }
         }
         actions.closeTab = { [weak self] in self?.handlers.closeTab() }
         actions.openHome = { [weak self] in self?.handlers.openHome() }
@@ -190,6 +196,32 @@ public final class MacScreenPane {
     /// before the failed card shows (a relay often needs a few tries). A
     /// single `connect()` failed at once. Tests count the starts.
     var connectSession: @MainActor (ScreenSession) -> Void = { $0.reconnect() }
+
+    /// Starts a connection: the host hears it first (`willConnect`).
+    private func start(_ session: ScreenSession) {
+        handlers.willConnect()
+        connectSession(session)
+    }
+
+    /// Whether the session is connecting or connected (not ended, failed or closed).
+    public var isActive: Bool {
+        guard let session else { return false }
+        switch session.phase {
+        // A new session reads "connecting" before anything starts: only a live stream or a
+        // running attempt (every pane start is a reconnect) holds the host.
+        case .connecting, .connected: return session.stream != nil || session.isReconnecting
+        case .failed, .ended: return false
+        }
+    }
+
+    /// Another screen of this Mac took the host's one viewer: the session
+    /// ends now, as when a hidden tab's grace runs out (the Disconnected
+    /// card; showing a hidden tab connects again).
+    public func endForAnotherViewer() {
+        hideTimer.cancel()
+        view.input.releaseKeyboard()
+        session?.disconnect()
+    }
     public var focusTarget: NSView { view.input.view }
 
     /// The tab is shown: connect (unless a person stopped it or it waits for Connect).
@@ -200,9 +232,9 @@ public final class MacScreenPane {
         guard let session, model.gate == .open, !stoppedByPerson else { return }
         switch session.phase {
         case .connected, .connecting:
-            if session.stream == nil && !session.isReconnecting { connectSession(session) }
+            if session.stream == nil && !session.isReconnecting { start(session) }
         case .failed, .ended:
-            connectSession(session)
+            start(session)
         }
     }
 
@@ -276,7 +308,7 @@ public final class MacScreenPane {
         stoppedByPerson = false
         guard let session else { return }
         session.reconnectLimit = 5
-        connectSession(session)
+        start(session)
     }
 
     private func disconnectByPerson() {

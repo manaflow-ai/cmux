@@ -24,6 +24,14 @@ public struct MacScreenTabEvents {
     public init() {}
 }
 
+/// One Mac Screen tab's screen, for ``MacScreenPages/sessionsToEnd(starting:panes:)``.
+struct MacScreenPaneActivity: Equatable {
+    var key: String
+    var mac: UUID?
+    /// Connecting or connected (holding, or about to hold, the host's one viewer).
+    var active: Bool
+}
+
 /// Mac Screen tabs, their own page tab kind (the app's `mac-screen` page):
 /// the saved Macs and Share This Mac (`MacScreenStore`, `MacScreenShareHost`),
 /// and each tab (`MacScreenTab`) by its page tab key. A tab connects only
@@ -194,6 +202,24 @@ public final class MacScreenPages {
         }
     }
 
+    /// Hosts take one viewer and the newest wins. When the screen of tab
+    /// `starting` starts connecting, every other screen of the same Mac that
+    /// is connecting or connected ends, hidden (as if its grace ran out) or
+    /// shown (an older split shows Disconnected instead of the two taking the
+    /// host from each other). Their keys, in `panes` order.
+    static func sessionsToEnd(starting: String, panes: [MacScreenPaneActivity]) -> [String] {
+        guard let mac = panes.first(where: { $0.key == starting })?.mac else { return [] }
+        return panes.filter { $0.key != starting && $0.mac == mac && $0.active }.map(\.key)
+    }
+
+    /// The screen of tab `key` starts connecting: the other screens of its Mac end.
+    private func endOtherViewers(of key: String) {
+        let panes = tabs.values.sorted { $0.key < $1.key }.compactMap { tab in
+            tab.pane.map { MacScreenPaneActivity(key: tab.key, mac: tab.record.macID, active: $0.isActive) }
+        }
+        for other in Self.sessionsToEnd(starting: key, panes: panes) { tabs[other]?.pane?.endForAnotherViewer() }
+    }
+
     private func makeHome(key: String) -> NSView {
         var actions = MacScreenHomeActions()
         actions.open = { [weak self] mac in self?.openFromHome(mac, in: key) }
@@ -220,6 +246,7 @@ public final class MacScreenPages {
             pane = MacScreenPane(missingMac: ())
         }
         pane.handlers.closeTab = { [weak self] in self?.events.closeTab(key) }
+        pane.handlers.willConnect = { [weak self] in self?.endOtherViewers(of: key) }
         pane.handlers.openHome = { [weak self] in self?.replace(key, with: MacScreenRecord(macID: nil)) }
         pane.handlers.isLocalShortcut = { [weak self] event in self?.isLocalShortcut(event) ?? false }
         pane.handlers.keyboardChanged = { [weak self] in self?.systemShortcuts.update() }
