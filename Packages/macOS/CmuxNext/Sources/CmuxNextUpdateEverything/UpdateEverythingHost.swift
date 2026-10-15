@@ -53,8 +53,11 @@ public enum UpdateEverything {
     public static func bind(into registry: ActionRegistry, host: UpdateEverythingHost) {
         let steps = UpdateEverythingHostSteps(host)
         let runner = UpdateEverythingRunner(journal: UpdateEverythingJournal(url: host.journal))
-        registry.bind(actionID, run: { _ in
-            guard runner.claim() else { throw ActionFailure(message: UpdateEverythingRunner.alreadyRunning) }
+        registry.bind(actionID, invoke: { [weak registry] _ in
+            guard runner.claim() else {
+                registry?.refuse(UpdateEverythingRunner.alreadyRunning)
+                return
+            }
             // task-owner: one confirmation and its run; ends with the run's result toast
             Task { @MainActor in
                 defer { runner.release() }
