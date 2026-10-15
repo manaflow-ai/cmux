@@ -642,6 +642,27 @@ What the daemon does (cmux-tui `mux/tab_groups/reopen_saved.rs`,
   field is refused. Until then the rows stay "pending live check" in
   `verify/parity-mac.md`.
 
+### `daemon`: Duplicate Workspace (no allowlist change)
+
+The Mac duplicates a workspace in the app (`WorkspaceBlueprintBuilder`: `new-tab {cwd}`
+per terminal). No daemon command does it, and `apply-layout` takes a `command` per pane,
+so neither is on the lane. The phone composes the copy from lines that are already allowed:
+`new-workspace {name}`, `new-tab {pane}` (hostd adds the pane's folder, as for New
+Terminal), `new-browser-tab {url, pane}` (http/https only) and `send` of
+`cd '<folder>' && clear` into each new shell. A folder that the line editor could act on
+is never typed (`WorkspaceFolderPath.isTypable`). The phone can already type that same
+line into any terminal, so this adds no reach. Tests: CnxLive `duplicatePlanFollowsTheTabs`,
+CnxWorkspaces `duplicateWorkspace`.
+
+### `acpmux`: opencode stays refused (round 3 re-check)
+
+opencode v1.19.0 cannot be forced to ask from outside. Its own config sources (global, org,
+managed, MDM, agent files) merge after anything a launcher sets, or are appended after it,
+and rules match last-wins. Custom tools, plugins, MCP tools and command templates run
+outside the edit/bash/webfetch asks (details and source paths in `verify/parity-mac.md`
+round 3 and `web_modes::REFUSED_FAMILIES`). The remote row's reason now says this:
+"opencode's own settings on this Mac can let it edit and run commands without asking".
+
 ## Test-only pairing seed (DEBUG builds)
 
 A hidden rig app cannot press the person-only "Allow … to connect?" prompt.
