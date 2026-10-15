@@ -52,7 +52,7 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
     /// The layer animation key of a background color blend.
     public static let layerKey = "cmux.colorTransition.backgroundColor"
 
-    public init(enabled: Bool = true, duration: TimeInterval = 0.2, curve: Curve = .easeOut,
+    public init(enabled: Bool = true, duration: TimeInterval = MotionTunables.colorTransitionDuration.value, curve: Curve = .easeOut,
                 space: ThemeColorSpace = .oklab, reduceMotion: ReduceMotion = .crossfade) {
         self.enabled = enabled
         self.duration = duration
@@ -153,19 +153,13 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
             layer.removeAnimation(forKey: key)
             return
         }
-        let animation = CAKeyframeAnimation(keyPath: "backgroundColor")
         let count = Self.keyframes
         // Keyframes at even times, each the color at the curve's progress there (cmux-motion), so
         // the render server only steps linearly between them.
         var values: [CGColor] = progressSamples(count: count).map { Self.cgColor(mix(from, to, fraction: $0)) }
         // The exact colors at both ends, so removing the animation changes nothing on screen.
         if let shown, let color { values[0] = shown; values[count - 1] = color }
-        animation.values = values
-        animation.keyTimes = (0..<count).map { NSNumber(value: Double($0) / Double(count - 1)) }
-        animation.calculationMode = .linear
-        animation.duration = seconds
-        animation.timingFunction = CAMediaTimingFunction(name: .linear)
-        animation.isRemovedOnCompletion = true
+        let animation = Motion.sampledKeyframes("backgroundColor", values: values, duration: seconds)
         layer.add(animation, forKey: key)
     }
 

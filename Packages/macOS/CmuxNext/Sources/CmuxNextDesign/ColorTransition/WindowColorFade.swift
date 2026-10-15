@@ -67,13 +67,9 @@ final class WindowColorFade {
             guard let self, self.generation == current else { return }
             self.removeOverlays()
         }
+        let opacities: [Any] = samples.map { Float(1 - min(max($0, 0), 1)) }
         for layer in overlays {
-            let animation = CAKeyframeAnimation(keyPath: "opacity")
-            animation.values = samples.map { Float(1 - min(max($0, 0), 1)) }
-            animation.keyTimes = samples.indices.map { NSNumber(value: Double($0) / Double(samples.count - 1)) }
-            animation.calculationMode = .linear
-            animation.timingFunction = CAMediaTimingFunction(name: .linear)
-            animation.duration = transition.seconds
+            let animation = Motion.sampledKeyframes("opacity", values: opacities, duration: transition.seconds)
             layer.add(animation, forKey: "cmux.colorFade")
         }
         CATransaction.commit()
