@@ -249,6 +249,18 @@ describe("Cloud Secrets provider routing guard (running machines)", () => {
     expect(readFileSync(configPath, "utf8")).toBe(malformed);
   });
 
+  test("does not replace a non-object Claude config while refreshing approval", async () => {
+    const m = machine();
+    const configPath = path.join(m.home, ".claude.json");
+    const nonObject = "[\"preserve this state\"]\n";
+    writeFileSync(configPath, nonObject);
+    writeFileSync(m.envFile, "export ANTHROPIC_API_KEY='sk-ant-user'\n");
+
+    await guard(m, "keep", "direct");
+
+    expect(readFileSync(configPath, "utf8")).toBe(nonObject);
+  });
+
   test("keep changes nothing; plane releases only what cmux added", async () => {
     const m = machine();
     writeFileSync(m.envFile, `export OPENAI_API_KEY='${USER_KEY}'\n`);
