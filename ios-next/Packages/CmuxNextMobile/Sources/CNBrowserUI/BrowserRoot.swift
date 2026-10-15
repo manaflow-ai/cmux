@@ -296,7 +296,10 @@ struct BrowserScreen: View {
                             placeholderTerminal: newTabIsTerminal,
                             slotTakeover: newTabSlot?.created(in: itemIds),
                             onCardMenu: cardMenu,
-                            onQueueSelect: { queuedOpen = $0 },
+                            onQueueSelect: { key in
+                                queuedOpen = key
+                                openQueuedIfReady()
+                            },
                             onSelectionAction: selectionAction,
                             onMove: { key, index in tabs.move(key, to: index) },
                             onScrolling: { tabs.setGridScrolling($0) })
@@ -547,6 +550,9 @@ struct BrowserScreen: View {
                 }
             }
         }
+        // A card tapped during the zoom-out opens on Safari's timing, before
+        // the zoom-out's tail has run out (TabZoomState.queuedOpenAfter).
+        .onChange(of: zoomState.readyForQueuedOpen) { _, _ in openQueuedIfReady() }
         .onChange(of: tabs.items.isEmpty) { _, empty in
             // Closing the last tab opens a fresh start page, as Safari does.
             guard empty, tabs.loaded else { return }
@@ -670,6 +676,13 @@ struct BrowserScreen: View {
         let card = overviewLayout.cardWidth
         guard size.width > card, card > 0 else { return 0 }
         return min(1, max(0, (size.width - width) / (size.width - card)))
+    }
+
+    /// Ends the zoom-out now (it is at rest to the eye) when a queued card
+    /// should open; the grid's settle then opens it.
+    private func openQueuedIfReady() {
+        guard queuedOpen != nil, zoomState.phase == .animating, zoomState.readyForQueuedOpen else { return }
+        zoomDriver.finishCurve()
     }
 
     /// A local page (Mac-only) laid out at full size, scaled into `rect`.

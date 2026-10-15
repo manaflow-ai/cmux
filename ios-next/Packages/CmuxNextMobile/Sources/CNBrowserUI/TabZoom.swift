@@ -184,6 +184,24 @@ struct TabZoomState: Equatable, Sendable {
     /// Whether the swipe-up curve is running.
     var playingSwipeUp: Bool { phase == .animating && curve == .swipeUp }
 
+    /// Safari opens a card tapped during the zoom-out about 470-570 ms after
+    /// the zoom-out began (re-audit 3); ours waited for the curve's 583 ms
+    /// tail and opened 150-300 ms later (and 570-620 ms at 0.5 s, with the
+    /// tap's own latency). By this point the zoom-out is within 0.5 % of the grid.
+    static let queuedOpenAfter = 0.42
+
+    /// A zoom-out to the grid far enough along for a queued tap to open its card.
+    var readyForQueuedOpen: Bool {
+        phase == .overview || (phase == .animating && target == 1 && curve == .zoomOut && curveTime >= Self.queuedOpenAfter)
+    }
+
+    /// Ends a curve where it is (it is at rest to the eye): the grid settles now.
+    mutating func finishCurve() {
+        guard phase == .animating, curve != nil else { return }
+        curve = nil
+        settle()
+    }
+
     /// A swipe up on the bar ended: the grid follows Safari's swipe-up curve
     /// on from where the finger left the page (its progress on that curve).
     mutating func releaseOnSwipeUpCurve() {
