@@ -68,7 +68,7 @@ enum DebugPaneChrome {
             return .object([
                 "id": .string(controller.state.id),
                 "scale": .number(Double(window.backingScaleFactor)),
-                "pane_padding": .number(Double(Metrics.panePadding)),
+                "pane_padding": .number(Double(Metrics.panePadding)), "chrome_style": .string(DesignSettings.shared.chromeStyle.rawValue),
                 "panes": .array(panes),
                 "window_controls": .object([
                     "sidebar_hidden": .bool(controller.root.sidebarHidden),
