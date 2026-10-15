@@ -10,6 +10,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 type Frame = { entry: string; variant: string; edge: string; blocks: Record<string, string> };
 
@@ -69,6 +70,7 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
