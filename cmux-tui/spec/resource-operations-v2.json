@@ -14934,8 +14934,7 @@
                 "cef"
               ]
             },
-            "default": "webkit",
-            "description": "The engine the app renders the page with."
+            "description": "The engine the app renders the page with. Absent is the person's browser.defaultEngine setting: webkit for webkit, else cef (Chromium, the setting's default)."
           },
           "title": {
             "required": false,
