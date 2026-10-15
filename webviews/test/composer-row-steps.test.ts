@@ -1,13 +1,12 @@
 // The composer's controls row never cuts a label (Leo 2026-10-14: "Claude Opus …", "Medi…" in the
-// footer). The compact-composer verdict (cg-design-judge, 2026-10-14, items 3 to 5): effort rides
-// in the model chip as a dim suffix ("Opus 5.5 Fast Med", one chevron), and a narrower pane swaps
-// whole units, never letters:
-//   - always: +, the access glyph, Send and every chevron; no label under 3 characters; no two
-//     controls overlap;
-//   - at 460 px or less the access label goes (its glyph and chevron stay);
-//   - at 400 or less the suffix drops Fast and keeps Med;
-//   - at 340 or less the mic leaves the row and the model shows its family ("Opus");
-//   - at 300 or less the model shows its harness mark alone, the full value in its tooltip.
+// footer), and effort is a chip of its own (Leo 2026-10-15: "move it back out"). A narrower
+// composer swaps whole units, never letters, and shortens labels before it drops a control
+// (cg-ui-coord 2026-10-15: "collapse faster and keep more visible"):
+//   - always: +, the model, effort, the access glyph, Send and every chevron; no label under 3
+//     characters; no two controls overlap;
+//   - first effort shows the level's short name ("Med"), then the model its family ("Opus"), then
+//     its harness mark alone (its name in its tooltip);
+//   - only then the access label goes, and the mic last.
 // At every width each label is whole, never clipped or ellipsized, and the row stays in the bar.
 //
 // The gallery's `agent-pane.composer-row` entry (`leo-report`) is the real pane in Chromium.
@@ -84,16 +83,18 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
     };
   }
 
-  /** What each pane width shows (the verdict's widths): the model chip's labels, the access label, the mic. */
-  const EXPECTED: Record<number, { model: string; access: string; mic: boolean }> = {
-    760: { model: "Opus 5.5 Fast Med", access: "Auto", mic: true },
-    480: { model: "Opus 5.5 Fast Med", access: "Auto", mic: true },
-    460: { model: "Opus 5.5 Fast Med", access: "", mic: true },
-    400: { model: "Opus 5.5 Med", access: "", mic: true },
-    380: { model: "Opus 5.5 Med", access: "", mic: true },
-    340: { model: "Opus Med", access: "", mic: false },
-    300: { model: "", access: "", mic: false },
-    290: { model: "", access: "", mic: false },
+  /** What each pane width shows (the composer is the pane less 36 px): the model chip's labels,
+   *  effort's, the access label, the mic. */
+  const EXPECTED: Record<number, { model: string; effort: string; access: string; mic: boolean }> = {
+    760: { model: "Opus 5.5", effort: "Medium Fast", access: "Auto", mic: true },
+    520: { model: "Opus 5.5", effort: "Medium Fast", access: "Auto", mic: true },
+    500: { model: "Opus 5.5", effort: "Med Fast", access: "Auto", mic: true },
+    460: { model: "Opus", effort: "Med Fast", access: "Auto", mic: true },
+    440: { model: "Opus", effort: "Med Fast", access: "", mic: true },
+    400: { model: "", effort: "Med Fast", access: "", mic: true },
+    360: { model: "", effort: "Med Fast", access: "", mic: false },
+    300: { model: "", effort: "Med Fast", access: "", mic: false },
+    280: { model: "", effort: "Med Fast", access: "", mic: false },
   };
 
   setDefaultTimeout(180_000);
@@ -152,7 +153,7 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
   };
 
   for (const [width, expected] of Object.entries(EXPECTED).map(([w, e]) => [Number(w), e] as const))
-    test(`at ${width} px the row swaps whole units: model "${expected.model}", access "${expected.access}"`, async () => {
+    test(`at ${width} px the row swaps whole units: model "${expected.model}", effort "${expected.effort}"`, async () => {
       const { controls, overflow } = await at(width);
       const problems = [...overflow];
       for (const [name, control] of Object.entries(controls)) {
@@ -163,10 +164,10 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
           if (label.length < 3) problems.push(`${name} draws "${label}", under 3 characters`);
         }
       }
-      for (const name of ["plus", "model", "access", "send"])
+      for (const name of ["plus", "model", "effort", "access", "send"])
         if (!controls[name]) problems.push(`no ${name} in the row`);
-      // Effort rides in the model chip: no effort chip of its own in the row.
-      if (controls.effort) problems.push(`an effort chip of its own: "${controls.effort.labels.join(" ")}"`);
+      const effort = controls.effort?.labels.join(" ") ?? "";
+      if (effort !== expected.effort) problems.push(`the effort chip reads "${effort}", not "${expected.effort}"`);
       const model = controls.model?.labels.join(" ") ?? "";
       if (model !== expected.model) problems.push(`the model chip reads "${model}", not "${expected.model}"`);
       if (!expected.model && !/Opus 5\.5/.test(controls.model?.title ?? ""))
@@ -175,7 +176,7 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
       if (access !== expected.access) problems.push(`the access chip reads "${access}", not "${expected.access}"`);
       if (Boolean(controls.mic) !== expected.mic)
         problems.push(expected.mic ? "no mic" : "the mic is still in the row");
-      for (const name of ["model", "access"])
+      for (const name of ["model", "effort", "access"])
         if (controls[name] && !controls[name].chevron) problems.push(`${name} lost its chevron`);
       // No two controls overlap.
       const shown = Object.entries(controls).filter(([, control]) => control) as [string, Control][];

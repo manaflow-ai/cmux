@@ -136,14 +136,26 @@ export function narrowProblems(document: Document): string[] {
   // measured a wide composer as narrow would hide them, Lawrence 2026-10-14 "lost effort"). At 600 px
   // the chips still share the row, so the model name and Effort may end in an ellipsis there.
   if (view.innerWidth >= 700)
-    for (const value of document.querySelectorAll(".acpmux-effort .acpmux-picker-button > span, .acpmux-model-name"))
+    // The row's wide forms (composerRowFit.ts): effort's level, and the model's name or its drawn
+    // name without the vendor ("Opus 5.5"); the narrow forms are laid out of the row.
+    for (const value of document.querySelectorAll(
+      ".acpmux-effort .acpmux-picker-button > span:not(.acpmux-fit-label), .acpmux-model-name:not([data-short]), .acpmux-model .acpmux-fit-label[data-fit-forms~='full']",
+    ))
       if (!visible(value) || value.scrollWidth > value.clientWidth + 1)
         problems.push(`“${value.textContent?.trim()}” is not shown in full in a wide pane`);
-  // The model goes to its icon only where the row cannot hold its controls (a pane under about
-  // 334 px): with room to spare its name shows, even if it ends in an ellipsis.
-  if (view.innerWidth >= 340)
-    for (const name of document.querySelectorAll(".acpmux-model-name"))
-      if (!visible(name)) problems.push("the model is cut to its icon in a pane with room for its name");
+  // The model goes to its mark alone only where the row cannot hold its name beside the other
+  // controls (composerRowFit.ts modelMark, a composer under 370 px): wider, a name shows whole, in
+  // full, without its vendor ("Opus 5.5") or as its family ("Opus").
+  if (view.innerWidth >= 420)
+    for (const button of document.querySelectorAll(".acpmux-model .acpmux-picker-button")) {
+      const named = [button, ...button.querySelectorAll("*")].some(
+        (part) =>
+          visible(part) &&
+          ([...part.childNodes].some((node) => node.nodeType === 3 && node.textContent?.trim()) ||
+            /^".+"$/.test(getComputedStyle(part, "::before").content)),
+      );
+      if (!named) problems.push("the model is cut to its icon in a pane with room for its name");
+    }
   // The chips and the turn's controls share one line: Send never wraps under the pickers.
   for (const row of document.querySelectorAll(".acpmux-composer-bar, .nt-pickers")) {
     const chip = row.querySelector(".acpmux-chips > *");

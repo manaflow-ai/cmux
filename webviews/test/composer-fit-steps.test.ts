@@ -1,6 +1,6 @@
 // The composer row's steps live in one table (composerRowFit.ts COMPOSER_FIT_STEPS), but container
 // queries cannot read a variable: composerLocation.css repeats the widths as literals. Every
-// `@container acpmux-pane` width in it is a width of the table, and every step of the row's
+// `@container composer` width in it is a width of the table, and every step of the row's
 // collapse order (ROW_FIT_STEPS) is applied at its width.
 import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
@@ -9,10 +9,10 @@ import { COMPOSER_FIT_STEPS, ROW_FIT_STEPS } from "../src/agent-session/acpmux/c
 
 const css = fs.readFileSync(path.resolve(import.meta.dir, "../src/agent-session/acpmux/composerLocation.css"), "utf8");
 
-/** Each `@container acpmux-pane (max-width: Npx) { ... }` block: its width and its body. */
+/** Each `@container composer (max-width: Npx) { ... }` block: its width and its body. */
 function containerBlocks(text: string): { width: number; body: string }[] {
   const blocks: { width: number; body: string }[] = [];
-  const query = /@container\s+acpmux-pane\s*\(\s*max-width:\s*(\d+(?:\.\d+)?)px\s*\)\s*\{/g;
+  const query = /@container\s+composer\s*\(\s*max-width:\s*(\d+(?:\.\d+)?)px\s*\)\s*\{/g;
   for (let match = query.exec(text); match; match = query.exec(text)) {
     let depth = 1;
     let index = query.lastIndex;
@@ -46,6 +46,7 @@ describe("composer fit steps", () => {
   test("every row step's width has its container query", () => {
     const rowWidths = [
       ...new Set(ROW_FIT_STEPS.map(({ step }) => COMPOSER_FIT_STEPS[step])),
+      COMPOSER_FIT_STEPS.rowTight,
       COMPOSER_FIT_STEPS.barTight,
     ];
     expect(rowWidths.filter((width) => !blocks.some((block) => block.width === width))).toEqual([]);
