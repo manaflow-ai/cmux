@@ -6,6 +6,7 @@ struct RemoteTmuxInvocation: Equatable {
         case mirror
         case list
         case attach(session: String)
+        case new(session: String, workingDirectory: String?)
     }
 
     let action: Action
