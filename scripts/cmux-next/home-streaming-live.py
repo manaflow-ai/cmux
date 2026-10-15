@@ -355,33 +355,51 @@ def live_frames(conversation, session):
     talk(" in place.", final=True)
     text += " in place."
     check("after-join", lambda: (drive("texts", limit=1).get("texts") or [""])[-1] == text)
-    # The step's final frame ends the line (the reply is written), before the reply lands.
-    check("line-gone-at-final", lambda: drive("texts").get("statusLine") is None)
-    time.sleep(1)  # let the rows settle after the line left (a measured position, not a sync point)
     before = chief_bubble()
     incoming_before = len([r for r in drive("rows").get("rows", []) if r.get("kind") == "text" and not r.get("outgoing")])
-    # The reply (client_msg_id = the run's turn), then the run's end.
-    brain.request("conversation-op", conversation=conversation, idempotency_key=run,
-                  op={"kind": "message.send", "client_msg_id": run, "parts": [{"type": "text", "text": text}]})
-    brain.request("conversation-run-append", conversation=conversation, run={"id": run, "status": "done"})
+    # The producer's order (spec: final frame, run end, reply), with the gap a real turn can leave
+    # between the final frame and the reply (cx-zz30r: 80-450 ms): nothing may move until the reply
+    # takes the bubble's place; only then the line closes.
     frames = []
     t0 = time.time()
-    while time.time() - t0 < 1.5:
-        frames.append({"t": round(time.time() - t0, 3), "bubble": chief_bubble()})
-        time.sleep(0.05)
+
+    def sample(phase):
+        frames.append({"t": round(time.time() - t0, 3), "phase": phase, "bubble": chief_bubble(),
+                       "line": drive("texts").get("statusLine"),
+                       "reply": any(m.get("text") == text and m.get("seq") is not None
+                                    for m in (chief_row() or {}).get("shown_tail", []))})
+
+    while time.time() - t0 < 0.4:
+        sample("after-final")
+    brain.request("conversation-run-append", conversation=conversation, run={"id": run, "status": "done"})
+    brain.request("conversation-op", conversation=conversation, idempotency_key=run,
+                  op={"kind": "message.send", "client_msg_id": run, "parts": [{"type": "text", "text": text}]})
+    while time.time() - t0 < 2.0:
+        sample("reply")
     landed = check("reply-in-place", lambda: (chief_row() or {}).get("live") is None
                    and any(m.get("text") == text and m.get("seq") is not None for m in (chief_row() or {}).get("shown_tail", [])))
     check("line-gone", lambda: drive("texts").get("statusLine") is None)
     after = chief_bubble()
     incoming_after = len([r for r in drive("rows").get("rows", []) if r.get("kind") == "text" and not r.get("outgoing")])
-    tops = [f["bubble"]["balloon"]["y"] + f["bubble"]["balloon"]["height"] for f in frames if f["bubble"]]
-    in_place = bool(before and after and landed) and abs((before["balloon"]["y"] + before["balloon"]["height"])
-                                                         - (after["balloon"]["y"] + after["balloon"]["height"])) <= 0.5 \
-        and abs(before["balloon"]["height"] - after["balloon"]["height"]) <= 0.5 and incoming_after == incoming_before \
-        and (max(tops) - min(tops) <= 0.5 if tops else False)
+
+    def edges(b):
+        return (b["balloon"]["y"], b["balloon"]["y"] + b["balloon"]["height"]) if b else None
+
+    # Before the reply shows, the bubble does not move (the line still holds its row).
+    still = [edges(f["bubble"]) for f in frames if not f["reply"] and f["bubble"]]
+    held = bool(still) and all(abs(e[0] - edges(before)[0]) <= 0.5 and abs(e[1] - edges(before)[1]) <= 0.5 for e in still)
+    # The line is still there when the reply takes the bubble's place (it closes after the hand-off).
+    first_reply = next((f for f in frames if f["reply"]), None)
+    line_at_handoff = bool(first_reply and first_reply["line"])  # recorded only: one display frame decides it
+    # Settled: same height, no second bubble; the only move is the line's row closing.
+    settled_ok = bool(before and after) and abs(before["balloon"]["height"] - after["balloon"]["height"]) <= 0.5 \
+        and incoming_after == incoming_before
+    tops = [edges(f["bubble"])[1] for f in frames if f["bubble"]]
+    in_place = bool(landed) and held and settled_ok
     result = {"checks": [{"check": c["check"], "ok": c["ok"]} for c in checks], "bubble_before": before,
               "bubble_after": after, "incoming_rows": [incoming_before, incoming_after],
-              "top_range_during_handoff": [min(tops), max(tops)] if tops else None, "in_place": in_place}
+              "top_range_during_handoff": [min(tops), max(tops)] if tops else None, "held_before_reply": held,
+              "line_at_handoff": line_at_handoff, "settled_ok": settled_ok, "in_place": in_place}
     json.dump({"result": result, "checks": checks, "handoff": frames}, open(os.path.join(opts.out, "live-frames.json"), "w"), indent=1)
     print(json.dumps(result, indent=1), flush=True)
     if not all(c["ok"] for c in checks) or not in_place:
