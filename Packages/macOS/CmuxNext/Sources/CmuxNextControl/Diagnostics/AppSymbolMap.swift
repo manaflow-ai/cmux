@@ -16,7 +16,7 @@ import MachO
 public struct AppSymbolMap: Sendable {
     /// Function start offsets from the image header, ascending.
     let offsets: [UInt]
-    /// Mangled names, one per offset.
+    /// Names as `dladdr` gives them (mangled), one per offset.
     let names: [String]
 
     /// The map of the running executable, or nil when the bundle has none or
@@ -39,22 +39,16 @@ public struct AppSymbolMap: Sendable {
     ///   - data: The file's bytes.
     ///   - uuid: The executable's `LC_UUID`.
     public init?(data: Data, uuid: UUID) {
-        let bytes = [UInt8](data)
-        guard bytes.count >= 12, bytes.starts(with: Array("CMXSYM1\0".utf8)) else { return nil }
-        var position = 12
-        for _ in 0..<Self.uint32(bytes, 8) {
-            guard position + 20 <= bytes.count else { return nil }
-            let slice = UUID(uuid: (bytes[position], bytes[position + 1], bytes[position + 2], bytes[position + 3],
-                                    bytes[position + 4], bytes[position + 5], bytes[position + 6], bytes[position + 7],
-                                    bytes[position + 8], bytes[position + 9], bytes[position + 10], bytes[position + 11],
-                                    bytes[position + 12], bytes[position + 13], bytes[position + 14], bytes[position + 15]))
-            let size = Int(Self.uint32(bytes, position + 16))
-            let start = position + 20
-            guard start + size <= bytes.count else { return nil }
-            position = start + size
-            guard slice == uuid else { continue }
-            guard let payload = try? (Data(bytes[start..<start + size]) as NSData).decompressed(using: .zlib),
-                  let table = Self.table([UInt8](payload as Data))
+        var file = Reader(bytes: [UInt8](data))
+        guard file.take(8) == Array("CMXSYM1\0".utf8), let count = file.uint32() else { return nil }
+        let wanted = withUnsafeBytes(of: uuid.uuid) { Array($0) }
+        for _ in 0..<count {
+            guard let slice = file.take(16), let size = file.uint32(),
+                  let payload = file.take(Int(truncatingIfNeeded: size))
+            else { return nil }
+            guard slice == wanted else { continue }
+            guard let inflated = try? (Data(payload) as NSData).decompressed(using: .zlib),
+                  let table = Self.table(Reader(bytes: [UInt8](inflated as Data)))
             else { return nil }
             offsets = table.offsets
             names = table.names
@@ -66,14 +60,15 @@ public struct AppSymbolMap: Sendable {
     /// The function holding `offset` (from the image header): its mangled
     /// name and the offset into it, or nil before the first function.
     public func function(at offset: UInt) -> (name: String, offset: UInt)? {
+        // The first function starting after `offset`; the one before it holds it.
         var low = 0
         var high = offsets.count
         while low < high {
-            let middle = (low + high) / 2
-            if offsets[middle] <= offset { low = middle + 1 } else { high = middle }
+            let middle = low + (high - low) / 2
+            if let start = offsets[checked: middle], start <= offset { low = middle + 1 } else { high = middle }
         }
-        guard low > 0 else { return nil }
-        return (names[low - 1], offset - offsets[low - 1])
+        guard let start = offsets[checked: low - 1], let name = names[checked: low - 1] else { return nil }
+        return (name, offset - start)
     }
 
     /// The `LC_UUID` of the Mach-O image at `header`.
@@ -85,44 +80,62 @@ public struct AppSymbolMap: Sendable {
             if load.cmd == LC_UUID {
                 return UUID(uuid: command.load(as: uuid_command.self).uuid)
             }
-            command = command.advanced(by: Int(load.cmdsize))
+            command = command.advanced(by: Int(truncatingIfNeeded: load.cmdsize))
         }
         return nil
     }
 
-    private static func uint32(_ bytes: [UInt8], _ at: Int) -> UInt32 {
-        UInt32(bytes[at]) | UInt32(bytes[at + 1]) << 8 | UInt32(bytes[at + 2]) << 16 | UInt32(bytes[at + 3]) << 24
-    }
-
     /// Decodes a slice payload: u32 count, LEB128 offset deltas, NUL-joined names.
-    private static func table(_ payload: [UInt8]) -> (offsets: [UInt], names: [String])? {
-        guard payload.count >= 4 else { return nil }
-        let count = Int(uint32(payload, 0))
+    private static func table(_ payload: Reader) -> (offsets: [UInt], names: [String])? {
+        var payload = payload
+        guard let count = payload.uint32() else { return nil }
         var offsets: [UInt] = []
-        offsets.reserveCapacity(count)
-        var cursor = 4
+        offsets.reserveCapacity(Int(truncatingIfNeeded: count))
         var offset: UInt = 0
         for _ in 0..<count {
-            var delta: UInt = 0
-            var ended = false
-            // An unsigned LEB128 value of 64 bits takes at most 10 bytes.
-            for shift in stride(from: UInt(0), to: 70, by: 7) {
-                guard cursor < payload.count else { return nil }
-                let byte = payload[cursor]
-                cursor += 1
-                delta |= UInt(byte & 0x7F) << shift
-                if byte < 0x80 {
-                    ended = true
-                    break
-                }
-            }
-            guard ended else { return nil }
-            offset += delta
+            guard let delta = payload.leb128() else { return nil }
+            offset = offset.addingReportingOverflow(delta).partialValue
             offsets.append(offset)
         }
-        let names = payload[cursor...].split(separator: 0, omittingEmptySubsequences: false)
+        let names = payload.rest.split(separator: 0, omittingEmptySubsequences: false)
             .map { String(decoding: $0, as: UTF8.self) }
-        guard names.count == count else { return nil }
+        guard names.count == offsets.count else { return nil }
         return (offsets, names)
+    }
+
+    /// Reads little-endian fields from a byte array; a read past the end is nil.
+    private struct Reader {
+        let bytes: [UInt8]
+        var position = 0
+
+        mutating func byte() -> UInt8? {
+            guard let value = bytes[checked: position] else { return nil }
+            position += 1
+            return value
+        }
+
+        mutating func take(_ count: Int) -> [UInt8]? {
+            guard count >= 0, count <= bytes.count - position else { return nil }
+            defer { position += count }
+            return Array(bytes.dropFirst(position).prefix(count))
+        }
+
+        mutating func uint32() -> UInt32? {
+            guard let raw = take(4) else { return nil }
+            return raw.reversed().reduce(UInt32(0)) { $0 << 8 | UInt32(truncatingIfNeeded: $1) }
+        }
+
+        /// An unsigned LEB128 value; at most 10 bytes for 64 bits.
+        mutating func leb128() -> UInt? {
+            var value: UInt = 0
+            for shift in stride(from: UInt(0), to: 70, by: 7) {
+                guard let next = byte() else { return nil }
+                value |= UInt(truncatingIfNeeded: next & 0x7F) << shift
+                if next < 0x80 { return value }
+            }
+            return nil
+        }
+
+        var rest: ArraySlice<UInt8> { bytes.dropFirst(position) }
     }
 }
