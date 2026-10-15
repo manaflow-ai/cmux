@@ -9,10 +9,8 @@ enum SidebarStatusEntryDisplayPolicy {
         limit: Int,
         isExpanded: Bool
     ) -> [SidebarStatusEntry] {
-        // Regression-test baseline: rows were hard-coded to three before the
-        // configurable limit was wired through both sidebar renderers.
-        guard !isExpanded, entries.count > 3 else { return entries }
-        return Array(entries.prefix(3))
+        guard !isExpanded, limit > 0 else { return entries }
+        return Array(entries.prefix(limit))
     }
 
     static func entries(
