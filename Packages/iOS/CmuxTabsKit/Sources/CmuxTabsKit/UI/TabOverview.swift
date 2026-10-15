@@ -320,7 +320,6 @@ struct TabOverview<Source: TabsDataSource>: View {
                     }
                         .environment(\.tabsKitTheme, theme))
                 },
-                previewScale: CardMenuPreview<EmptyView>.scale,
                 dragKey: selecting || !source.supportsReordering ? nil : tab.id,
                 onMenu: { open in swipes.menuChanged(tab.id, open) },
                 onTap: {
@@ -376,7 +375,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                         AnyView(PinnedCard(title: tab.title, systemImage: tab.systemImage, width: r.width * scale, height: r.height * scale, selected: nil)
                             .environment(\.tabsKitTheme, theme))
                     },
-                    previewScale: 1.15, dragKey: nil,
+                    dragKey: nil,
                     onMenu: { open in swipes.menuChanged(tab.id, open) },
                     onTap: { if selecting { selection.toggle(tab.id) } else if gridInteractive { onSelect(tab.id) } },
                     onPan: { _ in }, onDragStart: {}, onDragEnd: {})
@@ -592,15 +591,13 @@ struct TabOverview<Source: TabsDataSource>: View {
     }
 }
 
-/// Safari's long press on a grid card: the card lifts to × 1.06 and the
-/// Safari's context-menu preview of a card: its content, scaled to
-/// 195.7 / 177 of the card (cmux-next round 22), corner scaled too.
+/// Safari's context-menu preview of a card: its content at `scale` (1: the
+/// card lifts and UIKit grows it to Safari's 195.7 x 275), corner scaled too.
 struct CardMenuPreview<Content: View>: View {
     var scale: CGFloat
     var card: CGSize
     var radius: CGFloat
     @ViewBuilder var content: Content
-    static var scale: CGFloat { 195.7 / 177 }
 
     var body: some View {
         ScaledContent(pageSize: CGSize(width: card.width * scale, height: card.height * scale)) { content }
