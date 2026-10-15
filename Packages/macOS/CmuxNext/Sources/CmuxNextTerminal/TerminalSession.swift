@@ -327,6 +327,7 @@ public final class TerminalSession {
         view.install(fresh)
         frameHold.begin(old: old, fresh: fresh, in: view) // no empty frame until the fresh one draws (cx-6so.23)
         applyTheme(to: fresh, clearing: false)
+        TerminalFontScale(old).carry(to: fresh) // after the theme: its config update can reset the size
         // Nothing was parsed into the fresh surface yet: no drain needed.
         if let canonicalGrid { fresh.applyAnnouncedGrid(canonicalGrid) }
         if wasFirstResponder { fresh.window?.makeFirstResponder(fresh) }

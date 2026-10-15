@@ -169,6 +169,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     }
 
     private static func findOrStart(_ environment: AcpmuxEnvironment, startsDaemon: Bool, owned: Bool) async throws -> AcpmuxWebEndpoint {
+        // cmux NEXT adopts its old acpmux home before it asks or starts a daemon (cx-is1kf.9).
+        await AcpmuxEnvironment.adoptBuildHomes()
         do {
             let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
             // A daemon of another acpmux home answers on this socket: it is another app's or

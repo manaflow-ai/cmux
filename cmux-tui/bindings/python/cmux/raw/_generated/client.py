@@ -123,6 +123,9 @@ class GeneratedClientMixin:
     def cloud_conversation_history(self, before_seq: int, conversation: str, limit: int) -> JsonValue:
         return self._invoke_command('cloud-conversation-history', CloudConversationHistoryRequest(before_seq=before_seq, conversation=conversation, limit=limit))
 
+    def cloud_conversation_live(self, conversation: str) -> JsonValue:
+        return self._invoke_command('cloud-conversation-live', CloudConversationLiveRequest(conversation=conversation))
+
     def cloud_conversation_op(self, idempotency_key: str, op: Union[JsonValue, None], *, conversation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('cloud-conversation-op', CloudConversationOpRequest(idempotency_key=idempotency_key, op=op, conversation=conversation, origin=origin))
 
@@ -212,6 +215,12 @@ class GeneratedClientMixin:
 
     def conversation_list(self) -> ConversationListResult:
         return self._invoke_command('conversation-list', ConversationListRequest())
+
+    def conversation_live(self, conversation: str) -> ConversationLiveResult:
+        return self._invoke_command('conversation-live', ConversationLiveRequest(conversation=conversation))
+
+    def conversation_live_publish(self, conversation: str, frame: Union[JsonValue, None]) -> EmptyResult:
+        return self._invoke_command('conversation-live-publish', ConversationLivePublishRequest(conversation=conversation, frame=frame))
 
     def conversation_op(self, conversation: str, idempotency_key: str, op: Union[JsonValue, None], *, actor: Union[str, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> ConversationOpResult:
         return self._invoke_command('conversation-op', ConversationOpRequest(conversation=conversation, idempotency_key=idempotency_key, op=op, actor=actor, transaction=transaction))
@@ -860,6 +869,7 @@ GeneratedClientMixin.cloud_attachment_link.__cmux_command__ = COMMANDS['cloud-at
 GeneratedClientMixin.cloud_attachment_read.__cmux_command__ = COMMANDS['cloud-attachment-read']
 GeneratedClientMixin.cloud_attachment_upload.__cmux_command__ = COMMANDS['cloud-attachment-upload']
 GeneratedClientMixin.cloud_conversation_history.__cmux_command__ = COMMANDS['cloud-conversation-history']
+GeneratedClientMixin.cloud_conversation_live.__cmux_command__ = COMMANDS['cloud-conversation-live']
 GeneratedClientMixin.cloud_conversation_op.__cmux_command__ = COMMANDS['cloud-conversation-op']
 GeneratedClientMixin.cloud_conversation_run.__cmux_command__ = COMMANDS['cloud-conversation-run']
 GeneratedClientMixin.cloud_conversation_runs.__cmux_command__ = COMMANDS['cloud-conversation-runs']
@@ -890,6 +900,8 @@ GeneratedClientMixin.conversation_import.__cmux_command__ = COMMANDS['conversati
 GeneratedClientMixin.conversation_inbox_op.__cmux_command__ = COMMANDS['conversation-inbox-op']
 GeneratedClientMixin.conversation_link_resolve.__cmux_command__ = COMMANDS['conversation-link-resolve']
 GeneratedClientMixin.conversation_list.__cmux_command__ = COMMANDS['conversation-list']
+GeneratedClientMixin.conversation_live.__cmux_command__ = COMMANDS['conversation-live']
+GeneratedClientMixin.conversation_live_publish.__cmux_command__ = COMMANDS['conversation-live-publish']
 GeneratedClientMixin.conversation_op.__cmux_command__ = COMMANDS['conversation-op']
 GeneratedClientMixin.conversation_run.__cmux_command__ = COMMANDS['conversation-run']
 GeneratedClientMixin.conversation_run_append.__cmux_command__ = COMMANDS['conversation-run-append']

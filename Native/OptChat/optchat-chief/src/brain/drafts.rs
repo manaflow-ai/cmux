@@ -54,6 +54,32 @@ impl Brain {
         let Some(conversation) = turn.conversation.clone() else {
             return;
         };
+        // Live frames first (`chief-live-v1`), with the conversation and the
+        // run (the turn key); display only, like the run.
+        if !update.live.is_empty()
+            && let Some(daemon) = self.daemon.as_mut()
+        {
+            for mut frame in update.live {
+                frame["conversation"] = serde_json::json!(conversation);
+                frame["run"] = serde_json::json!(update.turn);
+                let sent = self.live_streams.send(&update.turn, frame, |frame| {
+                    daemon.live_publish(&conversation, frame)
+                });
+                match sent {
+                    Ok(()) => {}
+                    Err(e) if !self.live_failed => {
+                        self.live_failed = true;
+                        (self.log)(&format!(
+                            "sending a live run frame failed: {e}; later failures are not logged"
+                        ));
+                    }
+                    Err(_) => {}
+                }
+            }
+        }
+        if update.run.is_empty() && update.steps.is_empty() && update.images.is_empty() {
+            return;
+        }
         let mut run = update.run;
         run.insert("id".into(), serde_json::json!(update.turn));
         run.insert("turn".into(), serde_json::json!(update.turn));

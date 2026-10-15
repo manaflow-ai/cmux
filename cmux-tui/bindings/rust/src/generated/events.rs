@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 448a7e266da536ab3d7ddb0c5c2ea7dcc3c7f6d121b31a87eec89f7b36b2f607.
+// cmux-tui mux protocol 12, IR de1dd75268c7da924fcaf7eda0f26de8ea329aed8a163a93b7632a8a37953d16.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -163,6 +163,15 @@ pub struct CloudConversationChangedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationLiveEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub conversation: String,
+    pub frame: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudConversationResyncedEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
@@ -292,6 +301,13 @@ pub struct ConversationInboxChangedEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub pin_position: Option<u64>,
     pub pinned: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationLiveEvent {
+    pub conversation: String,
+    pub frame: Nullable<T::JsonValue>,
 }
 
 #[rustfmt::skip]
@@ -921,6 +937,7 @@ pub enum Event {
     ClientDetached(ClientDetachedEvent),
     ClientListInvalidated(ClientListInvalidatedEvent),
     CloudConversationChanged(CloudConversationChangedEvent),
+    CloudConversationLive(CloudConversationLiveEvent),
     CloudConversationResynced(CloudConversationResyncedEvent),
     CloudConversationRunChanged(CloudConversationRunChangedEvent),
     CloudInboxChanged(CloudInboxChangedEvent),
@@ -934,6 +951,7 @@ pub enum Event {
     ConversationChanged(ConversationChangedEvent),
     ConversationDraft(ConversationDraftEvent),
     ConversationInboxChanged(ConversationInboxChangedEvent),
+    ConversationLive(ConversationLiveEvent),
     ConversationRunChanged(ConversationRunChangedEvent),
     ConversationTyping(ConversationTypingEvent),
     DaemonShutdown(DaemonShutdownEvent),
@@ -1009,6 +1027,7 @@ impl Event {
             Self::ClientDetached(_) => Some("client-detached"),
             Self::ClientListInvalidated(_) => Some("client-list-invalidated"),
             Self::CloudConversationChanged(_) => Some("cloud-conversation-changed"),
+            Self::CloudConversationLive(_) => Some("cloud-conversation-live"),
             Self::CloudConversationResynced(_) => Some("cloud-conversation-resynced"),
             Self::CloudConversationRunChanged(_) => Some("cloud-conversation-run-changed"),
             Self::CloudInboxChanged(_) => Some("cloud-inbox-changed"),
@@ -1022,6 +1041,7 @@ impl Event {
             Self::ConversationChanged(_) => Some("conversation-changed"),
             Self::ConversationDraft(_) => Some("conversation-draft"),
             Self::ConversationInboxChanged(_) => Some("conversation-inbox-changed"),
+            Self::ConversationLive(_) => Some("conversation-live"),
             Self::ConversationRunChanged(_) => Some("conversation-run-changed"),
             Self::ConversationTyping(_) => Some("conversation-typing"),
             Self::DaemonShutdown(_) => Some("daemon-shutdown"),
@@ -1096,6 +1116,7 @@ impl Event {
             Self::ClientDetached(_) => Some(&CLIENT_DETACHED_EVENT_METADATA),
             Self::ClientListInvalidated(_) => Some(&CLIENT_LIST_INVALIDATED_EVENT_METADATA),
             Self::CloudConversationChanged(_) => Some(&CLOUD_CONVERSATION_CHANGED_EVENT_METADATA),
+            Self::CloudConversationLive(_) => Some(&CLOUD_CONVERSATION_LIVE_EVENT_METADATA),
             Self::CloudConversationResynced(_) => Some(&CLOUD_CONVERSATION_RESYNCED_EVENT_METADATA),
             Self::CloudConversationRunChanged(_) => Some(&CLOUD_CONVERSATION_RUN_CHANGED_EVENT_METADATA),
             Self::CloudInboxChanged(_) => Some(&CLOUD_INBOX_CHANGED_EVENT_METADATA),
@@ -1109,6 +1130,7 @@ impl Event {
             Self::ConversationChanged(_) => Some(&CONVERSATION_CHANGED_EVENT_METADATA),
             Self::ConversationDraft(_) => Some(&CONVERSATION_DRAFT_EVENT_METADATA),
             Self::ConversationInboxChanged(_) => Some(&CONVERSATION_INBOX_CHANGED_EVENT_METADATA),
+            Self::ConversationLive(_) => Some(&CONVERSATION_LIVE_EVENT_METADATA),
             Self::ConversationRunChanged(_) => Some(&CONVERSATION_RUN_CHANGED_EVENT_METADATA),
             Self::ConversationTyping(_) => Some(&CONVERSATION_TYPING_EVENT_METADATA),
             Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
@@ -1270,6 +1292,14 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("cloud-conversation-live") => match serde_json::from_value::<CloudConversationLiveEvent>(raw.clone()) {
+            Ok(event) => Event::CloudConversationLive(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("cloud-conversation-resynced") => match serde_json::from_value::<CloudConversationResyncedEvent>(raw.clone()) {
             Ok(event) => Event::CloudConversationResynced(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -1368,6 +1398,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("conversation-inbox-changed") => match serde_json::from_value::<ConversationInboxChangedEvent>(raw.clone()) {
             Ok(event) => Event::ConversationInboxChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("conversation-live") => match serde_json::from_value::<ConversationLiveEvent>(raw.clone()) {
+            Ok(event) => Event::ConversationLive(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
