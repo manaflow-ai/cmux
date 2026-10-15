@@ -325,9 +325,7 @@
               "sidebar.cards.tips",
               "sidebar.side",
               "sidebar.spacesPosition",
-              "sidebar.spacesVisibility",
-              "sidebar.hoverCards.enabled",
-              "sidebar.hoverCards.delay"
+              "sidebar.spacesVisibility"
             ],
             "title" : {
               "key" : "settings.group.sidebar",
@@ -9478,10 +9476,6 @@
         "font",
         "text",
         "size",
-        "zoom",
-        "scale",
-        "bigger",
-        "smaller",
         "chromeFontSize"
       ],
       "kind" : "number",
@@ -9501,6 +9495,68 @@
       "refuses" : [
         4,
         22,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.interfaceSize",
+        "text" : "Interface Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.9,
+        1.25,
+        1.075
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.interfaceSize.help",
+        "text" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.interfaceScale",
+      "keywords" : [
+        "font",
+        "text",
+        "size",
+        "zoom",
+        "scale",
+        "bigger",
+        "smaller",
+        "interfaceScale"
+      ],
+      "kind" : "number",
+      "page_hidden" : true,
+      "path" : [
+        "appearance",
+        "interfaceScale"
+      ],
+      "range" : {
+        "max" : 1.25,
+        "min" : 0.9,
+        "placeholder" : 1,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.09999999999999998,
+        2.25,
         "1"
       ],
       "section" : "appearance",
@@ -14991,113 +15047,6 @@
       "title" : {
         "key" : "settings.sidebar.steppingWraps",
         "text" : "Wrap Around"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.hoverCards.enabled.help",
-        "text" : "A card with details opens when the pointer rests on a workspace or a tab."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.hoverCards.enabled",
-      "keywords" : [
-        "hover",
-        "card",
-        "preview",
-        "tooltip",
-        "workspace",
-        "tab"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "hoverCards",
-        "enabled"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.sidebar.hoverCards.enabled",
-        "text" : "Show Hover Cards"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        0,
-        5000,
-        2500
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : 1300,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.hoverCards.delay.help",
-        "text" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.hoverCards.delay",
-      "keywords" : [
-        "hover",
-        "card",
-        "delay",
-        "wait",
-        "milliseconds"
-      ],
-      "kind" : "number",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "hoverCards",
-        "delay"
-      ],
-      "range" : {
-        "max" : 5000,
-        "min" : 0,
-        "placeholder" : 0,
-        "step" : 100,
-        "unit" : "milliseconds"
-      },
-      "refuses" : [
-        -5000,
-        10000,
-        "1"
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.sidebar.hoverCards.delay",
-        "text" : "Hover Card Delay"
       },
       "validation" : "portable"
     },
@@ -23939,7 +23888,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "21c6125a0405ff65d091d63750d336906eab192dcf3fc0fa90bc9cd55b527239",
+  "schema_hash" : "42768ec761c195fc457b020794ebfc7a5f18b8c7f4663602b402e3c29d83a961",
   "sections" : [
     {
       "id" : "general",
