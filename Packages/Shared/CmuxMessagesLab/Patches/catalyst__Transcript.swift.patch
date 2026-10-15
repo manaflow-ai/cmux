@@ -1,0 +1,47 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
+@@ -609,8 +609,7 @@
+         connector.strokeColor = Fixture.connector.cgColor
+         connector.lineWidth = 2.6
+         connector.lineCap = .round
+-        fillGradient.colors = Fixture.gradientStops.map { Fixture.gradientColor($0.1, $0.2).cgColor }
+-        fillGradient.locations = Fixture.gradientStops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
++        applyFillPalette()  // cmux: themed accent
+         fillContainer.addSublayer(fillGradient)
+         fillContainer.mask = fillMask
+         connectorLine.backgroundColor = connector.strokeColor
+@@ -683,7 +682,7 @@
+             guard let spec else { return nil }
+             switch spec.kind {
+             case let .part(p): return p.text?.text ?? p.part.plainText
+-            case let .separator(b, r): return b + " " + r
++            case let .separator(b, r): return b.isEmpty ? r : b + " " + r  // cmux: a notice row has no bold part
+             case let .receipt(b, r): return b + " " + r
+             case let .label(text, _, _): return text
+             case let .notice(text): return text
+@@ -758,7 +757,7 @@
+             // grid in refreshSnap (decorate, after this), from the indicator's place snapped at the new scale.
+             connector.strokeColor = Fixture.connector.cgColor
+             connectorLine.backgroundColor = Fixture.connector.cgColor
+-            fillGradient.colors = Fixture.gradientStops.map { Fixture.gradientColor($0.1, $0.2).cgColor }
++            applyFillPalette()  // cmux: colours and locations together (8 measured stops, 11 themed)
+             CATransaction.commit()
+             self.spec = nil
+         }
+@@ -1411,6 +1410,16 @@
+         clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: c.beginTime - Springs.typingBreathBody.start)
+     }
+ 
++    /// cmux: the outgoing gradient's colours and their locations from one
++    /// stop list. A palette change that set only the colours left a cell
++    /// made under the measured palette (8 stops) with 11 themed colours.
++    private func applyFillPalette() {
++        let stops: [(CGFloat, CGColor)] = Fixture.themedGradient?.map { ($0.0, $0.1.cgColor) }
++            ?? Fixture.gradientStops.map { ($0.0, Fixture.gradientColor($0.1, $0.2).cgColor) }
++        fillGradient.colors = stops.map(\.1)
++        fillGradient.locations = stops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
++    }
++
+     /// Window y of the cell's top: the outgoing fill shades with it.
+     var windowY: CGFloat = 0 {
+         didSet {
