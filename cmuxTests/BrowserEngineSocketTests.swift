@@ -25,15 +25,17 @@ struct BrowserEngineSocketTests {
         let sourceID = try #require(workspace.focusedPanelId)
         TerminalController.shared.setActiveTabManager(manager)
 
-        // Without an engine the panel opens with WebKit, and the result says so.
+        // Without an engine the panel follows the configured engine, and the
+        // result reports the engine the panel actually got.
         let opened = try successfulResult(call(method: "browser.open_split", params: [
             "workspace_id": workspace.id.uuidString,
             "surface_id": sourceID.uuidString,
             "url": "about:blank",
             "focus": false,
         ]))
-        #expect(opened["engine"] as? String == "webkit")
         let openedID = try #require((opened["surface_id"] as? String).flatMap(UUID.init(uuidString:)))
+        let openedPanel = try #require(workspace.panels[openedID] as? BrowserPanel)
+        #expect(opened["engine"] as? String == openedPanel.engineKind.rawValue)
 
         // An explicit WebKit request is honored.
         let explicitWebKit = try successfulResult(call(method: "browser.tab.new", params: [
@@ -49,7 +51,11 @@ struct BrowserEngineSocketTests {
         ]))
         let tabs = try #require(listed["tabs"] as? [[String: Any]])
         #expect(!tabs.isEmpty)
-        #expect(tabs.allSatisfy { $0["engine"] as? String == "webkit" })
+        for tab in tabs {
+            let id = try #require((tab["id"] as? String).flatMap(UUID.init(uuidString:)))
+            let panel = try #require(workspace.panels[id] as? BrowserPanel)
+            #expect(tab["engine"] as? String == panel.engineKind.rawValue)
+        }
 
         let panelCount = workspace.panels.count
 
@@ -62,6 +68,11 @@ struct BrowserEngineSocketTests {
         #expect(unknown["code"] as? String == "invalid_params")
 
         // Chromium is refused with its reason, never silently opened as WebKit.
+        // (A test host with the Chromium runtime registered opens it instead;
+        // the refusal contract is checked where it is unavailable.)
+        guard case .unavailable(let reason) = BrowserEngineRuntime.shared.availability(for: .chromium) else {
+            return
+        }
         for method in ["browser.open_split", "browser.tab.new"] {
             let refused = try errorPayload(call(method: method, params: [
                 "workspace_id": workspace.id.uuidString,
@@ -72,7 +83,7 @@ struct BrowserEngineSocketTests {
             #expect(refused["code"] as? String == "engine_unavailable")
             let data = try #require(refused["data"] as? [String: Any])
             #expect(data["engine"] as? String == "chromium")
-            #expect(data["reason"] as? String == "notBundled")
+            #expect(data["reason"] as? String == reason.code)
         }
         #expect(workspace.panels.count == panelCount)
     }
