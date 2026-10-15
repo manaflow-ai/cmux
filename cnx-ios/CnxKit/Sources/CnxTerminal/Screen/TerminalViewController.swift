@@ -172,8 +172,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         return log
     }()
 
-    /// `-CnxFrameLog`: the last row's bottom edge against the composer card's
-    /// top (page points) whenever it changes while following.
+    /// `-CnxFrameLog`: the drawn cursor cell's and the document's last row's
+    /// bottom edges against the composer card's top (page points) whenever
+    /// they change while following. "drawn" is Ghostty's cursor cell in the
+    /// presented surface, converted to the page (what the person sees); the
+    /// document's row is the layout's own claim (round 11 N3: it said gap 0
+    /// while the last row was under the card).
     private var lastPinLog = ""
     private func logPin() {
         guard TerminalFrameLog.isEnabled, following, let document, cell.height > 0 else { return }
@@ -242,6 +246,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     isolated deinit {
         outputLink?.invalidate()
+        followFallback?.invalidate()
         if outputPaused { model.session.setOutputPaused(false) }
     }
 
@@ -791,6 +796,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         frameLog.stop()
         #endif
         stopBlankWatch()
+        stopFollowFallback()
         if chrome == .embedded, let image = snapshot() { model.snapshot = image }
     }
 
@@ -916,11 +922,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             pumpOutput()
         }
         guard outputLink == nil, !output.isEmpty || feedInFlight else { return }
-        let link = CADisplayLink(target: DisplayLinkProxy { [weak self] in
+        let link = CADisplayLink(target: DisplayLinkProxy(owner: self) { [weak self] in
             // A new frame: one more batch may go.
             self?.nextFeedAllowed = 0
             self?.pumpOutput()
-        }, selector: #selector(DisplayLinkProxy.step))
+        }, selector: #selector(DisplayLinkProxy.step(_:)))
         link.add(to: .main, forMode: .common)
         outputLink = link
     }
@@ -1634,12 +1640,22 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                                            visibleTop: top, visibleBottom: bottom, documentRows: document.originRow..<document.endRow)
     }
 
+    /// An offscreen page waits for no frame: the next output or appearance
+    /// asks again (round 11 A3: the wait never ended for a page that left).
+    private func stopFollowFallback() {
+        followFallback?.invalidate()
+        followFallback = nil
+        followAwaitsPresent = false
+        awaitStarted = nil
+    }
+
     private func armFollowFallback(ticks: Int = 2) {
         followFallbackLimit = max(ticks, followFallback == nil ? 0 : followFallbackLimit)
         guard followFallback == nil else { return }
         followFallbackTicks = 0
-        let link = CADisplayLink(target: DisplayLinkProxy { [weak self] in
+        let link = CADisplayLink(target: DisplayLinkProxy(owner: self) { [weak self] in
             guard let self else { return }
+            guard self.view.window != nil else { return self.stopFollowFallback() }
             self.followFallbackTicks += 1
             guard self.followFallbackTicks >= self.followFallbackLimit || !self.followAwaitsPresent else { return }
             let waited = CACurrentMediaTime() - (self.awaitStarted ?? CACurrentMediaTime())
@@ -1675,7 +1691,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 self.applyScroll()
                 self.forceScroll = false
             }
-        }, selector: #selector(DisplayLinkProxy.step))
+        }, selector: #selector(DisplayLinkProxy.step(_:)))
         link.add(to: .main, forMode: .common)
         followFallback = link
     }
@@ -1984,6 +2000,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard model.isScrolledUp != visible else { return }
         model.isScrolledUp = visible
         // The composer shows its Jump to bottom row (`TerminalComposer`).
+        // A hide is laid out now, in this transaction, so the frame that
+        // shows the moved rows never still draws the row (round 11 N4: 4 of
+        // 250 jumps drew it on the first moved frame; SwiftUI's own pass
+        // came one frame later).
+        guard !visible, let host = composerHost?.view else { return }
+        UIView.performWithoutAnimation {
+            host.setNeedsLayout()
+            host.layoutIfNeeded()
+        }
     }
 
     /// Jump to bottom: one tap lands at the live bottom and follows, whatever
@@ -2256,7 +2281,8 @@ struct TerminalPageCapture: @unchecked Sendable {
                 TerminalCursorErase.erase(pixels: data.assumingMemoryBound(to: UInt8.self), bytesPerRow: context.bytesPerRow,
                                           rect: .init(x: Int(pixels.minX), y: Int(pixels.minY), width: Int(pixels.width), height: Int(pixels.height)),
                                           background: (UInt8(max(0, min(255, red * 255)).rounded()), UInt8(max(0, min(255, green * 255)).rounded()),
-                                                       UInt8(max(0, min(255, blue * 255)).rounded())))
+                                                       UInt8(max(0, min(255, blue * 255)).rounded())),
+                                          bounds: (width, height))
             }
         }
         guard let image = context.makeImage() else { return nil }
@@ -2272,16 +2298,21 @@ final class RowShiftBox: @unchecked Sendable {
     }
 }
 
-/// A display link target that does not retain the controller.
+/// A display link target that does not retain the controller. Once its
+/// owner is gone the link stops itself (round 11 A3: a controller freed
+/// while its follow fallback waited left that link firing forever).
 @MainActor
 final class DisplayLinkProxy: NSObject {
+    private weak var owner: AnyObject?
     private let action: @MainActor () -> Void
 
-    init(_ action: @escaping @MainActor () -> Void) {
+    init(owner: AnyObject, _ action: @escaping @MainActor () -> Void) {
+        self.owner = owner
         self.action = action
     }
 
-    @objc func step() {
+    @objc func step(_ link: CADisplayLink) {
+        guard owner != nil else { return link.invalidate() }
         action()
     }
 }

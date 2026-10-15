@@ -162,9 +162,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             // The next cold launch shows what was on screen last (R2-5), not
             // the frame from the last time the app went to the background.
             let id = tab.id
-            model.frameSaver = { image in
-                Task.detached(priority: .utility) {
-                    if let data = image.jpegData(compressionQuality: 0.7) { frameStore.save(data, for: id) }
+            model.frameSaver = {
+                let ticket = frameStore.ticket(for: id)
+                return { image in
+                    if let data = image.jpegData(compressionQuality: 0.7) { frameStore.save(data, for: id, ticket: ticket) }
                 }
             }
         }
