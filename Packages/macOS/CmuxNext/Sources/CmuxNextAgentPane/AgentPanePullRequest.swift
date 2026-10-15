@@ -6,7 +6,7 @@ public import Foundation
 /// shows the title, the review decision and each check.
 public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// The `gh pr view --json` fields read.
-    public static let fields = "url,number,title,state,isDraft,reviewDecision,mergeable,statusCheckRollup"
+    public static let fields = "url,number,title,state,isDraft,reviewDecision,mergeable,statusCheckRollup,createdAt,mergedAt"
     /// The most checks the popover lists.
     static let maximumChecks = 50
 
@@ -50,9 +50,13 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     public var checks: Checks
     /// Each check, failed first, then running, then passed, at most ``maximumChecks``.
     public var checkList: [Check]
+    /// When it was opened and when it merged, as GitHub's ISO 8601 text; empty when unknown or not
+    /// merged. Agent PR cycle time runs between the two (hq#1920).
+    public var createdAt: String
+    public var mergedAt: String
 
     public init(url: String, number: Int, title: String = "", state: String, review: String = "", mergeable: String = "",
-                checks: Checks, checkList: [Check] = []) {
+                checks: Checks, checkList: [Check] = [], createdAt: String = "", mergedAt: String = "") {
         self.url = url
         self.number = number
         self.title = title
@@ -61,6 +65,8 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
         self.mergeable = mergeable
         self.checks = checks
         self.checkList = checkList
+        self.createdAt = createdAt
+        self.mergedAt = mergedAt
     }
 
     /// Nil unless `ghView` is gh's answer with an https url and a number.
@@ -75,7 +81,8 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
                   state: state == "open" && object["isDraft"] as? Bool == true ? "draft" : state,
                   review: (object["reviewDecision"] as? String)?.lowercased() ?? "",
                   mergeable: mergeable == "unknown" ? "" : mergeable,
-                  checks: Self.checks(rollup), checkList: Self.checkList(rollup))
+                  checks: Self.checks(rollup), checkList: Self.checkList(rollup),
+                  createdAt: object["createdAt"] as? String ?? "", mergedAt: object["mergedAt"] as? String ?? "")
     }
 
     /// Each check run or commit status with its outcome, failed first; links only when https.
@@ -115,6 +122,7 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     var json: JSONValue {
         ["url": .string(url), "number": JSONValue(number), "title": .string(title), "state": .string(state),
          "review": .string(review), "mergeable": .string(mergeable),
+         "createdAt": .string(createdAt), "mergedAt": .string(mergedAt),
          "checks": ["state": .string(checks.state), "passed": JSONValue(checks.passed), "total": JSONValue(checks.total)],
          "checkList": .array(checkList.map { check in
              var row: [String: JSONValue] = ["name": .string(check.name), "state": .string(check.state)]

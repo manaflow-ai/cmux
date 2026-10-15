@@ -37,7 +37,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The acting agent's name tag (`PaneContentView+AgentTag`).
     let agentTag = AgentPresenceTagView()
     private var agentTagObservation: Task<Void, Never>?
-    /// No strip: the chat dock or a lone chat with one tab (``ChatDockChrome``).
+    /// No strip: the person hid this pane's tab bar (``PaneTabBar``).
     var hidesStrip = false {
         didSet {
             guard hidesStrip != oldValue else { return }

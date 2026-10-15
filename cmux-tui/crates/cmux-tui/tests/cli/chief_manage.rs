@@ -103,6 +103,12 @@ fn a_chief_with_the_chiefs_tool_makes_and_edits_chiefs_within_its_grant() {
         Some("lead-docs"),
     ));
     assert_eq!(made["replayed"], false, "{made}");
+    // This daemon runs no brain supervisor: the create says the truth.
+    assert_eq!(
+        made["value"]["brain"],
+        json!({"state": "not_started", "reason": "no_supervisor"}),
+        "{made}"
+    );
     let docs = made["value"].clone();
     let docs_id = docs["id"].as_str().unwrap().to_owned();
     assert_eq!(docs["role"], "Docs writer");
