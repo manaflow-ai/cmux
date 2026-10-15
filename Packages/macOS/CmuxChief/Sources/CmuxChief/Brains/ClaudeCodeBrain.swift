@@ -62,6 +62,8 @@ public actor ClaudeCodeBrain: ChiefBrain {
 
     private let configuration: Configuration
     private var conversations: [ConversationID: ClaudeConversation] = [:]
+    /// Turns `run` handed out that have not reached their conversation yet.
+    private let pendingTurns = ChiefPendingTurns()
 
     /// Creates a brain.
     ///
@@ -74,7 +76,11 @@ public actor ClaudeCodeBrain: ChiefBrain {
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: ChiefTurnEvent.self, throwing: (any Error).self)
         let token = UUID()
         let conversation = request.conversation
+        let pendingTurns = pendingTurns
+        // Registered before the stream is returned, so a Stop that beats the start task still finds it.
+        pendingTurns.register(token, conversation: conversation)
         continuation.onTermination = { [weak self] _ in
+            pendingTurns.stop(token)
             Task { await self?.existing(conversation)?.detach(token) }
         }
         Task { await self.startTurn(request, token: token, continuation: continuation) }
@@ -86,6 +92,7 @@ public actor ClaudeCodeBrain: ChiefBrain {
     }
 
     public func interrupt(conversation: ConversationID) async {
+        pendingTurns.stop(conversation: conversation)
         await conversations[conversation]?.interrupt()
     }
 
@@ -108,7 +115,7 @@ public actor ClaudeCodeBrain: ChiefBrain {
             session = ClaudeConversation(configuration: configuration)
             conversations[request.conversation] = session
         }
-        await session.start(request, token: token, continuation: continuation)
+        await session.start(request, token: token, continuation: continuation, pending: pendingTurns)
     }
 
     /// The argument list of one `claude` process.
@@ -186,7 +193,13 @@ actor ClaudeConversation {
         self.configuration = configuration
     }
 
-    func start(_ request: ChiefTurnRequest, token: UUID, continuation: AsyncThrowingStream<ChiefTurnEvent, any Error>.Continuation) {
+    func start(_ request: ChiefTurnRequest, token: UUID, continuation: AsyncThrowingStream<ChiefTurnEvent, any Error>.Continuation,
+               pending: ChiefPendingTurns) {
+        // Claimed on this actor, so an `interrupt()` queued after a Stop always sees the turn.
+        guard pending.claim(token) else {
+            continuation.finish()
+            return
+        }
         if self.continuation != nil { interrupt() }
         self.continuation = continuation
         self.token = token
@@ -210,9 +223,33 @@ actor ClaudeConversation {
         let uuid = UUID().uuidString.lowercased()
         parser.beginTurn(echo: uuid)
         let line = ClaudeStreamParser.userMessage(uuid: uuid, content: turn.content).line
-        if process?.write(line) != true {
+        let token = self.token
+        let accepted = process?.write(line) { [weak self] written in
+            guard !written else { return }
+            Task { await self?.promptWriteFailed(token: token) }
+        }
+        if accepted != true {
             end(.failed("Claude Code stopped before it read the message."))
         }
+    }
+
+    /// The prompt of turn `token` could not be written (stdin closed).
+    private func promptWriteFailed(token: UUID?) {
+        guard token != nil, self.token == token else { return }
+        end(.failed("Claude Code stopped before it read the message."))
+    }
+
+    /// How the driver answers a `can_use_tool` request.
+    enum PermissionDecision: Equatable {
+        case allow, deny, ask
+    }
+
+    /// The answer to `tool` with `input`: deny without a running turn (nobody
+    /// can answer, and an interrupted turn must not run more tools), allow
+    /// what ``ChiefToolPolicy`` allows, ask about the rest.
+    static func permissionDecision(tool: String, input: ChiefJSON, turnRunning: Bool) -> PermissionDecision {
+        guard turnRunning else { return .deny }
+        return ChiefToolPolicy.autoAllowsClaudeTool(tool, input: input) ? .allow : .ask
     }
 
     /// Starts `claude`; returns whether it resumes an earlier session.
@@ -256,14 +293,18 @@ actor ClaudeConversation {
             case .event(let event):
                 deliver(event)
             case .permission(let id, let tool, let input):
-                if ChiefToolPolicy.autoAllowsClaudeTool(tool, input: input) || continuation == nil {
-                    // Without a turn nobody can answer; deny instead of hanging.
-                    write(ClaudeStreamParser.permissionResponse(requestID: id, allow: continuation != nil, input: input))
-                } else {
+                let decision = Self.permissionDecision(tool: tool, input: input, turnRunning: continuation != nil)
+                switch decision {
+                case .allow, .deny:
+                    write(ClaudeStreamParser.permissionResponse(requestID: id, allow: decision == .allow, input: input))
+                case .ask:
                     approvals[id] = input
                     continuation?.yield(.approvalRequested(id: id, prompt: ChiefToolPolicy.claudePrompt(tool, input: input),
                                                            options: ChiefToolPolicy.approvalOptions))
                 }
+            case .stalePermission(let id, let input):
+                // Asked by a stopped turn: never run it, never show it in the next turn.
+                write(ClaudeStreamParser.permissionResponse(requestID: id, allow: false, input: input))
             case .unsupportedControl(let id, let subtype):
                 write(ClaudeStreamParser.unsupportedResponse(requestID: id, subtype: subtype))
             }

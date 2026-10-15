@@ -34,8 +34,12 @@ final class ChiefTranscriptView: NSView {
     /// conversation with history never flashes it.
     private var holdsFirstRun = true
     private var stopped = false
-    private var observers: [any NSObjectProtocol] = []
-    private var windowObservers: [any NSObjectProtocol] = []
+    // SAFETY: written only on the main actor; `deinit` reads it once no other
+    // reference exists, and NotificationCenter removal is thread-safe.
+    nonisolated(unsafe) private var observers: [any NSObjectProtocol] = []
+    // SAFETY: written only on the main actor; `deinit` reads it once no other
+    // reference exists, and NotificationCenter removal is thread-safe.
+    nonisolated(unsafe) private var windowObservers: [any NSObjectProtocol] = []
     // task-owner: the chain of attachment preparations, in arrival order; cancelled by stop()
     private var intake: Task<Void, Never>?
     // task-owner: ends when the conversation's first page is in; cancelled by stop()
@@ -110,12 +114,22 @@ final class ChiefTranscriptView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    // Not an isolated deinit (Swift 6.0 has none): the main-thread check guards the hop.
+    // Not an isolated deinit (Swift 6.0 has none). A view freed without
+    // `stop()` still stops its parts, so the projection stops streaming: at
+    // once on the main thread, else in one hop that carries the parts (never
+    // `self`) to the main actor. The memory notice removes its own observer.
     deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            for observer in observers + windowObservers { NotificationCenter.default.removeObserver(observer) }
-            stop()
+        for observer in observers + windowObservers { NotificationCenter.default.removeObserver(observer) }
+        guard !stopped else { return }
+        // Built here, not through `stopParts`: a deinit may read these stored properties.
+        let parts = StopParts(key: ObjectIdentifier(self), tasks: [intake, firstPage].compactMap { $0 },
+                              workingStatus: workingStatus, settingsPanel: settingsPanel,
+                              transcript: transcript, binding: binding)
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { parts.stop() } // main-proof: this branch runs only on the main thread
+        } else {
+            // task-owner: one hop to the main actor; ends at once
+            Task { @MainActor in parts.stop() }
         }
     }
 
@@ -123,14 +137,33 @@ final class ChiefTranscriptView: NSView {
     func stop() {
         guard !stopped else { return }
         stopped = true
-        ChiefService.shared.setTranscript(self, showing: nil)
-        intake?.cancel()
-        firstPage?.cancel()
-        workingStatus.stop()
-        settingsPanel.stop()
-        transcript?.stop()
+        stopParts.stop()
         memoryNotice.stop()
-        binding?.stop()
+    }
+
+    /// What `stop()` stops, as values `deinit` can hand to the main actor.
+    private struct StopParts: Sendable {
+        let key: ObjectIdentifier
+        let tasks: [Task<Void, Never>]
+        let workingStatus: ChiefWorkingStatusView
+        let settingsPanel: ChiefSettingsPanel
+        let transcript: MessagesLabHomeView?
+        let binding: HomeStoreBinding?
+
+        @MainActor func stop() {
+            ChiefService.shared.setTranscript(key, showing: nil)
+            for task in tasks { task.cancel() }
+            workingStatus.stop()
+            settingsPanel.stop()
+            transcript?.stop()
+            binding?.stop()
+        }
+    }
+
+    private var stopParts: StopParts {
+        StopParts(key: ObjectIdentifier(self), tasks: [intake, firstPage].compactMap { $0 },
+                  workingStatus: workingStatus, settingsPanel: settingsPanel,
+                  transcript: transcript, binding: binding)
     }
 
     override var isFlipped: Bool { true }
@@ -242,7 +275,9 @@ final class ChiefTranscriptView: NSView {
             _ = store.rows
             let start = ChiefService.shared.turnStart(id)
             let wasShown = workingStatus.isShown
-            workingStatus.show(since: start, waiting: ChiefService.shared.hasPendingApproval(id))
+            // While an approval waits the transcript's own last row says "Waiting for you"
+            // (HomeProjection.applyApprovalWait), so this line steps aside.
+            workingStatus.show(since: ChiefService.shared.hasPendingApproval(id) ? nil : start)
             if workingStatus.isShown != wasShown { needsLayout = true }
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in

@@ -337,7 +337,7 @@ final class ChiefResultCardView: NSView {
     func show(_ r: ChiefCloudRows.Result, context: CustomRowContext) {
         result = r
         self.context = context
-        button.windowKey = context.isWindowKey
+        button.restyle() // the theme's accent may have changed
         button.toolTip = "cmux vm workspace open \(r.machine) \(r.workspace)"
         setAccessibilityLabel(r.title)
         setAccessibilityValue(ChiefCloudRows.statusText(r.state))

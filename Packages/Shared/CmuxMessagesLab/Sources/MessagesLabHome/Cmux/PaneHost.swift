@@ -373,6 +373,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// cmux: the Chief works: the round button beside the field is Stop,
     /// and Esc and Cmd-. in the field stop it (ChatController+Stop.swift).
     var isWorking = false { didSet { if isWorking != oldValue { updateStopButton() } } }
+    /// cmux-classic: an approval card waits; Stop is the quiet way out (it denies the request).
+    var isWaitingForApproval = false { didSet { if isWaitingForApproval != oldValue { updateStopButton() } } }
     var clock: Double { CACurrentMediaTime() - start }
     private var observers: [NSObjectProtocol] = []
 

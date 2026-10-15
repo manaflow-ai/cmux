@@ -71,7 +71,12 @@ final class ChiefService {
 
     /// Records whether `view` shows `conversation` to the user now (``ChiefTranscriptView``).
     func setTranscript(_ view: AnyObject, showing conversation: ConversationID?) {
-        let key = ObjectIdentifier(view)
+        setTranscript(ObjectIdentifier(view), showing: conversation)
+    }
+
+    /// ``setTranscript(_:showing:)`` by the view's identity, for a view's
+    /// `deinit`, which cannot hand `self` to the main actor.
+    func setTranscript(_ key: ObjectIdentifier, showing conversation: ConversationID?) {
         guard visibleTranscripts[key] != conversation else { return }
         visibleTranscripts[key] = conversation
     }

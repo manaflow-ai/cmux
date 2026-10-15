@@ -171,6 +171,10 @@ final class ChiefHomeView: NSView {
     /// draws previews in the secondary color), so the row never has an empty
     /// second line.
     static func listPreview(_ row: InboxRow) -> String {
+        // A waiting approval says what it asks ("Needs your approval: <command>"), not its raw prompt.
+        if !row.isSending, let prompt = ChiefPreviewText.pendingApprovalPrompt(row.summary.lastMessage) {
+            return ChiefPreviewText.approval(prompt: prompt)
+        }
         let text = row.preview.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty {
             // A pending send is mine (plain text); the newest message keeps its author's rule.

@@ -61,7 +61,7 @@ struct ChiefHomeNavigation {
 
     /// Moves keyboard focus after the selection changed.
     ///
-    /// Entering Home takes focus away from the now-hidden terminal and hands it
+    /// Entering Home takes focus away from the now-hidden workspace and hands it
     /// to Chief's compose field; leaving Home restores the workspace's focused
     /// panel. Called once per selection change, never from a key path.
     static func selectionDidChange(
@@ -75,7 +75,9 @@ struct ChiefHomeNavigation {
         if newValue == .home {
             markHomeMounted()
             guard let window else { return }
-            if window.firstResponder?.cmuxTerminalFocusOwningGhosttyView() != nil {
+            // Any workspace view (terminal, browser page, Markdown, a panel's
+            // text field, portal-hosted or not) would keep typing while hidden.
+            if homeMustTakeFocus(from: window.firstResponder, in: window, isHome: { $0 is ChiefHomeView }) {
                 window.makeFirstResponder(nil)
             }
             // Next turn: on first entry Home's AppKit view joins the window
@@ -87,5 +89,33 @@ struct ChiefHomeNavigation {
         } else if oldValue == .home {
             tabManager.focusSelectedWorkspacePanel()
         }
+    }
+
+    /// Whether entering Home must take the keyboard from `responder`.
+    ///
+    /// Home covers the content area, so the workspace views of `window` are
+    /// hidden behind it, including the terminal and browser views the window
+    /// portals host above the SwiftUI content. Rather than list every panel
+    /// kind, any view outside Home gives way (the sidebar too: the composer
+    /// takes the keyboard right after). Only the window itself, a non-view
+    /// responder, a view of another window and a view inside Home (`isHome`
+    /// true for it or an ancestor) keep focus. A field editor counts as the
+    /// text field it edits.
+    static func homeMustTakeFocus(
+        from responder: NSResponder?,
+        in window: NSWindow,
+        isHome: (NSView) -> Bool
+    ) -> Bool {
+        guard var view = responder as? NSView else { return false }
+        if let editor = view as? NSTextView, editor.isFieldEditor, let edited = editor.delegate as? NSView {
+            view = edited
+        }
+        guard view.window === window else { return false }
+        var current: NSView? = view
+        while let candidate = current {
+            if isHome(candidate) { return false }
+            current = candidate.superview
+        }
+        return true
     }
 }

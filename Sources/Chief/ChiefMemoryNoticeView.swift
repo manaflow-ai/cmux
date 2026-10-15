@@ -21,7 +21,9 @@ final class ChiefMemoryNoticeView: NSView {
     private let row = NSStackView()
     private var fact: ChiefMemoryFact?
     private var wasWorking = false
-    private var observer: (any NSObjectProtocol)?
+    // SAFETY: written only on the main actor; `deinit` reads it once no other
+    // reference exists, and NotificationCenter removal is thread-safe.
+    nonisolated(unsafe) private var observer: (any NSObjectProtocol)?
     private var stopped = false
 
     /// The row appeared or went away: the host lays out again.
@@ -64,12 +66,9 @@ final class ChiefMemoryNoticeView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    // Not an isolated deinit (Swift 6.0 has none): the main-thread check guards the hop.
+    // Not an isolated deinit (Swift 6.0 has none): removing the observer needs no actor.
     deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            if let observer { NotificationCenter.default.removeObserver(observer) }
-        }
+        if let observer { NotificationCenter.default.removeObserver(observer) }
     }
 
     /// Stops following the memory and the turn state (the transcript closed).

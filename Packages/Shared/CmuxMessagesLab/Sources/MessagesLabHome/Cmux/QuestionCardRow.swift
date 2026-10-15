@@ -268,7 +268,6 @@ final class QuestionCardView: NSView {
             }
         }
         submit?.isEnabled = !sending && canSubmit
-        submit?.windowKey = context?.isWindowKey ?? true
     }
 
     private var answer: AgentQuestionAnswer {

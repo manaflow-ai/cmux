@@ -98,7 +98,7 @@ final class RecordingImmediateClock: Clock, @unchecked Sendable {
             events.append(event)
             if case .approvalRequested(let id, let prompt, let options) = event {
                 #expect(id == "scripted-approval-1")
-                #expect(prompt.contains(ChiefScriptedBrain.approvalCommand))
+                #expect(ChiefAllowRules.command(inPrompt: prompt) == ChiefScriptedBrain.approvalCommand)
                 #expect(options == ["Allow", "Deny"])
                 answered = true
                 await brain.respond(toApproval: id, choice: choice, conversation: conversation)

@@ -94,6 +94,10 @@ extension CmuxStrings {
     static var approvalRefusalHelp: String {
         String(localized: "home.approval.refusalHelp", defaultValue: "Esc", table: "CmuxHome", bundle: .module)
     }
+    /// The compose bar's Stop help while an approval card waits.
+    static var approvalStopHelp: String {
+        String(localized: "home.approval.stopHelp", defaultValue: "Stop (denies the request)", table: "CmuxHome", bundle: .module)
+    }
     /// The card's accessibility role description.
     static var approvalRole: String {
         String(localized: "home.approval.role", defaultValue: "approval request", table: "CmuxHome", bundle: .module)

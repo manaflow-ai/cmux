@@ -7,6 +7,10 @@ enum ClaudeStreamOutput: Sendable, Equatable {
     /// Claude Code asks whether a tool may run (`can_use_tool`); the driver
     /// must answer with ``ClaudeStreamParser/permissionResponse(requestID:allow:input:)``.
     case permission(requestID: String, tool: String, input: ChiefJSON)
+    /// A `can_use_tool` request that arrived while no turn of this driver
+    /// runs, or from a stopped turn before the next prompt's echo; the
+    /// driver must deny it.
+    case stalePermission(requestID: String, input: ChiefJSON)
     /// A control request the driver does not handle; it answers with an error.
     case unsupportedControl(requestID: String, subtype: String)
 }
@@ -124,6 +128,8 @@ struct ClaudeStreamParser: Sendable {
         let request = line["request"] ?? .null
         let subtype = request["subtype"]?.string ?? ""
         guard subtype == "can_use_tool" else { return [.unsupportedControl(requestID: id, subtype: subtype)] }
+        // An interrupted turn can still ask after the next prompt was written.
+        if stale { return [.stalePermission(requestID: id, input: request["input"] ?? [:])] }
         return [.permission(requestID: id, tool: request["tool_name"]?.string ?? "tool", input: request["input"] ?? [:])]
     }
 

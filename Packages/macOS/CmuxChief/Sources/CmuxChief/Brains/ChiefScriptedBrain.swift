@@ -69,8 +69,10 @@ public final class ChiefScriptedBrain: ChiefBrain {
                 .pause(.milliseconds(400)),
             ] + stream("Done. Scratch is open as a new workspace.") + [.event(.finished)]
             let denied: [Step] = stream("Okay, I left everything as it was.") + [.event(.finished)]
+            // The real brains' command prompt ("Run `<command>`?", ChiefToolPolicy.claudePrompt), so the
+            // card shows "Chief wants to run", the command block and the Always Allow menu.
             steps.append(.approval(id: "scripted-approval-\(approval)",
-                                   prompt: "Allow Chief to run `\(approvalCommand)`?",
+                                   prompt: "Run `\(approvalCommand)`?",
                                    allowed: allowed, denied: denied))
             return steps
         }

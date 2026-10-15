@@ -59,14 +59,14 @@ final class ChiefApprovalRowProvider: TranscriptCustomRowProvider {
     /// The card's body: the command (mono, in a block) or the prompt (body text, backtick spans mono).
     static func body(_ a: ChiefRows.Approval, color: NSColor? = nil) -> NSAttributedString {
         let style = NSMutableParagraphStyle()
-        style.lineBreakMode = .byCharWrapping
+        // A long command breaks between its words (flags, paths); a word longer than the line breaks inside.
+        style.lineBreakMode = .byWordWrapping
         func attrs(_ font: NSFont) -> [NSAttributedString.Key: Any] {
             var out: [NSAttributedString.Key: Any] = [.font: font, .paragraphStyle: style]
             if let color { out[.foregroundColor] = color }
             return out
         }
         if let command = a.command { return NSAttributedString(string: command, attributes: attrs(codeFont)) }
-        style.lineBreakMode = .byWordWrapping
         let out = NSMutableAttributedString()
         for (text, code) in ChiefRows.promptRuns(a.prompt) {
             out.append(NSAttributedString(string: text, attributes: attrs(code ? HomeFonts.code : Fixture.bodyFont)))
@@ -224,7 +224,6 @@ final class ChiefApprovalCardView: NSView {
         }
         for b in buttons + [chevron].compactMap({ $0 }) {
             b.isEnabled = sentRequest == nil
-            b.windowKey = context.isWindowKey
         }
         needsLayout = true
         needsDisplay = true
@@ -360,7 +359,6 @@ final class ChiefOptionButton: NSButton {
 
     let option: String
     let style: Style
-    var windowKey = true { didSet { if windowKey != oldValue { restyle() } } }
     private var hovering = false
     private var tracking: NSTrackingArea?
     private let glyph = CALayer()
@@ -410,9 +408,10 @@ final class ChiefOptionButton: NSButton {
         let ink: NSColor
         switch style {
         case .prominent:
-            // An inactive window draws its accents flat (Messages' grey sends).
-            fill = windowKey ? Fixture.outgoing : quiet
-            ink = windowKey ? Fixture.outgoingText : Fixture.incomingText
+            // The accent fill and its text, as my sent bubbles draw them (also in an inactive
+            // window: the transcript's sends stay tinted, so the default button does too).
+            fill = Fixture.outgoing
+            ink = Fixture.outgoingText
         case .plain:
             fill = hovering || isHighlighted ? quiet : .clear
             ink = Fixture.incomingText

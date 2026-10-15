@@ -1,6 +1,19 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/RowDrawing.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/RowDrawing.swift
-@@ -433,7 +433,7 @@
+@@ -196,9 +196,10 @@
+             }
+         case let .notice(s):
+             // As the unsent notice below (ask 9, HostHooks.swift).
+-            let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
++            // cmux-classic: Home's status line ("Waiting for you") in its own font and ink (HomeStatusLine).
++            let f = HomeStatusLine.font
+             let w = TextDraw.width(s, font: f)
+-            TextDraw.line(s, font: f, color: Fixture.secondaryText, x: m.centerX + 0.1 - w / 2, baseline: top + 12, in: ctx)
++            TextDraw.line(s, font: f, color: HomeStatusLine.ink, x: m.centerX + 0.1 - w / 2, baseline: top + 12, in: ctx)
+         case let .unsent(outgoing):
+             let s = outgoing ? Strings.unsentMine : Strings.unsentTheirs
+             let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
+@@ -433,7 +434,7 @@
              if !p.failed { drawSaveButton(ctx, body: body, outgoing: p.outgoing) }
          case "voiceMemo":
              fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
@@ -9,7 +22,7 @@
              fg.setFill()
              UIBezierPath(ovalIn: CGRect(x: body.minX + 8, y: body.midY - 11, width: 22, height: 22)).fill()
              let tri = UIBezierPath()
-@@ -455,7 +455,7 @@
+@@ -455,7 +456,7 @@
                            baseline: body.midY + 4, in: ctx)
          default:
              fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)

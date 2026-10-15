@@ -1,8 +1,10 @@
 import CmuxHomeCore
 import Foundation
 
-/// One conversation as the owner holds it: its summary, every message in seq
-/// order (seq `n` at index `n - 1`), and the brain's CLI session.
+/// One conversation as the owner holds it: its summary, every message in
+/// ascending seq order, and the brain's CLI session. Seqs may have gaps (a
+/// log whose damaged lines were dropped), so reads look messages up by seq,
+/// never by index.
 struct ChiefConversationState: Sendable {
     var summary: ConversationSummary
     private(set) var messages: [Message] = []
@@ -59,12 +61,24 @@ struct ChiefConversationState: Sendable {
         return byRoot.map { ThreadSummary(root: $0.key, replies: $0.value) }
     }
 
-    /// Messages with `first <= seq <= last`.
+    /// Messages with `first <= seq <= last`, found by seq (binary search), so a gap in the seqs never shifts the page.
     func messages(from first: Seq, through last: Seq) -> [Message] {
-        guard first >= 1, first <= last, !messages.isEmpty else { return [] }
-        let lower = Int(first) - 1
-        let upper = min(Int(last), messages.count)
-        guard lower < upper else { return [] }
-        return Array(messages[lower..<upper])
+        guard first <= last, !messages.isEmpty else { return [] }
+        let lower = firstIndex(atOrAfter: first)
+        let upper = firstIndex(atOrAfter: last == Seq.max ? last : last + 1)
+        let end = last == Seq.max ? messages.count : upper
+        guard lower < end else { return [] }
+        return Array(messages[lower..<end])
+    }
+
+    /// The index of the first message whose seq is at least `seq` (`messages.count` when none is).
+    private func firstIndex(atOrAfter seq: Seq) -> Int {
+        var low = 0
+        var high = messages.count
+        while low < high {
+            let mid = (low + high) / 2
+            if messages[mid].seq < seq { low = mid + 1 } else { high = mid }
+        }
+        return low
     }
 }

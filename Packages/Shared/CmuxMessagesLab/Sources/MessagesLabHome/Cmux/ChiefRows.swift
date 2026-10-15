@@ -136,8 +136,19 @@ enum ChiefRows {
                                     "node", "ruby", "perl", "osascript", "rm", "dd", "mv", "chmod", "chown", "kill", "killall"]
         guard !refused.contains(program), program.range(of: #"^[a-z][a-z0-9._-]*$"#, options: .regularExpression) != nil,
               sub.range(of: #"^[a-z][a-z0-9-]*$"#, options: .regularExpression) != nil else { return nil }
+        // The owner offers no rule for a cmux subcommand that always asks (ChiefToolPolicy.cmuxApprovalWords).
+        if program == "cmux", cmuxApprovalWords.contains(sub) { return nil }
         return [program, sub]
     }
+
+    /// cmux subcommands that always ask (ChiefToolPolicy.cmuxApprovalWords in CmuxChief, the same list; change both).
+    static let cmuxApprovalWords: Set<String> = [
+        "close", "rm", "remove", "delete", "destroy", "kill", "quit", "restart", "relaunch", "reset",
+        "clear", "clear-history", "cleanup", "ssh-session-cleanup", "uninstall", "logout",
+        "sudo", "rpc", "pipe-pane", "respawn-pane", "set-hook",
+        "publish", "access", "grant", "ungrant", "upload", "feedback", "promote-template",
+        "--force", "--yes",
+    ]
 
     static func grants(_ option: String) -> Bool {
         ["allow", "approve", "yes", "run", "allow once"].contains(option.lowercased())

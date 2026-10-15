@@ -1,18 +1,18 @@
 import AppKit
 
 /// The quiet line above the compose field while Chief runs a turn:
-/// "Working · 12s", or "Waiting for you" in the attention color while an
-/// approval waits (T3 Code's "Working for 12s" beside Stop,
+/// "Working · 12s" (T3 Code's "Working for 12s" beside Stop,
 /// cmux-design-references `apps/t3-code/live/task-running-thinking.png`,
-/// `topics/status-and-progress.md`).
+/// `topics/status-and-progress.md`). While an approval waits the owner hides
+/// it: the transcript's last row says "Waiting for you" in the attention color
+/// (MessagesLabHome `HomeStatusLine`).
 ///
-/// The owner calls ``show(since:waiting:)`` whenever the service's working set
-/// or the pending approval changes. One repeating one-second timer exists only
-/// while a turn runs and nothing waits; it only redraws the elapsed time.
+/// The owner calls ``show(since:)`` whenever the service's working set or the
+/// pending approval changes. One repeating one-second timer exists only while
+/// the line shows; it only redraws the elapsed time.
 @MainActor
 final class ChiefWorkingStatusView: NSTextField {
     private var since: ContinuousClock.Instant?
-    private var waiting = false
     private var timer: Timer?
     private var theme = ChiefTheme.current()
 
@@ -36,13 +36,11 @@ final class ChiefWorkingStatusView: NSTextField {
     /// Whether the line shows (a turn runs).
     var isShown: Bool { since != nil }
 
-    /// Shows the line for a turn started at `since` (nil hides it); `waiting`
-    /// swaps the elapsed time for "Waiting for you".
-    func show(since: ContinuousClock.Instant?, waiting: Bool) {
+    /// Shows the line for a turn started at `since` (nil hides it).
+    func show(since: ContinuousClock.Instant?) {
         self.since = since
-        self.waiting = since != nil && waiting
         isHidden = since == nil
-        let ticks = since != nil && !self.waiting
+        let ticks = since != nil
         if ticks, timer == nil {
             let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.render() } // main-proof: scheduled on the main run loop
@@ -73,15 +71,9 @@ final class ChiefWorkingStatusView: NSTextField {
             setAccessibilityLabel(nil)
             return
         }
-        let text: String
-        if waiting {
-            text = ChiefStrings.workingWaiting
-            textColor = WorkspaceAttentionColor(configuredHex: nil).nsColor
-        } else {
-            let seconds = max(0, Int((ContinuousClock.now - since).components.seconds))
-            text = ChiefStrings.workingElapsed(.seconds(seconds))
-            textColor = theme.textSecondary
-        }
+        let seconds = max(0, Int((ContinuousClock.now - since).components.seconds))
+        let text = ChiefStrings.workingElapsed(.seconds(seconds))
+        textColor = theme.textSecondary
         if stringValue != text {
             stringValue = text
             setAccessibilityLabel(text)
@@ -95,10 +87,5 @@ extension ChiefStrings {
     static func workingElapsed(_ elapsed: Duration) -> String {
         let time = elapsed.formatted(.units(allowed: [.hours, .minutes, .seconds], width: .narrow))
         return String(format: String(localized: "chief.working.elapsed", defaultValue: "Working · %@"), time)
-    }
-
-    /// The working line while Chief waits on an approval.
-    static var workingWaiting: String {
-        String(localized: "chief.working.waiting", defaultValue: "Waiting for you")
     }
 }

@@ -47,15 +47,32 @@ extension HomeProjection {
         return nil
     }
 
-    /// The field's placeholder and the header's status follow the newest waiting approval.
+    /// The field's placeholder, the header's status, the transcript's status line and the
+    /// Stop button follow the newest waiting approval.
     func applyApprovalWait() {
         let waiting = newestPendingApproval() != nil
         controller.demo?.compose.cmuxPlaceholder = waiting ? CmuxStrings.approvalPlaceholder : nil
         controller.host.paneHeader.status = waiting ? CmuxStrings.waitingForYou : nil
+        // "Waiting for you" is the transcript's last row (MessagesLab's ask 9 status line, 8 pt under
+        // the card, scrolled with it), not a line over the transcript's bottom edge.
+        let line = waiting ? CmuxStrings.waitingForYou : nil
+        if let store = controller.store, store.state.ui.notice != line { controller.dispatch(.setNotice(line)) }
+        controller.isWaitingForApproval = waiting
         if waiting != isWaitingForApproval {
             isWaitingForApproval = waiting
             onWaitingForApprovalChange(waiting)
         }
+    }
+}
+
+/// cmux-classic: the transcript's status line (`.setNotice`, RowDrawing's `.notice` row): 10 pt in the
+/// attention colour, as the sidebar's "Needs you" and the header avatar's dot (system orange).
+/// Read on the row render threads: fixed sRGB values, not the dynamic system colour.
+enum HomeStatusLine {
+    static let font = HomeFonts.system(ofSize: 10, weight: .medium)
+    static var ink: NSColor {
+        Fixture.lightAppearance ? NSColor(srgbRed: 1, green: 149 / 255, blue: 0, alpha: 1)
+                                : NSColor(srgbRed: 1, green: 159 / 255, blue: 10 / 255, alpha: 1)
     }
 }
 
