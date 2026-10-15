@@ -57,14 +57,14 @@ and render-server field animation, blurred header and native scrolling.
   `setInactive` toggle; a cached bitmap keeps its own colour space. Residual
   limit: a second pane on another display still changes the one process-wide
   colour space, and every pane's next row drawings use that space).
-  Known limit (upstream, measured 2026-10-14 on cmux-lawrence-2): after a
-  move to a 1x screen, the visible rows keep their 2x bitmaps for up to
-  0.32 s. `RowCell.configureScoped` (vendored Transcript.swift, about lines
-  744-870) keeps a shown row's bitmap on a scale repaint until the off-main
-  `RowBitmaps.request` delivers the new one, and the cache has no 1x bitmap
-  yet. `scripts/cmux-next/home-scale-change.py` records it and fails when it
-  lasts longer than 0.5 s; the return to 2x keeps the one-frame rule (no
-  old-scale bitmap one frame after the change).
+  Scale changes, both directions, one frame (2026-10-14, cmux-lawrence-2):
+  after a move to 1x and back to 2x, no visible row shows a bitmap of the
+  old scale one frame after the change (`scripts/cmux-next/home-scale-change.py`,
+  the same rule both ways). Before the colour-space fix in 258b385 a move to
+  1x kept the 2x bitmaps for up to 0.32 s: upstream `RowCell.configureScoped`
+  (vendored Transcript.swift) keeps a shown row's bitmap on a repaint until
+  the off-main `RowBitmaps.request` delivers, and the colour-space handler
+  had emptied the cache.
 - Soft copies (7924f00, cx-3cb soft-copies): a just-sent balloon keeps a
   crisp edge in flight and after it lands, and takes the soft edge when its
   status becomes delivered, read or failed (`MessagesWindowView.crispSends`,
