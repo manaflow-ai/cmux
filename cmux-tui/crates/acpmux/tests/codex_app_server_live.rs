@@ -92,12 +92,19 @@ impl Daemon {
         unsafe { libc::close(fds[1]) };
         let read_end = fds[0];
         // Live by design: the real codex named by ACPMUX_CODEX_LIVE (an absolute
-        // path in the harness argv) and only its own directory (an npm install
-        // keeps node there) after the bare PATH; HOME stays the scratch home.
+        // path in the harness argv), its own directory (an npm install keeps its
+        // node there) right after the tool links, before the system directories.
+        // That directory can hold other agent CLIs: only codex is probed.
         let codex = std::env::var("ACPMUX_CODEX_LIVE").expect("ACPMUX_CODEX_LIVE");
+        assert!(Path::new(&codex).is_absolute(), "ACPMUX_CODEX_LIVE must be absolute");
         let codex_dir = Path::new(&codex).parent().expect("codex directory").to_owned();
+        let path = format!(
+            "{}:{}:/usr/bin:/bin:/usr/sbin:/sbin",
+            daemon_env::tool_dir(&[]).display(),
+            codex_dir.display()
+        );
         let mut command = daemon_env::command(&self.home, daemon_env::Agents::StandIn, &[]);
-        command.env("PATH", format!("{}:{}", daemon_env::bare_path(&[]), codex_dir.display()));
+        command.env("PATH", path).env("ACPMUX_PROBE_HARNESSES", "codex-app-server");
         // SAFETY: only dup2 between fork and exec (async-signal-safe).
         unsafe {
             command.pre_exec(move || {

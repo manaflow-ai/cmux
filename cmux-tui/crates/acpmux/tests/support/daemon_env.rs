@@ -49,12 +49,6 @@ pub fn acpmux(scratch: &Path) -> Command {
     command(scratch, Agents::Deny, &[])
 }
 
-/// `acpmux` with the hermetic environment, for a test whose daemon starts a
-/// stand-in agent.
-pub fn acpmux_with_stand_in_agents(scratch: &Path) -> Command {
-    command(scratch, Agents::StandIn, &[])
-}
-
 /// `acpmux` with the hermetic environment; `tools` are host tools (by name,
 /// found on the test's PATH) to put on the daemon's PATH besides `python3`.
 pub fn command(scratch: &Path, agents: Agents, tools: &[&str]) -> Command {
@@ -123,9 +117,19 @@ fn platform_vars(home: &Path, tools: &[&str]) -> Vec<(String, String)> {
 }
 
 /// `<dir>:/usr/bin:/bin:/usr/sbin:/sbin`, where `<dir>` (one per process and
-/// tool set, made once) links `python3` and `tools` from the test's PATH.
+/// tool set) links `python3` and `tools` from the test's PATH.
 #[cfg(unix)]
 pub fn bare_path(tools: &[&str]) -> String {
+    format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", tool_dir(tools).display())
+}
+
+/// The directory of tool links that [`bare_path`] puts first. A link left by
+/// an earlier run (same pid) that points elsewhere is replaced; tests of one
+/// process make the links one at a time.
+#[cfg(unix)]
+pub fn tool_dir(tools: &[&str]) -> PathBuf {
+    static LINKS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _held = LINKS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut names = vec!["python3"];
     names.extend(tools.iter().copied().filter(|t| *t != "python3"));
     let dir =
@@ -133,28 +137,44 @@ pub fn bare_path(tools: &[&str]) -> String {
     std::fs::create_dir_all(&dir).unwrap();
     for name in &names {
         let link = dir.join(name);
-        if link.exists() {
+        let target = host_tool(name);
+        if std::fs::read_link(&link).is_ok_and(|t| t == target) {
             continue;
         }
-        let target = host_tool(name);
-        // Tests in one process race here: a link another test made is fine.
-        match std::os::unix::fs::symlink(&target, &link) {
-            Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => {
-                panic!("link {} to {}: {e}", target.display(), link.display())
-            }
-            _ => {}
-        }
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&target, &link)
+            .unwrap_or_else(|e| panic!("link {} to {}: {e}", target.display(), link.display()));
     }
-    format!("{}:/usr/bin:/bin:/usr/sbin:/sbin", dir.display())
+    dir
 }
 
-/// `name` on the test process's own PATH.
+/// `name` on the test process's own PATH (absolute entries only). For
+/// `python3`, the interpreter itself, not a version manager's shim: a shim
+/// picks its version from files under HOME, and the daemon's HOME is a
+/// scratch folder.
 #[cfg(unix)]
 fn host_tool(name: &str) -> PathBuf {
-    std::env::var_os("PATH")
+    let found = std::env::var_os("PATH")
         .iter()
         .flat_map(std::env::split_paths)
+        .filter(|d| d.is_absolute())
         .map(|d| d.join(name))
         .find(|p| p.is_file())
-        .unwrap_or_else(|| panic!("{name} on the test's PATH"))
+        .unwrap_or_else(|| panic!("{name} on the test's PATH"));
+    if name != "python3" {
+        return found;
+    }
+    static PYTHON: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    PYTHON
+        .get_or_init(|| {
+            let out = Command::new(&found)
+                .args(["-c", "import sys; print(sys.executable)"])
+                .output()
+                .unwrap_or_else(|e| panic!("run {}: {e}", found.display()));
+            let exe = String::from_utf8(out.stdout).unwrap();
+            let exe = PathBuf::from(exe.trim());
+            assert!(out.status.success() && exe.is_absolute(), "python3 names no interpreter");
+            exe
+        })
+        .clone()
 }
