@@ -22,8 +22,8 @@
   min-width: 0;
   height: var(--acpmux-strip-height);
   margin: 0;
-  /* With its controls' own padding, the first icon starts 12px in, as the queue's labels do. */
-  padding: 0 3px;
+  /* The strip spans the card; its controls sit in by --acpmux-strip-inset (below). */
+  padding: 0 var(--acpmux-strip-inset, 3px);
   box-sizing: border-box;
   border-radius: var(--acpmux-strip-radius, 18px) var(--acpmux-strip-radius, 18px) 0 0;
   /* The card's solid surface (composerStates.css), so the strip and the card are one fill. */
@@ -38,27 +38,12 @@
 }
 /* The chat composer's strip (design panel, compact composer): its first and last marks line up
    with the card's content, the folder icon over the prompt's first letter and the branch chevron
-   over the prompt's last column, so nothing in the strip reads as a stray indent. That puts it
-   9 px in from the card's sides, inside the card's 18 px corner, where the corner has dropped
-   2.4 px from the top edge; a foot of the strip's own fill and sides covers that drop, so the strip
-   still stands on the card. The queue (above) and the seam (below) follow the same inset. */
+   over the prompt's last column, so nothing in the strip reads as a stray indent. The strip itself
+   spans the card as its full-width head (one rim goes round both); its controls sit 9 px in from
+   its sides, which puts the marks over the prompt's edges. */
 .acpmux-composer {
   --acpmux-strip-inset: 9px;
   --acpmux-strip-pad: 1.5px;
-}
-.acpmux-composer > .acpmux-composer-strip { z-index: var(--layer-raised, 1); }
-.acpmux-composer > .acpmux-composer-strip::after {
-  content: "";
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  height: 2.5px;
-  background: inherit;
-  box-shadow:
-    inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-strip-edge),
-    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge);
-  pointer-events: none;
 }
 .acpmux-composer-context {
   display: flex;
