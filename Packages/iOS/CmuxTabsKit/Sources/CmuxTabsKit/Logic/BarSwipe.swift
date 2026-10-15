@@ -9,12 +9,10 @@ import CoreGraphics
 struct BarSwipe: Equatable, Sendable {
     enum Axis: Equatable, Sendable { case horizontal, up, down }
 
-    /// The page follows the finger steeply at first and levels off: Safari's
-    /// progress for a 270 pt / 0.2 s swipe is 0.20 / 0.43 / 0.50 / 0.58 /
-    /// 0.64 / 0.67 at 17 / 33 / 50 / 70 / 90 / 110 ms (cmux-next tabs-parity-audit
-    /// 1d), which `reach · (1 − e^(−up / scale))` follows within 0.04.
-    static let reach = 0.72
-    static let scale: CGFloat = 55
+    /// Safari's page follows the swipe along its swipe-up curve: a 250 pt
+    /// swipe over 0.25 s (1000 pt/s) takes it through the curve's first
+    /// 0.25 s, so the finger's travel maps to curve time at that speed.
+    static let referenceSpeed: CGFloat = 1000
 
     /// The drag's direction from its first movement past the slop.
     static func axis(_ translation: CGSize) -> Axis {
@@ -22,15 +20,16 @@ struct BarSwipe: Equatable, Sendable {
         return translation.height < 0 ? .up : .down
     }
 
-    /// Zoom progress (0 page, 1 grid) for an upward translation.
-    static func progress(up: CGFloat) -> Double { reach * (1 - exp(-Double(max(0, up) / scale))) }
-    /// The page's speed when the finger lifts: the finger's speed over the
-    /// whole page-to-card travel (the levelled-off tracking curve would
-    /// hand the release almost none, and the page hovered 100–170 ms
-    /// before it sprang, cmux-next re-audit 2 D7).
+    /// The page's speed when the finger lifts outside the curve (a swipe
+    /// back down): the finger's speed over the page-to-card travel.
     static func releaseVelocity(_ velocity: CGFloat) -> Double { Double(velocity) / 450 }
+
+    /// Zoom progress (0 page, 1 grid) for an upward translation.
+    static func progress(up: CGFloat) -> Double { SafariCurve.swipeUp.value(at: Double(max(0, up) / referenceSpeed)) }
     /// Progress per second for an upward velocity at `up`.
     static func velocity(up: CGFloat, velocity: CGFloat) -> Double {
-        reach / Double(scale) * exp(-Double(max(0, up) / scale)) * Double(velocity)
+        let t = Double(max(0, up) / referenceSpeed)
+        let dp = SafariCurve.swipeUp.value(at: t + 1.0 / 120) - SafariCurve.swipeUp.value(at: t)
+        return dp * 120 * Double(velocity / referenceSpeed)
     }
 }

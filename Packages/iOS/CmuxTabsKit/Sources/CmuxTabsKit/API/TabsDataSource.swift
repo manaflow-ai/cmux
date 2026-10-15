@@ -49,6 +49,13 @@ public protocol TabsDataSource: AnyObject, Observable {
     /// The tab's card, laid out at the full screen size like `content` and
     /// scaled down by the kit. The default shows `thumbnail(for:)`.
     @ViewBuilder func card(for tab: TabsKitTab) -> Card
+    /// The card's content anchor: how far (page points) the card, and the
+    /// live page as it zooms into a card, move the tab's content up, for a
+    /// card that shows only the top `visibleHeight` points of the page
+    /// (status bar included). A terminal returns what brings its prompt
+    /// into view, so its card shows the screen you left, not its top rows.
+    /// The zoom moves it with the scale (none full screen). Default 0.
+    func cardContentOffset(for id: TabsKitTab.ID, visibleHeight: CGFloat) -> CGFloat
     /// A snapshot of the tab's page at full screen size for the default card.
     func thumbnail(for id: TabsKitTab.ID) -> UIImage?
     /// The tab grid is about to appear: refresh thumbnails now (once per
@@ -101,6 +108,16 @@ public protocol TabsDataSource: AnyObject, Observable {
     /// Groups of items above Close Tab and Close Other Tabs in a card's
     /// long-press menu (Safari: Copy Link, Duplicate Tab). Default none.
     func cardMenu(for tab: TabsKitTab) -> [[TabsKitMenuItem]]
+    /// Pinned tabs (Safari's pinned area above the grid): list them first in
+    /// `tabs`. With `supportsPinning` the card menu offers Pin / Unpin Tab
+    /// and Select Tabs offers Pin N Tabs.
+    var pinnedTabIDs: Set<TabsKitTab.ID> { get }
+    var supportsPinning: Bool { get }
+    /// Pin or unpin tabs (move pinned ones to the front of `tabs`).
+    func setPinned(_ ids: [TabsKitTab.ID], _ pinned: Bool)
+    /// The links Select Tabs' Copy N Links puts on the pasteboard; empty
+    /// hides the item.
+    func links(for ids: [TabsKitTab.ID]) -> [URL]
     /// True when cards can be dragged to a new slot (long press, then move).
     var supportsReordering: Bool { get }
     /// A dragged card moved to `index` in `tabs`: reorder `tabs`.
@@ -131,6 +148,7 @@ extension TabsDataSource where EditingBackground == TabsKitAddressSuggestions {
 
 extension TabsDataSource {
     public func thumbnail(for id: TabsKitTab.ID) -> UIImage? { nil }
+    public func cardContentOffset(for id: TabsKitTab.ID, visibleHeight: CGFloat) -> CGFloat { 0 }
     public func overviewWillAppear() {}
     public func overviewVisibilityChanged(_ visible: Bool) {}
     public func overviewScrollingChanged(_ scrolling: Bool) {}
@@ -147,6 +165,10 @@ extension TabsDataSource {
     public func isContentReady(_ id: TabsKitTab.ID) -> Bool { true }
     public func cardMenu(for tab: TabsKitTab) -> [[TabsKitMenuItem]] { [] }
     public var supportsReordering: Bool { false }
+    public var pinnedTabIDs: Set<TabsKitTab.ID> { [] }
+    public var supportsPinning: Bool { false }
+    public func setPinned(_ ids: [TabsKitTab.ID], _ pinned: Bool) {}
+    public func links(for ids: [TabsKitTab.ID]) -> [URL] { [] }
     public func moveTab(_ id: TabsKitTab.ID, to index: Int) {}
     public var notice: String? { nil }
     public func clearNotice() {}

@@ -47,26 +47,62 @@ final class CardSwipeState {
 
     func track(_ key: String, translation: CGFloat, reduceMotion: Bool) {
         let target = CardSwipe.offset(translation: translation)
-        let first = !raised.contains(key)
-        if first { raised.insert(key) }
+        if !raised.contains(key) { raised.insert(key) }
         if !reduceMotion, scales[key] == nil {
             withAnimation(spring(CardSwipe.lift)) { scales[key] = CardSwipe.liftScale }
         }
+        opacities[key] = nil
+        if reduceMotion {
+            var t = Transaction()
+            t.disablesAnimations = true
+            withTransaction(t) { offsets[key] = target }
+            return
+        }
+        // Safari's card follows the finger on a quick spring: it glides over
+        // the touch slop at the start (-2, -8, -15, -22 pt in its first
+        // frames) and carries about 4 pt past the finger when it stops
+        // (re-audit 3 D3: ours jumped, then stood still, and never carried).
+        var f = followers[key] ?? Follower(position: offsets[key] ?? 0)
+        f.target = target
+        followers[key] = f
+        followClock.start { [weak self] now in self?.stepFollowers(now) ?? false }
+    }
+
+    /// A card following the finger (`CardSwipe.follow`).
+    private struct Follower {
+        var position: CGFloat
+        var velocity: CGFloat = 0
+        var target: CGFloat = 0
+        var last: CFTimeInterval?
+    }
+    private var followers: [String: Follower] = [:]
+    @ObservationIgnored private let followClock = FrameClock()
+
+    private func stepFollowers(_ now: CFTimeInterval) -> Bool {
+        let w = 2 * Double.pi / CardSwipe.follow.response, z = CardSwipe.follow.damping
         var t = Transaction()
         t.disablesAnimations = true
-        withTransaction(t) {
-            if first, !reduceMotion, offsets[key] == nil {
-                // Start where the card is (its slot) and glide to the finger.
-                catchUps[key] = -target
+        for (key, var f) in followers {
+            let dt = min(0.05, f.last.map { now - $0 } ?? 1.0 / 60)
+            f.last = now
+            var rem = dt
+            while rem > 0 {
+                let h = min(rem, 1.0 / 600)
+                let a = -w * w * Double(f.position - f.target) - 2 * z * w * Double(f.velocity)
+                f.velocity += CGFloat(a * h)
+                f.position += f.velocity * CGFloat(h)
+                rem -= h
             }
-            offsets[key] = target
-            opacities[key] = nil
+            followers[key] = f
+            withTransaction(t) { offsets[key] = f.position }
         }
-        if first, !reduceMotion, catchUps[key] != nil {
-            withAnimation(.easeOut(duration: CardSwipe.slopCatchUp)) { catchUps[key] = 0 } completion: { [weak self] in
-                if self?.catchUps[key] == 0 { self?.catchUps[key] = nil }
-            }
-        }
+        return !followers.isEmpty
+    }
+
+    /// Stops following and returns the card's offset and velocity.
+    private func stopFollowing(_ key: String) -> CGFloat? {
+        guard let f = followers.removeValue(forKey: key) else { return nil }
+        return f.velocity
     }
 
     /// Release: fly off and close, or spring back. A committed card keeps
@@ -80,6 +116,7 @@ final class CardSwipeState {
     /// reappears at its slot with a 0.18 s fade.
     func release(_ key: String, velocity: CGFloat, card: CGRect, reduceMotion: Bool,
                  departing makeCopy: () -> DepartingCard, close: @escaping () async -> Bool) {
+        _ = stopFollowing(key)
         let offset = offsets[key] ?? 0
         guard CardSwipe.commits(offset: offset, velocity: velocity, cardWidth: card.width) else {
             comeBack(key, velocity: velocity, reduceMotion: reduceMotion)
@@ -120,12 +157,14 @@ final class CardSwipeState {
             offsets[key] = start
         }
         let target = CardSwipe.flyOffOffset(cardMinX: card.minX, cardWidth: card.width)
-        let speed = max(abs(velocity), CardSwipe.flyOffMinSpeed)
-        // Driven on the display clock from the release time: each frame puts
-        // the card where the release speed has carried it by then, so it
-        // never holds after the release however late a frame comes (a
-        // SwiftUI linear animation started 3-4 frames after the release).
-        flights[key] = Flight(start: start, target: target, speed: speed, t0: CACurrentMediaTime(), landed: landed)
+        // Driven on the display clock from the release time along Safari's
+        // own fling (it holds 2 frames, accelerates and slows to the edge;
+        // a constant speed left 120-210 ms early, re-audit 3 D1), scaled to
+        // this card's distance to the screen edge.
+        // The curve's clock starts at the finger's end, which the pan reports
+        // about 2.5 frames late (measured against Safari with the same
+        // input); the card leaves from where it is shown.
+        flights[key] = Flight(start: start, target: target, t0: CACurrentMediaTime() - 2.5 / 60, landed: landed)
         flightLink.start { [weak self] now in self?.stepFlights(now) ?? false }
         // The tab leaves the grid one frame after the release (Safari's count
         // changes about 10 ms after it, re-audit 2 D10): the fly-off's first
@@ -142,7 +181,6 @@ final class CardSwipeState {
     private struct Flight {
         let start: CGFloat
         let target: CGFloat
-        let speed: CGFloat
         let t0: CFTimeInterval
         let landed: () -> Void
     }
@@ -151,13 +189,14 @@ final class CardSwipeState {
 
     /// One display frame of every fly-off; false when none is left.
     private func stepFlights(_ now: CFTimeInterval) -> Bool {
-        var t = Transaction()
-        t.disablesAnimations = true
+        var t0 = Transaction()
+        t0.disablesAnimations = true
         for (key, f) in flights {
             guard isDeparting(key) else { flights[key] = nil; continue }
-            let x = max(f.target, f.start - f.speed * CGFloat(now - f.t0))
-            withTransaction(t) { offsets[key] = x }
-            if x <= f.target {
+            let t = now - f.t0
+            let x = f.start + (f.target - f.start) * CGFloat(SafariCurve.fling.value(at: t))
+            withTransaction(t0) { offsets[key] = x }
+            if t >= SafariCurve.fling.duration {
                 flights[key] = nil
                 f.landed()
             }
@@ -165,7 +204,10 @@ final class CardSwipeState {
         return !flights.isEmpty
     }
 
-    func cancel(_ key: String, reduceMotion: Bool) { comeBack(key, velocity: 0, reduceMotion: reduceMotion) }
+    func cancel(_ key: String, reduceMotion: Bool) {
+        _ = stopFollowing(key)
+        comeBack(key, velocity: 0, reduceMotion: reduceMotion)
+    }
 
     /// Back to the card's slot: the snap-back spring carrying the finger's
     /// velocity (Safari's card keeps moving 1–2 frames after a slow release)
@@ -189,10 +231,11 @@ final class CardSwipeState {
                 if self?.offsets[key] == 0 { self?.raised.remove(key) }
             }
         } else {
-            let s = from > 0 ? CardSwipe.snapBackRight : CardSwipe.snapBack
-            // The spring's velocity is a fraction of the change per second.
-            let relative = abs(from) > 0.5 ? Double(velocity / (0 - from)) : 0
-            let animation = s.animation(initialVelocity: relative)
+            // Left: Safari's own spring back replayed from the turnaround
+            // (cmux-next re-audit 3 3g); right: the fitted spring (3i passes).
+            let animation: Animation = from > 0
+                ? CardSwipe.snapBackRight.animation(initialVelocity: abs(from) > 0.5 ? Double(velocity / (0 - from)) : 0)
+                : .safari(.snapBack, lead: 1.5 / 60)
             withAnimation(animation, completionCriteria: .removed) {
                 offsets[key] = 0
                 opacities[key] = 1
@@ -278,7 +321,10 @@ struct CardSwipeGesture: UIGestureRecognizerRepresentable {
         let start = context.coordinator.touchDown ?? g.location(in: nil)
         let dx = g.location(in: nil).x - start.x
         switch g.state {
-        case .began, .changed: onPhase(.changed(translation: dx))
+        case .began:
+            CardGestures.failMenus(for: g)
+            onPhase(.changed(translation: dx))
+        case .changed: onPhase(.changed(translation: dx))
         case .ended: onPhase(.ended(translation: dx, velocity: g.velocity(in: g.view).x))
         case .cancelled, .failed: onPhase(.cancelled)
         default: break
@@ -311,6 +357,10 @@ struct CardSwipeGesture: UIGestureRecognizerRepresentable {
         /// The grid's scroll view waits for this pan to fail (it fails at
         /// once for a vertical drag), so a horizontal drag is never taken by
         /// the scroller first.
+        /// Never wait for the context menu's long press to fail (that held a
+        /// slow drag still for about 450 ms).
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer) -> Bool { false }
+
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
             other is UIPanGestureRecognizer && other.view is UIScrollView
         }
@@ -318,53 +368,28 @@ struct CardSwipeGesture: UIGestureRecognizerRepresentable {
 }
 
 extension CardGestures {
-    /// A card's swipe and long press never run together, and neither runs
-    /// with the grid's scroll: once the long press has begun (menu or
-    /// reorder) the swipe cannot begin for that touch, and a swipe that
-    /// began first makes the long press fail. A long-press reorder dragged
-    /// left was closing the dragged tab on the drop (cmux-next re-audit 2, D6b).
+    /// The card's swipe runs together with the system context menu's long
+    /// press and its drag (Safari), never with the grid's scroll.
     static func recognizeTogether(other: UIGestureRecognizer) -> Bool {
-        !(other.view is UIScrollView) && !(other is UILongPressGestureRecognizer) && !(other is UIPanGestureRecognizer)
-    }
-}
-
-enum CardPressPhase {
-    /// Window coordinates.
-    case began(CGPoint), changed(CGPoint), ended(CGPoint), cancelled
-}
-
-/// A long press on a card (0.5 s, within 10 pt): Safari's card menu, or,
-/// when the finger then moves, a drag to another slot. A plain UIKit
-/// recognizer on the card itself: the system context menu held the card's
-/// swipe back for about 450 ms (it waited for the menu's press to fail).
-struct CardLongPressGesture: UIGestureRecognizerRepresentable {
-    var onPhase: (CardPressPhase) -> Void
-
-    func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
-        let g = UILongPressGestureRecognizer()
-        g.minimumPressDuration = 0.5
-        g.allowableMovement = 10
-        g.delegate = context.coordinator
-        return g
+        !(other.view is UIScrollView)
     }
 
-    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
-
-    func handleUIGestureRecognizerAction(_ g: UILongPressGestureRecognizer, context: Context) {
-        let p = g.location(in: nil)
-        switch g.state {
-        case .began: onPhase(.began(p))
-        case .changed: onPhase(.changed(p))
-        case .ended: onPhase(.ended(p))
-        case .cancelled, .failed: onPhase(.cancelled)
-        default: break
-        }
-    }
-
-    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-            CardGestures.recognizeTogether(other: other)
+    /// The swipe has moved past the slop: the context menu (and its lift)
+    /// must not begin for this touch. Every other long press on the card's
+    /// views is failed by toggling it off and on.
+    @MainActor static func failMenus(for pan: UIGestureRecognizer) {
+        var v = pan.view
+        while let view = v, !(view is UIScrollView) {
+            for g in view.gestureRecognizers ?? [] where g !== pan && !(g is UIPanGestureRecognizer) && g.isEnabled {
+                if g is UILongPressGestureRecognizer || String(describing: type(of: g)).contains("ContextMenu")
+                    || String(describing: type(of: g)).contains("Drag") {
+                    g.isEnabled = false
+                    g.isEnabled = true
+                }
+            }
+            v = view.superview
         }
     }
 }
+
 #endif

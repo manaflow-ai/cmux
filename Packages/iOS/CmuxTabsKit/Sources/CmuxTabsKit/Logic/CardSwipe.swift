@@ -25,7 +25,7 @@ struct CardSwipe: Equatable, Sendable {
     /// Rightward rubber band: `d * (1 - 1 / (x * c / d + 1))`.
     static let rubberDimension: CGFloat = 120
     /// Safari: a 100 pt drag right (measured from touch-down) moves the card
-    /// 44 pt (tabs-parity-audit 3f).
+    /// 44 pt (cmux-next tabs-parity-audit 3f).
     static let rubberConstant: CGFloat = 0.695
     /// Spring back to the slot after a left drag (simulator Safari, from the
     /// turnaround: 0.562 / 0.918, tabs-parity-audit 3g) and after a right
@@ -40,6 +40,9 @@ struct CardSwipe: Equatable, Sendable {
     /// The touch slop is caught up over this long once the drag is recognised.
     static let slopCatchUp = 0.08
     static let settle = ZoomSpring(response: 0.57, damping: 0.94)
+    /// The card follows the finger on this spring (Safari's glide over the
+    /// slop and its carry past a stopped finger, cmux-next re-audit 3 D3).
+    static let follow = ZoomSpring(response: 0.12, damping: 0.7)
     /// A closing card keeps going left at the finger's speed (device ≈ 1000
     /// pt/s, still lifted and opaque) until it is off screen.
     static let flyOffMinSpeed: CGFloat = 1000
@@ -48,8 +51,9 @@ struct CardSwipe: Equatable, Sendable {
     static func flyOffDuration(distance: CGFloat, velocity: CGFloat) -> Double {
         Double(abs(distance) / max(abs(velocity), flyOffMinSpeed))
     }
-    /// The tab leaves the grid one 60 Hz frame after the release.
-    static let flyOffRemovalDelay: Duration = .milliseconds(17)
+    /// The tab leaves the grid at the release (Safari's count changes 5-12 ms
+    /// after the finger ends; the card holds 2 frames meanwhile, as Safari's).
+    static let flyOffRemovalDelay: Duration = .zero
     /// Reduce Motion: no movement after release, a crossfade instead.
     static let reduceMotionFade = 0.18
 
@@ -66,7 +70,7 @@ struct CardSwipe: Equatable, Sendable {
     /// leave leftward faster than 225 pt/s.
     ///
     /// Measured on one simulator with Safari and the same AXe inputs on a
-    /// 177 pt card (cmux-next validation round 21): a 100 pt drag over 1.0 s that
+    /// 177 pt card (validation round 21): a 100 pt drag over 1.0 s that
     /// slows to a stop springs back 3 of 3 (UIKit reports about −70 pt/s at
     /// release); a 100 pt swipe over 1.0 s that leaves moving closes 2 of 2
     /// (about −190 pt/s). Projection 0.2 s separates them with margin
@@ -82,7 +86,8 @@ struct CardSwipe: Equatable, Sendable {
 
     /// Where the fly-off ends: past the screen's leading edge.
     static func flyOffOffset(cardMinX: CGFloat, cardWidth: CGFloat) -> CGFloat {
-        -(cardMinX + cardWidth + 24)
+        // Safari's flung card ends just past the edge (its right edge at 0).
+        -(cardMinX + cardWidth)
     }
 }
 

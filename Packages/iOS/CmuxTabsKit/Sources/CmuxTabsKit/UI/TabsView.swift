@@ -112,8 +112,15 @@ struct TabsScreen<Source: TabsDataSource>: View {
     private var overviewShown: Double { min(1, max(0, zoomState.progress)) }
     /// Card titles and close buttons appear over the last fifth of the way.
 
+    /// Leading tabs the source has pinned (they sit in the pinned area).
+    private var pinnedCount: Int {
+        let pins = source.pinnedTabIDs
+        return pins.isEmpty ? 0 : (tabs.firstIndex { !pins.contains($0.id) } ?? tabs.count)
+    }
+
     private var overviewLayout: OverviewLayout {
-        OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: newTabSlot?.cardCount(in: tabs.map(\.id)) ?? tabs.count)
+        OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: newTabSlot?.cardCount(in: tabs.map(\.id)) ?? tabs.count,
+                       pinned: pinnedCount)
     }
 
     private var toolbarLayout: ToolbarLayout {
@@ -320,18 +327,22 @@ struct TabsScreen<Source: TabsDataSource>: View {
                                     radius: overviewLayout.cardRadius) : zoomGeometry()
         let asCard = phase == .overview && staticCardID != nil && staticCardID == activeID
         let scale = size.width > 0 ? max(0.01, g.rect.width / size.width) : 1
+        // The card's content anchor, moving with the zoom's scale.
+        let anchor = overviewLayout.cardAnchorFraction(g.rect.width)
+        let contentOffset = anchor > 0 ? anchor * (activeID.map { source.cardContentOffset(for: $0, visibleHeight: overviewLayout.cardPageHeight) } ?? 0) : 0
         let close = phase == .overview ? zoomDriver.chrome.closeOpacity
             : CardChrome.zoomCloseOpacity(progress: zoomState.progress, headingToOverview: phase == .interactive || zoomState.headingToOverview)
         ZStack(alignment: .topLeading) {
             theme.colors.pageBackground
             if let tab = activeTab {
                 source.content(for: tab, context: contentContext)
+                    .offset(y: -contentOffset)
                     .id(tab.id)
                 // Until the content is ready, and while a new tab grows from
                 // the screen's centre, its card stands in (a web view that
                 // was just created draws nothing for about 300 ms).
                 if !source.isContentReady(tab.id) || (newTabZoomID == tab.id && phase != .page) {
-                    ScaledContent(pageSize: size) { source.card(for: tab) }
+                    ScaledContent(pageSize: size) { source.card(for: tab).offset(y: -contentOffset) }
                         .allowsHitTesting(false)
                         // Safari's new start page sharpens as it grows.
                         .blur(radius: newTabZoomID == tab.id && newTabZoom.blurs && phase != .page
@@ -378,7 +389,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// The active tab's card in the grid's content coordinates.
     private var activeCardContentRect: CGRect {
         let index = activeIndex ?? 0
-        return OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: max(tabs.count, index + 1)).card(index)
+        return OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount).card(index)
     }
 
     /// The tab beside the page during a toolbar swipe (its card content at
@@ -452,7 +463,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         } else {
             index = zoomTabId.flatMap { id in tabs.firstIndex { $0.id == id } } ?? (activeIndex ?? 0)
         }
-        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: max(tabs.count, index + 1))
+        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: max(tabs.count, index + 1), pinned: pinnedCount)
         return grid.zoomEndpoint(index, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
     }
 
@@ -509,7 +520,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         source.overviewWillAppear()
         // Safari: before the page shrinks into its card, the grid jumps (no
         // animation) so the card is fully on screen.
-        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: count)
+        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: count, pinned: pinnedCount)
         let offset = grid.offset(revealing: index, from: overviewScroll)
         if abs(offset - overviewScroll) > 0.5 {
             var t = Transaction()
@@ -702,8 +713,13 @@ struct TabsScreen<Source: TabsDataSource>: View {
             guard !chrome.swiping, activeID != nil else { return }
             zoomTabId = activeID
             prepareOverview(revealing: activeIndex ?? 0, count: tabs.count)
-            zoomDriver.beginInteraction()
+            // Safari's page follows its swipe-up curve in time (by finger travel
+            // alone it dropped 98 pt in the first frame, cmux-next re-audit 3 D7).
+            zoomDriver.startSwipeUp()
+            return
         }
+        // The finger turned back down: the swipe takes over interactively.
+        if zoomState.playingSwipeUp, velocity < -50 { zoomDriver.beginInteraction() }
         guard zoomState.phase == .interactive else { return }
         zoomDriver.updateInteraction(progress: BarSwipe.progress(up: up), velocity: BarSwipe.velocity(up: up, velocity: velocity))
     }
@@ -711,7 +727,13 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// Release: on to the grid or back to the page, on the release spring.
     private func swipeUpEnded(_ up: CGFloat, _ velocity: CGFloat) {
         guard zoomState.phase == .interactive, !zoomPinchActive else { return }
-        zoomDriver.endInteraction(velocity: BarSwipe.releaseVelocity(velocity), startedFromOverview: false)
+        // Safari goes on to the grid along its own curve from where the
+        // finger left the page; a swipe back down (or barely up) returns.
+        if up > 24 && velocity >= 0 {
+            zoomDriver.releaseOnSwipeUpCurve()
+        } else {
+            zoomDriver.endInteraction(velocity: BarSwipe.releaseVelocity(velocity), startedFromOverview: false)
+        }
     }
 
     /// Closing from the grid: the active card is first handed to the grid

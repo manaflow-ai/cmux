@@ -108,4 +108,26 @@ struct OverviewLayoutTests {
         #expect(g.slot(at: CGPoint(x: g.card(0).maxX + 4, y: g.card(0).midY)) == 0)
         #expect(g.slot(at: CGPoint(x: g.card(4).midX, y: g.card(4).maxY + 200)) == nil)
     }
+
+    /// Safari, one pinned tab: a 177 x 30 capsule at (16, 122); the grid
+    /// starts 16 pt below it, at 168.
+    @Test func pinnedCapsulesSitAboveTheGrid() {
+        let g = OverviewLayout(size: CGSize(width: 402, height: 874), safeTop: 62, safeBottom: 34, count: 5, pinned: 1)
+        #expect(g.card(0) == CGRect(x: 16, y: 122, width: 177, height: 30))
+        #expect(g.card(1).minY == 168 && g.card(1).minX == 16)
+        #expect(g.card(2).minX == 209)
+        #expect(!g.isLone)
+    }
+
+    /// A card's content anchor (cardContentOffset) moves with the zoom: none
+    /// full screen, all of it at the card's width, linear in between.
+    @Test func cardAnchorFollowsTheZoomScale() {
+        let g = OverviewLayout(size: CGSize(width: 402, height: 874), safeTop: 62, safeBottom: 34, count: 5)
+        #expect(g.cardAnchorFraction(402) == 0)
+        #expect(g.cardAnchorFraction(g.cardWidth) == 1)
+        #expect(abs(g.cardAnchorFraction((402 + g.cardWidth) / 2) - 0.5) < 1e-9)
+        #expect(g.cardAnchorFraction(g.cardWidth - 20) == 1)
+        // The page points a card shows: the page width at the card's aspect.
+        #expect(abs(g.cardPageHeight - 402 * 249.3 / 177) < 1e-9)
+    }
 }

@@ -99,6 +99,12 @@ struct TabZoomState: Equatable, Sendable {
     private(set) var offsetVelocity: CGVector = .zero
     private(set) var target: Double = 0
     private(set) var spring: ZoomSpring = .toPage
+    /// When set, the transition replays Safari's own curve (from `curveFrom`
+    /// to `target`) instead of integrating `spring`.
+    private(set) var curve: SafariCurve?
+    private var curveFrom: Double = 0
+    private var curveTime: Double = 0
+    private var curveFirstFrame = false
     private(set) var phase: Phase = .page
 
     init(overview: Bool = false) {
@@ -135,21 +141,57 @@ struct TabZoomState: Equatable, Sendable {
         case .interactive:
             animate(to: newTarget, spring: .release, keepVelocity: 1)
         case .page, .overview:
+            // Safari's own zoom out (tabs button) and zoom in (a card, Done).
             let spring: ZoomSpring = toOverview ? .toOverview : .toPage
             animate(to: newTarget, spring: spring, keepVelocity: 0)
-            velocity = toOverview ? spring.launch : -spring.launch
+            play(toOverview ? .zoomOut : .zoomIn)
         }
     }
 
-    /// A just-created tab opens from its grid slot on the `newTab` spring.
+    /// (+) on the settled grid: the new tab's start page grows from its slot
+    /// on the `newTab` spring, at once (it does not wait for the host).
     /// Anywhere else this is an ordinary `go(toOverview: false)`.
     mutating func openNewTab(spring: ZoomSpring = .newTab) {
         guard phase == .overview else { go(toOverview: false); return }
         animate(to: 0, spring: spring, keepVelocity: 0)
         velocity = -spring.launch
+        if spring == .afterLastClose { play(.lastTab) }
+    }
+
+    /// Replays `c` from the current progress to the target (Safari's curve).
+    mutating func play(_ c: SafariCurve, from time: Double = 0) {
+        guard phase == .animating else { return }
+        curve = c
+        curveFrom = time > 0 ? (target == 1 ? 0 : 1) : progress
+        curveTime = time
+        curveFirstFrame = true
+    }
+
+    /// A swipe up on the bar began: the page goes to the grid along Safari's
+    /// swipe-up curve in time (Safari's page moves on its own clock while the
+    /// finger travels; a swipe that turns back down takes over interactively).
+    mutating func startSwipeUp() {
+        guard phase == .page else { return }
+        animate(to: 1, spring: .release, keepVelocity: 0)
+        play(.swipeUp)
+        // Ours shows the swipe's first frame about half a frame sooner than
+        // Safari (measured with the same input).
+        curveTime = -0.5 / 60
+    }
+
+    /// Whether the swipe-up curve is running.
+    var playingSwipeUp: Bool { phase == .animating && curve == .swipeUp }
+
+    /// A swipe up on the bar ended: the grid follows Safari's swipe-up curve
+    /// on from where the finger left the page (its progress on that curve).
+    mutating func releaseOnSwipeUpCurve() {
+        guard phase == .interactive else { return }
+        animate(to: 1, spring: .release, keepVelocity: 0)
+        play(.swipeUp, from: max(1.0 / 600, SafariCurve.swipeUp.time(reaching: progress)))
     }
 
     mutating func animate(to target: Double, spring: ZoomSpring, keepVelocity: Double) {
+        curve = nil
         self.target = target
         self.spring = spring
         velocity *= keepVelocity
@@ -163,6 +205,7 @@ struct TabZoomState: Equatable, Sendable {
     /// Grabs the current presentation (progress, offset) wherever it is,
     /// including mid-spring; tracking continues from there with no jump.
     mutating func beginInteraction() {
+        curve = nil
         phase = .interactive
         velocity = 0
         offsetVelocity = .zero
@@ -236,6 +279,22 @@ struct TabZoomState: Equatable, Sendable {
     @discardableResult
     mutating func step(_ dt: Double) -> Bool {
         guard phase == .animating, dt > 0 else { return false }
+        if let c = curve {
+            // The first frame of a curve advances one 60 Hz frame however long
+            // the frame that started it took (it built the grid).
+            curveTime += curveFirstFrame ? 1.0 / 60 : dt
+            curveFirstFrame = false
+            let p = c.value(at: curveTime)
+            let next = curveFrom + (target - curveFrom) * p
+            velocity = (next - progress) / dt
+            progress = next
+            if curveTime >= c.duration {
+                curve = nil
+                settle()
+                return true
+            }
+            return false
+        }
         let w = 2 * Double.pi / spring.response
         // Semi-implicit Euler in small substeps (stable for any frame time).
         var remaining = min(dt, 0.1)
