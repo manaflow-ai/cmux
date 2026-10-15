@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0aac3e8cf4b5eb136f6be70271daa967abe8721c622f79b076e89cac85907f27. */
+/* cmux-tui mux protocol 12, IR 0e72f1d2f96edb17a60723620645ac0b248095598975ad8845de4bf3abf3e6e5. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "0aac3e8cf4b5eb136f6be70271daa967abe8721c622f79b076e89cac85907f27" as const;
+export const SDK_IR_SHA256 = "0e72f1d2f96edb17a60723620645ac0b248095598975ad8845de4bf3abf3e6e5" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -384,7 +384,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Read-only; ages are counted from the daemon's monotonic clock at read time."
+      "Read-only; ages are counted from the daemon's monotonic clock at read time. A page relay connection gets origin.forbidden."
     ]
   },
   "client-focus": {
@@ -2384,8 +2384,8 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Latest wins per connection; memory only, never journaled or broadcast; the record ends with the connection.",
-      "A client sends at most about 4 reports per second; the daemon stores every report without the session lock.",
-      "A page relay connection gets origin.forbidden. client_id is 1-128 ASCII graphic bytes. pane must be a live pane."
+      "A client sends at most about 4 reports per second and coalesces on its side; the daemon stores every report without the session lock.",
+      "A page relay connection gets origin.forbidden. client_id is 1-128 ASCII graphic bytes. pane must be a live pane; tab needs pane. Surfaces in recent_input are not checked against the tree."
     ]
   },
   "report-focus": {
@@ -4933,42 +4933,25 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
-  "ClientAttentionPane": {
+  "ClientAttentionInput": {
     "additional_properties": false,
     "fields": {
-      "app_active": {
-        "description": "Some client that focuses the pane has its app active.",
+      "ms_ago": {
+        "description": "Milliseconds since the last keystroke in that tab; capped at one day.",
         "nullable": false,
-        "presence": "required",
-        "type": {
-          "kind": "scalar",
-          "name": "boolean"
-        }
-      },
-      "last_input_ms_ago": {
-        "description": "The newest input in a client that focuses the pane; null when unknown.",
-        "nullable": true,
         "presence": "required",
         "type": {
           "kind": "scalar",
           "name": "uint64"
         }
       },
-      "pane": {
+      "surface": {
+        "description": "A tab the user typed in.",
         "nullable": false,
         "presence": "required",
         "type": {
           "kind": "ref",
           "name": "Id"
-        }
-      },
-      "viewed": {
-        "description": "Some client shows the pane as the focused pane of its key window while its app is active.",
-        "nullable": false,
-        "presence": "required",
-        "type": {
-          "kind": "scalar",
-          "name": "boolean"
         }
       }
     },
@@ -5010,15 +4993,6 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "boolean"
         }
       },
-      "last_input_ms_ago": {
-        "description": "Counted at read time from the report; null when unknown.",
-        "nullable": true,
-        "presence": "required",
-        "type": {
-          "kind": "scalar",
-          "name": "uint64"
-        }
-      },
       "pane": {
         "description": "Null when the client reported none or the pane closed since.",
         "nullable": true,
@@ -5026,6 +5000,18 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "recent_input": {
+        "description": "Counted at read time from the report.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ClientAttentionInput"
+          },
+          "kind": "array"
         }
       },
       "reported_ms_ago": {
@@ -5043,6 +5029,74 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      },
+      "utc_offset_minutes": {
+        "description": "The client's clock zone; null when it reported none.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "int32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ClientAttentionTab": {
+    "additional_properties": false,
+    "fields": {
+      "app_active": {
+        "description": "Some connected client has its app active (cmux-next appActive).",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "pane": {
+        "description": "The pane that holds the tab now; null when the tab is not in the tree.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "surface": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "typed_ms_ago": {
+        "description": "The newest keystroke in the tab over all clients (cmux-next typedAgo); null when unknown.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "utc_offset_minutes": {
+        "description": "The clock zone for quiet hours: the newest report that has one, a client whose app is active first.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "int32"
+        }
+      },
+      "viewed": {
+        "description": "Some client shows the tab as the focused content of its key window while its app is active (cmux-next paneIsViewed).",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       }
     },
@@ -14101,9 +14155,9 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
-        "pane": {
+        "surface": {
           "default": null,
-          "description": "Also answer pane_attention for this pane.",
+          "description": "Also answer tab_attention for this tab.",
           "nullable": true,
           "presence": "optional",
           "type": {
@@ -14137,13 +14191,13 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "array"
           }
         },
-        "pane_attention": {
-          "description": "Present when pane was given.",
+        "tab_attention": {
+          "description": "Present when surface was given.",
           "nullable": false,
           "presence": "optional",
           "type": {
             "kind": "ref",
-            "name": "ClientAttentionPane"
+            "name": "ClientAttentionTab"
           }
         }
       },
@@ -22927,10 +22981,9 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "additional_properties": false,
       "fields": {
         "app_active": {
-          "default": null,
-          "description": "The client app is the active app; null or absent means the value of key_window.",
-          "nullable": true,
-          "presence": "optional",
+          "description": "The client app is the active app.",
+          "nullable": false,
+          "presence": "required",
           "type": {
             "kind": "scalar",
             "name": "boolean"
@@ -22953,16 +23006,6 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "boolean"
           }
         },
-        "last_input_ms_ago": {
-          "default": null,
-          "description": "Milliseconds since the last key or pointer input in this client; null when unknown.",
-          "nullable": true,
-          "presence": "optional",
-          "type": {
-            "kind": "scalar",
-            "name": "uint64"
-          }
-        },
         "pane": {
           "default": null,
           "description": "The focused pane of the client's key window, if any.",
@@ -22971,6 +23014,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "Id"
+          }
+        },
+        "recent_input": {
+          "default": [],
+          "description": "The tabs the user typed in recently and how long ago, newest per tab (cmux-next tracks typing per tab). Replaces the whole list of the previous report.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "ClientAttentionInput"
+            },
+            "kind": "array",
+            "max_items": 16
           }
         },
         "tab": {
@@ -22982,24 +23039,29 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "scalar",
             "name": "uint64"
           }
+        },
+        "utc_offset_minutes": {
+          "constraints": [
+            {
+              "maximum": 1440,
+              "minimum": -1440
+            }
+          ],
+          "default": null,
+          "description": "Minutes east of UTC of the client's clock zone, for quiet hours.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "int32"
+          }
         }
       },
       "kind": "object"
     },
     "result": {
-      "additional_properties": false,
-      "fields": {
-        "coalesced": {
-          "description": "The report came less than 250 ms after this connection's previous one; it is stored anyway (latest wins).",
-          "nullable": false,
-          "presence": "required",
-          "type": {
-            "kind": "scalar",
-            "name": "boolean"
-          }
-        }
-      },
-      "kind": "object"
+      "kind": "ref",
+      "name": "EmptyResult"
     }
   },
   "report-focus": {
@@ -23062,13 +23124,14 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "reason": {
-          "description": "closed: the user or a request closed it; page_closed: the page closed itself; extension: an extension removed it.",
+          "description": "answered: the owner closed it for a close request; user_closed: the user closed it in the app; page_closed: the page closed itself; extension: an extension removed it.",
           "nullable": false,
           "presence": "required",
           "type": {
             "kind": "enum",
             "values": [
-              "closed",
+              "answered",
+              "user_closed",
               "page_closed",
               "extension"
             ]
@@ -28025,6 +28088,15 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "literal",
           "value": "frontend-browser-tab-close-requested"
+        }
+      },
+      "owner": {
+        "description": "The tab record's owner install id that this connection subscribed for.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "reason": {

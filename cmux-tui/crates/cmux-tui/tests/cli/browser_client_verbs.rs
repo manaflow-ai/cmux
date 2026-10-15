@@ -128,79 +128,124 @@ fn first_pane(conn: &mut Conn) -> u64 {
 }
 
 fn tree_has_surface(conn: &mut Conn, surface: u64) -> bool {
-    fn walk(value: &serde_json::Value, surface: u64) -> bool {
+    tab_index(conn, surface).is_some()
+}
+
+/// The index of `surface` among its pane's tabs, if it is in the tree.
+fn tab_index(conn: &mut Conn, surface: u64) -> Option<usize> {
+    fn walk(value: &serde_json::Value, surface: u64) -> Option<usize> {
         match value {
-            serde_json::Value::Object(object) => {
-                object.get("tabs").and_then(serde_json::Value::as_array).is_some_and(|tabs| {
-                    tabs.iter().any(|tab| tab["surface"].as_u64() == Some(surface))
-                }) || object.values().any(|child| walk(child, surface))
-            }
-            serde_json::Value::Array(items) => items.iter().any(|child| walk(child, surface)),
-            _ => false,
+            serde_json::Value::Object(object) => object
+                .get("tabs")
+                .and_then(serde_json::Value::as_array)
+                .and_then(|tabs| {
+                    tabs.iter().position(|tab| tab["surface"].as_u64() == Some(surface))
+                })
+                .or_else(|| object.values().find_map(|child| walk(child, surface))),
+            serde_json::Value::Array(items) => items.iter().find_map(|child| walk(child, surface)),
+            _ => None,
         }
     }
     let tree = conn.call(serde_json::json!({"cmd": "list-workspaces"}));
     walk(&tree, surface)
 }
 
+fn new_frontend_tab(conn: &mut Conn, pane: u64, owner: Option<&str>) -> serde_json::Value {
+    let mut request = serde_json::json!({
+        "cmd": "new-frontend-browser-tab", "pane": pane, "url": "https://example.com/",
+        "engine": "cef",
+    });
+    if let Some(owner) = owner {
+        request["owner"] = serde_json::json!(owner);
+    }
+    let created = conn.call(request);
+    assert!(created["surface"].as_u64().is_some(), "no surface: {created}");
+    created
+}
+
 #[test]
-fn client_attention_keeps_the_latest_report_per_connection_until_it_ends() {
+fn client_attention_keeps_typing_per_tab_and_ends_with_its_connection() {
     let server = HeadlessServer::start("client-attention");
     state_cli(&server, None, &["workspace", "create", "--name", "pages"]);
     let mut browser = Conn::open(&server);
     let mut reader = Conn::open(&server);
     assert!(capabilities(&mut reader).iter().any(|name| name == "client-attention-v1"));
     let pane = first_pane(&mut reader);
+    let typed = new_frontend_tab(&mut reader, pane, None)["surface"].as_u64().unwrap();
+    let other = new_frontend_tab(&mut reader, pane, None)["surface"].as_u64().unwrap();
+    let typed_index = tab_index(&mut reader, typed).expect("typed tab in the tree");
+    let other_index = tab_index(&mut reader, other).expect("other tab in the tree");
+    let attention = |reader: &mut Conn, surface: u64| {
+        reader.call(serde_json::json!({"cmd": "client-attention", "surface": surface}))
+    };
 
-    let first = browser.call(serde_json::json!({
+    // The user types in one tab of the key window.
+    let reply = browser.call(serde_json::json!({
         "cmd": "report-client-attention", "client_id": "browser-window-1",
-        "key_window": false, "pane": pane, "tab": 0, "last_input_ms_ago": 60_000,
+        "key_window": true, "app_active": true, "pane": pane, "tab": typed_index,
+        "recent_input": [{"surface": typed, "ms_ago": 1_500}], "utc_offset_minutes": 120,
     }));
-    assert_eq!(first["coalesced"], false, "{first}");
-    // A second report right away is still stored (latest wins), and the
-    // daemon tells the client that it sends faster than 4 per second.
-    let second = browser.call(serde_json::json!({
-        "cmd": "report-client-attention", "client_id": "browser-window-1",
-        "key_window": true, "pane": pane, "tab": 0, "last_input_ms_ago": 1_500,
-    }));
-    assert_eq!(second["coalesced"], true, "{second}");
-
-    let read = reader.call(serde_json::json!({"cmd": "client-attention", "pane": pane}));
-    let clients = read["clients"].as_array().unwrap_or_else(|| panic!("no clients: {read}"));
-    assert_eq!(clients.len(), 1, "{read}");
-    let record = &clients[0];
-    assert_eq!(record["client_id"], "browser-window-1", "{read}");
-    assert_eq!(record["key_window"], true, "{read}");
-    assert_eq!(record["app_active"], true, "a key window is an active app: {read}");
-    assert_eq!(record["pane"], pane, "{read}");
-    assert_eq!(record["tab"], 0, "{read}");
-    // The age grows from the report: never smaller than what was reported,
-    // and far from the older report's minute.
-    let age = record["last_input_ms_ago"].as_u64().unwrap_or_else(|| panic!("{read}"));
+    assert_eq!(reply, serde_json::json!({}));
+    let read = attention(&mut reader, typed);
+    let tab = &read["tab_attention"];
+    assert_eq!(tab["surface"], typed, "{read}");
+    assert_eq!(tab["pane"], pane, "{read}");
+    assert_eq!(tab["viewed"], true, "{read}");
+    assert_eq!(tab["app_active"], true, "{read}");
+    assert_eq!(tab["utc_offset_minutes"], 120, "{read}");
+    // The age grows from the report: never smaller than what was reported.
+    let age = tab["typed_ms_ago"].as_u64().unwrap_or_else(|| panic!("{read}"));
     assert!((1_500..60_000).contains(&age), "{read}");
-    assert_eq!(read["app_active"], true, "{read}");
-    assert_eq!(read["pane_attention"]["viewed"], true, "{read}");
-    assert_eq!(read["pane_attention"]["pane"], pane, "{read}");
+
+    // Focus moves to the other tab. The typing stays with the first tab
+    // (cmux-next keeps the last keystroke per tab), which is no longer viewed.
+    browser.call(serde_json::json!({
+        "cmd": "report-client-attention", "client_id": "browser-window-1",
+        "key_window": true, "app_active": true, "pane": pane, "tab": other_index,
+        "recent_input": [{"surface": typed, "ms_ago": 1_600}],
+    }));
+    let read = attention(&mut reader, typed);
+    assert_eq!(read["tab_attention"]["viewed"], false, "{read}");
+    assert!(read["tab_attention"]["typed_ms_ago"].as_u64().is_some(), "{read}");
+    let read = attention(&mut reader, other);
+    assert_eq!(read["tab_attention"]["viewed"], true, "{read}");
+    assert_eq!(read["tab_attention"]["typed_ms_ago"], serde_json::Value::Null, "{read}");
+
+    // An inactive app views nothing.
+    browser.call(serde_json::json!({
+        "cmd": "report-client-attention", "client_id": "browser-window-1",
+        "key_window": true, "app_active": false, "pane": pane, "tab": other_index,
+    }));
+    let read = attention(&mut reader, other);
+    assert_eq!(read["tab_attention"]["viewed"], false, "{read}");
+    assert_eq!(read["app_active"], false, "{read}");
 
     // Refusals change nothing.
-    let bad_id = browser.reply(serde_json::json!({
-        "cmd": "report-client-attention", "client_id": "", "key_window": false,
-    }));
-    assert_eq!(bad_id["ok"], false, "{bad_id}");
-    let dead_pane = browser.reply(serde_json::json!({
-        "cmd": "report-client-attention", "client_id": "browser-window-1",
-        "key_window": false, "pane": 999_999,
-    }));
-    assert_eq!(dead_pane["ok"], false, "{dead_pane}");
-    let tab_alone = browser.reply(serde_json::json!({
-        "cmd": "report-client-attention", "client_id": "browser-window-1",
-        "key_window": false, "tab": 1,
-    }));
-    assert_eq!(tab_alone["ok"], false, "{tab_alone}");
+    let too_many: Vec<serde_json::Value> =
+        (0..17).map(|ms| serde_json::json!({"surface": typed, "ms_ago": ms})).collect();
+    for refused in [
+        serde_json::json!({"client_id": "", "key_window": false, "app_active": false}),
+        serde_json::json!({"client_id": "browser-window-1", "key_window": false,
+            "app_active": false, "pane": 999_999}),
+        serde_json::json!({"client_id": "browser-window-1", "key_window": false,
+            "app_active": false, "tab": 1}),
+        serde_json::json!({"client_id": "browser-window-1", "key_window": false,
+            "app_active": false, "recent_input": too_many}),
+        serde_json::json!({"client_id": "browser-window-1", "key_window": false,
+            "app_active": false, "utc_offset_minutes": 2_000}),
+    ] {
+        let mut request = refused.clone();
+        request["cmd"] = serde_json::json!("report-client-attention");
+        let reply = browser.reply(request);
+        assert_eq!(reply["ok"], false, "{refused} was accepted: {reply}");
+    }
     let read = reader.call(serde_json::json!({
         "cmd": "client-attention", "client_id": "browser-window-1",
     }));
-    assert_eq!(read["clients"][0]["key_window"], true, "{read}");
+    let record = &read["clients"][0];
+    assert_eq!(record["key_window"], true, "{read}");
+    assert_eq!(record["tab"], other_index, "{read}");
+    assert_eq!(record["recent_input"], serde_json::json!([]), "{read}");
 
     // The record ends with its connection.
     drop(browser);
@@ -251,6 +296,7 @@ fn frontend_browser_tab_close_goes_through_its_owner_and_its_veto() {
     let event = browser.event("frontend-browser-tab-close-requested");
     assert_eq!(event["request_id"], request_id.as_str(), "{event}");
     assert_eq!(event["surface"], surface, "{event}");
+    assert_eq!(event["owner"], OWNER, "{event}");
     assert_eq!(event["tab_resource_id"], created["tab_resource_id"], "{event}");
     assert!(!stranger.has_event("frontend-browser-tab-close-requested"));
     // A second request for the same tab joins the open one.
@@ -287,7 +333,8 @@ fn frontend_browser_tab_close_goes_through_its_owner_and_its_veto() {
 
     // 2. Only the owner's connection decides that the tab is gone.
     let forged = stranger.reply(serde_json::json!({
-        "cmd": "report-frontend-browser-tab-removed", "surface": surface, "reason": "closed",
+        "cmd": "report-frontend-browser-tab-removed", "surface": surface,
+        "reason": "user_closed",
     }));
     assert_eq!(forged["ok"], false, "{forged}");
     assert_eq!(forged["error_code"], "origin.forbidden", "{forged}");
@@ -303,8 +350,8 @@ fn frontend_browser_tab_close_goes_through_its_owner_and_its_veto() {
         "outcome": "closing",
     }));
     let report = serde_json::json!({
-        "cmd": "report-frontend-browser-tab-removed", "surface": surface, "reason": "closed",
-        "request_id": request_id, "origin": "cmux-browser", "mutation_id": "close-0i-1",
+        "cmd": "report-frontend-browser-tab-removed", "surface": surface,
+        "reason": "answered", "request_id": request_id, "origin": "cmux-browser", "mutation_id": "close-0i-1",
     });
     let removed = browser.call(report.clone());
     assert_eq!(removed, serde_json::json!({"removed": true, "replayed": false}));
@@ -315,6 +362,22 @@ fn frontend_browser_tab_close_goes_through_its_owner_and_its_veto() {
     // A retry of the same report replays the committed close.
     let retried = browser.call(report);
     assert_eq!(retried, serde_json::json!({"removed": true, "replayed": true}));
+
+    // 4. A tab that leaves the store by another path (close-surface) gets no
+    // removal report; its open request settles `removed` all the same.
+    let elsewhere = new_frontend_tab(&mut cli, pane, Some(OWNER))["surface"].as_u64().unwrap();
+    let kept = new_frontend_tab(&mut cli, pane, Some(OWNER))["surface"].as_u64().unwrap();
+    let asked = cli.call(serde_json::json!({
+        "cmd": "request-frontend-browser-tab-close", "surface": elsewhere,
+    }));
+    let request_id = asked["request_id"].as_str().expect("request id").to_string();
+    browser.event("frontend-browser-tab-close-requested");
+    cli.call(serde_json::json!({"cmd": "close-surface", "surface": elsewhere}));
+    stranger
+        .call(serde_json::json!({"cmd": "request-frontend-browser-tab-close", "surface": kept}));
+    let settled = cli.event("frontend-browser-tab-close-settled");
+    assert_eq!(settled["request_id"], request_id.as_str(), "{settled}");
+    assert_eq!(settled["outcome"], "removed", "{settled}");
 }
 
 #[test]

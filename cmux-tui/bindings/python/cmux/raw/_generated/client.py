@@ -84,8 +84,8 @@ class GeneratedClientMixin:
     def clear_window_title(self) -> EmptyResult:
         return self._invoke_command('clear-window-title', ClearWindowTitleRequest())
 
-    def client_attention(self, pane: Union[Id, None, MissingType] = MISSING, *, client_id: Union[str, None, MissingType] = MISSING) -> ClientAttentionResult:
-        return self._invoke_command('client-attention', ClientAttentionRequest(pane=pane, client_id=client_id))
+    def client_attention(self, surface: Union[Id, None, MissingType] = MISSING, *, client_id: Union[str, None, MissingType] = MISSING) -> ClientAttentionResult:
+        return self._invoke_command('client-attention', ClientAttentionRequest(surface=surface, client_id=client_id))
 
     def client_focus(self, client_id: str) -> ClientFocusResult:
         return self._invoke_command('client-focus', ClientFocusRequest(client_id=client_id))
@@ -600,13 +600,13 @@ class GeneratedClientMixin:
     def report_agent(self, surface: Id, state: AgentState, source: AgentReportSource, *, session: Union[str, None, MissingType] = MISSING) -> ReportAgentResult:
         return self._invoke_command('report-agent', ReportAgentRequest(surface=surface, state=state, source=source, session=session))
 
-    def report_client_attention(self, client_id: str, key_window: bool, *, pane: Union[Id, None, MissingType] = MISSING, app_active: Union[bool, None, MissingType] = MISSING, last_input_ms_ago: Union[int, None, MissingType] = MISSING, tab: Union[int, None, MissingType] = MISSING) -> ReportClientAttentionResult:
-        return self._invoke_command('report-client-attention', ReportClientAttentionRequest(client_id=client_id, key_window=key_window, pane=pane, app_active=app_active, last_input_ms_ago=last_input_ms_ago, tab=tab))
+    def report_client_attention(self, app_active: bool, client_id: str, key_window: bool, *, pane: Union[Id, None, MissingType] = MISSING, recent_input: Union[List[ClientAttentionInput], MissingType] = MISSING, tab: Union[int, None, MissingType] = MISSING, utc_offset_minutes: Union[int, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('report-client-attention', ReportClientAttentionRequest(app_active=app_active, client_id=client_id, key_window=key_window, pane=pane, recent_input=recent_input, tab=tab, utc_offset_minutes=utc_offset_minutes))
 
     def report_focus(self, pane: Id, client_id: str, *, tab: Union[int, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('report-focus', ReportFocusRequest(pane=pane, client_id=client_id, tab=tab))
 
-    def report_frontend_browser_tab_removed(self, surface: Id, reason: Literal['closed', 'page_closed', 'extension'], *, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, request_id: Union[str, None, MissingType] = MISSING) -> ReportFrontendBrowserTabRemovedResult:
+    def report_frontend_browser_tab_removed(self, surface: Id, reason: Literal['answered', 'user_closed', 'page_closed', 'extension'], *, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, request_id: Union[str, None, MissingType] = MISSING) -> ReportFrontendBrowserTabRemovedResult:
         return self._invoke_command('report-frontend-browser-tab-removed', ReportFrontendBrowserTabRemovedRequest(surface=surface, reason=reason, mutation_id=mutation_id, origin=origin, request_id=request_id))
 
     def request_frontend_browser_tab_close(self, surface: Id, *, reason: Union[CloseReason, None, MissingType] = MISSING) -> RequestFrontendBrowserTabCloseResult:

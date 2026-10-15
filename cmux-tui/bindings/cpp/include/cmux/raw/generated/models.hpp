@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "0aac3e8cf4b5eb136f6be70271daa967abe8721c622f79b076e89cac85907f27";
+inline constexpr std::string_view kProtocolIrSha256 = "0e72f1d2f96edb17a60723620645ac0b248095598975ad8845de4bf3abf3e6e5";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -42,8 +42,9 @@ struct BrowserProviderUnregisterResult;
 struct CellPixelFailure;
 struct CellPixelResize;
 struct CellPixelSurface;
-struct ClientAttentionPane;
+struct ClientAttentionInput;
 struct ClientAttentionRecord;
+struct ClientAttentionTab;
 struct ClientInfo;
 struct ClientSize;
 enum class ClientTransport;
@@ -460,7 +461,6 @@ struct ReopenSavedScreenGroupRequest;
 struct ReopenSavedTabGroupRequest;
 struct ReportAgentRequest;
 struct ReportClientAttentionRequest;
-struct ReportClientAttentionResult;
 struct ReportFocusRequest;
 struct ReportFrontendBrowserTabRemovedRequest;
 struct ReportFrontendBrowserTabRemovedResult;
@@ -1379,12 +1379,10 @@ struct ClientAttachedEvent {
     friend bool operator==(const ClientAttachedEvent&, const ClientAttachedEvent&) = default;
 };
 
-struct ClientAttentionPane {
-    bool app_active{};
-    std::optional<std::uint64_t> last_input_ms_ago{};
-    Id pane{};
-    bool viewed{};
-    friend bool operator==(const ClientAttentionPane&, const ClientAttentionPane&) = default;
+struct ClientAttentionInput {
+    std::uint64_t ms_ago{};
+    Id surface{};
+    friend bool operator==(const ClientAttentionInput&, const ClientAttentionInput&) = default;
 };
 
 struct ClientAttentionRecord {
@@ -1392,23 +1390,34 @@ struct ClientAttentionRecord {
     std::string client_id{};
     std::uint64_t connection{};
     bool key_window{};
-    std::optional<std::uint64_t> last_input_ms_ago{};
     std::optional<Id> pane{};
+    std::vector<ClientAttentionInput> recent_input{};
     std::uint64_t reported_ms_ago{};
     std::optional<std::uint64_t> tab{};
+    std::optional<std::int32_t> utc_offset_minutes{};
     friend bool operator==(const ClientAttentionRecord&, const ClientAttentionRecord&) = default;
 };
 
 struct ClientAttentionRequest {
     Field<std::string> client_id{};
-    Field<Id> pane{};
+    Field<Id> surface{};
     friend bool operator==(const ClientAttentionRequest&, const ClientAttentionRequest&) = default;
+};
+
+struct ClientAttentionTab {
+    bool app_active{};
+    std::optional<Id> pane{};
+    Id surface{};
+    std::optional<std::uint64_t> typed_ms_ago{};
+    std::optional<std::int32_t> utc_offset_minutes{};
+    bool viewed{};
+    friend bool operator==(const ClientAttentionTab&, const ClientAttentionTab&) = default;
 };
 
 struct ClientAttentionResult {
     bool app_active{};
     std::vector<ClientAttentionRecord> clients{};
-    std::optional<ClientAttentionPane> pane_attention{};
+    std::optional<ClientAttentionTab> tab_attention{};
     friend bool operator==(const ClientAttentionResult&, const ClientAttentionResult&) = default;
 };
 
@@ -2768,6 +2777,7 @@ struct FrameEvent {
 };
 
 struct FrontendBrowserTabCloseRequestedEvent {
+    std::string owner{};
     std::optional<CloseReason> reason{};
     std::string request_id{};
     Id surface{};
@@ -4394,18 +4404,14 @@ struct ReportAgentResult {
 };
 
 struct ReportClientAttentionRequest {
-    Field<bool> app_active{};
+    bool app_active{};
     std::string client_id{};
     bool key_window{};
-    Field<std::uint64_t> last_input_ms_ago{};
     Field<Id> pane{};
+    std::optional<std::vector<ClientAttentionInput>> recent_input{};
     Field<std::uint64_t> tab{};
+    Field<std::int32_t> utc_offset_minutes{};
     friend bool operator==(const ReportClientAttentionRequest&, const ReportClientAttentionRequest&) = default;
-};
-
-struct ReportClientAttentionResult {
-    bool coalesced{};
-    friend bool operator==(const ReportClientAttentionResult&, const ReportClientAttentionResult&) = default;
 };
 
 struct ReportFocusRequest {
@@ -4416,7 +4422,8 @@ struct ReportFocusRequest {
 };
 
 enum class ReportFrontendBrowserTabRemovedRequestReason {
-    closed,
+    answered,
+    user_closed,
     page_closed,
     extension,
 };
@@ -5955,15 +5962,21 @@ struct Codec<CellPixelSurface> {
 };
 
 template <>
-struct Codec<ClientAttentionPane> {
-    static Result<Json> encode(const ClientAttentionPane& value);
-    static Result<ClientAttentionPane> decode(const Json& value);
+struct Codec<ClientAttentionInput> {
+    static Result<Json> encode(const ClientAttentionInput& value);
+    static Result<ClientAttentionInput> decode(const Json& value);
 };
 
 template <>
 struct Codec<ClientAttentionRecord> {
     static Result<Json> encode(const ClientAttentionRecord& value);
     static Result<ClientAttentionRecord> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientAttentionTab> {
+    static Result<Json> encode(const ClientAttentionTab& value);
+    static Result<ClientAttentionTab> decode(const Json& value);
 };
 
 template <>
@@ -8460,12 +8473,6 @@ template <>
 struct Codec<ReportClientAttentionRequest> {
     static Result<Json> encode(const ReportClientAttentionRequest& value);
     static Result<ReportClientAttentionRequest> decode(const Json& value);
-};
-
-template <>
-struct Codec<ReportClientAttentionResult> {
-    static Result<Json> encode(const ReportClientAttentionResult& value);
-    static Result<ReportClientAttentionResult> decode(const Json& value);
 };
 
 template <>

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '0aac3e8cf4b5eb136f6be70271daa967abe8721c622f79b076e89cac85907f27'
+IR_SHA256 = '0e72f1d2f96edb17a60723620645ac0b248095598975ad8845de4bf3abf3e6e5'
 
 
 @dataclass(frozen=True)
@@ -366,7 +366,7 @@ COMMANDS = {
         None,
         {
             'client_id': CommandFieldMetadata(None, None),
-            'pane': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'client-focus': CommandMetadata(
@@ -2686,9 +2686,10 @@ COMMANDS = {
             'app_active': CommandFieldMetadata(None, None),
             'client_id': CommandFieldMetadata(None, None),
             'key_window': CommandFieldMetadata(None, None),
-            'last_input_ms_ago': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
+            'recent_input': CommandFieldMetadata(None, None),
             'tab': CommandFieldMetadata(None, None),
+            'utc_offset_minutes': CommandFieldMetadata(None, None),
         },
     ),
     'report-focus': CommandMetadata(

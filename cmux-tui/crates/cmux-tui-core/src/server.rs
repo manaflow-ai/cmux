@@ -2094,7 +2094,7 @@ enum Command {
         client_id: String,
     },
     /// Report this client's attention: key window, active app, focused pane
-    /// and tab, and its last input (`client-attention-v1`).
+    /// and tab, recent typing per tab, clock zone (`client-attention-v1`).
     ReportClientAttention(client_attention::ReportParams),
     /// The latest attention report of every client (`client-attention-v1`).
     ClientAttention(client_attention::ReadParams),
@@ -3827,7 +3827,7 @@ fn handle_command_with_cancellation(
         }
         Command::ClientFocus { client_id } => cmd_server::client_focus(mux, client_id),
         Command::ReportClientAttention(params) => client_attention::report(mux, client, params),
-        Command::ClientAttention(params) => client_attention::read(mux, params),
+        Command::ClientAttention(params) => client_attention::read(mux, client, params),
         Command::FrontendBrowserTabCloseSubscribe(params) => {
             frontend_browser_close::subscribe(mux, client, params, writer)
         }

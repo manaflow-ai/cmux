@@ -356,24 +356,29 @@
       "size": 952
     },
     {
-      "path": "ClientAttentionPane.java",
-      "sha256": "01e77d8a25e356dde83cb56ffb847c3eaf2b307c1e31f9120d830b59bbdfdc70",
-      "size": 4402
+      "path": "ClientAttentionInput.java",
+      "sha256": "15993801f3817689b9c292d03af7c62e4b4a3e1db31cc12309c3569f9d820868",
+      "size": 2757
     },
     {
       "path": "ClientAttentionRecord.java",
-      "sha256": "a1c4bd3d1c9e8d54bb83bae9a37944210503c6875743742ef38cc1ebdf062bc9",
-      "size": 7475
+      "sha256": "56bb3c3e288b3f06f6bd281f472eede7bf2ef8300bc05a579e44e544c60eba15",
+      "size": 8499
     },
     {
       "path": "ClientAttentionRequest.java",
-      "sha256": "a189ef38c91c3f127b4d3d03bea43a10cedba3e67a515b193f98e04af2214f6c",
-      "size": 2747
+      "sha256": "01d7228f37923bd30a00e4c823a55ce898de42888cea2dbfa31e88539ca989e7",
+      "size": 2805
     },
     {
       "path": "ClientAttentionResult.java",
-      "sha256": "857a52a028231a88acece8e4b0f56391520578c4b88285ae8f5e302995de34cd",
-      "size": 3714
+      "sha256": "08ff617e22a1b1996901cc35e7bf5d245ea6fa73fd2e660bc8e0180b5959dcb5",
+      "size": 3694
+    },
+    {
+      "path": "ClientAttentionTab.java",
+      "sha256": "3687f92b40e4b9d2bd953eefd0e9d66e3952cb9adaef70e81851f57c3c3190eb",
+      "size": 6161
     },
     {
       "path": "ClientChangedEvent.java",
@@ -1267,8 +1272,8 @@
     },
     {
       "path": "FrontendBrowserTabCloseRequestedEvent.java",
-      "sha256": "f0b3d81900fa3800a5f1c896129ab5672dffd0f0bef17233c1763f2a72ba17f5",
-      "size": 4860
+      "sha256": "a065e2f0cbf96a63117883bb8b31cfecc7420cdbd205d695e3a25132e0c6817b",
+      "size": 5612
     },
     {
       "path": "FrontendBrowserTabCloseSettledEvent.java",
@@ -1327,8 +1332,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "189b80fa761994a45b2d4d3cccbf1299908eb65602b44f461412e4e05d45f373",
-      "size": 65776
+      "sha256": "c913b58ec570d44de79b4f248574963676892d638252484837a3629abbad5729",
+      "size": 65744
     },
     {
       "path": "GetBlobRequest.java",
@@ -2012,7 +2017,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "0c476ae33d43be928b9ac4a7d32b749a602590a584a19eeca04de62af5cc98ca",
+      "sha256": "b97a6b2be3cab52d9e577ea013ee5c1c29faa5987c518c4f0b6d8ea7b784654f",
       "size": 7167
     },
     {
@@ -2227,13 +2232,8 @@
     },
     {
       "path": "ReportClientAttentionRequest.java",
-      "sha256": "42ced27dd6ad421e1f49634af013e7126290befb438299d579d672485393eac2",
-      "size": 5964
-    },
-    {
-      "path": "ReportClientAttentionResult.java",
-      "sha256": "c1f0301f7810afba0d6d1fed29a780050c0ebd7f8aa3e9b0b112f9770358ab0c",
-      "size": 2183
+      "sha256": "b0ae1c1bde233bc61003d56114f4ee906c987276fa24bae0e22d775e2de207cc",
+      "size": 6989
     },
     {
       "path": "ReportFocusRequest.java",
@@ -2242,13 +2242,13 @@
     },
     {
       "path": "ReportFrontendBrowserTabRemovedRequest.java",
-      "sha256": "98e8ed58571184a715597df55c09b8d50aac65c85fc83ec7af4a155b492af905",
-      "size": 5359
+      "sha256": "177bd52abfbe6c406b3659df5c4000b7adfeb1787a555fdbe74627a1bff1efad",
+      "size": 5413
     },
     {
       "path": "ReportFrontendBrowserTabRemovedRequestReason.java",
-      "sha256": "e4ce1b64a318881453b398431caf646a7873748ff664dc81442556701eb38999",
-      "size": 1082
+      "sha256": "8ed0f84cb932ea6332b127990c9dd2b8a4c53591df810b95a68eb110cbc9ac22",
+      "size": 1118
     },
     {
       "path": "ReportFrontendBrowserTabRemovedResult.java",
@@ -3307,7 +3307,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "0aac3e8cf4b5eb136f6be70271daa967abe8721c622f79b076e89cac85907f27",
+  "ir_sha256": "0e72f1d2f96edb17a60723620645ac0b248095598975ad8845de4bf3abf3e6e5",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

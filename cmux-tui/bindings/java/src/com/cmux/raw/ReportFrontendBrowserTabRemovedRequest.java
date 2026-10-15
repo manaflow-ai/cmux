@@ -14,7 +14,7 @@ import java.util.Objects;
 public final class ReportFrontendBrowserTabRemovedRequest implements WireValue {
     private final Field<String> mutationId;
     private final Field<String> origin;
-    /** closed: the user or a request closed it; page_closed: the page closed itself; extension: an extension removed it. */
+    /** answered: the owner closed it for a close request; user_closed: the user closed it in the app; page_closed: the page closed itself; extension: an extension removed it. */
     private final ReportFrontendBrowserTabRemovedRequestReason reason;
     /** The close request this removal answers, if any. */
     private final Field<String> requestId;

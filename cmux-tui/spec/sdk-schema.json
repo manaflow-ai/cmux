@@ -8878,14 +8878,26 @@
      "nullable": true,
      "description": "Null when the client reported none or the pane closed since."
     },
-    "last_input_ms_ago": {
+    "recent_input": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ClientAttentionInput"
+      }
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Counted at read time from the report."
+    },
+    "utc_offset_minutes": {
      "type": {
       "kind": "scalar",
-      "name": "uint64"
+      "name": "int32"
      },
      "presence": "required",
      "nullable": true,
-     "description": "Counted at read time from the report; null when unknown."
+     "description": "The client's clock zone; null when it reported none."
     },
     "reported_ms_ago": {
      "type": {
@@ -8898,16 +8910,49 @@
    },
    "additional_properties": false
   },
-  "ClientAttentionPane": {
+  "ClientAttentionInput": {
    "kind": "object",
    "fields": {
-    "pane": {
+    "surface": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "A tab the user typed in."
+    },
+    "ms_ago": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Milliseconds since the last keystroke in that tab; capped at one day."
+    }
+   },
+   "additional_properties": false
+  },
+  "ClientAttentionTab": {
+   "kind": "object",
+   "fields": {
+    "surface": {
      "type": {
       "kind": "ref",
       "name": "Id"
      },
      "presence": "required",
      "nullable": false
+    },
+    "pane": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": true,
+     "description": "The pane that holds the tab now; null when the tab is not in the tree."
     },
     "viewed": {
      "type": {
@@ -8916,7 +8961,7 @@
      },
      "presence": "required",
      "nullable": false,
-     "description": "Some client shows the pane as the focused pane of its key window while its app is active."
+     "description": "Some client shows the tab as the focused content of its key window while its app is active (cmux-next paneIsViewed)."
     },
     "app_active": {
      "type": {
@@ -8925,16 +8970,25 @@
      },
      "presence": "required",
      "nullable": false,
-     "description": "Some client that focuses the pane has its app active."
+     "description": "Some connected client has its app active (cmux-next appActive)."
     },
-    "last_input_ms_ago": {
+    "typed_ms_ago": {
      "type": {
       "kind": "scalar",
       "name": "uint64"
      },
      "presence": "required",
      "nullable": true,
-     "description": "The newest input in a client that focuses the pane; null when unknown."
+     "description": "The newest keystroke in the tab over all clients (cmux-next typedAgo); null when unknown."
+    },
+    "utc_offset_minutes": {
+     "type": {
+      "kind": "scalar",
+      "name": "int32"
+     },
+     "presence": "required",
+     "nullable": true,
+     "description": "The clock zone for quiet hours: the newest report that has one, a client whose app is active first."
     }
    },
    "additional_properties": false
@@ -14260,10 +14314,9 @@
        "kind": "scalar",
        "name": "boolean"
       },
-      "presence": "optional",
-      "nullable": true,
-      "default": null,
-      "description": "The client app is the active app; null or absent means the value of key_window."
+      "presence": "required",
+      "nullable": false,
+      "description": "The client app is the active app."
      },
      "pane": {
       "type": {
@@ -14285,39 +14338,48 @@
       "default": null,
       "description": "The focused tab index within pane; needs pane."
      },
-     "last_input_ms_ago": {
+     "recent_input": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "ClientAttentionInput"
+       },
+       "max_items": 16
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": [],
+      "description": "The tabs the user typed in recently and how long ago, newest per tab (cmux-next tracks typing per tab). Replaces the whole list of the previous report."
+     },
+     "utc_offset_minutes": {
       "type": {
        "kind": "scalar",
-       "name": "uint64"
+       "name": "int32"
       },
       "presence": "optional",
       "nullable": true,
       "default": null,
-      "description": "Milliseconds since the last key or pointer input in this client; null when unknown."
+      "description": "Minutes east of UTC of the client's clock zone, for quiet hours.",
+      "constraints": [
+       {
+        "minimum": -1440,
+        "maximum": 1440
+       }
+      ]
      }
     },
     "additional_properties": false
    },
    "result": {
-    "kind": "object",
-    "fields": {
-     "coalesced": {
-      "type": {
-       "kind": "scalar",
-       "name": "boolean"
-      },
-      "presence": "required",
-      "nullable": false,
-      "description": "The report came less than 250 ms after this connection's previous one; it is stored anyway (latest wins)."
-     }
-    },
-    "additional_properties": false
+    "kind": "ref",
+    "name": "EmptyResult"
    },
    "stream": null,
    "constraints": [
     "Latest wins per connection; memory only, never journaled or broadcast; the record ends with the connection.",
-    "A client sends at most about 4 reports per second; the daemon stores every report without the session lock.",
-    "A page relay connection gets origin.forbidden. client_id is 1-128 ASCII graphic bytes. pane must be a live pane."
+    "A client sends at most about 4 reports per second and coalesces on its side; the daemon stores every report without the session lock.",
+    "A page relay connection gets origin.forbidden. client_id is 1-128 ASCII graphic bytes. pane must be a live pane; tab needs pane. Surfaces in recent_input are not checked against the tree."
    ]
   },
   "client-attention": {
@@ -14337,7 +14399,7 @@
       "default": null,
       "description": "Only the records of this client id."
      },
-     "pane": {
+     "surface": {
       "type": {
        "kind": "ref",
        "name": "Id"
@@ -14345,7 +14407,7 @@
       "presence": "optional",
       "nullable": true,
       "default": null,
-      "description": "Also answer pane_attention for this pane."
+      "description": "Also answer tab_attention for this tab."
      }
     },
     "additional_properties": false
@@ -14373,21 +14435,21 @@
       "nullable": false,
       "description": "Some connected client has its app active."
      },
-     "pane_attention": {
+     "tab_attention": {
       "type": {
        "kind": "ref",
-       "name": "ClientAttentionPane"
+       "name": "ClientAttentionTab"
       },
       "presence": "optional",
       "nullable": false,
-      "description": "Present when pane was given."
+      "description": "Present when surface was given."
      }
     },
     "additional_properties": false
    },
    "stream": null,
    "constraints": [
-    "Read-only; ages are counted from the daemon's monotonic clock at read time."
+    "Read-only; ages are counted from the daemon's monotonic clock at read time. A page relay connection gets origin.forbidden."
    ]
   },
   "frontend-browser-tab-close-subscribe": {
@@ -14554,14 +14616,15 @@
       "type": {
        "kind": "enum",
        "values": [
-        "closed",
+        "answered",
+        "user_closed",
         "page_closed",
         "extension"
        ]
       },
       "presence": "required",
       "nullable": false,
-      "description": "closed: the user or a request closed it; page_closed: the page closed itself; extension: an extension removed it."
+      "description": "answered: the owner closed it for a close request; user_closed: the user closed it in the app; page_closed: the page closed itself; extension: an extension removed it."
      },
      "request_id": {
       "type": {
@@ -27772,6 +27835,15 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "owner": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The tab record's owner install id that this connection subscribed for."
      },
      "tab_resource_id": {
       "type": {

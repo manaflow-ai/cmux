@@ -21,13 +21,15 @@
 //!    outcome}`: `closing` (the close started) or `cancelled` (the page
 //!    vetoed). Only the connection that got the event may answer.
 //! 4. The owner reports `report-frontend-browser-tab-removed` when the tab is
-//!    gone in the app, for a request or on its own (`page_closed`,
-//!    `extension`, `closed`). The daemon then closes the tab in one durable
-//!    commit (closed history kept), keyed by `origin` + `mutation_id`.
+//!    gone in the app, for a request (`answered`) or on its own
+//!    (`user_closed`, `page_closed`, `extension`). The daemon then closes the
+//!    tab in one durable commit (closed history kept), keyed by `origin` +
+//!    `mutation_id`.
 //!
 //! Every requester gets `frontend-browser-tab-close-settled` once:
-//! `removed`, `cancelled`, or `owner_gone` (the owner's connection ended; the
-//! tab stays, and the owner restores it when it comes back). Crash and
+//! `removed` (also when the tab left the store by another path, such as
+//! `close-surface`), `cancelled`, or `owner_gone` (the owner's connection
+//! ended; the tab stays, and the owner restores it when it comes back). Crash and
 //! discard are not removals; the owner reports them through
 //! `update-frontend-browser-tab`. Requests are transient: they are never
 //! journaled or replayed across a daemon restart.
@@ -83,8 +85,9 @@ pub(super) struct RemovedParams {
     mutation_id: Option<String>,
 }
 
-/// Why the owner removed a tab.
-const REMOVAL_REASONS: [&str; 3] = ["closed", "page_closed", "extension"];
+/// Why the owner removed a tab: it answered a close request, the user
+/// closed it in the app, the page closed itself, or an extension removed it.
+const REMOVAL_REASONS: [&str; 4] = ["answered", "user_closed", "page_closed", "extension"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Phase {
@@ -138,6 +141,24 @@ impl State {
             self.open.iter().filter(|(_, open)| matches(open)).map(|(id, _)| id.clone()).collect();
         ids.into_iter().filter_map(|id| self.open.remove(&id).map(|open| (id, open))).collect()
     }
+}
+
+/// Settles `removed` the open requests whose tab left the store by another
+/// path (`close-surface`, `close-tabs`, `close-pane`, a workspace close):
+/// no removal report comes for them, and they would hold the per-owner
+/// request budget until the owner disconnects.
+fn settle_gone_tabs(mux: &Mux) {
+    let closes = &mux.control_clients.frontend_tab_closes;
+    let surfaces: Vec<SurfaceId> = lock(&closes.0).open.values().map(|open| open.surface).collect();
+    let gone: Vec<SurfaceId> = surfaces
+        .into_iter()
+        .filter(|surface| mux.surface(*surface).is_none_or(|live| live.is_dead()))
+        .collect();
+    if gone.is_empty() {
+        return;
+    }
+    let settled = lock(&closes.0).take(|open| gone.contains(&open.surface));
+    settle(settled, "removed");
 }
 
 /// A poisoned lock still guards whole entries (no critical section leaves
@@ -265,8 +286,11 @@ pub(super) fn request(
     params: RequestParams,
     writer: &MessageWriter,
 ) -> anyhow::Result<Value> {
+    // A page must not close another tab, even through its owner.
+    refuse_page_relay(mux, client)?;
     let RequestParams { surface, reason } = params;
     let (owner, tab) = frontend_tab(mux, surface)?;
+    settle_gone_tabs(mux);
     let not_delegated = json!({"delegated": false, "request_id": null});
     let Some(owner) = owner else { return Ok(not_delegated) };
     let mut state = lock(&mux.control_clients.frontend_tab_closes.0);
@@ -297,6 +321,7 @@ pub(super) fn request(
         "event": "frontend-browser-tab-close-requested",
         "request_id": request_id,
         "surface": surface,
+        "owner": owner,
         "tab_resource_id": tab,
         "reason": reason.map(crate::mux::CloseReason::as_str),
     });
@@ -353,7 +378,7 @@ pub(super) fn report_removed(
     let RemovedParams { surface, reason, request_id, origin, mutation_id } = params;
     anyhow::ensure!(
         REMOVAL_REASONS.contains(&reason.as_str()),
-        "bad request: reason {reason:?} (want \"closed\", \"page_closed\" or \"extension\")"
+        "bad request: reason {reason:?} (want \"answered\", \"user_closed\", \"page_closed\" or \"extension\")"
     );
     let request =
         MutationRequest { origin, mutation_id, expected_generation: None, expected_revision: None };
@@ -380,16 +405,21 @@ pub(super) fn report_removed(
         }
         // Gone already: a keyed retry replays the committed close; anything
         // else has nothing to remove.
-        None if keyed => {
-            return Ok(match mux.close_tabs_for(vec![surface], false, None, &mutation) {
-                Ok(outcome) => json!({
-                    "removed": outcome.closed().contains(&surface),
-                    "replayed": outcome.replayed,
-                }),
-                Err(_) => json!({"removed": false, "replayed": false}),
-            });
+        None => {
+            let reply = if keyed {
+                match mux.close_tabs_for(vec![surface], false, None, &mutation) {
+                    Ok(outcome) => json!({
+                        "removed": outcome.closed().contains(&surface),
+                        "replayed": outcome.replayed,
+                    }),
+                    Err(_) => json!({"removed": false, "replayed": false}),
+                }
+            } else {
+                json!({"removed": false, "replayed": false})
+            };
+            settle_gone_tabs(mux);
+            return Ok(reply);
         }
-        None => return Ok(json!({"removed": false, "replayed": false})),
     }
     if let Some(request_id) = &request_id {
         let other_tab =

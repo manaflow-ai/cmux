@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0aac3e8cf4b5eb136f6be70271daa967abe8721c622f79b076e89cac85907f27. */
+/* cmux-tui mux protocol 12, IR 0e72f1d2f96edb17a60723620645ac0b248095598975ad8845de4bf3abf3e6e5. */
 
 
 import type * as T from "./types.js";
@@ -261,15 +261,15 @@ export interface ClientAttentionRequest extends CmuxRequestBase {
   cmd: "client-attention";
   /** Only the records of this client id. */
   "client_id"?: (string) | null;
-  /** Also answer pane_attention for this pane. */
-  "pane"?: (T.Id) | null;
+  /** Also answer tab_attention for this tab. */
+  "surface"?: (T.Id) | null;
 }
 export type ClientAttentionResult = {
   /** Some connected client has its app active. */
   "app_active": boolean;
   "clients": Array<T.ClientAttentionRecord>;
-  /** Present when pane was given. */
-  "pane_attention"?: T.ClientAttentionPane;
+  /** Present when surface was given. */
+  "tab_attention"?: T.ClientAttentionTab;
 };
 
 /** Protocol v12; authority: control. */
@@ -2058,22 +2058,21 @@ export interface ReportAgentRequest extends CmuxRequestBase {
 /** Protocol v12; authority: control. */
 export interface ReportClientAttentionRequest extends CmuxRequestBase {
   cmd: "report-client-attention";
-  /** The client app is the active app; null or absent means the value of key_window. */
-  "app_active"?: (boolean) | null;
+  /** The client app is the active app. */
+  "app_active": boolean;
   "client_id": string;
   /** A window of this client is the key window of the OS. */
   "key_window": boolean;
-  /** Milliseconds since the last key or pointer input in this client; null when unknown. */
-  "last_input_ms_ago"?: (bigint) | null;
   /** The focused pane of the client's key window, if any. */
   "pane"?: (T.Id) | null;
+  /** The tabs the user typed in recently and how long ago, newest per tab (cmux-next tracks typing per tab). Replaces the whole list of the previous report. */
+  "recent_input"?: Array<T.ClientAttentionInput>;
   /** The focused tab index within pane; needs pane. */
   "tab"?: (bigint) | null;
+  /** Minutes east of UTC of the client's clock zone, for quiet hours. */
+  "utc_offset_minutes"?: (number) | null;
 }
-export type ReportClientAttentionResult = {
-  /** The report came less than 250 ms after this connection's previous one; it is stored anyway (latest wins). */
-  "coalesced": boolean;
-};
+export type ReportClientAttentionResult = T.EmptyResult;
 
 /** Protocol v12; authority: control. */
 export interface ReportFocusRequest extends CmuxRequestBase {
@@ -2089,8 +2088,8 @@ export interface ReportFrontendBrowserTabRemovedRequest extends CmuxRequestBase 
   cmd: "report-frontend-browser-tab-removed";
   "mutation_id"?: (string) | null;
   "origin"?: (string) | null;
-  /** closed: the user or a request closed it; page_closed: the page closed itself; extension: an extension removed it. */
-  "reason": "closed" | "page_closed" | "extension";
+  /** answered: the owner closed it for a close request; user_closed: the user closed it in the app; page_closed: the page closed itself; extension: an extension removed it. */
+  "reason": "answered" | "user_closed" | "page_closed" | "extension";
   /** The close request this removal answers, if any. */
   "request_id"?: (string) | null;
   "surface": T.Id;

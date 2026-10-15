@@ -1299,71 +1299,39 @@ Result<CellPixelSurface> Codec<CellPixelSurface>::decode(const Json& value) {
     return result;
 }
 
-Result<Json> Codec<ClientAttentionPane>::encode(const ClientAttentionPane& value) {
+Result<Json> Codec<ClientAttentionInput>::encode(const ClientAttentionInput& value) {
     (void)value;
     Json::Object object;
-    auto encoded_app_active = encode_value(value.app_active);
-    if (!encoded_app_active) return std::move(encoded_app_active).error();
-    object.emplace("app_active", std::move(encoded_app_active).value());
-    if (value.last_input_ms_ago) {
-        auto encoded = encode_value(*value.last_input_ms_ago);
-        if (!encoded) return std::move(encoded).error();
-        object.emplace("last_input_ms_ago", std::move(encoded).value());
-    } else {
-        object.emplace("last_input_ms_ago", Json(nullptr));
-    }
-    auto encoded_pane = encode_value(value.pane);
-    if (!encoded_pane) return std::move(encoded_pane).error();
-    object.emplace("pane", std::move(encoded_pane).value());
-    auto encoded_viewed = encode_value(value.viewed);
-    if (!encoded_viewed) return std::move(encoded_viewed).error();
-    object.emplace("viewed", std::move(encoded_viewed).value());
+    auto encoded_ms_ago = encode_value(value.ms_ago);
+    if (!encoded_ms_ago) return std::move(encoded_ms_ago).error();
+    object.emplace("ms_ago", std::move(encoded_ms_ago).value());
+    auto encoded_surface = encode_value(value.surface);
+    if (!encoded_surface) return std::move(encoded_surface).error();
+    object.emplace("surface", std::move(encoded_surface).value());
     return Json(std::move(object));
 }
 
-Result<ClientAttentionPane> Codec<ClientAttentionPane>::decode(const Json& value) {
+Result<ClientAttentionInput> Codec<ClientAttentionInput>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
-    ClientAttentionPane result{};
-    const Json* field_app_active = value.find("app_active");
-    if (!field_app_active) {
-        return make_error(ErrorCode::decode, "missing required field 'app_active'");
+    ClientAttentionInput result{};
+    const Json* field_ms_ago = value.find("ms_ago");
+    if (!field_ms_ago) {
+        return make_error(ErrorCode::decode, "missing required field 'ms_ago'");
     }
-    if (field_app_active) {
-        auto decoded = decode_value<bool>(*field_app_active);
+    if (field_ms_ago) {
+        auto decoded = decode_value<std::uint64_t>(*field_ms_ago);
         if (!decoded) return std::move(decoded).error();
-        result.app_active = std::move(decoded).value();
+        result.ms_ago = std::move(decoded).value();
     }
-    const Json* field_last_input_ms_ago = value.find("last_input_ms_ago");
-    if (!field_last_input_ms_ago) {
-        return make_error(ErrorCode::decode, "missing required field 'last_input_ms_ago'");
+    const Json* field_surface = value.find("surface");
+    if (!field_surface) {
+        return make_error(ErrorCode::decode, "missing required field 'surface'");
     }
-    if (field_last_input_ms_ago) {
-        if (field_last_input_ms_ago->is_null()) {
-            result.last_input_ms_ago.reset();
-        } else {
-            auto decoded = decode_value<std::uint64_t>(*field_last_input_ms_ago);
-            if (!decoded) return std::move(decoded).error();
-            result.last_input_ms_ago = std::move(decoded).value();
-        }
-    }
-    const Json* field_pane = value.find("pane");
-    if (!field_pane) {
-        return make_error(ErrorCode::decode, "missing required field 'pane'");
-    }
-    if (field_pane) {
-        auto decoded = decode_value<Id>(*field_pane);
+    if (field_surface) {
+        auto decoded = decode_value<Id>(*field_surface);
         if (!decoded) return std::move(decoded).error();
-        result.pane = std::move(decoded).value();
-    }
-    const Json* field_viewed = value.find("viewed");
-    if (!field_viewed) {
-        return make_error(ErrorCode::decode, "missing required field 'viewed'");
-    }
-    if (field_viewed) {
-        auto decoded = decode_value<bool>(*field_viewed);
-        if (!decoded) return std::move(decoded).error();
-        result.viewed = std::move(decoded).value();
+        result.surface = std::move(decoded).value();
     }
     return result;
 }
@@ -1383,13 +1351,6 @@ Result<Json> Codec<ClientAttentionRecord>::encode(const ClientAttentionRecord& v
     auto encoded_key_window = encode_value(value.key_window);
     if (!encoded_key_window) return std::move(encoded_key_window).error();
     object.emplace("key_window", std::move(encoded_key_window).value());
-    if (value.last_input_ms_ago) {
-        auto encoded = encode_value(*value.last_input_ms_ago);
-        if (!encoded) return std::move(encoded).error();
-        object.emplace("last_input_ms_ago", std::move(encoded).value());
-    } else {
-        object.emplace("last_input_ms_ago", Json(nullptr));
-    }
     if (value.pane) {
         auto encoded = encode_value(*value.pane);
         if (!encoded) return std::move(encoded).error();
@@ -1397,6 +1358,9 @@ Result<Json> Codec<ClientAttentionRecord>::encode(const ClientAttentionRecord& v
     } else {
         object.emplace("pane", Json(nullptr));
     }
+    auto encoded_recent_input = encode_value(value.recent_input);
+    if (!encoded_recent_input) return std::move(encoded_recent_input).error();
+    object.emplace("recent_input", std::move(encoded_recent_input).value());
     auto encoded_reported_ms_ago = encode_value(value.reported_ms_ago);
     if (!encoded_reported_ms_ago) return std::move(encoded_reported_ms_ago).error();
     object.emplace("reported_ms_ago", std::move(encoded_reported_ms_ago).value());
@@ -1406,6 +1370,13 @@ Result<Json> Codec<ClientAttentionRecord>::encode(const ClientAttentionRecord& v
         object.emplace("tab", std::move(encoded).value());
     } else {
         object.emplace("tab", Json(nullptr));
+    }
+    if (value.utc_offset_minutes) {
+        auto encoded = encode_value(*value.utc_offset_minutes);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("utc_offset_minutes", std::move(encoded).value());
+    } else {
+        object.emplace("utc_offset_minutes", Json(nullptr));
     }
     return Json(std::move(object));
 }
@@ -1450,19 +1421,6 @@ Result<ClientAttentionRecord> Codec<ClientAttentionRecord>::decode(const Json& v
         if (!decoded) return std::move(decoded).error();
         result.key_window = std::move(decoded).value();
     }
-    const Json* field_last_input_ms_ago = value.find("last_input_ms_ago");
-    if (!field_last_input_ms_ago) {
-        return make_error(ErrorCode::decode, "missing required field 'last_input_ms_ago'");
-    }
-    if (field_last_input_ms_ago) {
-        if (field_last_input_ms_ago->is_null()) {
-            result.last_input_ms_ago.reset();
-        } else {
-            auto decoded = decode_value<std::uint64_t>(*field_last_input_ms_ago);
-            if (!decoded) return std::move(decoded).error();
-            result.last_input_ms_ago = std::move(decoded).value();
-        }
-    }
     const Json* field_pane = value.find("pane");
     if (!field_pane) {
         return make_error(ErrorCode::decode, "missing required field 'pane'");
@@ -1475,6 +1433,15 @@ Result<ClientAttentionRecord> Codec<ClientAttentionRecord>::decode(const Json& v
             if (!decoded) return std::move(decoded).error();
             result.pane = std::move(decoded).value();
         }
+    }
+    const Json* field_recent_input = value.find("recent_input");
+    if (!field_recent_input) {
+        return make_error(ErrorCode::decode, "missing required field 'recent_input'");
+    }
+    if (field_recent_input) {
+        auto decoded = decode_value<std::vector<ClientAttentionInput>>(*field_recent_input);
+        if (!decoded) return std::move(decoded).error();
+        result.recent_input = std::move(decoded).value();
     }
     const Json* field_reported_ms_ago = value.find("reported_ms_ago");
     if (!field_reported_ms_ago) {
@@ -1497,6 +1464,128 @@ Result<ClientAttentionRecord> Codec<ClientAttentionRecord>::decode(const Json& v
             if (!decoded) return std::move(decoded).error();
             result.tab = std::move(decoded).value();
         }
+    }
+    const Json* field_utc_offset_minutes = value.find("utc_offset_minutes");
+    if (!field_utc_offset_minutes) {
+        return make_error(ErrorCode::decode, "missing required field 'utc_offset_minutes'");
+    }
+    if (field_utc_offset_minutes) {
+        if (field_utc_offset_minutes->is_null()) {
+            result.utc_offset_minutes.reset();
+        } else {
+            auto decoded = decode_value<std::int32_t>(*field_utc_offset_minutes);
+            if (!decoded) return std::move(decoded).error();
+            result.utc_offset_minutes = std::move(decoded).value();
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<ClientAttentionTab>::encode(const ClientAttentionTab& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_app_active = encode_value(value.app_active);
+    if (!encoded_app_active) return std::move(encoded_app_active).error();
+    object.emplace("app_active", std::move(encoded_app_active).value());
+    if (value.pane) {
+        auto encoded = encode_value(*value.pane);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("pane", std::move(encoded).value());
+    } else {
+        object.emplace("pane", Json(nullptr));
+    }
+    auto encoded_surface = encode_value(value.surface);
+    if (!encoded_surface) return std::move(encoded_surface).error();
+    object.emplace("surface", std::move(encoded_surface).value());
+    if (value.typed_ms_ago) {
+        auto encoded = encode_value(*value.typed_ms_ago);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("typed_ms_ago", std::move(encoded).value());
+    } else {
+        object.emplace("typed_ms_ago", Json(nullptr));
+    }
+    if (value.utc_offset_minutes) {
+        auto encoded = encode_value(*value.utc_offset_minutes);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("utc_offset_minutes", std::move(encoded).value());
+    } else {
+        object.emplace("utc_offset_minutes", Json(nullptr));
+    }
+    auto encoded_viewed = encode_value(value.viewed);
+    if (!encoded_viewed) return std::move(encoded_viewed).error();
+    object.emplace("viewed", std::move(encoded_viewed).value());
+    return Json(std::move(object));
+}
+
+Result<ClientAttentionTab> Codec<ClientAttentionTab>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ClientAttentionTab result{};
+    const Json* field_app_active = value.find("app_active");
+    if (!field_app_active) {
+        return make_error(ErrorCode::decode, "missing required field 'app_active'");
+    }
+    if (field_app_active) {
+        auto decoded = decode_value<bool>(*field_app_active);
+        if (!decoded) return std::move(decoded).error();
+        result.app_active = std::move(decoded).value();
+    }
+    const Json* field_pane = value.find("pane");
+    if (!field_pane) {
+        return make_error(ErrorCode::decode, "missing required field 'pane'");
+    }
+    if (field_pane) {
+        if (field_pane->is_null()) {
+            result.pane.reset();
+        } else {
+            auto decoded = decode_value<Id>(*field_pane);
+            if (!decoded) return std::move(decoded).error();
+            result.pane = std::move(decoded).value();
+        }
+    }
+    const Json* field_surface = value.find("surface");
+    if (!field_surface) {
+        return make_error(ErrorCode::decode, "missing required field 'surface'");
+    }
+    if (field_surface) {
+        auto decoded = decode_value<Id>(*field_surface);
+        if (!decoded) return std::move(decoded).error();
+        result.surface = std::move(decoded).value();
+    }
+    const Json* field_typed_ms_ago = value.find("typed_ms_ago");
+    if (!field_typed_ms_ago) {
+        return make_error(ErrorCode::decode, "missing required field 'typed_ms_ago'");
+    }
+    if (field_typed_ms_ago) {
+        if (field_typed_ms_ago->is_null()) {
+            result.typed_ms_ago.reset();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_typed_ms_ago);
+            if (!decoded) return std::move(decoded).error();
+            result.typed_ms_ago = std::move(decoded).value();
+        }
+    }
+    const Json* field_utc_offset_minutes = value.find("utc_offset_minutes");
+    if (!field_utc_offset_minutes) {
+        return make_error(ErrorCode::decode, "missing required field 'utc_offset_minutes'");
+    }
+    if (field_utc_offset_minutes) {
+        if (field_utc_offset_minutes->is_null()) {
+            result.utc_offset_minutes.reset();
+        } else {
+            auto decoded = decode_value<std::int32_t>(*field_utc_offset_minutes);
+            if (!decoded) return std::move(decoded).error();
+            result.utc_offset_minutes = std::move(decoded).value();
+        }
+    }
+    const Json* field_viewed = value.find("viewed");
+    if (!field_viewed) {
+        return make_error(ErrorCode::decode, "missing required field 'viewed'");
+    }
+    if (field_viewed) {
+        auto decoded = decode_value<bool>(*field_viewed);
+        if (!decoded) return std::move(decoded).error();
+        result.viewed = std::move(decoded).value();
     }
     return result;
 }
@@ -14979,10 +15068,10 @@ Result<Json> Codec<ClientAttentionRequest>::encode(const ClientAttentionRequest&
         if (!encoded) return std::move(encoded).error();
         object.emplace("client_id", std::move(encoded).value());
     }
-    if (!value.pane.is_absent()) {
-        auto encoded = encode_value(value.pane);
+    if (!value.surface.is_absent()) {
+        auto encoded = encode_value(value.surface);
         if (!encoded) return std::move(encoded).error();
-        object.emplace("pane", std::move(encoded).value());
+        object.emplace("surface", std::move(encoded).value());
     }
     return Json(std::move(object));
 }
@@ -15001,14 +15090,14 @@ Result<ClientAttentionRequest> Codec<ClientAttentionRequest>::decode(const Json&
             result.client_id = Field<std::string>(std::move(decoded).value());
         }
     }
-    const Json* field_pane = value.find("pane");
-    if (field_pane) {
-        if (field_pane->is_null()) {
-            result.pane = Field<Id>::null();
+    const Json* field_surface = value.find("surface");
+    if (field_surface) {
+        if (field_surface->is_null()) {
+            result.surface = Field<Id>::null();
         } else {
-            auto decoded = decode_value<Id>(*field_pane);
+            auto decoded = decode_value<Id>(*field_surface);
             if (!decoded) return std::move(decoded).error();
-            result.pane = Field<Id>(std::move(decoded).value());
+            result.surface = Field<Id>(std::move(decoded).value());
         }
     }
     return result;
@@ -15023,10 +15112,10 @@ Result<Json> Codec<ClientAttentionResult>::encode(const ClientAttentionResult& v
     auto encoded_clients = encode_value(value.clients);
     if (!encoded_clients) return std::move(encoded_clients).error();
     object.emplace("clients", std::move(encoded_clients).value());
-    if (value.pane_attention) {
-        auto encoded = encode_value(*value.pane_attention);
+    if (value.tab_attention) {
+        auto encoded = encode_value(*value.tab_attention);
         if (!encoded) return std::move(encoded).error();
-        object.emplace("pane_attention", std::move(encoded).value());
+        object.emplace("tab_attention", std::move(encoded).value());
     }
     return Json(std::move(object));
 }
@@ -15053,11 +15142,11 @@ Result<ClientAttentionResult> Codec<ClientAttentionResult>::decode(const Json& v
         if (!decoded) return std::move(decoded).error();
         result.clients = std::move(decoded).value();
     }
-    const Json* field_pane_attention = value.find("pane_attention");
-    if (field_pane_attention) {
-        auto decoded = decode_value<ClientAttentionPane>(*field_pane_attention);
+    const Json* field_tab_attention = value.find("tab_attention");
+    if (field_tab_attention) {
+        auto decoded = decode_value<ClientAttentionTab>(*field_tab_attention);
         if (!decoded) return std::move(decoded).error();
-        result.pane_attention = std::move(decoded).value();
+        result.tab_attention = std::move(decoded).value();
     }
     return result;
 }
@@ -27283,31 +27372,34 @@ Result<ReportAgentRequest> Codec<ReportAgentRequest>::decode(const Json& value) 
 Result<Json> Codec<ReportClientAttentionRequest>::encode(const ReportClientAttentionRequest& value) {
     (void)value;
     Json::Object object;
-    if (!value.app_active.is_absent()) {
-        auto encoded = encode_value(value.app_active);
-        if (!encoded) return std::move(encoded).error();
-        object.emplace("app_active", std::move(encoded).value());
-    }
+    auto encoded_app_active = encode_value(value.app_active);
+    if (!encoded_app_active) return std::move(encoded_app_active).error();
+    object.emplace("app_active", std::move(encoded_app_active).value());
     auto encoded_client_id = encode_value(value.client_id);
     if (!encoded_client_id) return std::move(encoded_client_id).error();
     object.emplace("client_id", std::move(encoded_client_id).value());
     auto encoded_key_window = encode_value(value.key_window);
     if (!encoded_key_window) return std::move(encoded_key_window).error();
     object.emplace("key_window", std::move(encoded_key_window).value());
-    if (!value.last_input_ms_ago.is_absent()) {
-        auto encoded = encode_value(value.last_input_ms_ago);
-        if (!encoded) return std::move(encoded).error();
-        object.emplace("last_input_ms_ago", std::move(encoded).value());
-    }
     if (!value.pane.is_absent()) {
         auto encoded = encode_value(value.pane);
         if (!encoded) return std::move(encoded).error();
         object.emplace("pane", std::move(encoded).value());
     }
+    if (value.recent_input) {
+        auto encoded = encode_value(*value.recent_input);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("recent_input", std::move(encoded).value());
+    }
     if (!value.tab.is_absent()) {
         auto encoded = encode_value(value.tab);
         if (!encoded) return std::move(encoded).error();
         object.emplace("tab", std::move(encoded).value());
+    }
+    if (!value.utc_offset_minutes.is_absent()) {
+        auto encoded = encode_value(value.utc_offset_minutes);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("utc_offset_minutes", std::move(encoded).value());
     }
     return Json(std::move(object));
 }
@@ -27317,14 +27409,13 @@ Result<ReportClientAttentionRequest> Codec<ReportClientAttentionRequest>::decode
     if (!source) return std::move(source).error();
     ReportClientAttentionRequest result{};
     const Json* field_app_active = value.find("app_active");
+    if (!field_app_active) {
+        return make_error(ErrorCode::decode, "missing required field 'app_active'");
+    }
     if (field_app_active) {
-        if (field_app_active->is_null()) {
-            result.app_active = Field<bool>::null();
-        } else {
-            auto decoded = decode_value<bool>(*field_app_active);
-            if (!decoded) return std::move(decoded).error();
-            result.app_active = Field<bool>(std::move(decoded).value());
-        }
+        auto decoded = decode_value<bool>(*field_app_active);
+        if (!decoded) return std::move(decoded).error();
+        result.app_active = std::move(decoded).value();
     }
     const Json* field_client_id = value.find("client_id");
     if (!field_client_id) {
@@ -27344,16 +27435,6 @@ Result<ReportClientAttentionRequest> Codec<ReportClientAttentionRequest>::decode
         if (!decoded) return std::move(decoded).error();
         result.key_window = std::move(decoded).value();
     }
-    const Json* field_last_input_ms_ago = value.find("last_input_ms_ago");
-    if (field_last_input_ms_ago) {
-        if (field_last_input_ms_ago->is_null()) {
-            result.last_input_ms_ago = Field<std::uint64_t>::null();
-        } else {
-            auto decoded = decode_value<std::uint64_t>(*field_last_input_ms_ago);
-            if (!decoded) return std::move(decoded).error();
-            result.last_input_ms_ago = Field<std::uint64_t>(std::move(decoded).value());
-        }
-    }
     const Json* field_pane = value.find("pane");
     if (field_pane) {
         if (field_pane->is_null()) {
@@ -27363,6 +27444,12 @@ Result<ReportClientAttentionRequest> Codec<ReportClientAttentionRequest>::decode
             if (!decoded) return std::move(decoded).error();
             result.pane = Field<Id>(std::move(decoded).value());
         }
+    }
+    const Json* field_recent_input = value.find("recent_input");
+    if (field_recent_input) {
+        auto decoded = decode_value<std::vector<ClientAttentionInput>>(*field_recent_input);
+        if (!decoded) return std::move(decoded).error();
+        result.recent_input = std::move(decoded).value();
     }
     const Json* field_tab = value.find("tab");
     if (field_tab) {
@@ -27374,30 +27461,15 @@ Result<ReportClientAttentionRequest> Codec<ReportClientAttentionRequest>::decode
             result.tab = Field<std::uint64_t>(std::move(decoded).value());
         }
     }
-    return result;
-}
-
-Result<Json> Codec<ReportClientAttentionResult>::encode(const ReportClientAttentionResult& value) {
-    (void)value;
-    Json::Object object;
-    auto encoded_coalesced = encode_value(value.coalesced);
-    if (!encoded_coalesced) return std::move(encoded_coalesced).error();
-    object.emplace("coalesced", std::move(encoded_coalesced).value());
-    return Json(std::move(object));
-}
-
-Result<ReportClientAttentionResult> Codec<ReportClientAttentionResult>::decode(const Json& value) {
-    auto source = value.as_object();
-    if (!source) return std::move(source).error();
-    ReportClientAttentionResult result{};
-    const Json* field_coalesced = value.find("coalesced");
-    if (!field_coalesced) {
-        return make_error(ErrorCode::decode, "missing required field 'coalesced'");
-    }
-    if (field_coalesced) {
-        auto decoded = decode_value<bool>(*field_coalesced);
-        if (!decoded) return std::move(decoded).error();
-        result.coalesced = std::move(decoded).value();
+    const Json* field_utc_offset_minutes = value.find("utc_offset_minutes");
+    if (field_utc_offset_minutes) {
+        if (field_utc_offset_minutes->is_null()) {
+            result.utc_offset_minutes = Field<std::int32_t>::null();
+        } else {
+            auto decoded = decode_value<std::int32_t>(*field_utc_offset_minutes);
+            if (!decoded) return std::move(decoded).error();
+            result.utc_offset_minutes = Field<std::int32_t>(std::move(decoded).value());
+        }
     }
     return result;
 }
@@ -34542,6 +34614,9 @@ Result<Json> Codec<FrontendBrowserTabCloseRequestedEvent>::encode(const Frontend
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("frontend-browser-tab-close-requested")));
+    auto encoded_owner = encode_value(value.owner);
+    if (!encoded_owner) return std::move(encoded_owner).error();
+    object.emplace("owner", std::move(encoded_owner).value());
     if (value.reason) {
         auto encoded = encode_value(*value.reason);
         if (!encoded) return std::move(encoded).error();
@@ -34569,6 +34644,15 @@ Result<FrontendBrowserTabCloseRequestedEvent> Codec<FrontendBrowserTabCloseReque
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     FrontendBrowserTabCloseRequestedEvent result{};
+    const Json* field_owner = value.find("owner");
+    if (!field_owner) {
+        return make_error(ErrorCode::decode, "missing required field 'owner'");
+    }
+    if (field_owner) {
+        auto decoded = decode_value<std::string>(*field_owner);
+        if (!decoded) return std::move(decoded).error();
+        result.owner = std::move(decoded).value();
+    }
     const Json* field_reason = value.find("reason");
     if (!field_reason) {
         return make_error(ErrorCode::decode, "missing required field 'reason'");
@@ -39559,7 +39643,8 @@ Result<IdsRequestKind> Codec<IdsRequestKind>::decode(const Json& value) {
 
 Result<Json> Codec<ReportFrontendBrowserTabRemovedRequestReason>::encode(const ReportFrontendBrowserTabRemovedRequestReason& value) {
     switch (value) {
-        case ReportFrontendBrowserTabRemovedRequestReason::closed: return Json(std::string("closed"));
+        case ReportFrontendBrowserTabRemovedRequestReason::answered: return Json(std::string("answered"));
+        case ReportFrontendBrowserTabRemovedRequestReason::user_closed: return Json(std::string("user_closed"));
         case ReportFrontendBrowserTabRemovedRequestReason::page_closed: return Json(std::string("page_closed"));
         case ReportFrontendBrowserTabRemovedRequestReason::extension: return Json(std::string("extension"));
     }
@@ -39567,7 +39652,8 @@ Result<Json> Codec<ReportFrontendBrowserTabRemovedRequestReason>::encode(const R
 }
 
 Result<ReportFrontendBrowserTabRemovedRequestReason> Codec<ReportFrontendBrowserTabRemovedRequestReason>::decode(const Json& value) {
-    if (value == Json(std::string("closed"))) return ReportFrontendBrowserTabRemovedRequestReason::closed;
+    if (value == Json(std::string("answered"))) return ReportFrontendBrowserTabRemovedRequestReason::answered;
+    if (value == Json(std::string("user_closed"))) return ReportFrontendBrowserTabRemovedRequestReason::user_closed;
     if (value == Json(std::string("page_closed"))) return ReportFrontendBrowserTabRemovedRequestReason::page_closed;
     if (value == Json(std::string("extension"))) return ReportFrontendBrowserTabRemovedRequestReason::extension;
     return make_error(ErrorCode::decode, "unknown ReportFrontendBrowserTabRemovedRequestReason value");
@@ -43112,7 +43198,7 @@ Result<ReportAgentResult> Client::report_agent(
     return decode_value<ReportAgentResult>(response.value());
 }
 
-Result<ReportClientAttentionResult> Client::report_client_attention(
+Result<EmptyResult> Client::report_client_attention(
     const ReportClientAttentionRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -43120,7 +43206,7 @@ Result<ReportClientAttentionResult> Client::report_client_attention(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("report-client-attention", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<ReportClientAttentionResult>(response.value());
+    return decode_value<EmptyResult>(response.value());
 }
 
 Result<EmptyResult> Client::report_focus(

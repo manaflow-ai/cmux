@@ -993,9 +993,9 @@ public abstract class GeneratedCmuxClient {
         return ReportAgentResult.fromWire(result);
     }
 
-    public final ReportClientAttentionResult reportClientAttention(ReportClientAttentionRequest request) throws CmuxException {
+    public final EmptyResult reportClientAttention(ReportClientAttentionRequest request) throws CmuxException {
         Object result = execute(Commands.REPORT_CLIENT_ATTENTION, request.toWire());
-        return ReportClientAttentionResult.fromWire(result);
+        return EmptyResult.fromWire(result);
     }
 
     public final EmptyResult reportFocus(ReportFocusRequest request) throws CmuxException {

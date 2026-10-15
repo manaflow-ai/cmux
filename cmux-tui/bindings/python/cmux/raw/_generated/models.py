@@ -489,12 +489,10 @@ class CellPixelSurface:
 
 
 @dataclass(frozen=True)
-class ClientAttentionPane:
-    __cmux_schema_path__: ClassVar[str] = 'types/ClientAttentionPane'
-    pane: Id
-    app_active: bool
-    last_input_ms_ago: Union[int, None]
-    viewed: bool
+class ClientAttentionInput:
+    __cmux_schema_path__: ClassVar[str] = 'types/ClientAttentionInput'
+    surface: Id
+    ms_ago: int
 
 
 @dataclass(frozen=True)
@@ -505,9 +503,21 @@ class ClientAttentionRecord:
     client_id: str
     connection: int
     key_window: bool
-    last_input_ms_ago: Union[int, None]
+    recent_input: List[ClientAttentionInput]
     reported_ms_ago: int
     tab: Union[int, None]
+    utc_offset_minutes: Union[int, None]
+
+
+@dataclass(frozen=True)
+class ClientAttentionTab:
+    __cmux_schema_path__: ClassVar[str] = 'types/ClientAttentionTab'
+    surface: Id
+    pane: Union[Id, None]
+    app_active: bool
+    typed_ms_ago: Union[int, None]
+    utc_offset_minutes: Union[int, None]
+    viewed: bool
 
 
 @dataclass(frozen=True)
@@ -2271,7 +2281,7 @@ class ClearWindowTitleRequest:
 @dataclass(frozen=True)
 class ClientAttentionRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/client-attention/request'
-    pane: Union[Id, None, MissingType] = field(default=MISSING)
+    surface: Union[Id, None, MissingType] = field(default=MISSING)
     client_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -2280,7 +2290,7 @@ class ClientAttentionResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/client-attention/result'
     app_active: bool
     clients: List[ClientAttentionRecord]
-    pane_attention: Union[ClientAttentionPane, MissingType] = field(default=MISSING)
+    tab_attention: Union[ClientAttentionTab, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4102,18 +4112,13 @@ class ReportAgentRequest:
 @dataclass(frozen=True)
 class ReportClientAttentionRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/report-client-attention/request'
+    app_active: bool
     client_id: str
     key_window: bool
     pane: Union[Id, None, MissingType] = field(default=MISSING)
-    app_active: Union[bool, None, MissingType] = field(default=MISSING)
-    last_input_ms_ago: Union[int, None, MissingType] = field(default=MISSING)
+    recent_input: Union[List[ClientAttentionInput], MissingType] = field(default=MISSING)
     tab: Union[int, None, MissingType] = field(default=MISSING)
-
-
-@dataclass(frozen=True)
-class ReportClientAttentionResult:
-    __cmux_schema_path__: ClassVar[str] = 'commands/report-client-attention/result'
-    coalesced: bool
+    utc_offset_minutes: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4128,7 +4133,7 @@ class ReportFocusRequest:
 class ReportFrontendBrowserTabRemovedRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/report-frontend-browser-tab-removed/request'
     surface: Id
-    reason: Literal['closed', 'page_closed', 'extension']
+    reason: Literal['answered', 'user_closed', 'page_closed', 'extension']
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     request_id: Union[str, None, MissingType] = field(default=MISSING)
@@ -5147,6 +5152,7 @@ class FrontendBrowserTabCloseRequestedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/frontend-browser-tab-close-requested/payload'
     surface: Id
     event: Literal['frontend-browser-tab-close-requested']
+    owner: str
     reason: Union[CloseReason, None]
     request_id: str
     tab_resource_id: Union[str, None]
@@ -5796,8 +5802,9 @@ __all__ = [
     'CellPixelFailure',
     'CellPixelResize',
     'CellPixelSurface',
-    'ClientAttentionPane',
+    'ClientAttentionInput',
     'ClientAttentionRecord',
+    'ClientAttentionTab',
     'ClientInfo',
     'ClientSize',
     'CloseTerminalResult',
@@ -6195,7 +6202,6 @@ __all__ = [
     'ReopenSavedTabGroupRequest',
     'ReportAgentRequest',
     'ReportClientAttentionRequest',
-    'ReportClientAttentionResult',
     'ReportFocusRequest',
     'ReportFrontendBrowserTabRemovedRequest',
     'ReportFrontendBrowserTabRemovedResult',

@@ -1334,7 +1334,7 @@ Payload:
 
 ```text
 object{event:"frontend-browser-tab-close-requested", request_id:string, surface:Id,
-       tab_resource_id:string|null, reason:CloseReason|null}
+       owner:string, tab_resource_id:string|null, reason:CloseReason|null}
 ```
 
 Meaning: A client asked to close this frontend browser tab (`request-frontend-browser-tab-close`). It goes only to the connection subscribed for the tab's owner (`frontend-browser-tab-close-subscribe`). The owner runs the page's close (beforeunload may veto), answers `answer-frontend-browser-tab-close`, and reports `report-frontend-browser-tab-removed` when the tab is gone.
@@ -1342,7 +1342,7 @@ Meaning: A client asked to close this frontend browser tab (`request-frontend-br
 Example:
 
 ```json
-{"event":"frontend-browser-tab-close-requested","request_id":"6f1c2b9e-3d4a-4e5f-8a7b-1c2d3e4f5a6b","surface":12,"tab_resource_id":"tab_0123456789abcdef0123456789abcdef","reason":null}
+{"event":"frontend-browser-tab-close-requested","request_id":"6f1c2b9e-3d4a-4e5f-8a7b-1c2d3e4f5a6b","surface":12,"owner":"cmux-browser-install-1","tab_resource_id":"tab_0123456789abcdef0123456789abcdef","reason":null}
 ```
 
 ### frontend-browser-tab-close-settled
@@ -1360,7 +1360,7 @@ object{event:"frontend-browser-tab-close-settled", request_id:string, surface:Id
        outcome:"removed"|"cancelled"|"owner_gone"}
 ```
 
-Meaning: The close request is over. It goes once to each connection that requested it. `removed`: the owner reported the tab removed and the daemon deleted it. `cancelled`: the page vetoed the close. `owner_gone`: the owner's connection ended first; the tab stays.
+Meaning: The close request is over. It goes once to each connection that requested it. `removed`: the owner reported the tab removed and the daemon deleted it, or the tab left the store by another path (`close-surface`, `close-tabs`, `close-pane`, a workspace close). `cancelled`: the page vetoed the close. `owner_gone`: the owner's connection ended first; the tab stays.
 
 Example:
 

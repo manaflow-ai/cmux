@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 0aac3e8cf4b5eb136f6be70271daa967abe8721c622f79b076e89cac85907f27.
+// cmux-tui mux protocol 12, IR 0e72f1d2f96edb17a60723620645ac0b248095598975ad8845de4bf3abf3e6e5.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -308,14 +308,11 @@ pub struct CellPixelSurface {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ClientAttentionPane {
-    /// Some client that focuses the pane has its app active.
-    pub app_active: bool,
-    /// The newest input in a client that focuses the pane; null when unknown.
-    pub last_input_ms_ago: Nullable<u64>,
-    pub pane: Id,
-    /// Some client shows the pane as the focused pane of its key window while its app is active.
-    pub viewed: bool,
+pub struct ClientAttentionInput {
+    /// Milliseconds since the last keystroke in that tab; capped at one day.
+    pub ms_ago: u64,
+    /// A tab the user typed in.
+    pub surface: Id,
 }
 
 #[rustfmt::skip]
@@ -326,13 +323,31 @@ pub struct ClientAttentionRecord {
     /// The daemon's id of the reporting connection.
     pub connection: u64,
     pub key_window: bool,
-    /// Counted at read time from the report; null when unknown.
-    pub last_input_ms_ago: Nullable<u64>,
     /// Null when the client reported none or the pane closed since.
     pub pane: Nullable<Id>,
+    /// Counted at read time from the report.
+    pub recent_input: Vec<ClientAttentionInput>,
     pub reported_ms_ago: u64,
     /// Null when the client reported none or the pane closed since.
     pub tab: Nullable<u64>,
+    /// The client's clock zone; null when it reported none.
+    pub utc_offset_minutes: Nullable<i32>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientAttentionTab {
+    /// Some connected client has its app active (cmux-next appActive).
+    pub app_active: bool,
+    /// The pane that holds the tab now; null when the tab is not in the tree.
+    pub pane: Nullable<Id>,
+    pub surface: Id,
+    /// The newest keystroke in the tab over all clients (cmux-next typedAgo); null when unknown.
+    pub typed_ms_ago: Nullable<u64>,
+    /// The clock zone for quiet hours: the newest report that has one, a client whose app is active first.
+    pub utc_offset_minutes: Nullable<i32>,
+    /// Some client shows the tab as the focused content of its key window while its app is active (cmux-next paneIsViewed).
+    pub viewed: bool,
 }
 
 #[rustfmt::skip]

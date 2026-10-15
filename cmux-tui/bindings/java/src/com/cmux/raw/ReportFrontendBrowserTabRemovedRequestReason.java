@@ -4,7 +4,8 @@ package com.cmux.raw;
 import java.util.Objects;
 
 public enum ReportFrontendBrowserTabRemovedRequestReason implements WireEnum {
-    CLOSED("closed"),
+    ANSWERED("answered"),
+    USER_CLOSED("user_closed"),
     PAGE_CLOSED("page_closed"),
     EXTENSION("extension");
 

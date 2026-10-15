@@ -237,7 +237,7 @@ public:
     [[nodiscard]] Result<JsonValue> reopen_saved_screen_group(const ReopenSavedScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TabGroupOutcome> reopen_saved_tab_group(const ReopenSavedTabGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReportAgentResult> report_agent(const ReportAgentRequest& request, RequestOptions options = {});
-    [[nodiscard]] Result<ReportClientAttentionResult> report_client_attention(const ReportClientAttentionRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> report_client_attention(const ReportClientAttentionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> report_focus(const ReportFocusRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReportFrontendBrowserTabRemovedResult> report_frontend_browser_tab_removed(const ReportFrontendBrowserTabRemovedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<RequestFrontendBrowserTabCloseResult> request_frontend_browser_tab_close(const RequestFrontendBrowserTabCloseRequest& request, RequestOptions options = {});

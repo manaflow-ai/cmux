@@ -35,6 +35,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "SnapshotHave": "SnapshotRequestHave",
     "RowMarkerPoint": "RowMarkerPoint",
     "RowHeight": "RowHeight",
+    "ClientAttentionInput": "ClientAttentionInput",
 }
 
 # Request fields the server takes as raw JSON and then decodes element by

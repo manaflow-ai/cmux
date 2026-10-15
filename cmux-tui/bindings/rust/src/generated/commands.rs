@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 0aac3e8cf4b5eb136f6be70271daa967abe8721c622f79b076e89cac85907f27.
+// cmux-tui mux protocol 12, IR 0e72f1d2f96edb17a60723620645ac0b248095598975ad8845de4bf3abf3e6e5.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -373,9 +373,9 @@ pub struct ClientAttentionRequest {
     /// Only the records of this client id.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub client_id: Optional<String>,
-    /// Also answer pane_attention for this pane.
+    /// Also answer tab_attention for this tab.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub pane: Optional<T::Id>,
+    pub surface: Optional<T::Id>,
 }
 
 #[rustfmt::skip]
@@ -384,9 +384,9 @@ pub struct ClientAttentionResult {
     /// Some connected client has its app active.
     pub app_active: bool,
     pub clients: Vec<T::ClientAttentionRecord>,
-    /// Present when pane was given.
+    /// Present when surface was given.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub pane_attention: Option<T::ClientAttentionPane>,
+    pub tab_attention: Option<T::ClientAttentionTab>,
 }
 
 #[rustfmt::skip]
@@ -2952,29 +2952,27 @@ pub struct ReportAgentRequest {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReportClientAttentionRequest {
-    /// The client app is the active app; null or absent means the value of key_window.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub app_active: Optional<bool>,
+    /// The client app is the active app.
+    pub app_active: bool,
     pub client_id: String,
     /// A window of this client is the key window of the OS.
     pub key_window: bool,
-    /// Milliseconds since the last key or pointer input in this client; null when unknown.
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub last_input_ms_ago: Optional<u64>,
     /// The focused pane of the client's key window, if any.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
+    /// The tabs the user typed in recently and how long ago, newest per tab (cmux-next tracks typing per tab). Replaces the whole list of the previous report.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub recent_input: Option<Vec<T::ClientAttentionInput>>,
     /// The focused tab index within pane; needs pane.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub tab: Optional<u64>,
+    /// Minutes east of UTC of the client's clock zone, for quiet hours.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub utc_offset_minutes: Optional<i32>,
 }
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ReportClientAttentionResult {
-    /// The report came less than 250 ms after this connection's previous one; it is stored anyway (latest wins).
-    pub coalesced: bool,
-}
+pub type ReportClientAttentionResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2991,8 +2989,10 @@ pub type ReportFocusResult = T::EmptyResult;
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReportFrontendBrowserTabRemovedRequestReason {
-    #[serde(rename = "closed")]
-    Closed,
+    #[serde(rename = "answered")]
+    Answered,
+    #[serde(rename = "user_closed")]
+    UserClosed,
     #[serde(rename = "page_closed")]
     PageClosed,
     #[serde(rename = "extension")]
@@ -3006,7 +3006,7 @@ pub struct ReportFrontendBrowserTabRemovedRequest {
     pub mutation_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub origin: Optional<String>,
-    /// closed: the user or a request closed it; page_closed: the page closed itself; extension: an extension removed it.
+    /// answered: the owner closed it for a close request; user_closed: the user closed it in the app; page_closed: the page closed itself; extension: an extension removed it.
     pub reason: ReportFrontendBrowserTabRemovedRequestReason,
     /// The close request this removal answers, if any.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]

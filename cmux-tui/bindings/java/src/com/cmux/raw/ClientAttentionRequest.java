@@ -14,18 +14,18 @@ import java.util.Objects;
 public final class ClientAttentionRequest implements WireValue {
     /** Only the records of this client id. */
     private final Field<String> clientId;
-    /** Also answer pane_attention for this pane. */
-    private final Field<UInt64> pane;
+    /** Also answer tab_attention for this tab. */
+    private final Field<UInt64> surface;
 
     private ClientAttentionRequest(Builder builder) {
         this.clientId = builder.clientId;
-        this.pane = builder.pane;
+        this.surface = builder.surface;
     }
 
     public static Builder builder() { return new Builder(); }
 
     public Field<String> clientId() { return clientId; }
-    public Field<UInt64> pane() { return pane; }
+    public Field<UInt64> surface() { return surface; }
 
     public static ClientAttentionRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "ClientAttentionRequest");
@@ -34,9 +34,9 @@ public final class ClientAttentionRequest implements WireValue {
         if (!Wire.isMissing(rawClientId)) {
             builder.clientId(rawClientId == null ? null : Wire.string(rawClientId, "ClientAttentionRequest.client_id"));
         }
-        Object rawPane = Wire.optional(object, "pane");
-        if (!Wire.isMissing(rawPane)) {
-            builder.pane(rawPane == null ? null : Wire.uint64(rawPane, "ClientAttentionRequest.pane"));
+        Object rawSurface = Wire.optional(object, "surface");
+        if (!Wire.isMissing(rawSurface)) {
+            builder.surface(rawSurface == null ? null : Wire.uint64(rawSurface, "ClientAttentionRequest.surface"));
         }
         return builder.build();
     }
@@ -45,32 +45,32 @@ public final class ClientAttentionRequest implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "client_id", clientId);
-        Wire.put(object, "pane", pane);
+        Wire.put(object, "surface", surface);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ClientAttentionRequest that)) return false;
-        return Objects.equals(clientId, that.clientId) && Objects.equals(pane, that.pane);
+        return Objects.equals(clientId, that.clientId) && Objects.equals(surface, that.surface);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(clientId, pane); }
+    public int hashCode() { return Objects.hash(clientId, surface); }
 
     @Override
     public String toString() { return "ClientAttentionRequest" + toWire(); }
 
     public static final class Builder {
         private Field<String> clientId = Field.omitted();
-        private Field<UInt64> pane = Field.omitted();
+        private Field<UInt64> surface = Field.omitted();
 
         public Builder clientId(String value) {
             this.clientId = Field.ofNullable(value);
             return this;
         }
-        public Builder pane(UInt64 value) {
-            this.pane = Field.ofNullable(value);
+        public Builder surface(UInt64 value) {
+            this.surface = Field.ofNullable(value);
             return this;
         }
         public ClientAttentionRequest build() { return new ClientAttentionRequest(this); }
