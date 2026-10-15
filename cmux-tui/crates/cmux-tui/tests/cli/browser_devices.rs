@@ -285,6 +285,11 @@ fn browser_devices_list_custom_devices_and_tab_emulation_through_a_real_daemon()
     assert_eq!(emulation(&server, &browser).as_ref(), Some(&fixed));
     assert!(refused(&server, &["tab", &browser, "emulate", "--fit", "99999"]).contains("1280"));
     assert!(refused(&server, &["tab", &browser, "emulate", "--fit", "300"]).contains("1280"));
+    // `--fit off` ends the fit.
+    ok(&server, &["tab", &browser, "emulate", "--fit", "16:10"]);
+    assert_eq!(emulation(&server, &browser).unwrap()["fit"]["value"], "16:10");
+    ok(&server, &["tab", &browser, "emulate", "--fit", "off"]);
+    assert_eq!(emulation(&server, &browser), None);
     // A device again replaces the fit.
     ok(&server, &["tab", &browser, "emulate", "--device", "Kiosk"]);
 

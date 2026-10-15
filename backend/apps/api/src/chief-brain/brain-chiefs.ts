@@ -31,7 +31,7 @@ const Args = Type.Object({
 type ArgsT = { action: "list" | "get" | "create" | "update"; chief?: string; display_name?: string; role?: string; personality?: string; instructions?: string; model?: string }
 
 export const CHIEFS_DESCRIPTION =
-  "See, make and edit the person's other Chiefs. action list returns every Chief; get returns one (chief: its id or name). create makes a new Chief (display_name required; role, personality, instructions) that runs on your own model and starts answering in its own conversation. update changes another Chief (chief plus display_name, role, personality or instructions). You cannot give a Chief more than you hold, edit a Chief that holds more than you, change the default Chief's grant, or delete a Chief (the person does)."
+  "See, make and edit the person's other Chiefs. action list returns every Chief; get returns one (chief: its id or name). create makes a new Chief (display_name required; role, personality, instructions) that runs on your own model; the answer says whether its brain is on, and you tell the person exactly that (never that it answers when it is not on). update changes another Chief (chief plus display_name, role, personality or instructions). You cannot give a Chief more than you hold, edit a Chief that holds more than you, change the default Chief's grant, or delete a Chief (the person does)."
 
 interface Record0 { id: string; display_name: string; is_default: boolean; rev: number; archived_at: string | null; created_by?: string }
 type Settings = { status(): Promise<{ config: BrainConfig }>; configure(agent: string, owner: string, patch: Record<string, unknown>): Promise<{ ok: true; config: BrainConfig } | { ok: false; code: string; message: string }> }
@@ -100,8 +100,13 @@ export const manageChiefs = async (env: Env, agent: string, owner: string, args:
     }
     const frame = { t: "op" as const, op: "chief.create", params: { display_name: args.display_name }, idempotency_key: `chiefs:${agent}:${key}`, origin: "script" as const }
     const made = committed((await user(env, owner).chiefManage(owner, agent, frame)).frames)
-    await configured(env, made.id, owner, { enabled: true, model: me.model, compactor_model: me.compactor_model, chiefs: true, ...profile })
-    return `${JSON.stringify({ ...made, ...profile }, null, 2)}\nThe new Chief starts on its own and answers in its own conversation.`
+    const cfg = await configured(env, made.id, owner, { enabled: true, model: me.model, compactor_model: me.compactor_model, chiefs: true, ...profile })
+    // The truth about its brain: on only when its settings say enabled and this deployment forwards wakes to brains.
+    const brain = cfg.enabled && env.CHIEF_BRAIN_ENABLED === "1" ? { state: "started" } : { state: "not_started", reason: cfg.enabled ? "brains_off" : "not_enabled" }
+    const note = brain.state === "started"
+      ? "Its brain is on: it answers in its own conversation. Tell the person so."
+      : "Its brain is NOT on here, so it will not answer. Tell the person plainly that the new Chief exists but does not answer yet."
+    return `${JSON.stringify({ ...made, ...profile, brain }, null, 2)}\n${note}`
   }
   const target = resolve(all, args.chief)
   if (target.id === agent) throw new ChiefsRefused("chief_self_edit_denied", "change yourself through the person")
