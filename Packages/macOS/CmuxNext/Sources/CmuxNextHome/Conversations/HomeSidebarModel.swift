@@ -42,9 +42,10 @@ public struct HomeSidebarItem: Hashable, Sendable, Identifiable {
 }
 
 /// The Home sidebar's content from the merged inbox (`HomeStore.rows`):
-/// the pinned grid (Chiefs pinned by default), then every other
-/// conversation newest first; a search filters both and lists matching
-/// people the user has no DM with yet.
+/// the pinned grid, then every other conversation newest first; a search
+/// filters both and lists matching people the user has no DM with yet. In
+/// the owner's order (`init(ordered:)`, its `home-inbox` rows) only the
+/// person's own pins are pinned; with this Mac's pins Chiefs are pinned by default.
 public struct HomeSidebarModel: Hashable, Sendable {
     public var pinned: [HomeSidebarItem]
     public var rows: [HomeSidebarItem]

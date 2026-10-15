@@ -16,25 +16,28 @@ public final class HomeInboxSource {
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var reading = false
     @ObservationIgnored private var readAgain = false
+    /// Batches of inbox ops not answered yet: a read meanwhile would undo the local edit, so it is
+    /// dropped and one read runs after the last answer.
+    @ObservationIgnored private var pendingWrites = 0
 
-    /// Owner events after which the rows are asked again (coalesced), besides
-    /// `conversation-changed` and `conversation-typing` (spec `home-inbox`).
-    public static let rowEvents: Set<String> = ["conversation-inbox-changed", "conversation-run-changed", "chief-changed"]
+    /// Owner events after which the rows are asked again (coalesced), besides `conversation-changed`
+    /// (spec `home-inbox`). The list shows no Chief state, so typing and run changes are not among them.
+    public static let rowEvents: Set<String> = ["conversation-inbox-changed", "chief-changed"]
 
     public init() {}
 
-    /// A new owner connection (or none): the rows are read again from it.
+    /// A new owner connection (or none): the rows are read again from it. The last rows stay while
+    /// the owner reconnects, so the list does not fall back to the old order and back.
     public func connectionChanged(_ connection: DaemonConnection?) {
         self.connection = connection
         generation += 1
-        if connection == nil { rows = nil }
         refresh()
     }
 
     /// One owner event: a change that can move a row asks for the rows again.
     public func note(_ event: DaemonEvent) {
         switch event {
-        case .conversationChanged, .conversationTyping: refresh()
+        case .conversationChanged: refresh()
         case .unknown(let name, _) where Self.rowEvents.contains(name): refresh()
         default: break
         }
@@ -54,7 +57,7 @@ public final class HomeInboxSource {
                 guard generation == self.generation else { continue }
                 switch read {
                 case .unsupported: if rows != nil { rows = nil }
-                case .rows(let next): if rows != next { rows = next }
+                case .rows(let next): if pendingWrites == 0, rows != next { rows = next }
                 case .failed: break
                 }
                 if !readAgain { break }
@@ -121,10 +124,13 @@ public final class HomeInboxSource {
     /// Sends the ops in order, then reads the rows again (the owner's answer wins over the local edit).
     private func write(_ requests: [ConversationInboxOpRequest]) {
         guard let connection, !requests.isEmpty else { return }
+        pendingWrites += 1
         // task-owner: one batch of inbox ops; ends with the last reply
         Task { [weak self] in
             for request in requests { _ = try? await connection.request(request) }
-            self?.refresh()
+            guard let self else { return }
+            pendingWrites -= 1
+            if pendingWrites == 0 { refresh() }
         }
     }
 
