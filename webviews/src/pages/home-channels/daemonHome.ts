@@ -40,6 +40,9 @@ const THREAD_OBJECTS_CAPABILITY = "conversation-thread-objects-v1";
 /** My own pins and marks: `conversation-inbox-op`, the list fields, `conversation-inbox-changed`
  * and `cloud-inbox-op` (the Cloud owner's `inbox.pin` and `inbox.mark_unread`). */
 const INBOX_STATE_CAPABILITY = "conversation-inbox-state-v1";
+/** `home-inbox`: the owner derives the list rows (kind, name, unread, preview, a Chief's state, my
+ * pins and marks) once for every view; the page shows them instead of projecting summaries. */
+const HOME_INBOX_CAPABILITY = "home-inbox-v1";
 /** Attachment uploads, reads and download links on this WebSocket (local conversations). */
 const WS_ATTACHMENTS_CAPABILITY = "ws-attachments-v1";
 /** The same three attachment commands for cloud conversations, through the daemon's lease. */
@@ -349,6 +352,23 @@ export function conversation(raw: Json, me: string): HomeConversation {
   return result;
 }
 
+/** A local row with the owner's `home-inbox` facts in place of the page's own projection. */
+export function withHomeRow(row: HomeConversation, owned: Json): HomeConversation {
+  const kind = owned.kind === "chief" ? "chief" : owned.kind === "direct" ? "direct" : "group";
+  // My pins and marks stay the page's (the same owner fields, kept current by my inbox events).
+  const result: HomeConversation = { ...row, kind, unread: num(owned.unread) };
+  // A Chief's direct conversation shows the Chief's current name (the owner reads its registry).
+  if (kind === "chief" && typeof owned.name === "string" && owned.name) result.title = owned.name;
+  if (typeof owned.activity_at === "string") result.lastAt = time(owned.activity_at);
+  if (typeof owned.preview === "string") result.lastText = owned.preview;
+  else delete result.lastText;
+  if (typeof owned.last_author === "string") result.lastAuthor = owned.last_author;
+  else delete result.lastAuthor;
+  const state = owned.chief_state;
+  if (state === "working" || state === "waiting" || state === "idle") result.chiefState = state;
+  return result;
+}
+
 function threads(raw: unknown): HomeThreadStats[] {
   return ((raw as Json[] | undefined) ?? []).map((entry) => {
     const stats: HomeThreadStats = {
@@ -405,6 +425,8 @@ export class DaemonHomeClient implements PageClient {
    * `conversation-inbox-changed`: a snapshot or a conversation change carries none, so a summary
    * from them keeps what the list said. */
   private readonly listState = new Map<string, Json>();
+  /** The owner's last `home-inbox` rows by conversation id (home-inbox-v1). */
+  private readonly homeRows = new Map<string, Json>();
   /** Cloud summaries the hydration read after the inbox answered (sent on the events stream). */
   private readonly cloudListeners = new Set<(conversation: HomeConversation) => void>();
   /** Cloud participants a head named for the first time: their pictures are asked again. */
@@ -463,11 +485,13 @@ export class DaemonHomeClient implements PageClient {
   /** A local owner summary as the page's row, with my list state (kept when the summary has none). */
   private localRow(raw: Json): HomeConversation {
     const id = String(raw.id);
+    let row: HomeConversation;
     if ("pinned" in raw || "marked_unread" in raw) {
       this.listState.set(id, { pinned: raw.pinned, pin_position: raw.pin_position, marked_unread: raw.marked_unread });
-      return conversation(raw, this.me);
-    }
-    return conversation({ ...raw, ...this.listState.get(id) }, this.me);
+      row = conversation(raw, this.me);
+    } else row = conversation({ ...raw, ...this.listState.get(id) }, this.me);
+    const owned = this.homeRows.get(id);
+    return owned ? withHomeRow(row, owned) : row;
   }
 
   private capable(capability: string, socket: DaemonSocket = this.local): Promise<boolean> {
@@ -538,6 +562,12 @@ export class DaemonHomeClient implements PageClient {
           .find((entry) => entry.id === LOCAL_USER);
         const me = mine ? participant(mine) : { id: LOCAL_USER, kind: "human" as const, name: "You", chief: false };
         this.me = me.id;
+        // The owner's rows for the local conversations (an older daemon: the page projects them).
+        if (await this.capable(HOME_INBOX_CAPABILITY)) {
+          const home = await this.local.request<{ rows?: Json[] }>("home-inbox");
+          this.homeRows.clear();
+          for (const row of home.rows ?? []) this.homeRows.set(String(row.id), row);
+        }
         // The person's Cloud inbox through the same daemon; a Cloud failure never hides the local one.
         const cloud = await this.cloud.inbox(await this.cloudReady()).catch(() => []);
         return {
@@ -1029,7 +1059,11 @@ export class DaemonHomeClient implements PageClient {
             batch.inboxStale = true;
           });
         } else if (change.kind === "conversation" && change.conversation) {
-          deliver((batch) => (batch.conversations ??= []).push(this.localRow(change.conversation as Json)));
+          deliver((batch) => {
+            (batch.conversations ??= []).push(this.localRow(change.conversation as Json));
+            // Its row (kind, name) is the owner's: read the rows again.
+            if (this.homeRows.size > 0) batch.inboxStale = true;
+          });
         } else {
           deliver((batch) => (batch.inboxStale = true));
         }
