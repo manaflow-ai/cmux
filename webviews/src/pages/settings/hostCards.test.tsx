@@ -84,6 +84,15 @@ test("Apple Wallpapers: tiles show only their names; one not downloaded opens th
   await settle();
   expect(runs(page, "cmux.settings.backdrop.wallpaper_settings").length).toBe(1);
   expect(runs(page, "cmux.settings.set").length).toBe(0);
+  // Downloaded in System Settings meanwhile (macOS sends nothing): back in cmux, the tile is ready.
+  page.provider.host = {
+    ...page.provider.host,
+    backdrops: page.provider.host.backdrops!.map((row) => ({ ...row, downloaded: true })),
+  };
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  await settle();
+  expect(group.querySelector('[title="Download in System Settings"]')).toBeNull();
+  expect(group.querySelectorAll(".backdrop-pending").length).toBe(0);
   await act(async () => sonoma.click());
   await settle();
   expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({
