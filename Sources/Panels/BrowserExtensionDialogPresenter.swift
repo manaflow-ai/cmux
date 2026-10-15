@@ -7,10 +7,10 @@ import SwiftUI
 ///
 /// Design spec §0.9 (modal): on a window without Chromium pages it is a real
 /// window sheet. A Chromium page draws in its own child window above the
-/// parent, which a sheet cannot dim or cover, so on such a window the dialog
-/// is a window-level child panel placed like a sheet (centered), above a
-/// dimming child panel that covers the whole window, both ordered above every
-/// page window. Either way it blocks only that window, never activates the
+/// parent and stays above a sheet, so on such a window the dialog
+/// is a window-level child panel placed like a sheet (top edge under the
+/// titlebar, centered, with a shadow), above an invisible input-blocking
+/// panel over the window, both ordered above every page window. Either way it blocks only that window, never activates the
 /// app by itself, Escape and Return decline, and a window that closes or a
 /// cancelled caller (deadline, socket timeout) declines it.
 @MainActor
@@ -69,7 +69,7 @@ struct BrowserExtensionDialogPresenter {
     private final class PromptDialogWindow: NSPanel {
         var onAnswer: ((Bool) -> Void)?
         private let overPageWindows: Bool
-        private var dimming: NSPanel?
+        private var inputBlocker: NSPanel?
 
         init(overPageWindows: Bool) {
             self.overPageWindows = overPageWindows
@@ -97,20 +97,25 @@ struct BrowserExtensionDialogPresenter {
                 window.beginSheet(self)
                 return
             }
-            // Dim the whole window evenly (page windows included) and swallow its clicks.
-            let dim = NSPanel(contentRect: window.frame, styleMask: [.borderless, .nonactivatingPanel],
-                              backing: .buffered, defer: false)
-            dim.isOpaque = false
-            dim.hasShadow = false
-            dim.backgroundColor = NSColor.black.withAlphaComponent(Self.dimmingAlpha)
-            dim.isReleasedWhenClosed = false
-            window.addChildWindow(dim, ordered: .above)
-            dimming = dim
-            // Where a sheet shows on this macOS: centered on the window.
+            // Keep the window modal like a sheet does, without dimming it (a
+            // sheet does not dim its parent): an invisible panel over the
+            // whole window takes its clicks while the dialog is up.
+            let blocker = NSPanel(contentRect: window.frame, styleMask: [.borderless, .nonactivatingPanel],
+                                  backing: .buffered, defer: false)
+            blocker.isOpaque = false
+            blocker.hasShadow = false
+            // The lowest alpha the window server still hit-tests; it draws nothing visible.
+            blocker.backgroundColor = NSColor.black.withAlphaComponent(Self.inputBlockerAlpha)
+            blocker.isReleasedWhenClosed = false
+            window.addChildWindow(blocker, ordered: .above)
+            inputBlocker = blocker
+            // A sheet's placement: top edge at the bottom of the titlebar, centered.
+            let titlebarHeight = window.frame.height - window.contentLayoutRect.height
             let origin = NSPoint(
                 x: (window.frame.midX - frame.width / 2).rounded(),
-                y: (window.frame.midY - frame.height / 2).rounded()
+                y: (window.frame.maxY - titlebarHeight - frame.height).rounded()
             )
+            hasShadow = true
             setFrameOrigin(origin)
             window.addChildWindow(self, ordered: .above)
             makeKeyAndOrderFront(nil)
@@ -123,11 +128,11 @@ struct BrowserExtensionDialogPresenter {
             }
             window.removeChildWindow(self)
             orderOut(nil)
-            if let dimming {
-                window.removeChildWindow(dimming)
-                dimming.orderOut(nil)
+            if let inputBlocker {
+                window.removeChildWindow(inputBlocker)
+                inputBlocker.orderOut(nil)
             }
-            dimming = nil
+            inputBlocker = nil
         }
 
         func answer(_ accepted: Bool) {
@@ -138,7 +143,7 @@ struct BrowserExtensionDialogPresenter {
 
         override func cancelOperation(_ sender: Any?) { answer(false) }
 
-        /// Matches the dimming AppKit draws behind a sheet.
-        private static let dimmingAlpha: CGFloat = 0.2
+        /// Invisible, but the window server still delivers clicks to it.
+        private static let inputBlockerAlpha: CGFloat = 0.01
     }
 }
