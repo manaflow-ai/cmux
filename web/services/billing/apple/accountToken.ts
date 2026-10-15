@@ -118,7 +118,11 @@ const defaultDependencies = (): AppleAccountTokenDependencies => ({
   planStatus: resolveProPlanStatus,
   paywall: (user, request) => resolveIosPaywall(user, request),
   trial: {
-    accountTrialed: async (userId) => (await databaseTrialStore().claim(userId))?.status === "started",
+    // A started trial, or one refused because the iPhone already had one, uses up the account's trial.
+    accountTrialed: async (userId) => {
+      const status = (await databaseTrialStore().claim(userId))?.status;
+      return status === "started" || status === "device_reused";
+    },
     activeTrialEndsAt: async (userId) => {
       const row = await activeAppleEntitlementForUser(userId);
       return row?.freeTrial ? row.expiresAt : null;

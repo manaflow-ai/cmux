@@ -106,8 +106,19 @@ Code:
 
 At most 4 arms get traffic at once: control and 3 challengers
 (`maxLiveArms`). Other variants wait at 0% as `queued`. When a challenger
-is retired, the optimizer promotes the next queued variant, in flag order,
-and records `variant_promoted`. The new arm starts with no exposures, so
+is retired, the optimizer promotes the next queued variant and records
+`variant_promoted`.
+
+- The queue is the experiment's reviewed `queue` list (for `ios-paywall-v1`:
+  the seeded 0% variants, layouts every app can draw first). A variant that
+  was ever promoted or retired, or that an operator set to 0% by hand, is not
+  promoted again.
+- A queued variant is skipped (and the report says why) while its payload
+  fails the validator, while it cannot be served (the trial arm without the
+  trial keys), or while fewer than 90% of the last 14 days' assignments came
+  from apps that can draw its layout (`paywall_app_layouts` on
+  `paywall_assigned`). Otherwise most of its users would see `cards`, and
+  the arm would be judged on the wrong screen. The new arm starts with no exposures, so
 the split goes back to equal until every live arm has 50 exposures again.
 
 The cap exists because of traffic. Every live arm needs its own 50
@@ -211,10 +222,11 @@ run with fewer arms.
 ## ios-paywall-v1 trial arm (trial-timeline)
 
 - **Arm:** `trial-timeline` (layout `trialTimeline`, fallback `focus` for an
-  app that cannot draw the timeline). It is last in the queue at 0%. To test
-  it sooner, swap it with a live challenger in the flag: the challenger goes
-  back to the queue and is promoted again later. Make it live only after
-  these exist: the App Store product
+  app that cannot draw the timeline). It is last in the queue at 0%. The
+  optimizer does not promote it while the trial keys are missing or while
+  fewer than 90% of apps can draw `trialTimeline`. To test it sooner, give it
+  traffic in the flag by hand. A challenger set to 0% by hand is removed for
+  good; it is not queued again. Make it live only after these exist: the App Store product
   `com.cmux.app.pro.trial.monthly` with the 7-day free-trial introductory
   offer, the DeviceCheck key (`DEVICECHECK_KEY_ID`,
   `DEVICECHECK_PRIVATE_KEY`) and the In-App Purchase key (`APPLE_IAP_*`).

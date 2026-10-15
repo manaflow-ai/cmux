@@ -215,7 +215,14 @@ async function chooseVariant(
  * from the Settings plan row too. The exposure is the app's
  * `ios_paywall_viewed`, joined to this record by person (EXPERIMENTS.md).
  */
-function assignmentEvent(userId: string, config: IosPaywallConfig, enrolled: Enrollment, sticky: boolean, now: Date): ServerEventInput {
+function assignmentEvent(
+  userId: string,
+  config: IosPaywallConfig,
+  enrolled: Enrollment,
+  sticky: boolean,
+  now: Date,
+  appLayouts: readonly IosPaywallLayout[],
+): ServerEventInput {
   return {
     event: PAYWALL_ASSIGNMENT_EVENT,
     distinctId: userId,
@@ -229,6 +236,8 @@ function assignmentEvent(userId: string, config: IosPaywallConfig, enrolled: Enr
       paywall_channel: enrolled.channel,
       paywall_internal: enrolled.internal,
       paywall_sticky: sticky,
+      // What this app can draw; the optimizer waits for adoption before promoting a newer layout.
+      paywall_app_layouts: appLayouts.join(","),
     },
   };
 }
@@ -262,7 +271,7 @@ export async function resolveIosPaywall(
     // Assignment and copy are written once; later serves only touch served_at.
     await deps.store.recordServed(user.id, IOS_PAYWALL_EXPERIMENT, chosen.config.variant, storedPayload(chosen.config));
     const served = servedPaywallConfig(chosen.config, request);
-    void deps.captureEvent(assignmentEvent(user.id, served, enrolled, chosen.sticky, deps.now()));
+    void deps.captureEvent(assignmentEvent(user.id, served, enrolled, chosen.sticky, deps.now(), request.supportedLayouts ?? IOS_PAYWALL_BASE_LAYOUTS));
     return served;
   } catch (error) {
     console.error("billing.paywall.resolve_failed", {

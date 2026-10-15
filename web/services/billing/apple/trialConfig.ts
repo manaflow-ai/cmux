@@ -10,7 +10,7 @@ export const APPLE_TEAM_ID = "7WLXT3NR37";
 /** The app whose devices and installs can get the trial. */
 export const TRIAL_BUNDLE_ID = APP_STORE_BUNDLE_ID;
 /** The `ios-paywall-v1` variant that offers the trial. */
-export { IOS_TRIAL_VARIANT as TRIAL_PAYWALL_VARIANT } from "../paywall/experiments";
+export const TRIAL_PAYWALL_VARIANT = "trial-timeline";
 export const TRIAL_DAYS = 7;
 /** A trial challenge is single use and expires after 5 minutes. */
 export const TRIAL_CHALLENGE_TTL_MS = 5 * 60 * 1000;
