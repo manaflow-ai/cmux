@@ -1,0 +1,36 @@
+import CmuxNextDesign
+
+/// Group by Folder and Group by Status (`sidebar.groupBy`) on the model.
+extension SidebarModel {
+    /// Group by Folder: loose rows sit under folder headers.
+    public var groupsByFolder: Bool { grouping.by == .folder }
+    /// Group by Status (Labs): rows sit under Needs you, Working, Done and No agent.
+    public var groupsByStatus: Bool { grouping.by == .status }
+
+    /// A Group by Status header's click: fold or unfold its rows. Needs you never folds.
+    public func toggleStatusBucket(_ bucket: SidebarStatusBucket) {
+        guard bucket.collapses else { return }
+        if grouping.collapsed.remove(bucket) == nil { grouping.collapsed.insert(bucket) }
+    }
+
+    /// The grouping the list lays out: a held row that is no longer the active row moves to its
+    /// own bucket, and keeps no hold for when it is active again.
+    func settledGrouping() -> SidebarGrouping {
+        if let held = grouping.held, held.row != activeWorkspaceID { grouping.held = nil }
+        return grouping
+    }
+
+    /// Whether `new` (the patched `old`) changes which rows the list draws. The active row keeps
+    /// its status bucket while it stays active (`SidebarGrouping.held`): a patch, not a move.
+    func movesRows(from old: SidebarWorkspace, to new: SidebarWorkspace) -> Bool {
+        if groupsByFolder && old.folder != new.folder { return true }
+        if groupsByStatus {
+            let before = settledGrouping().bucket(old)
+            if before != SidebarStatusBucket(new) {
+                guard new.id == activeWorkspaceID else { return true }
+                grouping.held = (new.id, before)
+            }
+        }
+        return showWorkspaceTabs && !old.tabs.elementsEqual(new.tabs) { $0.id == $1.id && $0.kind == $1.kind }
+    }
+}

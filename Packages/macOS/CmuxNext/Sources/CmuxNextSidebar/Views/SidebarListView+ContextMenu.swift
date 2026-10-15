@@ -26,7 +26,7 @@ extension SidebarListView {
             target = .section(id)
         case let .tab(workspace, tab)?:
             target = .tab(workspace, tab)
-        case nil:
+        case .status?, nil:
             target = .background
         }
         return contextMenuProvider(target)
