@@ -65,3 +65,16 @@ import Testing
         #expect(TerminalCardCrop(width: 402, imageHeight: 500, bottomTrim: 82).imageTop == 0)
     }
 }
+
+/// D11: a kill without backgrounding relaunched to no saved frame. The save
+/// on output ran in the same turn as the first output batch, before Ghostty
+/// presented it, so a tab whose replay was its only output saved the frame
+/// from before the replay. Every save now waits for the frame (0.5 s) and
+/// saves at most every 3 s.
+@Suite struct TerminalFrameSaveScheduleTests {
+    @Test func theFirstSaveWaitsForTheFrameToBePresented() {
+        #expect(TerminalFrameSaveSchedule.delay(sinceLastSave: .infinity) == 0.5)
+        #expect(TerminalFrameSaveSchedule.delay(sinceLastSave: 10) == 0.5)
+        #expect(TerminalFrameSaveSchedule.delay(sinceLastSave: 1) == 2)
+    }
+}
