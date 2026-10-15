@@ -16,6 +16,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     @State private var expanded: Set<String> = []
     @State private var columnWidth: CGFloat = 0
     @State private var swipe = FeedSwipeCoordinator()
+    /// Why Clear All Notifications failed, shown once.
+    @State private var clearFailure: String?
     @Environment(AppStore.self) private var appStore
     #if DEBUG
     private let director = DemoDirector.shared
@@ -90,6 +92,11 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 ToolbarItem(placement: .topBarTrailing) { filterMenu }
             }
             .agentChatDestinations()
+            .alert("Couldn't clear notifications", isPresented: Binding(get: { clearFailure != nil }, set: { if !$0 { clearFailure = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(clearFailure ?? "")
+            }
         }
         .onAppear {
             FeedRouting.shared.sendPrompt = { item, text in
@@ -171,6 +178,19 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 ForEach(FeedFilter.allCases, id: \.self) { Text($0.rawValue) }
             }
             .pickerStyle(.inline)
+            if let clear = FeedRouting.shared.clearAllNotifications {
+                // The Mac's Clear All Notifications: its notification ledger, as its panel's Clear All.
+                Section {
+                    Button("Clear All Notifications", systemImage: "clear", role: .destructive) {
+                        Task {
+                            do { try await clear() } catch {
+                                clearFailure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                            }
+                        }
+                    }
+                    .accessibilityIdentifier("feed.clearAllNotifications")
+                }
+            }
             Section("Workspaces") {
                 ForEach(appStore.workspaces) { workspace in
                     Toggle(workspace.title, isOn: Binding(

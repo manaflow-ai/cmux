@@ -174,6 +174,17 @@ public final class TerminalFeed {
         } while dirty
     }
 
+    /// The Mac cleared its notifications (Clear All Notifications): their
+    /// terminal events leave the Feed, then the ledger is read again.
+    public func cleared() {
+        for entry in entries {
+            let id = Self.itemID(macID: macID, entry: entry.id)
+            if store.item(id: id) != nil { store.remove(id) }
+        }
+        entries = []
+        Task { await refresh() }
+    }
+
     func apply(ledger reply: [String: Any]) {
         let rows = ((reply["data"] as? [String: Any])?["notifications"] as? [[String: Any]]) ?? []
         entries = rows.compactMap(Entry.init(json:)).sorted { $0.createdAt < $1.createdAt }

@@ -24,6 +24,11 @@ public struct DaemonTree: Sendable {
     /// Each tab's pane and position in it (`move-tab`, a duplicate next to it).
     public var tabPlaces: [String: TabPlace] = [:]
     public var revision: Int?
+    /// This session's registry id (`registry_id`): the session of the Mac's
+    /// personal rows and layout refs.
+    public var registryID: String?
+    /// Workspaces the daemon flags pinned (the legacy `pinned` flag).
+    public var legacyPinned: Set<String> = []
 
     public struct TabPlace: Hashable, Sendable {
         public var pane: Int
@@ -41,6 +46,12 @@ public struct DaemonTree: Sendable {
     /// The app tab id for a daemon surface.
     public static func tabID(surface: Int) -> String { "s\(surface)" }
 
+    /// Pins and sidebar places from the Mac's arrangement (nil: the daemon's
+    /// order and pin flags).
+    public mutating func apply(_ arrangement: SidebarArrangement?) {
+        (arrangement ?? SidebarArrangement()).apply(to: &workspaces, registryID: registryID, legacyPinned: legacyPinned)
+    }
+
     /// Parses a `list-workspaces` reply (`{"ok":true,"data":{...}}` or the bare data object).
     /// `previous` keeps activity times for workspaces it already knew.
     /// `activity` is when the phone last saw an event (agent state, title)
@@ -57,6 +68,8 @@ public struct DaemonTree: Sendable {
         }
         let data = object["data"] as? [String: Any] ?? object
         revision = data["workspace_revision"] as? Int
+        registryID = data["registry_id"] as? String
+        var legacyPinned: Set<String> = []
         var agentTabs: [String: AgentBinding] = [:]
         var surfaces: [String: Int] = [:]
         var directories: [String: String] = [:]
@@ -105,7 +118,8 @@ public struct DaemonTree: Sendable {
             }
             let source = activeTab ?? (ws["screens"] as? [[String: Any]])?.first.flatMap { ($0["panes"] as? [[String: Any]])?.first?["tabs"] as? [[String: Any]] }?.first
             let title = (ws["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (ws["name"] as? String) ?? "Workspace"
-            let color = (ws["color"] as? String).flatMap { $0.hasPrefix("#") ? String($0.prefix(7)) : nil }
+            // `#RRGGBB[AA]` or a palette name (`blue`), as the Mac stores it.
+            let color = (ws["color"] as? String).flatMap { $0.hasPrefix("#") ? String($0.prefix(7)) : WorkspaceColor(stored: $0)?.rawValue }
             let unread = (ws["unread_count"] as? Int ?? 0) > 0 || ws["marked_unread"] as? Bool == true
             let old = previousByID[key]
             let pendingAgents = tabs.contains { tab in agentTabs[tab.id]?.session.flatMap { agents.pending[$0] } ?? false }
@@ -114,7 +128,8 @@ public struct DaemonTree: Sendable {
             let activeTabID = (activeTab?["surface"] as? Int).map(Self.tabID(surface:)).flatMap { id in
                 tabs.contains { $0.id == id } ? id : nil
             }
-            result.append(Workspace(
+            if ws["pinned"] as? Bool == true { legacyPinned.insert(key) }
+            var workspace = Workspace(
                 id: key,
                 macID: macID,
                 title: title,
@@ -130,8 +145,12 @@ public struct DaemonTree: Sendable {
                 hasActivityTime: activityAt != nil,
                 focusOrder: focusOrder,
                 activeTabID: activeTabID
-            ))
+            )
+            workspace.resourceID = ws["resource_id"] as? String
+            workspace.isPinned = legacyPinned.contains(key)
+            result.append(workspace)
         }
+        self.legacyPinned = legacyPinned
         workspaces = result
         self.agentTabs = agentTabs
         self.surfaces = surfaces
@@ -254,7 +273,8 @@ public struct DaemonReplyError: Error, Equatable, Sendable {
 
 /// What a daemon event line means for the phone's copy of the tree.
 public enum DaemonEvent: Equatable, Sendable {
-    /// Re-list the tree (any topology/metadata delta, `tree-changed`, focus).
+    /// Re-list the tree (any topology/metadata delta, `tree-changed`, focus,
+    /// the person's sidebar order `personal-changed`).
     case treeChanged
     /// The subscription ended (`overflow`): subscribe again, then re-list.
     case resubscribe
@@ -280,7 +300,7 @@ public enum DaemonEvent: Equatable, Sendable {
             return .titleChanged(surface: surface, title: object["title"] as? String ?? "")
         case "notification":
             return .notification
-        case "tree-changed", "layout-changed", "surface-exited":
+        case "tree-changed", "layout-changed", "surface-exited", "personal-changed":
             return .treeChanged
         default:
             let prefixes = ["workspace-", "screen-", "pane-", "tab-"]

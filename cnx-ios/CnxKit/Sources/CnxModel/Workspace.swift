@@ -23,9 +23,21 @@ public struct Workspace: Identifiable, Hashable, Sendable, Codable {
     public var isWorking: Bool
     /// Something new arrived since this device last looked (row unread dot).
     public var hasUnread: Bool
-    /// The cmux-next workspace color (`#RRGGBB`) and icon (SF Symbol or one emoji).
+    /// The cmux-next workspace color: a Mac palette name (`blue`, see
+    /// `WorkspaceColor`) or `#RRGGBB`; and its icon (SF Symbol or one emoji).
     public var colorHex: String?
     public var icon: String?
+    /// Pinned in the Mac's sidebar (its pinned section, else the legacy flag).
+    public var isPinned: Bool = false
+    /// The place in the pinned section on the Mac (its tile order).
+    public var pinIndex: Int?
+    /// The pinned tile's layout item, for Unpin (`sidebar_layout` item id).
+    public var pinItemID: String?
+    /// The place in the Mac's sidebar (its personal order, else the daemon's
+    /// workspace order). Nil when the Mac's order is not known (mock data).
+    public var sidebarIndex: Int?
+    /// The workspace's public resource id on its Mac (`ws_…`), for layout refs.
+    public var resourceID: String?
 
     public init(
         id: String, macID: String, title: String, directory: String, branch: String? = nil,
@@ -55,6 +67,7 @@ extension Workspace {
     enum CodingKeys: String, CodingKey {
         case id, macID, title, directory, branch, tabs, lastActivityAt, hasActivityTime, focusOrder, activeTabID
         case needsAttention, isWorking, hasUnread, colorHex, icon
+        case isPinned, pinIndex, pinItemID, sidebarIndex, resourceID
     }
 
     /// Snapshots saved before a field existed still load (it takes its default).
@@ -77,6 +90,11 @@ extension Workspace {
             focusOrder: try c.decodeIfPresent(Int.self, forKey: .focusOrder) ?? 0,
             activeTabID: try c.decodeIfPresent(String.self, forKey: .activeTabID)
         )
+        isPinned = try c.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
+        pinIndex = try c.decodeIfPresent(Int.self, forKey: .pinIndex)
+        pinItemID = try c.decodeIfPresent(String.self, forKey: .pinItemID)
+        sidebarIndex = try c.decodeIfPresent(Int.self, forKey: .sidebarIndex)
+        resourceID = try c.decodeIfPresent(String.self, forKey: .resourceID)
     }
 }
 
