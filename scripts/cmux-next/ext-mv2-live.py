@@ -651,7 +651,20 @@ def phase_ublock(args):
                 enforced(outcomes["ad script"]) and enforced(outcomes["ad server request"]),
                 {"outcomes": outcomes, "page": state})
         job.row("ublock: a normal third-party script still loads", outcomes["jQuery"] == "loaded", outcomes)
-        job.row("ublock: ad slot hidden (EasyList cosmetic filter)", state.get("slot") == "hidden", state)
+        job.row("diagnose: ad slot on the 127.0.0.1 page (uBlock Origin skips generic cosmetic filters there)",
+                state.get("slot") == "hidden", state, gating=False)
+        session = job.open_tab("https://example.com/", match="example.com")
+        try:
+            poll(session, "document.readyState === 'complete'", 20)
+            session.evaluate("document.body.insertAdjacentHTML('beforeend', '<div id=\"mv2-slot\" class=\"adsbygoogle-box\" "
+                             "style=\"width:300px;height:100px;background:#fdd\">ad slot</div>'); true")
+            hidden = poll(session, "getComputedStyle(document.getElementById('mv2-slot')).display === 'none'", 10)
+            world = ubo_world_state(session)
+            shot = job.page_shot(session, f"{job.phase}-cosmetic-example")
+        finally:
+            session.close()
+        job.row("ublock: EasyList generic cosmetic filter hides an ad slot (##.adsbygoogle-box on example.com)",
+                bool(hidden), {"hidden": hidden, "ubo_world": world, "shot": shot})
 
     def insert_css():
         """The API uBlock Origin's cosmetic filtering uses (tabs.insertCSS, user origin)."""
@@ -707,7 +720,7 @@ def phase_ublock(args):
         state, outcomes = observed_load(job, url + "?dyn=1", "ublock-dynamic", {"jQuery": JQUERY})
         before = (ctx.get("net") or {}).get("jQuery")
         job.row("ublock: dynamic filtering (* * 3p-script block) blocks a third-party script",
-                before == "loaded" and outcomes["jQuery"] == "blocked" and bool(ctx.get("rule")),
+                before == "loaded" and (outcomes["jQuery"] == "blocked" or state.get("jq") == "blocked") and bool(ctx.get("rule")),
                 {"before": before, "rule": ctx.get("rule"), "after": outcomes["jQuery"], "page": state})
 
     def menu_note():
