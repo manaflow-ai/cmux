@@ -196,8 +196,9 @@ public struct RemoteInstallPlan: Hashable, Sendable {
     /// (from its `identify`) still runs that session's cmux-tui. A daemon
     /// hands its terminal hosts off on SIGTERM (docs/cloud-guest-upgrades.md),
     /// and the next link starts the new build, which adopts them. Terminal
-    /// hosts are never signalled; `server stop` (which ends terminals) is
-    /// never used.
+    /// hosts are never signalled; `--end-terminals` is never used. The
+    /// machine's acpmux is handed over by the app after this script
+    /// (`SSHService.handOffAgentDaemonAfterInstall`).
     public static func restartScript(host: SSHHost, daemonPID: Int32?) -> String {
         var script = """
         B=\(RemotePath.shellWord(host.remoteBinary))
