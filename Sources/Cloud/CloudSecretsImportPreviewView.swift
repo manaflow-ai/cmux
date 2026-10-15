@@ -112,7 +112,7 @@ private struct CloudSecretsImportRow: View {
             Spacer(minLength: 8)
             Text(row.problem ?? CloudSecretsSheetPresentation.importKindTitle(row.kind))
                 .cmuxFont(size: 11)
-                .foregroundStyle(row.problem == nil ? Color.secondary : Color.red)
+                .foregroundStyle(detailStyle)
                 .lineLimit(2)
                 .multilineTextAlignment(.trailing)
                 .frame(maxWidth: 300, alignment: .trailing)
@@ -124,8 +124,17 @@ private struct CloudSecretsImportRow: View {
         .accessibilityIdentifier("CloudSecretsImport.row.\(row.name)")
     }
 
+    /// A skipped line is expected and reads as quiet secondary text; only a
+    /// name that needs renaming is amber. Nothing here is an error.
+    private var detailStyle: AnyShapeStyle {
+        if row.needsAttention { return AnyShapeStyle(Color.orange) }
+        if row.isSkipped { return AnyShapeStyle(HierarchicalShapeStyle.tertiary) }
+        return AnyShapeStyle(HierarchicalShapeStyle.secondary)
+    }
+
     private var symbol: String {
-        if row.problem != nil { return "exclamationmark.triangle.fill" }
+        if row.needsAttention { return "exclamationmark.triangle.fill" }
+        if row.isSkipped { return "minus" }
         switch row.kind {
         case .added: return "plus"
         case .updated: return "arrow.triangle.2.circlepath"
@@ -135,7 +144,8 @@ private struct CloudSecretsImportRow: View {
     }
 
     private var tint: Color {
-        if row.problem != nil { return .red }
+        if row.needsAttention { return .orange }
+        if row.isSkipped { return .secondary }
         switch row.kind {
         case .added: return .green
         case .updated: return .orange

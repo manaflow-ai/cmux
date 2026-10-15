@@ -13,33 +13,43 @@ struct CloudSecretsSheet: View {
     @Bindable var model: CloudSecretsSheetModel
     @State private var isDropTargeted = false
 
+    /// The body area's floor, so the sheet keeps one size from the empty state
+    /// through the list, the add card and the import preview instead of
+    /// jumping as each appears. Taller content (a long list, the machine card
+    /// with the add card open) still grows it.
+    static let bodyMinHeight: CGFloat = 300
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             CloudSecretsSheetHeader(machineLabel: model.machineLabel)
 
-            switch model.phase {
-            case .loading:
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text(String(localized: "cloudSecrets.sheet.loading", defaultValue: "Reading Cloud Secrets…"))
-                        .cmuxFont(size: 12)
-                        .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 14) {
+                switch model.phase {
+                case .loading:
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text(String(localized: "cloudSecrets.sheet.loading", defaultValue: "Reading Cloud Secrets…"))
+                            .cmuxFont(size: 12)
+                            .foregroundStyle(.secondary)
+                    }
+                case .loadFailed(let message):
+                    CloudSecretsMessageBox(text: message, isError: true)
+                case .ready:
+                    content
                 }
-            case .loadFailed(let message):
-                CloudSecretsMessageBox(text: message, isError: true)
-            case .ready:
-                content
-            }
 
-            if let error = model.actionError {
-                CloudSecretsMessageBox(text: error, isError: true)
-                    .accessibilityIdentifier("CloudSecretsSheet.actionError")
+                if let error = model.actionError {
+                    CloudSecretsMessageBox(text: error, isError: true)
+                        .accessibilityIdentifier("CloudSecretsSheet.actionError")
+                }
             }
+            .frame(maxWidth: .infinity, minHeight: Self.bodyMinHeight, alignment: .top)
 
             CloudSecretsSheetFooter(model: model)
         }
         .padding(20)
         .frame(width: 580)
+        .background(Color(nsColor: .windowBackgroundColor))
         .overlay { if isDropTargeted { dropTarget } }
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
             CloudSecretsDotenvFile.loadDropped(providers) { text, name in
@@ -122,29 +132,11 @@ struct CloudSecretsSheet: View {
 
     private var removalMessage: String {
         guard let record = model.pendingRemoval else { return "" }
-        switch record.scope {
-        case .all:
-            return String(
-                localized: "cloudSecrets.remove.message.all",
-                defaultValue: "It is deleted from this Mac’s Keychain and removed from every machine at the next sync. Shells that are already open keep the old value."
-            )
-        case .project(let key):
-            return String(
-                format: String(
-                    localized: "cloudSecrets.remove.message.project",
-                    defaultValue: "It is deleted from this Mac’s Keychain and removed from machines linked to %@ at the next sync. Shells that are already open keep the old value."
-                ),
-                CloudSecretsSheetPresentation.shortProjectLabel(key)
-            )
-        case .machine(let id):
-            return String(
-                format: String(
-                    localized: "cloudSecrets.remove.message.machine",
-                    defaultValue: "It is deleted from this Mac’s Keychain and removed from %@ at the next sync. Shells that are already open keep the old value."
-                ),
-                model.machineLabels[id] ?? id
-            )
-        }
+        return CloudSecretsSheetPresentation.removalMessage(
+            record.scope,
+            machineLabels: model.machineLabels,
+            projectLabels: model.projectDisplayNames
+        )
     }
 }
 
@@ -206,15 +198,14 @@ struct CloudSecretsMessageBox: View {
     }
 }
 
-/// Add, Import .env…, Paste .env and Done. ⌘N adds; Esc closes the open
-/// card first, then the sheet.
+/// Add, Import .env… (with Paste from Clipboard in its menu) and Done. ⌘N
+/// adds; Esc closes the open card first, then the sheet.
 private struct CloudSecretsSheetFooter: View {
     @Bindable var model: CloudSecretsSheetModel
 
     var body: some View {
         HStack(spacing: 8) {
-            // The empty state carries its own add and import actions.
-            if !model.hasModalCard, model.phase == .ready, !model.isEmptyVault {
+            if !model.hasModalCard, model.phase == .ready {
                 Button {
                     model.beginAdd()
                 } label: {
@@ -225,17 +216,10 @@ private struct CloudSecretsSheetFooter: View {
                 .help(addHelp)
                 .accessibilityIdentifier("CloudSecretsSheet.add")
 
-                Button(String(localized: "cloudSecrets.import.file", defaultValue: "Import .env…")) {
-                    CloudSecretsDotenvFile.choose(into: model)
+                // The empty state carries its own import starter.
+                if !model.isEmptyVault {
+                    CloudSecretsImportMenu(model: model)
                 }
-                .help(String(localized: "cloudSecrets.import.help", defaultValue: "Review the variables in a .env file before storing them. You can also drop a .env file on this window."))
-                .accessibilityIdentifier("CloudSecretsSheet.import")
-
-                Button(String(localized: "cloudSecrets.import.paste", defaultValue: "Paste .env")) {
-                    CloudSecretsDotenvFile.paste(into: model)
-                }
-                .help(String(localized: "cloudSecrets.import.paste.help", defaultValue: "Review KEY=VALUE lines from the clipboard before storing them."))
-                .accessibilityIdentifier("CloudSecretsSheet.pasteDotenv")
             }
             Spacer()
             if !model.hasModalCard {
@@ -251,5 +235,31 @@ private struct CloudSecretsSheetFooter: View {
         model.canAdd
             ? String(localized: "cloudSecrets.add.help", defaultValue: "Add a secret (⌘N)")
             : String(localized: "cloudSecrets.add.needsMachine", defaultValue: "Open Secrets from a machine’s menu to add a secret for that machine.")
+    }
+}
+
+/// Import .env…: clicking chooses a file; its menu also pastes `KEY=VALUE`
+/// lines from the clipboard, so the two ways in are one control.
+struct CloudSecretsImportMenu: View {
+    let model: CloudSecretsSheetModel
+
+    var body: some View {
+        Menu {
+            Button(String(localized: "cloudSecrets.import.chooseFile", defaultValue: "Choose File\u{2026}")) {
+                CloudSecretsDotenvFile.choose(into: model)
+            }
+            Button(String(localized: "cloudSecrets.import.paste.menu", defaultValue: "Paste from Clipboard")) {
+                CloudSecretsDotenvFile.paste(into: model)
+            }
+            .help(String(localized: "cloudSecrets.import.paste.help", defaultValue: "Review KEY=VALUE lines from the clipboard before storing them."))
+            .accessibilityIdentifier("CloudSecretsSheet.pasteDotenv")
+        } label: {
+            Text(String(localized: "cloudSecrets.import.file", defaultValue: "Import .env…"))
+        } primaryAction: {
+            CloudSecretsDotenvFile.choose(into: model)
+        }
+        .fixedSize()
+        .help(String(localized: "cloudSecrets.import.help", defaultValue: "Review the variables in a .env file before storing them. You can also drop a .env file on this window."))
+        .accessibilityIdentifier("CloudSecretsSheet.import")
     }
 }

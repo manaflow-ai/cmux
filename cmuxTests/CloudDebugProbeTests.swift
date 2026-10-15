@@ -143,6 +143,23 @@ struct CloudDebugProbeTests {
         #expect(try await Set(vault.records().map(\.name)) == ["ANTHROPIC_API_KEY", "OTHER_TOKEN"])
     }
 
+    @Test("Skipped import lines report kind skipped, not unchanged")
+    func importSkippedKind() async throws {
+        let vault = CloudSecretVault(storage: InMemoryCloudSecretVaultStorage())
+        let model = makeModel(vault: vault)
+        await model.load()
+
+        let text = "GOOD_KEY=\(Self.secretValue)\nnot a line\nEMPTY_ONE=\n"
+        #expect(await CloudDebugSecretsProbe.perform(.importText(text: text, sourceName: nil), on: model) == .applied)
+        let state = CloudDebugSecretsProbe.state(model, busy: false)
+        let preview = try #require(state["import_preview"] as? [String: Any])
+        let rows = try #require(preview["rows"] as? [[String: Any]])
+        let kinds = rows.compactMap { $0["kind"] as? String }
+        #expect(kinds == ["added", "skipped", "skipped"])
+        #expect(rows.dropFirst().allSatisfy { $0["kind_title"] as? String == "Skipped" })
+        #expect(try !json(state).contains(Self.secretValue))
+    }
+
     @Test("Remove without confirm leaves the dialog pending; with confirm deletes")
     func removeFlow() async throws {
         let vault = CloudSecretVault(storage: InMemoryCloudSecretVaultStorage())

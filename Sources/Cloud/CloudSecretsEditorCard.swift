@@ -34,6 +34,7 @@ struct CloudSecretsEditorCard: View {
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 12, design: .monospaced))
                         .autocorrectionDisabled()
+                        .frame(maxWidth: .infinity)
                         .disabled(editor.replacing != nil)
                         .focused($focus, equals: .name)
                         .onSubmit { focus = .value }
@@ -42,10 +43,11 @@ struct CloudSecretsEditorCard: View {
                     GridRow {
                         rowLabel(String(localized: "cloudSecrets.editor.value", defaultValue: "Value"))
                         SecureField(
-                            String(localized: "cloudSecrets.editor.value.placeholder", defaultValue: "Paste the key"),
+                            CloudSecretsSheetPresentation.valuePlaceholder(model.editorPreset),
                             text: binding(\.value)
                         )
                         .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: .infinity)
                         .focused($focus, equals: .value)
                         .onSubmit { save() }
                         .accessibilityLabel(String(localized: "cloudSecrets.editor.value.accessibility", defaultValue: "Secret value"))
@@ -81,13 +83,7 @@ struct CloudSecretsEditorCard: View {
 
                 HStack(spacing: 8) {
                     if let preset = model.editorPreset, let url = preset.docsURL {
-                        Link(
-                            String(
-                                format: String(localized: "cloudSecrets.editor.getKey", defaultValue: "Get a %@ key"),
-                                preset.label
-                            ),
-                            destination: url
-                        )
+                        Link(CloudSecretsSheetPresentation.credentialLink(preset), destination: url)
                         .cmuxFont(size: 11)
                         .accessibilityIdentifier("CloudSecretsEditor.getKey")
                     }
@@ -142,13 +138,29 @@ struct CloudSecretsEditorCard: View {
         let text = scope.map {
             String(
                 format: String(localized: "cloudSecrets.editor.scope", defaultValue: "Applies to %@. You can replace the value later, but not view it."),
-                CloudSecretsSheetPresentation.scopeDescription($0, machineLabels: model.machineLabels)
+                CloudSecretsSheetPresentation.scopeDescription(
+                    $0,
+                    machineLabels: model.machineLabels,
+                    projectLabels: typedProjectLabels($0)
+                )
             )
         } ?? String(localized: "cloudSecrets.editor.scope.needsProject", defaultValue: "Enter the project’s git remote, for example github.com/owner/repo.")
         return Text(text)
             .cmuxFont(size: 11)
             .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The project as typed in the card ("Octocat/Hello-World"), over labels
+    /// already known this session.
+    private func typedProjectLabels(_ scope: CloudSecretScope) -> [String: String] {
+        var labels = model.projectDisplayNames
+        if case .project(let key) = scope, let text = model.editor?.projectText,
+           let typed = CloudSecretsSheetPresentation.typedProjectLabel(text, key: key) {
+            labels[key] = typed
+        }
+        return labels
     }
 
     /// A text field for the project key with a menu of known projects.
@@ -161,12 +173,14 @@ struct CloudSecretsEditorCard: View {
             .textFieldStyle(.roundedBorder)
             .font(.system(size: 12, design: .monospaced))
             .autocorrectionDisabled()
+            .frame(maxWidth: .infinity)
             .focused($focus, equals: .project)
             .accessibilityIdentifier("CloudSecretsEditor.project")
             if !model.projectKeys.isEmpty {
                 Menu {
                     ForEach(model.projectKeys, id: \.self) { key in
-                        Button(key) { model.editor?.projectText = key }
+                        Button(model.projectLabel(key)) { model.editor?.projectText = key }
+                            .help(key)
                     }
                 } label: {
                     Image(systemName: "chevron.down")

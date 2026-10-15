@@ -42,12 +42,12 @@ struct CloudSecretsScopeBar: View {
                 Button {
                     model.projectKey = key
                 } label: {
-                    checkmarked(CloudSecretsSheetPresentation.shortProjectLabel(key), model.projectKey == key)
+                    checkmarked(model.projectLabel(key), model.projectKey == key)
                 }
                 .help(key)
             }
         } label: {
-            Text(model.projectKey.map(CloudSecretsSheetPresentation.shortProjectLabel)
+            Text(model.projectKey.map { model.projectLabel($0) }
                 ?? String(localized: "cloudSecrets.project.all", defaultValue: "All Projects"))
         }
         .menuStyle(.borderlessButton)
@@ -163,15 +163,19 @@ struct CloudSecretsList: View {
     }
 
     private func row(_ record: CloudSecretRecord) -> some View {
-        let state = model.rowState(for: record)
+        let state = CloudSecretsSheetPresentation.visibleChip(model.rowState(for: record))
+        let labels = model.machineLabels
+        let projects = model.projectDisplayNames
         return CloudSecretsRow(
             name: record.name,
-            pill: CloudSecretsSheetPresentation.scopePill(record.scope, machineLabels: model.machineLabels),
-            scopeDescription: CloudSecretsSheetPresentation.scopeDescription(record.scope, machineLabels: model.machineLabels),
+            pill: CloudSecretsSheetPresentation.scopePill(record.scope, machineLabels: labels, projectLabels: projects),
+            scopeDescription: CloudSecretsSheetPresentation.scopeDescription(record.scope, machineLabels: labels, projectLabels: projects),
             fingerprint: CloudSecretsSheetPresentation.maskedFingerprint(record.fingerprint),
             updated: CloudSecretsSheetPresentation.updatedLabel(record.updatedAt, now: model.currentDate),
+            age: CloudSecretsSheetPresentation.ageLabel(record.updatedAt, now: model.currentDate),
+            reservesStateColumn: model.isMachineMode,
             state: state,
-            stateHelp: state.map { CloudSecretsSheetPresentation.stateHelp($0, machineLabels: model.machineLabels) },
+            stateHelp: state.map { CloudSecretsSheetPresentation.stateHelp($0, machineLabels: labels) },
             isSelected: model.selectionID == record.sheetID,
             isEnabled: !model.hasModalCard,
             onSelect: {
@@ -302,16 +306,20 @@ private struct CloudSecretsRequirementRow: View {
     }
 }
 
-/// One stored secret: monospace name, scope pill, the machine state when
-/// the sheet is about a machine, and the masked fingerprint with its age.
-/// Replace… and Remove appear on hover or selection, and are always in the
-/// context menu and the VoiceOver actions.
+/// One stored secret: monospace name and scope pill, then fixed trailing
+/// columns so every row lines up: the machine state (only when it is not
+/// current), the masked Value ID, the age, and an action slot. Replace and
+/// Remove fill that slot on hover or selection without displacing the
+/// metadata, and are always in the context menu and the VoiceOver actions.
 private struct CloudSecretsRow: View {
     let name: String
     let pill: String?
     let scopeDescription: String
     let fingerprint: String
     let updated: String
+    let age: String
+    /// The machine view keeps a state column even on rows without a chip.
+    let reservesStateColumn: Bool
     let state: CloudSecretsSheetPresentation.RowState?
     let stateHelp: String?
     let isSelected: Bool
@@ -321,6 +329,14 @@ private struct CloudSecretsRow: View {
     let onRemove: () -> Void
 
     @State private var isHovered = false
+
+    /// Trailing column widths, shared by every row.
+    private enum Column {
+        static let state: CGFloat = 116
+        static let fingerprint: CGFloat = 92
+        static let age: CGFloat = 64
+        static let actions: CGFloat = 46
+    }
 
     var body: some View {
         interactiveRow
@@ -337,7 +353,8 @@ private struct CloudSecretsRow: View {
     // modifier chain with ternaries in it (it timed out on the combined form).
     private var interactiveRow: some View {
         rowContent
-            .padding(.horizontal, 12)
+            .padding(.leading, 12)
+            .padding(.trailing, 6)
             .frame(minHeight: 36)
             .contentShape(Rectangle())
             .background(rowBackground)
@@ -385,48 +402,77 @@ private struct CloudSecretsRow: View {
                 CloudSecretsPill(text: pill, help: scopeDescription)
             }
             Spacer(minLength: 8)
-            if let state {
-                CloudSecretsStateChip(state: state, help: stateHelp ?? "")
+            if reservesStateColumn {
+                stateColumn
             }
-            if showsActions {
-                actions
-            } else {
-                metadata
-            }
+            metadataColumns
+            actionSlot
         }
     }
 
-    private var showsActions: Bool { isEnabled && (isHovered || isSelected) }
-
-    private var metadata: some View {
-        HStack(spacing: 10) {
+    // Kept apart from `rowContent` so no single expression grows long enough
+    // to stall the type checker.
+    private var metadataColumns: some View {
+        HStack(spacing: 8) {
             Text(fingerprint)
                 .cmuxFont(size: 11, design: .monospaced)
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
-                .fixedSize()
-            Text(updated)
+                .frame(width: Column.fingerprint, alignment: .trailing)
+            Text(age)
                 .cmuxFont(size: 11)
+                .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .fixedSize()
+                .minimumScaleFactor(0.85)
+                .frame(width: Column.age, alignment: .trailing)
         }
     }
 
+    /// Always laid out, so showing the actions never moves the columns.
+    private var actionSlot: some View {
+        let visible = showsActions
+        return actions
+            .frame(width: Column.actions, alignment: .trailing)
+            .opacity(visible ? 1 : 0)
+            .allowsHitTesting(visible)
+            .accessibilityHidden(!visible)
+    }
+
+    @ViewBuilder
+    private var stateColumn: some View {
+        Group {
+            if let state {
+                CloudSecretsStateChip(state: state, help: stateHelp ?? "")
+            } else {
+                Color.clear.frame(height: 1)
+            }
+        }
+        .frame(width: Column.state, alignment: .trailing)
+    }
+
+    private var showsActions: Bool { isEnabled && (isHovered || isSelected) }
+
     private var actions: some View {
-        HStack(spacing: 4) {
-            Button(String(localized: "cloudSecrets.row.replace", defaultValue: "Replace…"), action: onReplace)
-                .controlSize(.small)
-                .accessibilityIdentifier("CloudSecretsSheet.row.\(name).replace")
+        HStack(spacing: 2) {
+            Button(action: onReplace) {
+                Image(systemName: "square.and.pencil")
+                    .frame(width: 20, height: 20)
+            }
+            .help(String(localized: "cloudSecrets.row.replace.help", defaultValue: "Replace the value"))
+            .accessibilityLabel(String(localized: "cloudSecrets.row.replace", defaultValue: "Replace…"))
+            .accessibilityIdentifier("CloudSecretsSheet.row.\(name).replace")
             Button(action: onRemove) {
                 Image(systemName: "trash")
+                    .frame(width: 20, height: 20)
             }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
             .help(String(localized: "cloudSecrets.row.remove.help", defaultValue: "Remove (Delete)"))
             .accessibilityLabel(String(localized: "cloudSecrets.row.remove", defaultValue: "Remove…"))
             .accessibilityIdentifier("CloudSecretsSheet.row.\(name).remove")
         }
+        .buttonStyle(.borderless)
+        .foregroundStyle(.secondary)
+        .font(.system(size: 11, weight: .medium))
     }
 
     private var accessibilityText: String {
@@ -454,24 +500,32 @@ struct CloudSecretsPill: View {
     }
 }
 
-/// Current / Out of date / Not on machine / Overridden, in semantic color.
+/// Out of date / Not on machine / Overridden / Syncing…, in semantic color.
+/// Syncing is quiet: a delivery in flight is not a problem.
 struct CloudSecretsStateChip: View {
     let state: CloudSecretsSheetPresentation.RowState
     let help: String
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: symbol)
-                .font(.system(size: 9, weight: .bold))
+            if state == .syncing {
+                ProgressView()
+                    .controlSize(.mini)
+                    .scaleEffect(0.7)
+                    .frame(width: 10, height: 10)
+            } else {
+                Image(systemName: symbol)
+                    .font(.system(size: 9, weight: .bold))
+            }
             Text(CloudSecretsSheetPresentation.stateTitle(state))
                 .cmuxFont(size: 10, weight: .medium)
                 .lineLimit(1)
+                .truncationMode(.tail)
         }
         .foregroundStyle(tint)
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
         .background(Capsule().fill(tint.opacity(0.12)))
-        .fixedSize()
         .help(help)
         .accessibilityElement(children: .combine)
         .accessibilityHint(help)
@@ -484,6 +538,7 @@ struct CloudSecretsStateChip: View {
         case .machine(.missing): return "arrow.down"
         case .machine(.extra): return "minus"
         case .overridden: return "arrow.turn.down.right"
+        case .syncing: return "arrow.triangle.2.circlepath"
         }
     }
 
@@ -491,7 +546,7 @@ struct CloudSecretsStateChip: View {
         switch state {
         case .machine(.current): return .green
         case .machine(.stale), .machine(.missing): return .orange
-        case .machine(.extra), .overridden: return .secondary
+        case .machine(.extra), .overridden, .syncing: return .secondary
         }
     }
 }
@@ -524,10 +579,7 @@ private struct CloudSecretsPresetChips: View {
                     preset.name,
                     preset.agents.joined(separator: ", ")
                 ))
-                .accessibilityLabel(String(
-                    format: String(localized: "cloudSecrets.presets.accessibility", defaultValue: "Add %@ key"),
-                    preset.label
-                ))
+                .accessibilityLabel(CloudSecretsSheetPresentation.presetAccessibility(preset))
                 .accessibilityIdentifier("CloudSecretsSheet.preset.\(preset.name)")
             }
             Spacer(minLength: 0)

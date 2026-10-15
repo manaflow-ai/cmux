@@ -22,6 +22,11 @@ struct CloudSecretsSheetModelTests {
         var setCalls: [(names: [String], scope: CloudSecretScope)] = []
 
         var declaredReads: [URL] = []
+        /// When set, writes from the sheet run a background delivery; each run
+        /// records what the sheet showed while it was in flight.
+        var autoSyncEnabled = false
+        weak var observed: CloudSecretsSheetModel?
+        var deliveringDuringAutoSync: [Bool] = []
 
         func model(
             machineID: String? = nil,
@@ -57,6 +62,10 @@ struct CloudSecretsSheetModelTests {
                     declared: { root in
                         self.declaredReads.append(root)
                         return declared
+                    },
+                    autoSync: {
+                        guard self.autoSyncEnabled else { return nil }
+                        return { self.deliveringDuringAutoSync.append(self.observed?.isDelivering ?? false) }
                     }
                 ),
                 now: { Date(timeIntervalSince1970: 1_800_000_000) }
@@ -141,6 +150,11 @@ struct CloudSecretsSheetModelTests {
         let draft = try #require(model.importDraft)
         let kinds = Dictionary(uniqueKeysWithValues: draft.preview.rows.map { ($0.name, $0.problem == nil ? $0.kind.rawValue : "skipped") })
         #expect(kinds == ["SAME": "unchanged", "CHANGED": "updated", "FRESH": "added", "CMUX_TOKEN": "skipped"])
+        // What Import does with each row; a skipped row is never "unchanged".
+        let dispositions = Dictionary(uniqueKeysWithValues: draft.preview.rows.map { ($0.name, $0.disposition) })
+        #expect(dispositions == kinds)
+        // A reserved name needs renaming; it is the only row that asks for attention.
+        #expect(draft.preview.rows.filter(\.needsAttention).map(\.name) == ["CMUX_TOKEN"])
         #expect(draft.preview.inputsToCommit.map(\.name) == ["CHANGED", "FRESH"])
         // Nothing is stored before Import.
         #expect(harness.setCalls.isEmpty)
@@ -177,6 +191,9 @@ struct CloudSecretsSheetModelTests {
         #expect(skipped.map(\.line) == [2, 3])
         #expect(skipped.map(\.name) == ["Line 2", "EMPTY"])
         #expect(skipped.first?.problem == "Skipped (not NAME=value, line 2)")
+        // Skipping a bad line is expected: quiet, and reported as skipped.
+        #expect(skipped.allSatisfy { !$0.needsAttention && $0.disposition == "skipped" })
+        #expect(skipped.map { CloudSecretsSheetPresentation.importRowTitle($0) } == ["Skipped", "Skipped"])
         // The bare line may be a value: no row shows its text.
         #expect(!draft.preview.rows.contains { $0.name.contains("sk-") || ($0.problem ?? "").contains("sk-") })
         #expect(CloudSecretsSheetPresentation.importSummary(draft.preview) == "New: 2 \u{00B7} Skipped: 2")
@@ -261,6 +278,138 @@ struct CloudSecretsSheetModelTests {
         await model.syncNow()
         #expect(model.syncError == "Could not reach the machine.")
         #expect(!model.didSync)
+    }
+
+    @Test("A delivery after a save reads as Syncing, not as missing, until it finishes")
+    func autoSyncAfterSaveShowsSyncing() async throws {
+        let harness = Harness()
+        harness.autoSyncEnabled = true
+        harness.statusRows = [
+            CloudSecretMachineStatusRow(name: "OPENAI_API_KEY", scope: .all, state: .missing, fingerprint: nil),
+        ]
+        let model = harness.model(machineID: "vm-1", label: "Big Machine")
+        harness.observed = model
+        await model.load()
+        #expect(!model.isDelivering)
+
+        model.beginAdd(name: "OPENAI_API_KEY")
+        model.editor?.value = "sk-one"
+        await model.saveEditor()
+        let task = try #require(model.autoSyncTask)
+        await task.value
+        #expect(harness.deliveringDuringAutoSync == [true], "the sheet knew a delivery was in flight while it ran")
+        #expect(model.pendingAutoSyncs == 0)
+        #expect(!model.isDelivering)
+        let record = try #require(model.visibleRecords.first)
+        #expect(model.rowState(for: record) == .machine(.missing), "after the delivery the real state shows again")
+    }
+
+    @Test("A sync someone else started shows the machine as Syncing, never as missing")
+    func externalSyncShowsSyncing() async throws {
+        let harness = Harness()
+        try await harness.vault.set([CloudSecretInput(name: "OPENAI_API_KEY", value: "sk")], scope: .all, source: .manual)
+        try await harness.vault.set([CloudSecretInput(name: "GH_TOKEN", value: "gh")], scope: .all, source: .manual)
+        harness.statusRows = [
+            CloudSecretMachineStatusRow(name: "OPENAI_API_KEY", scope: .all, state: .missing, fingerprint: nil),
+            CloudSecretMachineStatusRow(name: "GH_TOKEN", scope: .all, state: .current, fingerprint: nil),
+        ]
+        let model = harness.model(machineID: "vm-1", label: "Big Machine")
+        await model.load()
+        let missing = try #require(model.visibleRecords.first { $0.name == "OPENAI_API_KEY" })
+        let current = try #require(model.visibleRecords.first { $0.name == "GH_TOKEN" })
+        #expect(model.rowState(for: missing) == .machine(.missing))
+        #expect(CloudSecretsSheetPresentation.machineSummary(model.statusRows, isDelivering: model.isDelivering) == "Up to date: 1 of 2")
+
+        model.setExternalSyncInFlight(true)
+        #expect(model.isDelivering)
+        #expect(model.rowState(for: missing) == .syncing)
+        #expect(model.rowState(for: current) == .machine(.current), "a current value stays current")
+        #expect(CloudSecretsSheetPresentation.machineSummary(model.statusRows, isDelivering: model.isDelivering) == "Syncing\u{2026}")
+
+        model.setExternalSyncInFlight(false)
+        #expect(!model.isDelivering)
+        #expect(model.rowState(for: missing) == .machine(.missing))
+
+        // The sheet not about a machine never claims a delivery.
+        let plain = harness.model()
+        plain.setExternalSyncInFlight(true)
+        #expect(!plain.isDelivering)
+    }
+
+    @Test("Rows show a chip only when the machine differs from the vault")
+    func chipsOnlyForNonCurrent() {
+        #expect(CloudSecretsSheetPresentation.visibleChip(.machine(.current)) == nil)
+        #expect(CloudSecretsSheetPresentation.visibleChip(nil) == nil)
+        #expect(CloudSecretsSheetPresentation.visibleChip(.machine(.stale)) == .machine(.stale))
+        #expect(CloudSecretsSheetPresentation.visibleChip(.syncing) == .syncing)
+        #expect(CloudSecretsSheetPresentation.visibleChip(.overridden(by: .all)) == .overridden(by: .all))
+    }
+
+    @Test("Credential copy uses the provider's word and a correct article")
+    func credentialCopy() throws {
+        let anthropic = try #require(CloudSecretCatalog.presets.first { $0.name == "ANTHROPIC_API_KEY" })
+        let github = try #require(CloudSecretCatalog.presets.first { $0.name == "GH_TOKEN" })
+        let openAI = try #require(CloudSecretCatalog.presets.first { $0.name == "OPENAI_API_KEY" })
+        #expect(CloudSecretsSheetPresentation.credentialLink(anthropic) == "Get an API key from Anthropic")
+        #expect(CloudSecretsSheetPresentation.credentialLink(openAI) == "Get an API key from OpenAI")
+        #expect(CloudSecretsSheetPresentation.credentialLink(github) == "Get a token from GitHub")
+        #expect(CloudSecretsSheetPresentation.valuePlaceholder(github) == "Paste the token")
+        #expect(CloudSecretsSheetPresentation.valuePlaceholder(anthropic) == "Paste the API key")
+        #expect(CloudSecretsSheetPresentation.valuePlaceholder(nil) == "Paste the value")
+        #expect(CloudSecretsSheetPresentation.presetAccessibility(github) == "Add GitHub token")
+    }
+
+    @Test("The editor's preset follows the typed name, so GH_TOKEN asks for a token")
+    func editorPresetFollowsName() async {
+        let harness = Harness()
+        let model = harness.model()
+        await model.load()
+        model.beginAdd(name: "GH_TOKEN")
+        #expect(model.editorPreset?.credential == .token)
+        model.editor?.name = "MY_OWN_THING"
+        #expect(model.editorPreset == nil)
+    }
+
+    @Test("Removing asks in one sentence who loses the secret")
+    func removalSentence() {
+        #expect(CloudSecretsSheetPresentation.removalMessage(.all, machineLabels: [:]) == "Machines lose it on their next sync.")
+        #expect(CloudSecretsSheetPresentation.removalMessage(.project("github.com/acme/api"), machineLabels: [:])
+            == "Machines linked to acme/api lose it on their next sync.")
+        #expect(CloudSecretsSheetPresentation.removalMessage(.machine("vm-1"), machineLabels: ["vm-1": "Big"]) == "Big loses it on its next sync.")
+    }
+
+    @Test("A project shows as typed, while its key stays normalized")
+    func projectShowsAsTyped() async throws {
+        let harness = Harness()
+        let model = harness.model()
+        await model.load()
+        model.tab = .project
+        model.beginAdd(name: "GH_TOKEN")
+        model.editor?.projectText = "https://github.com/Octocat/Hello-World.git"
+        model.editor?.value = "ghp_x"
+        #expect(model.editorScope == .project("github.com/octocat/hello-world"))
+        await model.saveEditor()
+        #expect(harness.setCalls.last?.scope == .project("github.com/octocat/hello-world"))
+        #expect(model.projectLabel("github.com/octocat/hello-world") == "Octocat/Hello-World")
+        #expect(CloudSecretsSheetPresentation.scopePill(
+            .project("github.com/octocat/hello-world"), machineLabels: [:], projectLabels: model.projectDisplayNames
+        ) == "Octocat/Hello-World")
+
+        #expect(CloudSecretsSheetPresentation.typedProjectLabel("github.com/octocat/hello-world", key: "github.com/octocat/hello-world") == nil,
+                "lowercase text adds nothing over the key")
+        #expect(CloudSecretsSheetPresentation.typedProjectLabel("Something/Else", key: "github.com/octocat/hello-world") == nil)
+        // Another host keeps its host; GitHub's owner/repo is the usual short form.
+        #expect(CloudSecretsSheetPresentation.shortProjectLabel("gitlab.com/acme/api") == "gitlab.com/acme/api")
+    }
+
+    @Test("Row ages drop the repeated Updated and keep it for help text")
+    func ageLabels() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let english = Locale(identifier: "en_US")
+        #expect(CloudSecretsSheetPresentation.ageLabel(now.addingTimeInterval(-10), now: now, locale: english) == "just now")
+        let twoHours = CloudSecretsSheetPresentation.ageLabel(now.addingTimeInterval(-7_200), now: now, locale: english)
+        #expect(twoHours.contains("2"))
+        #expect(!twoHours.contains("Updated"))
     }
 
     @Test("A project secret shows Overridden only on a machine linked to that project")

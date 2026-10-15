@@ -20,6 +20,8 @@ enum CloudSecretsSheetPresentation {
         case machine(CloudSecretMachineState)
         /// Another scope's value for the same name wins on the machine.
         case overridden(by: CloudSecretScope)
+        /// Missing or out of date, with a delivery to the machine in flight.
+        case syncing
     }
 
     /// One name in an import preview. `problem` rows are not imported. `line` is
@@ -30,6 +32,18 @@ enum CloudSecretsSheetPresentation {
         let kind: CloudSecretChange.Kind
         let problem: String?
         var line: Int? = nil
+
+        /// Left out of the import: a parser skip or a name that failed validation.
+        var isSkipped: Bool { problem != nil }
+
+        /// A skipped name the person may want to fix (a reserved or invalid
+        /// name). A parser skip (a comment-like line, an empty value) is
+        /// expected and needs nothing.
+        var needsAttention: Bool { problem != nil && line == nil }
+
+        /// What the row does on Import: "added", "updated", "unchanged" or
+        /// "skipped". The change kind alone reads "unchanged" for a skipped row.
+        var disposition: String { isSkipped ? "skipped" : kind.rawValue }
     }
 
     /// The preview's rows and what Import will send.
@@ -167,36 +181,59 @@ enum CloudSecretsSheetPresentation {
         )
     }
 
-    /// "owner/repo" for `github.com/owner/repo`, the folder for `local/<name>`.
+    /// How people name a project: "owner/repo" for GitHub, where that is the
+    /// usual short form, "host/owner/repo" for any other host, and the folder
+    /// for `local/<name>`. Keys are lowercased; see ``typedProjectLabel(_:key:)``
+    /// for the casing someone typed.
     static func shortProjectLabel(_ key: String) -> String {
         let parts = key.split(separator: "/").map(String.init)
         if parts.first == "local", parts.count >= 2 { return parts.dropFirst().joined(separator: "/") }
         guard parts.count >= 3 else { return key }
-        return parts.suffix(2).joined(separator: "/")
+        if parts.first == "github.com" { return parts.dropFirst().joined(separator: "/") }
+        return key
+    }
+
+    /// The short label with the casing from what was typed for `key`
+    /// ("Octocat/Hello-World" for `https://github.com/Octocat/Hello-World.git`),
+    /// or nil when the text does not end in the key's label.
+    static func typedProjectLabel(_ text: String, key: String) -> String? {
+        let short = shortProjectLabel(key)
+        var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        while trimmed.hasSuffix("/") { trimmed.removeLast() }
+        if trimmed.lowercased().hasSuffix(".git") { trimmed.removeLast(4) }
+        guard trimmed.count >= short.count else { return nil }
+        let tail = String(trimmed.suffix(short.count))
+        guard tail.lowercased() == short, tail != short else { return nil }
+        return tail
+    }
+
+    /// A project's label, preferring the casing someone typed this session.
+    static func projectLabel(_ key: String, displayNames: [String: String] = [:]) -> String {
+        displayNames[key] ?? shortProjectLabel(key)
     }
 
     /// The pill beside a name. `nil` for `all`, where every row on the tab
     /// would repeat it.
-    static func scopePill(_ scope: CloudSecretScope, machineLabels: [String: String]) -> String? {
+    static func scopePill(_ scope: CloudSecretScope, machineLabels: [String: String], projectLabels: [String: String] = [:]) -> String? {
         switch scope {
         case .all:
             return nil
         case .project(let key):
-            return shortProjectLabel(key)
+            return projectLabel(key, displayNames: projectLabels)
         case .machine(let id):
             return machineLabels[id] ?? id
         }
     }
 
     /// The scope as a phrase, for the editor, the import preview and VoiceOver.
-    static func scopeDescription(_ scope: CloudSecretScope, machineLabels: [String: String]) -> String {
+    static func scopeDescription(_ scope: CloudSecretScope, machineLabels: [String: String], projectLabels: [String: String] = [:]) -> String {
         switch scope {
         case .all:
             return String(localized: "cloudSecrets.scope.all.description", defaultValue: "All machines")
         case .project(let key):
             return String(
                 format: String(localized: "cloudSecrets.scope.project.description", defaultValue: "Machines linked to %@"),
-                shortProjectLabel(key)
+                projectLabel(key, displayNames: projectLabels)
             )
         case .machine(let id):
             return String(
@@ -219,6 +256,14 @@ enum CloudSecretsSheetPresentation {
             return String(localized: "cloudSecrets.row.updatedJustNow", defaultValue: "Updated just now")
         }
         return String(format: String(localized: "cloudSecrets.row.updated", defaultValue: "Updated %@"), relative)
+    }
+
+    /// The row's age column: "2m ago" or "just now", without the "Updated"
+    /// that every row would repeat. ``updatedLabel(_:now:locale:)`` is the
+    /// full phrase for help and VoiceOver.
+    static func ageLabel(_ date: Date, now: Date, locale: Locale = .current) -> String {
+        relativePhrase(date, now: now, locale: locale)
+            ?? String(localized: "cloudSecrets.row.age.justNow", defaultValue: "just now")
     }
 
     /// "Delivered 5m ago", "Delivered just now" or "Not delivered yet".
@@ -255,7 +300,16 @@ enum CloudSecretsSheetPresentation {
             return String(localized: "cloudSecrets.state.extra", defaultValue: "Removed on next sync")
         case .overridden:
             return String(localized: "cloudSecrets.state.overridden", defaultValue: "Overridden")
+        case .syncing:
+            return String(localized: "cloudSecrets.state.syncing", defaultValue: "Syncing\u{2026}")
         }
+    }
+
+    /// The chip a row shows: nothing for a current value, so a row only
+    /// speaks up when it differs from the machine.
+    static func visibleChip(_ state: RowState?) -> RowState? {
+        guard let state, state != .machine(.current) else { return nil }
+        return state
     }
 
     static func stateHelp(_ state: RowState, machineLabels: [String: String]) -> String {
@@ -273,6 +327,8 @@ enum CloudSecretsSheetPresentation {
                 format: String(localized: "cloudSecrets.state.overridden.help", defaultValue: "The value for %@ wins on this machine."),
                 scopeDescription(scope, machineLabels: machineLabels)
             )
+        case .syncing:
+            return String(localized: "cloudSecrets.state.syncing.help", defaultValue: "cmux is sending this secret to the machine now.")
         }
     }
 
@@ -280,15 +336,20 @@ enum CloudSecretsSheetPresentation {
 
     /// A record's state on the machine: its own state when it is the winning
     /// value, `overridden` when another scope wins, nil when the record does
-    /// not apply to the machine at all.
+    /// not apply to the machine at all. While a delivery is in flight, a
+    /// missing or out-of-date value reads `syncing`, not as a problem.
     static func rowState(
         for record: CloudSecretRecord,
         statusRows: [CloudSecretMachineStatusRow],
-        linkedProjects: [String] = []
+        linkedProjects: [String] = [],
+        isDelivering: Bool = false
     ) -> RowState? {
         guard let row = statusRows.first(where: { $0.name == record.name && $0.state != .extra }),
               let winning = row.scope else { return nil }
-        if winning == record.scope { return .machine(row.state) }
+        if winning == record.scope {
+            if isDelivering, row.state == .missing || row.state == .stale { return .syncing }
+            return .machine(row.state)
+        }
         // Only a less specific scope can be overridden; a project the machine
         // is not linked to never applied in the first place.
         if winning.rank > record.scope.rank, applies(record.scope, linkedProjects: linkedProjects) {
@@ -312,6 +373,15 @@ enum CloudSecretsSheetPresentation {
         let current = effective.filter { $0.state == .current }.count
         let format = String(localized: "cloudSecrets.machine.summary", defaultValue: "Up to date: %1$@ of %2$@")
         return String(format: format, number(current), number(effective.count))
+    }
+
+    /// The status card's title: "Syncing…" while a delivery is in flight,
+    /// otherwise the up-to-date count.
+    static func machineSummary(_ statusRows: [CloudSecretMachineStatusRow], isDelivering: Bool) -> String {
+        guard !isDelivering else {
+            return String(localized: "cloudSecrets.machine.syncing", defaultValue: "Syncing\u{2026}")
+        }
+        return upToDateSummary(statusRows)
     }
 
     static func needsSync(_ statusRows: [CloudSecretMachineStatusRow]) -> Bool {
@@ -371,6 +441,13 @@ enum CloudSecretsSheetPresentation {
         return ImportRow(name: name, kind: .unchanged, problem: problem, line: skip.line)
     }
 
+    /// "Skipped" for a row left out, otherwise the change kind's title.
+    static func importRowTitle(_ row: ImportRow) -> String {
+        row.isSkipped
+            ? String(localized: "cloudSecrets.import.kind.skipped", defaultValue: "Skipped")
+            : importKindTitle(row.kind)
+    }
+
     static func importKindTitle(_ kind: CloudSecretChange.Kind) -> String {
         switch kind {
         case .added: return String(localized: "cloudSecrets.import.kind.added", defaultValue: "New")
@@ -399,6 +476,77 @@ enum CloudSecretsSheetPresentation {
             parts.append(String(format: String(localized: "cloudSecrets.import.summary.skipped", defaultValue: "Skipped: %@"), number(preview.problemCount)))
         }
         return parts.joined(separator: " \u{00B7} ")
+    }
+
+    // MARK: Credential copy
+
+    /// "Get an API key from Anthropic" or "Get a token from GitHub": the
+    /// article stays with the noun, so it is right for every provider.
+    static func credentialLink(_ preset: CloudSecretCatalog.Preset) -> String {
+        switch preset.credential {
+        case .apiKey:
+            return String(
+                format: String(localized: "cloudSecrets.editor.getAPIKey", defaultValue: "Get an API key from %@"),
+                preset.label
+            )
+        case .token:
+            return String(
+                format: String(localized: "cloudSecrets.editor.getToken", defaultValue: "Get a token from %@"),
+                preset.label
+            )
+        }
+    }
+
+    /// The value field's placeholder, in the provider's word for it.
+    static func valuePlaceholder(_ preset: CloudSecretCatalog.Preset?) -> String {
+        switch preset?.credential {
+        case .apiKey:
+            return String(localized: "cloudSecrets.editor.value.placeholder.apiKey", defaultValue: "Paste the API key")
+        case .token:
+            return String(localized: "cloudSecrets.editor.value.placeholder.token", defaultValue: "Paste the token")
+        case nil:
+            return String(localized: "cloudSecrets.editor.value.placeholder.value", defaultValue: "Paste the value")
+        }
+    }
+
+    /// VoiceOver for a quick-add chip: "Add Anthropic API key", "Add GitHub token".
+    static func presetAccessibility(_ preset: CloudSecretCatalog.Preset) -> String {
+        switch preset.credential {
+        case .apiKey:
+            return String(
+                format: String(localized: "cloudSecrets.presets.accessibility.apiKey", defaultValue: "Add %@ API key"),
+                preset.label
+            )
+        case .token:
+            return String(
+                format: String(localized: "cloudSecrets.presets.accessibility.token", defaultValue: "Add %@ token"),
+                preset.label
+            )
+        }
+    }
+
+    // MARK: Removal
+
+    /// The removal dialog's one sentence: who loses the secret, and when.
+    static func removalMessage(
+        _ scope: CloudSecretScope,
+        machineLabels: [String: String],
+        projectLabels: [String: String] = [:]
+    ) -> String {
+        switch scope {
+        case .all:
+            return String(localized: "cloudSecrets.remove.body.all", defaultValue: "Machines lose it on their next sync.")
+        case .project(let key):
+            return String(
+                format: String(localized: "cloudSecrets.remove.body.project", defaultValue: "Machines linked to %@ lose it on their next sync."),
+                projectLabel(key, displayNames: projectLabels)
+            )
+        case .machine(let id):
+            return String(
+                format: String(localized: "cloudSecrets.remove.body.machine", defaultValue: "%@ loses it on its next sync."),
+                machineLabels[id] ?? id
+            )
+        }
     }
 
     static func message(for error: Error) -> String {

@@ -23,6 +23,11 @@ struct CloudSecretsSheetBackend {
     /// The names a local checkout declares (`.cmux/cloud.json`, devcontainer), read
     /// off the main actor; nil when the host cannot read checkouts.
     var declared: (@MainActor (URL) async -> [CloudSecretRequirement])? = nil
+    /// Delivers a saved change to every machine that needs it, when the host
+    /// delivers after each change; nil when it does not. The sheet runs it after
+    /// each write so it knows a delivery is in flight and can say "Syncing…"
+    /// instead of showing the machine as missing the value.
+    var autoSync: (@MainActor () -> (@MainActor () async -> Void)?)? = nil
 }
 
 /// State behind the Cloud Secrets sheet: the list for the selected scope,
@@ -92,6 +97,16 @@ final class CloudSecretsSheetModel {
     private(set) var syncError: String?
     /// Set after a sync that delivered, so the sheet can say to open a new terminal.
     private(set) var didSync = false
+    /// A sync of this machine that someone else started (machine creation, the
+    /// CLI, another change) is running; the host reports it.
+    private(set) var isExternalSyncInFlight = false
+    /// Background deliveries this sheet started after a write and that have not finished.
+    private(set) var pendingAutoSyncs = 0
+    /// The newest background delivery, so tests can wait for it.
+    private(set) var autoSyncTask: Task<Void, Never>?
+    /// Project labels with the casing typed this session ("Octocat/Hello-World"),
+    /// by normalized key; keys stay lowercased for matching.
+    private(set) var projectDisplayNames: [String: String] = [:]
 
     var tab: Tab = .all {
         didSet { if tab != oldValue { selectionID = nil } }
@@ -182,13 +197,26 @@ final class CloudSecretsSheetModel {
         return deliveries.first { $0.machineID == machineID }
     }
 
+    /// A delivery to this sheet's machine is in flight: Sync Now, a delivery
+    /// after this sheet's own write, or one the host started. While it runs a
+    /// missing value is on its way, not missing.
+    var isDelivering: Bool {
+        isMachineMode && (isSyncing || isExternalSyncInFlight || pendingAutoSyncs > 0)
+    }
+
     func rowState(for record: CloudSecretRecord) -> CloudSecretsSheetPresentation.RowState? {
         guard isMachineMode else { return nil }
         return CloudSecretsSheetPresentation.rowState(
             for: record,
             statusRows: statusRows,
-            linkedProjects: delivery?.projectKeys ?? []
+            linkedProjects: delivery?.projectKeys ?? [],
+            isDelivering: isDelivering
         )
+    }
+
+    /// "Octocat/Hello-World" when typed that way this session, else "octocat/hello-world".
+    func projectLabel(_ key: String) -> String {
+        CloudSecretsSheetPresentation.projectLabel(key, displayNames: projectDisplayNames)
     }
 
     /// Names the machine still has that no scope holds any more.
@@ -214,7 +242,7 @@ final class CloudSecretsSheetModel {
 
     /// "owner/repo" for the ghost rows' "Needed by …".
     var unsetRequirementsProjectLabel: String {
-        contextCheckout.map { CloudSecretsSheetPresentation.shortProjectLabel($0.projectKey) } ?? ""
+        contextCheckout.map { projectLabel($0.projectKey) } ?? ""
     }
 
     /// Set… on a ghost row: the add card with the name filled in, scoped to the
@@ -320,8 +348,16 @@ final class CloudSecretsSheetModel {
         do {
             _ = try await backend.set([input], scope, .manual)
             editor = nil
-            if case .project(let key) = scope { projectKey = key }
+            if case .project(let key) = scope {
+                projectKey = key
+                if let typed = CloudSecretsSheetPresentation.typedProjectLabel(draft.projectText, key: key) {
+                    projectDisplayNames[key] = typed
+                }
+            }
+            // Selected so the arrow keys and Delete continue from it; the row
+            // keeps its Value ID and age beside the actions.
             selectionID = CloudSecretRecord.sheetID(name: name, scope: scope)
+            startAutoSync()
             await load()
         } catch {
             guard var current = editor else { return }
@@ -394,6 +430,7 @@ final class CloudSecretsSheetModel {
         do {
             _ = try await backend.set(draft.preview.inputsToCommit, draft.scope, draft.source)
             importDraft = nil
+            startAutoSync()
             tab = CloudSecretsSheetPresentation.tab(for: draft.scope)
             if case .project(let key) = draft.scope { projectKey = key }
             await load()
@@ -431,6 +468,7 @@ final class CloudSecretsSheetModel {
         do {
             _ = try await backend.remove([record.name], record.scope)
             if selectionID == record.sheetID { selectionID = nil }
+            startAutoSync()
             await load()
         } catch {
             actionError = CloudSecretsSheetPresentation.message(for: error)
@@ -438,6 +476,29 @@ final class CloudSecretsSheetModel {
     }
 
     // MARK: Machine
+
+    /// The host's report that a sync of this machine started or finished.
+    /// When one finishes the sheet rereads, so rows and "Delivered …" catch up.
+    func setExternalSyncInFlight(_ inFlight: Bool) {
+        guard inFlight != isExternalSyncInFlight else { return }
+        isExternalSyncInFlight = inFlight
+        if !inFlight, !isFinished {
+            Task { [weak self] in await self?.load() }
+        }
+    }
+
+    /// Runs the host's delivery after a write. The delivery outlives the sheet:
+    /// closing it mid-sync does not cancel the machines' update.
+    private func startAutoSync() {
+        guard let run = backend.autoSync?() else { return }
+        pendingAutoSyncs += 1
+        autoSyncTask = Task { @MainActor [weak self] in
+            await run()
+            guard let self else { return }
+            self.pendingAutoSyncs -= 1
+            if !self.isFinished { await self.load() }
+        }
+    }
 
     func syncNow() async {
         guard let machineID, !isSyncing else { return }

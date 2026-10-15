@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCloud
+import Combine
 import SwiftUI
 
 /// Shows one Cloud Secrets sheet at a time on the main window, like
@@ -17,6 +18,7 @@ final class CloudSecretsSheetPresenter {
     private var presentedMachineID: String?
     private var loadTask: Task<Void, Never>?
     private var changeObserver: NSObjectProtocol?
+    private var syncingSubscription: AnyCancellable?
 
     private init() {}
 
@@ -50,6 +52,11 @@ final class CloudSecretsSheetPresenter {
         let sheet = CloudSheetWindow(rootView: CloudSecretsSheet(model: model))
         let window = sheet.window
         window.styleMask = [.titled]
+        // An opaque sheet with its shadow, so it reads as a surface above the
+        // dimmed window instead of letting the panel behind show through.
+        window.isOpaque = true
+        window.backgroundColor = .windowBackgroundColor
+        window.hasShadow = true
         window.title = String(localized: "cloudSecrets.sheet.title", defaultValue: "Cloud Secrets")
         window.isReleasedWhenClosed = false
         self.model = model
@@ -66,6 +73,17 @@ final class CloudSecretsSheetPresenter {
                 guard let model else { return }
                 Task { await model.load() }
             }
+        }
+        // A delivery someone else started (machine creation, the CLI) shows as
+        // "Syncing…" on this machine's sheet, not as missing values.
+        if let machineID {
+            syncingSubscription = service.$syncingMachineIDs
+                .map { $0.contains(machineID) }
+                .removeDuplicates()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak model] inFlight in
+                    MainActor.assumeIsolated { model?.setExternalSyncInFlight(inFlight) }
+                }
         }
 
         let host = NSApp.cmuxMainWindowForModalPresentation(preferring: preferredWindow)
@@ -109,14 +127,10 @@ final class CloudSecretsSheetPresenter {
                 return CloudSecretsSheetBackend.Snapshot(records: service.records, deliveries: service.deliveries)
             },
             set: { inputs, scope, source in
-                let result = try await service.set(inputs, scope: scope, source: source, sync: false)
-                syncInBackground(service)
-                return result.changes
+                try await service.set(inputs, scope: scope, source: source, sync: false).changes
             },
             remove: { names, scope in
-                let result = try await service.remove(names: names, scope: scope, sync: false)
-                syncInBackground(service)
-                return result.changes
+                try await service.remove(names: names, scope: scope, sync: false).changes
             },
             preview: { inputs, scope in
                 try await service.preview(inputs, scope: scope)
@@ -132,15 +146,14 @@ final class CloudSecretsSheetPresenter {
                 await Task.detached(priority: .userInitiated) {
                     CloudSecretRequirements.declared(inDirectory: root)
                 }.value
+            },
+            // Saves return once the vault is written; the sheet then runs this in
+            // the background when auto-sync is on.
+            autoSync: {
+                guard service.isAutoSyncEnabled else { return nil }
+                return { _ = await service.syncAllStale() }
             }
         )
-    }
-
-    private static func syncInBackground(_ service: CloudSecretsService) {
-        guard service.isAutoSyncEnabled else { return }
-        Task { @MainActor in
-            await service.syncAllStale()
-        }
     }
 
     private func dismiss() {
@@ -150,6 +163,7 @@ final class CloudSecretsSheetPresenter {
             NotificationCenter.default.removeObserver(changeObserver)
         }
         changeObserver = nil
+        syncingSubscription = nil
         guard let window = sheetWindow else { return }
         if let host = hostWindow, host.attachedSheet === window {
             host.endSheet(window)

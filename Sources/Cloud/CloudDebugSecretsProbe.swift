@@ -223,6 +223,8 @@ enum CloudDebugSecretsProbe {
         if model.isMachineMode {
             var machine: [String: Any] = [
                 "is_syncing": model.isSyncing,
+                "is_delivering": model.isDelivering,
+                "summary": CloudSecretsSheetPresentation.machineSummary(model.statusRows, isDelivering: model.isDelivering),
                 "did_sync": model.didSync,
                 "extra_names": model.extraNames,
                 "needs_sync": CloudSecretsSheetPresentation.needsSync(model.statusRows),
@@ -247,6 +249,8 @@ enum CloudDebugSecretsProbe {
         row["selected"] = model.selectionID == record.sheetID
         row["pill"] = CloudSecretsSheetPresentation.scopePill(record.scope, machineLabels: labels)
         row["state_chip"] = model.rowState(for: record).map { CloudSecretsSheetPresentation.stateTitle($0) }
+        // The sheet draws no chip for a current value.
+        row["state_chip_visible"] = CloudSecretsSheetPresentation.visibleChip(model.rowState(for: record)) != nil
         return row
     }
 
@@ -279,8 +283,9 @@ enum CloudDebugSecretsProbe {
             "rows": draft.preview.rows.map { row -> [String: Any] in
                 var item: [String: Any] = [
                     "name": row.name,
-                    "kind": row.kind.rawValue,
-                    "kind_title": CloudSecretsSheetPresentation.importKindTitle(row.kind),
+                    // A skipped row's change kind is a placeholder; report what Import does.
+                    "kind": row.disposition,
+                    "kind_title": CloudSecretsSheetPresentation.importRowTitle(row),
                 ]
                 item["problem"] = row.problem
                 return item

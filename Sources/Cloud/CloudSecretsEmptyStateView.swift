@@ -3,18 +3,16 @@ import CmuxFoundation
 import SwiftUI
 
 /// A vault with nothing in it: what a key here does, and the three things
-/// most people do first. Paste and a blank add stay one click away below.
+/// most people do first. Anthropic is the default action; Import .env… also
+/// pastes from the clipboard in its menu, and the footer's Add (⌘N) takes any
+/// other name. The sheet header carries the only key icon.
 struct CloudSecretsEmptyStateView: View {
     let onAddPreset: (String) -> Void
     let onImport: () -> Void
     var onPaste: () -> Void = {}
 
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "key.horizontal")
-                .font(.system(size: 28, weight: .regular))
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
+        VStack(spacing: 14) {
             VStack(spacing: 4) {
                 Text(String(localized: "cloudSecrets.empty.title", defaultValue: "Add your first API key"))
                     .cmuxFont(size: 14, weight: .semibold)
@@ -32,28 +30,29 @@ struct CloudSecretsEmptyStateView: View {
                 Button(String(localized: "cloudSecrets.empty.addAnthropic", defaultValue: "Add Anthropic Key")) {
                     onAddPreset("ANTHROPIC_API_KEY")
                 }
+                .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
                 .accessibilityIdentifier("CloudSecretsEmpty.addAnthropic")
                 Button(String(localized: "cloudSecrets.empty.addOpenAI", defaultValue: "Add OpenAI Key")) {
                     onAddPreset("OPENAI_API_KEY")
                 }
                 .accessibilityIdentifier("CloudSecretsEmpty.addOpenAI")
-                Button(String(localized: "cloudSecrets.empty.import", defaultValue: "Import .env…"), action: onImport)
-                    .accessibilityIdentifier("CloudSecretsEmpty.import")
+                Menu {
+                    Button(String(localized: "cloudSecrets.import.chooseFile", defaultValue: "Choose File\u{2026}"), action: onImport)
+                    Button(String(localized: "cloudSecrets.import.paste.menu", defaultValue: "Paste from Clipboard"), action: onPaste)
+                        .accessibilityIdentifier("CloudSecretsEmpty.paste")
+                } label: {
+                    Text(String(localized: "cloudSecrets.empty.import", defaultValue: "Import .env…"))
+                } primaryAction: {
+                    onImport()
+                }
+                .fixedSize()
+                .accessibilityIdentifier("CloudSecretsEmpty.import")
             }
             .controlSize(.large)
-            HStack(spacing: 14) {
-                Button(String(localized: "cloudSecrets.empty.addOther", defaultValue: "Add another variable")) {
-                    onAddPreset("")
-                }
-                .keyboardShortcut("n", modifiers: .command)
-                Button(String(localized: "cloudSecrets.import.paste", defaultValue: "Paste .env"), action: onPaste)
-            }
-            .buttonStyle(.link)
-            .cmuxFont(size: 11)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 22)
+        .padding(.vertical, 28)
         .padding(.horizontal, 24)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
