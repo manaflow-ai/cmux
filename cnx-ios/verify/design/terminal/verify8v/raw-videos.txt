@@ -9,3 +9,7 @@ wt-drop-follow2.mp4 036a1ca56da1928b 26.360000s
 wt-hold1.mp4 c109e659d57fe520 151.305000s
 wt-fling1.mp4 218487d1f61e88fc 533.180000s
 newtab1.mp4 615dcc4d408bd213 10.543333s
+wt-cxjump1.mp4 6a3b1fdd64cd5cd1 460.066667s
+d11-relaunch.mp4 c608f26463db000b 12.793333s
+switch-wt-to-gd.mp4 918083a636752bb7 24.651667s
+gd-t1-codex.mp4 a1adc56bd962ec62 125.780000s

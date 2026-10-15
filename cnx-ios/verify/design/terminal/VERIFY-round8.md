@@ -1,6 +1,6 @@
 # Terminal verify round 8 (fresh adversarial verifier, 2026-10-15 02:20 PT onward)
 
-**Verdict: REJECT** (details below; partial results were committed as they landed).
+**Verdict: REJECT.** The multi-second black pages of round 6 are gone (0 black runs longer than one frame in 123 jumps, 18 prunes and 5 drop runs), V5-2, V6-1 and V5-4 hold, and the t1 divergence did not reproduce in 12 minutes of real Codex. But the reading position is still lost after a drop while output arrives (225-388 rows, 3 of 3, both transports), a one-frame black comes with about 40 % of jumps at the cap, closing a tab leaves its Mac session running, and every timing row is invalid (laptop load 8-95).
 
 Criteria: `ACCEPTANCE.md` on `origin/feat-cnx-ios-termqa` (b64ef74d), verbatim. Claims from
 `qa-round-8.md` were read as claims only. Evidence is in `verify8v/`. The raw videos stay on the
@@ -264,3 +264,123 @@ On e2e-t1 (real Codex transcript, W-T then G-D):
   cannot see what is selected or where to grab.
 - T-SEL-01 asks for 10 of 10 exact selections; this run has 3. T-SEL-02 (selection holds while
   output streams) was not run. **T-SEL-01: not enough samples; functional checks pass.**
+
+## Claim 10: regression re-checks (passed in round 6)
+
+| Item | Verdict | Evidence |
+| --- | --- | --- |
+| Reconnect after a hostd kill | **PASS (correctness)**; timing INVALID | 7 kills; hostd `link up` 0.9-1.1 s after each restart (`*-result.json` `hostd`) |
+| One replay per reattach (T-SIZE-02) | **PASS** | 1 `mirror reset cause=reattach` per link-up in every drop run and in the transport switch; 0 `resized-event` |
+| D5 (T-TABS-02) | **PASS** | `d5-grid-after-relaunch.jpg`: 4 cards with content after a relaunch |
+| V3-2 (output keeps arriving after a drop) | **PASS (tail)** | After every follow drop GEN kept advancing on the phone (`after` → `after_plus3s` ids grow); M-INTEG not run |
+| V3-3 (drop mid-fling keeps the place) | **NOT RUN** | The simulator stopped taking input before this run (see Not done) |
+| V3-4 / T-TABS-14 | **cnx-owned PASS; row FAIL (kit, unchanged)** | Grid AX (`ax-grid-open.txt`): 0 Return, 0 Scroll to bottom, 0 composer inside cards. The page still exposes the kit's `Close e2e-t2` at (372, 0) (button list in this round's logs) |
+| V2-1 / T-TABS-03 grid trips while streaming | **NOT JUDGED** | 2 attempts; the first trip's tap timed out (simulator input), the recordings are unfinalized |
+| Transport switch (T-LIFE-16) | **PASS (correctness)** | W-T → G-D on Settings with t1 open: 1 `reattach`, 0 black source frames, phone tail = Mac tail (`switch-wt-to-gd.log.gz`, `events.jsonl` `switch`). The app's status says `WireGuard TURN` while hostd logs `path=Direct` (label/path disagree with Relay only on) |
+| Jump to bottom mid-fling | **Lands: PASS; one-frame black: FAIL** | Claim 1a |
+| Pin at rest | **PASS** | Claim 4: gap 0.0 pt at rest, keyboard up and down |
+
+## Claim 11: round-6 failing rows, and the e2e-t1 divergence (V6-5)
+
+- **V6-5 (t1 ≠ Mac): not reproduced.** `gd-t1-codex`: a 1500-item Codex prompt typed on the
+  phone in e2e-t1 (G-D), followed hands-off for **12.3 min** (03:34:54-03:47:08) with a phone/Mac
+  comparison every ~41 s (`gd-t1-codex-compare.jsonl`). The phone's highest item was within
+  1-5 of the Mac's at every sample where OCR read one (83/86, 348/350, 439/440, 528/529, 711/713,
+  808/810, 913/914, 1005/1007, 1094/1095, 1293/1296, 1565/1570). No freeze, no old output.
+  - motion.py on the first 120 s (60 fps): 0 reversals, 0 flashes, 0 black; recording INVALID
+    by the 34 ms rule (26.5 %).
+  - Every tab's bottom matched the Mac at the end (`events.jsonl` `tab_compare`: lighthouse,
+    mountains, t2; t1 matched during the follow).
+  - Only t1 was followed for 10+ min. The new Codex tab streamed 9 min (`wt-cxjump1`, with
+    jumps) and ended equal to the Mac. The two idle tabs were spot-checked.
+- Round-6 rows re-judged:
+
+| Round-6 row | Round 8 | Evidence |
+| --- | --- | --- |
+| Bottom pin (V6-1 shrink gap) | **PASS** | Claim 4 |
+| T-SCROLL-09 / V5-1 (V6-3) | **FAIL (one-frame black, systematic)**; multi-second black fixed | Claim 1a |
+| Following black after a prune (V6-2) | **FAIL (one frame)**; multi-second black fixed | Claim 1b |
+| V5-2 fling snap | **PASS** | Claim 2 |
+| V2-3 / T-LIFE-09 | **FAIL (225-388 rows off, 3 of 3)** | Claim 3 |
+| T-LIFE-08 two quick drops (V6-4) | **PASS** (5 runs, both transports) | Claim 1c |
+| Jump mid-fling | **Lands PASS; one-frame black FAIL** | Claim 1d |
+| Scroll while streaming (frame log) | **INVALID (load)**; new 15 s periodic frame | Claim 7 |
+| D7 (one-row jumps following Codex) | **PASS in 120 s at 60 fps (0 reversals, 0 flashes)**; INVALID by the 34 ms rule | Claim 11 |
+| V5-6 / T-TABS-01 | **Active PASS; inactive stale once (FAIL)** | Claim 8 |
+| V6-5 t1 ≠ Mac | **Not reproduced (12.3 min)** | above |
+| Reconnect "about 2 s" (T-LIFE-12) | **INVALID (load)** | |
+| T-LIFE-15 (relay) | **FAIL** (T-LIFE-09 on W-T) | Claim 3 |
+| T-ADV-01 | **FAIL** | All of the above; about 100 min of scripted and free play |
+
+## Verdict per ACCEPTANCE ID touched
+
+| ID | Verdict | Numbers |
+| --- | --- | --- |
+| T-FOLLOW-04 | **FAIL** | 2 one-frame blacks in 300 s following at the cap (18 prunes); 0 longer |
+| T-FOLLOW-02/03 | PASS (Codex 120 s), INVALID recording | 0 reversals, 0 flashes |
+| T-SCROLL-02 | **FAIL** | 48 one-frame black frames across 123 jumps at the cap |
+| T-SCROLL-04 | **PASS** | 0 reading → following without a user action in ~193 flings at the cap |
+| T-SCROLL-09 | **FAIL** | 48 one-frame blacks during 113 jump trips at the cap (most at the tap, some mid-fling); 0 in 10 Codex-tab jumps |
+| T-SIZE-02 | PASS | 1 replay per attach (12 reattaches, 1 switch) |
+| T-SIZE-07 (shrink) | PASS | gap 0.0 pt, 8 measurements |
+| T-REND-09/10 after `clear` (E3) | PASS | prompt at row 0, as the Mac |
+| T-LIFE-06 | PASS (polish: cursor glyph hidden) | saved frame first, 0 black |
+| T-LIFE-08 | PASS | 0 black, 0 error text, 5 drop runs |
+| T-LIFE-09 | **FAIL, disruptive** | 225 / 356 / ~388 rows off |
+| T-LIFE-10 | PASS (tail only) | |
+| T-LIFE-15 | **FAIL** | T-LIFE-09 on W-T |
+| T-LIFE-16 | PASS | 1 replay, 0 black, tail equal |
+| T-TABS-01 | **FAIL** (inactive stale once) / active PASS | |
+| T-TABS-02 | PASS | |
+| T-TABS-06 | PASS (correctness) | |
+| T-TABS-08 | **FAIL** | Mac session still running 50 s after the close |
+| T-TABS-14 | FAIL (kit), cnx PASS | |
+| T-SEL-01 | functional PASS, 3 of 10 samples | Copy exact ×2, Select All = Mac history |
+| T-SEL-02 | NOT RUN | |
+| All timing rows | INVALID | laptop load 8-95 |
+
+## New defects
+
+1. **N8-1 (disruptive): reading position lost after a drop when output keeps arriving.** The
+   restore shifts the anchor by the change in total rows, so it lands lower by the number of
+   rows that arrived during the drop. 3 of 3 (G-D ×2, W-T ×1), 225-388 rows, even with no prune.
+   Repro: in e2e-t2, type the GEN loop, fling up 5 times, kill hostd once; the top row moves from
+   GEN-3060 to GEN-3285 (`gd-drop-read1`). This is V2-3's residual, not fixed.
+2. **N8-2 (noticeable, systematic): one black frame on Jump to bottom and after a prune at the
+   cap.** 48 of 123 jumps at the cap, 2 of 18 prunes while following. Each is one source frame
+   (5-22 ms). Round 6's multi-second black pages are fixed.
+3. **N8-3 (noticeable): a 150-214 ms frame every ~15.1 s while output streams** (the cold-frame
+   save at its 15 s maximum wait, rendered on the main thread). Not counted in the frame log's
+   `work_ms`. Timing rows INVALID under load; the period identifies the cause.
+4. **N8-4 (noticeable): closing a tab on the phone leaves its Mac session running** for at least
+   50 s (V5-5 claim fails).
+5. **N8-5 (noticeable): selection is nearly invisible.** Dimmed text, no highlight colour, no
+   visible handles; the handles black out parts of nearby glyphs.
+6. **N8-6 (noticeable): a stale inactive grid card** (e2e-t1 showed old output at the first grid
+   open after launch while the Mac showed the end of a later turn).
+7. **N8-7 (tooling): the frame log's `blank` flag over-reports** (752 flagged frames in a run whose
+   video shows none). It cannot serve as acceptance evidence until it matches the screen.
+8. **Polish:** the saved relaunch frame hides the glyph under the cursor (`› sk Codex`); the app's
+   status reads `WireGuard TURN` while hostd reports `path=Direct`.
+
+## Not done
+
+- W-D, G-T, G-R, netsim; M-INTEG; a Claude Code session; T-SEL-02; 10 selections.
+- V3-3 (drop mid-fling) and V2-1 grid trips while streaming: from 03:50 the simulator stopped
+  taking input. Every `axe` tap (simulator and automatic styles), `axe touch` and `axe swipe`
+  timed out (20-25 s), while the app kept drawing at ~58 fps (frame log) and AX reads worked.
+  Laptop load was 25-62 at the time (another agent's build). I did not restart the simulator or
+  front anything.
+- 10+ min of following for every tab: only t1 (12.3 min); the new Codex tab streamed 9 min with
+  jumps; the other two tabs were idle and spot-checked.
+- Every timing threshold: INVALID (load 8-95 through the round).
+
+## Rig left
+
+- `cnx-termqa-1` runs my `b64ef74d` build (sha256 `45a3d5ea…e3ae`), launched with `-CnxFrameLog`,
+  paired on WireGuard (hostd `path=Direct`; Relay only still on).
+- `~/cnx-ios-e2e/termqa-state.json` `app_path` points to `~/cnx-ios-e2e/termverify8/CnxApp.app`.
+- e2e-t2 still runs a GEN loop I typed (`seq 1 60000`, ~40-100 rows/s). It ends on its own; I could
+  not send ^C after the input stopped responding. The Codex tabs (e2e-t1, "Print 1–900 mountain…")
+  are idle at their prompts.
+- The Mac side is unchanged except for the hostd restarts; its hostd is up.
