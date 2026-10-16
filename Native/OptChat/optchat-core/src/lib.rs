@@ -26,6 +26,7 @@ pub use render::{
     block_cuts, block_pieces, cache_marks, cache_pieces, mark_piece, render_parts, render_view,
     view_line, zoom, RenderedView, ZoomError, BLOCK_LINES, LOOKBACK_BLOCKS, MARK_REACH,
 };
+pub use render::{delta_line, turn_input, Frozen, TurnInput, DELTA_HARD, DELTA_MAX};
 
 /// Target size of one summary line, in UTF-8 bytes (section 3).
 pub const NODE: usize = 512;

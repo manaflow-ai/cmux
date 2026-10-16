@@ -282,6 +282,44 @@ impl OptChat {
         serde_json::to_string(&parts).unwrap_or_else(|_| "[]".into())
     }
 
+    /// The turn input of spec 5a as JSON `{frozen: {parts: [[l, i]], front}, rerendered, view: [piece],
+    /// delta: [block]}`: the frozen view cut into its 4-line blocks (`block_pieces`), then the delta
+    /// blocks. `frozen` is the JSON this returned last turn, or "" for none.
+    #[wasm_bindgen(js_name = turnInput)]
+    pub fn turn_input(&self, store: &JsStore, frozen: &str) -> Result<String, JsError> {
+        #[derive(Serialize, serde::Deserialize)]
+        struct FrozenJson {
+            parts: Vec<(u32, u64)>,
+            front: u64,
+        }
+        #[derive(Serialize)]
+        struct Out<'a> {
+            frozen: FrozenJson,
+            rerendered: bool,
+            view: Vec<&'a str>,
+            delta: Vec<String>,
+        }
+        let prior = if frozen.is_empty() {
+            None
+        } else {
+            let f: FrozenJson = serde_json::from_str(frozen).map_err(|e| JsError::new(&format!("frozen view is not JSON: {e}")))?;
+            for (l, _) in &f.parts {
+                level(*l)?;
+            }
+            Some(core::Frozen { parts: f.parts.iter().map(|(l, i)| core::NodeId::new(*l, *i)).collect(), front: f.front })
+        };
+        let host = Host::new(store);
+        let t = core::turn_input(&self.memory, &host, prior.as_ref());
+        host.check()?;
+        let out = Out {
+            frozen: FrozenJson { parts: t.frozen.parts.iter().map(|p| (p.l, p.i)).collect(), front: t.frozen.front },
+            rerendered: t.rerendered,
+            view: core::block_pieces(&t.view),
+            delta: t.delta.clone(),
+        };
+        Ok(serde_json::to_string(&out).unwrap_or_default())
+    }
+
     /// The rendered view as JSON `{text, marks}` (marks are indices into the JS string `text`, UTF-16 code units).
     #[wasm_bindgen(js_name = renderView)]
     pub fn render_view(&self, store: &JsStore) -> Result<String, JsError> {

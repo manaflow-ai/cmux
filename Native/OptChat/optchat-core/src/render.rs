@@ -222,3 +222,71 @@ pub fn zoom(memory: &Memory, store: &dyn Store, id: u64, n: u64) -> Result<Strin
     };
     Ok(format!("{}\n{}", line(a), line(b)))
 }
+
+/// Delta bytes above which a turn re-renders when the compactor has built past the front (spec 5a.4a).
+pub const DELTA_MAX: usize = 8_000;
+/// Delta bytes above which a turn re-renders anyway: the growth cap between folds (spec 5a.4b).
+pub const DELTA_HARD: usize = 32_000;
+
+/// A frozen view (spec 5a.1): the parts shown at the last render and the log front they cover.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Frozen {
+    pub parts: Vec<NodeId>,
+    pub front: u64,
+}
+
+/// One turn's input (spec 5a): the frozen view, then the delta blocks; `rerendered` when this turn froze a new view.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TurnInput {
+    pub frozen: Frozen,
+    pub rerendered: bool,
+    /// The frozen view's text, byte-identical to every turn since its render.
+    pub view: String,
+    /// The delta: every message after the front in view-line form, one block per run of `user`
+    /// messages and one per run of other kinds, oldest first (spec 5a.2).
+    pub delta: Vec<String>,
+}
+
+/// One delta line: `<i>+1|<kind>: <text>` (newlines as spaces, at most `CAP` characters of text).
+pub fn delta_line(i: u64, kind: crate::Kind, text: &str) -> String {
+    let flat = flatten(text);
+    let body: String = flat.chars().take(crate::CAP).collect();
+    format!("{}|{}: {}", NodeId::new(0, i).name(), kind.as_str(), body)
+}
+
+fn delta_blocks(memory: &Memory, store: &dyn Store, front: u64) -> (Vec<String>, usize) {
+    let mut blocks: Vec<String> = Vec::new();
+    let mut last_user: Option<bool> = None;
+    let mut bytes = 0;
+    for i in front..memory.len() {
+        let (kind, text) = store.message(i);
+        let user = kind == crate::Kind::User;
+        let line = delta_line(i, kind, &text);
+        bytes += line.len() + 1;
+        match blocks.last_mut() {
+            Some(b) if last_user == Some(user) => {
+                b.push_str(&line);
+                b.push('\n');
+            }
+            _ => blocks.push(format!("{line}\n")),
+        }
+        last_user = Some(user);
+    }
+    (blocks, bytes)
+}
+
+/// The turn input of spec 5a for `frozen` (None: no view frozen yet). The caller stores the
+/// returned `frozen` and passes it to the next turn; the new messages are logged before this call.
+pub fn turn_input(memory: &Memory, store: &dyn Store, frozen: Option<&Frozen>) -> TurnInput {
+    if let Some(f) = frozen.filter(|f| f.front <= memory.len()) {
+        let (delta, bytes) = delta_blocks(memory, store, f.front);
+        let built_past = f.front < memory.len() && memory.is_built(NodeId::new(0, f.front));
+        if !(bytes > DELTA_HARD || (bytes > DELTA_MAX && built_past)) {
+            return TurnInput { view: render_parts(&f.parts, store).text, frozen: f.clone(), rerendered: false, delta };
+        }
+    }
+    let v = render_view(memory, store);
+    let front = v.parts.last().map_or(0, |p| p.end());
+    let (delta, _) = delta_blocks(memory, store, front);
+    TurnInput { frozen: Frozen { parts: v.parts, front }, rerendered: true, view: v.text, delta }
+}

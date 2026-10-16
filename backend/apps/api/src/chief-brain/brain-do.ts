@@ -11,7 +11,7 @@ import { type BrainConfig, patchError, readConfig, SCHEMA, writeConfig } from ".
 import { AUTH_FAILED, holderAuth, holderInvalidate, holderTurn, HOLDER } from "./claude-auth.ts"
 import { Compactor, type CallRecord } from "./compactor.ts"
 import { type LedgerAnswer, type LedgerOp, runLedger } from "../model-gateway/run-ledger.ts"
-import { capText, cutAtMarks, type Kind, Memory, RETRY_MS } from "./memory.ts"
+import { capText, type Kind, Memory, RETRY_MS } from "./memory.ts"
 import { brainModels, compactorDefault, compactorModel, creditsCanStart, creditsNotice, FAKE, gatewayOptions, isClaude, liveOf, modelRefusal, pickTurnModel, validModelName } from "./models.ts"
 import { clipReply, formatMessage, isNoReply, replyTarget, systemFirst, textParts } from "./brain-text.ts"
 import { AGENT, systemPrompt } from "./prompts.ts"
@@ -350,11 +350,10 @@ export class ChiefBrainDO extends DurableObject<Env> {
     }
   }
 
-  /** Renders the view BEFORE logging the new messages, then logs them with the turn row in one transaction (a restart resubmits the same bytes). */
+  /** Logs the new messages, then builds the cache-stable input (frozen view + delta, OptChat 5a) with the turn row in one transaction (a restart resubmits the same bytes). */
   private openTurn(conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>): void {
     const id = `run_${rows[0]!.n}`
-    const view = this.memory.render()
-    const input = JSON.stringify([...cutAtMarks(view.text, view.marks), rows.map((r) => r.text).join("\n\n")])
+    let input = "[]"
     const trigger = [...rows].reverse().find((r) => r.woke === 1) ?? rows[rows.length - 1]!
     this.ctx.storage.transactionSync(() => {
       for (const r of rows) {
@@ -362,6 +361,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
         this.memory.append("user", r.text)
         this.sql.exec(`UPDATE cb_inbox SET state = 'running', turn = ? WHERE n = ?`, id, r.n)
       }
+      input = JSON.stringify(this.memory.turnInput())
       this.sql.exec(
         `INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, trigger_thread_root, last_seq, status, model, started, input) VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
         id, conversation, trigger.message, trigger.kind, trigger.thread_root, Math.max(...rows.map((r) => r.seq)), this.config().model, Date.now(), input
