@@ -3581,6 +3581,7 @@ jobs:
             --execute
 
       - name: Publish nightly release assets
+        id: publish_assets
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -3612,6 +3613,7 @@ jobs:
           done
           python3 scripts/ci/publish-release-assets.py \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
+            --github-output "$GITHUB_OUTPUT" \
             --replace-feeds "${args[@]}"
 
       - name: Download the cmux-next source archive
@@ -3683,20 +3685,35 @@ jobs:
       # with the release App token; other channels keep the Actions token.
       - name: Publish verified nightly release metadata
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
-        with:
-          token: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
-          tag_name: ${{ needs.decide.outputs.release_tag }}
-          target_commitish: ${{ steps.source.outputs.build_sha }}
-          name: ${{ needs.decide.outputs.release_name }}
-          prerelease: true
-          make_latest: false
-          draft: false
-          body: |
-            Automated ${{ needs.decide.outputs.channel }} build for `${{ steps.source.outputs.build_short_sha }}` from `${{ github.ref_name }}`.
-            Published commit: `${{ steps.source.outputs.build_sha }}`.
-            Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip `${{ steps.source.outputs.tip_sha }}`, ${{ steps.source.outputs.behind }} commits and ${{ steps.source.outputs.behind_hours }} h behind it.
-            ${{ steps.notes.outputs.downloads }}
+        env:
+          GH_TOKEN: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
+          RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
+          UPLOADED_ASSETS: ${{ steps.publish_assets.outputs.asset_names }}
+          RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.decide.outputs.release_name }}
+          BUILD_SHA: ${{ steps.source.outputs.build_sha }}
+          BUILD_SHORT_SHA: ${{ steps.source.outputs.build_short_sha }}
+          CHANNEL: ${{ needs.decide.outputs.channel }}
+          REF_NAME: ${{ github.ref_name }}
+          TIP_SHA: ${{ steps.source.outputs.tip_sha }}
+          BEHIND: ${{ steps.source.outputs.behind }}
+          BEHIND_HOURS: ${{ steps.source.outputs.behind_hours }}
+          DOWNLOADS: ${{ steps.notes.outputs.downloads }}
+        run: |
+          set -euo pipefail
+          {
+            printf "Automated %s build for \`%s\` from \`%s\`.\n" "$CHANNEL" "$BUILD_SHORT_SHA" "$REF_NAME"
+            printf "Published commit: \`%s\`.\n" "$BUILD_SHA"
+            printf "Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip \`%s\`, %s commits and %s h behind it.\n" "$TIP_SHA" "$BEHIND" "$BEHIND_HOURS"
+            printf '%s\n' "$DOWNLOADS"
+          } > "$RUNNER_TEMP/nightly-release-body.md"
+          expect=()
+          for name in $UPLOADED_ASSETS; do expect+=(--expect-asset "$name"); done
+          python3 scripts/ci/finalize-release.py publish \
+            --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" \
+            --name "$RELEASE_NAME" --target-commitish "$BUILD_SHA" \
+            --body-file "$RUNNER_TEMP/nightly-release-body.md" \
+            --prerelease true --make-latest false "${expect[@]}"
 
       - name: Upload nightly appcasts to R2
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track != 'nightly-next' && steps.recheck.outputs.already_published != 'true'
@@ -3755,21 +3772,36 @@ jobs:
       # a complete one.
       - name: Record verified nightly publication
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
-        with:
-          token: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
-          tag_name: ${{ needs.decide.outputs.release_tag }}
-          target_commitish: ${{ steps.source.outputs.build_sha }}
-          name: ${{ needs.decide.outputs.release_name }}
-          prerelease: true
-          make_latest: false
-          draft: false
-          body: |
-            <!-- cmux-published-sha: ${{ steps.source.outputs.build_sha }} -->
-            Automated ${{ needs.decide.outputs.channel }} build for `${{ steps.source.outputs.build_short_sha }}` from `${{ github.ref_name }}`.
-            Published commit: `${{ steps.source.outputs.build_sha }}`.
-            Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip `${{ steps.source.outputs.tip_sha }}`, ${{ steps.source.outputs.behind }} commits and ${{ steps.source.outputs.behind_hours }} h behind it.
-            ${{ steps.notes.outputs.downloads }}
+        env:
+          GH_TOKEN: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
+          RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
+          UPLOADED_ASSETS: ${{ steps.publish_assets.outputs.asset_names }}
+          RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.decide.outputs.release_name }}
+          BUILD_SHA: ${{ steps.source.outputs.build_sha }}
+          BUILD_SHORT_SHA: ${{ steps.source.outputs.build_short_sha }}
+          CHANNEL: ${{ needs.decide.outputs.channel }}
+          REF_NAME: ${{ github.ref_name }}
+          TIP_SHA: ${{ steps.source.outputs.tip_sha }}
+          BEHIND: ${{ steps.source.outputs.behind }}
+          BEHIND_HOURS: ${{ steps.source.outputs.behind_hours }}
+          DOWNLOADS: ${{ steps.notes.outputs.downloads }}
+        run: |
+          set -euo pipefail
+          {
+            printf '<!-- cmux-published-sha: %s -->\n' "$BUILD_SHA"
+            printf "Automated %s build for \`%s\` from \`%s\`.\n" "$CHANNEL" "$BUILD_SHORT_SHA" "$REF_NAME"
+            printf "Published commit: \`%s\`.\n" "$BUILD_SHA"
+            printf "Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip \`%s\`, %s commits and %s h behind it.\n" "$TIP_SHA" "$BEHIND" "$BEHIND_HOURS"
+            printf '%s\n' "$DOWNLOADS"
+          } > "$RUNNER_TEMP/nightly-release-body.md"
+          expect=()
+          for name in $UPLOADED_ASSETS; do expect+=(--expect-asset "$name"); done
+          python3 scripts/ci/finalize-release.py publish \
+            --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" \
+            --name "$RELEASE_NAME" --target-commitish "$BUILD_SHA" \
+            --body-file "$RUNNER_TEMP/nightly-release-body.md" \
+            --prerelease true --make-latest false "${expect[@]}"
 
       # The channel's release tag is the fast completion marker used by the
       # decide job. Move it to the fixed candidate selected at dispatch only
