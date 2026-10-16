@@ -57,8 +57,19 @@ struct TerminalComposer: View {
         .background(Color(uiColor: CnxGhosttyApp.background).opacity(0.85), in: .rect(cornerRadius: 24, style: .continuous))
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 24, style: .continuous))
         .padding(.horizontal, 8)
+        // V6-1: a draft that shrinks (6 lines to 5) drew a shorter card while
+        // the hosting view kept the taller height, so the page's bottom inset
+        // (and the last row) stayed 6-11 pt above the card. The card's own
+        // height tells the screen to measure the composer again.
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+            model.controller?.composerCardHeightChanged(height)
+        }
         .animation(.smooth(duration: 0.3), value: model.attachments.count)
-        .animation(.smooth(duration: 0.2), value: model.isScrolledUp)
+        // Shown with a fade; gone at once when following starts (a Jump to
+        // bottom tap: qa11 wt-fling-c, the row still drawn after the page
+        // reached the bottom, and the card shrinking over 0.2 s moved the
+        // page's inset on every frame of the jump).
+        .animation(model.isScrolledUp ? .smooth(duration: 0.2) : nil, value: model.isScrolledUp)
         .photosPicker(isPresented: $model.showPhotoPicker, selection: $photoItems, maxSelectionCount: 6,
                       matching: .any(of: [.images, .videos]), preferredItemEncoding: .compatible)
         .onChange(of: photoItems) { _, items in

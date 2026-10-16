@@ -16,6 +16,13 @@ struct AcpmuxRecords {
         case "in":
             // eventStream form: msg = {method: session/update, params: {update}}; raw form: msg.params.update too.
             // acpmux writes subagent attribution into `params._meta.acpmux` (cmux-tui acpmux/src/subagents.rs).
+            // Claude Code's raw `system/api_retry` line (acpmux logs it as `claude.system.api_retry`).
+            if kind == "claude.system.api_retry" {
+                let line = msg["params"] ?? msg
+                return [.retrying(attempt: Int(line["attempt"]?.numberValue ?? 0),
+                                  maxAttempts: Int(line["max_retries"]?.numberValue ?? 0),
+                                  status: line["error_status"]?.numberValue.map { Int($0) })]
+            }
             let mux = msg["params"]?["_meta"]?["acpmux"] ?? msg["_meta"]?["acpmux"]
             var events: [AgentSessionEvent] = (mux?["subagents"]?.arrayValue ?? []).compactMap {
                 AgentSubagentChange($0, at: at).map(AgentSessionEvent.subagent)
@@ -47,6 +54,12 @@ struct AcpmuxRecords {
         case "dequeued":
             guard let promptID = msg["promptId"]?.stringValue else { return [] }
             return [.dequeued(promptId: promptID)]
+        case "queue_updated":
+            guard let promptID = msg["promptId"]?.stringValue else { return [] }
+            return [.queueUpdated(promptId: promptID, text: msg["text"]?.stringValue ?? "")]
+        case "queue_order":
+            guard case .array(let ids)? = msg["order"] else { return [] }
+            return [.queueOrder(ids.compactMap(\.stringValue))]
         case "turn_started":
             guard let turnID = msg["turnId"]?.stringValue else { return [] }
             return [.turnStarted(turnId: turnID, at: at)]
@@ -109,6 +122,8 @@ public struct AcpmuxSession: Hashable, Sendable {
     /// `lastTurn.turnId` and `lastTurn.endedAt`: the turn a Feed item is about.
     public var lastTurnID: String?
     public var lastTurnEndedAt: Date?
+    /// `lastTurn.errorText`: why the last turn failed, in the agent's words.
+    public var lastTurnError: String?
 
     init?(_ value: JSONValue) {
         guard let id = value["sessionId"]?.stringValue else { return nil }
@@ -125,6 +140,7 @@ public struct AcpmuxSession: Hashable, Sendable {
         lastTurnStatus = value["lastTurn"]?["status"]?.stringValue
         lastTurnID = value["lastTurn"]?["turnId"]?.stringValue
         lastTurnEndedAt = value["lastTurn"]?["endedAt"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) }
+        lastTurnError = value["lastTurn"]?["errorText"]?.stringValue
         updatedAt = value["updatedAt"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) }
     }
 

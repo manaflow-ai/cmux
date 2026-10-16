@@ -17,6 +17,8 @@ public struct AgentTurn: Identifiable, Hashable, Sendable {
     public var startedAt: Date?
     public var endedAt: Date?
     public var errorText: String?
+    /// The model request is being retried (attempt, of at most), while the turn runs.
+    public var retry: Retry?
     /// Tool calls drawn by something else (the subagent row that a spawn call started).
     public var hiddenToolCalls: Set<String> = []
 
@@ -27,28 +29,49 @@ public struct AgentTurn: Identifiable, Hashable, Sendable {
         self.promptAt = promptAt
     }
 
+    public struct Retry: Hashable, Sendable {
+        public var attempt: Int
+        public var maxAttempts: Int
+        public var status: Int?
+
+        /// "Retrying (2 of 10)", with the HTTP status when the agent gave one.
+        public var label: String {
+            let count = maxAttempts > 0 ? "\(attempt) of \(maxAttempts)" : "\(attempt)"
+            return status.map { "Retrying (\(count), error \($0))" } ?? "Retrying (\(count))"
+        }
+    }
+
     public var duration: TimeInterval? {
         guard let startedAt else { return nil }
         return (endedAt ?? Date()).timeIntervalSince(startedAt)
     }
 
-    /// The edits in this turn, newest content per path (the edited-files card and Changes).
+    /// The edits in this turn, per path in order (the edited-files card and Changes).
     public var changeSet: DiffChangeSet? {
-        var order: [String] = []
-        var byPath: [String: (old: String?, new: String)] = [:]
-        for case .tool(let call) in items {
-            for diff in call.diffs {
-                if let existing = byPath[diff.path] {
-                    byPath[diff.path] = (existing.old, diff.newText)
-                } else {
-                    order.append(diff.path)
-                    byPath[diff.path] = (diff.oldText, diff.newText)
-                }
-            }
-        }
-        guard !order.isEmpty else { return nil }
-        let files = order.map { DiffFile(path: $0, oldText: byPath[$0]?.old, newText: byPath[$0]?.new) }
+        let files = Self.diffFiles(edits)
+        guard !files.isEmpty else { return nil }
         return DiffChangeSet(id: "turn-\(id)", title: "Changes", subtitle: "This turn", files: files)
+    }
+
+    /// The file edits of this turn's tool calls, in order. An edit still waiting on its
+    /// permission, or refused, is not a change (the Mac skips it too).
+    public var edits: [(path: String, oldText: String?, newText: String)] {
+        var out: [(path: String, oldText: String?, newText: String)] = []
+        for case .tool(let call) in items where call.status != .pending && call.status != .failed {
+            out += call.diffs
+        }
+        return out
+    }
+
+    /// One file per path, first-edit order, each built from all its edits in order.
+    public static func diffFiles(_ edits: [(path: String, oldText: String?, newText: String)]) -> [DiffFile] {
+        var order: [String] = []
+        var byPath: [String: [(oldText: String?, newText: String)]] = [:]
+        for edit in edits {
+            if byPath[edit.path] == nil { order.append(edit.path) }
+            byPath[edit.path, default: []].append((edit.oldText, edit.newText))
+        }
+        return order.map { DiffFile(path: $0, edits: byPath[$0] ?? []) }
     }
 
     public func question(_ id: String) -> AgentQuestion? {
@@ -122,6 +145,8 @@ public final class AgentChatStore {
     public private(set) var models: [ACPModelInfo] = []
     public private(set) var currentModelID: String?
     public private(set) var modes: [ACPMode] = []
+    /// Every mode the agent offers; ``modes`` is what a phone may pick (``ACPMode/phoneChoices(_:current:)``).
+    private var offeredModes: [ACPMode] = []
     public private(set) var currentModeID: String?
     public private(set) var usage: (used: Int, size: Int)?
     /// The title the agent gave the session (`session_info_update`).
@@ -217,7 +242,7 @@ public final class AgentChatStore {
         guard !text.isEmpty || !attachments.isEmpty else { return }
         clientError = nil
         if denyingPermission, let permission = pendingPermission {
-            let options = permission.request.options
+            let options = permission.request.phoneOptions
             let deny = options.first { $0.kind == .rejectOnce } ?? options.first { !$0.isAllow }
             respond(to: permission.request, option: deny)
         }
@@ -252,6 +277,19 @@ public final class AgentChatStore {
     public func setMode(_ id: String) { source.send(.setMode(id)) }
     public func setConfig(_ id: String, value: String) { source.send(.setConfigOption(id: id, value: value)) }
     public func removeQueued(_ id: String) { source.send(.removeQueued(promptId: id)) }
+    /// Edit queued prompt (the agent pane's wording): the new text keeps its place.
+    public func editQueued(_ id: String, text: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, queue.contains(where: { $0.id == id && $0.text != text }) else { return }
+        source.send(.editQueued(promptId: id, text: text))
+    }
+    /// Send now: the waiting prompt goes now (steered into the running turn, or next).
+    public func sendQueuedNow(_ id: String) { source.send(.sendQueuedNow(promptId: id)) }
+    /// Move up (-1) / Move down (+1) in the queue.
+    public func moveQueued(_ id: String, by offset: Int) {
+        guard let from = queue.firstIndex(where: { $0.id == id }), queue.indices.contains(from + offset) else { return }
+        source.send(.moveQueued(promptId: id, index: from + offset))
+    }
 
     // MARK: Reducer
 
@@ -267,14 +305,23 @@ public final class AgentChatStore {
             queue.append(QueuedPrompt(id: promptId, text: text))
         case .dequeued(let promptId):
             queue.removeAll { $0.id == promptId }
+        case .queueUpdated(let promptId, let text):
+            if let index = queue.firstIndex(where: { $0.id == promptId }) { queue[index].text = text }
+        case .queueOrder(let order):
+            let place = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+            queue.sort { (place[$0.id] ?? .max) < (place[$1.id] ?? .max) }
         case .turnStarted(let turnId, let at):
             mutateTurn(turnId) {
                 $0.startedAt = at
                 $0.status = .running
             }
             summary.status = .running
+        case .retrying(let attempt, let maxAttempts, let status):
+            guard let index = turns.indices.last, turns[index].status == .running else { return }
+            turns[index].retry = AgentTurn.Retry(attempt: attempt, maxAttempts: maxAttempts, status: status)
         case .turnResult(let turnId, let status, let errorText, let at):
             mutateTurn(turnId) { turn in
+                turn.retry = nil
                 turn.status = status
                 turn.endedAt = at
                 turn.errorText = errorText
@@ -298,6 +345,13 @@ public final class AgentChatStore {
             currentMessageID = nil
             summary.status = .idle
         case .update(let update):
+            // The model answered: the retry is over.
+            switch update {
+            case .agentMessageChunk, .agentThoughtChunk, .toolCall:
+                if let index = turns.indices.last, turns[index].retry != nil { turns[index].retry = nil }
+            default:
+                break
+            }
             applyUpdate(update)
         case .permissionRequest(let request):
             appendItem(.permission(PermissionRecord(request: request)))
@@ -334,7 +388,8 @@ public final class AgentChatStore {
             self.models = models
             currentModelID = current
         case .modesAvailable(let modes, let current):
-            self.modes = modes
+            offeredModes = modes
+            self.modes = ACPMode.phoneChoices(modes, current: current)
             currentModeID = current
         case .status(let status):
             summary.status = status
@@ -445,6 +500,7 @@ public final class AgentChatStore {
             availableCommands = commands
         case .currentMode(let mode):
             currentModeID = mode
+            modes = ACPMode.phoneChoices(offeredModes, current: mode)
         case .configOptions(let options):
             configOptions = options
         case .usage(let used, let size):

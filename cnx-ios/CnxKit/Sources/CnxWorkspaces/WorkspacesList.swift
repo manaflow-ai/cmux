@@ -49,6 +49,17 @@ public struct WorkspacesList: View {
     @State private var renaming: Workspace?
     @State private var renameText = ""
     @State private var closing: Workspace?
+    /// Close Other / Above / Below: what was chosen, on which workspace, and what it closes.
+    @State private var bulkClosing: BulkClose?
+    /// Set Icon… › Emoji…: the workspace and the typed emoji.
+    @State private var iconEmoji: Workspace?
+    @State private var emojiText = ""
+    /// Move Workspace to New Group: the workspace; Rename Group… and Delete
+    /// Group: the group. One name field for both.
+    @State private var newGroupFor: Workspace?
+    @State private var renamingGroup: GroupTarget?
+    @State private var deletingGroup: GroupTarget?
+    @State private var groupNameText = ""
     /// The rows' status gutter (32 pt at Large), for the separator inset.
     @Environment(\.dynamicTypeSize) private var typeSize
     private var gutter: CGFloat { WorkspaceRow.scaled(WorkspaceRow.gutter, typeSize) }
@@ -120,6 +131,10 @@ public struct WorkspacesList: View {
     private var isRefreshing: Bool { store.teamDataState == .loading || inbox.isUpdating }
 
     public var body: some View {
+        groupDialogs(page)
+    }
+
+    private var page: some View {
         content
             .navigationTitle("Workspaces")
             .navigationSubtitle(subtitle)
@@ -150,6 +165,14 @@ public struct WorkspacesList: View {
             } message: { ws in
                 Text(unavailableMessage(ws))
             }
+            .alert("Set Icon", isPresented: isPresented($iconEmoji), presenting: iconEmoji) { ws in
+                TextField("Emoji", text: $emojiText)
+                Button("Cancel", role: .cancel) {}
+                Button("Set") { if let emoji = WorkspaceIcon.emoji(emojiText) { creator.setIcon(ws, emoji) } }
+                    .disabled(WorkspaceIcon.emoji(emojiText) == nil)
+            } message: { _ in
+                Text("One emoji.")
+            }
             .alert("Rename Workspace", isPresented: isPresented($renaming), presenting: renaming) { ws in
                 TextField("Name", text: $renameText)
                     .submitLabel(.done)
@@ -157,6 +180,45 @@ public struct WorkspacesList: View {
                 Button("Rename") { creator.rename(ws, to: renameText) }
                     .disabled(renameText.trimmingCharacters(in: .whitespaces).isEmpty)
             }
+    }
+
+    /// Move Workspace to New Group, Rename Group… and Delete Group's questions.
+    private func groupDialogs(_ view: some View) -> some View {
+        view
+            .alert("Move Workspace to New Group", isPresented: isPresented($newGroupFor), presenting: newGroupFor) { (ws: Workspace) in
+                TextField(MacWorkspaceGroup.newGroupName, text: $groupNameText)
+                Button("Cancel", role: .cancel) {}
+                Button("Create") {
+                    withAnimation(theme.motion.smooth.animation) { creator.moveToNewGroup(ws, name: groupNameText) }
+                }
+            }
+            .alert("Rename Group", isPresented: isPresented($renamingGroup), presenting: renamingGroup) { (target: GroupTarget) in
+                TextField("Name", text: $groupNameText)
+                    .submitLabel(.done)
+                Button("Cancel", role: .cancel) {}
+                Button("Rename") { creator.renameGroup(target.group, on: target.macID, to: groupNameText) }
+                    .disabled(groupNameText.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .confirmationDialog(deleteGroupTitle, isPresented: isPresented($deletingGroup), titleVisibility: .visible,
+                                presenting: deletingGroup) { (target: GroupTarget) in
+                Button("Delete Group", role: .destructive) {
+                    withAnimation(theme.motion.smooth.animation) { creator.deleteGroup(target.group, on: target.macID) }
+                }
+            } message: { (target: GroupTarget) in
+                Text(deleteGroupMessage(target))
+            }
+    }
+
+    /// "Delete “Backend”?"
+    private var deleteGroupTitle: String {
+        guard let target = deletingGroup else { return "" }
+        return "Delete \u{201C}\(target.group.displayName)\u{201D}?"
+    }
+
+    /// The Mac keeps the workspaces (Delete Group is not Close All Workspaces in Group).
+    private func deleteGroupMessage(_ target: GroupTarget) -> String {
+        let name = mac(target.macID).map(displayName) ?? "the Mac"
+        return "Its workspaces stay open on \(name)."
     }
 
     /// Filtered: the Mac and its presence. Else "Updating…" for a slow
@@ -277,12 +339,28 @@ public struct WorkspacesList: View {
                     ForEach(inbox.needsYou) { row($0, inbox) }
                 }
             }
+            if !inbox.pinned.isEmpty {
+                Section {
+                    SectionTitle(title: "Pinned")
+                    ForEach(inbox.pinned) { row($0, inbox) }
+                }
+            }
             if !inbox.recent.isEmpty {
                 Section {
-                    if !inbox.needsYou.isEmpty || !inbox.folds.isEmpty {
-                        SectionTitle(title: "Recent")
+                    if !inbox.needsYou.isEmpty || !inbox.pinned.isEmpty || !inbox.folds.isEmpty {
+                        // The Mac's sidebar order when the phone knows it, else newest first.
+                        SectionTitle(title: inbox.isMacOrder ? "Workspaces" : "Recent")
                     }
-                    ForEach(inbox.recent) { row($0, inbox) }
+                    ForEach(inbox.recentSections) { section in
+                        if let group = section.group {
+                            groupHeader(group, section: section)
+                            if !group.isCollapsed {
+                                ForEach(section.workspaces) { row($0, inbox) }
+                            }
+                        } else {
+                            ForEach(section.workspaces) { row($0, inbox) }
+                        }
+                    }
                 }
             }
             ForEach(inbox.folds) { fold in
@@ -364,16 +442,132 @@ public struct WorkspacesList: View {
                     .accessibilityIdentifier("workspace.swipe.rename")
             }
         }
-        .contextMenu { menu(ws, status: status, canManage: canManage) }
+        .contextMenu { menu(ws, status: status, canManage: canManage, inbox: inbox) }
         // Where the row is, so the close popover can point at it.
         .background { FrameProbe(id: ws.id) { rowFrames.rows[ws.id] = WeakProbe(view: $0) } }
         .accessibilityActions {
             if canManage {
+                if creator.canArrange(ws) {
+                    Button(ws.isPinned ? "Unpin Workspace" : "Pin Workspace") { creator.setPinned(ws, !ws.isPinned) }
+                    let order = inbox.macOrder(of: ws)
+                    if order.count > 1, order.first?.id != ws.id { Button("Move Workspace Up") { creator.move(ws, by: -1, among: order) } }
+                    if order.count > 1, order.last?.id != ws.id { Button("Move Workspace Down") { creator.move(ws, by: 1, among: order) } }
+                }
                 Button("Rename") { startRename(ws) }
+                if creator.canDuplicate(ws) { Button(WorkspaceCreator.duplicateTitle) { creator.duplicate(ws) } }
                 Button("Close") { confirmClose(ws) }
             }
         }
         .accessibilityIdentifier("workspace.row.\(ws.id)")
+    }
+
+    /// A Mac workspace group's header, as its sidebar shows it: a tap folds or
+    /// unfolds it (Collapse / Expand Workspace Group, on the Mac too); hold it
+    /// for the Mac's group actions.
+    private func groupHeader(_ group: MacWorkspaceGroup, section: RecentSection) -> some View {
+        let canEdit = section.workspaces.first.map { creator.canGroup($0) } ?? false
+        return Button {
+            guard canEdit else { return }
+            theme.haptics.selection()
+            withAnimation(theme.motion.smooth.animation) { creator.setGroupCollapsed(group, on: section.macID, !group.isCollapsed) }
+        } label: {
+            GroupHeaderLabel(group: group, count: section.workspaces.count)
+        }
+        .buttonStyle(.plain)
+        .listRowInsets(EdgeInsets(top: 14, leading: 20, bottom: 4, trailing: 20))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .contextMenu {
+            if canEdit { groupMenu(group, macID: section.macID) }
+        }
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityActions { groupAccessibilityActions(group, macID: section.macID, canEdit: canEdit) }
+        .accessibilityIdentifier("workspace.group.\(group.id)")
+    }
+
+    /// The Mac's group menu (its group header's actions that make sense on a
+    /// phone): Rename Group…, Set Workspace Group Color…, Collapse / Expand
+    /// Workspace Group, then Ungroup Workspaces and Delete Group.
+    @ViewBuilder private func groupMenu(_ group: MacWorkspaceGroup, macID: String) -> some View {
+        Section(group.displayName) {
+            Button("Rename Group…", systemImage: "pencil.line") { startRenameGroup(group, macID: macID) }
+            Menu {
+                ForEach(WorkspaceColor.allCases, id: \.self) { color in
+                    Button {
+                        creator.setGroupColor(group, on: macID, color)
+                    } label: {
+                        if WorkspaceColor(stored: group.color) == color {
+                            Label(color.title, systemImage: "checkmark")
+                        } else {
+                            Label { Text(color.title) } icon: { WorkspaceSwatch.image(color) }
+                        }
+                    }
+                }
+            } label: {
+                Label("Set Workspace Group Color…", systemImage: "paintpalette")
+            }
+            Button(group.isCollapsed ? "Expand Workspace Group" : "Collapse Workspace Group",
+                   systemImage: group.isCollapsed ? "chevron.down" : "chevron.right") {
+                withAnimation(theme.motion.smooth.animation) { creator.setGroupCollapsed(group, on: macID, !group.isCollapsed) }
+            }
+        }
+        Section {
+            Button("Ungroup Workspaces", systemImage: "rectangle.stack.badge.minus") {
+                withAnimation(theme.motion.smooth.animation) { creator.deleteGroup(group, on: macID) }
+            }
+            Button("Delete Group", systemImage: "trash", role: .destructive) {
+                deletingGroup = GroupTarget(group: group, macID: macID)
+            }
+        }
+    }
+
+    @ViewBuilder private func groupAccessibilityActions(_ group: MacWorkspaceGroup, macID: String, canEdit: Bool) -> some View {
+        if canEdit {
+            Button("Rename Group…") { startRenameGroup(group, macID: macID) }
+            Button("Delete Group") { deletingGroup = GroupTarget(group: group, macID: macID) }
+        }
+    }
+
+    private func startRenameGroup(_ group: MacWorkspaceGroup, macID: String) {
+        groupNameText = group.name
+        renamingGroup = GroupTarget(group: group, macID: macID)
+    }
+
+    /// The Mac's row menu folder Group: Move Workspace to Group… (its groups,
+    /// then Move Workspace to New Group) and Remove Workspace from Group.
+    @ViewBuilder private func groupFolder(_ ws: Workspace) -> some View {
+        if creator.canGroup(ws) {
+            let choices = creator.groupChoices(for: ws)
+            Menu {
+                Menu {
+                    ForEach(choices) { group in
+                        Button {
+                            withAnimation(theme.motion.smooth.animation) { creator.place(ws, in: group) }
+                        } label: {
+                            if let color = WorkspaceColor(stored: group.color) {
+                                Label { Text(group.displayName) } icon: { WorkspaceSwatch.image(color) }
+                            } else {
+                                Text(group.displayName)
+                            }
+                        }
+                    }
+                    if !choices.isEmpty { Divider() }
+                    Button("Move Workspace to New Group", systemImage: "folder.badge.plus") {
+                        groupNameText = ""
+                        newGroupFor = ws
+                    }
+                } label: {
+                    Label("Move Workspace to Group…", systemImage: "folder.badge.questionmark")
+                }
+                if ws.group != nil {
+                    Button("Remove Workspace from Group", systemImage: "folder.badge.minus") {
+                        withAnimation(theme.motion.smooth.animation) { creator.place(ws, in: nil) }
+                    }
+                }
+            } label: {
+                Label("Group", systemImage: "folder")
+            }
+        }
     }
 
     /// Asks before closing, in a popover pointing at the row (Mail).
@@ -412,6 +606,15 @@ public struct WorkspacesList: View {
             .padding(.top, max(closingFrame.minY, 0))
             .allowsHitTesting(false)
             .accessibilityHidden(true)
+            .confirmationDialog(bulkClosing.map { WorkspaceBulkClose.question($0.targets.count) } ?? "", isPresented: isPresented($bulkClosing),
+                                titleVisibility: .visible, presenting: bulkClosing) { bulk in
+                Button(bulk.targets.count == 1 ? "Close Workspace" : "Close Workspaces", role: .destructive) {
+                    theme.haptics.impactLight()
+                    withAnimation(theme.motion.smooth.animation) { creator.close(bulk.targets) }
+                }
+            } message: { bulk in
+                Text(bulk.message(macName: mac(bulk.workspace.macID).map(displayName) ?? "the Mac"))
+            }
             .confirmationDialog(closing.map { "Close \u{201C}\($0.title)\u{201D}?" } ?? "", isPresented: isPresented($closing),
                                 titleVisibility: .visible, presenting: closing) { ws in
                 Button("Close Workspace", role: .destructive) {
@@ -429,8 +632,9 @@ public struct WorkspacesList: View {
     }
 
     /// The row menu: the Mac and branch as its header, the workspace's tabs
-    /// (jump straight to one), then Rename and Close.
-    @ViewBuilder private func menu(_ ws: Workspace, status: WorkspaceStatus, canManage: Bool) -> some View {
+    /// (jump straight to one), then the Mac's sidebar row actions (pin, color,
+    /// order, read marks), Rename and Close, and the bulk closes.
+    @ViewBuilder private func menu(_ ws: Workspace, status: WorkspaceStatus, canManage: Bool, inbox: WorkspaceInbox) -> some View {
         let macName = mac(ws.macID).map(displayName) ?? "Unknown Mac"
         Section(menuHeader(ws, macName: macName, offline: status == .offline)) {
             if status == .offline {
@@ -453,9 +657,111 @@ public struct WorkspacesList: View {
             }
         }
         if canManage {
+            if creator.canArrange(ws) {
+                arrangeSection(ws, inbox: inbox)
+            }
             Section {
                 Button("Rename", systemImage: "pencil") { startRename(ws) }
+                if creator.canDuplicate(ws) {
+                    Button(WorkspaceCreator.duplicateTitle, systemImage: "plus.square.on.square") { creator.duplicate(ws) }
+                }
                 Button("Close Workspace", systemImage: "xmark", role: .destructive) { confirmClose(ws) }
+                bulkCloseMenu(ws, inbox: inbox)
+            }
+        }
+    }
+
+    /// The Mac's row menu, folder by folder: Pin Workspace; Appearance (Set
+    /// Workspace Color…, Reset Workspace Color); Options (Mark Workspace as
+    /// Read / Unread); Move (Move Workspace Up / Down).
+    @ViewBuilder private func arrangeSection(_ ws: Workspace, inbox: WorkspaceInbox) -> some View {
+        let order = inbox.macOrder(of: ws)
+        Section {
+            Button(ws.isPinned ? "Unpin Workspace" : "Pin Workspace", systemImage: ws.isPinned ? "pin.slash" : "pin") {
+                theme.haptics.selection()
+                withAnimation(theme.motion.smooth.animation) { creator.setPinned(ws, !ws.isPinned) }
+            }
+            Menu {
+                Menu {
+                    ForEach(WorkspaceColor.allCases, id: \.self) { color in
+                        Button {
+                            creator.setColor(ws, color)
+                        } label: {
+                            if WorkspaceColor(stored: ws.colorHex) == color {
+                                Label(color.title, systemImage: "checkmark")
+                            } else {
+                                Label { Text(color.title) } icon: { WorkspaceSwatch.image(color) }
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Set Workspace Color…", systemImage: "paintpalette")
+                }
+                if ws.colorHex != nil {
+                    Button("Reset Workspace Color", systemImage: "circle.slash") { creator.setColor(ws, nil) }
+                }
+                Menu {
+                    ForEach(WorkspaceIcon.symbols, id: \.self) { symbol in
+                        Button(symbol, systemImage: ws.icon == symbol ? "checkmark" : symbol) { creator.setIcon(ws, symbol) }
+                    }
+                    Button("Emoji…", systemImage: "face.smiling") {
+                        emojiText = ""
+                        iconEmoji = ws
+                    }
+                } label: {
+                    Label("Set Icon…", systemImage: "app.badge")
+                }
+                if ws.icon != nil {
+                    Button("Remove Icon", systemImage: "minus.circle") { creator.setIcon(ws, nil) }
+                }
+            } label: {
+                Label("Appearance", systemImage: "paintbrush")
+            }
+            Menu {
+                if ws.hasUnread {
+                    Button("Mark Workspace as Read", systemImage: "envelope.open") { creator.setUnread(ws, false) }
+                } else {
+                    Button("Mark Workspace as Unread", systemImage: "envelope.badge") { creator.setUnread(ws, true) }
+                }
+                if ws.hasCustomTitle {
+                    Button("Clear Workspace Name", systemImage: "textformat") { creator.clearName(ws) }
+                }
+            } label: {
+                Label("Options", systemImage: "ellipsis.circle")
+            }
+            groupFolder(ws)
+            if order.count > 1 {
+                Menu {
+                    Button("Move Workspace Up", systemImage: "arrow.up") {
+                        withAnimation(theme.motion.smooth.animation) { creator.move(ws, by: -1, among: order) }
+                    }
+                    .disabled(order.first?.id == ws.id)
+                    Button("Move Workspace Down", systemImage: "arrow.down") {
+                        withAnimation(theme.motion.smooth.animation) { creator.move(ws, by: 1, among: order) }
+                    }
+                    .disabled(order.last?.id == ws.id)
+                } label: {
+                    Label("Move", systemImage: "arrow.up.arrow.down")
+                }
+            }
+        }
+    }
+
+    /// Close Other Workspaces / Above / Below, over the Mac's sidebar order of
+    /// this workspace's Mac. The phone asks first (the Mac closes at once).
+    @ViewBuilder private func bulkCloseMenu(_ ws: Workspace, inbox: WorkspaceInbox) -> some View {
+        let order = inbox.macSidebar(ws.macID).filter { creator.canManage($0) }
+        // The Mac's Close folder order: Other, Below, Above.
+        let kinds = [WorkspaceBulkClose.others, .below, .above].filter { !$0.targets(of: ws, in: order).isEmpty }
+        if !kinds.isEmpty {
+            Menu {
+                ForEach(kinds, id: \.self) { kind in
+                    Button(kind.title, role: .destructive) {
+                        bulkClosing = BulkClose(kind: kind, workspace: ws, targets: kind.targets(of: ws, in: order))
+                    }
+                }
+            } label: {
+                Label("Close", systemImage: "xmark.square")
             }
         }
     }
@@ -788,6 +1094,96 @@ struct SectionTitle: View {
     }
 }
 
+/// A group header's label: a disclosure chevron, the group's color, its name,
+/// and how many workspaces it holds while folded.
+struct GroupHeaderLabel: View {
+    let group: MacWorkspaceGroup
+    let count: Int
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "chevron.right")
+                .font(theme.type.meta.weight(.semibold))
+                .rotationEffect(.degrees(group.isCollapsed ? 0 : 90))
+                .foregroundStyle(theme.colors.label2)
+            Circle()
+                .fill(swatch)
+                .frame(width: 8, height: 8)
+            Text(group.displayName)
+                .font(theme.type.meta.weight(.semibold))
+                .foregroundStyle(theme.colors.label)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            if group.isCollapsed {
+                Text(String(count))
+                    .font(theme.type.meta)
+                    .foregroundStyle(theme.colors.label2)
+            }
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(group.displayName)
+        .accessibilityValue(group.isCollapsed ? "Collapsed, \(count) workspaces" : "Expanded")
+    }
+
+    private var swatch: Color {
+        WorkspaceSwatch.color(stored: group.color) ?? theme.colors.label3.color
+    }
+}
+
+/// A Mac workspace group the person is renaming or deleting.
+struct GroupTarget: Identifiable {
+    var group: MacWorkspaceGroup
+    var macID: String
+    var id: String { "\(macID)-\(group.id)" }
+}
+
+/// A bulk close waiting for the person's answer.
+struct BulkClose: Identifiable {
+    var kind: WorkspaceBulkClose
+    var workspace: Workspace
+    var targets: [Workspace]
+    var id: String { "\(kind.rawValue)-\(workspace.id)" }
+
+    /// "a, b and c close on <Mac>, with their tabs."
+    func message(macName: String) -> String {
+        let names = targets.map(\.title)
+        let list = names.count <= 4 ? ListFormatter.localizedString(byJoining: names)
+            : ListFormatter.localizedString(byJoining: Array(names.prefix(3)) + ["\(names.count - 3) more"])
+        return "\(list) close on \(macName), with their tabs."
+    }
+}
+
+/// The Mac's workspace color swatch (its `GroupColor.swatch` hue, chroma and brightness).
+enum WorkspaceSwatch {
+    static func color(_ color: WorkspaceColor) -> Color {
+        let (hue, chroma) = color.hueAndChroma
+        return Color(UIColor { traits in
+            let dark = traits.userInterfaceStyle == .dark
+            return UIColor(hue: hue / 360, saturation: (dark ? 0.40 : 0.42) * chroma, brightness: dark ? 0.68 : 0.64, alpha: 1)
+        })
+    }
+
+    /// A stored color: a palette name, or `#RRGGBB`.
+    static func color(stored: String?) -> Color? {
+        if let palette = WorkspaceColor(stored: stored) { return color(palette) }
+        guard let stored, stored.hasPrefix("#"), stored.count >= 7, let value = UInt32(stored.dropFirst().prefix(6), radix: 16) else { return nil }
+        return Color(red: Double((value >> 16) & 0xFF) / 255, green: Double((value >> 8) & 0xFF) / 255, blue: Double(value & 0xFF) / 255)
+    }
+
+    /// A menu icon: a filled circle in the color (menus draw images, not shapes).
+    static func image(_ color: WorkspaceColor) -> Image {
+        let (hue, chroma) = color.hueAndChroma
+        let fill = UIColor(hue: hue / 360, saturation: 0.42 * chroma, brightness: 0.64, alpha: 1)
+        let size = CGSize(width: 16, height: 16)
+        let image = UIGraphicsImageRenderer(size: size).image { _ in
+            fill.setFill()
+            UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).fill()
+        }
+        return Image(uiImage: image.withRenderingMode(.alwaysOriginal))
+    }
+}
+
 /// SPEC 11.1 workspace row, Mail anatomy: a status gutter (32 pt at Large,
 /// scaling with Dynamic Type), then the name and its time, then the status
 /// sentence.
@@ -848,9 +1244,20 @@ struct WorkspaceRow: View {
     }
 
     private var name: some View {
-        Text(workspace.title)
-            .font(theme.type.rowTitle.weight(.semibold))
-            .foregroundStyle(status == .offline ? theme.colors.label3 : theme.colors.label)
+        HStack(spacing: 5) {
+            // The Mac's workspace icon: an SF Symbol the phone draws, else an emoji.
+            if let icon = workspace.icon, !icon.isEmpty {
+                if UIImage(systemName: icon) != nil {
+                    Image(systemName: icon).font(theme.type.rowTitle).foregroundStyle(theme.colors.label2)
+                        .accessibilityIdentifier("workspace.icon")
+                } else if WorkspaceIcon.emoji(icon) != nil {
+                    Text(icon).font(theme.type.rowTitle).accessibilityIdentifier("workspace.icon")
+                }
+            }
+            Text(workspace.title)
+                .font(theme.type.rowTitle.weight(.semibold))
+                .foregroundStyle(status == .offline ? theme.colors.label3 : theme.colors.label)
+        }
     }
 
     /// Only a real activity time: none for a live workspace with no activity
@@ -877,12 +1284,20 @@ struct WorkspaceRow: View {
             Circle().fill(theme.colors.label.color).frame(width: doneDisc, height: doneDisc)
                 .accessibilityIdentifier("workspace.done")
         case .idle, .offline:
-            Color.clear.frame(width: doneDisc, height: doneDisc)
+            // The Mac's workspace color, when it has one.
+            if let color = WorkspaceSwatch.color(stored: workspace.colorHex) {
+                RoundedRectangle(cornerRadius: 2).fill(color).frame(width: doneDisc / 2, height: doneDisc * 2)
+                    .accessibilityIdentifier("workspace.color")
+            } else {
+                Color.clear.frame(width: doneDisc, height: doneDisc)
+            }
         }
     }
 
     private var spoken: String {
         var parts = [workspace.title]
+        if workspace.isPinned { parts.append("pinned") }
+        if let color = WorkspaceColor(stored: workspace.colorHex) { parts.append(color.title) }
         let line = StatusLine.words(workspace, status: status, macName: macName)
         parts.append(contentsOf: line)
         if workspace.hasActivityTime, status != .creating {
@@ -1073,6 +1488,10 @@ struct NewWorkspaceButton: View {
     /// The team's same-name Macs, tagged as the filter menu tags them.
     let sameNames: MacNameDisambiguation
     let create: (NewWorkspaceStart, String?) -> Void
+    /// Open Folder…: the typed path, and why the last one was refused.
+    @State private var openingFolder = false
+    @State private var folderText = ""
+    @State private var folderRefusal: String?
 
     private func displayName(_ mac: MacDevice) -> String { sameNames.displayName(mac) }
 
@@ -1085,6 +1504,22 @@ struct NewWorkspaceButton: View {
             create(.terminal, nil)
         }
         .disabled(target == nil)
+        .alert("Open Folder", isPresented: $openingFolder) {
+            TextField("~/code/project", text: $folderText)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .accessibilityIdentifier("workspaces.openFolder.path")
+            Button("Cancel", role: .cancel) {}
+            Button("Open") { openFolder() }
+                .disabled(WorkspaceFolderPath(folderText) == nil)
+        } message: {
+            Text(target.map { "A folder on \(displayName($0)). The new workspace's terminal opens there." } ?? "")
+        }
+        .alert("Can't open this folder", isPresented: Binding(get: { folderRefusal != nil }, set: { if !$0 { folderRefusal = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(folderRefusal ?? "")
+        }
         .accessibilityIdentifier("workspaces.new")
         .accessibilityHint(target.map { "Creates a workspace on \(displayName($0))" } ?? "")
     }
@@ -1115,6 +1550,35 @@ struct NewWorkspaceButton: View {
                     }
                 }
             }
+            if options.agents.contains(""), !recents.isEmpty {
+                // The Mac's New Agent Chat over Home: a workspace whose only tab is the
+                // chat, in one of the Mac's workspace folders.
+                Section("New Agent Chat") {
+                    ForEach(recents, id: \.self) { directory in
+                        Button {
+                            create(.agent(""), directory)
+                        } label: {
+                            Label {
+                                Text(Self.folderName(directory))
+                                Text(directory)
+                            } icon: {
+                                Image(systemName: "sparkle")
+                            }
+                        }
+                        .accessibilityIdentifier("workspaces.newAgentChat.\(Self.folderName(directory))")
+                    }
+                }
+            }
+            if options.directories {
+                Section {
+                    // The Mac's Open Folder… (⌘O): a typed path, since a phone browses no Mac folders.
+                    Button("Open Folder…", systemImage: "folder.badge.plus") {
+                        folderText = ""
+                        openingFolder = true
+                    }
+                    .accessibilityIdentifier("workspaces.openFolder")
+                }
+            }
             if showsMacPicker && macs.count > 1 {
                 Section {
                     Picker(selection: Binding(get: { mac.id }, set: { creator.prefer(macID: $0) })) {
@@ -1130,7 +1594,7 @@ struct NewWorkspaceButton: View {
 
     @ViewBuilder private func starts(_ options: WorkspaceCreationOptions) -> some View {
         Button("New Workspace", systemImage: "apple.terminal") { create(.terminal, nil) }
-        ForEach(options.agents, id: \.self) { harness in
+        ForEach(options.agents.filter { !$0.isEmpty }, id: \.self) { harness in
             Button("New \(Self.agentName(harness)) Workspace", systemImage: "sparkle") { create(.agent(harness), nil) }
         }
         if options.browser {
@@ -1144,6 +1608,15 @@ struct NewWorkspaceButton: View {
         case "codex": "Codex"
         default: harness.prefix(1).uppercased() + harness.dropFirst()
         }
+    }
+
+    private func openFolder() {
+        guard let folder = WorkspaceFolderPath(folderText), let mac = target else { return }
+        if let refusal = folder.refusal(macName: displayName(mac)) {
+            folderRefusal = refusal
+            return
+        }
+        create(.terminal, folder.path)
     }
 
     static func folderName(_ directory: String) -> String {

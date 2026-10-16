@@ -19,6 +19,8 @@ enum DaemonTerminalInbound: Sendable, Equatable {
     case resetMirror(alternate: Bool)
     /// The daemon ended the surface.
     case detached(reason: String?)
+    /// A `resized` at the grid the mirror already holds: kept, not replayed.
+    case sameGridResize(columns: Int, rows: Int)
 }
 
 /// Decodes attach-stream event lines (JSON, base64) and follows the alternate
@@ -27,6 +29,8 @@ enum DaemonTerminalInbound: Sendable, Equatable {
 struct DaemonTerminalEventParser: Sendable {
     let surface: Int
     private var detector = AlternateScreenDetector()
+    /// The Mac's grid this mirror holds (from `vt-state` and `resized`).
+    private var grid: (columns: Int, rows: Int)?
 
     init(surface: Int) { self.surface = surface }
 
@@ -39,6 +43,7 @@ struct DaemonTerminalEventParser: Sendable {
         case "vt-state":
             if let cols = object["cols"] as? Int, cols > 0 { out.append(.columns(cols)) }
             if let rows = object["rows"] as? Int, rows > 0 { out.append(.rows(rows)) }
+            noteGrid(object)
             emit(object["data"] as? String, into: &out)
             emit(object["pending"] as? String, into: &out)
         case "output":
@@ -46,6 +51,18 @@ struct DaemonTerminalEventParser: Sendable {
         case "resized":
             if let cols = object["cols"] as? Int, cols > 0 { out.append(.columns(cols)) }
             if let rows = object["rows"] as? Int, rows > 0 { out.append(.rows(rows)) }
+            // termqa V5-4: the Mac sends `resized` with a replay for a change
+            // of its cell pixels alone (`commit_geometry_for_runtime` in
+            // cmux-tui-core's pty_surface.rs), e.g. when a new tab's view
+            // appears. The grid is the one this mirror holds, and the ordered
+            // stream already brought it to the replay's state (an incomplete
+            // sequence included), so the screen is kept: no reset, no replay.
+            if let cols = object["cols"] as? Int, let rows = object["rows"] as? Int,
+               let grid, grid.columns == cols, grid.rows == rows {
+                out.append(.sameGridResize(columns: cols, rows: rows))
+                break
+            }
+            noteGrid(object)
             // The authoritative mirror changed size: start over from the replay,
             // whose final alternate screen state goes with the reset.
             detector = AlternateScreenDetector()
@@ -60,6 +77,12 @@ struct DaemonTerminalEventParser: Sendable {
             break
         }
         return out
+    }
+
+    private mutating func noteGrid(_ object: [String: Any]) {
+        if let cols = object["cols"] as? Int, let rows = object["rows"] as? Int, cols > 0, rows > 0 {
+            grid = (cols, rows)
+        }
     }
 
     private mutating func emit(_ base64: String?, into out: inout [DaemonTerminalInbound]) {

@@ -156,7 +156,8 @@ xcb() { local logf=$1; shift; xcodebuild "$@" > "$logf" 2>&1 || { grep -E "error
 
 log "iOS simulator build"
 xcb "$work/logs/ios-simulator.log" "${common[@]}" -destination 'generic/platform=iOS Simulator' \
-  -derivedDataPath "$work/dd-sim" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= build
+  -derivedDataPath "$work/dd-sim" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
+  ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build
 sim_app="$work/dd-sim/Build/Products/$config-iphonesimulator/CnxApp.app"
 mkdir -p "$out/ios-simulator"
 ditto -c -k --keepParent "$sim_app" "$out/ios-simulator/cnx-$tag-sim.app.zip"

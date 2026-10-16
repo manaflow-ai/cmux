@@ -16,6 +16,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     @State private var expanded: Set<String> = []
     @State private var columnWidth: CGFloat = 0
     @State private var swipe = FeedSwipeCoordinator()
+    /// Why Clear All Notifications failed, shown once.
+    @State private var clearFailure: String?
     @State private var rowContext = FeedRowContext(store: FeedStore.shared)
     @Environment(AppStore.self) private var appStore
     #if DEBUG
@@ -93,9 +95,14 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 sidebarItem
-                ToolbarItem(placement: .topBarTrailing) { FeedFilterMenu(store: store) }
+                ToolbarItem(placement: .topBarTrailing) { FeedFilterMenu(store: store, clearFailure: $clearFailure) }
             }
             .agentChatDestinations()
+            .alert("Couldn't clear notifications", isPresented: Binding(get: { clearFailure != nil }, set: { if !$0 { clearFailure = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(clearFailure ?? "")
+            }
         }
         .onAppear {
             rowContext.open = { open($0) }
@@ -107,9 +114,15 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             #endif
             FeedRouting.shared.sendPrompt = { item, text in
                 guard let workspace = appStore.workspaces.first(where: { $0.id == item.workspaceID }),
-                      let tab = workspace.tabs.first(where: { $0.id == item.tabID }) else { return }
+                      let tab = workspace.tabs.first(where: { $0.id == item.tabID }) else {
+                    // A chat with no tab in a workspace on the Mac (one the Mac started on its own):
+                    // the reply was never sent, so it must not read as sent.
+                    return .failed("This chat isn't in a workspace tab on the Mac, so it can't be answered from here. Open it in cmux on the Mac.")
+                }
                 let mac = appStore.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? "Mac"
-                AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac).send(prompt: text)
+                let chat = AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac)
+                chat.send(prompt: text)
+                return .sent(chat)
             }
         }
         #if DEBUG
@@ -279,6 +292,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
 /// this menu only, never the Feed's list and its layout.
 private struct FeedFilterMenu: View {
     @Bindable var store: FeedStore
+    /// Why Clear All Notifications failed (the screen's alert).
+    @Binding var clearFailure: String?
     @Environment(AppStore.self) private var appStore
 
     var body: some View {
@@ -287,6 +302,19 @@ private struct FeedFilterMenu: View {
                 ForEach(FeedFilter.allCases, id: \.self) { Text($0.rawValue) }
             }
             .pickerStyle(.inline)
+            if let clear = FeedRouting.shared.clearAllNotifications {
+                // The Mac's Clear All Notifications: its notification ledger, as its panel's Clear All.
+                Section {
+                    Button("Clear All Notifications", systemImage: "clear", role: .destructive) {
+                        Task {
+                            do { try await clear() } catch {
+                                clearFailure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                            }
+                        }
+                    }
+                    .accessibilityIdentifier("feed.clearAllNotifications")
+                }
+            }
             Section("Workspaces") {
                 ForEach(appStore.workspaces) { workspace in
                     Toggle(workspace.title, isOn: Binding(

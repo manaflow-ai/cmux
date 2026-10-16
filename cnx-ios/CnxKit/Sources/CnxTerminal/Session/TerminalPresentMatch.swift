@@ -49,7 +49,11 @@ public struct TerminalPresentMatch: Equatable, Sendable {
     public func match(previous: [UInt64], current: [UInt64]) -> (top: Int, matched: Bool) {
         var best: (shift: Int, score: Double)?
         let blank = Self.mostCommon(current)
-        for shift in candidateShifts {
+        // No frame shows a viewport past the active area's top (V6-2: after
+        // a prune while following, the frame on screen still had its top in
+        // the old numbering, and a +1 match placed the next one past the
+        // document's end).
+        for shift in candidateShifts where (0...max(0, activeTop)).contains(presentedTop + shift) {
             let score = Self.score(previous, current, shift: shift, blank: blank)
             if score > (best?.score ?? -1) + 0.02 { best = (shift, score) }
         }

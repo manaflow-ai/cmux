@@ -118,6 +118,10 @@ public final class LiveCoordinator {
     @ObservationIgnored private var snapshotSavePending = false
     /// The team whose registration, Macs and presence are running or done.
     @ObservationIgnored private var startedTeamID: String?
+    /// The team the Feed's items came from. Feed items carry no Mac, so on a switch they
+    /// go (the new team's Macs fill it on connect): an old team's ask answered here went to
+    /// the new team's Mac and failed, or reached the wrong one.
+    @ObservationIgnored private var feedTeamID: String?
     /// The Mac whose data and connection state the link last fed.
     @ObservationIgnored private var dataMacID: String?
     /// Macs whose cnx host predates the `version` service (link protocol 1):
@@ -311,6 +315,7 @@ public final class LiveCoordinator {
         link.prewarm(baseURL: api.baseURL, teamID: snapshot.teamID, deviceID: identity.link)
         retarget()
         startedTeamID = snapshot.teamID
+        feedTeamID = snapshot.teamID
         teamTask = Task { [weak self] in await self?.startTeam(snapshot.teamID, warm: true) }
     }
 
@@ -379,6 +384,8 @@ public final class LiveCoordinator {
         if byUser { pinnedTeamID = teamID }
         guard !teamID.isEmpty, teamID != registeredTeamID, teamID != startedTeamID else { return }
         startedTeamID = teamID
+        if let feedTeamID, feedTeamID != teamID { feed.store.replaceAll([]) }
+        feedTeamID = teamID
         teamTask?.cancel()
         presence?.stop()
         presence = nil

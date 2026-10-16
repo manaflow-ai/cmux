@@ -1,0 +1,54 @@
+{
+ "scenario": "1350",
+ "build": "new",
+ "sha": "b059b2c027",
+ "bundle": "dev.cmux.cnx.tq10",
+ "agent": "codex",
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tq10/reg-1350-new-040656.mp4",
+ "time": "2026-10-15 04:09:49",
+ "load": 39.83,
+ "rows": {
+  "T-REG-1350-a": {
+   "red": true,
+   "evidence": {
+    "shot": "/Users/azizalbahar/Development/cmuxterm-hq/worktrees/feat-cnx-ios-termqa/cnx-ios/verify/termqa/artifacts/shots/reg-1350-new-040656-grid.jpg",
+    "prompt_in_card": false,
+    "history_rows": []
+   }
+  },
+  "T-REG-1350-b": {
+   "red": null,
+   "evidence": {
+    "cards": [
+     "e2e-t1, tab",
+     "e2e-t2, tab"
+    ],
+    "menu": false,
+    "menu_labels": [
+     "2 Tabs",
+     "Add",
+     "Aziz\u2019s MacBook Pro doesn't allow agent chats in this folder from your iPhone yet.",
+     "Aziz\u2019s MacBook Pro \u00b7 2 tabs",
+     "Close",
+     "Close e2e-t1",
+     "Done",
+     "Error",
+     "More",
+     "New",
+     "Workspaces",
+     "cnx tq10",
+     "e2e-030628",
+     "e2e-t1, tab",
+     "e2e-t2, tab"
+    ],
+    "phantom": [],
+    "samples": 0
+   }
+  },
+  "T-REG-1350-c": {
+   "red": null,
+   "note": "toast placement: read the recording (not automated)"
+  }
+ },
+ "red": true
+}

@@ -20,12 +20,13 @@ sys.path.insert(0, os.path.join(HERE, "../e2e"))
 from sim import Sim  # noqa: E402
 from journey import Journey  # noqa: E402
 
-STATE = os.path.expanduser("~/cnx-ios-e2e/termqa-state.json")
+# TQ_STATE / TQ_HOST / TQ_RBASE / TQ_RAW select a rig instance (default: the shared rig on mini-2).
+STATE = os.path.expanduser(os.environ.get("TQ_STATE", "~/cnx-ios-e2e/termqa-state.json"))
 ART = os.path.join(HERE, "artifacts")
-RAW = os.path.expanduser("~/cnx-ios-e2e/termqa-raw")
+RAW = os.path.expanduser(os.environ.get("TQ_RAW", "~/cnx-ios-e2e/termqa-raw"))
 HOST = os.environ.get("TQ_HOST", "mini-cmuxs-mac-mini-2")
-RBASE = "~/cnx-ios-e2e/termqa"
-BUNDLE = "dev.cmux.cnx"
+RBASE = os.environ.get("TQ_RBASE", "~/cnx-ios-e2e/termqa")
+BUNDLE = os.environ.get("TQ_BUNDLE", "dev.cmux.cnx")  # a tagged Demo build: dev.cmux.cnx.<tag>
 
 
 def load():
@@ -42,7 +43,8 @@ def log(msg):
 
 
 def rsh(cmd, timeout=180, check=False):
-    r = subprocess.run(["ssh", "-o", "ConnectTimeout=10", HOST, cmd], capture_output=True, text=True, timeout=timeout)
+    argv = ["bash", "-lc", cmd] if HOST == "local" else ["ssh", "-o", "ConnectTimeout=10", HOST, cmd]
+    r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, cwd=os.path.expanduser("~"))
     if check and r.returncode:
         raise RuntimeError(f"{HOST}: {cmd[:120]}: {(r.stderr or r.stdout)[-400:]}")
     return r
@@ -96,10 +98,51 @@ class RemoteMac:
         return [tuple(x) for x in json.loads(self._rmac("link-events", str(since)).stdout or "[]")]
 
 
+class LocalMac:
+    """TQ_HOST=local: the hidden laptop rig (real Codex needs this laptop's codex login).
+    The fleet-built app is used as built: its Info.plist is never edited and the
+    bundle is never re-signed. Every setting goes in at launch with `open -g -j -n
+    --env` (it overrides LSEnvironment), so the app is never activated or raised.
+    TQ_RBASE is the rig folder: mac/<app>, config/, secrets/, bin/."""
+
+    def __new__(cls):
+        from mac import Mac
+        rig = os.path.expanduser(RBASE)
+
+        class _Local(Mac):
+            def prepare(self):
+                # Mac.prepare's copy step re-signs; skip it by stamping the app as its own source.
+                stamp = os.path.join(self.rig, "mac", ".source")
+                open(stamp, "w").write(f"{os.path.realpath(self.app)} {os.path.getmtime(self.info)}")
+                self.source_app = self.app
+                return Mac.prepare(self)
+
+            def launch(self, timeout=90):
+                res = os.path.join(self.app, "Contents/Resources")
+                self.launch_env = dict(self.launch_env, **{
+                    "CMUX_SHELL_INTEGRATION_DIR": f"{res}/shell-integration",
+                    "CMUX_BUNDLED_CLI_PATH": f"{res}/bin/cmux",
+                    "CMUXD_UNIX_PATH": os.path.expanduser(f"~/Library/Application Support/cmux/cmuxd-dev-{self.tag}.sock"),
+                    "CMUXTERM_REPO_ROOT": "",
+                    "CMUX_NEXT_CONFIG_FILE": self.config,
+                    "CMUX_AUTH_CREDENTIALS_FILE": self.creds,
+                    "CMUX_NEXT_IPHONE_PAIRING_SEED": self.pairing_seed,
+                })
+                t0 = Mac.launch(self, timeout)
+                return t0
+
+        apps = [a for a in os.listdir(os.path.join(rig, "mac")) if a.endswith(".app")]
+        m = _Local(rig, os.path.join(rig, "mac", apps[0]))
+        m.pid = (m.main_pids() or [None])[0]
+        return m
+
+
 def ctx():
     st = load()
     sim = Sim(st["udid"], os.path.join(ART, "shots"))
-    mac = RemoteMac()
+    mac = LocalMac() if HOST == "local" else RemoteMac()
+    import journey
+    journey.BUNDLE = BUNDLE
     j = Journey(sim, mac, ART, st.get("app_path"), log)
     j.seed = st.get("seed", {})
     j.ws_name = st.get("ws_name", j.ws_name)
@@ -130,16 +173,20 @@ def ax(contains=None, ident=None, label=None):
         print(repr(e))
 
 
+def _mac():
+    return LocalMac() if HOST == "local" else RemoteMac()
+
+
 def term():
     return load()["term"]
 
 
 def mac_screen(t=None):
-    return RemoteMac().cmux("terminal", t or term(), "screen", "read", json_out=True).get("text", "")
+    return _mac().cmux("terminal", t or term(), "screen", "read", json_out=True).get("text", "")
 
 
 def mac_write(text, t=None):
-    RemoteMac().cmux("terminal", t or term(), "write", "--text", text)
+    _mac().cmux("terminal", t or term(), "write", "--text", text)
 
 
 def rec_start(name):

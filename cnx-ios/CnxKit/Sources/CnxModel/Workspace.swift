@@ -23,9 +23,30 @@ public struct Workspace: Identifiable, Hashable, Sendable, Codable {
     public var isWorking: Bool
     /// Something new arrived since this device last looked (row unread dot).
     public var hasUnread: Bool
-    /// The cmux-next workspace color (`#RRGGBB`) and icon (SF Symbol or one emoji).
+    /// The cmux-next workspace color: a Mac palette name (`blue`, see
+    /// `WorkspaceColor`) or `#RRGGBB`; and its icon (SF Symbol or one emoji).
     public var colorHex: String?
     public var icon: String?
+    /// Pinned in the Mac's sidebar (its pinned section, else the legacy flag).
+    public var isPinned: Bool = false
+    /// The place in the pinned section on the Mac (its tile order).
+    public var pinIndex: Int?
+    /// The pinned tile's layout item, for Unpin (`sidebar_layout` item id).
+    public var pinItemID: String?
+    /// The place in the Mac's sidebar (its personal order, else the daemon's
+    /// workspace order). Nil when the Mac's order is not known (mock data).
+    public var sidebarIndex: Int?
+    /// The workspace's public resource id on its Mac (`ws_…`), for layout refs.
+    public var resourceID: String?
+    /// The Mac shows a display name over the workspace's own name (its `title`
+    /// field): Clear Workspace Name brings the own name back.
+    public var hasCustomTitle: Bool = false
+    /// The Mac's Home workspace (daemon `kind: "home"`): its tabs stay in it, as the Mac
+    /// refuses to promote one ("Home's tabs stay in Home.").
+    public var isHome: Bool = false
+    /// The Mac's workspace group the workspace is in (its personal sidebar
+    /// group, `list-personal`), if any.
+    public var group: MacWorkspaceGroup?
 
     public init(
         id: String, macID: String, title: String, directory: String, branch: String? = nil,
@@ -55,6 +76,7 @@ extension Workspace {
     enum CodingKeys: String, CodingKey {
         case id, macID, title, directory, branch, tabs, lastActivityAt, hasActivityTime, focusOrder, activeTabID
         case needsAttention, isWorking, hasUnread, colorHex, icon
+        case isPinned, pinIndex, pinItemID, sidebarIndex, resourceID, hasCustomTitle, isHome, group
     }
 
     /// Snapshots saved before a field existed still load (it takes its default).
@@ -77,6 +99,14 @@ extension Workspace {
             focusOrder: try c.decodeIfPresent(Int.self, forKey: .focusOrder) ?? 0,
             activeTabID: try c.decodeIfPresent(String.self, forKey: .activeTabID)
         )
+        isPinned = try c.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
+        pinIndex = try c.decodeIfPresent(Int.self, forKey: .pinIndex)
+        pinItemID = try c.decodeIfPresent(String.self, forKey: .pinItemID)
+        sidebarIndex = try c.decodeIfPresent(Int.self, forKey: .sidebarIndex)
+        resourceID = try c.decodeIfPresent(String.self, forKey: .resourceID)
+        hasCustomTitle = try c.decodeIfPresent(Bool.self, forKey: .hasCustomTitle) ?? false
+        isHome = try c.decodeIfPresent(Bool.self, forKey: .isHome) ?? false
+        group = try c.decodeIfPresent(MacWorkspaceGroup.self, forKey: .group)
     }
 }
 
@@ -100,6 +130,47 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     /// What a `.waiting` agent waits for, when the Mac's acpmux says (agent tabs).
     /// Nil for a terminal agent, whose report says only that it is blocked.
     public var waitingFor: WaitingFor?
+    /// Pinned on the Mac (`set-tab-pinned`): pinned tabs sort first in their pane.
+    /// Optional so older saved copies still decode; nil reads as not pinned.
+    public var pinned: Bool?
+    /// The Mac tab group the tab is in (`tab_groups`), if any.
+    public var group: TabGroupRef?
+
+    public var isPinned: Bool { pinned == true }
+    /// A terminal tab whose shell ended and that the Mac keeps (`dead`): Restart Shell
+    /// Here gives it a new shell on the Mac. Optional so older saved copies still decode.
+    public var shellEnded: Bool?
+    public var hasEndedShell: Bool { kind == .terminal && shellEnded == true }
+
+    /// A Mac tab group, as a member tab sees it.
+    public struct TabGroupRef: Hashable, Sendable, Codable {
+        public var id: String
+        /// Empty: the Mac shows the color only.
+        public var name: String
+        public var color: String
+        /// Saved ("Pin Group" on the Mac): `saved_id` is set.
+        public var isSaved: Bool
+
+        public init(id: String, name: String = "", color: String = "grey", isSaved: Bool = false) {
+            self.id = id
+            self.name = name
+            self.color = color
+            self.isSaved = isSaved
+        }
+
+        /// The Mac's next group color (`GroupColor.automatic`): the first of its automatic order
+        /// not used in the pane, never blue or grey; grey when every one is used.
+        public static func nextColor(used: Set<String>) -> String {
+            ["red", "green", "yellow", "purple", "cyan", "orange", "pink"].first { !used.contains($0) } ?? "grey"
+        }
+
+        /// The group's name, else its color ("Red group"), as a phone line reads it.
+        public var displayName: String {
+            if !name.trimmingCharacters(in: .whitespaces).isEmpty { return name }
+            let color = color.hasPrefix("#") ? "Tab" : color.prefix(1).uppercased() + color.dropFirst()
+            return "\(color) group"
+        }
+    }
 
     /// An agent's state as the Mac reports it.
     public enum AgentStatus: String, Hashable, Sendable, Codable {
@@ -121,7 +192,9 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     }
 
     public init(id: String, kind: Kind, title: String, subtitle: String? = nil, harness: String? = nil, url: URL? = nil,
-                agentStatus: AgentStatus? = nil, waitingFor: WaitingFor? = nil) {
+                agentStatus: AgentStatus? = nil, waitingFor: WaitingFor? = nil, pinned: Bool? = nil, group: TabGroupRef? = nil) {
+        self.pinned = pinned
+        self.group = group
         self.url = url
         self.agentStatus = agentStatus
         self.waitingFor = waitingFor

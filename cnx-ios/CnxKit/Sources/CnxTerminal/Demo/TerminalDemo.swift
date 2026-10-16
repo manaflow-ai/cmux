@@ -82,7 +82,7 @@ struct TerminalDemoDriver {
     }
 
     func run(phases: [String]?) async {
-        let all = ["scroll", "keyboard", "tui", "vim", "attachments", "artifacts", "follow", "kbcodex"]
+        let all = ["scroll", "keyboard", "tui", "vim", "attachments", "artifacts", "follow", "kbcodex", "rowprobe"]
         let selected = phases ?? all
         mark("start")
         for _ in 0..<10 {
@@ -100,6 +100,7 @@ struct TerminalDemoDriver {
             case "artifacts": await artifacts()
             case "follow": await follow()
             case "kbcodex": await keyboardOverCodex()
+            case "rowprobe": await rowProbe()
             default: break
             }
             await wait(1)
@@ -126,6 +127,23 @@ struct TerminalDemoDriver {
             mark("kb hide \(index)")
             model.toggleKeyboard()
             await wait(1.8)
+            mark("state " + (model.controller?.debugState ?? "-"))
+        }
+    }
+
+    /// Round 8: which numbering each Ghostty point tag reads, over a short
+    /// screen, scrollback, `clear` and more scrollback.
+    private func rowProbe() async {
+        func probe(_ label: String) {
+            mark("probe \(label) " + (model.controller?.debugRowProbe ?? "-"))
+        }
+        probe("intro")
+        for (label, command, seconds) in [("stream600", "stream 600 0", 6.0), ("clear", "clear", 20.0), ("stream30", "stream 30 0", 2.0),
+                                          ("clear2", "clear", 2.0), ("stream3000", "stream 3000 0", 20.0)] {
+            model.composerText = command
+            model.send()
+            await wait(seconds)
+            probe(label)
             mark("state " + (model.controller?.debugState ?? "-"))
         }
     }

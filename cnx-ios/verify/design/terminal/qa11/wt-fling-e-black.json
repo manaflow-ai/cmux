@@ -1,0 +1,10 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tq11/wt-fling-e.mp4",
+ "source_frames": 9865,
+ "duration": 162.99,
+ "lit_median": 0.046,
+ "black_runs": [],
+ "black_runs_over_17ms": [],
+ "frac_gaps_over_34ms": 0.0091,
+ "max_gap_ms": 40.0
+}

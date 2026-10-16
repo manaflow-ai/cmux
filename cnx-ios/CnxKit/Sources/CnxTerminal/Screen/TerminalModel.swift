@@ -114,8 +114,10 @@ public final class TerminalModel {
     /// the next cold launch.
     func liveOutputDrawn() {
         if connectionState.isAttached, coldFrame != nil { coldFrame = nil }
+        lastDrawnOutput = CACurrentMediaTime()
         saveFrameSoon()
     }
+    @ObservationIgnored private var lastDrawnOutput: CFTimeInterval = 0
 
     /// Saves the page's frame (for the next cold launch) at most every few seconds.
     public var frameSaver: (@MainActor (UIImage) -> Void)?
@@ -131,12 +133,22 @@ public final class TerminalModel {
         guard frameSaver != nil, !frameSavePending else { return }
         let wait = TerminalFrameSaveSchedule.delay(sinceLastSave: lastFrameSave == 0 ? .infinity : CACurrentMediaTime() - lastFrameSave)
         frameSavePending = true
+        let requested = CACurrentMediaTime()
         Task { @MainActor [weak self] in
             try? await ContinuousClock().sleep(for: .seconds(wait))
+            // Not while output streams (a 370 ms main-thread render): after
+            // it pauses, or at most `maxWait` after the save was wanted.
+            while let self, let more = TerminalFrameSaveSchedule.remainingWait(
+                sinceLastOutput: CACurrentMediaTime() - self.lastDrawnOutput, sinceRequested: CACurrentMediaTime() - requested) {
+                try? await ContinuousClock().sleep(for: .seconds(more))
+            }
             guard let self else { return }
             frameSavePending = false
             lastFrameSave = CACurrentMediaTime()
-            if let image = controller?.snapshot(hidingCursor: true) { frameSaver?(image) }
+            // Taken here, rendered off the main thread (V8 claim 7).
+            guard let capture = controller?.captureForSaving() else { return }
+            let image = await Task.detached(priority: .utility) { capture.render() }.value
+            if let image { frameSaver?(image) }
         }
     }
 

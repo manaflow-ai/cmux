@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CnxTerminal
 
@@ -36,9 +37,49 @@ import Testing
 
     @Test func blankScreenTextIsNotContent() {
         #expect(TerminalCardContent.choose(sessionStarted: false, connecting: false, hasSnapshot: true,
-                                           screenText: "\n  \n") == .snapshot)
+                                           screenText: "\n  \n") == .savedFrame)
         #expect(TerminalCardContent.choose(sessionStarted: false, connecting: false, hasSnapshot: false,
                                            screenText: nil) == .placeholder)
+    }
+}
+
+/// VERIFY-round8 Claim 8 / T-TABS-01: at the first grid open after a launch an
+/// inactive card showed a saved frame from an earlier session (old Codex
+/// output) as current while the Mac had moved on. A saved frame of a tab not
+/// opened in this launch is only a stand-in until the Mac's screen arrives,
+/// and the grid's opening asks the Mac again.
+@Suite struct TerminalCardStaleFrameTests {
+    @Test func aSavedFrameIsNotShownAsCurrent() {
+        // The Mac has not answered yet: the saved frame is marked as not current.
+        #expect(TerminalCardContent.choose(sessionStarted: false, connecting: false, hasSnapshot: true,
+                                           screenText: nil) == .savedFrame)
+        #expect(TerminalCardContent.savedFrame.isCurrent == false)
+        #expect(TerminalCardContent.snapshot.isCurrent && TerminalCardContent.screenText.isCurrent)
+    }
+
+    @Test func theGridOpeningAsksTheMacAgain() {
+        var refresh = TerminalCardScreenRefresh()
+        let t0 = Date(timeIntervalSince1970: 1000)
+        let asked1 = refresh.begin("s1", now: t0)
+        #expect(asked1)
+        // A card rebuilt within 3 s does not ask again ...
+        let asked2 = refresh.begin("s1", now: t0.addingTimeInterval(1))
+        #expect(!asked2)
+        // ... but the grid opening does.
+        let asked3 = refresh.begin("s1", now: t0.addingTimeInterval(1), gridOpening: true)
+        #expect(asked3)
+    }
+
+    @Test func aFailedReadIsAskedAgainAtTheNextBuild() {
+        var refresh = TerminalCardScreenRefresh()
+        let t0 = Date(timeIntervalSince1970: 1000)
+        let asked4 = refresh.begin("s1", now: t0)
+        #expect(asked4)
+        // The link was not up yet: no answer. The next card build asks again
+        // instead of keeping the saved frame for the throttle's sake.
+        refresh.failed("s1")
+        let asked5 = refresh.begin("s1", now: t0.addingTimeInterval(0.5))
+        #expect(asked5)
     }
 }
 
@@ -72,6 +113,13 @@ import Testing
 /// from before the replay. Every save now waits for the frame (0.5 s) and
 /// saves at most every 3 s.
 @Suite struct TerminalFrameSaveScheduleTests {
+    /// Round 8: a 370 ms render every 3 s while output streamed.
+    @Test func noSaveWhileOutputStreamsUntilTheMaxWait() {
+        #expect(TerminalFrameSaveSchedule.remainingWait(sinceLastOutput: 0.02, sinceRequested: 3) != nil)
+        #expect(TerminalFrameSaveSchedule.remainingWait(sinceLastOutput: 0.6, sinceRequested: 3) == nil)
+        #expect(TerminalFrameSaveSchedule.remainingWait(sinceLastOutput: 0.02, sinceRequested: 15) == nil)
+    }
+
     @Test func theFirstSaveWaitsForTheFrameToBePresented() {
         #expect(TerminalFrameSaveSchedule.delay(sinceLastSave: .infinity) == 0.5)
         #expect(TerminalFrameSaveSchedule.delay(sinceLastSave: 10) == 0.5)

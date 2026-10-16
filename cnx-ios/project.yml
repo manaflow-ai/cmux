@@ -100,6 +100,10 @@ targets:
         product: CnxModel
       - package: CnxKit
         product: CnxTerminal
+    # UI tests run with `xcodebuild test -scheme CnxApp` on one simulator (verify/parity/pq_tabs.py).
+    scheme:
+      testTargets:
+        - CnxAppUITests
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.cnx$(CNX_TAG)
@@ -181,3 +185,22 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
+  # XCUITest: real touches on a simulator (a long press then a drag reorders grid cards,
+  # which simulated HID drags could not do). Runs against mock data, or the paired Mac
+  # when TEST_RUNNER_CNX_UI_WORKSPACE names a live workspace.
+  CnxAppUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - UITests
+    dependencies:
+      - target: CnxApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.cnx.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "6.0"
+        TEST_TARGET_NAME: CnxApp
+        TARGETED_DEVICE_FAMILY: "1"
+        DEVELOPMENT_TEAM: 7WLXT3NR37
+        CODE_SIGN_STYLE: Automatic

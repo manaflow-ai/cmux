@@ -49,6 +49,8 @@ final class TerminalFrameLog {
 
     /// The page's phase, read every frame (interacting, following, reading).
     var phaseProvider: () -> String = { "following" }
+    /// The page shows rows the frame on screen does not cover (V6-2/3/4).
+    var blankProvider: () -> Bool = { false }
 
     func outputArrived() { lastOutput = CACurrentMediaTime() }
 
@@ -72,9 +74,9 @@ final class TerminalFrameLog {
         let streaming = now - lastOutput < 0.1
         let key = TerminalFrameStats.Key(phase: phase, streaming: streaming)
         stats.add(key, interval: interval, workMs: workMs)
-        lines.append(String(format: "{\"t\":%.4f,\"dt_ms\":%.2f,\"target_ms\":%.2f,\"phase\":\"%@\",\"streaming\":%@,\"work_ms\":%.2f,\"parts\":{%@},\"surface\":\"%@\"}",
+        lines.append(String(format: "{\"t\":%.4f,\"dt_ms\":%.2f,\"target_ms\":%.2f,\"phase\":\"%@\",\"streaming\":%@,\"blank\":%@,\"work_ms\":%.2f,\"parts\":{%@},\"surface\":\"%@\"}",
                             Date().timeIntervalSince1970, interval * 1000, (tick.targetTimestamp - now) * 1000, phase,
-                            streaming ? "true" : "false", workMs,
+                            streaming ? "true" : "false", blankProvider() ? "true" : "false", workMs,
                             parts.map { String(format: "\"%@\":%.3f", $0.key, $0.value) }.joined(separator: ","), surfaceName))
         if phase != "interacting", now - windowStart > 5 { flush(reason: "5 s") }
     }

@@ -37,9 +37,20 @@ final class TabZoomDriver {
     }
     func jump(toOverview: Bool) { mutate { $0.jump(toOverview: toOverview) } }
 
+    /// The first display frame after a curve starts from rest holds still:
+    /// that frame renders the change that started it (the grid, the zoom
+    /// rect, a newly selected tab's page), which took 25-60 ms in the
+    /// simulator. Stepping the curve in it as well left the next frame
+    /// 40-60 ms late, a visible stall in the zoom's first frames.
+    @ObservationIgnored private var buildFrame = false
+
     private func mutate(_ change: (inout TabZoomState) -> Void) {
         let before = state.phase
+        let curveBefore = state.curve
         change(&state)
+        if state.phase == .animating, state.curve != nil, curveBefore == nil, before == .page || before == .overview {
+            buildFrame = true
+        }
         if UIAccessibility.isReduceMotionEnabled, state.phase == .animating {
             state.jump(toOverview: state.target == 1)
         }
@@ -84,6 +95,10 @@ final class TabZoomDriver {
         let dt = lastTimestamp.map { now - $0 } ?? (link.targetTimestamp - link.timestamp)
         lastTimestamp = now
         let wasAnimating = state.phase == .animating
+        if buildFrame {
+            buildFrame = false
+            if wasAnimating { return }
+        }
         let settled = wasAnimating && state.step(dt)
         stepChrome(dt)
         if wasAnimating, settled || state.phase != .animating { onSettle?(state.phase) }

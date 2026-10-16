@@ -5,7 +5,8 @@ import Observation
 public enum NewWorkspaceStart: Hashable, Sendable {
     /// The Mac's default: one terminal (cmux-tui `new-workspace`).
     case terminal
-    /// An agent chat for a harness (`claude`, `codex`).
+    /// An agent chat for a harness (`claude`, `codex`); "" is the Mac's default agent
+    /// (New Agent Chat in a folder: a workspace whose only tab is the chat).
     case agent(String)
     /// A browser tab.
     case browser
@@ -82,6 +83,96 @@ public enum NewTabKind: Hashable, Sendable {
     }
 }
 
+/// A tab group change from a tab's menu, in the Mac's words (its tab menu and
+/// `TabGroupActionCatalog`): every one acts on the tab's own group except `create` and `add`.
+public enum TabGroupEdit: Hashable, Sendable {
+    /// New Tab Group: a group of this tab alone (`create-tab-group`).
+    case create
+    /// Add Tab to Group…: into a group of the same workspace (`add-tabs-to-tab-group`).
+    case add(group: String)
+    /// Remove Tab from Group (`remove-tabs-from-tab-group`).
+    case remove
+    /// Rename Tab Group… (`update-tab-group {name}`).
+    case rename(String)
+    /// Ungroup Tabs: the group goes, its tabs stay (`ungroup-tab-group`).
+    case ungroup
+    /// Close Tab Group: closes every tab in it (`close-tab-group`).
+    case close
+    /// Pin Group: saves it on the Mac so it can be reopened (`save-tab-group`).
+    case save
+    /// Unpin Group (`unsave-tab-group`).
+    case unsave
+
+    /// The Mac's menu title.
+    public var title: String {
+        switch self {
+        case .create: "New Tab Group"
+        case .add: "Add Tab to Group…"
+        case .remove: "Remove Tab from Group"
+        case .rename: "Rename Tab Group…"
+        case .ungroup: "Ungroup Tabs"
+        case .close: "Close Tab Group"
+        case .save: "Pin Group"
+        case .unsave: "Unpin Group"
+        }
+    }
+}
+
+/// A tab group saved on the Mac (its Pin Group), as Reopen Saved Tab Group… and Delete
+/// Saved Tab Group… list it (`list-saved-tab-groups`).
+public struct SavedTabGroup: Hashable, Sendable, Identifiable {
+    public var id: String
+    /// Empty: the Mac shows the color only.
+    public var name: String
+    public var color: String
+    public var terminals: Int
+    public var browsers: Int
+    /// A live group is linked to it: the Mac refuses to reopen it ("the saved group is already open").
+    public var isOpen: Bool
+
+    public init(id: String, name: String = "", color: String = "grey", terminals: Int = 0, browsers: Int = 0, isOpen: Bool = false) {
+        self.id = id
+        self.name = name
+        self.color = color
+        self.terminals = terminals
+        self.browsers = browsers
+        self.isOpen = isOpen
+    }
+
+    /// The group's name, else its color ("Red group"), as the Mac's own groups read.
+    public var displayName: String { WorkspaceTab.TabGroupRef(id: id, name: name, color: color).displayName }
+
+    /// What reopening it brings back: "2 terminals, 1 browser tab".
+    public var summary: String {
+        var parts: [String] = []
+        if terminals > 0 { parts.append(terminals == 1 ? "1 terminal" : "\(terminals) terminals") }
+        if browsers > 0 { parts.append(browsers == 1 ? "1 browser tab" : "\(browsers) browser tabs") }
+        return parts.isEmpty ? "No tabs" : parts.joined(separator: ", ")
+    }
+}
+
+/// Reopen Saved Tab Group… / Delete Saved Tab Group… (the Mac's `TabGroupActionCatalog`).
+public enum SavedTabGroupAction: String, Hashable, Sendable, Identifiable {
+    case reopen, delete
+    public var id: String { rawValue }
+
+    /// The Mac's menu title.
+    public var title: String {
+        switch self {
+        case .reopen: "Reopen Saved Tab Group…"
+        case .delete: "Delete Saved Tab Group…"
+        }
+    }
+
+    /// The chooser's title (the menu title without its ellipsis).
+    public var sheetTitle: String { String(title.dropLast()) }
+
+    /// The Mac's refusal of a reopen whose group is already open (`savedGroupAlreadyOpen`).
+    public static let alreadyOpen = "The saved group is already open."
+    /// The Mac's refusal when the record is gone (`savedTabGroupGone`).
+    public static let gone = "That saved tab group no longer exists."
+}
+
 /// Where workspaces are really created: the mock store, or a Mac's daemon.
 @MainActor
 public protocol WorkspaceCreationBackend: AnyObject {
@@ -99,6 +190,9 @@ public protocol WorkspaceCreationBackend: AnyObject {
     func rename(_ workspace: Workspace, to title: String) async throws
     /// Closes a workspace on its Mac.
     func close(_ workspace: Workspace) async throws
+    /// Duplicate Workspace: a new workspace on the Mac with the same terminals (each a new
+    /// shell in its tab's folder) and web pages. Returns it once the Mac lists it.
+    func duplicate(_ workspace: Workspace) async throws -> Workspace
     /// The tabs the phone may open in a workspace on `macID` now (none: the
     /// new-tab menu says why instead of making a tab the Mac never sees).
     func tabKinds(on macID: String) -> [NewTabKind]
@@ -111,6 +205,10 @@ public protocol WorkspaceCreationBackend: AnyObject {
     func createTab(_ kind: NewTabKind, in workspace: Workspace) async throws -> WorkspaceTab
     /// Closes a tab on the Mac.
     func closeTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws
+    /// The foreground programs other than the login shell in `tabs`' terminals, read from
+    /// the Mac (`process-info`), unique and sorted; a terminal that does not answer in
+    /// time counts as idle, as on the Mac.
+    func runningPrograms(of tabs: [WorkspaceTab], in workspace: Workspace) async -> [String]
     /// Whether tabs can be renamed, duplicated and moved on `macID` now.
     func canEditTabs(on macID: String) -> Bool
     /// Renames a tab on the Mac (the phone never sends an empty name).
@@ -120,15 +218,44 @@ public protocol WorkspaceCreationBackend: AnyObject {
     func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab
     /// Moves a tab to the place of `target` (its pane and position there).
     func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws
+    /// Move Tab to Workspace… (`destination`) or Move Tab to New Workspace (nil, named as the
+    /// Mac names it). Returns the workspace the tab is in now, once the Mac lists it.
+    func moveTab(_ tab: WorkspaceTab, from workspace: Workspace, toWorkspace destination: Workspace?) async throws -> Workspace?
+    /// Restart Shell Here: a terminal tab whose shell ended gets a new shell on the Mac,
+    /// under the same tab (`restart-tab`).
+    func restartShell(_ tab: WorkspaceTab, in workspace: Workspace) async throws
+    /// Pin Tab / Unpin Tab.
+    func setTabPinned(_ tab: WorkspaceTab, in workspace: Workspace, pinned: Bool) async throws
+    /// A tab group change (`TabGroupEdit`).
+    func editTabGroup(_ edit: TabGroupEdit, tab: WorkspaceTab, in workspace: Workspace) async throws
+    /// The chat menu's Fork: a copy of the chat in a new tab beside it, returned once the Mac lists it.
+    func forkAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab
+    /// The chat menu's Archive: the chat is archived on the Mac and its tab closes.
+    func archiveAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws
+    /// The tab groups saved on `macID` (`list-saved-tab-groups`), each marked open when a live
+    /// group links to it.
+    func savedTabGroups(on macID: String) async throws -> [SavedTabGroup]
+    /// Reopen Saved Tab Group…: the Mac reopens the saved group in `tab`'s pane
+    /// (`reopen-saved-tab-group {saved, pane}`): its terminals as new shells in their saved
+    /// folders (or the same terminal while it still runs), its browser tabs at their pages.
+    func reopenSavedTabGroup(_ saved: SavedTabGroup, besides tab: WorkspaceTab, in workspace: Workspace) async throws
+    /// Delete Saved Tab Group…: the record goes; an open group stays, unpinned (`delete-saved-tab-group {saved}`).
+    func deleteSavedTabGroup(_ saved: SavedTabGroup, on macID: String) async throws
 }
 
 extension WorkspaceCreationBackend {
+    public func restartShell(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
     public func canManage(on macID: String) -> Bool { false }
     public func rename(_ workspace: Workspace, to title: String) async throws {
         throw WorkspaceCreationError("Renaming isn't available on this Mac")
     }
     public func close(_ workspace: Workspace) async throws {
         throw WorkspaceCreationError("Closing isn't available on this Mac")
+    }
+    public func duplicate(_ workspace: Workspace) async throws -> Workspace {
+        throw WorkspaceCreationError("Duplicating isn't available on this Mac")
     }
     public func tabKinds(on macID: String) -> [NewTabKind] { [] }
     public func unavailableTabKinds(on macID: String) -> [(kind: NewTabKind, reason: String)] { [] }
@@ -141,6 +268,7 @@ extension WorkspaceCreationBackend {
     public func closeTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
+    public func runningPrograms(of tabs: [WorkspaceTab], in workspace: Workspace) async -> [String] { [] }
     public func canEditTabs(on macID: String) -> Bool { false }
     public func renameTab(_ tab: WorkspaceTab, in workspace: Workspace, to title: String) async throws {
         throw WorkspaceCreationError("Not connected to this Mac")
@@ -149,6 +277,30 @@ extension WorkspaceCreationBackend {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
     public func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func moveTab(_ tab: WorkspaceTab, from workspace: Workspace, toWorkspace destination: Workspace?) async throws -> Workspace? {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func setTabPinned(_ tab: WorkspaceTab, in workspace: Workspace, pinned: Bool) async throws {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func editTabGroup(_ edit: TabGroupEdit, tab: WorkspaceTab, in workspace: Workspace) async throws {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func forkAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func archiveAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func savedTabGroups(on macID: String) async throws -> [SavedTabGroup] {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func reopenSavedTabGroup(_ saved: SavedTabGroup, besides tab: WorkspaceTab, in workspace: Workspace) async throws {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+    public func deleteSavedTabGroup(_ saved: SavedTabGroup, on macID: String) async throws {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
 }
@@ -199,7 +351,7 @@ public final class WorkspaceCreator {
     /// A rename or close the Mac refused: the workspace, what failed
     /// ("Couldn't close cmux") and the reason. The change is already undone.
     @ObservationIgnored public var onManageFailure: (@MainActor (Workspace, String, String) -> Void)?
-    @ObservationIgnored private let store: AppStore
+    @ObservationIgnored let store: AppStore
     @ObservationIgnored private let recents: RecentDirectories
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
@@ -322,7 +474,25 @@ public final class WorkspaceCreator {
         }
     }
 
-    private func track(_ id: String, _ work: @escaping @MainActor () async -> Void) {
+    /// The Mac's title for Duplicate Workspace (`action.workspace.duplicate`).
+    public static let duplicateTitle = "Duplicate Workspace"
+
+    /// Duplicate Workspace: the Mac makes the copy; the list shows it when the Mac lists it.
+    /// Home has no duplicate (the Mac's Home is one workspace).
+    public func duplicate(_ workspace: Workspace) {
+        guard canDuplicate(workspace) else { return }
+        track(workspace.id) { [weak self] in
+            do {
+                _ = try await self?.backend.duplicate(workspace)
+            } catch {
+                self?.onManageFailure?(workspace, "Couldn't duplicate \(workspace.title)", Self.message(error))
+            }
+        }
+    }
+
+    public func canDuplicate(_ workspace: Workspace) -> Bool { canManage(workspace) && !workspace.isHome }
+
+    func track(_ id: String, _ work: @escaping @MainActor () async -> Void) {
         let key = "manage-\(id)-\(UUID().uuidString)"
         tasks[key] = Task { [weak self] in
             await work()
@@ -330,7 +500,7 @@ public final class WorkspaceCreator {
         }
     }
 
-    private static func message(_ error: any Error) -> String {
+    static func message(_ error: any Error) -> String {
         (error as? LocalizedError)?.errorDescription ?? String(describing: error)
     }
 
@@ -379,7 +549,7 @@ public final class WorkspaceCreator {
         let tab = switch request.start {
         case .terminal: WorkspaceTab(id: tabID, kind: .terminal, title: "zsh", subtitle: directory)
         case .agent(let harness):
-            WorkspaceTab(id: tabID, kind: .agent, title: harness == "codex" ? "Codex" : harness == "claude" ? "Claude" : harness.capitalized,
+            WorkspaceTab(id: tabID, kind: .agent, title: harness.isEmpty ? "Agent Chat" : harness == "codex" ? "Codex" : harness == "claude" ? "Claude" : harness.capitalized,
                          subtitle: "New session", harness: harness)
         case .browser: WorkspaceTab(id: tabID, kind: .browser, title: "New Tab")
         }
@@ -502,6 +672,78 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     public func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws {
         try await settle()
+    }
+
+    /// Mock mode: the store moves the tab; a new workspace is the caller's to add.
+    public func moveTab(_ tab: WorkspaceTab, from workspace: Workspace, toWorkspace destination: Workspace?) async throws -> Workspace? {
+        try await settle()
+        return destination
+    }
+
+    public func setTabPinned(_ tab: WorkspaceTab, in workspace: Workspace, pinned: Bool) async throws {
+        try await settle()
+    }
+
+    /// Tabs Restart Shell Here was sent for, in order (tests).
+    public private(set) var restartedShells: [String] = []
+
+    public func restartShell(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
+        try await settle()
+        restartedShells.append(tab.id)
+    }
+
+    /// Every edit the mock received, in order (tests).
+    public private(set) var groupEdits: [TabGroupEdit] = []
+
+    /// Workspaces duplicated, by id (tests).
+    public private(set) var duplicated: [String] = []
+
+    public func duplicate(_ workspace: Workspace) async throws -> Workspace {
+        try await settle()
+        duplicated.append(workspace.id)
+        return workspace
+    }
+
+    /// The Mac's saved tab groups (Pin Group), for Reopen / Delete Saved Tab Group….
+    public var savedGroups: [SavedTabGroup] = []
+    /// Saved ids reopened, and the tab each was reopened beside (tests).
+    public private(set) var reopenedGroups: [(saved: String, besides: String)] = []
+
+    public func savedTabGroups(on macID: String) async throws -> [SavedTabGroup] {
+        try await settle()
+        return savedGroups
+    }
+
+    public func reopenSavedTabGroup(_ saved: SavedTabGroup, besides tab: WorkspaceTab, in workspace: Workspace) async throws {
+        try await settle()
+        guard let index = savedGroups.firstIndex(where: { $0.id == saved.id }) else {
+            throw WorkspaceCreationError(SavedTabGroupAction.gone, isForPerson: true)
+        }
+        reopenedGroups.append((saved.id, tab.id))
+        savedGroups[index].isOpen = true
+    }
+
+    public func deleteSavedTabGroup(_ saved: SavedTabGroup, on macID: String) async throws {
+        try await settle()
+        savedGroups.removeAll { $0.id == saved.id }
+    }
+
+    public func editTabGroup(_ edit: TabGroupEdit, tab: WorkspaceTab, in workspace: Workspace) async throws {
+        try await settle()
+        groupEdits.append(edit)
+    }
+
+    public func forkAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await settle()
+        return WorkspaceTab(id: "t-\(UUID().uuidString.prefix(8).lowercased())", kind: .agent, title: tab.title, subtitle: "Fork",
+                            harness: tab.harness)
+    }
+
+    public private(set) var archived: [String] = []
+
+    public func archiveAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
+        try await settle()
+        archived.append(tab.id)
     }
 
     private func settle() async throws {

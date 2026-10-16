@@ -136,3 +136,35 @@ async fn a_web_session_may_start_in_a_workspace_folder_the_person_set() {
     std::fs::create_dir_all(d.join("project2")).unwrap();
     assert!(refused_outside(&web.new_session(&d.join("project2")).await));
 }
+
+/// The agent and model the person's app picked last for a new chat reach a
+/// remote device through `_acpmux/harnesses` (`lastPicks`), so the phone's
+/// New Agent Chat starts where the Mac's does. Only the person sets them;
+/// a malformed set changes nothing.
+#[tokio::test]
+async fn the_apps_last_new_chat_picks_reach_a_remote_device() {
+    let hub = hub();
+    let mut web = Client::new(&hub, Origin::Web);
+    web.call("initialize", json!({"protocolVersion": 1})).await;
+    let before = web.call("_acpmux/harnesses", json!({})).await;
+    assert!(before["result"].get("lastPicks").is_none(), "{before}");
+    let picks = json!({
+        "lastAgent": "codex",
+        "global": {"harness": "codex", "model": "gpt-5.5"},
+        "folders": [{"folder": "/Users/p/proj", "harness": "claude", "model": "claude-opus-5-5"}],
+    });
+    let r = web.call("_acpmux/new_chat_picks_set", picks.clone()).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
+    let mut app = Client::person(&hub).await;
+    let r = app.call("_acpmux/new_chat_picks_set", picks.clone()).await;
+    assert_eq!(r["result"]["count"], 1, "{r}");
+    let after = web.call("_acpmux/harnesses", json!({})).await;
+    assert_eq!(after["result"]["lastPicks"], picks, "{after}");
+    // A relative folder or a control character refuses the whole set.
+    let bad = json!({"global": {"harness": "codex\n", "model": "m"}});
+    assert!(app.call("_acpmux/new_chat_picks_set", bad).await.get("error").is_some());
+    let bad = json!({"folders": [{"folder": "proj", "harness": "claude", "model": "m"}]});
+    assert!(app.call("_acpmux/new_chat_picks_set", bad).await.get("error").is_some());
+    let kept = web.call("_acpmux/harnesses", json!({})).await;
+    assert_eq!(kept["result"]["lastPicks"], picks, "{kept}");
+}

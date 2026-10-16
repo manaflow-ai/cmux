@@ -227,7 +227,9 @@ struct MockDialer: MacLinkDialer {
         #expect(ws.colorHex == "#30D158")
         #expect(ws.hasUnread)
         #expect(ws.isWorking)
-        #expect(ws.tabs.map(\.kind) == [.terminal, .agent, .browser])
+        // A dead terminal the Mac keeps is listed with its ended shell (Restart Shell Here).
+        #expect(ws.tabs.map(\.kind) == [.terminal, .agent, .browser, .terminal])
+        #expect(ws.tabs.map(\.hasEndedShell) == [false, false, false, true])
         #expect(ws.tabs[1].title == "Claude")
         #expect(ws.tabs[1].harness == "claude")
         #expect(tree.agentTabs["s7"]?.session == "sess-1")
@@ -253,7 +255,7 @@ struct MockDialer: MacLinkDialer {
         let tree = try DaemonTree(reply: Self.reply, macID: "m", agents: agents)
         let ws = tree.workspaces[0]
         // The terminal runs Claude; the conversation tab has an open permission.
-        #expect(ws.tabs.map(\.agentStatus) == [.working, .waiting, nil])
+        #expect(ws.tabs.map(\.agentStatus) == [.working, .waiting, nil, nil])
         #expect(ws.tabs[0].harness == "claude")
         // The active screen's active pane's tab.
         #expect(ws.activeTabID == "s7")
@@ -350,7 +352,7 @@ struct MockDialer: MacLinkDialer {
             for line in data.split(separator: 0x0A) {
             let object = try! JSONSerialization.jsonObject(with: Data(line)) as! [String: Any]
             let id = object["id"] as! String
-            let cmd = object["cmd"] as! String
+            let cmd = (object["cmd"] as? String ?? "")
             switch cmd {
             case "list-workspaces":
                 let n = lists.increment()
@@ -387,7 +389,7 @@ struct MockDialer: MacLinkDialer {
             data.split(separator: 0x0A).map { request -> Data in
                 let object = try! JSONSerialization.jsonObject(with: Data(request)) as! [String: Any]
                 let id = object["id"] as! String
-                switch object["cmd"] as! String {
+                switch (object["cmd"] as? String ?? "") {
                 case "list-workspaces":
                     return Data(#"{"id":"\#(id)","ok":true,"data":{"workspaces":[{"id":1,"key":"k1","name":"one","screens":[]},{"id":2,"key":"k2","name":"two","screens":[]}]}}"#.utf8) + Data([0x0A])
                 case "list-agents":
@@ -417,7 +419,7 @@ private func setupDaemon(_ log: CommandLog? = nil) -> MockMacLink {
         data.split(separator: 0x0A).map { request -> Data in
             let object = try! JSONSerialization.jsonObject(with: Data(request)) as! [String: Any]
             let id = object["id"] as! String
-            let cmd = object["cmd"] as! String
+            let cmd = (object["cmd"] as? String ?? "")
             log?.append("\(service):\(cmd)", nil)
             let line: String
             switch cmd {
@@ -505,7 +507,7 @@ private struct LinkOf: MacLinkDialer {
             data.split(separator: 0x0A).map { request -> Data in
             let object = try! JSONSerialization.jsonObject(with: Data(request)) as! [String: Any]
             let id = object["id"] as! String
-            let cmd = object["cmd"] as! String
+            let cmd = (object["cmd"] as? String ?? "")
             seen.append(cmd, object["name"] as? String)
             let line: String
             switch cmd {
@@ -1042,5 +1044,21 @@ final class Seen: @unchecked Sendable {
         #expect(loaded.last?.isDone == true)
         #expect(loaded.last?.quote?.text == "go")
         #expect(loaded.first?.kind == .failed)
+    }
+}
+
+// MARK: Queue changes reach the chat (parity round 3, live finding)
+
+@Suite struct ChatKindsTests {
+    /// A Mac's acpmux may leave Edit queued prompt and Move up / down out of its
+    /// `transcript` records: the phone asks for them by name, so its queue rows follow.
+    @Test @MainActor func theChatAsksForQueueChangesByName() {
+        guard case .array(let kinds) = AcpmuxSessionSource.chatKinds else {
+            Issue.record("kinds is not a list"); return
+        }
+        let names = kinds.compactMap(\.stringValue)
+        #expect(names.contains("transcript"))
+        #expect(names.contains("queue_updated"))
+        #expect(names.contains("queue_order"))
     }
 }

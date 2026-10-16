@@ -30,8 +30,6 @@ struct CardInteraction: UIViewRepresentable {
     var menu: () -> [[CardMenuEntry]]
     /// The lifted card, laid out at `scale` x the card.
     var preview: (CGFloat) -> AnyView
-    /// The expanded preview's scale (Safari: 195.7 / 177).
-    var previewScale: CGFloat
     /// The item key a drag from the lifted preview carries; nil: no drag.
     var dragKey: String?
     /// The menu opened (true) or finished closing (false): the card hides
@@ -124,14 +122,13 @@ struct CardInteraction: UIViewRepresentable {
             guard let owner, let v = view, cardRect(in: v).contains(location) else { return nil }
             let sections = owner.menu()
             guard !sections.isEmpty else { return nil }
-            return UIContextMenuConfiguration(identifier: nil, previewProvider: { [weak self] in
-                guard let owner = self?.owner else { return nil }
-                let s = owner.previewScale
-                let vc = UIHostingController(rootView: owner.preview(s))
-                vc.view.backgroundColor = .clear
-                vc.preferredContentSize = CGSize(width: owner.card.width * s, height: owner.card.height * s)
-                return vc
-            }, actionProvider: { _ in
+            // No preview controller: the card itself lifts, and UIKit grows it
+            // to Safari's 195.7 x 275 and places the menu where Safari does
+            // (above a card low on screen, so an upward move stays in the
+            // menu). A preview controller made UIKit keep the menu below and
+            // push the preview up instead, over the bottom bar for a row-2
+            // card, and an upward move left the menu and reordered.
+            return UIContextMenuConfiguration(identifier: nil, previewProvider: nil, actionProvider: { _ in
                 let groups = sections.map { group in
                     UIMenu(options: .displayInline, children: group.map { e in
                         UIAction(title: e.title, image: UIImage(systemName: e.symbol),
@@ -181,11 +178,21 @@ struct CardInteraction: UIViewRepresentable {
         func contextMenuInteraction(_ interaction: UIContextMenuInteraction, willEndFor configuration: UIContextMenuConfiguration,
                                     animator: (any UIContextMenuInteractionAnimating)?) {
             menuActive = false
-            // Shown again once the preview has settled back onto it.
+            // Shown again once the preview has settled back onto it (also
+            // after an action, and with no drag under way: the lift the long
+            // press made for the menu is over too).
+            // The owner's callbacks are taken now: an action that rebuilds
+            // the card (Pin Tab makes it a pinned capsule) frees this
+            // coordinator before the animation ends.
+            let onMenu = owner?.onMenu, onDragEnd = owner?.onDragEnd, dragging = self.dragging
+            let restore: () -> Void = {
+                onMenu?(false)
+                if !dragging { onDragEnd?() }
+            }
             if let animator {
-                animator.addCompletion { [weak self] in self?.owner?.onMenu(false) }
+                animator.addCompletion(restore)
             } else {
-                owner?.onMenu(false)
+                restore()
             }
         }
 
@@ -196,18 +203,48 @@ struct CardInteraction: UIViewRepresentable {
             return [UIDragItem(itemProvider: NSItemProvider(object: key as NSString))]
         }
 
+        /// The dragged card: the card drawn into an image. A hosting view that
+        /// is in no window has drawn nothing yet when UIKit lifts it, so the
+        /// card turned into a blank rectangle under the finger.
         func dragInteraction(_ interaction: UIDragInteraction, previewForLifting item: UIDragItem,
                              session: any UIDragSession) -> UITargetedDragPreview? {
-            guard let t = targeted() else { return nil }
-            return UITargetedDragPreview(view: t.view, parameters: UIDragPreviewParameters(), target: t.target)
+            guard let owner, let v = view, let window = v.window else { return nil }
+            let r = cardRect(in: v)
+            let renderer = ImageRenderer(content: owner.preview(1).frame(width: r.width, height: r.height))
+            renderer.scale = window.screen.scale
+            renderer.isOpaque = false
+            guard let image = renderer.uiImage else {
+                guard let t = targeted() else { return nil }
+                return UITargetedDragPreview(view: t.view, parameters: UIDragPreviewParameters(), target: t.target)
+            }
+            let iv = UIImageView(image: image)
+            iv.frame = CGRect(origin: .zero, size: r.size)
+            let params = UIDragPreviewParameters()
+            params.visiblePath = UIBezierPath(roundedRect: CGRect(origin: .zero, size: r.size), cornerRadius: owner.radius)
+            params.backgroundColor = .clear
+            return UITargetedDragPreview(view: iv, parameters: params,
+                                         target: UIDragPreviewTarget(container: v, center: CGPoint(x: r.midX, y: r.midY)))
         }
 
-        func dragInteraction(_ interaction: UIDragInteraction, willAnimateLiftWith animator: any UIDragAnimating,
-                             session: any UIDragSession) {
+        /// A drag session is under way (not just the lift a long press makes
+        /// for every menu): only then is the card's slot empty.
+        private var dragging = false
+
+        /// The lift happens on every long press, also for a menu that never
+        /// becomes a drag: the card hides only once a drag session begins,
+        /// and shows again when it ends (it stayed hidden after every menu,
+        /// re-audit 5).
+        func dragInteraction(_ interaction: UIDragInteraction, sessionWillBegin session: any UIDragSession) {
+            dragging = true
             owner?.onDragStart()
         }
 
+        func dragInteraction(_ interaction: UIDragInteraction, item: UIDragItem, willAnimateCancelWith animator: any UIDragAnimating) {
+            if !dragging { owner?.onDragEnd() }
+        }
+
         func dragInteraction(_ interaction: UIDragInteraction, session: any UIDragSession, didEndWith operation: UIDropOperation) {
+            dragging = false
             owner?.onDragEnd()
         }
     }

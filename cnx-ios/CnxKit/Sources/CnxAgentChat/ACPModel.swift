@@ -321,6 +321,16 @@ public struct ACPPermissionOption: Hashable, Sendable, Codable, Identifiable {
     }
 
     public var isAllow: Bool { kind == .allowOnce || kind == .allowAlways }
+
+    /// The button's words, as the Mac's agent pane says them ("Allow once", "Deny"); an
+    /// option with its own words ("Answer", "Allow and run it") keeps them.
+    public var phoneLabel: String {
+        switch (kind, name.lowercased()) {
+        case (.allowOnce, "allow"), (.allowOnce, "allow once"), (.allowOnce, ""): "Allow once"
+        case (.rejectOnce, "reject"), (.rejectOnce, "deny"), (.rejectOnce, "reject once"), (.rejectOnce, ""): "Deny"
+        default: name
+        }
+    }
 }
 
 /// `session/request_permission` as acpmux relays it (`_acpmux/permission_pending`).
@@ -335,6 +345,17 @@ public struct ACPPermissionRequest: Hashable, Sendable, Identifiable {
         self.toolCall = toolCall
         self.options = options
         self.cwd = cwd
+    }
+
+    /// What a phone may answer: allow once or deny once. acpmux refuses a lasting grant
+    /// (`allow_always`, `reject_always`) from a paired device (`remote.lasting_grant_refused`),
+    /// so offering one cost a Face ID and then failed. A request with no single-use option
+    /// keeps its options, so acpmux's refusal says why.
+    public var phoneOptions: [ACPPermissionOption] {
+        // Without a single-use Allow the options stay as the agent sent them (acpmux's
+        // refusal of a lasting grant then says why), rather than a lone Deny.
+        guard options.contains(where: { $0.kind == .allowOnce }) else { return options }
+        return options.filter { $0.kind == .allowOnce || $0.kind == .rejectOnce }
     }
 }
 
@@ -402,6 +423,19 @@ public struct ACPMode: Hashable, Sendable, Codable, Identifiable {
         self.id = id
         self.name = name
         self.description = description
+    }
+}
+
+extension ACPMode {
+    /// Modes a phone may switch an agent to: those that ask before each change (Claude Code's
+    /// `default` and `plan`, the Codex bridge's `ask`). The Mac's cnx-hostd refuses any other
+    /// (`acpmux_policy.rs` `PHONE_MODES`), so the menus offer only these.
+    public static let phoneModeIDs: Set<String> = ["default", "plan", "ask"]
+
+    /// `modes` a phone may pick, plus the current one (shown checked, so a chat the Mac moved
+    /// to another mode still says which).
+    public static func phoneChoices(_ modes: [ACPMode], current: String?) -> [ACPMode] {
+        modes.filter { phoneModeIDs.contains($0.id) || $0.id == current }
     }
 }
 

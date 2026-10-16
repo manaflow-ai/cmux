@@ -39,8 +39,15 @@ public enum AgentSessionEvent: Hashable, Sendable {
     case userMessage(text: String, promptId: String, turnId: String, attachments: [AgentAttachment], at: Date)
     case queued(text: String, promptId: String, position: Int)
     case dequeued(promptId: String)
+    /// A waiting prompt's text changed (`queue_updated`, Edit queued prompt).
+    case queueUpdated(promptId: String, text: String)
+    /// The waiting prompts' order (`queue_order`, Move up / Move down).
+    case queueOrder([String])
     case turnStarted(turnId: String, at: Date)
     case turnResult(turnId: String, status: AgentTurn.Status, errorText: String?, at: Date)
+    /// The agent's request to its model failed and it is trying again (Claude Code's
+    /// `system/api_retry`): the running turn says so instead of a bare "Working".
+    case retrying(attempt: Int, maxAttempts: Int, status: Int?)
     /// `permission_request` / `_acpmux/permission_pending` that is a tool permission.
     case permissionRequest(ACPPermissionRequest)
     /// A permission request that maps to a question (AskUserQuestion, Codex user input).
@@ -67,7 +74,7 @@ public enum AgentSessionEvent: Hashable, Sendable {
 
 /// A person's action in the chat, encoded by the source into acpmux calls:
 /// `session/prompt`, `session/cancel`, `_acpmux/permission_respond`, `session/set_model`,
-/// `session/set_mode`, `session/set_config_option`, `_acpmux/queue_remove`.
+/// `session/set_mode`, `session/set_config_option`, `_acpmux/queue_remove`, `_acpmux/queue_edit`.
 public enum AgentClientIntent: Hashable, Sendable {
     case prompt(text: String, attachments: [AgentAttachment], steer: Bool)
     case cancel
@@ -77,6 +84,12 @@ public enum AgentClientIntent: Hashable, Sendable {
     case setMode(String)
     case setConfigOption(id: String, value: String)
     case removeQueued(promptId: String)
+    /// Edit queued prompt: `_acpmux/queue_edit {op: update, text}`.
+    case editQueued(promptId: String, text: String)
+    /// Send now: `_acpmux/queue_edit {op: send_now}`.
+    case sendQueuedNow(promptId: String)
+    /// Move up / Move down: `_acpmux/queue_edit {op: move, index}` (0 is next).
+    case moveQueued(promptId: String, index: Int)
 }
 
 public struct AgentAttachment: Hashable, Sendable, Identifiable {

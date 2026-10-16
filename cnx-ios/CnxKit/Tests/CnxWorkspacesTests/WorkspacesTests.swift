@@ -35,6 +35,25 @@ import SwiftUI
         return (store, WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", creator: creator))
     }
 
+    /// N2/A1: a shell tab running `sleep` (title "zsh") asks before its close kills it.
+    @Test func closingATabWithARunningProgramAsks() async throws {
+        let (store, source) = make(backend: ProgramsBackend(programs: ["sleep"]))
+        let close = Task { await source.close("t-zsh") }
+        for _ in 0..<200 where source.pendingClose == nil { await Task.yield() }
+        let pending = try #require(source.pendingClose)
+        #expect(pending.title == "Close \u{201C}zsh\u{201D}?")
+        #expect(pending.message == "Still running: sleep.")
+        source.resolvePendingClose(false)
+        #expect(await close.value == false)
+        #expect(store.workspaces.first { $0.id == "ws-cmux" }?.tabs.contains { $0.id == "t-zsh" } == true)
+    }
+
+    @Test func closingAnIdleShellDoesNotAsk() async {
+        let (_, source) = make(backend: ProgramsBackend(programs: []))
+        #expect(await source.close("t-zsh") == true)
+        #expect(source.pendingClose == nil)
+    }
+
     @Test func aCloseTheMacRefusesKeepsTheTab() async {
         let refusing = MockWorkspaceCreationBackend(latency: .zero)
         let (_, source) = make(backend: refusing)
@@ -138,9 +157,14 @@ import SwiftUI
         let backend = MockWorkspaceCreationBackend(latency: .zero)
         let (store, source) = make(backend: backend)
         let terminal = source.tabs[1]
-        #expect(source.cardMenu(for: terminal).flatMap { $0 }.map(\.title) == ["Rename Tab…", "Duplicate Tab", "Close Tab"])
+        // The Mac's tab menu: Rename Tab…, Pin Tab, Duplicate Tab | its group rows (TabsKit adds
+        // Close Tab and Close Other Tabs); its More's moves are in the page menu.
+        #expect(source.cardMenu(for: terminal).map { $0.map(\.title) } == [["Rename Tab…", "Pin Tab", "Duplicate Tab"], ["New Tab Group"]])
+        let page = source.pageMenu(for: terminal).flatMap { $0 }.map(\.title)
+        #expect(page.contains("Move Tab to Workspace…") && page.contains("Move Tab to New Workspace"))
         #expect(source.pageMenu(for: source.tabs[0]).flatMap { $0 }.contains { $0.title == "Rename Tab…" })
-        #expect(!source.pageMenu(for: source.tabs[0]).flatMap { $0 }.contains { $0.title == "Duplicate Tab" })
+        // A chat duplicates too (a second tab of the same chat, as on the Mac).
+        #expect(source.pageMenu(for: source.tabs[0]).flatMap { $0 }.contains { $0.title == "Duplicate Tab" })
         source.startRename(terminal.id)
         #expect(source.renamingTab?.id == terminal.id)
         await source.rename(terminal.id, to: "build")
@@ -169,6 +193,197 @@ import SwiftUI
         for _ in 0..<100 where source.tabs.first?.id != order[1] { try? await Task.sleep(for: .milliseconds(10)) }
         #expect(source.tabs.first?.id == order[1])
         #expect(source.toastText?.hasPrefix("Couldn't move") == true)
+    }
+
+    /// Parity round 2: Move Tab to Workspace… and Move Tab to New Workspace (the Mac's titles).
+    @Test func moveTabToAnotherWorkspace() async throws {
+        let backend = MockWorkspaceCreationBackend(latency: .zero)
+        let (store, source) = make(backend: backend)
+        // Only workspaces of the same Mac are destinations.
+        #expect(source.otherWorkspaces.map(\.id).contains("ws-web"))
+        #expect(!source.otherWorkspaces.contains { $0.macID != "mac-studio" || $0.id == "ws-cmux" })
+        let zsh = try #require(source.tabs.first { $0.id == "t-zsh" })
+        source.pageMenu(for: zsh).flatMap { $0 }.first { $0.title == "Move Tab to Workspace…" }?.action()
+        #expect(source.movingTab?.id == "t-zsh")
+        let webCount = store.workspace(id: "ws-web")?.tabs.count ?? 0
+        await source.move("t-zsh", to: "ws-web")
+        #expect(source.movingTab == nil)
+        #expect(!source.tabs.contains { $0.id == "t-zsh" })
+        #expect(store.workspace(id: "ws-web")?.tabs.count == webCount + 1)
+        #expect(source.toastText == "Moved zsh to cmux.com.")
+        // A refusal keeps the tab where it was, with one short line.
+        backend.failNext = "unknown surface"
+        await source.move("t-docs", to: nil)
+        #expect(source.tabs.contains { $0.id == "t-docs" })
+        #expect(source.toastText == "Couldn't move Swift docs.")
+    }
+
+    /// The Mac: "Home's tabs stay in Home." A Home tab offers no Move Tab to New Workspace;
+    /// Move Tab to Workspace… stays, as on the Mac.
+    @Test func homeTabsStayInHome() async throws {
+        let backend = MockWorkspaceCreationBackend(latency: .zero)
+        let (store, source) = make(backend: backend)
+        let index = try #require(store.workspaces.firstIndex { $0.id == "ws-cmux" })
+        store.workspaces[index].isHome = true
+        let zsh = try #require(source.tabs.first { $0.id == "t-zsh" })
+        let titles = (source.pageMenu(for: zsh) + source.cardMenu(for: zsh)).flatMap { $0 }.map(\.title)
+        #expect(titles.contains("Move Tab to Workspace…") && !titles.contains("Move Tab to New Workspace"))
+        #expect(titles.contains("Pin Tab"))
+        await source.move("t-zsh", to: nil)
+        #expect(source.tabs.contains { $0.id == "t-zsh" })
+        #expect(source.toastText == "Home's tabs stay in Home.")
+        await source.move("t-zsh", to: "ws-web")
+        #expect(!source.tabs.contains { $0.id == "t-zsh" })
+    }
+
+    @Test func pinAndUnpinTab() async throws {
+        let backend = MockWorkspaceCreationBackend(latency: .zero)
+        let (store, source) = make(backend: backend)
+        await source.setPinned("t-zsh", true)
+        #expect(store.workspace(id: "ws-cmux")?.tabs.first { $0.id == "t-zsh" }?.isPinned == true)
+        let zsh = try #require(source.tabs.first { $0.id == "t-zsh" })
+        #expect(zsh.systemImage == "pin.fill")
+        let titles = source.cardMenu(for: zsh).flatMap { $0 }.map(\.title)
+        #expect(titles.contains("Unpin Tab") && !titles.contains("Pin Tab"))
+        // The Mac refuses grouping a pinned tab: no New Tab Group on it.
+        #expect(!titles.contains("New Tab Group"))
+        backend.failNext = "no such surface"
+        await source.setPinned("t-zsh", false)
+        #expect(store.workspace(id: "ws-cmux")?.tabs.first { $0.id == "t-zsh" }?.isPinned == true)
+        #expect(source.toastText?.hasPrefix("Couldn't unpin") == true)
+    }
+
+    /// Restart Shell Here (the Mac's dead-tab overlay and tab menu row): only on a terminal
+    /// whose shell ended; it asks the Mac to start the tab's shell again.
+    @Test func restartShellOnlyOnAnEndedShell() async throws {
+        let backend = MockWorkspaceCreationBackend(latency: .zero)
+        let (store, source) = make(backend: backend)
+        let live = try #require(source.tabs.first { $0.id == "t-zsh" })
+        #expect(!source.pageMenu(for: live).flatMap { $0 }.map(\.title).contains(WorkspaceTabsSource.restartShellTitle))
+        await source.restartShell("t-zsh")
+        #expect(backend.restartedShells.isEmpty)
+        store.updateTab("t-zsh", in: "ws-cmux") { $0.shellEnded = true }
+        let ended = try #require(source.tabs.first { $0.id == "t-zsh" })
+        #expect(source.pageMenu(for: ended).flatMap { $0 }.map(\.title).first == WorkspaceTabsSource.restartShellTitle)
+        await source.restartShell("t-zsh")
+        #expect(backend.restartedShells == ["t-zsh"])
+        backend.failNext = "tab-not-dead"
+        await source.restartShell("t-zsh")
+        #expect(source.toastText?.hasPrefix("Couldn't restart") == true)
+    }
+
+    /// Reopen / Delete Saved Tab Group… (the Mac's palette rows, in the page menu): the
+    /// chooser lists the Mac's saved groups; an open one is not reopened again.
+    @Test func savedTabGroupsFromThePageMenu() async throws {
+        let backend = MockWorkspaceCreationBackend(latency: .zero)
+        let (_, source) = make(backend: backend)
+        let zsh = try #require(source.tabs.first { $0.id == "t-zsh" })
+        let titles = source.pageMenu(for: zsh).flatMap { $0 }.map(\.title)
+        #expect(titles.contains("Reopen Saved Tab Group…") && titles.contains("Delete Saved Tab Group…"))
+        #expect(!source.cardMenu(for: zsh).flatMap { $0 }.map(\.title).contains("Reopen Saved Tab Group…"))
+
+        // None saved: one line, no chooser.
+        await source.openSavedGroups(.reopen, from: "t-zsh")
+        #expect(source.savedGroupsChooser == nil)
+        #expect(source.toastText?.contains("No saved tab groups") == true)
+
+        let release = SavedTabGroup(id: "saved_a", name: "Release", color: "orange", terminals: 2)
+        let open = SavedTabGroup(id: "saved_b", name: "Docs", color: "green", browsers: 1, isOpen: true)
+        backend.savedGroups = [release, open]
+        await source.openSavedGroups(.reopen, from: "t-zsh")
+        #expect(source.savedGroupsChooser?.groups == [release, open])
+        #expect(source.savedGroupsChooser?.tab.id == "t-zsh")
+
+        await source.reopenSaved(release, besides: "t-zsh")
+        #expect(source.savedGroupsChooser == nil)
+        #expect(backend.reopenedGroups.map { $0.saved } == ["saved_a"])
+        #expect(backend.reopenedGroups.map { $0.besides } == ["t-zsh"])
+        #expect(source.toastText == "Reopened Release.")
+
+        // Already open: the Mac's refusal, and nothing sent.
+        await source.reopenSaved(open, besides: "t-zsh")
+        #expect(backend.reopenedGroups.count == 1)
+        #expect(source.toastText == SavedTabGroupAction.alreadyOpen)
+
+        await source.openSavedGroups(.delete, from: "t-zsh")
+        #expect(source.savedGroupsChooser?.action == .delete)
+        await source.deleteSaved(release)
+        #expect(backend.savedGroups.map(\.id) == ["saved_b"])
+        #expect(source.toastText == "Deleted Release.")
+
+        backend.failNext = "saved_tab_group saved_x not found"
+        await source.deleteSaved(SavedTabGroup(id: "saved_x"))
+        #expect(source.toastText == SavedTabGroupAction.gone)
+    }
+
+    @Test func tabGroupsFromTheTabMenu() async throws {
+        let backend = MockWorkspaceCreationBackend(latency: .zero)
+        let (store, source) = make(backend: backend)
+        func tab(_ id: String) -> WorkspaceTab? { store.workspace(id: "ws-cmux")?.tabs.first { $0.id == id } }
+        // New Tab Group on one tab, then the Mac's list names it.
+        await source.editGroup(.create, "t-zsh")
+        #expect(backend.groupEdits == [.create])
+        store.updateTab("t-zsh", in: "ws-cmux") { $0.group = WorkspaceTab.TabGroupRef(id: "tgrp_1", name: "", color: "red") }
+        // Another tab can join it (Add Tab to Group…).
+        let docs = try #require(source.tabs.first { $0.id == "t-docs" })
+        let docsMenu = source.cardMenu(for: docs).flatMap { $0 }.map(\.title)
+        #expect(docsMenu.contains("New Tab Group") && docsMenu.contains("Add Tab to Group…"))
+        #expect(source.groups(besides: try #require(tab("t-docs"))).map(\.id) == ["tgrp_1"])
+        await source.editGroup(.add(group: "tgrp_1"), "t-docs")
+        #expect(tab("t-docs")?.group?.id == "tgrp_1")
+        // A member's menu: Remove Tab from Group and the group's own actions.
+        let zsh = try #require(source.tabs.first { $0.id == "t-zsh" })
+        let zshMenu = source.cardMenu(for: zsh).flatMap { $0 }.map(\.title)
+        #expect(zshMenu.contains("Remove Tab from Group") && zshMenu.contains("Tab Group: Red group…"))
+        await source.editGroup(.rename("Review"), "t-zsh")
+        #expect(tab("t-docs")?.group?.name == "Review")
+        await source.editGroup(.save, "t-zsh")
+        #expect(tab("t-zsh")?.group?.isSaved == true)
+        // A refusal puts membership back.
+        backend.failNext = "no such group"
+        await source.editGroup(.remove, "t-docs")
+        #expect(tab("t-docs")?.group?.id == "tgrp_1")
+        #expect(source.toastText == "Remove Tab from Group didn't work on Aziz's Mac Studio.")
+        await source.editGroup(.ungroup, "t-zsh")
+        #expect(tab("t-zsh")?.group == nil && tab("t-docs")?.group == nil)
+        // Close Tab Group closes every member once the Mac did.
+        store.updateTab("t-zsh", in: "ws-cmux") { $0.group = WorkspaceTab.TabGroupRef(id: "tgrp_2") }
+        store.updateTab("t-docs", in: "ws-cmux") { $0.group = WorkspaceTab.TabGroupRef(id: "tgrp_2") }
+        await source.editGroup(.close, "t-zsh")
+        #expect(tab("t-zsh") == nil && tab("t-docs") == nil)
+        #expect(backend.groupEdits.last == .close)
+    }
+
+    @Test func forkArchiveAndDuplicateAChat() async throws {
+        let backend = MockWorkspaceCreationBackend(latency: .zero)
+        let (store, source) = make(backend: backend)
+        let claude = try #require(source.tabs.first { $0.id == "t-claude" })
+        let menu = source.pageMenu(for: claude).flatMap { $0 }.map(\.title)
+        #expect(menu.contains("Fork") && menu.contains("Archive") && menu.contains("Duplicate Tab"))
+        let count = source.tabs.count
+        await source.fork("t-claude")
+        #expect(source.tabs.count == count + 1)
+        #expect(source.activeTabID == source.tabs.last?.id && source.openedTab == source.tabs.last?.id)
+        // acpmux's refusal of a Mac-started Claude chat, in its own words.
+        backend.failNext = nil
+        let refusing = RefusingForkBackend()
+        let (_, refused) = make(backend: refusing)
+        await refused.fork("t-claude")
+        // In the Mac's own words, naming the Mac ("your Mac" reads as its name on the phone).
+        #expect(refused.toastText == "This chat runs with Aziz's Mac Studio's Claude permissions. Start a new chat from this device to control it remotely.")
+        await source.archive("t-claude")
+        #expect(backend.archived == ["t-claude"])
+        #expect(store.workspace(id: "ws-cmux")?.tabs.contains { $0.id == "t-claude" } == false)
+    }
+
+    /// Finding 4: a browser tab on about:blank has no address; the field (and VoiceOver) reads
+    /// its placeholder, never "about:blank".
+    @Test func aBlankBrowserTabHasNoAddress() throws {
+        let (store, source) = make()
+        store.appendTab(WorkspaceTab(id: "t-blank", kind: .browser, title: "New Tab", url: URL(string: "about:blank")), to: "ws-cmux")
+        let blank = try #require(source.tabs.first { $0.id == "t-blank" })
+        #expect(blank.address.label == "Search or enter website")
+        #expect(blank.subtitle.isEmpty)
     }
 
     @Test func aConfirmedNewTabOpensOnceTheMacListsIt() async {
@@ -372,3 +587,26 @@ import SwiftUI
     }
 }
 #endif
+
+/// A Mac whose terminals run `programs` (`process-info`).
+@MainActor final class ProgramsBackend: WorkspaceCreationBackend {
+    let programs: [String]
+    init(programs: [String]) { self.programs = programs }
+    func canCreate(on macID: String) -> Bool { true }
+    func options(on macID: String) -> WorkspaceCreationOptions { .basic }
+    func create(_ request: NewWorkspaceRequest, placeholder: Workspace) async throws -> Workspace { placeholder }
+    func closeTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws {}
+    func runningPrograms(of tabs: [WorkspaceTab], in workspace: Workspace) async -> [String] { programs }
+}
+
+/// acpmux refuses a Web fork of a Claude chat the Mac started (D13) with this reason.
+@MainActor final class RefusingForkBackend: WorkspaceCreationBackend {
+    static let reason = "This chat runs with your Mac's Claude permissions. Start a new chat from this device to control it remotely."
+    func canCreate(on macID: String) -> Bool { true }
+    func options(on macID: String) -> WorkspaceCreationOptions { .basic }
+    func create(_ request: NewWorkspaceRequest, placeholder: Workspace) async throws -> Workspace { placeholder }
+    func canEditTabs(on macID: String) -> Bool { true }
+    func forkAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        throw WorkspaceCreationError(Self.reason, isForPerson: true)
+    }
+}

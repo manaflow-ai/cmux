@@ -40,6 +40,7 @@ public struct WorkspaceScreen: View {
     @State private var renameText = ""
     @State private var renameID: String?
     @State private var renamePlaceholder = "Name"
+    @State private var groupName = ""
     @Environment(\.dismiss) private var dismiss
     #if DEBUG
     private let director = WorkspaceDemoDirector.shared
@@ -112,12 +113,14 @@ public struct WorkspaceScreen: View {
                     if let id = renameID { Task { await source.rename(id, to: renameText) } }
                 }
             }
+            .modifier(TabMoveAndGroupSheets(source: source, groupName: $groupName))
             // Closing a tab with a running program asks first (Codex QA F9).
             .alert(source.pendingClose?.title ?? "", isPresented: Binding(
                 get: { source.pendingClose != nil },
                 set: { shown in if !shown { source.resolvePendingClose(false) } }
             )) {
-                Button("Close Tab", role: .destructive) { source.resolvePendingClose(true) }
+                // The Mac's close question's button ("Close").
+                Button("Close", role: .destructive) { source.resolvePendingClose(true) }
                 Button("Cancel", role: .cancel) { source.resolvePendingClose(false) }
             } message: {
                 Text(source.pendingClose?.message ?? "")

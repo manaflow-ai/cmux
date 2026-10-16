@@ -28,10 +28,10 @@ struct CardSwipe: Equatable, Sendable {
     /// 44 pt (cmux-next tabs-parity-audit 3f).
     static let rubberConstant: CGFloat = 0.695
     /// Spring back to the slot after a left drag (simulator Safari, from the
-    /// turnaround: 0.562 / 0.918, tabs-parity-audit 3g) and after a right
-    /// drag (0.75 / 0.81, 3i).
+    /// turnaround: 0.562 / 0.918, tabs-parity-audit 3g). After a right drag
+    /// the card replays Safari's own curve (`SafariCurve.snapBackRight`):
+    /// the fitted 0.75 / 0.81 overshot 1.6 % and rested 50 ms early.
     static let snapBack = ZoomSpring(response: 0.56, damping: 0.92)
-    static let snapBackRight = ZoomSpring(response: 0.75, damping: 0.81)
     /// The card lifts while it is dragged (Safari: 176 -> 192 pt, × 1.093,
     /// over about 80 ms, about its centre) and settles back on release
     /// (scale fit 0.57 / 0.94).
@@ -39,7 +39,10 @@ struct CardSwipe: Equatable, Sendable {
     static let lift = ZoomSpring(response: 0.12, damping: 1)
     /// The touch slop is caught up over this long once the drag is recognised.
     static let slopCatchUp = 0.08
-    static let settle = ZoomSpring(response: 0.57, damping: 0.94)
+    /// The lift's scale back to 1 on a spring back: fitted to Safari's
+    /// (cmux-next re-audit 3 3h, 50 / 150 / 283 ms). 0.57 / 0.94 was 27-54 ms
+    /// late at its crossings (re-audit 4).
+    static let settle = ZoomSpring(response: 0.58, damping: 0.82)
     /// The card follows the finger on this spring (Safari's glide over the
     /// slop and its carry past a stopped finger, cmux-next re-audit 3 D3).
     static let follow = ZoomSpring(response: 0.12, damping: 0.7)
@@ -61,8 +64,10 @@ struct CardSwipe: Equatable, Sendable {
     /// lift's event, 40-57 ms).
     static let flingCountSpeed: CGFloat = 600
     /// Display-link ticks from that decision to the count: it read 24-28 ms
-    /// ahead of Safari's at once (the finger is still moving).
-    static let flingCountTicks = 4
+    /// ahead of Safari's at once (the finger is still moving); after 4 it
+    /// changed a frame after the card's first move (19-26 ms, Safari 5-12),
+    /// after 3 on that frame (+1 to +6 ms).
+    static let flingCountTicks = 3
     /// A closing card keeps going left at the finger's speed (device ≈ 1000
     /// pt/s, still lifted and opaque) until it is off screen.
     static let flyOffMinSpeed: CGFloat = 1000
@@ -107,7 +112,11 @@ struct CardSwipe: Equatable, Sendable {
     /// Where the fly-off ends: past the screen's leading edge.
     static func flyOffOffset(cardMinX: CGFloat, cardWidth: CGFloat) -> CGFloat {
         // Safari's flung card ends just past the edge (its right edge at 0).
-        -(cardMinX + cardWidth)
+        // The card is lifted (scaled about its centre), so its drawn right
+        // edge is half the lift's growth past the slot's: without it the
+        // card was still 8 pt on screen when the curve ended, and the end of
+        // the fling was 20 ms late.
+        -(cardMinX + cardWidth * (1 + liftScale) / 2)
     }
 }
 

@@ -25,6 +25,10 @@ public final class WorkspaceSync {
     @ObservationIgnored private var refreshing = false
     @ObservationIgnored private var dirty = false
     @ObservationIgnored private var agents = AgentStates()
+    /// The Mac's sidebar order, groups and pins (`list-personal`, `sidebar_layout.get`),
+    /// read again after a topology or personal change (`arrangementStale`).
+    @ObservationIgnored public private(set) var arrangement: SidebarArrangement?
+    @ObservationIgnored private var arrangementStale = true
     /// When an event last arrived per surface (agent state or title): the
     /// only activity time the daemon gives.
     @ObservationIgnored private var activity: [Int: Date] = [:]
@@ -95,6 +99,8 @@ public final class WorkspaceSync {
     public func bind(_ prepared: Prepared, macID: String, cached: [Workspace] = []) async {
         eventTask?.cancel()
         activity = [:]
+        arrangement = nil
+        arrangementStale = true
         self.macID = macID
         let client = prepared.client
         self.client = client
@@ -117,10 +123,13 @@ public final class WorkspaceSync {
             _ = try Self.check(replies[2].get())
             if let reply = try? Self.check(replies[3].get()) { applyAgents(reply) }
             let known = (tree?.workspaces ?? []).filter { $0.macID == macID }
-            let next = try DaemonTree(reply: replies[4].get(), macID: macID, previous: known.isEmpty ? cached : known, agents: agents)
+            var next = try DaemonTree(reply: replies[4].get(), macID: macID, previous: known.isEmpty ? cached : known, agents: agents)
+            next.apply(arrangement)
             tree = next
             lastError = nil
             onTree?(next)
+            // The Mac's own order and pins follow in one more round trip.
+            Task { await refresh() }
         } catch {
             lastError = LinkController.reason(error)
             log.error("daemon bind failed: \(String(describing: error), privacy: .public)")
@@ -142,6 +151,7 @@ public final class WorkspaceSync {
             activity[surface] = Date()
             Task { await refresh() }
         case .treeChanged:
+            arrangementStale = true
             Task { await refresh() }
         case .notification:
             onNotification?()
@@ -150,6 +160,7 @@ public final class WorkspaceSync {
             Task {
                 guard let client else { return }
                 _ = try? await client.request("subscribe", params: ["tree_events": "deltas"])
+                arrangementStale = true
                 await refresh()
             }
         case .agentChanged(let surface, let state, let agent, let updatedAt):
@@ -181,8 +192,12 @@ public final class WorkspaceSync {
         repeat {
             dirty = false
             do {
+                // The arrangement first: nothing may wait between a list's reply and its
+                // publication, or an older list could land after a newer one (`listNow`).
+                await loadArrangementIfStale(client)
                 let reply = try await client.request("list-workspaces")
-                let next = try DaemonTree(reply: reply, macID: macID, previous: tree?.workspaces ?? [], agents: agents, activity: activity)
+                var next = try DaemonTree(reply: reply, macID: macID, previous: tree?.workspaces ?? [], agents: agents, activity: activity)
+                next.apply(arrangement)
                 tree = next
                 lastError = nil
                 onTree?(next)
@@ -199,12 +214,49 @@ public final class WorkspaceSync {
     @discardableResult
     public func listNow() async throws -> DaemonTree {
         guard let client else { throw DaemonReplyError(message: "Not connected") }
+        await loadArrangementIfStale(client)
         let reply = try await client.request("list-workspaces")
-        let next = try DaemonTree(reply: reply, macID: macID, previous: tree?.workspaces ?? [], agents: agents, activity: activity)
+        var next = try DaemonTree(reply: reply, macID: macID, previous: tree?.workspaces ?? [], agents: agents, activity: activity)
+        next.apply(arrangement)
         tree = next
         lastError = nil
         onTree?(next)
         return next
+    }
+
+    /// Reads the order and pins again on the next list (after the phone's own pin or move).
+    public func invalidateArrangement() { arrangementStale = true }
+
+    /// Reads the Mac's personal order and pinned tiles when a change may have
+    /// moved them. A Mac without either keeps the daemon's order and pin flags.
+    private func loadArrangementIfStale(_ client: DaemonClient) async {
+        guard arrangementStale else { return }
+        arrangementStale = false
+        var next = SidebarArrangement()
+        if let reply = try? Self.check(await client.request("list-personal")) {
+            next.rows = SidebarArrangement.rows(personal: reply)
+            next.groups = SidebarArrangement.groups(personal: reply)
+            next.rooms = SidebarArrangement.rooms(personal: reply)
+            next.roomPins = SidebarArrangement.roomPins(personal: reply)
+        }
+        if let line = try? await client.resourceRequest("sidebar_layout.get", deadline: .seconds(10)),
+           let reply = try? Self.checkResource(line) {
+            next.pins = SidebarArrangement.pins(layout: reply)
+        }
+        // Bound to another Mac meanwhile: not this one's.
+        guard self.client === client else { return }
+        arrangement = next
+    }
+
+    /// Throws a `cmux.protocol/2` failure; returns the response object.
+    @discardableResult
+    static func checkResource(_ line: Data) throws -> [String: Any] {
+        let object = (try? JSONSerialization.jsonObject(with: line) as? [String: Any]) ?? [:]
+        guard object["ok"] as? Bool == true else {
+            let error = object["error"] as? [String: Any]
+            throw DaemonReplyError(message: error?["message"] as? String ?? "request failed", code: error?["code"] as? String)
+        }
+        return object
     }
 
     /// Throws a daemon error line; returns the parsed reply object.

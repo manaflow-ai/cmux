@@ -239,9 +239,12 @@ struct TabOverview<Source: TabsDataSource>: View {
             .blur(radius: 10 * (1 - shown))
             .allowsHitTesting(gridInteractive || swipeInteractive)
 
-            // Glass ignores inherited opacity; keep hidden controls out of
-            // the hierarchy instead.
-            if shown > 0 {
+            // Glass ignores inherited opacity, so the hidden controls are
+            // parked off screen (and out of the accessibility tree) instead
+            // of leaving the hierarchy: building their glass in the zoom's
+            // first frames made those frames late.
+            let parked = shown <= 0
+            Group {
                 Group {
                     if selecting { selectControls } else { topControls }
                 }
@@ -251,6 +254,8 @@ struct TabOverview<Source: TabsDataSource>: View {
                     .opacity(shown)
                     .allowsHitTesting(controlsInteractive)
             }
+            .offset(y: parked ? layout.size.height * 2 : 0)
+            .accessibilityHidden(parked)
         }
         .frame(width: layout.size.width, height: layout.size.height)
     }
@@ -295,8 +300,9 @@ struct TabOverview<Source: TabsDataSource>: View {
             source.card(for: tab)
                 .offset(y: -source.cardContentOffset(for: tab.id, visibleHeight: layout.cardPageHeight))
         }
-        // Under its lifted long-press preview the card is hidden.
-        .opacity(swipes.menuCard == tab.id ? 0 : 1)
+        // Under its lifted long-press preview, and while it is dragged to
+        // another slot (the dragged card is the card), the card is hidden.
+        .opacity(swipes.menuCard == tab.id || dragging == tab.id ? 0 : 1)
         .overlay(alignment: .topLeading) {
             if selecting { SelectionMark(selected: selection.contains(tab.id), width: r.width, height: r.height, radius: layout.cardRadius) }
         }
@@ -314,7 +320,6 @@ struct TabOverview<Source: TabsDataSource>: View {
                     }
                         .environment(\.tabsKitTheme, theme))
                 },
-                previewScale: CardMenuPreview<EmptyView>.scale,
                 dragKey: selecting || !source.supportsReordering ? nil : tab.id,
                 onMenu: { open in swipes.menuChanged(tab.id, open) },
                 onTap: {
@@ -370,7 +375,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                         AnyView(PinnedCard(title: tab.title, systemImage: tab.systemImage, width: r.width * scale, height: r.height * scale, selected: nil)
                             .environment(\.tabsKitTheme, theme))
                     },
-                    previewScale: 1.15, dragKey: nil,
+                    dragKey: nil,
                     onMenu: { open in swipes.menuChanged(tab.id, open) },
                     onTap: { if selecting { selection.toggle(tab.id) } else if gridInteractive { onSelect(tab.id) } },
                     onPan: { _ in }, onDragStart: {}, onDragEnd: {})
@@ -586,15 +591,13 @@ struct TabOverview<Source: TabsDataSource>: View {
     }
 }
 
-/// Safari's long press on a grid card: the card lifts to × 1.06 and the
-/// Safari's context-menu preview of a card: its content, scaled to
-/// 195.7 / 177 of the card (cmux-next round 22), corner scaled too.
+/// Safari's context-menu preview of a card: its content at `scale` (1: the
+/// card lifts and UIKit grows it to Safari's 195.7 x 275), corner scaled too.
 struct CardMenuPreview<Content: View>: View {
     var scale: CGFloat
     var card: CGSize
     var radius: CGFloat
     @ViewBuilder var content: Content
-    static var scale: CGFloat { 195.7 / 177 }
 
     var body: some View {
         ScaledContent(pageSize: CGSize(width: card.width * scale, height: card.height * scale)) { content }

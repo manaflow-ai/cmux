@@ -1,13 +1,19 @@
 import CoreGraphics
+import Foundation
 
 /// What a terminal tab's grid card shows.
 public enum TerminalCardContent: Equatable, Sendable {
     /// The connecting placeholder over the last frame (the session started).
     case connecting
-    /// The page's snapshot (or a saved frame).
+    /// The page's snapshot (the session started in this launch).
     case snapshot
     /// The Mac's screen as text, fetched for a tab not opened in this launch.
     case screenText
+    /// A frame saved in an earlier launch, for a tab not opened in this
+    /// launch, until the Mac's screen arrives: drawn dimmed, never as the
+    /// current screen (VERIFY-round8 Claim 8: old Codex output shown while
+    /// the Mac had moved on).
+    case savedFrame
     /// The static labeled placeholder.
     case placeholder
 
@@ -19,7 +25,39 @@ public enum TerminalCardContent: Equatable, Sendable {
         // Not opened in this launch: a saved frame may be from long ago (or a
         // blank first frame); the Mac's screen now is the truth.
         if let screenText, screenText.contains(where: { !$0.isWhitespace }) { return .screenText }
-        return hasSnapshot ? .snapshot : .placeholder
+        return hasSnapshot ? .savedFrame : .placeholder
+    }
+
+    /// Whether the card stands for the terminal's screen now.
+    public var isCurrent: Bool {
+        switch self {
+        case .snapshot, .screenText: true
+        case .connecting, .savedFrame, .placeholder: false
+        }
+    }
+}
+
+/// When a grid card of a tab not opened in this launch asks the Mac for its
+/// screen (`read-screen`): at most every `interval` per tab while cards are
+/// rebuilt, always when the grid opens (T-TABS-01: the first grid open after
+/// a launch showed a card asked for before the link was up), and again at
+/// the next build after a read that brought nothing.
+public struct TerminalCardScreenRefresh: Sendable {
+    public static let interval: Double = 3
+    private var asked: [String: Date] = [:]
+
+    public init() {}
+
+    /// Whether to ask now; records the ask.
+    public mutating func begin(_ id: String, now: Date, gridOpening: Bool = false) -> Bool {
+        if !gridOpening, let last = asked[id], now.timeIntervalSince(last) < Self.interval { return false }
+        asked[id] = now
+        return true
+    }
+
+    /// The read brought nothing (no link yet, or a failure).
+    public mutating func failed(_ id: String) {
+        asked[id] = nil
     }
 }
 
@@ -56,7 +94,39 @@ public enum TerminalFrameSaveSchedule {
     public static let settle: Double = 0.5
     public static let interval: Double = 3
 
+    /// Round 8 (rig frame log): the save renders the page on the main
+    /// thread (about 370 ms under load), so while output streams it waits
+    /// for the output to pause, up to `maxWait`: every 3 s it was a 370 ms
+    /// hitch while following.
+    public static let maxWait: Double = 15
+
     public static func delay(sinceLastSave elapsed: Double) -> Double {
         max(settle, interval - elapsed)
+    }
+
+    /// Nil: save now. Otherwise how much longer to wait, given the time
+    /// since the last drawn output and since the save was first wanted.
+    public static func remainingWait(sinceLastOutput quiet: Double, sinceRequested waited: Double) -> Double? {
+        if quiet >= settle || waited >= maxWait { return nil }
+        return min(settle - quiet, maxWait - waited)
+    }
+}
+
+/// The Mac's screen text on a card (qa11 card-a-grid): TabsKit shows only the
+/// top `width * cardAspect` points of the page-sized card view, so a full
+/// screen drawn from its top lost its last rows and the prompt. The card
+/// shows the last rows that fit (trailing blank rows are the empty screen
+/// below the prompt); a short screen stays at the top like the page.
+struct TerminalCardScreenLines {
+    static func shown(_ text: String, capacity: Int) -> [String] {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        guard let last = lines.lastIndex(where: { $0.contains(where: { !$0.isWhitespace }) }) else { return [] }
+        return lines[...last].suffix(max(1, capacity)).map(String.init)
+    }
+
+    /// Rows that fit below `topInset` in the card's visible height (6 pt left at the bottom edge).
+    static func capacity(visibleHeight: CGFloat, topInset: CGFloat, lineHeight: CGFloat) -> Int {
+        guard lineHeight > 0 else { return 1 }
+        return max(1, Int((visibleHeight - topInset - 6) / lineHeight))
     }
 }

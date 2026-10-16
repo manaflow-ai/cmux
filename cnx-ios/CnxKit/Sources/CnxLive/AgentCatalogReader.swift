@@ -35,7 +35,13 @@ extension AgentCatalog {
                 let name = (arg as NSString).lastPathComponent.lowercased()
                 return Self.refusedFamilies.contains { name.hasPrefix($0) } || arg.contains("codex-acp")
             }
-            let reason: String? = if Self.refusedFamilies.contains(family) || runsRefused {
+            // A Mac that says what a phone may start (acpmux `remote`) decides it: the Codex
+            // bridge starts in its asking mode. An older Mac keeps the family rule.
+            let remote = entry["remote"]
+            let reason: String? = if case .bool(let startable)? = remote?["startable"] {
+                startable ? Self.launcherReason(entry["unavailable"])
+                    : remote?["reason"]?.stringValue.map { "Not available from here: \($0)" } ?? Self.refusedReason
+            } else if Self.refusedFamilies.contains(family) || runsRefused {
                 Self.refusedReason
             } else {
                 Self.launcherReason(entry["unavailable"])
@@ -44,7 +50,8 @@ extension AgentCatalog {
             choices.append(AgentHarnessChoice(
                 id: id, name: Self.displayName(id: id, family: family, entry: entry), family: family,
                 isDefault: id == defaultID, unavailableReason: reason,
-                models: modelLists[id] ?? [], defaultModel: start
+                models: modelLists[id] ?? [], defaultModel: start,
+                askingModes: (remote?["modes"]?.arrayValue ?? []).compactMap(\.stringValue)
             ))
         }
         // The Mac's default first, then by name (the catalog is keyed, so unordered).
@@ -52,7 +59,22 @@ extension AgentCatalog {
             if lhs.isDefault != rhs.isDefault { return lhs.isDefault }
             return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
         }
-        self.init(harnesses: choices)
+        self.init(harnesses: choices, lastPicks: Self.lastPicks(reply["lastPicks"]))
+    }
+
+    /// acpmux `lastPicks` (`{lastAgent?, global?: {harness, model}, folders: [{folder, harness, model}]}`).
+    static func lastPicks(_ value: JSONValue?) -> AgentLastPicks? {
+        guard let value, case .object = value else { return nil }
+        func pick(_ v: JSONValue?) -> AgentLastPicks.Pick? {
+            guard let harness = v?["harness"]?.stringValue, !harness.isEmpty else { return nil }
+            return .init(harness: harness, model: v?["model"]?.stringValue)
+        }
+        var folders: [String: AgentLastPicks.Pick] = [:]
+        for row in value["folders"]?.arrayValue ?? [] {
+            if let folder = row["folder"]?.stringValue, let p = pick(row) { folders[folder] = p }
+        }
+        let picks = AgentLastPicks(lastAgent: value["lastAgent"]?.stringValue, global: pick(value["global"]), folders: folders)
+        return picks.lastAgent == nil && picks.global == nil && picks.folders.isEmpty ? nil : picks
     }
 
     static func launcherReason(_ value: JSONValue?) -> String? {

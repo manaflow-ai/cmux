@@ -104,8 +104,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     var sessionProvider: (@MainActor (WorkspaceTab) -> (any TerminalSession)?)?
     /// Live mode: the Mac's screen as text for a tab's grid card (D5).
     var screenTextProvider: (@MainActor (WorkspaceTab) async -> String?)?
-    /// When each card's screen text was last asked for.
-    private var screenTextFetched: [String: Date] = [:]
+    /// When each card's screen text is asked for.
+    private var screenTextRefresh = TerminalCardScreenRefresh()
     /// Live mode: Files and Links previews from the Mac.
     var artifactSourceProvider: (@MainActor (WorkspaceTab) -> (any ArtifactSource)?)?
     /// Live mode: uploads a terminal attachment to the Mac, returning its path there.
@@ -178,8 +178,12 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         return host
     }
 
+    /// Tabs last shown with an ended shell (``page(for:in:context:)``).
+    private var endedShells: Set<String> = []
+
     /// Drops every host (another account or live data stopped).
     func reset() {
+        endedShells = []
         for id in Array(feeds.keys) { stopWatching(id) }
         indicators = [:]
         hosts = [:]
@@ -193,6 +197,13 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     }
 
     func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView {
+        // Restart Shell Here keeps the tab id: its attach to the dead shell ended for good,
+        // so a tab that is live again gets a fresh host (and a fresh attach).
+        if tab.hasEndedShell {
+            endedShells.insert(tab.id)
+        } else if endedShells.remove(tab.id) != nil {
+            cool(tab.id)
+        }
         let host = host(for: tab, in: workspace)
         for id in warm.touch(tab.id) { cool(id) }
         let slot = slot(for: tab.id, host: host)
@@ -266,20 +277,32 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     }
 
     /// A tab not opened in this launch shows the Mac's screen in its card
-    /// (D5): asked for when the card is built, at most every 3 s per tab.
-    private func refreshScreenText(for tab: WorkspaceTab, model: TerminalModel) {
-        guard let provider = screenTextProvider, !model.pageStarted else { return }
-        let now = Date()
-        if let last = screenTextFetched[tab.id], now.timeIntervalSince(last) < 3 { return }
-        screenTextFetched[tab.id] = now
-        Task { @MainActor [weak model] in
-            guard let text = await provider(tab), let model, !model.pageStarted else { return }
+    /// (D5): asked for when the card is built (at most every 3 s per tab),
+    /// whenever the grid opens, and again after a read that brought nothing
+    /// (`TerminalCardScreenRefresh`). Until it arrives the card's saved frame
+    /// is drawn as not current (T-TABS-01).
+    private func refreshScreenText(for tab: WorkspaceTab, model: TerminalModel, gridOpening: Bool = false) {
+        guard let provider = screenTextProvider, !model.pageStarted,
+              screenTextRefresh.begin(tab.id, now: Date(), gridOpening: gridOpening) else { return }
+        Task { @MainActor [weak self, weak model] in
+            let text = await provider(tab)
+            guard let text else {
+                self?.screenTextRefresh.failed(tab.id)
+                return
+            }
+            guard let model, !model.pageStarted else { return }
             if model.cardScreenText != text { model.cardScreenText = text }
         }
     }
 
     func overviewWillAppear(active tab: WorkspaceTab) {
         hosts[tab.id]?.prepareCard()
+    }
+
+    func overviewWillAppear(inactive tabs: [WorkspaceTab]) {
+        // A tab whose card was never built has no host yet: its card asks
+        // when the grid builds it.
+        for tab in tabs { if let model = hosts[tab.id]?.model { refreshScreenText(for: tab, model: model, gridOpening: true) } }
     }
 
     /// The settled grid shows the active page's snapshot, placed with its

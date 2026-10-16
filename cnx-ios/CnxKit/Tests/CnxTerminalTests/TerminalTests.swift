@@ -258,6 +258,24 @@ import Testing
         #expect(TerminalPresentMatch.readBand(visible: 0..<10, rowCount: 20, margin: 16) == 0..<20)
     }
 
+    /// VERIFY-round6 V6-2: following at the history cap, Ghostty pruned 886
+    /// rows (17740 -> 16854). The viewport followed the output, so no prune
+    /// was detected and the frame on screen kept its top in the old numbering
+    /// (17589). The next frame (one new row) matched shift +1 and was placed
+    /// at 17590, past the document's end: a black page until the next touch.
+    /// A frame's top is never past the active area's top.
+    @Test func aFrameIsNeverPlacedPastTheActiveTop() {
+        let stale = 17589
+        let match = TerminalPresentMatch(presentedTop: stale, reportedTop: 16703, requestedTop: stale, recentRequests: [],
+                                         activeTop: 16703)
+        let result = match.match(previous: rows(top: 0), current: rows(top: 1))
+        #expect(result.top == 16703)
+        #expect(result.top <= match.activeTop)
+        // Any candidate past the active top is out, even a perfect one.
+        let same = match.match(previous: rows(top: 0), current: rows(top: 0))
+        #expect(same.top == 16703)
+    }
+
     @Test func aStaleFrameOneRowOlderStaysWhereItsRowsBelong() {
         let t = 900
         let match = TerminalPresentMatch(presentedTop: t, reportedTop: t, requestedTop: 780, recentRequests: [700, 740],

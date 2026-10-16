@@ -48,6 +48,7 @@ final class CardSwipeState {
                 ticks += 1
                 guard ticks >= Self.countLeadTicks else { return true }
                 self?.countHold = nil
+                SafariCurveCue.markApplied(cue)
                 if self?.reflowCue == cue { self?.reflowCue = 0 }
                 return false
             }
@@ -254,9 +255,10 @@ final class CardSwipeState {
         // a constant speed left 120-210 ms early, re-audit 3 D1), scaled to
         // this card's distance to the screen edge.
         // The curve's clock starts at the finger's end, which the pan reports
-        // about 2.5 frames late (measured against Safari with the same
-        // input); the card leaves from where it is shown.
-        flights[key] = Flight(start: start, target: target, t0: CACurrentMediaTime() - 2.5 / 60, landed: landed)
+        // about 3 frames late (measured against Safari with the same input,
+        // once the card ends past the edge: 2.5 left the tail 12 ms early);
+        // the card leaves from where it is shown.
+        flights[key] = Flight(start: start, target: target, t0: CACurrentMediaTime() - 3.0 / 60, landed: landed)
         flightLink.start { [weak self] now in self?.stepFlights(now) ?? false }
         // The tab leaves the grid one frame after the release (Safari's count
         // changes about 10 ms after it, re-audit 2 D10): the fly-off's first
@@ -332,11 +334,9 @@ final class CardSwipeState {
                 if self?.offsets[key] == 0 { self?.raised.remove(key) }
             }
         } else {
-            // Left: Safari's own spring back replayed from the turnaround
-            // (cmux-next re-audit 3 3g); right: the fitted spring (3i passes).
-            let animation: Animation = from > 0
-                ? CardSwipe.snapBackRight.animation(initialVelocity: abs(from) > 0.5 ? Double(velocity / (0 - from)) : 0)
-                : .safari(.snapBack)
+            // Safari's own spring back replayed from the turnaround, after a
+            // left drag (cmux-next re-audit 3 3g) and a right one (3i).
+            let animation: Animation = .safari(from > 0 ? .snapBackRight : .snapBack)
             withAnimation(animation, completionCriteria: .removed) {
                 offsets[key] = 0
                 opacities[key] = 1
