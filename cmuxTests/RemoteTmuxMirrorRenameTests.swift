@@ -155,4 +155,38 @@ struct RemoteTmuxMirrorRenameTests {
             "select-pane -t %6 -T 'pane-routed'",
         ])
     }
+
+    @Test func workspaceRenameKeepsTmuxFormatsLiteral() throws {
+        let harness = try RemoteTmuxMirrorRenameHarness()
+        defer { harness.tearDown() }
+
+        harness.controller.handleMirrorWorkspaceRenamed(
+            workspaceId: harness.workspace.id,
+            title: "#S's workspace"
+        )
+
+        let commands = try harness.finishCommands()
+        #expect(commands.filter { $0.hasPrefix("rename-session ") } == [
+            "rename-session -t 'test-issue-8380' '##S'\\''s workspace'",
+        ])
+    }
+
+    @Test func windowRenameKeepsTmuxFormatsLiteral() throws {
+        let harness = try RemoteTmuxMirrorRenameHarness(includeSecondWindow: true)
+        defer { harness.tearDown() }
+
+        let logsPanelID = try #require(
+            harness.workspace.remoteTmuxWindowMirrors.first(where: { $0.value.windowId == 3 })?.key
+        )
+        harness.controller.handleMirrorWindowRenamed(
+            workspaceId: harness.workspace.id,
+            panelId: logsPanelID,
+            title: "#W's window"
+        )
+
+        let commands = try harness.finishCommands()
+        #expect(commands.filter { $0.hasPrefix("rename-window ") } == [
+            "rename-window -t @3 '##W'\\''s window'",
+        ])
+    }
 }

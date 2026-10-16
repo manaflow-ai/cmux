@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxRemoteSession
 import Foundation
 
 /// Identifies a remote host whose tmux server cmux mirrors over SSH.
@@ -397,15 +398,6 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     static func controlModeCommandName(_ value: String?) -> String? {
         let trimmed = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return controlModeLineSafeName(trimmed)
-    }
-
-    /// Returns a line-safe pane title. Unlike session and window names, tmux
-    /// accepts an empty pane title, which clears the explicitly set pane title.
-    static func controlModeCommandPaneTitle(_ value: String?) -> String? {
-        let trimmed = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let forbidden = CharacterSet.controlCharacters.union(.newlines)
-        guard trimmed.unicodeScalars.allSatisfy({ !forbidden.contains($0) }) else { return nil }
-        return trimmed
     }
 
     /// Builds a line-safe `select-pane -T` command for one tmux pane.
