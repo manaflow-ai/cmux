@@ -1,0 +1,98 @@
+# Passkey / WebAuthn regression suite against stock Chromium (plans/cmux-next/passkeys.md
+# section 7.3): tests/passkeys/run.mjs serves the test RP and runs every scenario with a
+# DevTools virtual authenticator (ctap2 and u2f; internal, usb, nfc, ble and hybrid
+# transports; resident keys; user verification on and off; PRF, largeBlob, credProps;
+# conditional mediation; excludeCredentials; attestation; several credentials; abort and
+# timeout; JSON helpers; signal methods; cross-origin and sandboxed iframes).
+#
+# Stock Chromium is the oracle: a scenario that fails here is a broken scenario, not a cmux
+# bug. The same scenarios run inside the real cmux app (CEF and WebKit tabs) in the GUI gate
+# scripts/cmux-next/passkeys-gate.sh (nx-remote --needs gui --app-from-fleet), which also
+# checks getClientCapabilities parity with Google Chrome and the GitHub "partial passkey
+# support" text.
+name: cmux-next passkeys
+
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "tests/passkeys/**"
+      - "scripts/cmux-next/passkeys-*"
+      - "Packages/macOS/CmuxNext/CEFShim/src/shim_passkeys.mm"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/WebKit/WebKitPasskey*.swift"
+      - "cmux.nightly.entitlements"
+      - "cmux.release.entitlements"
+      - "cmux.rc.entitlements"
+      - "scripts/ci/check-profile-keychain-groups.sh"
+      - ".github/workflows/cmux-next-passkeys.yml"
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - "tests/passkeys/**"
+      - "scripts/cmux-next/passkeys-*"
+      - "Packages/macOS/CmuxNext/CEFShim/src/shim_passkeys.mm"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/WebKit/WebKitPasskey*.swift"
+      - "cmux.nightly.entitlements"
+      - "cmux.release.entitlements"
+      - "cmux.rc.entitlements"
+      - "scripts/ci/check-profile-keychain-groups.sh"
+      - ".github/workflows/cmux-next-passkeys.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-passkeys-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  oracle:
+    name: passkey scenarios on stock Chromium
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+
+      - name: Install pinned Playwright Chromium
+        working-directory: tests/browser-parity
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/pw-browsers
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          path="$(node -e 'process.stdout.write(require("playwright").chromium.executablePath())')"
+          test -x "$path"
+          echo "PASSKEY_CHROMIUM=$path" >> "$GITHUB_ENV"
+
+      - name: Signed channels ask for the platform authenticator's keychain group
+        run: |
+          set -euo pipefail
+          # passkeys.md K19: without "<team>.<bundle>.webauthn" Chromium reports no platform
+          # authenticator and GitHub shows "partial passkey support".
+          for channel in nightly:com.cmuxterm.app.nightly release:com.cmuxterm.app rc:com.cmuxterm.app.rc; do
+            file="cmux.${channel%%:*}.entitlements"; bundle="${channel#*:}"
+            grep -q "<string>7WLXT3NR37.$bundle.webauthn</string>" "$file" || { echo "$file lacks 7WLXT3NR37.$bundle.webauthn" >&2; exit 1; }
+          done
+
+      - name: Run every scenario
+        env:
+          PARITY_PLAYWRIGHT_DIR: ${{ github.workspace }}/tests/browser-parity/node_modules
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/pw-browsers
+        run: node tests/passkeys/run.mjs --json "$RUNNER_TEMP/passkeys.json"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: passkeys-oracle
+          path: ${{ runner.temp }}/passkeys.json
+          if-no-files-found: ignore

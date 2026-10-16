@@ -42,12 +42,14 @@
       pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
       authenticatorSelection: over.authenticatorSelection || { residentKey: "required", userVerification: "required" },
       extensions: over.extensions,
-      timeout: 20000,
+      attestation: over.attestation,
+      excludeCredentials: over.excludeCredentials,
+      timeout: over.timeout || 20000,
     };
   }
   async function create(over = {}) {
     const options = creationOptions(over);
-    const cred = await navigator.credentials.create({ publicKey: options, signal: over.signal });
+    const cred = await navigator.credentials.create({ publicKey: options, signal: over.signal, mediation: over.mediation });
     return { cred, options };
   }
   async function get(over = {}) {
@@ -287,7 +289,7 @@
       const id = Math.random().toString(36).slice(2);
       const url = new URL("frame.html", location.href);
       url.hostname = "frame." + location.hostname;
-      url.search = new URLSearchParams({ id, mode: spec.mode, top: location.origin }).toString();
+      url.search = new URLSearchParams({ id, mode: spec.mode, top: location.origin, expect: spec.expect || "" }).toString();
       const f = document.createElement("iframe");
       f.src = url.href;
       if (spec.allow) f.allow = spec.allow;
@@ -303,6 +305,207 @@
       document.getElementById("frames").appendChild(f);
     });
   }
+
+
+  // Comprehensive matrix additions (passkeys.md section 7.1, 2026-10-16):
+  // every transport and protocol the DevTools virtual authenticator offers,
+  // user verification on and off, exclusion, attestation, several
+  // credentials, timeouts, JSON helpers, signal methods, availability.
+  const roaming = (transport, extra = {}) => ({ protocol: "ctap2", ctap2Version: "ctap2_1", transport, hasResidentKey: true, hasUserVerification: true, isUserVerified: true, ...extra });
+  // fmt of an attestationObject (CBOR map; "fmt" is a short text key).
+  function attestationFormat(attObj) {
+    const b = new Uint8Array(attObj);
+    for (let i = 0; i + 4 < b.length; i++) {
+      if (b[i] === 0x63 && b[i + 1] === 0x66 && b[i + 2] === 0x6d && b[i + 3] === 0x74) {
+        const h = b[i + 4];
+        if (h >= 0x60 && h < 0x78) return dec.decode(b.slice(i + 5, i + 5 + (h - 0x60)));
+      }
+    }
+    return "unparsed";
+  }
+  // Register on a roaming authenticator, then sign in with an allow list.
+  async function roundTrip(transport, { uv = "required", rk = "required" } = {}) {
+    const made = await create({ authenticatorSelection: { authenticatorAttachment: "cross-platform", residentKey: rk, userVerification: uv } });
+    const problems = checkClientData(made.cred, "webauthn.create", made.options.challenge).problems;
+    const transports = made.cred.response.getTransports ? made.cred.response.getTransports() : [];
+    if (made.cred.authenticatorAttachment !== "cross-platform") problems.push(`attachment ${made.cred.authenticatorAttachment}`);
+    const f = flags(made.cred.response.getAuthenticatorData());
+    if (!f.up || !f.at) problems.push(`create flags ${JSON.stringify(f)}`);
+    if (uv === "required" && !f.uv) problems.push("uv flag missing");
+    const got = await get({ allowCredentials: [{ type: "public-key", id: made.cred.rawId, transports }], userVerification: uv });
+    problems.push(...checkClientData(got.cred, "webauthn.get", got.options.challenge).problems);
+    if (!same(got.cred.rawId, made.cred.rawId)) problems.push("other credential returned");
+    return result(problems.length === 0, (problems.join("; ") || "ok") + `; transports ${JSON.stringify(transports)}`);
+  }
+  Object.assign(S, {
+    "roundtrip-usb-ctap2": { authenticator: roaming("usb"), run: () => roundTrip("usb") },
+    "roundtrip-usb-u2f": {
+      authenticator: { protocol: "u2f", transport: "usb", hasResidentKey: false, hasUserVerification: false },
+      async run() {
+        const made = await create({ authenticatorSelection: { authenticatorAttachment: "cross-platform", residentKey: "discouraged", userVerification: "discouraged" } });
+        const got = await get({ allowCredentials: [{ type: "public-key", id: made.cred.rawId, transports: ["usb"] }], userVerification: "discouraged" });
+        const f = flags(got.cred.response.authenticatorData);
+        const problems = checkClientData(got.cred, "webauthn.get", got.options.challenge).problems;
+        if (!same(got.cred.rawId, made.cred.rawId)) problems.push("other credential returned");
+        if (f.uv) problems.push("U2F cannot verify the user");
+        if (got.cred.response.userHandle !== null) problems.push("U2F returned a user handle");
+        return result(problems.length === 0, problems.join("; ") || "ok (U2F, no uv, no user handle)");
+      },
+    },
+    "roundtrip-nfc": { authenticator: roaming("nfc"), run: () => roundTrip("nfc") },
+    "roundtrip-ble": { authenticator: roaming("ble"), run: () => roundTrip("ble") },
+    "roundtrip-hybrid": { authenticator: roaming("cable"), run: () => roundTrip("cable") },
+    "roundtrip-usb-no-pin": {
+      authenticator: roaming("usb", { hasUserVerification: false, isUserVerified: false, hasResidentKey: false }),
+      run: () => roundTrip("usb", { uv: "discouraged", rk: "discouraged" }),
+    },
+    "uv-discouraged-no-uv": {
+      authenticator: { ...platform, hasUserVerification: false, isUserVerified: false },
+      async run() {
+        const { cred } = await create({ authenticatorSelection: { residentKey: "preferred", userVerification: "discouraged" } });
+        const f = flags(cred.response.getAuthenticatorData());
+        return result(f.up && !f.uv, `flags ${JSON.stringify(f)}`);
+      },
+    },
+    "uv-required-not-capable": {
+      authenticator: roaming("usb", { hasUserVerification: false, isUserVerified: false }),
+      run: () => expectError(() => create({ timeout: 5000, authenticatorSelection: { authenticatorAttachment: "cross-platform", residentKey: "discouraged", userVerification: "required" } }), "NotAllowedError"),
+    },
+    "exclude-credentials": {
+      authenticator: platform,
+      async run() {
+        const first = await create();
+        return expectError(() => create({ excludeCredentials: [{ type: "public-key", id: first.cred.rawId }] }), "InvalidStateError");
+      },
+    },
+    "attestation-none": {
+      authenticator: roaming("usb"),
+      async run() {
+        const { cred } = await create({ attestation: "none", authenticatorSelection: { authenticatorAttachment: "cross-platform", residentKey: "discouraged", userVerification: "discouraged" } });
+        const fmt = attestationFormat(cred.response.attestationObject);
+        return result(fmt === "none", `fmt ${fmt}`);
+      },
+    },
+    // Chrome asks the person before it returns a security key's attestation;
+    // with the virtual authenticator the UI is off, so record what comes back.
+    "attestation-direct": {
+      authenticator: roaming("usb"),
+      async run() {
+        const { cred } = await create({ attestation: "direct", authenticatorSelection: { authenticatorAttachment: "cross-platform", residentKey: "discouraged", userVerification: "discouraged" } });
+        const fmt = attestationFormat(cred.response.attestationObject);
+        return result(typeof fmt === "string" && fmt !== "unparsed" ? null : false, `fmt ${fmt}`);
+      },
+    },
+    "multiple-credentials": {
+      authenticator: platform,
+      async run() {
+        const a = await create({ userId: rand(16) });
+        const b = await create({ userId: rand(16) });
+        const onlyB = await get({ allowCredentials: [{ type: "public-key", id: b.cred.rawId }] });
+        const either = await get({ allowCredentials: [{ type: "public-key", id: a.cred.rawId }, { type: "public-key", id: b.cred.rawId }] });
+        const problems = [];
+        if (!same(onlyB.cred.rawId, b.cred.rawId)) problems.push("allow list [B] returned another credential");
+        if (!same(either.cred.rawId, a.cred.rawId) && !same(either.cred.rawId, b.cred.rawId)) problems.push("allow list [A, B] returned an unknown credential");
+        return result(problems.length === 0, problems.join("; ") || "ok");
+      },
+    },
+    "get-timeout": {
+      authenticator: { ...platform, automaticPresenceSimulation: false },
+      async run() {
+        const began = Date.now();
+        const r = await get({ timeout: 3000 }).then(() => "resolved", (e) => errName(e));
+        const seconds = (Date.now() - began) / 1000;
+        return result(r === "NotAllowedError" && seconds < 15, `${r} after ${seconds.toFixed(1)} s`);
+      },
+    },
+    "get-unknown-credential": {
+      authenticator: { ...platform, automaticPresenceSimulation: true },
+      run: () => expectError(() => get({ timeout: 4000, allowCredentials: [{ type: "public-key", id: rand(32) }] }), "NotAllowedError"),
+    },
+    "conditional-mediation-available": {
+      authenticator: platform,
+      async run() {
+        const v = await PublicKeyCredential.isConditionalMediationAvailable?.();
+        return result(v === true, `isConditionalMediationAvailable ${v}`);
+      },
+    },
+    // With a platform authenticator present (the virtual one here, the
+    // profile/Touch ID one in a signed build) the page must see it: GitHub
+    // shows "partial passkey support" when this is false (passkeys.md K19).
+    "uvpa-with-platform-authenticator": {
+      authenticator: platform,
+      async run() {
+        const v = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+        const caps = typeof PublicKeyCredential.getClientCapabilities === "function" ? await PublicKeyCredential.getClientCapabilities() : {};
+        const ok = v === true && caps.userVerifyingPlatformAuthenticator === true && caps.passkeyPlatformAuthenticator === true;
+        return result(ok, `uvpaa ${v}; caps.uvpa ${caps.userVerifyingPlatformAuthenticator}; caps.ppaa ${caps.passkeyPlatformAuthenticator}`);
+      },
+    },
+    "client-capabilities-browser-features": {
+      authenticator: platform,
+      async run() {
+        if (typeof PublicKeyCredential.getClientCapabilities !== "function") return result(false, "getClientCapabilities missing");
+        const caps = await PublicKeyCredential.getClientCapabilities();
+        // Hardware-independent: every Chromium build reports these true.
+        const want = ["conditionalCreate", "conditionalGet", "relatedOrigins", "signalAllAcceptedCredentials", "signalCurrentUserDetails", "signalUnknownCredential", "extension:prf", "extension:largeBlob", "extension:credProps"];
+        const missing = want.filter((k) => caps[k] !== true);
+        return result(missing.length === 0, missing.length ? `not true: ${missing.join(", ")}; ${JSON.stringify(caps)}` : JSON.stringify(caps));
+      },
+    },
+    "conditional-create": {
+      authenticator: platform,
+      async run() {
+        // Chromium creates conditionally only right after a password sign-in;
+        // record the answer (NotAllowedError without one).
+        const r = await create({ mediation: "conditional", timeout: 4000 }).then(() => "resolved", (e) => errName(e));
+        return result(r === "resolved" || r === "NotAllowedError" ? null : false, r);
+      },
+    },
+    "json-helpers": {
+      authenticator: platform,
+      async run() {
+        const P = PublicKeyCredential;
+        if (typeof P.parseCreationOptionsFromJSON !== "function" || typeof P.parseRequestOptionsFromJSON !== "function") return result(false, "JSON parse helpers missing");
+        const challenge = b64u(rand(32));
+        const publicKey = P.parseCreationOptionsFromJSON({
+          challenge, rp: { id: rpId, name: "cmux test RP" }, user: { id: b64u(rand(16)), name: "json@cmux.test", displayName: "json" },
+          pubKeyCredParams: [{ type: "public-key", alg: -7 }], authenticatorSelection: { residentKey: "required", userVerification: "required" }, timeout: 20000,
+        });
+        const cred = await navigator.credentials.create({ publicKey });
+        const json = cred.toJSON();
+        const req = P.parseRequestOptionsFromJSON({ challenge: b64u(rand(32)), rpId, allowCredentials: [{ type: "public-key", id: json.id }], timeout: 20000 });
+        const got = await navigator.credentials.get({ publicKey: req });
+        const gj = got.toJSON();
+        const ok = typeof json.response.clientDataJSON === "string" && json.id === cred.id && gj.id === json.id && typeof gj.response.signature === "string";
+        return result(ok, `create.toJSON keys ${Object.keys(json.response).join(",")}; get id ${gj.id === json.id}`);
+      },
+    },
+    "signal-apis": {
+      authenticator: platform,
+      async run() {
+        const P = PublicKeyCredential;
+        const names = ["signalUnknownCredential", "signalAllAcceptedCredentials", "signalCurrentUserDetails"];
+        const missing = names.filter((n) => typeof P[n] !== "function");
+        if (missing.length) return result(false, `missing ${missing.join(", ")}`);
+        const made = await create();
+        const userId = b64u(made.options.user.id);
+        const outcomes = await Promise.all([
+          P.signalUnknownCredential({ rpId, credentialId: b64u(rand(32)) }),
+          P.signalAllAcceptedCredentials({ rpId, userId, allAcceptedCredentialIds: [made.cred.id] }),
+          P.signalCurrentUserDetails({ rpId, userId, name: "agent@cmux.test", displayName: "cmux test" }),
+        ].map((p) => p.then(() => "ok", (e) => errName(e))));
+        return result(outcomes.every((o) => o === "ok"), outcomes.join(", "));
+      },
+    },
+    "cross-origin-iframe-get-allowed": {
+      authenticator: platform,
+      frame: { allow: "publickey-credentials-create *; publickey-credentials-get *", mode: "create-get", click: "#go" },
+    },
+    "cross-origin-iframe-create-denied": {
+      authenticator: platform,
+      frame: { allow: "publickey-credentials-get *", mode: "create", click: "#go", expect: "NotAllowedError" },
+    },
+  });
 
   window.PASSKEY_SCENARIOS = S;
   window.passkeyHelpers = { create, get, checkClientData, flags, result, errName };
