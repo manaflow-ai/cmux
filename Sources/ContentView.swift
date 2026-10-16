@@ -12202,7 +12202,8 @@ struct VerticalTabsSidebar: View, Equatable {
             guard isPresented else { return }
             guard let workspaceId = notification.userInfo?[WorkspaceTodoActions.workspaceIdUserInfoKey] as? UUID,
                   tabManager.tabs.contains(where: { $0.id == workspaceId }) else { return }
-            if WorkspaceTodoFeature.checklistStyle == .popover {
+            let checklistStyle = WorkspaceTodoFeature.checklistStyle
+            if checklistStyle == .popover {
                 checklistPopoverWorkspaceId = workspaceId
             } else {
                 expandedChecklistWorkspaceIds.insert(workspaceId)

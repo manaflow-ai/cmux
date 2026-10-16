@@ -12,7 +12,9 @@
   a DEBUG drag log interpolation to be split into a local value; both are now
   fixed before the next tagged submission. Fleet's SwiftUI type checker still
   rejected the interpolation passed through its autoclosure, so the debug line
-  now passes a prebuilt `String` value.
+  now passes a prebuilt `String` value. The resulting build then surfaced the
+  adjacent checklist style expression at the same large `ContentView` body;
+  that value is now also captured before branching.
 
 ## 2026-10-15 Chief Home pane drag
 
