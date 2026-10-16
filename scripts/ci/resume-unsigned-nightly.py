@@ -84,7 +84,9 @@ def plan(run_id, attempt):
     require(os.environ.get("GITHUB_REF") == "refs/heads/nightly-next" and
             os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch", "resume only dispatches on nightly-next")
     prefix = f"/repos/{repo}"
-    run = download.api_json(f"{prefix}/actions/runs/{run_id}", token)
+    # A failed-job rerun must not erase the provenance of an earlier successful
+    # compile. Read the requested attempt, never the run's mutable latest view.
+    run = download.api_json(f"{prefix}/actions/runs/{run_id}/attempts/{attempt}", token)
     jobs = download.api_json(f"{prefix}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100", token)
     artifacts = download.api_json(f"{prefix}/actions/runs/{run_id}/artifacts?per_page=100", token)
     require(jobs.get("total_count", 101) <= 100 and artifacts.get("total_count", 101) <= 100,
