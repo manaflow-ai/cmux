@@ -3,7 +3,6 @@ import { useCallback, useDeferredValue, useState } from "react";
 import { useSettingsRouter, useSettingsState, useStore } from "../context";
 import { installKeyboard, runPageCommand } from "../keyboard";
 import { parseLocation, sectionHref } from "../router";
-import { useSettingsLookAttribute } from "../settingsLook";
 import { homes } from "../categories";
 import { rowsByKey } from "../schema";
 import { t } from "../strings";
@@ -23,7 +22,6 @@ export function SettingsApp() {
   const router = useSettingsRouter();
   const store = useStore();
   const state = useSettingsState();
-  useSettingsLookAttribute(state.host?.settings_refined_look === true);
   const href = useRouterState({ router, select: (routerState) => routerState.location.href });
   const location = parseLocation(href);
   const [query, setQuery] = useState("");
