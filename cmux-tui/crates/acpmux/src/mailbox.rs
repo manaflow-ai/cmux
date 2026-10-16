@@ -120,7 +120,7 @@ struct Inner {
     path: Option<PathBuf>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Mailbox {
     inner: Arc<Mutex<Inner>>,
     notify: Arc<Notify>,
@@ -177,7 +177,10 @@ impl Mailbox {
 
     pub fn send(&self, input: SendInput) -> std::result::Result<SendResult, MailboxError> {
         validate(&input)?;
-        let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|_| MailboxError::Storage(anyhow::anyhow!("mailbox state lock poisoned")))?;
         if let Some(message) = inner.state.messages.iter().find(|m| m.id == input.id).cloned() {
             let existing = inner
                 .state
@@ -240,7 +243,10 @@ impl Mailbox {
             return Err(MailboxError::MissingRecipient);
         }
         let limit = limit.clamp(1, MAX_PAGE_SIZE);
-        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|_| MailboxError::Storage(anyhow::anyhow!("mailbox state lock poisoned")))?;
         let rows: Vec<_> = inner
             .state
             .messages
@@ -273,7 +279,10 @@ impl Mailbox {
         recipient: &str,
         message_id: &str,
     ) -> std::result::Result<DeliveryReceipt, MailboxError> {
-        let mut inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|_| MailboxError::Storage(anyhow::anyhow!("mailbox state lock poisoned")))?;
         let message = inner
             .state
             .messages
@@ -333,7 +342,10 @@ impl Mailbox {
     }
 
     pub fn flush(&self) -> Result<()> {
-        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|_| anyhow::anyhow!("mailbox state lock poisoned"))?;
         persist(&inner).map_err(|e| anyhow::anyhow!(e))
     }
 
@@ -362,6 +374,7 @@ impl Mailbox {
 fn validate_state(state: &PersistedState) -> Result<()> {
     let mut ids = std::collections::BTreeSet::new();
     let mut seqs = std::collections::BTreeSet::new();
+    let mut delivery_ids = std::collections::BTreeSet::new();
     anyhow::ensure!(state.next_seq > 0, "mailbox next sequence must be positive");
     for message in &state.messages {
         anyhow::ensure!(
@@ -376,11 +389,12 @@ fn validate_state(state: &PersistedState) -> Result<()> {
             message.id
         );
     }
-    anyhow::ensure!(
-        state.deliveries.len() == state.messages.len(),
-        "mailbox delivery count does not match message count"
-    );
     for delivery in &state.deliveries {
+        anyhow::ensure!(
+            delivery_ids.insert(delivery.message_id.clone()),
+            "mailbox has duplicate delivery {}",
+            delivery.message_id
+        );
         let message =
             state.messages.iter().find(|message| message.id == delivery.message_id).ok_or_else(
                 || anyhow::anyhow!("mailbox has orphan delivery {}", delivery.message_id),
@@ -389,6 +403,13 @@ fn validate_state(state: &PersistedState) -> Result<()> {
             message.recipient == delivery.recipient,
             "mailbox delivery recipient mismatch for {}",
             delivery.message_id
+        );
+    }
+    for message in &state.messages {
+        anyhow::ensure!(
+            delivery_ids.contains(&message.id),
+            "mailbox has missing delivery {}",
+            message.id
         );
     }
     Ok(())
@@ -567,6 +588,48 @@ mod tests {
         let d = TempDir::new();
         std::fs::write(d.path().join("mailbox.json"), r#"{"schema":"acpmux.mailbox.v1","next_seq":1,"messages":[{"id":"m1","seq":1,"sender":"a","recipient":"b","body":"x","createdAt":1,"metadata":{}}],"deliveries":[]}"#).unwrap();
         assert!(Mailbox::open(d.path()).is_err());
+    }
+
+    fn test_message(id: &str, seq: u64) -> MailMessage {
+        MailMessage {
+            id: id.into(),
+            seq,
+            sender: "a".into(),
+            recipient: "b".into(),
+            body: "body".into(),
+            created_at: 1,
+            metadata: BTreeMap::new(),
+        }
+    }
+
+    fn test_delivery(message_id: &str) -> DeliveryReceipt {
+        DeliveryReceipt {
+            message_id: message_id.into(),
+            recipient: "b".into(),
+            state: DeliveryState::Queued,
+            updated_at: 1,
+        }
+    }
+
+    #[test]
+    fn validate_state_rejects_duplicate_and_missing_deliveries() {
+        let duplicate = PersistedState {
+            schema: SCHEMA.into(),
+            next_seq: 3,
+            messages: vec![test_message("m1", 1), test_message("m2", 2)],
+            deliveries: vec![test_delivery("m1"), test_delivery("m1")],
+        };
+        let error = validate_state(&duplicate).unwrap_err().to_string();
+        assert!(error.contains("duplicate delivery m1"), "{error}");
+
+        let missing = PersistedState {
+            schema: SCHEMA.into(),
+            next_seq: 3,
+            messages: vec![test_message("m1", 1), test_message("m2", 2)],
+            deliveries: vec![test_delivery("m1")],
+        };
+        let error = validate_state(&missing).unwrap_err().to_string();
+        assert!(error.contains("missing delivery m2"), "{error}");
     }
 
     #[test]
