@@ -98,10 +98,7 @@ enum DebugPages {
         case "query":
             return await page.debugQuery(params["selector"]?.stringValue ?? "*")
         case "route":
-            // The page at a hash route (`/conversation/<c>/message/<m>`), as a hand-off opens it.
-            guard let route = params["route"]?.stringValue else { return ["error": "route is required"] }
-            page.open(route: route)
-            return ["route": .string(route)]
+            page.open(route: params["route"]?.stringValue ?? "/"); return ["ok": true] // a hash route, as a hand-off opens it
         case "type":
             guard let text = params["text"]?.stringValue else { return ["error": "text is required"] }
             return ["inserted": .bool(await page.debugInsertText(text, selector: params["selector"]?.stringValue))]

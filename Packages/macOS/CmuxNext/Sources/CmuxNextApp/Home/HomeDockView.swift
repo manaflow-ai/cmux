@@ -43,8 +43,7 @@ final class HomeDockView: HomeDockSwitchView {
         }
     }
 
-    /// The native view's conversation (and the message its open thread view shows: the drilled branch's,
-    /// else the root), or the page's answer.
+    /// The native view's conversation (and its open thread view's branch message, else root), or the page's answer.
     override func selection(in mode: Mode) async -> Selection? {
         switch mode {
         case .messages:
@@ -59,11 +58,10 @@ final class HomeDockView: HomeDockSwitchView {
         }
     }
 
-    /// The native list selects the conversation and opens the message's thread at its branch (tree
-    /// threads; no highlight of the message itself yet); the page follows its hash.
+    /// The native list selects the conversation and opens the message's thread branch; the page follows its hash.
     override func open(_ selection: Selection, in mode: Mode) {
         switch mode {
-        case .messages: messages?.show(ConversationID(selection.conversation), message: selection.message)
+        case .messages: messages?.show(selection)
         case .channels: open(route: selection.route)
         }
     }
