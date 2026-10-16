@@ -11956,7 +11956,9 @@ struct VerticalTabsSidebar: View, Equatable {
             }
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
-        let workspaceGroups = isPresented ? tabManager.workspaceGroups : []
+        let workspaceGroups = isPresented
+            ? tabManager.workspaceGroups.filter { $0.externalID != ChiefHomeNavigation.homeGroupExternalID }
+            : []
         let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         let workspaceGroupIdByWorkspaceId = SidebarWorkspaceRenderItem.effectiveGroupIdByWorkspaceId(
             tabs: tabs,
@@ -12596,6 +12598,14 @@ struct VerticalTabsSidebar: View, Equatable {
         )
         return renderContext.workspaceRenderItems.compactMap { item -> SidebarWorkspaceTableRowConfiguration? in
             switch item {
+            case .home(let workspaceId):
+                let row = chiefHomeRow(workspaceId: workspaceId, settings: renderContext.tabItemSettings)
+                return SidebarWorkspaceTableRowConfiguration(
+                    id: item.id, workspaceId: workspaceId, groupId: nil,
+                    isGroupHeader: false, isPinned: true,
+                    environment: renderContext.environment, equivalenceValue: row,
+                    makeContent: { _, _ in AnyView(row) }
+                )
             case .groupHeader(let groupId, _):
                 guard let group = renderContext.workspaceGroupById[groupId] else { return nil }
                 return sidebarWorkspaceGroupTableConfiguration(
@@ -12615,6 +12625,23 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             }
         }
+    }
+
+    /// Both list renderers route Home through the existing window-scoped action.
+    private func chiefHomeRow(
+        workspaceId: UUID,
+        settings: SidebarTabItemSettingsSnapshot
+    ) -> SidebarChiefHomeRow {
+        SidebarChiefHomeRow(
+            isSelected: selection == .tabs && tabManager.selectedTabId == workspaceId,
+            settings: settings,
+            globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
+            onSelect: {
+                selectedTabIds = [workspaceId]
+                lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == workspaceId }
+                NotificationCenter.default.post(name: .cmuxOpenChiefHome, object: observedWindow)
+            }
+        )
     }
 
     private func workspaceTableActions(
@@ -14520,6 +14547,9 @@ struct VerticalTabsSidebar: View, Equatable {
         let rows = LazyVStack(spacing: tabRowSpacing) {
             ForEach(renderItems, id: \.id) { item in
                 switch item {
+                case .home(let workspaceId):
+                    chiefHomeRow(workspaceId: workspaceId, settings: renderContext.tabItemSettings)
+                        .id(workspaceId)
                 case .groupHeader(let groupId, _):
                     if let snapshot = listSnapshot.groupRowsById[groupId] {
                         sidebarWorkspaceGroupRow(snapshot: snapshot)

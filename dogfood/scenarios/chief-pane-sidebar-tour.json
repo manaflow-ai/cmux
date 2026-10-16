@@ -2,7 +2,9 @@
   "paths": [
     "Sources/Chief/*",
     "Sources/*Chief*",
-    "Sources/Panels/PanelContentView.swift"
+    "Sources/Panels/PanelContentView.swift",
+    "Sources/Sidebar/SidebarChiefHomeRow.swift",
+    "Sources/SidebarWorkspaceRenderItem.swift"
   ],
   "launch": {
     "env": {
@@ -25,7 +27,23 @@
       "save": "local"
     },
     {
-      "socket": "chief.open"
+      "socket": "workspace.create",
+      "params": {
+        "title": "Another workspace below Home",
+        "focus": false
+      }
+    },
+    {
+      "expect": "SidebarChiefHomeRow"
+    },
+    {
+      "click": "SidebarChiefHomeRow"
+    },
+    {
+      "shot": "simple-home-button"
+    },
+    {
+      "tree": "simple-home-button"
     },
     {
       "expect": "ChiefToggleConversations"
@@ -77,7 +95,7 @@
       "shot": "workspace-sidebar-restored"
     },
     {
-      "socket": "chief.open"
+      "click": "SidebarChiefHomeRow"
     },
     {
       "expect": "ChiefToggleConversations"
