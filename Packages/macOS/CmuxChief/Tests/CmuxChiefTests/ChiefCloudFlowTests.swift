@@ -120,6 +120,21 @@ import Testing
         #expect(row.status == .failed && row.preview == "vm_requires_pro")
     }
 
+    @Test func failedWaitKeepsTheMachineName() async throws {
+        let owner = try ChiefFixture().owner(.events([
+            .toolStarted(id: "t1", title: "Create", detail: "cmux vm new --detach --name api --size 8g --json"),
+            .toolFinished(id: "t1", ok: true, preview: #"{"id":"vm-1","displayName":"api"}"#),
+            .toolStarted(id: "t2", title: "Wait", detail: "cmux vm wait vm-1"),
+            .toolFinished(id: "t2", ok: false, preview: "network_error"),
+            .finished,
+        ]))
+        try await ChiefFixture.send("create it", to: owner)
+        let messages = try await ChiefFixture.idleMessages(owner, count: 2)
+        guard case .work(let row) = messages[1].parts.first else { Issue.record("expected the row"); return }
+        #expect(row.status == .failed)
+        #expect(row.preview == "api")
+    }
+
     @Test func resultCardIsAHostedWorkPart() async throws {
         let card = ChiefResultCard(title: "Codex is working on brave-otter", subtitle: "fix login · ws_4f2c",
                                    machine: "brave-otter", workspace: "ws_4f2c", status: .working)
