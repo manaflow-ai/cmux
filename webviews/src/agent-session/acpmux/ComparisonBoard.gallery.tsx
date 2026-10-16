@@ -145,7 +145,9 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
                 <div className="cmux-comparison-message cmux-comparison-message-agent">
                   <span className="cmux-comparison-agent-mark">✦</span>
                   <div>
-                    <p>I’m comparing the accent and minimal treatments here. Hover a session to inspect its latest reply.</p>
+                    <p>
+                      I’m comparing the accent and minimal treatments here. Hover a session to inspect its latest reply.
+                    </p>
                     <span className="cmux-comparison-meta">Ready for review · This Mac</span>
                   </div>
                 </div>
@@ -153,7 +155,9 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
               <div className="cmux-comparison-composer" aria-label="Composer preview">
                 <div className="cmux-comparison-composer-copy">Ask anything</div>
                 <div className="cmux-comparison-composer-row">
-                  <span className="cmux-comparison-compose-icon" aria-hidden="true">＋</span>
+                  <span className="cmux-comparison-compose-icon" aria-hidden="true">
+                    ＋
+                  </span>
                   <span className="cmux-comparison-compose-hint">Attach files or mention a project</span>
                   <div className="cmux-comparison-composer-spacer" />
                   <EffortPicker
@@ -164,13 +168,17 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
                     slider
                     sliderStyle={sliderStyle}
                   />
-                  <button type="button" className="cmux-comparison-send" aria-label="Send message">↑</button>
+                  <button type="button" className="cmux-comparison-send" aria-label="Send message">
+                    ↑
+                  </button>
                 </div>
               </div>
               <div className="cmux-comparison-slider-toggle" role="group" aria-label="Reasoning slider treatment">
                 <span>Reasoning treatment</span>
                 {(["accent", "minimal"] as const).map((name) => (
-                  <span key={name} className={sliderStyle === name ? "is-active" : ""}>{name}</span>
+                  <span key={name} className={sliderStyle === name ? "is-active" : ""}>
+                    {name}
+                  </span>
                 ))}
               </div>
             </div>
@@ -189,7 +197,10 @@ export default componentEntry<Props>({
   height: 720,
   widths: { narrow: 520, normal: 860, wide: 1160 },
   anchors: [{ selector: ".cmux-comparison-window" }],
-  covers: ["agent-session/acpmux/EffortPicker.tsx#EffortPicker", "agent-session/acpmux/SessionSidebar.tsx#SessionSidebar"],
+  covers: [
+    "agent-session/acpmux/EffortPicker.tsx#EffortPicker",
+    "agent-session/acpmux/SessionSidebar.tsx#SessionSidebar",
+  ],
   checks: {
     anchorMovePx: { value: 0, reason: "Switching comparison sections keeps the simulated window anchored." },
     layoutShiftMax: { value: 0, reason: "Variant controls replace content inside the fixed glass shell." },
