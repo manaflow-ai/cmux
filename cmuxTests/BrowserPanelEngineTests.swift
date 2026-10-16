@@ -31,6 +31,7 @@ import WebKit
         private(set) var backCount = 0
         private(set) var stopCount = 0
         private(set) var closeCount = 0
+        private(set) var focusChanges: [Bool] = []
         private let stream: AsyncStream<BrowserPageEvent>
         private let continuation: AsyncStream<BrowserPageEvent>.Continuation
 
@@ -56,7 +57,10 @@ import WebKit
         func closeDevTools() {}
         func sendDevToolsProtocolMessage(method: String, params: Data?) async throws -> Data { Data("{}".utf8) }
         func takeSnapshot(rect: CGRect?) async throws -> NSImage { NSImage() }
-        func setFocused(_ focused: Bool) -> Bool { true }
+        func setFocused(_ focused: Bool) -> Bool {
+            focusChanges.append(focused)
+            return true
+        }
         func setContentVisible(_ visible: Bool) {}
         func dispatchInput(_ event: BrowserPageInputEvent) async throws {}
         func exportRestoreState() -> BrowserPageRestoreState? { nil }
@@ -102,6 +106,22 @@ import WebKit
         #expect(panel.engineFallbackNotice == nil)
         let page = panel.page as? WebKitBrowserPage
         #expect(page?.webView === panel.webView)
+    }
+
+    @Test func leavingChromiumPanelReleasesPageFocus() throws {
+        let provider = FakeChromiumProvider()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: runtime(providers: [provider])
+        )
+        defer { panel.close() }
+        let page = try #require(provider.pages.first)
+
+        panel.focus()
+        panel.unfocus()
+
+        #expect(page.focusChanges == [true, false])
     }
 
     @Test func unavailableChromiumFallsBackToWebKitWithOneNotice() {
