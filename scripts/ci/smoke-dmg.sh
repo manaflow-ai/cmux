@@ -4,7 +4,10 @@
 # (CMUX_DEFER_LAUNCH_SMOKES=true) so no bundle code runs where a signing,
 # notarization or publishing credential exists.
 #
-# Usage: smoke-dmg.sh <dmg> <channel> [--expect-sha256 HEX]
+# Usage: smoke-dmg.sh <dmg> <channel> [--expect-sha256 HEX] [--require-stapled-app]
+# --require-stapled-app: the app inside must carry its own ticket
+# (notarize-nightly-dmg.sh CMUX_STAPLE_APP_IN_DMG); DMGs from other packagers
+# (resume-nightly-notarization.sh) do not pass it yet.
 # Writes "tested <sha256> <dmg name>" to fd 3 (or stdout), for the job that
 # publishes it; everything else goes to stderr so the job log keeps it.
 # A smoke that skips (an x86_64 app on a runner without Rosetta) is reported
@@ -20,18 +23,20 @@ fi
 exec 1>&2
 
 if [ "$#" -lt 2 ]; then
-  echo "usage: $0 <dmg> <channel> [--expect-sha256 HEX]" >&2
+  echo "usage: $0 <dmg> <channel> [--expect-sha256 HEX] [--require-stapled-app]" >&2
   exit 2
 fi
 DMG="$1"
 CHANNEL="$2"
 shift 2
 EXPECTED=""
+REQUIRE_STAPLED_APP=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --expect-sha256)
       if [ "$#" -lt 2 ] || [ -z "$2" ]; then echo "--expect-sha256 needs a value" >&2; exit 2; fi
       EXPECTED="$2"; shift 2 ;;
+    --require-stapled-app) REQUIRE_STAPLED_APP=true; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -67,6 +72,11 @@ trap detach EXIT
 "$HDIUTIL_TOOL" attach "$DMG" -nobrowse -readonly -mountpoint "$MOUNT_DIR"
 APP="$(find "$MOUNT_DIR" -maxdepth 1 -name '*.app' -type d -print -quit)"
 [ -n "$APP" ] || { echo "No app found in $DMG" >&2; exit 1; }
+if [ "$REQUIRE_STAPLED_APP" = true ]; then
+  # The app carries its own ticket: a copy taken out of the DMG (Sparkle
+  # installs one) needs no online ticket lookup.
+  "$XCRUN_TOOL" stapler validate "$APP"
+fi
 "$SPCTL_TOOL" -a -vv --type execute "$APP"
 SMOKE_LOG="$(mktemp)"
 # The app must not inherit the fd that carries the tested line.
