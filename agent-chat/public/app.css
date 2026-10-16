@@ -800,6 +800,18 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 .gallery-header p {
   margin: 0 0 12px; color: var(--text-faint); font: calc(var(--font-size-base) - 1.5px) var(--font-sans);
 }
+.gallery-header-focused {
+  margin-bottom: 24px;
+}
+.gallery-header-focused h1 {
+  font-size: 22px;
+}
+.gallery-focus-back {
+  display: inline-flex; align-items: center; margin-top: 3px; padding: 4px 0;
+  color: var(--text-dim); text-decoration: none; font: 400 calc(var(--font-size-base) - 1.5px) var(--font-sans);
+}
+.gallery-focus-back:hover { color: var(--text); text-decoration: underline; }
+.gallery-focus-back:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
 .gallery-toc {
   position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 5px;
   padding: 8px 0; backdrop-filter: blur(14px);

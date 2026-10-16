@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { Tooltip } from "@base-ui-components/react/tooltip";
 import { CmdkMenu, type CmdkGroup } from "./components/CmdkMenu";
 import { StatusRow } from "./components/StatusRow";
@@ -618,6 +618,15 @@ export function GalleryApp() {
   useOverlayScrollbars();
   const [viewport, setViewport] = useState("1120px");
   const [orchestrationOpen, setOrchestrationOpen] = useState(true);
+  const [focusedOrchestration, setFocusedOrchestration] = useState(false);
+  useEffect(() => {
+    const updateFocus = () => {
+      setFocusedOrchestration(typeof window !== "undefined" && window.location.hash === "#orchestration-lab");
+    };
+    updateFocus();
+    window.addEventListener("hashchange", updateFocus);
+    return () => window.removeEventListener("hashchange", updateFocus);
+  }, []);
   const toc = useMemo(() => [
     ["orchestration-lab", "Orchestration lab"],
     ["status-row", "Status row"],
@@ -637,9 +646,16 @@ export function GalleryApp() {
   const effort = galleryOptions.claude.find((o) => o.id === "effort")!;
   const context = galleryOptions.claude.find((o) => o.id === "context")!;
   const mode = galleryOptions.claude.find((o) => o.id === "permissionMode")!;
+  const clearOrchestrationFocus = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    }
+    setFocusedOrchestration(false);
+  };
   return (
     <Tooltip.Provider delay={500} closeDelay={80} timeout={800}>
-      <main id="gallery-main">
+      <main id="gallery-main" className={focusedOrchestration ? "gallery-focused" : undefined}>
         <button
           className="orchestration-toggle"
           type="button"
@@ -652,23 +668,31 @@ export function GalleryApp() {
           <span className="orchestration-toggle-note">Fixture only</span>
           <span className="orchestration-toggle-state">{orchestrationOpen ? "On" : "Off"}</span>
         </button>
-        <header className="gallery-header">
-          <h1>Agent Chat Gallery</h1>
-          <p>Mock-driven visual QA surface. No WebSocket, no provider process, no live sessions.</p>
-          <div className="gallery-viewports">
-            {["320px", "480px", "660px", "900px", "1120px", "1400px"].map((w) => (
-              <button key={w} className={viewport === w ? "active" : ""} onClick={() => setViewport(w)}>{w}</button>
-            ))}
-          </div>
+        <header className={`gallery-header${focusedOrchestration ? " gallery-header-focused" : ""}`}>
+          <h1>{focusedOrchestration ? "Orchestration lab · fixture preview" : "Agent Chat Gallery"}</h1>
+          <p>{focusedOrchestration
+            ? "A focused routing, admission, and receipt preview. No task is dispatched."
+            : "Mock-driven visual QA surface. No WebSocket, no provider process, no live sessions."}</p>
+          {!focusedOrchestration && (
+            <div className="gallery-viewports">
+              {["320px", "480px", "660px", "900px", "1120px", "1400px"].map((w) => (
+                <button key={w} className={viewport === w ? "active" : ""} onClick={() => setViewport(w)}>{w}</button>
+              ))}
+            </div>
+          )}
           <nav className="gallery-toc" aria-label="Gallery sections">
-            {toc.map(([id, label]) => <a key={id} href={`#${id}`}>{label}</a>)}
+            {toc.filter(([id]) => !focusedOrchestration || id === "orchestration-lab").map(([id, label]) => <a key={id} href={`#${id}`}>{label}</a>)}
           </nav>
+          {focusedOrchestration && (
+            <a className="gallery-focus-back" href="#gallery-main" onClick={clearOrchestrationFocus}>← Back to full gallery</a>
+          )}
         </header>
 
         <div className="gallery-viewport-frame" style={{ maxWidth: viewport }}>
         <Section id="orchestration-lab" title="Orchestration lab">
           <OrchestrationLab open={orchestrationOpen} />
         </Section>
+        {!focusedOrchestration && (<>
         <Section id="status-row" title="Status row">
           <div className="gallery-stack">
             {galleryProviders.map((provider) => (
@@ -859,6 +883,7 @@ export function GalleryApp() {
             <pre>{"wide ".repeat(80)}</pre>
           </div>
         </Section>
+        </>)}
         </div>
       </main>
     </Tooltip.Provider>
