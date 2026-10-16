@@ -3347,6 +3347,8 @@ jobs:
         id: find
         env:
           GH_TOKEN: ${{ github.token }}
+          CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+          REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
         run: |
           set -euo pipefail
           feeds=()
@@ -3355,6 +3357,22 @@ jobs:
           done
           candidates="$(python3 scripts/ci/find-nightly-next-recovery.py \
             --repo "$GITHUB_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" --limit 5 "${feeds[@]}")"
+          # Never recover a build that lacks a required commit or does not
+          # descend from the commit the NEXT feed serves (run 38868028629
+          # published 0664bd98 from 10-14 over newer builds). The run head is an
+          # upper bound of its build commit, so a refusal here is never wrong;
+          # recover and publish-nightly check the exact build commit again.
+          keep=""
+          while IFS=$'\t' read -r run_id head; do
+            [ -n "$run_id" ] || continue
+            if verdict="$(bash scripts/ci/nightly-next-recovery-lineage.sh "$GITHUB_REPOSITORY" "$CHANNEL_RELEASE_TAG" "$head" </dev/null)"; then
+              keep="$keep $run_id"
+            else
+              echo "::notice title=Recovery refused::run $run_id: $verdict"
+              echo "- refused run $run_id: $verdict" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done < <(python3 -I -c 'import json, sys; [print("%s\t%s" % (c["run_id"], c["head_sha"])) for c in json.load(sys.stdin)]' <<<"$candidates")
+          candidates="$(KEEP="$keep" python3 -I -c 'import json, os, sys; keep = set(os.environ.get("KEEP", "").split()); print(json.dumps([c for c in json.load(sys.stdin) if str(c["run_id"]) in keep]))' <<<"$candidates")"
           echo "candidates=$candidates" >> "$GITHUB_OUTPUT"
           if [ "$candidates" = "[]" ]; then
             echo "found=false" >> "$GITHUB_OUTPUT"
@@ -3411,6 +3429,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATES: ${{ needs.find-nightly-next-recovery.outputs.candidates }}
+          REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
@@ -3436,6 +3455,10 @@ jobs:
             fi
             # shellcheck disable=SC1090
             source "$dir/manifest.env"
+            if ! verdict="$(bash scripts/ci/nightly-next-recovery-lineage.sh "$GITHUB_REPOSITORY" "$CHANNEL_RELEASE_TAG" "$BUILD_SHA" </dev/null)"; then
+              echo "::notice title=Recovery refused::run $run_id: build $BUILD: $verdict; skipping"
+              echo "::endgroup::"; continue
+            fi
             if ! python3 scripts/ci/nightly_version.py check-build --build "$BUILD" "${feeds[@]}"; then
               echo "::notice::run $run_id: build $BUILD is no longer above both feeds; skipping"
               echo "::endgroup::"; continue
@@ -3536,8 +3559,11 @@ jobs:
       source: ${{ steps.source.outputs.source }}
       # The published build, for publish-nightly-identity-legacy (cx-x7hwx).
       build: ${{ steps.source.outputs.build }}
-      # Another run already published the recovered build; this one published nothing.
-      already_published: ${{ steps.recheck.outputs.already_published }}
+      # Another run already published the recovered build, or the final gate
+      # refused (see refused): this run published nothing.
+      already_published: ${{ steps.recheck.outputs.already_published == 'true' || steps.gate.outputs.refused == 'true' }}
+      # The final gate refused: a recovered build failed its lineage check.
+      refused: ${{ steps.gate.outputs.refused }}
     if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true') || needs.recover-nightly-next-notarization.outputs.accepted == 'true')"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
@@ -3783,8 +3809,37 @@ jobs:
             python3 "$PUBLISH_TOOLING/ci/nightly-next-guard.py" appcast "nightly-out/$appcast"
           done
 
-      - name: Prune old nightly release assets
+      # Last check before the first write to the release or the feed: a
+      # recovered build is checked again against the live feed. It must contain
+      # NIGHTLY_LEGACY_REQUIRED_COMMITS and descend from the commit the NEXT
+      # feed serves. A refusal publishes nothing and is not a failure.
+      - name: Final publication gate
+        id: gate
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
+          SOURCE: ${{ steps.source.outputs.source }}
+          BUILD_SHA: ${{ steps.source.outputs.build_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$SOURCE" = recovered ]; then
+            status=0
+            verdict="$(bash "$PUBLISH_TOOLING/ci/nightly-next-recovery-lineage.sh" "$GITHUB_REPOSITORY" "$CHANNEL_RELEASE_TAG" "$BUILD_SHA" </dev/null)" || status=$?
+            if [ "$status" = 3 ]; then
+              echo "::warning title=Publication refused::recovered build $NIGHTLY_BUILD ($BUILD_SHA): $verdict"
+              echo "refused=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            elif [ "$status" != 0 ]; then
+              # The check could not run: publish nothing, and say so in red.
+              echo "::error title=Recovered build not checked::recovered build $NIGHTLY_BUILD ($BUILD_SHA): $verdict; nothing published"
+              exit 1
+            fi
+            echo "$verdict"
+          fi
+
+      - name: Prune old nightly release assets
+        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -3800,7 +3855,7 @@ jobs:
 
       - name: Publish nightly release assets
         id: publish_assets
-        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -3835,7 +3890,7 @@ jobs:
             --replace-feeds "${args[@]}"
 
       - name: Download the cmux-next source archive
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && steps.source.outputs.source == 'own' && steps.recheck.outputs.already_published != 'true'
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && steps.source.outputs.source == 'own' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-next-source-archive
@@ -3848,11 +3903,11 @@ jobs:
       # source offer names it (prune_nightly_release_assets.py), never by age.
       # A recovered build carries its source archive in the recovered variant.
       - name: Take the recovered build's source archive
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && steps.source.outputs.source == 'recovered' && steps.recheck.outputs.already_published != 'true'
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && steps.source.outputs.source == 'recovered' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         run: mv nightly-out/source-archive source-archive
 
       - name: Publish the cmux-next source archive
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && steps.recheck.outputs.already_published != 'true'
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ steps.source.outputs.build_sha }}
@@ -3883,7 +3938,7 @@ jobs:
 
       - name: Mint release tag app token
         id: release-tag-token
-        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -3902,7 +3957,7 @@ jobs:
       # such a commit. nightly-next therefore publishes its release metadata
       # with the release App token; other channels keep the Actions token.
       - name: Publish verified nightly release metadata
-        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           GH_TOKEN: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
           RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
@@ -3936,7 +3991,7 @@ jobs:
             --prerelease true --make-latest false "${expect[@]}"
 
       - name: Upload nightly appcasts to R2
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track != 'nightly-next' && steps.recheck.outputs.already_published != 'true'
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track != 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
@@ -3964,7 +4019,7 @@ jobs:
       # scoped token (release-next secrets), after the guard has checked every
       # appcast enclosure and object key. It never receives CF_R2_* .
       - name: Upload nightly-next appcasts to R2
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true'
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
@@ -3991,7 +4046,7 @@ jobs:
       # it as an idempotency record without mistaking a partial publication for
       # a complete one.
       - name: Record verified nightly publication
-        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           GH_TOKEN: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
           RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
@@ -4034,7 +4089,7 @@ jobs:
       # remain the publication record if this marker is stale.
       - name: Move channel release tag to built commit
         id: move-channel-release-tag
-        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
@@ -4054,7 +4109,7 @@ jobs:
 
       - name: Record nightly publication marker outcome
         id: tag-outcome
-        if: always() && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
+        if: always() && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
         env:
           TAG_MOVE_OUTCOME: ${{ steps.move-channel-release-tag.outcome }}
           CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
@@ -4726,7 +4781,7 @@ jobs:
     # with its own key, as build-sign-notarize-nightly does.
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly]
-    if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.source != 'recovered'
+    if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.source != 'recovered' && needs.publish-nightly.outputs.refused != 'true'
     permissions:
       contents: read
       actions: read
@@ -4966,7 +5021,7 @@ jobs:
   # and GitHub skips a job with no status check below any skipped job (cx-urd.28).
   sign-release-notes:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly]
-    if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.source != 'recovered'"
+    if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered'"
     environment: content-signing
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
@@ -5078,7 +5133,7 @@ jobs:
 
   publish-release-notes:
     needs: [decide, publish-nightly, sign-release-notes, resolve-nightly-cmux-tui-client]
-    if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.sign-release-notes.result == 'success'"
+    if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.sign-release-notes.result == 'success'"
     environment: ${{ needs.decide.outputs.environment }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
@@ -5176,7 +5231,7 @@ jobs:
   # (run 37526646874 published with its notes job cancelled and no alarm).
   report-nightly-failure:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
-    if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.tag_status == 'stale' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
+    if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.tag_status == 'stale' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
