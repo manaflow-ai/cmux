@@ -38,6 +38,7 @@ mod paging;
 mod personal_stats;
 mod pool;
 mod prompt_images;
+mod prompt_ledger;
 mod queue;
 mod queue_edit;
 pub use queue::QueuedPrompt;
@@ -100,6 +101,7 @@ pub use web_token::WebToken;
 
 use crate::agent::{ChildAgent, Direction, Inbound};
 use crate::config::{Config, HarnessProfile, PermissionPolicy};
+use crate::mailbox::Mailbox;
 use crate::rpc::{Id, Message, RpcError, method};
 use crate::store::{EventRecord, META_SCHEMA, SessionMeta, SessionStatus, Store, now_ms};
 use anyhow::Result;
@@ -199,9 +201,6 @@ pub struct PromptOptions {
 /// The outcome of one client prompt id, shared with a resend of it.
 pub(super) type PromptOutcome = Arc<tokio::sync::watch::Sender<Option<Result<Value, RpcError>>>>;
 
-/// Client prompt ids remembered per session for deduplication.
-pub(super) const PROMPT_LEDGER: usize = 64;
-
 /// What the agent's stream says about the current assistant message, used
 /// to record `message_superseded` and to attach streamed error text to
 /// `turn_result`.
@@ -224,6 +223,7 @@ pub(super) struct StreamState {
 pub struct Hub {
     pub config: RwLock<Config>,
     pub(super) store: Box<dyn Store>,
+    pub(super) mailbox: Mailbox,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
@@ -312,6 +312,10 @@ pub struct Hub {
 
 impl Hub {
     pub fn new(config: Config, store: Box<dyn Store>) -> Arc<Self> {
+        Self::new_with_mailbox(config, store, Mailbox::memory())
+    }
+
+    pub fn new_with_mailbox(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
         let (events, _) = broadcast::channel(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
@@ -319,6 +323,7 @@ impl Hub {
         let hub = Arc::new(Self {
             config: RwLock::new(config),
             store,
+            mailbox,
             sessions: StdMutex::new(HashMap::new()),
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             events,
@@ -452,6 +457,10 @@ impl Hub {
 
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
         self.events.subscribe()
+    }
+
+    pub fn mailbox(&self) -> &Mailbox {
+        &self.mailbox
     }
 
     pub(super) fn load_from_store(self: &Arc<Self>) {
