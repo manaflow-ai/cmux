@@ -19,9 +19,12 @@ extension Workspace {
     /// Returns the current provider mark for one terminal panel, if known.
     func terminalTabAgentIconAsset(forPanelId panelId: UUID) -> String? {
         let resolver = TerminalTabAgentIconResolver()
-        let statusKeys = agentPIDKeysByPanelId[panelId, default: []]
+        let pidStatusKeys = agentPIDKeysByPanelId[panelId, default: []]
             .map(agentStatusKey(forAgentPIDKey:))
-            .sorted()
+        let lifecycleStatusKeys = agentLifecycleStatesByPanelId[panelId, default: [:]]
+            .keys
+            .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0) }
+        let statusKeys = Set(pidStatusKeys).union(lifecycleStatusKeys).sorted()
         if let asset = statusKeys.compactMap(resolver.assetName(forStatusKey:)).first {
             return asset
         }
