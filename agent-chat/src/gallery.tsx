@@ -26,6 +26,8 @@ import { RepositorySlugContext } from "./context";
 const cwd = "/Users/dev/project/agent-chat";
 const noLoadingProviders = new Set<string>();
 const codexModelsLoading = new Set(["codex"]);
+const fixtureSha = (digit: string) => digit.repeat(64);
+const humanMandateRef = "user-request: orchestration-lab-gallery-prototype";
 
 type OrchestrationStrategy = {
   id: string;
@@ -36,16 +38,23 @@ type OrchestrationStrategy = {
   sender: string;
   recipient: string;
   transport: string;
+  transportId: "loopback" | "ssh" | "lease";
+  hostId: string;
+  owner: string;
   repo: string;
   worktree: string;
   branch: string;
   head: string;
+  baseSha: string;
+  headShaExact: string;
+  artifactSha: string;
   queue: string;
   lease: string;
   stage: string;
   state: string;
   acceptance: string;
   kind: string;
+  receiptStatus: "accepted" | "running" | "blocked" | "reviewed" | "verified" | "complete";
   health: string;
   guidance: string;
   evidence: string;
@@ -64,16 +73,23 @@ const orchestrationStrategies: OrchestrationStrategy[] = [
     sender: "cmux-chat",
     recipient: "local-supervisor",
     transport: "loopback",
+    transportId: "loopback",
+    hostId: "local-supervisor-fixture",
+    owner: "gallery-fixture",
     repo: "cmux",
     worktree: "agent-chat",
     branch: "feat-cmux-next",
     head: "4ce7c9c1…",
+    baseSha: fixtureSha("1"),
+    headShaExact: fixtureSha("2"),
+    artifactSha: fixtureSha("3"),
     queue: "2 queued · 1/4 active",
     lease: "09:42 remaining",
     stage: "working",
     state: "running",
     acceptance: "accepted",
     kind: "progress",
+    receiptStatus: "running",
     health: "healthy",
     guidance: "sha256:7d2a…",
     evidence: "receipt.json",
@@ -90,16 +106,23 @@ const orchestrationStrategies: OrchestrationStrategy[] = [
     sender: "cmux-chat",
     recipient: "huge-blue-supervisor",
     transport: "ssh · enrolled host",
+    transportId: "ssh",
+    hostId: "huge-blue-fixture",
+    owner: "gallery-fixture",
     repo: "cmux",
     worktree: "/home/leo/…/cmux",
     branch: "feat-cmux-next",
     head: "ce704bfb…",
+    baseSha: fixtureSha("4"),
+    headShaExact: fixtureSha("5"),
+    artifactSha: fixtureSha("6"),
     queue: "5 queued · 0/8 active",
     lease: "17:30 remaining",
     stage: "acknowledged",
     state: "running",
     acceptance: "conditional",
     kind: "review",
+    receiptStatus: "reviewed",
     health: "degraded",
     guidance: "sha256:14b8…",
     evidence: "rust-green-receipt.json",
@@ -116,22 +139,29 @@ const orchestrationStrategies: OrchestrationStrategy[] = [
     sender: "cmux-chat",
     recipient: "cloud-router",
     transport: "durable lease",
+    transportId: "lease",
+    hostId: "cloud-router-fixture",
+    owner: "gallery-fixture",
     repo: "cmux",
     worktree: "managed-worktree",
     branch: "main",
     head: "a81f6de2…",
+    baseSha: fixtureSha("7"),
+    headShaExact: fixtureSha("8"),
+    artifactSha: fixtureSha("9"),
     queue: "12 queued · 0/32 active",
     lease: "starts on admission",
     stage: "submitted",
     state: "submitted",
     acceptance: "pending",
     kind: "next-work",
+    receiptStatus: "blocked",
     health: "unknown",
     guidance: "sha256:91c4…",
     evidence: "admission receipt",
     artifacts: "pending",
     gap: "capacity unavailable",
-    nextAction: "Wait for fair-share slot",
+    nextAction: "Proposal · human authorization required: Wait for fair-share slot",
   },
 ];
 
@@ -198,16 +228,20 @@ function OrchestrationLab({ open }: { open: boolean }) {
       <section className="orchestration-inspector" aria-label={`${selectedStrategy.label} receipt preview`} aria-live="polite">
         <div className="orchestration-inspector-header">
           <div>
-            <div className="orchestration-inspector-kicker">Focused receipt preview · display-only fixture</div>
+            <div className="orchestration-inspector-kicker">Focused receipt preview · non-contract display sample</div>
             <h3>{selectedStrategy.label}</h3>
           </div>
-          <span className={`orchestration-status orchestration-status-${selectedStrategy.status}`}>{selectedStrategy.status}</span>
+          <div className="orchestration-inspector-phase">
+            <span className="orchestration-inspector-phase-label">Route phase</span>
+            <span className={`orchestration-status orchestration-status-${selectedStrategy.status}`}>{selectedStrategy.status}</span>
+          </div>
         </div>
         <dl className="orchestration-receipt-summary">
           <div><dt>Task</dt><dd>{selectedStrategy.task}</dd></div>
           <div><dt>Route</dt><dd>{selectedStrategy.transport} · {selectedStrategy.recipient}</dd></div>
           <div><dt>Stage</dt><dd>{selectedStrategy.stage}</dd></div>
           <div><dt>State</dt><dd>{selectedStrategy.state}</dd></div>
+          <div><dt>Receipt status</dt><dd>{selectedStrategy.receiptStatus}</dd></div>
           <div><dt>Acceptance</dt><dd>{selectedStrategy.acceptance}</dd></div>
           <div><dt>Route health</dt><dd>{selectedStrategy.health}</dd></div>
           <div><dt>Lease</dt><dd>{selectedStrategy.lease}</dd></div>
@@ -215,41 +249,64 @@ function OrchestrationLab({ open }: { open: boolean }) {
           <div><dt>Evidence</dt><dd>{selectedStrategy.evidence}</dd></div>
           <div><dt>Next action</dt><dd>{selectedStrategy.nextAction}</dd></div>
         </dl>
-        <pre className="orchestration-receipt-preview" aria-label="Redacted receipt JSON preview">{JSON.stringify({
-          receipt_mode: "display-only fixture · no dispatch",
-          schema_version: "fixture-1",
-          message_id: "redacted",
-          task_id: selectedStrategy.task,
-          in_reply_to: "redacted",
-          sender: selectedStrategy.sender,
-          recipient: selectedStrategy.recipient,
-          transport: selectedStrategy.transport,
-          host_id: selectedStrategy.recipient,
-          session_id: "redacted",
-          root_id: "gallery-fixture",
-          owner: selectedStrategy.sender,
-          authority_ref: "fixture-only",
-          stage: selectedStrategy.stage,
-          state: selectedStrategy.state,
-          kind: selectedStrategy.kind,
-          status: selectedStrategy.state,
-          acceptance: selectedStrategy.acceptance,
-          repository: selectedStrategy.repo,
-          worktree: selectedStrategy.worktree,
-          branch: selectedStrategy.branch,
-          base_sha: "display-only: redacted",
-          head_sha: `display-only: ${selectedStrategy.head}`,
-          command: "unavailable in gallery fixture",
-          assertion_count: null,
-          artifact_sha: "redacted",
-          queue: selectedStrategy.queue,
-          lease: selectedStrategy.lease,
-          health: selectedStrategy.health,
-          guidance: selectedStrategy.guidance,
-          evidence: selectedStrategy.evidence,
-          artifacts: selectedStrategy.artifacts,
-          gap: selectedStrategy.gap,
-          next_action: selectedStrategy.nextAction,
+        <pre className="orchestration-receipt-preview" aria-label="Non-contract display sample: receipt-shaped fixture with context">{JSON.stringify({
+          receipt: {
+            schema_version: 1,
+            message_id: "redacted",
+            task_id: selectedStrategy.task,
+            in_reply_to: "redacted",
+            sender: selectedStrategy.sender,
+            recipient: selectedStrategy.recipient,
+            transport: selectedStrategy.transportId,
+            host_id: selectedStrategy.hostId,
+            session_id: "redacted",
+            root_id: "gallery-fixture",
+            owner: selectedStrategy.owner,
+            authority_ref: humanMandateRef,
+            stage: selectedStrategy.stage,
+            state: selectedStrategy.state,
+            kind: selectedStrategy.kind,
+            status: selectedStrategy.receiptStatus,
+            acceptance: selectedStrategy.acceptance,
+            repository: selectedStrategy.repo,
+            worktree: selectedStrategy.worktree,
+            branch: selectedStrategy.branch,
+            base_sha: selectedStrategy.baseSha,
+            head_sha: selectedStrategy.headShaExact,
+            command: `gallery.fixture --strategy ${selectedStrategy.id}`,
+            assertion_count: 0,
+            artifact_sha: selectedStrategy.artifactSha,
+            artifacts: { preview: "fixture-only" },
+            evidence: [],
+            gap: selectedStrategy.gap,
+            next_action: selectedStrategy.nextAction,
+          },
+          fixture_context: {
+            display_only: true,
+            no_dispatch: true,
+            redaction: "Hashes and command are deterministic fixture values; no command or task was executed.",
+            authority: humanMandateRef,
+            source_display: {
+              head: selectedStrategy.head,
+              repository: selectedStrategy.repo,
+              worktree: selectedStrategy.worktree,
+              branch: selectedStrategy.branch,
+            },
+            route: {
+              id: selectedStrategy.id,
+              label: selectedStrategy.transport,
+              queue: selectedStrategy.queue,
+              lease: selectedStrategy.lease,
+              health: selectedStrategy.health,
+            },
+            guidance: {
+              manifest: selectedStrategy.guidance,
+              resolution: "fixture-only; no worker guidance loaded",
+            },
+            next_work: selectedStrategy.kind === "next-work"
+              ? "Proposal only · human authorization required"
+              : null,
+          },
         }, null, 2)}</pre>
       </section>
     </div>
