@@ -18,13 +18,13 @@ final class MobileSSHCmuxTUITopologyReconnect<Control: AnyObject & Sendable> {
     typealias Sleep = (Duration) async throws -> Void
 
     /// The first retry delay after a topology control disconnects.
-    nonisolated static let initialBackoff: Duration = .seconds(1)
+    nonisolated static var initialBackoff: Duration { .seconds(1) }
     /// The maximum retry delay while the owning SSH transport remains open.
-    nonisolated static let maximumBackoff: Duration = .seconds(30)
+    nonisolated static var maximumBackoff: Duration { .seconds(30) }
     /// A dead owner must eventually be allowed to fall out of discovery. The
     /// retry window covers the normal transient case while keeping a cached
     /// provider from blocking workspace listing forever.
-    nonisolated static let maximumRecoveryAttempts = 3
+    nonisolated static var maximumRecoveryAttempts: Int { 3 }
 
     /// Returns the capped delay for a zero-based reconnect attempt.
     nonisolated static func backoff(forAttempt attempt: Int) -> Duration {
