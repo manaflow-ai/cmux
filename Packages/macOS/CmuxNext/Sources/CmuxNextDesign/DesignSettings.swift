@@ -71,6 +71,9 @@ public final class DesignSettings {
     public var sidebarBorder = SidebarBorder()
     /// `notifications.attention.*`: the unread pane's attention ring.
     public var attention = AttentionSettings()
+    /// DEV/NIGHTLY-only in-memory override for sidebar attention ordering.
+    /// Nil follows `notifications.attention.moveToTop`.
+    public var sidebarPriorityOverride: Bool?
     /// `appearance.statusIndicator.*`: loading and status indicators on
     /// sidebar rows, tabs, sections and pane headers.
     public var statusIndicator = StatusIndicatorSettings()

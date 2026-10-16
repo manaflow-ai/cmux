@@ -114,14 +114,15 @@ final class SidebarBridge {
             // one slide, not a slide of the old rows and then a row reload.
             // The band's layout comes with the rows it projects too (cx-odqn):
             // a pinned workspace leaves the list in the turn it joins the band.
-            for await (sections, launching, failed, profiles, active, shown, creating) in ObservationStream({
+            for await (sections, launching, failed, profiles, active, shown, creating, _, _) in ObservationStream({
                 let (sections, launching, failed) = Self.liveSections(
                     machines, registry: registry, window: windowState, creations: creations, hidesHome: Self.hidesHome(layout.document),
                     newTabPages: Self.newTabPages(agentTabs, in: machines.local.store), muted: notifications.preferences.mutedWorkspaces,
                     top: .make(layout, machines: machines, room: windowState.profileID.rawValue), pageFace: services.sidebarPageFace,
                     tabTitle: Self.tabTitle(services))
                 return (sections, launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
-                        SidebarRows.visibleLayout(layout.document), PendingWorkspaceRows.shared.rows(in: windowState.id))
+                        SidebarRows.visibleLayout(layout.document), PendingWorkspaceRows.shared.rows(in: windowState.id),
+                        DesignSettings.shared.sidebarPriorityOverride, DesignSettings.shared.attention.movesToTop)
             }) {
                 guard let self else { return }
                 self.showProfiles(profiles, active: active, launching: launching)
@@ -207,7 +208,7 @@ final class SidebarBridge {
         // Keep the existing attention setting as the opt-in for the dynamic
         // projection; unlike notification-only reordering this also follows
         // agent state transitions delivered in the sidebar snapshot.
-        model.priorityOrdering = DesignSettings.shared.attention.movesToTop
+        model.priorityOrdering = DesignSettings.shared.sidebarPriorityOverride ?? DesignSettings.shared.attention.movesToTop
         if model.layout != layout { model.layout = layout }
         rows.show(sections, creating: (creating, NewWorkspacePlacements.home(services.machines)))
         selectionHold.flush()
