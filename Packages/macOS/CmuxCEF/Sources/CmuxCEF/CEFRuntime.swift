@@ -362,7 +362,8 @@ public final class CEFRuntime {
             shim?.close(id)
             return
         }
-        let adopted = CEFBrowser(adopting: id, from: opener, runtime: self)
+        let targetURL = created.url.flatMap(URL.init(string:))
+        let adopted = CEFBrowser(adopting: id, from: opener, runtime: self, targetURL: targetURL)
         register(adopted, id: id)
         // Chromium made the popup its window's active tab: show the opener
         // again on the next turn (this runs inside Chromium's tab insertion).
