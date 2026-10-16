@@ -139,8 +139,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             // with the HomeStore transcript and the owner's snapshot (a message in both but not here is hidden); a stream (ask 11) last.
             let texts = view.debugMessageTexts(limit: params["limit"]?.intValue ?? 50) + view.debugStreamTexts
             return .object(["ok": .bool(true), "texts": .array(texts.map { .string($0) }),
-                            "statusLine": view.debugStatusLine.map { .string($0) } ?? .null, "rebuilds": .number(Double(view.debugRebuilds)), "streams": .number(Double(view.debugStreamTexts.count)),
-                            "lineCloseAfterHandOffFires": view.debugLineCloseAfterHandOffFires.map { .number(Double($0)) } ?? .null])
+                            "statusLine": view.debugStatusLine.map { .string($0) } ?? .null, "rebuilds": .number(Double(view.debugRebuilds)), "streams": .number(Double(view.debugStreamTexts.count)), "lineCloseAfterHandOffFires": view.debugLineCloseAfterHandOffFires.map { .number(Double($0)) } ?? .null])
         case "engine_set", "chief_control":
             // One pick in the shown conversation's Chief settings panel (`key`: harness, model or effort;
             // no `value`: default), as its popup does (scripts/cmux-next/chief-home-fixes-live.py).
