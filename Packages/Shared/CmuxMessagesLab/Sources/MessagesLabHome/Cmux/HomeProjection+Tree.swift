@@ -17,6 +17,8 @@ extension HomeProjection {
         revealIfLoaded()
     }
 
+    func threadMovedByUser() { pendingReveal = nil }
+
     func revealIfLoaded() {
         guard let target = pendingReveal, let store = controller.store else { return }
         guard let item = shown.first(where: { $0.messageID == target }) else {

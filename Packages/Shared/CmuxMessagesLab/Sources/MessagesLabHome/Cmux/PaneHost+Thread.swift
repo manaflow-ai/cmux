@@ -29,7 +29,7 @@ final class PaneThread {
         case .reply, .closeThread, .openThreadPath:
             sentInView = nil
             // The user moved: a permalink still waiting for its message no longer opens it later.
-            (controller?.intents as? HomeProjection)?.pendingReveal = nil
+            controller?.intents?.threadMovedByUser()
         default: break
         }
     }
