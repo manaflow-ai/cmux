@@ -87,7 +87,14 @@ elif acpmux_at < 0 or tree_fetch_at > acpmux_at:
 else:
     fetch_end = app_job.find("\n      - name:", tree_fetch_at + 10)
     fetch_step = app_job[tree_fetch_at:fetch_end if fetch_end >= 0 else None]
-    if "pin-cmux-tui.sh fetch" not in fetch_step or "CMUX_TUI_TREE_KEY" not in fetch_step:
+    if (
+        "pin-cmux-tui.sh fetch" not in fetch_step
+        or "CMUX_TUI_TREE_KEY" not in fetch_step
+        or "CMUX_TUI_TREE_TARGET: aarch64-apple-darwin" not in fetch_step
+        or "inputs.fast_build != 'true'" not in fetch_step
+        or "inputs.build_only != 'true'" not in fetch_step
+        or "inputs.nightly_next_unsigned_run == ''" not in fetch_step
+    ):
         failures.append("resolved tree companion fetch must select the resolver's attested tree key")
 
 
