@@ -221,6 +221,11 @@ pub mod method {
     pub const MUX_PROMPT_WITHDRAW: &str = "_acpmux/prompt_withdraw";
     pub const MUX_INFO: &str = "_acpmux/info";
     pub const MUX_EVENTS: &str = "_acpmux/events";
+    /// Durable inter-session mailbox: send, page/wait, and recipient-only ack.
+    pub const MUX_MAIL_SEND: &str = "_acpmux/mail/send";
+    pub const MUX_MAIL_READ: &str = "_acpmux/mail/read";
+    pub const MUX_MAIL_WAIT: &str = "_acpmux/mail/wait";
+    pub const MUX_MAIL_ACK: &str = "_acpmux/mail/ack";
     /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
