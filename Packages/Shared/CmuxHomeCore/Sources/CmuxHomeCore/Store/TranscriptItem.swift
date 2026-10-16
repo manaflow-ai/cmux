@@ -22,6 +22,8 @@ public struct TranscriptItem: Hashable, Sendable, Identifiable {
     public var editedAt: Date?
     public var replyTo: PartRef?
     public var threadRoot: MessageID?
+    /// A thread root's object (Message.thread).
+    public var thread: ThreadInfo?
     /// The owner's message id of a committed message (nil for a pending
     /// send). Opaque to renderers: hosts pass it back in ops that name a
     /// message (`addReaction`). Filled by the data side (HomeStore).
@@ -95,7 +97,7 @@ extension TranscriptWindow {
                 replyTo: message.replyTo,
                 threadRoot: message.threadRoot,
                 messageID: message.id
-            )
+            ).withThread(message.thread)
         }
         let committedKeys = Set(items.map(\.key))
         for entry in pending where !committedKeys.contains(entry.intent.key) {
@@ -122,5 +124,14 @@ extension TranscriptWindow {
             items.append(item)
         }
         return items
+    }
+}
+
+extension TranscriptItem {
+    /// The item with a thread root's object (Message.thread).
+    func withThread(_ thread: ThreadInfo?) -> TranscriptItem {
+        var item = self
+        item.thread = thread
+        return item
     }
 }

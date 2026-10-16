@@ -221,10 +221,7 @@ final class TopHomePageView: NSView {
     }
 
     /// A permalink: its conversation, and its message's thread at its branch (any depth).
-    func show(_ link: HomeDockSelection) {
-        show(ConversationID(link.conversation))
-        if let m = link.message, let host { HomePageTab.transcript(in: host)?.reveal(message: m) }
-    }
+    func show(_ link: HomeDockSelection) { show(ConversationID(link.conversation)); if let m = link.message, let host { HomePageTab.transcript(in: host)?.reveal(message: m) } }
 
     /// Home's primary input (the message box) takes the keyboard.
     func focusPrimaryInput() {

@@ -183,7 +183,9 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         case "tapback": ok = view.debugTapbackNewestIncoming(mine: params["mine"]?.boolValue ?? false)
         case "video": ok = view.debugToggleNewestVideo()
         case "scroll": view.debugScroll(by: CGFloat(params["dy"]?.doubleValue ?? -400)); ok = true
-        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link, texts, typing, nudge, thread, escape, reply, post_escape, thread_state, reply_text, branch or permalink")])
+        default:
+            if let out = view.debugTreeDrive(params["action"]?.stringValue ?? "", params.compactMapValues(\.stringValue)) { return .object(out.mapValues { .string($0) }) }
+            return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link, texts, typing, nudge, thread, escape, reply, post_escape, thread_state, reply_text, branch or permalink")])
         }
         return .object(["ok": .bool(ok)])
     }

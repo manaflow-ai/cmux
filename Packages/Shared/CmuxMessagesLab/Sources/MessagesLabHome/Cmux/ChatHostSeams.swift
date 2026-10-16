@@ -7,6 +7,8 @@ import CmuxHomeRender
 protocol ChatIntents: AnyObject {
     /// The user opened, drilled or closed a thread view (a permalink waiting for its message stops waiting).
     func threadMovedByUser()
+    /// The message's permalink (`<scheme>://conversation/<c>/message/<m>`), nil when it has none yet.
+    func messageLink(_ id: ID) -> String?
     /// Return in the field: send the draft (the adapter dispatches `.send` on
     /// the projection at once, so the morph starts, and gives the draft to
     /// HomeStore, which delivers it or queues it while offline).

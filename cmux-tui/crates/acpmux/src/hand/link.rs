@@ -55,6 +55,18 @@ pub async fn run(cfg: HandConfig) -> Result<()> {
     let (out_tx, mut out_rx) = mpsc::channel::<Value>(4096);
     // Pending owner approvals outlive a reconnect: the answer may come on the next socket.
     let approvals: Approvals = Arc::default();
+    // The hand's agents run on its own keyed acpmux daemon (daemon.rs), so its
+    // connection is the proven person that answers their permission prompts.
+    super::daemon::use_hand_home();
+    agents.set_ask(owner_ask(&out_tx, &approvals));
+    let idle = agents.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            tick.tick().await;
+            idle.stop_idle().await;
+        }
+    });
     let mut backoff = Duration::from_secs(1);
     loop {
         match serve(&cfg, &agents, &approvals, &out_tx, &mut out_rx).await {
@@ -73,6 +85,41 @@ pub async fn run(cfg: HandConfig) -> Result<()> {
         tokio::time::sleep(backoff).await;
         backoff = (backoff * 2).min(MAX_BACKOFF).max(Duration::from_secs(1));
     }
+}
+
+/// An agent's permission prompt goes to the owner as an `approve` frame (the
+/// Cloud approval flow); no answer before APPROVAL_TIMEOUT is a refusal.
+fn owner_ask(out: &mpsc::Sender<Value>, approvals: &Approvals) -> super::agent::Ask {
+    let (out, approvals) = (out.clone(), approvals.clone());
+    Arc::new(move |summary: Value| {
+        let (out, approvals) = (out.clone(), approvals.clone());
+        Box::pin(async move {
+            let aid = uuid::Uuid::now_v7().to_string();
+            let (tx, rx) = oneshot::channel();
+            approvals
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(aid.clone(), tx);
+            let req = summary.get("session").cloned().unwrap_or(Value::Null);
+            if out
+                .send(json!({ "t": "approve", "id": aid, "req": req, "summary": summary }))
+                .await
+                .is_err()
+            {
+                return false;
+            }
+            match tokio::time::timeout(APPROVAL_TIMEOUT, rx).await {
+                Ok(Ok(allow)) => allow,
+                _ => {
+                    approvals
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .remove(&aid);
+                    false
+                }
+            }
+        })
+    })
 }
 
 /// An exclusive lock on `<hand home>/hand.lock`, held for the process life.

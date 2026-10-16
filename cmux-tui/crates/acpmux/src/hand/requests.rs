@@ -177,6 +177,7 @@ where
                 .start(
                     &ctx.cfg.api,
                     model_route,
+                    super::policy::Level::of(opt_s(p, "_level"), ctx.cfg.profile),
                     &ctx.cfg.agent_policy,
                     s(p, "harness")?,
                     path,

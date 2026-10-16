@@ -52,6 +52,7 @@ final class HomeHostView: NSView {
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         sidebar = HomeChiefSidebar(muxHome: control.brainHome, source: control.engineSource())
         super.init(frame: .zero)
+        transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
         sidebar.isHidden = true
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
         transcript.onNamePill = { [weak self] in self?.toggleSidebar() }
