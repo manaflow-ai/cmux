@@ -133,7 +133,7 @@ final class RemoteTmuxControlConnection {
     /// Reconnect snapshots wait here and run a few at a time, bounding retained history.
     var pendingReconnectPaneIDs: [Int] = []
     /// First seeds of mounted panes, paced the same way (see `queuePaneSeed(paneId:)`).
-    var queuedPaneSeedPaneIDs: [Int] = []
+    var queuedPaneSeedPaneIDs = RemoteTmuxPaneSeedQueue()
     var queuedPaneSeedIDs: [UUID: Int] = [:]
     /// Per-pane header-strip labels: the pane's EXPANDED `pane-border-format`
     /// (style tokens stripped) — exactly the text a native tmux client draws
