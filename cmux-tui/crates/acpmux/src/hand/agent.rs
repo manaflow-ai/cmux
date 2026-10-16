@@ -176,6 +176,8 @@ impl Agents {
                 }
             }
             text.flush(&sid, None, &sink).await;
+            // The daemon went away: the Cloud stops this session's model access.
+            let _ = sink.try_send(json!({ "t": "event", "session": sid, "seq": 0, "event": { "kind": "session_end", "reason": "daemon_gone" } }));
             agents.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&sid);
             // The event stream ended (the daemon went away): the route goes with
             // a new connection; an expired one is swept anyway (gateway::sweep).
@@ -215,6 +217,29 @@ impl Agents {
             let _ = client.request(method::SESSION_PROMPT, params).await;
         });
         Ok(prompt_id)
+    }
+
+    /// Ends the session (acpmux kill, transcript kept), removes its gateway
+    /// route and token, and tells the Cloud, which revokes its agent tokens.
+    pub async fn stop(&self, session: &str, sink: &EventSink) -> Result<Value, HandError> {
+        let client = self.client(session)?;
+        client
+            .request(method::MUX_KILL, json!({ "sessionId": session, "purge": false }))
+            .await
+            .map_err(|e| HandError::new("agent.stop_failed", format!("{e:#}")))?;
+        let route = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(session)
+            .and_then(|s| s.route);
+        if let Some(id) = route {
+            super::gateway::remove(&client, &id).await;
+        }
+        let _ = sink
+            .send(json!({ "t": "event", "session": session, "seq": 0, "event": { "kind": "session_end", "reason": "stopped" } }))
+            .await;
+        Ok(json!({ "session": session, "stopped": true }))
     }
 
     pub async fn cancel(&self, session: &str) -> Result<Value, HandError> {
