@@ -59,6 +59,7 @@ struct VMCommand: LegacyVMCommand {
             VMRenameCommand.self,
             VMPauseCommand.self,
             VMResumeCommand.self,
+            VMRestartCommand.self,
             VMTuiCommand.self,
             VMDesktopCommand.self,
             VMOpenCommand.self,
@@ -323,6 +324,12 @@ struct VMResumeCommand: VMIDCommand {
     @Argument(completion: vmID) var id: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "resume", helpNames: [])
+}
+
+struct VMRestartCommand: VMIDCommand {
+    @Argument(completion: vmID) var id: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "restart", helpNames: [])
 }
 
 struct VMTuiCommand: VMIDCommand {

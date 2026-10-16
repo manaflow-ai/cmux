@@ -1700,6 +1700,9 @@ command  vm resize  aliases=-
   arg  --memory  kind=option  completion=-
   arg  arguments  kind=argument  completion=-
   arg  id  kind=argument  completion=custom
+command  vm restart  aliases=-
+  arg  arguments  kind=argument  completion=-
+  arg  id  kind=argument  completion=custom
 command  vm restore  aliases=-
   arg  --detach  kind=flag  completion=-
   arg  --focus  kind=option  completion=-
