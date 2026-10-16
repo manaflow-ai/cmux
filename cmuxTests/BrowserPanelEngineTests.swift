@@ -27,6 +27,7 @@ import WebKit
         var isDevToolsVisible = false
         var isMuted = false
         private(set) var loadedURLs: [URL] = []
+        private(set) var userScripts: [BrowserPageUserScript] = []
         private(set) var backCount = 0
         private(set) var stopCount = 0
         private(set) var closeCount = 0
@@ -49,7 +50,7 @@ import WebKit
         func stop() { stopCount += 1 }
         func evaluateJavaScript(_ script: String, in world: BrowserPageScriptWorld) async throws -> Any? { nil }
         func callAsyncJavaScript(_ body: String, arguments: [String: any Sendable], in world: BrowserPageScriptWorld) async throws -> Any? { nil }
-        func addUserScript(_ script: BrowserPageUserScript) {}
+        func addUserScript(_ script: BrowserPageUserScript) { userScripts.append(script) }
         func removeAllUserScripts() {}
         func showDevTools() {}
         func closeDevTools() {}
@@ -140,6 +141,13 @@ import WebKit
         #expect(panel.automationEnginePage === page)
         #expect(panel.page === page)
         #expect(page.loadedURLs == [url])
+        // Chromium telemetry must be registered before the initial navigation;
+        // installing it from console.list/errors.list loses page-load entries.
+        let telemetryScript = try #require(page.userScripts.first {
+            $0.source.contains("__cmuxHooksInstalled")
+        })
+        #expect(telemetryScript.injectionTime == .documentStart)
+        #expect(telemetryScript.isMainFrameOnly)
         // The page's state is mirrored when the panel starts listening.
         #expect(panel.pageTitle == "Example")
         #expect(panel.canGoBack)
