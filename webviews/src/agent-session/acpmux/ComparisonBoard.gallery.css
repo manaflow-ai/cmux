@@ -1,0 +1,68 @@
+.cmux-comparison-board {
+  --comparison-accent: var(--agent-accent, #3f8cff);
+  min-height: 100%;
+  padding: 28px;
+  box-sizing: border-box;
+  color: var(--agent-text, #f5f5f7);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  background:
+    radial-gradient(circle at 20% 8%, color-mix(in srgb, var(--comparison-accent) 25%, transparent), transparent 38%),
+    radial-gradient(circle at 90% 92%, color-mix(in srgb, #9b7dff 20%, transparent), transparent 42%),
+    var(--agent-page-bg, #16171b);
+}
+.cmux-comparison-window {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  width: min(100%, 1080px);
+  min-height: 650px;
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--agent-page-bg, #202126) 82%, transparent);
+  box-shadow: 0 28px 90px rgb(0 0 0 / 30%), inset 0 1px rgb(255 255 255 / 10%);
+  backdrop-filter: blur(24px) saturate(130%);
+}
+.cmux-comparison-titlebar { display: flex; align-items: center; gap: 12px; height: 46px; padding: 0 16px; border-bottom: 1px solid color-mix(in srgb, currentColor 9%, transparent); background: color-mix(in srgb, currentColor 5%, transparent); }
+.cmux-comparison-traffic { display: flex; gap: 7px; }
+.cmux-comparison-traffic i { display: block; width: 11px; height: 11px; border-radius: 50%; box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 25%); }
+.cmux-comparison-traffic-close { background: #ff5f57; }
+.cmux-comparison-traffic-minimize { background: #febc2e; }
+.cmux-comparison-traffic-zoom { background: #28c840; }
+.cmux-comparison-title { flex: 1; color: color-mix(in srgb, currentColor 70%, transparent); font-size: 12px; text-align: center; letter-spacing: .01em; }
+.cmux-comparison-build { color: color-mix(in srgb, var(--comparison-accent) 88%, currentColor); font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
+.cmux-comparison-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 18px; padding: 24px 26px 18px; }
+.cmux-comparison-toolbar h1 { margin: 2px 0 0; font-size: 20px; font-weight: 600; letter-spacing: -.02em; }
+.cmux-comparison-eyebrow { margin: 0; color: color-mix(in srgb, currentColor 52%, transparent); font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
+.cmux-comparison-tabs { display: flex; gap: 3px; padding: 3px; border: 1px solid color-mix(in srgb, currentColor 12%, transparent); border-radius: 11px; background: color-mix(in srgb, currentColor 6%, transparent); }
+.cmux-comparison-tabs button, .cmux-comparison-preview-toggle button { border: 0; border-radius: 8px; padding: 6px 9px; background: transparent; color: color-mix(in srgb, currentColor 55%, transparent); font: inherit; font-size: 11px; cursor: pointer; }
+.cmux-comparison-tabs button:hover, .cmux-comparison-tabs button.is-active, .cmux-comparison-preview-toggle button:hover, .cmux-comparison-preview-toggle button.is-active { background: color-mix(in srgb, currentColor 12%, transparent); color: currentColor; }
+.cmux-comparison-tabs button:focus-visible, .cmux-comparison-preview-toggle button:focus-visible, .cmux-comparison-send:focus-visible { outline: 2px solid var(--comparison-accent); outline-offset: 2px; }
+.cmux-comparison-body { display: grid; grid-template-columns: minmax(214px, 26%) minmax(0, 1fr); min-height: 0; border-top: 1px solid color-mix(in srgb, currentColor 8%, transparent); }
+.cmux-comparison-body > :only-child { grid-column: 1 / -1; }
+.cmux-comparison-sidebar { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid color-mix(in srgb, currentColor 9%, transparent); background: color-mix(in srgb, currentColor 3%, transparent); }
+.cmux-comparison-sidebar-label { flex: none; padding: 14px 16px 6px; color: color-mix(in srgb, currentColor 48%, transparent); font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .06em; text-transform: uppercase; }
+.cmux-comparison-sidebar > .acpmux-sidebar { flex: 1; min-height: 0; }
+.cmux-comparison-preview-toggle { display: flex; gap: 2px; margin: 0 10px 12px; padding: 3px; border: 1px solid color-mix(in srgb, currentColor 10%, transparent); border-radius: 9px; background: color-mix(in srgb, currentColor 4%, transparent); }
+.cmux-comparison-preview-toggle button { flex: 1; padding: 5px 3px; font-size: 10px; text-transform: capitalize; }
+.cmux-comparison-main { display: grid; grid-template-rows: minmax(0, 1fr) auto auto; min-width: 0; min-height: 0; background: linear-gradient(180deg, color-mix(in srgb, currentColor 2%, transparent), transparent); }
+.cmux-comparison-transcript { display: flex; flex-direction: column; justify-content: end; gap: 24px; padding: 30px clamp(22px, 5vw, 70px); }
+.cmux-comparison-message { display: flex; gap: 11px; max-width: 610px; }
+.cmux-comparison-message p { margin: 0; color: color-mix(in srgb, currentColor 82%, transparent); line-height: 1.55; }
+.cmux-comparison-message-user { align-self: end; flex-direction: row-reverse; max-width: 520px; }
+.cmux-comparison-avatar, .cmux-comparison-agent-mark { display: grid; flex: none; place-items: center; width: 24px; height: 24px; border-radius: 8px; background: color-mix(in srgb, currentColor 13%, transparent); color: color-mix(in srgb, currentColor 74%, transparent); font-size: 12px; }
+.cmux-comparison-agent-mark { background: color-mix(in srgb, var(--comparison-accent) 22%, transparent); color: var(--comparison-accent); }
+.cmux-comparison-meta { display: block; margin-top: 7px; color: color-mix(in srgb, currentColor 44%, transparent); font-size: 11px; }
+.cmux-comparison-composer { margin: 0 22px 16px; padding: 13px 14px 11px; border: 1px solid color-mix(in srgb, currentColor 17%, transparent); border-radius: 16px; background: color-mix(in srgb, currentColor 8%, transparent); box-shadow: inset 0 1px rgb(255 255 255 / 5%); }
+.cmux-comparison-composer-copy { min-height: 40px; color: color-mix(in srgb, currentColor 43%, transparent); font-size: 14px; }
+.cmux-comparison-composer-row { display: flex; align-items: center; gap: 8px; }
+.cmux-comparison-compose-icon { color: color-mix(in srgb, currentColor 63%, transparent); font-size: 18px; }
+.cmux-comparison-compose-hint { color: color-mix(in srgb, currentColor 45%, transparent); font-size: 11px; }
+.cmux-comparison-composer-spacer { flex: 1; }
+.cmux-comparison-composer .acpmux-picker-button { min-height: 29px; border: 0; border-radius: 9px; background: color-mix(in srgb, currentColor 10%, transparent); color: color-mix(in srgb, currentColor 78%, transparent); }
+.cmux-comparison-send { display: grid; place-items: center; width: 29px; height: 29px; padding: 0; border: 0; border-radius: 50%; background: var(--comparison-accent); color: #fff; font-size: 18px; cursor: pointer; }
+.cmux-comparison-slider-toggle { display: flex; align-items: center; gap: 8px; padding: 0 24px 17px; color: color-mix(in srgb, currentColor 44%, transparent); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+.cmux-comparison-slider-toggle span:not(:first-child) { padding: 3px 7px; border-radius: 6px; background: color-mix(in srgb, currentColor 7%, transparent); text-transform: capitalize; letter-spacing: 0; }
+.cmux-comparison-slider-toggle span.is-active { color: var(--comparison-accent); background: color-mix(in srgb, var(--comparison-accent) 14%, transparent); }
+@media (max-width: 720px) { .cmux-comparison-board { padding: 12px; } .cmux-comparison-toolbar { align-items: start; flex-direction: column; } .cmux-comparison-body { grid-template-columns: 1fr; } .cmux-comparison-sidebar { min-height: 270px; border-right: 0; border-bottom: 1px solid color-mix(in srgb, currentColor 9%, transparent); } .cmux-comparison-window { min-height: 760px; } }
+@media (prefers-reduced-motion: reduce) { .cmux-comparison-tabs button, .cmux-comparison-preview-toggle button { transition: none; } }
