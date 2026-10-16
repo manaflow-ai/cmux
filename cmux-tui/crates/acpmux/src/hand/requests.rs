@@ -86,7 +86,7 @@ where
                 })?],
                 None,
             ),
-            "agent.send" | "agent.cancel" | "agent.events" | "agent.deny" => {
+            "agent.send" | "agent.cancel" | "agent.events" | "agent.deny" | "agent.stop" => {
                 (vec![ctx.agents.cwd_of(s(p, "session")?)?], None)
             }
             other => {
@@ -188,6 +188,7 @@ where
             Ok(json!({ "session": session, "prompt_id": id }))
         }
         "agent.cancel" => ctx.agents.cancel(s(p, "session")?).await,
+        "agent.stop" => ctx.agents.stop(s(p, "session")?, &ctx.sink).await,
         "agent.deny" => ctx.agents.deny(s(p, "session")?, s(p, "permission_id")?).await,
         "agent.events" => {
             ctx.agents
