@@ -183,12 +183,15 @@ public actor CloudSecretVault {
         guard !forgottenMachineIDs.contains(machineID) else { return }
         var document = try loadDocument()
         var entry = Self.ledgerEntry(machineID, in: document) ?? CloudSecretDelivery(machineID: machineID)
-        if plan.toSend.isEmpty {
-            let removed = Set(plan.toRemove)
-            entry.delivered = entry.delivered.filter { !removed.contains($0.key) }
-        } else {
-            let sent = Set(plan.sendNames)
-            entry.delivered = plan.fingerprints.filter { sent.contains($0.key) }
+        let removed = Set(plan.toRemove)
+        entry.delivered = entry.delivered.filter { !removed.contains($0.key) }
+        // A provider guard may hold back part of a full plan while the other
+        // entries are delivered. Merge the successful names into the existing
+        // ledger so a held-back key remains tracked for a later retry or revoke.
+        for name in plan.sendNames {
+            if let fingerprint = plan.fingerprints[name] {
+                entry.delivered[name] = fingerprint
+            }
         }
         entry.deliveredAt = at
         entry.lastError = nil

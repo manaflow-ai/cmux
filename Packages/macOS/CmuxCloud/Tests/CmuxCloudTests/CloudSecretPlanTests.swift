@@ -145,6 +145,32 @@ import Testing
     }
 
     @Test
+    func partialDeliveryKeepsHeldBackNamesInTheLedger() async throws {
+        let vault = makeVault()
+        try await vault.set([input("OPENAI_API_KEY", "old"), input("ANTHROPIC_API_KEY", "same")], scope: .all, source: .manual)
+        let first = try await vault.plan(machineID: "m1")
+        try await vault.recordDelivered(machineID: "m1", plan: first, at: Date(timeIntervalSince1970: 2_000))
+
+        try await vault.set([input("OPENAI_API_KEY", "rotated")], scope: .all, source: .manual)
+        let full = try await vault.plan(machineID: "m1")
+        let partial = CloudSecretPlan(
+            machineID: full.machineID,
+            toSend: full.toSend.filter { $0.key == "ANTHROPIC_API_KEY" },
+            toRemove: full.toRemove,
+            effective: full.effective,
+            fingerprints: full.fingerprints
+        )
+        try await vault.recordDelivered(machineID: "m1", plan: partial, at: Date(timeIntervalSince1970: 3_000))
+
+        let delivery = try #require(try await vault.delivery(for: "m1"))
+        #expect(Set(delivery.delivered.keys) == ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"])
+        #expect(try await vault.plan(machineID: "m1").sendNames == ["OPENAI_API_KEY"])
+
+        try await vault.remove(names: ["OPENAI_API_KEY"], scope: .all)
+        #expect(try await vault.plan(machineID: "m1").toRemove == ["OPENAI_API_KEY"])
+    }
+
+    @Test
     func failureIsRecordedAndClearedBySuccess() async throws {
         let vault = makeVault()
         try await vault.set([input("A", "1")], scope: .all, source: .manual)
