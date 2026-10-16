@@ -67,6 +67,9 @@ trap detach EXIT
 "$HDIUTIL_TOOL" attach "$DMG" -nobrowse -readonly -mountpoint "$MOUNT_DIR"
 APP="$(find "$MOUNT_DIR" -maxdepth 1 -name '*.app' -type d -print -quit)"
 [ -n "$APP" ] || { echo "No app found in $DMG" >&2; exit 1; }
+# The app carries its own ticket: a copy taken out of the DMG (Sparkle installs
+# one) needs no online ticket lookup (notarize-nightly-dmg.sh, CMUX_STAPLE_APP_IN_DMG).
+"$XCRUN_TOOL" stapler validate "$APP"
 "$SPCTL_TOOL" -a -vv --type execute "$APP"
 SMOKE_LOG="$(mktemp)"
 # The app must not inherit the fd that carries the tested line.

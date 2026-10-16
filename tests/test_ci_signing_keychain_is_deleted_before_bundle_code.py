@@ -168,7 +168,9 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
     if "secrets.APPLE_CERTIFICATE_BASE64" in text and name not in {
         f"{workflow} {job_name}" for workflow, job_name in INLINE_DEVELOPER_ID_KEYCHAINS
     }:
-        if "signing-keychain.sh create" not in text:
+        # notarize-nightly-dmg.sh creates its stapled-app DMG keychain through
+        # scripts/ci/signing-keychain.sh create itself.
+        if "signing-keychain.sh create" not in text and "scripts/ci/notarize-nightly-dmg.sh" not in text:
             failures.append(f"{name}: imports the Developer ID certificate without scripts/ci/signing-keychain.sh create")
         if "security import" in text:
             failures.append(f"{name}: imports a certificate inline; use scripts/ci/signing-keychain.sh create")
@@ -217,6 +219,21 @@ def check_scripts(failures: list[str]) -> None:
             "scripts/ci/notarize-nightly-dmg.sh: delete the signing keychain after the last codesign "
             f"and before the first smoke (sign={last_sign} delete={delete} smoke={first_smoke})"
         )
+    # The DMG around the stapled app (CMUX_STAPLE_APP_IN_DMG) is signed with a
+    # keychain the script creates after Apple's wait; it is deleted again
+    # before the second submission and before any smoke.
+    create = index_of(dmg, '"$SIGNING_KEYCHAIN_TOOL" create')
+    if create >= 0:
+        later_delete = next(
+            (number for number, line in enumerate(dmg)
+             if number > create and '"$SIGNING_KEYCHAIN_TOOL" delete' in line and not line.lstrip().startswith("#")),
+            -1,
+        )
+        if not (create < later_delete < first_smoke):
+            failures.append(
+                "scripts/ci/notarize-nightly-dmg.sh: delete the keychain it creates for the stapled-app DMG "
+                f"before the first smoke (create={create} delete={later_delete} smoke={first_smoke})"
+            )
 
     resume = read_lines("scripts/ci/resume-helper-notarization.sh", failures)
     delete = index_of(resume, '"$SIGNING_KEYCHAIN_TOOL" delete')

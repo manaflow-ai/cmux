@@ -34,6 +34,20 @@ NOTARIZE_COMPUTER_USE_HELPER_TOOL="${CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL:-$RO
 SIGNING_KEYCHAIN_TOOL="${CMUX_SIGNING_KEYCHAIN_TOOL:-$ROOT_DIR/scripts/ci/signing-keychain.sh}"
 COMPUTER_USE_NOTARY_SUBMISSION_FILE="${CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE:-}"
 SKIP_NOTARIZATION="${CMUX_SKIP_NOTARIZATION:-false}"
+# CMUX_STAPLE_APP_IN_DMG=true (default): the app inside the shipped DMG carries
+# its own stapled ticket, so a copy taken out of the DMG (Sparkle installs one)
+# passes Gatekeeper without an online ticket lookup. Apple keys every ticket by
+# code-directory hash (stapler looks up the record "2/2/<cdhash>"). The first
+# DMG submission's ticket covers the app's hash, so the app is stapled from it.
+# A DMG rebuilt around the stapled app is new data with a new hash that no
+# ticket covers yet, so that DMG is signed and submitted once more, and it
+# replaces the first DMG only after Apple accepts it and it is stapled.
+# false keeps one DMG submission (notary tests that publish nothing).
+STAPLE_APP_IN_DMG="${CMUX_STAPLE_APP_IN_DMG:-true}"
+case "$STAPLE_APP_IN_DMG" in
+  true|false) ;;
+  *) echo "CMUX_STAPLE_APP_IN_DMG must be true or false, got: $STAPLE_APP_IN_DMG" >&2; exit 2 ;;
+esac
 # Release channel of the app being packaged: `nightly` (default), `next`
 # (nightly-next's cmux NEXT), `rc`, or `stable`. It selects the entitlements
 # file and the bundle-metadata check; the packaging, notarization, and stapling
@@ -76,6 +90,14 @@ if [ -z "$CONTINUE_STATE" ] && [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
   echo "Missing APPLE_SIGNING_IDENTITY" >&2
   exit 1
 fi
+# The DMG around the stapled app is signed after Apple's wait, also in a
+# continuation, so its signing inputs must be present before any submission.
+if [ "$SKIP_NOTARIZATION" != true ] && [ "$STAPLE_APP_IN_DMG" = true ] \
+  && [ "${CMUX_NOTARY_SUBMIT_ONLY:-false}" != true ] \
+  && { [ -z "${APPLE_SIGNING_IDENTITY:-}" ] || [ -z "${APPLE_CERTIFICATE_BASE64:-}" ] || [ -z "${APPLE_CERTIFICATE_PASSWORD:-}" ]; }; then
+  echo "Missing APPLE_SIGNING_IDENTITY, APPLE_CERTIFICATE_BASE64 or APPLE_CERTIFICATE_PASSWORD: the DMG around the stapled app is signed again (CMUX_STAPLE_APP_IN_DMG=false ships the app unstapled)" >&2
+  exit 1
+fi
 CONTINUE_SUBMISSION_ID=""
 if [ -n "$CONTINUE_STATE" ]; then
   state_value() {
@@ -101,9 +123,13 @@ detach_mounted_dmg() {
   rmdir "$MOUNT_DIR"
   MOUNT_DIR=""
 }
+RESTAPLE_KEYCHAIN_OPEN=false
 cleanup() {
   if [ -n "$MOUNT_DIR" ]; then
     detach_mounted_dmg || true
+  fi
+  if [ "$RESTAPLE_KEYCHAIN_OPEN" = true ]; then
+    "${SIGNING_KEYCHAIN_TOOL}" delete || true
   fi
   rm -rf "$DMG_TMP_DIR"
 }
@@ -150,20 +176,22 @@ elif [ "$helper_exit" -ne 0 ]; then
   exit "$helper_exit"
 fi
 
-if [ -z "$CONTINUE_STATE" ]; then
-  "$CREATE_DMG_TOOL" --no-code-sign "$APP_PATH" "$DMG_TMP_DIR"
-  CREATED_DMG="$(find "$DMG_TMP_DIR" -maxdepth 1 -name '*.dmg' -print -quit)"
-  if [ -z "$CREATED_DMG" ]; then
-    echo "Failed to locate created DMG for $APP_PATH" >&2
+# package_signed_dmg <app> <out-dmg> <empty work dir>: create-dmg, LZMA, sign.
+package_signed_dmg() {
+  local app="$1" out="$2" work="$3" created format
+  "$CREATE_DMG_TOOL" --no-code-sign "$app" "$work"
+  created="$(find "$work" -maxdepth 1 -name '*.dmg' -print -quit)"
+  if [ -z "$created" ]; then
+    echo "Failed to locate created DMG for $app" >&2
     exit 1
   fi
   # create-dmg emits an LZFSE (ULFO) image. Re-encode to LZMA (ULMO): same bundle,
   # about a quarter smaller download, and every supported macOS (14+) mounts it.
-  "$HDIUTIL_TOOL" convert "$CREATED_DMG" -quiet -format ULMO -ov -o "$DMG_RELEASE"
-  rm -f "$CREATED_DMG"
-  DMG_FORMAT="$("$HDIUTIL_TOOL" imageinfo "$DMG_RELEASE" | awk -F': *' '/^Format:/ {print $2; exit}')"
-  if [ "$DMG_FORMAT" != "ULMO" ]; then
-    echo "Expected ULMO (LZMA) DMG after conversion, got: ${DMG_FORMAT:-unknown}" >&2
+  "$HDIUTIL_TOOL" convert "$created" -quiet -format ULMO -ov -o "$out"
+  rm -f "$created"
+  format="$("$HDIUTIL_TOOL" imageinfo "$out" | awk -F': *' '/^Format:/ {print $2; exit}')"
+  if [ "$format" != "ULMO" ]; then
+    echo "Expected ULMO (LZMA) DMG after conversion, got: ${format:-unknown}" >&2
     exit 1
   fi
 
@@ -171,8 +199,12 @@ if [ -z "$CONTINUE_STATE" ]; then
   "$SIGNING_KEYCHAIN_TOOL" unlock
   "$CODESIGN_TOOL" --force --timestamp --keychain build.keychain \
     --sign "$APPLE_SIGNING_IDENTITY" \
-    "$DMG_RELEASE"
-  "$CODESIGN_TOOL" --verify --verbose=2 "$DMG_RELEASE"
+    "$out"
+  "$CODESIGN_TOOL" --verify --verbose=2 "$out"
+}
+
+if [ -z "$CONTINUE_STATE" ]; then
+  package_signed_dmg "$APP_PATH" "$DMG_RELEASE" "$DMG_TMP_DIR"
 fi
 # This is the last signature. Delete the CI signing keychain before Apple's
 # wait and before the launch smokes below run code from the bundle. A
@@ -194,6 +226,8 @@ SUBMIT_ONLY="${CMUX_NOTARY_SUBMIT_ONLY:-false}"
 # Published nightly-next waits up to NOTARY_WAIT_TIMEOUT, then hands a submission
 # still in Apple's queue to the next run (submission_pending) instead of failing.
 PENDING_ON_TIMEOUT="${CMUX_NOTARY_PENDING_ON_TIMEOUT:-false}"
+# The wait for the DMG around the stapled app (CMUX_STAPLE_APP_IN_DMG).
+STAPLED_DMG_WAIT_TIMEOUT="${CMUX_STAPLED_DMG_WAIT_TIMEOUT:-$NOTARY_WAIT_TIMEOUT}"
 NOTARY_WAIT_TIMED_OUT=false
 NOTARY_SUBMISSION_FILE="${CMUX_NOTARY_SUBMISSION_FILE:-${DMG_RELEASE}.notarization.state}"
 NOTARY_OUTPUT_FILE="${CMUX_NOTARY_OUTPUT_FILE:-${DMG_RELEASE}.notarization.log}"
@@ -382,14 +416,70 @@ fi
 "$XCRUN_TOOL" stapler staple "$APP_PATH"
 "$XCRUN_TOOL" stapler validate "$APP_PATH"
 "$SPCTL_TOOL" -a -vv --type execute "$APP_PATH"
+
+# The DMG that ships carries the stapled app (CMUX_STAPLE_APP_IN_DMG, above).
+FINAL_DMG="$DMG_RELEASE"
+WROTE_ACCEPTED_STATE=false
+if [ "$STAPLE_APP_IN_DMG" = true ]; then
+  if [ -z "$CONTINUE_STATE" ]; then
+    # Record the accepted first submission: when the second one fails or is
+    # still in Apple's queue, a later run continues this one (the first DMG
+    # stays at $DMG_RELEASE) and builds and submits the stapled-app DMG again.
+    write_notary_state
+    WROTE_ACCEPTED_STATE=true
+  fi
+  restaple_handoff() {
+    if [ "$WROTE_ACCEPTED_STATE" = true ]; then
+      save_notary_output
+    fi
+  }
+  restaple_dir="$DMG_TMP_DIR/stapled-app"
+  mkdir -p "$restaple_dir/work"
+  FINAL_DMG="$restaple_dir/$(basename "$DMG_RELEASE")"
+  RESTAPLE_KEYCHAIN_OPEN=true
+  "$SIGNING_KEYCHAIN_TOOL" create
+  # No later child process needs the certificate.
+  unset APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD
+  package_signed_dmg "$APP_PATH" "$FINAL_DMG" "$restaple_dir/work"
+  "$SIGNING_KEYCHAIN_TOOL" delete
+  RESTAPLE_KEYCHAIN_OPEN=false
+  restaple_output="$NOTARY_DIR/stapled-app-dmg-submit-output"
+  set +e
+  "$XCRUN_TOOL" notarytool submit "$FINAL_DMG" "${NOTARY_AUTH_ARGS[@]}" \
+    --output-format json --wait --timeout "$STAPLED_DMG_WAIT_TIMEOUT" >"$restaple_output" 2>&1
+  restaple_exit=$?
+  set -e
+  restaple_id="$(extract_notary_value "$restaple_output" id || true)"
+  restaple_status="$(extract_notary_value "$restaple_output" status || true)"
+  if [ "$restaple_exit" -ne 0 ] || [ "$restaple_status" != "Accepted" ]; then
+    cat "$restaple_output" >&2
+    if [ -n "$restaple_id" ]; then
+      "$XCRUN_TOOL" notarytool log "$restaple_id" "${NOTARY_AUTH_ARGS[@]}" >&2 || true
+    fi
+    if [ "$restaple_exit" -ne 0 ] && [ "$PENDING_ON_TIMEOUT" = true ] \
+      && { [ "$WROTE_ACCEPTED_STATE" = true ] || [ -n "$CONTINUE_STATE" ]; } \
+      && grep -Eiq 'timeout|timed out' "$restaple_output"; then
+      restaple_handoff
+      echo "The DMG around the stapled app (submission ${restaple_id:-unknown}) did not finish within $STAPLED_DMG_WAIT_TIMEOUT; a later run continues accepted submission $DMG_SUBMIT_ID and submits that DMG again" >&2
+      if [ -n "${GITHUB_OUTPUT:-}" ]; then
+        echo "submission_pending=true" >> "$GITHUB_OUTPUT"
+      fi
+      exit 0
+    fi
+    restaple_handoff
+    echo "Notarization of the DMG around the stapled app failed (submission ${restaple_id:-none}, status ${restaple_status:-unknown}, exit $restaple_exit); the first DMG (submission $DMG_SUBMIT_ID) stays unpublished" >&2
+    exit 1
+  fi
+  echo "Apple accepted the DMG around the stapled app (submission $restaple_id)"
+fi
 # Apple is done with this artifact; the app below must not find the key.
 notary_auth_forget "$NOTARY_DIR"
 launch_smokes "$APP_PATH"
 "$VERIFY_METADATA_TOOL" "$APP_PATH" "$CHANNEL"
 "$VERIFY_LICENSES_TOOL" "$APP_PATH"
 
-"$XCRUN_TOOL" stapler staple "$DMG_RELEASE"
-"$XCRUN_TOOL" stapler validate "$DMG_RELEASE"
+"$XCRUN_TOOL" stapler staple "$FINAL_DMG"
+"$XCRUN_TOOL" stapler validate "$FINAL_DMG"
 
 # Validate the delivered app inside the final stapled DMG, not only the source
 # bundle that create-dmg consumed.
@@ -399,11 +489,15 @@ if [ -n "${CMUX_NIGHTLY_MOUNT_DIR:-}" ]; then
 else
   MOUNT_DIR="$(mktemp -d)"
 fi
-"$HDIUTIL_TOOL" attach "$DMG_RELEASE" -nobrowse -readonly -mountpoint "$MOUNT_DIR"
+"$HDIUTIL_TOOL" attach "$FINAL_DMG" -nobrowse -readonly -mountpoint "$MOUNT_DIR"
 MOUNTED_APP="$(find "$MOUNT_DIR" -maxdepth 1 -name '*.app' -type d -print -quit)"
 if [ -z "$MOUNTED_APP" ]; then
   echo "No app found in mounted $CHANNEL DMG" >&2
   exit 1
+fi
+if [ "$STAPLE_APP_IN_DMG" = true ]; then
+  # The shipped app has its own ticket, not only the DMG's.
+  "$XCRUN_TOOL" stapler validate "$MOUNTED_APP"
 fi
 "$SPCTL_TOOL" -a -vv --type execute "$MOUNTED_APP"
 launch_smokes "$MOUNTED_APP"
@@ -411,4 +505,11 @@ launch_smokes "$MOUNTED_APP"
 "$VERIFY_LICENSES_TOOL" "$MOUNTED_APP"
 detach_mounted_dmg
 
+if [ "$FINAL_DMG" != "$DMG_RELEASE" ]; then
+  /bin/mv -f "$FINAL_DMG" "$DMG_RELEASE"
+fi
+if [ "$WROTE_ACCEPTED_STATE" = true ]; then
+  # Nothing is pending: drop the handoff record of the first submission.
+  rm -f "$NOTARY_SUBMISSION_FILE"
+fi
 cp "$DMG_RELEASE" "$DMG_IMMUTABLE"
