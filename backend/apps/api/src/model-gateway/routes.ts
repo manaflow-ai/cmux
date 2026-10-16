@@ -117,10 +117,14 @@ export const compactorModel = (_env: Env, set: string, fallback: string): string
 /**
  * The model a turn runs on: `model` when it is not paid or `allowed(model)` (owner allow-list, the
  * route serves it, the deployment's daily cap; claude-auth.ts holderTurn); else the configured
- * fallback, which passes the same gate when it is paid. Null = no model may run (no silent paid spend).
+ * fallback, which passes the same gate when it is paid. `model` null = no model may run (no silent
+ * paid spend). `reason` says why the Chief's model was refused (shown on the run as a note step).
  */
-export const pickTurnModel = async (model: string, fallback: string | undefined, allowed: (m: string) => Promise<boolean>): Promise<string | null> => {
-  if (!isMetered(model) || (await allowed(model))) return model
-  if (!fallback) return null
-  return !isMetered(fallback) || (await allowed(fallback)) ? fallback : null
+export const pickTurnModel = async (model: string, fallback: string | undefined, allowed: (m: string) => Promise<string>): Promise<{ readonly model: string | null; readonly reason?: string }> => {
+  const verdict = isMetered(model) ? await allowed(model) : "ok"
+  if (verdict === "ok") return { model }
+  const reason = `${model}: ${verdict}`
+  if (!fallback) return { model: null, reason }
+  const second = isMetered(fallback) ? await allowed(fallback) : "ok"
+  return second === "ok" ? { model: fallback, reason } : { model: null, reason: `${reason}; ${fallback}: ${second}` }
 }

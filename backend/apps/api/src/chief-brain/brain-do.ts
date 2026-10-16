@@ -149,7 +149,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     return this.authing
   }
   /** Holder only: one Claude turn of `owner` (allow-list, daily cap for the whole deployment). */
-  async claudeTurn(owner: string, model?: string): Promise<boolean> { return holderTurn(this.env, this.sql, owner, model) }
+  async claudeTurn(owner: string, model?: string): Promise<string> { return holderTurn(this.env, this.sql, owner, model) }
   /** Holder only: the route answered 401, so the stored access token goes. */
   async claudeInvalidate(): Promise<void> { holderInvalidate(this.sql) }
   private holder = () => this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(HOLDER))
@@ -391,9 +391,9 @@ export class ChiefBrainDO extends DurableObject<Env> {
         const blocks = JSON.parse(row.input ?? "[]") as Array<string>
         // A paid model: an allowed owner, the route serves it, under the deployment's cap, with the route's sign-in; else the fallback, which passes the same gate when it is paid; else no turn.
         const owner = this.config().owner ?? ""
-        const picked = await pickTurnModel(row.model, this.env.CHIEF_BRAIN_FALLBACK_MODEL, (m) => this.holder().claudeTurn(owner, m).then((ok) => ok && (!isClaude(m) || this.holder().claudeAuth().then(() => true))).catch(() => false))
-        if (picked === null) throw (console.warn(AUTH_FAILED), new Error(AUTH_FAILED))
-        if (picked !== row.model) [console.warn(AUTH_FAILED), (row.model = picked), this.sql.exec(`UPDATE cb_turn SET model = ? WHERE id = ?`, row.model, id)]
+        const picked = await pickTurnModel(row.model, this.env.CHIEF_BRAIN_FALLBACK_MODEL, (m) => this.holder().claudeTurn(owner, m).then((v) => (v !== "ok" || !isClaude(m) ? v : this.holder().claudeAuth().then(() => "ok", () => "auth_failed"))).catch(() => "holder_unreachable"))
+        if (picked.reason) console.warn(picked.reason.includes("auth_failed") ? AUTH_FAILED : JSON.stringify({ msg: "chief_brain.paid_model_refused", reason: picked.reason }))
+        if (picked.model === null || picked.model !== row.model) [this.announce(id, [upsertStep(this.sql, id, { id: "note:model", kind: "note", text: picked.model === null ? `No model ran: ${picked.reason}` : `${picked.reason}; this turn runs on ${picked.model}` }, Date.now())]), picked.model === null ? (() => { throw new Error(`paid model refused (${picked.reason})`) })() : [(row.model = picked.model), this.sql.exec(`UPDATE cb_turn SET model = ? WHERE id = ?`, row.model, id)]]
         const model = this.models.model(row.model)
         const root = await (await this.harness.pi()).root(BACKGROUND_CONTEXT)
         await root.configure({ model: { provider: model.provider, modelId: model.id }, thinkingLevel: this.models.thinking(row.model) }, BACKGROUND_CONTEXT)
@@ -430,7 +430,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   private async postAndSchedule(id: string): Promise<void> {
-    const next = await this.post(id)
+    const next = await liveOf(this.ctx).after(async () => undefined).then(() => this.post(id)) // the final delta and the run end reach members before the reply
     if (next !== null) await this.schedule(`post:${id}`, "post", next)
   }
 

@@ -68,13 +68,15 @@ const row = (sql: SqlStorage, k: string) => sql.exec<{ value: string }>(`SELECT 
 const put = (sql: SqlStorage, k: string, v: string) => sql.exec(`INSERT INTO cb_config (name, value) VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET value = excluded.value`, k, v)
 
 /** The holder counts one metered turn (a Claude or OpenRouter model) of `owner`: allow-list, the model offered here, the deployment's daily cap. */
-export const holderTurn = (env: Env, sql: SqlStorage, owner: string, model: string = OPUS, now = Date.now()): boolean => {
-  if (!meteredOwner(env, owner) || !offers(env, model)) return false
+export type TurnVerdict = "ok" | "owner_not_allowed" | "model_not_offered" | "daily_cap"
+export const holderTurn = (env: Env, sql: SqlStorage, owner: string, model: string = OPUS, now = Date.now()): TurnVerdict => {
+  if (!meteredOwner(env, owner)) return "owner_not_allowed"
+  if (!offers(env, model)) return "model_not_offered"
   const key = `claude.turns:${new Date(now).toISOString().slice(0, 10)}`
   const used = Number(row(sql, key) ?? 0)
-  if (used >= (Number(env.CHIEF_BRAIN_CLAUDE_DAILY_TURNS) || DEFAULT_DAILY_CLAUDE_TURNS)) return false
+  if (used >= (Number(env.CHIEF_BRAIN_CLAUDE_DAILY_TURNS) || DEFAULT_DAILY_CLAUDE_TURNS)) return "daily_cap"
   put(sql, key, String(used + 1))
-  return true
+  return "ok"
 }
 
 /** The route refused the stored access token: drop it, so the next request refreshes. */

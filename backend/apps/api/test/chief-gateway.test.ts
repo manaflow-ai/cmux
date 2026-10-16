@@ -176,6 +176,7 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
       const run = (await runsOf(token, chief.id, chief.main_conversation))[0]
       expect(run.status).toBe("failed")
       expect(run.model).toBe("claude-opus-5-5")
+      expect(run.error).toContain("daily_cap")
       expect(seen).toHaveLength(0)
       expect((await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)).toHaveLength(0)
     } finally {
