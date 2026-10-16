@@ -48,7 +48,7 @@ jobs:
     # keepalive releases the runner after an idle timeout clamped to 15
     # minutes, so this is only a hard ceiling for one continuously active
     # session (observed sessions run 10-60 minutes).
-    timeout-minutes: 90
+    timeout-minutes: 240
     steps:
       # Every check here is main-controlled. `blacksmith testbox warmup`
       # resolves both this file and the hydrated source from the same --ref, so
@@ -147,7 +147,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git submodule update --init --depth 1 ghostty
+          bash scripts/ci/init-submodule.sh ghostty
           [[ "$(git -C ghostty rev-parse --show-toplevel)" == "$GITHUB_WORKSPACE/ghostty" ]] || {
             echo "::error::ghostty did not initialize as its own submodule checkout" >&2
             exit 1
@@ -177,14 +177,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang libclang-dev pkg-config
 
-      - name: Cache Zig package downloads
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/.cache/zig
-          key: cmux-tui-zig-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
-          restore-keys: |
-            cmux-tui-zig-
-
+      # No Zig or Cargo download cache: the hq Blacksmith pilot (2026-10-12)
+      # measured no gain. A cold target built in 102.8 s with the Zig cache
+      # and 87.1 s without it, and `cargo fetch --locked` into an empty
+      # CARGO_HOME takes 2.2 s.
       - name: Install repository-pinned Zig
         shell: bash
         run: ./scripts/install-zig-ci.sh
@@ -197,18 +193,78 @@ jobs:
           # `--fetch` hydrates the package cache and exits before a build.
           "$CMUX_ZIG" build --fetch
 
-      - name: Cache Cargo registry and git dependencies
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: cmux-tui-cargo-${{ runner.os }}-${{ hashFiles('cmux-tui/Cargo.lock', 'cmux-tui/rust-toolchain.toml') }}
-          restore-keys: |
-            cmux-tui-cargo-${{ runner.os }}-
-
       - name: Set up repository-pinned cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # Rust gates on the box run `cargo nextest run`: one process per test,
+      # and the cmux-tui workspace suite ran in 72 s against 137 s under
+      # `cargo test` on a warm box (2026-10-09). Pinned release binary,
+      # checked against the release's published SHA-256 before it is used.
+      - name: Install pinned cargo-nextest
+        env:
+          NEXTEST_VERSION: 0.9.148
+          NEXTEST_SHA256: 223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/cargo-nextest.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 120 \
+            --output "$archive" \
+            "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${NEXTEST_VERSION}/cargo-nextest-${NEXTEST_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${NEXTEST_SHA256}  ${archive}" | sha256sum --check --strict -
+          bin_dir="${CARGO_HOME:-$HOME/.cargo}/bin"
+          mkdir -p "$bin_dir"
+          tar -xzf "$archive" -C "$bin_dir" cargo-nextest
+          rm -f "$archive"
+          [[ "$(cargo nextest --version | head -n 1)" == "cargo-nextest ${NEXTEST_VERSION} "* ]] || {
+            echo "::error::cargo-nextest ${NEXTEST_VERSION} is not the active cargo nextest" >&2
+            exit 1
+          }
+
+      # Warm Cargo target dirs, one sticky disk per branch family (main and
+      # feat-cmux-next): one shared key made boxes of each family rebuild the
+      # other's output (76 crates, the cost of a cold build), measured in the
+      # hq Blacksmith pilot on 2026-10-12. v2 is also a fresh disk: no
+      # Testbox commit to cmux-tui-target-v1 after 2026-10-13T03:37Z was
+      # visible to a later box.
+      #
+      # The family is known only after hq's scripts/testbox-run.sh syncs the
+      # candidate: it links cmux-tui/target to /home/runner/cmux-tui-target/<family>
+      # and runs the copied source-mtimes helper's `restore` on that disk
+      # (source mtimes, and drop of output built for another CPU). Both disks
+      # commit only on change, so the family a box never used is not
+      # committed and cannot overwrite a newer snapshot (last write wins).
+      # The keepalive prunes and records only the linked disk. A disk is
+      # committed by the post step only when no step failed or was cancelled,
+      # and `blacksmith testbox stop` destroys the VM before post steps run,
+      # so a commit happens only when the keepalive ends cleanly.
+      #
+      # Trust: the snapshots hold build output of whatever candidate code ran
+      # on an earlier box. Only this Testbox job mounts the keys; no CI,
+      # release, or nightly workflow may (tests/test_ci_testbox_broker_guard.py
+      # enforces that), so nothing that ships reads them.
+      - name: Mount warm cmux-tui target dir (main family)
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: cmux-tui-target-v2-main
+          path: /home/runner/cmux-tui-target/main
+          commit: on-change
+
+      - name: Mount warm cmux-tui target dir (feat-cmux-next family)
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: cmux-tui-target-v2-next
+          path: /home/runner/cmux-tui-target/next
+          commit: on-change
+
+      # The main-controlled copy of the source-mtimes helper that
+      # testbox-run.sh runs when it links a family disk (the synced candidate
+      # may lack or change scripts/).
+      - name: Install the warm target helper
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -m 0644 scripts/blacksmith-testbox-source-mtimes.py /home/runner/cmux-tui-target/source-mtimes.py
 
       - name: Fetch Cargo dependencies without compiling
         working-directory: cmux-tui

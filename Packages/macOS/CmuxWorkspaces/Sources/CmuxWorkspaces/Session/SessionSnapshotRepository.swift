@@ -315,6 +315,71 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         }
     }
 
+    /// Copies an unusable snapshot at `fileURL` (unreadable, undecodable, or
+    /// without windows, but not from a newer schema, which
+    /// ``preserveNewerSchemaSnapshot(fileURL:)`` keeps) to an
+    /// `.unusable.json` side file, so the next save does not destroy data a
+    /// fixed or newer build could still recover.
+    @discardableResult
+    public func preserveUnusableSnapshot(fileURL: URL) -> URL? {
+        guard case .unusable = loadOutcome(fileURL: fileURL),
+              let data = try? Data(contentsOf: fileURL),
+              !data.isEmpty else {
+            return nil
+        }
+        if let version = probedSchemaVersion(of: data), version > schemaVersion {
+            return nil
+        }
+        let sideURL = SessionSnapshotFileLocation.unusableSideFileURL(for: fileURL)
+        let existingCopies = unusableSideFileURLs(for: fileURL)
+        if let match = existingCopies.first(where: { (try? Data(contentsOf: $0)) == data }) {
+            return match
+        }
+        // Never replace an earlier unusable copy. The first one stays; later
+        // ones are capped so a build that keeps writing snapshots it cannot
+        // read does not fill the disk.
+        guard existingCopies.contains(sideURL) else {
+            return writeUnusableSideFile(data, to: sideURL)
+        }
+        let millis = Int64((Date().timeIntervalSince1970 * 1000).rounded())
+        let written = writeUnusableSideFile(
+            data,
+            to: SessionSnapshotFileLocation.unusableSideFileURL(for: fileURL, millis: millis)
+        )
+        let timestamped = (unusableSideFileURLs(for: fileURL).filter { $0 != sideURL })
+            .sorted { $0.lastPathComponent > $1.lastPathComponent }
+        for stale in timestamped.dropFirst(Self.maximumTimestampedUnusableCopies) {
+            try? fileManager.removeItem(at: stale)
+        }
+        return written
+    }
+
+    /// Timestamped `.unusable-<ms>.json` copies kept per snapshot file, on
+    /// top of the first `.unusable.json` copy.
+    static var maximumTimestampedUnusableCopies: Int { 2 }
+
+    private func unusableSideFileURLs(for fileURL: URL) -> [URL] {
+        let directory = fileURL.deletingLastPathComponent()
+        let prefix = fileURL.deletingPathExtension().lastPathComponent + ".unusable"
+        guard let names = try? fileManager.contentsOfDirectory(atPath: directory.path) else { return [] }
+        return names
+            .filter { $0.hasPrefix(prefix) && $0.hasSuffix(".json") }
+            .map { directory.appendingPathComponent($0, isDirectory: false) }
+    }
+
+    private func writeUnusableSideFile(_ data: Data, to sideURL: URL) -> URL? {
+        do {
+            try data.write(to: sideURL, options: .withoutOverwriting)
+            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: sideURL.path)
+        } catch {
+            return nil
+        }
+#if DEBUG
+        CMUXDebugLog.logDebugEvent("session.snapshot.unusablePreserved path=\(sideURL.path)")
+#endif
+        return sideURL
+    }
+
     public func load(fileURL: URL? = nil) -> SnapshotValue? {
         guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return nil }
         guard case .loaded(let snapshot) = loadOutcome(fileURL: fileURL) else { return nil }
@@ -388,6 +453,8 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
             // the next autosave replaces it.
             preserveNewerSchemaSnapshot(fileURL: primaryURL)
             preserveNewerSchemaSnapshot(fileURL: backupURL)
+            preserveUnusableSnapshot(fileURL: primaryURL)
+            preserveUnusableSnapshot(fileURL: backupURL)
         }
     }
 
@@ -399,14 +466,18 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         case .missing:
             return nil
         case .unusable:
+            // The primary exists but cannot be restored: never start empty
+            // while the backup or an archived launch can still be restored.
             let backup = loadReopenSessionSnapshot(fileURL: nil)
+            let recovered = backup ?? newestRestorableHistorySnapshot()
 #if DEBUG
             CMUXDebugLog.logDebugEvent(
                 "session.restore.primaryUnusable path=\(primaryURL.path) " +
-                    "backupRecovered=\(backup != nil ? 1 : 0)"
+                    "backupRecovered=\(backup != nil ? 1 : 0) " +
+                    "historyRecovered=\(backup == nil && recovered != nil ? 1 : 0)"
             )
 #endif
-            return backup
+            return recovered
         }
     }
 

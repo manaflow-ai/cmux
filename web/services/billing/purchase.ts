@@ -62,6 +62,7 @@ import {
   PurchaseMagicLinkProviderRejectedError,
   type PurchaseMagicLinkDeliveryStore,
 } from "./emailVerificationDelivery";
+import { planItem } from "./subscriptionItems";
 
 export { canonicalizeEmailForMatching } from "./emailMatching";
 
@@ -3346,16 +3347,16 @@ function checkoutCustomerName(
 }
 
 function subscriptionPriceId(subscription: Stripe.Subscription): string | null {
-  return subscription.items?.data?.[0]?.price?.id ?? null;
+  return planItem(subscription)?.price?.id ?? null;
 }
 
 function subscriptionSeats(subscription: Stripe.Subscription): number | null {
-  const quantity = subscription.items?.data?.[0]?.quantity;
+  const quantity = planItem(subscription)?.quantity;
   return typeof quantity === "number" && Number.isFinite(quantity) ? quantity : null;
 }
 
 function subscriptionCurrentPeriodEnd(subscription: Stripe.Subscription): Date | null {
-  const timestamp = subscription.items?.data?.[0]?.current_period_end;
+  const timestamp = planItem(subscription)?.current_period_end;
   return typeof timestamp === "number" ? new Date(timestamp * 1000) : null;
 }
 

@@ -412,6 +412,68 @@ if CMUX_CHANNEL=beta run_helper 2>/dev/null; then
 fi
 echo "PASS: rc channel packaging selects rc entitlements and metadata checks"
 
+# Stable packages through the same path with the release entitlements, so the
+# stable release can ship per-architecture DMGs the way nightly does.
+: > "$LOG"
+STABLE_APP="$TMP_DIR/input/cmux.app"
+mkdir -p "$STABLE_APP/Contents/MacOS"
+printf 'signed-stable-fixture\n' > "$STABLE_APP/Contents/MacOS/cmux"
+CMUX_TEST_CALL_LOG="$LOG" \
+CMUX_TEST_SOURCE_APP="$STABLE_APP" \
+CMUX_TEST_DETACH_STATE="$TMP_DIR/detach-retried-stable" \
+CMUX_CHANNEL=stable \
+CMUX_NIGHTLY_MOUNT_DIR="$TMP_DIR/cmux-stable-mount" \
+CMUX_CREATE_DMG_TOOL="$FAKE_BIN/create-dmg" \
+CMUX_CODESIGN_TOOL="$FAKE_BIN/codesign" \
+CMUX_XCRUN_TOOL="$FAKE_BIN/xcrun" \
+CMUX_HDIUTIL_TOOL="$FAKE_BIN/hdiutil" \
+CMUX_SPCTL_TOOL="$FAKE_BIN/spctl" \
+CMUX_SMOKE_TOOL="$FAKE_BIN/smoke" \
+CMUX_VERIFY_METADATA_TOOL="$FAKE_BIN/metadata" \
+CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
+CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-computer-use-helper" \
+ASC_API_KEY_ID=FIXTUREKEY \
+ASC_API_ISSUER_ID=fixture-issuer \
+ASC_API_KEY_P8_BASE64="$FIXTURE_P8_BASE64" \
+APPLE_SIGNING_IDENTITY='Developer ID Application: Fixture' \
+"$SCRIPT" "$STABLE_APP" "$TMP_DIR/cmux-macos-arm64.dmg" "$TMP_DIR/cmux-stable-immutable.dmg"
+for expected in \
+  "notarize-helper $STABLE_APP $ROOT_DIR/cmux.release.entitlements Developer ID Application: Fixture" \
+  "metadata $STABLE_APP stable"; do
+  if ! grep -Fxq "$expected" "$LOG"; then
+    echo "FAIL: stable channel packaging missed: $expected" >&2
+    exit 1
+  fi
+done
+echo "PASS: stable channel packaging selects release entitlements and metadata checks"
+
+# Resuming a stable submission passes the channel gate and stops at the next
+# check (here a deliberate SHA-256 mismatch), never at "Unsupported channel".
+RESUME_SCRIPT="$ROOT_DIR/scripts/ci/resume-nightly-notarization.sh"
+RESUME_DIR="$TMP_DIR/resume-stable"
+mkdir -p "$RESUME_DIR/cmux.app/Contents"
+printf 'stable-dmg\n' > "$RESUME_DIR/cmux-macos-arm64.dmg"
+printf '%s\n' \
+  "submission_id=fixture-submission" \
+  "status=In Progress" \
+  "dmg_path=$RESUME_DIR/cmux-macos-arm64.dmg" \
+  "dmg_sha256=$(printf '0%.0s' $(seq 64))" \
+  "immutable_path=$RESUME_DIR/cmux-macos-arm64-immutable.dmg" \
+  "channel=stable" > "$RESUME_DIR/state"
+printf 'original submission evidence\n' > "$RESUME_DIR/cmux-macos-arm64.dmg.notarization.log"
+if resume_output="$(ASC_API_KEY_ID=FIXTUREKEY ASC_API_ISSUER_ID=fixture-issuer \
+    ASC_API_KEY_P8_BASE64="$FIXTURE_P8_BASE64" "$RESUME_SCRIPT" "$RESUME_DIR/state" "$RESUME_DIR/cmux.app" \
+    "$RESUME_DIR/cmux-macos-arm64.dmg" "$RESUME_DIR/cmux-macos-arm64-immutable.dmg" 2>&1)"; then
+  echo "FAIL: resume with a mismatched DMG hash must fail" >&2
+  exit 1
+fi
+if grep -Fq 'Unsupported recovery channel' <<<"$resume_output" \
+   || ! grep -Fq 'SHA-256 does not match' <<<"$resume_output"; then
+  echo "FAIL: resume must accept the stable channel; got: $resume_output" >&2
+  exit 1
+fi
+echo "PASS: stable notarization state resumes past the channel gate"
+
 # Fast dogfood keeps Developer ID signing and DMG creation but bypasses both
 # Computer Use and outer notarization. It must work without Apple API secrets,
 # and the signed image still becomes the internal immutable artifact.
@@ -441,3 +503,102 @@ if [ ! -f "$FAST_IMMUTABLE" ] || ! cmp -s "$FAST_DMG" "$FAST_IMMUTABLE"; then
   exit 1
 fi
 echo "PASS: fast dogfood packaging skips notarization but retains signing"
+
+# The CI signing keychain must be gone before any launch smoke runs code from
+# the bundle. Give the helper a managed keychain (scripts/ci/signing-keychain.sh
+# state with a fake `security`), and record at each smoke whether it still
+# exists. The DMG signature must come first, then the keychain delete, then
+# the smokes.
+: > "$LOG"
+KEYCHAIN_STATE="$TMP_DIR/signing-keychain-state"
+mkdir -p "$KEYCHAIN_STATE"
+printf 'fixture-keychain-password' > "$KEYCHAIN_STATE/build.keychain.password"
+cat > "$FAKE_BIN/security" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'security %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
+EOF
+cat > "$FAKE_BIN/smoke" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ -e "$CMUX_SIGNING_KEYCHAIN_STATE_DIR/build.keychain.password" ]; then
+  printf 'smoke-with-keychain %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
+else
+  printf 'smoke %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
+fi
+EOF
+chmod +x "$FAKE_BIN/security" "$FAKE_BIN/smoke"
+KEYCHAIN_DMG="$TMP_DIR/cmux-keychain-order.dmg"
+KEYCHAIN_IMMUTABLE="$TMP_DIR/cmux-keychain-order-immutable.dmg"
+rm -f "$TMP_DIR/detach-retried"
+CMUX_SIGNING_KEYCHAIN_STATE_DIR="$KEYCHAIN_STATE" \
+CMUX_SECURITY_TOOL="$FAKE_BIN/security" \
+CMUX_KEYCHAIN_DIR="$TMP_DIR/keychains" \
+  run_helper "$APP" "$KEYCHAIN_DMG" "$KEYCHAIN_IMMUTABLE"
+if grep -q '^smoke-with-keychain ' "$LOG"; then
+  echo "FAIL: a launch smoke ran while the CI signing keychain still existed" >&2
+  exit 1
+fi
+if [ -e "$KEYCHAIN_STATE/build.keychain.password" ]; then
+  echo "FAIL: the helper did not delete the CI signing keychain" >&2
+  exit 1
+fi
+sign_line="$(grep -n "^codesign --force --timestamp --keychain build.keychain --sign Developer ID Application: Fixture $KEYCHAIN_DMG" "$LOG" | head -1 | cut -d: -f1)"
+unlock_line="$(grep -n '^security unlock-keychain .* build.keychain$' "$LOG" | head -1 | cut -d: -f1)"
+delete_line="$(grep -n '^security delete-keychain build.keychain$' "$LOG" | head -1 | cut -d: -f1)"
+smoke_line="$(grep -n '^smoke ' "$LOG" | head -1 | cut -d: -f1)"
+if [ -z "$sign_line" ] || [ -z "$unlock_line" ] || [ -z "$delete_line" ] || [ -z "$smoke_line" ] \
+  || [ "$unlock_line" -ge "$sign_line" ] || [ "$sign_line" -ge "$delete_line" ] || [ "$delete_line" -ge "$smoke_line" ]; then
+  echo "FAIL: expected unlock, DMG signature, keychain delete, then smoke (unlock=$unlock_line sign=$sign_line delete=$delete_line smoke=$smoke_line)" >&2
+  cat "$LOG" >&2
+  exit 1
+fi
+echo "PASS: the CI signing keychain is deleted after the DMG signature and before any smoke"
+
+# signing-keychain.sh create must finish with exit 0, delete the decoded
+# certificate, and leave state that delete removes again.
+: > "$LOG"
+CREATE_STATE="$TMP_DIR/create-keychain-state"
+CREATE_BIN="$TMP_DIR/create-bin"
+mkdir -p "$CREATE_BIN"
+cat > "$CREATE_BIN/security" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'security %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
+if [ "${1:-}" = find-certificate ]; then
+  printf -- '-----END CERTIFICATE-----\n-----END CERTIFICATE-----\n'
+fi
+EOF
+printf '#!/usr/bin/env bash\necho 00000000-0000-4000-8000-000000000000\n' > "$CREATE_BIN/uuidgen"
+chmod +x "$CREATE_BIN/security" "$CREATE_BIN/uuidgen"
+if ! PATH="$CREATE_BIN:$PATH" \
+  CMUX_TEST_CALL_LOG="$LOG" \
+  CMUX_SIGNING_KEYCHAIN_STATE_DIR="$CREATE_STATE" \
+  CMUX_SECURITY_TOOL="$CREATE_BIN/security" \
+  CMUX_KEYCHAIN_DIR="$TMP_DIR/keychains" \
+  APPLE_CERTIFICATE_BASE64="$(printf 'fixture-p12' | base64)" \
+  APPLE_CERTIFICATE_PASSWORD=fixture-password \
+  "$ROOT_DIR/scripts/ci/signing-keychain.sh" create; then
+  echo "FAIL: signing-keychain.sh create must exit 0" >&2
+  exit 1
+fi
+# `security import` picks the format from the file name; a name without .p12
+# fails on a real keychain with "Unknown format in import". Name the format.
+if ! grep -q '^security import [^ ]*\.p12 -k build\.keychain -f pkcs12 ' "$LOG" || ! grep -q '^security set-keychain-settings -lut 600 build.keychain$' "$LOG"; then
+  echo "FAIL: create must import a .p12 file as pkcs12 into build.keychain with a 600 s idle lock" >&2
+  cat "$LOG" >&2
+  exit 1
+fi
+if compgen -G "$CREATE_STATE/certificate.*" >/dev/null || [ ! -s "$CREATE_STATE/build.keychain.password" ]; then
+  echo "FAIL: create must delete the decoded certificate and keep only the keychain state" >&2
+  exit 1
+fi
+if CMUX_SIGNING_KEYCHAIN_STATE_DIR="$CREATE_STATE" "$ROOT_DIR/scripts/ci/signing-keychain.sh" assert-deleted 2>/dev/null; then
+  echo "FAIL: assert-deleted must fail while the keychain exists" >&2
+  exit 1
+fi
+PATH="$CREATE_BIN:$PATH" CMUX_TEST_CALL_LOG="$LOG" CMUX_SIGNING_KEYCHAIN_STATE_DIR="$CREATE_STATE" \
+  CMUX_SECURITY_TOOL="$CREATE_BIN/security" CMUX_KEYCHAIN_DIR="$TMP_DIR/keychains" \
+  "$ROOT_DIR/scripts/ci/signing-keychain.sh" delete
+CMUX_SIGNING_KEYCHAIN_STATE_DIR="$CREATE_STATE" "$ROOT_DIR/scripts/ci/signing-keychain.sh" assert-deleted
+echo "PASS: signing-keychain.sh create, assert-deleted and delete"

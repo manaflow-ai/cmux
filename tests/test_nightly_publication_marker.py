@@ -7,6 +7,7 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 from types import SimpleNamespace
 import unittest
@@ -68,6 +69,53 @@ class NightlyPublicationMarkerTests(unittest.TestCase):
                 )
                 self.assertEqual(env.ALREADY_PUBLISHED != "true", should_publish)
                 self.assertEqual(eval(closure, {"env": env}), should_close)
+
+    def test_continuation_closes_issue_when_later_failure_comment_has_newer_sha(self):
+        steps = {step["name"]: step for step in yaml.safe_load(WORKFLOW.read_text())["jobs"]["publish"]["steps"]}
+        script = steps["Close deferred nightly failure incident"]["with"]["script"]
+        original_sha = "A" * 40
+        published_sha = "B" * 40
+        issue_body = (
+            f"cmux NIGHTLY run https://github.com/manaflow-ai/cmux/actions/runs/1 "
+            f"failed on {original_sha} (main) in: build-nightly-app."
+        )
+        node = f"""
+const calls = [];
+const github = {{
+  rest: {{
+    issues: {{
+      listForRepo: async () => ({{ data: [{{ number: 18582, body: {json.dumps(issue_body)} }}] }}),
+      createComment: async (args) => calls.push(["comment", args]),
+      update: async (args) => calls.push(["update", args]),
+    }},
+  }},
+}};
+const context = {{
+  repo: {{ owner: "manaflow-ai", repo: "cmux" }},
+  serverUrl: "https://github.com",
+  runId: 2,
+}};
+process.env.CHANNEL = "nightly";
+process.env.SOURCE_HEAD_SHA = {json.dumps(published_sha)};
+(async () => {{
+{script}
+  process.stdout.write(JSON.stringify(calls));
+}})().catch((error) => {{
+  console.error(error);
+  process.exit(1);
+}});
+"""
+        completed = subprocess.run(
+            ["node", "--input-type=module", "-"],
+            input=node,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        calls = json.loads(completed.stdout)
+        self.assertEqual([call[0] for call in calls], ["comment", "update"])
+        self.assertIn(published_sha, calls[0][1]["body"])
 
 
 if __name__ == "__main__":

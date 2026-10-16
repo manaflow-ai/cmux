@@ -68,10 +68,16 @@ public struct CloudBrowserRouting: Sendable {
                     group.addTask { try await probe() }
                     group.addTask {
                         try await clock.sleep(for: timeout)
-                        connection.cancel()
                         return nil
                     }
-                    defer { group.cancelAll() }
+                    // Let the timeout task publish `.unknown` before
+                    // cancelling the probe. Cancelling the connection first
+                    // can wake `responseStatus` with an empty response, which
+                    // would otherwise race the timeout and look unreachable.
+                    defer {
+                        group.cancelAll()
+                        connection.cancel()
+                    }
                     return try await group.next()! ?? .unknown
                 }
             } onCancel: {
@@ -106,10 +112,12 @@ public struct CloudBrowserRouting: Sendable {
                            bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
     }
 
-    public static func configuration(endpoint: CloudBrowserProxyEndpoint, address: String) -> ProxyConfiguration {
+    public static func configuration(endpoint: CloudBrowserProxyEndpoint, address: String, remoteNetwork: Bool = false) -> ProxyConfiguration {
         var proxy = ProxyConfiguration(httpCONNECTProxy: .hostPort(host: .init(endpoint.host), port: .init(rawValue: endpoint.port)!))
         proxy.applyCredential(username: endpoint.username, password: endpoint.password)
-        proxy.matchDomains = [address.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))]
+        // An empty list means all domains. An array containing an empty string
+        // is not a wildcard and causes WebKit to bypass the proxy.
+        proxy.matchDomains = remoteNetwork ? [] : [address.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))]
         proxy.allowFailover = false
         return proxy
     }
@@ -117,12 +125,12 @@ public struct CloudBrowserRouting: Sendable {
     /// Replace credentials as one script registration. An old document-start
     /// script must never win its installation guard after a carrier reconnect.
     @MainActor
-    public static func installWebSocketBridge(endpoint: CloudBrowserProxyEndpoint, address: String, on webView: WKWebView) {
+    public static func installWebSocketBridge(endpoint: CloudBrowserProxyEndpoint, address: String, on webView: WKWebView, remoteNetwork: Bool = false) {
         let controller = webView.configuration.userContentController
         let retained = controller.userScripts.filter { !$0.source.contains("window.__cmuxCloudWebSocketBridgeInstalled") }
         controller.removeAllUserScripts()
         for script in retained { controller.addUserScript(script) }
-        if let source = websocketBridgeScript(endpoint: endpoint, address: address) {
+        if let source = websocketBridgeScript(endpoint: endpoint, address: address, remoteNetwork: remoteNetwork) {
             controller.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
     }
@@ -130,7 +138,7 @@ public struct CloudBrowserRouting: Sendable {
     /// Installs the promptless WebSocket bridge used by WKWebView, whose page
     /// WebSocket implementation does not consistently honor `proxyConfigurations`.
     @MainActor
-    static func websocketBridgeScript(endpoint: CloudBrowserProxyEndpoint, address: String) -> String? {
+    static func websocketBridgeScript(endpoint: CloudBrowserProxyEndpoint, address: String, remoteNetwork: Bool = false) -> String? {
         guard let token = endpoint.websocketToken else { return nil }
         let host = address.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
         let encodedHost = host.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
@@ -148,7 +156,7 @@ public struct CloudBrowserRouting: Sendable {
             try { parsed = new URL(input, document.baseURI); } catch (_) { return null; }
             // Keep wss:// on WebKit's native CONNECT path. Rewriting it to ws://
             // would downgrade TLS and make the upstream handshake invalid.
-            if (parsed.protocol !== 'ws:' || parsed.hostname.toLowerCase() !== targetHost) return null;
+            if (parsed.protocol !== 'ws:' || (!\(remoteNetwork ? "true" : "false") && parsed.hostname.toLowerCase() !== targetHost)) return null;
             const target = `${parsed.hostname}:${parsed.port || '80'}`;
             parsed.protocol = 'ws:';
             parsed.hostname = '127.0.0.1';

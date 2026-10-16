@@ -207,6 +207,7 @@ extension Workspace {
     func completeReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation, adoptedPanelID: UUID) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
         cloudPendingCreations.removeValue(forKey: reservation.panelID)
+        reservation.closeAttachHandshake()
         if let resource = SurfaceCatalog.shared.resource(forPanel: adoptedPanelID) {
             reservation.creationReceipt.finish(.success(resource))
         }
@@ -231,6 +232,7 @@ extension Workspace {
     func failReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation, error: Error) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
         reservation.creationReceipt.finish(.failure(error))
+        reservation.closeAttachHandshake()
         let failure = CloudPaneCreationFailure(machine: reservation.machine, error: error, context: CloudOperationContext.current)
         setCloudMaterializationFailure(
             surfaceID: reservation.panelID,
@@ -258,6 +260,7 @@ extension Workspace {
     /// the machine already created stays alive, like closing any other pane.
     func cancelReservedCloudTerminalPane(panelID: UUID) {
         guard let reservation = cloudPendingCreations.removeValue(forKey: panelID) else { return }
+        reservation.closeAttachHandshake()
         reservation.inputRelay.discard()
         reservation.creationReceipt.finish(.failure(CloudDiagnosticFailure.placement))
         let cancel = reservation.cancel
@@ -272,6 +275,7 @@ extension Workspace {
     func discardReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
         cloudPendingCreations.removeValue(forKey: reservation.panelID)
+        reservation.closeAttachHandshake()
         reservation.inputRelay.discard()
         reservation.creationReceipt.finish(.failure(CloudDiagnosticFailure.placement))
         let cancel = reservation.cancel

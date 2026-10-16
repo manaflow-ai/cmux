@@ -6,11 +6,16 @@ import Security
 #endif
 
 extension SessionRemoteWorkspaceSnapshot {
+    /// Reconstructs a remote configuration from a persisted session descriptor.
+    /// The optional environment and liveness seam lets restore tests model a
+    /// moved agent without touching the process-wide environment.
     func workspaceConfiguration(
         localSocketPath: String? = nil,
         allowPersistentPTYRestore: Bool = true,
         preserveSSHOptions: Bool = false,
-        agentSocketPath overrideAgentSocketPath: String? = nil
+        agentSocketPath overrideAgentSocketPath: String? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        isLiveAgent: @escaping (String) -> Bool = Self.acceptsAgentConnections(atPath:)
     ) -> WorkspaceRemoteConfiguration? {
         let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedDestination.isEmpty,
@@ -44,7 +49,16 @@ extension SessionRemoteWorkspaceSnapshot {
             (1...65535).contains(port) ? port : nil
         }
 
-        let agentSocketPath = overrideAgentSocketPath ?? restorableAgentSocketPath()
+        let agentSocketPath = overrideAgentSocketPath
+            ?? restorableAgentSocketPath(environment: environment, isLiveAgent: isLiveAgent)
+        let agentSocketPathOverrideIsSet = overrideAgentSocketPath != nil
+            || agentSocketPath != nil
+            // A saved path is a route hint, not an explicit disable. If it
+            // stopped serving and no inherited agent is live, clear the bit
+            // so a later restore can adopt a newly available agent. A saved
+            // empty value remains an explicit disable.
+            || (self.agentSocketPathOverrideIsSet == true &&
+                SSHAgentSocketResolver(environment: [:]).normalizedAgentSocketPath(self.agentSocketPath) == nil)
         if let configuration = tuiSSHConfiguration(agentSocketPath: agentSocketPath) { return configuration }
         if let configuration = legacyTmuxSSHConfiguration(agentSocketPath: agentSocketPath) { return configuration }
         if skipDaemonBootstrap != true, (terminalTransport ?? .ssh) == .ssh,
@@ -54,7 +68,10 @@ extension SessionRemoteWorkspaceSnapshot {
             var configuration = WorkspaceRemoteConfiguration(destination: normalizedDestination,
                 port: normalizedPort, identityFile: identityFile, sshOptions: sshOptions,
                 localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
-                localSocketPath: nil, terminalStartupCommand: nil, preserveAfterTerminalExit: true)
+                localSocketPath: nil, terminalStartupCommand: nil,
+                agentSocketPath: agentSocketPath,
+                agentSocketPathOverrideIsSet: agentSocketPathOverrideIsSet,
+                preserveAfterTerminalExit: true)
             configuration.restoredSSHSession = self
             return configuration
         }
@@ -217,8 +234,16 @@ extension SessionRemoteWorkspaceSnapshot {
                 sshOptions: restoredSSHOptions,
                 // The agent the connection authenticated with wins over a
                 // `ForwardAgent` path, as it does for cmux-tui carriers.
-                explicitAgentSocketPath: overrideAgentSocketPath ?? self.agentSocketPath
+                explicitAgentSocketPath: agentSocketPath,
+                explicitAgentSocketPathIsSet: agentSocketPathOverrideIsSet,
+                // `restorableAgentSocketPath` already applied the restore
+                // liveness policy (and accepts an injected test seam). Do not
+                // replace that result with a second process-wide filesystem
+                // check here. An explicit override is caller-supplied and
+                // retains the normal filesystem validation.
+                explicitAgentSocketPathAlreadyValidated: overrideAgentSocketPath == nil
             ),
+            agentSocketPathOverrideIsSet: agentSocketPathOverrideIsSet,
             daemonWebSocketEndpoint: nil,
             preserveAfterTerminalExit: preservePTYSession || restoreDefaultFreestyleSSHD,
             persistentDaemonSlot: (preservePTYSession || restoreDefaultFreestyleSSHD) ? effectivePersistentDaemonSlot : nil,
@@ -598,11 +623,7 @@ extension SessionRemoteWorkspaceSnapshot {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         isLiveAgent: (String) -> Bool = Self.acceptsAgentConnections(atPath:)
     ) -> String? {
-        let resolver = SSHAgentSocketResolver(environment: [:])
-        return [agentSocketPath, environment["SSH_AUTH_SOCK"]]
-            .lazy
-            .compactMap { resolver.normalizedAgentSocketPath($0) }
-            .first(where: isLiveAgent)
+        restoredAgentSocketPath(environment: environment, isLiveAgent: isLiveAgent)
     }
 
     /// Whether an agent socket has a live listener run by this user or by

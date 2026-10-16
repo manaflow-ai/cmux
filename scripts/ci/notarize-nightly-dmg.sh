@@ -17,22 +17,36 @@ SPCTL_TOOL="${CMUX_SPCTL_TOOL:-spctl}"
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 SMOKE_TOOL="${CMUX_SMOKE_TOOL:-$ROOT_DIR/scripts/smoke-launch-macos-app.sh}"
 VERIFY_METADATA_TOOL="${CMUX_VERIFY_METADATA_TOOL:-$ROOT_DIR/scripts/verify-app-bundle-channel-metadata.sh}"
+# CMUX_DEFER_LAUNCH_SMOKES=true: skip the launch smokes here. The caller runs
+# them in a separate job that holds no secrets (scripts/ci/smoke-dmg.sh on the
+# final DMG), so no bundle code runs in a job that signs, notarizes or publishes.
+DEFER_LAUNCH_SMOKES="${CMUX_DEFER_LAUNCH_SMOKES:-false}"
+launch_smokes() {
+  if [ "$DEFER_LAUNCH_SMOKES" = true ]; then
+    echo "Launch smokes for $1 run in the secret-free verify job"
+    return 0
+  fi
+  CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$1"
+  CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$1"
+}
 VERIFY_LICENSES_TOOL="${CMUX_VERIFY_LICENSES_TOOL:-$ROOT_DIR/scripts/verify-app-bundle-licenses.sh}"
 NOTARIZE_COMPUTER_USE_HELPER_TOOL="${CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL:-$ROOT_DIR/scripts/ci/notarize-computer-use-helper.sh}"
+SIGNING_KEYCHAIN_TOOL="${CMUX_SIGNING_KEYCHAIN_TOOL:-$ROOT_DIR/scripts/ci/signing-keychain.sh}"
 COMPUTER_USE_NOTARY_SUBMISSION_FILE="${CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE:-}"
 SKIP_NOTARIZATION="${CMUX_SKIP_NOTARIZATION:-false}"
-# Release channel of the app being packaged: `nightly` (default) or `rc`. It
-# selects the entitlements file and the bundle-metadata check; the packaging,
-# notarization, and stapling steps are identical for both.
+# Release channel of the app being packaged: `nightly` (default), `rc` or
+# `stable`. It selects the entitlements file and the bundle-metadata check; the
+# packaging, notarization, and stapling steps are identical for every channel.
 CHANNEL="${CMUX_CHANNEL:-nightly}"
 case "$CHANNEL" in
-  nightly|rc) ;;
+  nightly|rc) DEFAULT_ENTITLEMENTS="$ROOT_DIR/cmux.${CHANNEL}.entitlements" ;;
+  stable) DEFAULT_ENTITLEMENTS="$ROOT_DIR/cmux.release.entitlements" ;;
   *)
-    echo "Unsupported CMUX_CHANNEL: $CHANNEL (expected nightly or rc)" >&2
+    echo "Unsupported CMUX_CHANNEL: $CHANNEL (expected nightly, rc or stable)" >&2
     exit 2
     ;;
 esac
-APP_ENTITLEMENTS="${CMUX_APP_ENTITLEMENTS:-$ROOT_DIR/cmux.${CHANNEL}.entitlements}"
+APP_ENTITLEMENTS="${CMUX_APP_ENTITLEMENTS:-$DEFAULT_ENTITLEMENTS}"
 # shellcheck source=lib/notary-auth.sh
 source "$ROOT_DIR/scripts/ci/lib/notary-auth.sh"
 
@@ -73,6 +87,8 @@ fi
 
 if [ "$SKIP_NOTARIZATION" = true ]; then
   echo "Skipping Computer Use and outer notarization for internal dogfood artifact"
+elif [ "${CMUX_COMPUTER_USE_HELPER_ALREADY_FINISHED:-false}" = true ]; then
+  echo "Computer Use helper was finished by the recovery continuation"
 elif [ -n "$COMPUTER_USE_NOTARY_SUBMISSION_FILE" ]; then
   "$NOTARIZE_COMPUTER_USE_HELPER_TOOL" \
     --finish "$COMPUTER_USE_NOTARY_SUBMISSION_FILE" \
@@ -102,10 +118,15 @@ if [ "$DMG_FORMAT" != "ULMO" ]; then
   exit 1
 fi
 
+# The helper wait can pass the CI keychain's short idle lock.
+"$SIGNING_KEYCHAIN_TOOL" unlock
 "$CODESIGN_TOOL" --force --timestamp --keychain build.keychain \
   --sign "$APPLE_SIGNING_IDENTITY" \
   "$DMG_RELEASE"
 "$CODESIGN_TOOL" --verify --verbose=2 "$DMG_RELEASE"
+# This is the last signature. Delete the CI signing keychain before Apple's
+# wait and before the launch smokes below run code from the bundle.
+"$SIGNING_KEYCHAIN_TOOL" delete
 
 if [ "$SKIP_NOTARIZATION" = true ]; then
   # Fast dogfood DMGs are signed and smoke-tested by the workflow, but are not
@@ -202,7 +223,7 @@ save_notary_output() {
   # evidence needed to resume the exact Apple submission in a follow-up job.
   umask 077
   /bin/cp "$NOTARY_SUBMIT_OUTPUT" "$NOTARY_OUTPUT_FILE"
-  if [ -n "$DMG_SUBMIT_ID" ]; then
+  if [ -n "$DMG_SUBMIT_ID" ] && [ "${CMUX_SKIP_NOTARY_LOG:-false}" != true ]; then
     {
       printf '\n--- notarytool log for submission %s ---\n' "$DMG_SUBMIT_ID"
       "$XCRUN_TOOL" notarytool log "$DMG_SUBMIT_ID" "${NOTARY_AUTH_ARGS[@]}" || true
@@ -266,8 +287,9 @@ fi
 "$XCRUN_TOOL" stapler staple "$APP_PATH"
 "$XCRUN_TOOL" stapler validate "$APP_PATH"
 "$SPCTL_TOOL" -a -vv --type execute "$APP_PATH"
-CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP_PATH"
-CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP_PATH"
+# Apple is done with this artifact; the app below must not find the key.
+notary_auth_forget "$NOTARY_DIR"
+launch_smokes "$APP_PATH"
 "$VERIFY_METADATA_TOOL" "$APP_PATH" "$CHANNEL"
 "$VERIFY_LICENSES_TOOL" "$APP_PATH"
 
@@ -289,8 +311,7 @@ if [ -z "$MOUNTED_APP" ]; then
   exit 1
 fi
 "$SPCTL_TOOL" -a -vv --type execute "$MOUNTED_APP"
-CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$MOUNTED_APP"
-CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$MOUNTED_APP"
+launch_smokes "$MOUNTED_APP"
 "$VERIFY_METADATA_TOOL" "$MOUNTED_APP" "$CHANNEL"
 "$VERIFY_LICENSES_TOOL" "$MOUNTED_APP"
 detach_mounted_dmg

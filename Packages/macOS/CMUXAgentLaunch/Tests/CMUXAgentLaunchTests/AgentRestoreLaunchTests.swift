@@ -41,6 +41,7 @@ import Testing
         #expect(AgentRestoreLaunch(kind: "codex", sessionID: "not-a-session-id") == nil)
         #expect(AgentRestoreLaunch(kind: "amp", sessionID: sessionID) == nil)
         #expect(AgentRestoreLaunch(kind: "amp", sessionID: "not-an-amp-thread") == nil)
+        #expect(AgentRestoreLaunch(kind: "antigravity", sessionID: "contains spaces") == nil)
         #expect(AgentRestoreLaunch(kind: nil, sessionID: sessionID) == nil)
         #expect(AgentRestoreLaunch(kind: "claude", sessionID: nil) == nil)
     }
@@ -54,6 +55,16 @@ import Testing
         #expect(launch.customExecutablePathEnvironmentKey == "CMUX_CUSTOM_AMP_PATH")
         #expect(launch.authorizationEnvironmentValue == "amp:\(threadID)")
         #expect(launch.portableWrapperShellCommand(posixCommand: "amp threads continue").hasPrefix("/bin/sh -c "))
+    }
+
+    @Test func antigravityProviderOwnsOpaqueConversationAndWrapperConfiguration() throws {
+        let conversationID = "antigravity-conversation-123"
+        let launch = try #require(AgentRestoreLaunch(kind: " Antigravity ", sessionID: conversationID))
+
+        #expect(launch.executableName == "agy")
+        #expect(launch.wrapperShimEnvironmentKey == "CMUX_AGY_WRAPPER_SHIM")
+        #expect(launch.customExecutablePathEnvironmentKey == "CMUX_CUSTOM_ANTIGRAVITY_PATH")
+        #expect(launch.authorizationEnvironmentValue == "antigravity:\(conversationID)")
     }
 
     @Test func preflightInvocationRequiresExecutableArgument() throws {
@@ -139,6 +150,161 @@ import Testing
         )
         #expect(invocation.arguments.contains("/bin/sh") == false)
         #expect(invocation.arguments.contains("-lc") == false)
+    }
+
+    @Test(arguments: [AgentRestoreRequestMode.resumeAgent, .relaunchAgent, .forkAgent])
+    func ompManagedContinuationCannotFallBackToLegacyShell(mode: AgentRestoreRequestMode) {
+        #expect(!AgentRestorePlanner.allowsLegacyFallback(kind: "omp", mode: mode))
+        #expect(AgentRestorePlanner.allowsLegacyFallback(kind: "pi", mode: mode))
+    }
+
+    @Test func ompDirectCommandRetainsLegacyReplay() {
+        #expect(AgentRestorePlanner.allowsLegacyFallback(kind: "omp", mode: .direct))
+        #expect(!AgentRestorePlanner.allowsLegacyFallback(kind: " OMP ", mode: nil))
+    }
+
+    @Test func structuredOmpRestoreKeepsCompiledBinaryExecutablePath() throws {
+        try assertOmpRestoreKeepsExecutablePath("/Applications/omp/bin/omp")
+    }
+
+    @Test func structuredOmpRestoreKeepsShebangShimExecutablePath() throws {
+        try assertOmpRestoreKeepsExecutablePath("/Users/test/.bun/bin/omp")
+    }
+
+    @Test(arguments: [[], ["omp", "--model", "sonnet"]], [false, true])
+    func structuredOmpRestoreRejectsUnresolvedLaunchCapture(arguments: [String], withPreparedArguments: Bool) {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "omp",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/omp-project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "omp",
+                arguments: arguments,
+                workingDirectory: "/tmp/omp-project",
+                environment: ["PATH": "/usr/bin:/bin"],
+                source: "environment"
+            ),
+            // The app continuation path prepares argv through this same API.
+            preparedArguments: withPreparedArguments ? AgentResumeArgv().builtInKind(
+                kind: "omp", sessionId: sessionID, executablePath: nil, arguments: arguments
+            ) : nil,
+            observedPermissionMode: nil
+        )
+
+        #expect(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            ) == nil
+        )
+    }
+
+    @Test func structuredOmpRestoreKeepsExecutableOnlyCapture() throws {
+        let executable = "/Users/test/.bun/bin/omp"
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "omp",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/omp-project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "omp", executablePath: executable, arguments: []
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request, ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+        #expect(invocation.arguments == [executable, "--session", sessionID])
+    }
+
+    @Test(arguments: [false, true])
+    func structuredOmpRestoreRejectsRejectedCaptureWithAbsoluteEvidence(
+        withPreparedArguments: Bool
+    ) {
+        let executable = "/Users/test/.bun/bin/omp"
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "omp",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/omp-project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                rejectedOn: .argvDecodeFailed,
+                launcher: "omp",
+                executablePath: executable
+            ),
+            preparedArguments: withPreparedArguments
+                ? [executable, "--session", sessionID]
+                : nil,
+            observedPermissionMode: nil
+        )
+
+        #expect(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            ) == nil
+        )
+    }
+
+    @Test func structuredOmpRestoreKeepsAbsolutePreparedExecutable() throws {
+        let executable = "/Users/test/.bun/bin/omp"
+        let prepared = [executable, "--session", sessionID]
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "omp",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/omp-project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(launcher: "omp", arguments: []),
+            preparedArguments: prepared,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request, ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+        #expect(invocation.arguments == prepared)
+    }
+
+    private func assertOmpRestoreKeepsExecutablePath(_ executable: String) throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "omp",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/omp-project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "omp",
+                executablePath: executable,
+                arguments: [executable, "--model", "gpt-5.6-sol"],
+                workingDirectory: "/tmp/omp-project",
+                environment: ["PATH": "/usr/bin:/bin"]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+
+        #expect(invocation.arguments == [executable, "--session", sessionID, "--model", "gpt-5.6-sol"])
     }
 
     @Test func structuredSubrouterCodexRestoreUsesExplicitSrResumeCommand() throws {
@@ -495,11 +661,10 @@ import Testing
             ambientEnvironment: ["CMUX_CLAUDE_WRAPPER_SHIM": "/shim/claude"]
         ))
 
-        #expect(invocation.arguments.first == "/shim/claude")
-        #expect(invocation.arguments.contains("--resume"))
-        #expect(invocation.arguments.contains(sessionID))
-        #expect(invocation.arguments.contains("--permission-mode"))
-        #expect(invocation.arguments.contains("bypassPermissions"))
+        #expect(invocation.arguments == [
+            "/shim/claude", "--resume", sessionID, "--model", "sonnet",
+            "--permission-mode", "bypassPermissions",
+        ])
         #expect(
             invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"]
                 == "claude:\(sessionID)"
@@ -532,6 +697,76 @@ import Testing
         #expect(invocation.arguments.first == executable)
         #expect(invocation.arguments.dropFirst().starts(with: ["resume", sessionID]))
         #expect(invocation.environment["CMUX_CUSTOM_CODEX_PATH"] == executable)
+    }
+
+    @Test func antigravityRestoreUsesWrapperShimAndCapturedExecutable() throws {
+        let executable = "/opt/antigravity preview/bin/agy"
+        let conversationID = "antigravity-conversation-123"
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "antigravity",
+            checkpointID: conversationID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/work",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                executablePath: executable,
+                arguments: [executable, "--sandbox", "danger-full-access"]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner(
+            isExecutableFile: { $0 == "/shim/agy" }
+        ).invocation(
+            for: request,
+            ambientEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                "CMUX_AGY_WRAPPER_SHIM": "/shim/agy",
+            ]
+        ))
+
+        #expect(invocation.arguments == [
+            "/shim/agy", "--conversation", conversationID,
+            "--sandbox", "danger-full-access",
+        ])
+        #expect(invocation.environment["CMUX_CUSTOM_ANTIGRAVITY_PATH"] == executable)
+        #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "antigravity:\(conversationID)")
+    }
+
+    @Test func antigravityAliasRestoreUsesWrapperShimAndCapturedExecutable() throws {
+        let executable = "/opt/antigravity preview/bin/antigravity"
+        let conversationID = "antigravity-conversation-alias-123"
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "antigravity",
+            checkpointID: conversationID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/work",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                executablePath: executable,
+                arguments: [executable, "--sandbox", "danger-full-access"]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner(
+            isExecutableFile: { $0 == "/shim/agy" }
+        ).invocation(
+            for: request,
+            ambientEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                "CMUX_AGY_WRAPPER_SHIM": "/shim/agy",
+            ]
+        ))
+
+        #expect(invocation.arguments == [
+            "/shim/agy", "--conversation", conversationID,
+            "--sandbox", "danger-full-access",
+        ])
+        #expect(invocation.environment["CMUX_CUSTOM_ANTIGRAVITY_PATH"] == executable)
+        #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "antigravity:\(conversationID)")
     }
 
     @Test func preparedArgumentsOverrideSynthesisForAnEmptyCapture() throws {

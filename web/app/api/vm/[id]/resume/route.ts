@@ -38,7 +38,7 @@ export async function POST(
         maxActiveVms: account.entitlements.maxActiveVms,
         callerPlanId: account.entitlements.planId,
         modelPlane: vmModelPlaneRevoker(),
-      }), { request });
+      }), { request, deadline: { operation: "resume" } });
       if (!run.ok) return run.response;
       return jsonResponse({ id: run.value.id, status: run.value.status });
     },

@@ -228,6 +228,8 @@ extension Workspace {
             return "extension_browser"
         case .workspaceTodo:
             return "workspace_todo"
+        case .coderouterGuide:
+            return "coderouter_guide"
         case .notifications:
             return "notifications"
         case .cloudVMLoading:

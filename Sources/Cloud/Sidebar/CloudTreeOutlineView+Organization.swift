@@ -113,7 +113,7 @@ extension CloudTreeOutlineView.Coordinator {
         case .surface:
             guard let app = AppDelegate.shared else { return policy.rejection(for: nil) }
             return app.ownershipRejection(forBonsplitTab: transfer.tabId, policy: policy)
-        case .vaultSession, .filePreview, .rightSidebarTool:
+        case .vaultSession, .filePreview, .rightSidebarTool, .workspaceMerge:
             return policy.rejection(for: .local)
         }
     }

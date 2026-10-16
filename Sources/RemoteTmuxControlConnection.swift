@@ -91,6 +91,7 @@ final class RemoteTmuxControlConnection {
     private(set) var connectionState: ConnectionState = .connecting {
         didSet {
             guard oldValue != connectionState else { return }
+            if connectionState != .connected { paneAgentStatuses.removeAll() }
             observers.notifyStateChanged(connectionState)
             switch connectionState {
             case .connected:
@@ -167,6 +168,8 @@ final class RemoteTmuxControlConnection {
     /// killing a mirrored pane/window needs a confirmation dialog — a mirror
     /// surface has no local child process for ghostty's needs-confirm check.
     var paneForegroundStates: [Int: PaneForegroundState] = [:]
+    /// Latest hook values, retained for mirrors created after subscription delivery.
+    var paneAgentStatuses: [Int: RemoteTmuxAgentStatus] = [:]
     /// In-flight close-time activity queries by token (see
     /// ``queryWindowActivity(windowId:completion:)``). Failed with `nil` when the
     /// control stream becomes unusable, so a pending close decision falls back to
@@ -549,6 +552,10 @@ final class RemoteTmuxControlConnection {
     /// starts) re-classifies the pane live. The tmux pane id is appended for
     /// routing, mirroring ``cwdSubscriptionPrefix``.
     static let reflowSubscriptionPrefix = "cmux_reflow_"
+    /// Per-pane user-option subscription carrying lifecycle status from a remote
+    /// Claude or Codex hook. The pane id is part of the subscription name so the
+    /// control stream can route the value back to the owning mirror.
+    static let agentSubscriptionPrefix = "cmux_agent_"
     /// Per-pane subscription that keeps header labels LIVE, mirroring
     /// ``cwdSubscriptionPrefix``: tmux pushes the newly-expanded
     /// `pane-border-format` whenever its value changes (a program retitling
@@ -1754,6 +1761,10 @@ final class RemoteTmuxControlConnection {
                 if updatePaneTitleMetadata(paneId: paneId, wireValue: value) {
                     observers.emitPaneTitleChanged(paneId)
                 }
+            } else if name.hasPrefix(Self.agentSubscriptionPrefix),
+                      let paneId = Int(name.dropFirst(Self.agentSubscriptionPrefix.count)) {
+                paneAgentStatuses[paneId] = RemoteTmuxAgentStatus.parse(value)
+                observers.emitPaneAgent(paneId, value)
             } else if name.hasPrefix(Self.borderStatusSubscriptionPrefix),
                       let windowId = Int(name.dropFirst(Self.borderStatusSubscriptionPrefix.count)) {
                 // `pane-border-status` changed: every pane touching the configured
