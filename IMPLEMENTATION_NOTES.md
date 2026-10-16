@@ -5,7 +5,9 @@
   explicitly implements the unavailable required `NSHostingView` initializer.
   The follow-up build also caught the missing public `onOpenCloudDesktop` host
   forwarding property, the missing `CmuxSettings` import, and an initializer
-  label ordering mismatch; all are repaired before the next submission.
+  label ordering mismatch. The next build exposed the new Chief drag source in
+  three existing cloud ownership switches; those switches now classify Chief
+  as a local source and the corrected head is ready for another fleet build.
 
 ## 2026-10-15 Chief Home pane drag
 
