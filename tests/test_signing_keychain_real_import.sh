@@ -68,7 +68,11 @@ CNF
   -config "$TMP_DIR/req.cnf" -keyout "$TMP_DIR/key.pem" -out "$TMP_DIR/cert.pem" >/dev/null \
   || fail "openssl could not make the throwaway identity"
 PASSWORD="$("$OPENSSL" rand -hex 16)"
-p12_args=(-export -inkey "$TMP_DIR/key.pem" -in "$TMP_DIR/cert.pem" -out "$TMP_DIR/identity.p12"
+# The CI certificate secret carries Apple's Developer ID G2 intermediate next
+# to the identity; put it in the throwaway .p12 too, so the import and the
+# intermediates step see the same duplicate as in CI.
+"$OPENSSL" x509 -inform DER -in "$ROOT_DIR/scripts/apple-developer-id-certs/DeveloperIDG2CA.cer" -out "$TMP_DIR/g2.pem"
+p12_args=(-export -inkey "$TMP_DIR/key.pem" -in "$TMP_DIR/cert.pem" -certfile "$TMP_DIR/g2.pem" -out "$TMP_DIR/identity.p12"
   -passout "pass:$PASSWORD" -name "$SUBJECT" -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1)
 if ! "$OPENSSL" pkcs12 "${p12_args[@]}" >/dev/null 2>&1; then
   "$OPENSSL" pkcs12 -legacy "${p12_args[@]}" >/dev/null
