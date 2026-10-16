@@ -39,15 +39,14 @@ extension RemoteTmuxControlConnection {
         "refresh-client -B \"\(paneTitleSubscriptionName):%*:\(paneTitleSubscriptionFormat)\""
     }
 
-    /// Installs the session-wide pane-title watcher once the first verified pane
-    /// snapshot arrives. A projected pane that already has terminal content does
-    /// not need `seedPane`, so tying this watcher to seeding misses live tmux
-    /// renames after reconnect or session restoration.
+    /// Idempotently installs the session-wide pane-title watcher whenever a
+    /// connected lifecycle transition can safely retry it. Restored panes can
+    /// skip seeding, so attach drain, verified topology, and rebuild all ensure it.
     func subscribePaneTitlesIfNeeded() {
         guard !paneTitleSubscriptionActive else { return }
         // Keep the flag set while the command is in flight, otherwise every
         // pane seed can enqueue another session-wide watcher. A `%error` or
-        // stream reset clears it through `sendTracked`, allowing the next
+        // stream reset settles `sendPaneTitleSubscription` as false, allowing the next
         // topology publication to retry.
         paneTitleSubscriptionActive = true
         guard sendPaneTitleSubscription(Self.paneTitleSubscriptionCommand(), completion: { [weak self] accepted in

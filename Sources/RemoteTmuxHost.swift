@@ -413,9 +413,7 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// The title is validated and format-escaped before shell quoting so the
     /// caller cannot accidentally turn a literal title into a tmux expansion.
     static func selectPaneTitleCommand(paneID: Int, title: String) -> String? {
-        guard paneID >= 0,
-              let title = controlModeCommandPaneTitle(title) else { return nil }
-        return "select-pane -t %\(paneID) -T \(shellSingleQuoted(tmuxFormatLiteral(title)))"
+        RemoteTmuxPaneTitleCommand.make(paneID: paneID, title: title)
     }
 
     /// Validates a name already received from tmux. Unlike
