@@ -56,7 +56,12 @@ public nonisolated struct SidebarPriority: Sendable {
         let sorted = workspaces
             .filter { $0.rowState != .placeholder }
             .map(SidebarPriorityItem.init)
-            .sorted { lhs, rhs in lhs.bucket.rawValue < rhs.bucket.rawValue }
+            .enumerated()
+            .sorted { lhs, rhs in
+                if lhs.element.bucket != rhs.element.bucket { return lhs.element.bucket.rawValue < rhs.element.bucket.rawValue }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
         guard let limit else { return sorted }
         return Array(sorted.prefix(max(0, limit)))
     }
