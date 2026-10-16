@@ -227,8 +227,7 @@ export default agentPaneEntry({
         const form = button.closest<HTMLElement>(".acpmux-composer-bar")?.dataset.fitModel ?? "full";
         const expected = form === "icon" ? "" : form === "family" ? "Opus" : "Opus 5.5";
         if (drawn.join(" ") !== expected) throw new Error(`the model form must draw "${expected}"`);
-        if (!button.title.startsWith("Claude Opus 5.5"))
-          throw new Error("the model chip lost its full tooltip");
+        if (!button.title.startsWith("Claude Opus 5.5")) throw new Error("the model chip lost its full tooltip");
         const access = ctx.find({ selector: ".acpmux-access-trigger" });
         const mode = access.querySelector(".acpmux-mode-text");
         if (mode?.textContent !== "Default" || !mode.classList.contains("sr-only"))

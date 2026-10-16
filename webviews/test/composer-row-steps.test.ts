@@ -167,7 +167,7 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
       }
       for (const name of ["plus", "model", "effort", "access", "send"])
         if (!controls[name]) problems.push(`no ${name} in the row`);
-      if (Boolean(controls.speed) !== (width >= 370))
+      if (Boolean(controls.speed) !== width >= 370)
         problems.push(width >= 370 ? "no speed toggle" : "the speed toggle is still in the narrow row");
       if (controls.speed && controls.mic && controls.speed.rect.right > controls.mic.rect.left + 0.5)
         problems.push("the speed toggle must stay before the mic");
