@@ -263,12 +263,12 @@ export async function vmDisplayNameCopy(
 }
 
 export async function vmMemoryErrorCopy(
-  kind: "memoryPlan" | "memoryTrial" | "memoryTrialMax" | "memoryUnknown" | "memoryUnavailable",
+  kind: "memoryPlan" | "memoryTrial" | "memoryTrialUndated" | "memoryTrialMax" | "memoryUnknown" | "memoryUnavailable",
   locale: Locale,
   values: Record<string, string | number> = {},
 ): Promise<VmRequiresProCopy> {
   const t = createTranslator({ locale, messages: await loadMessages(locale), namespace: `vmErrors.${kind}` }) as unknown as (key: string, values?: Record<string, string | number>) => string;
-  return { title: kind === "memoryPlan" || kind === "memoryTrial" || kind === "memoryTrialMax" ? t("title", values) : t("message", values),
+  return { title: kind === "memoryPlan" || kind.startsWith("memoryTrial") ? t("title", values) : t("message", values),
     message: t("message", values), action: t("action", values) };
 }
 

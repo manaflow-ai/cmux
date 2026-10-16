@@ -101,6 +101,11 @@
       "message": "Maskiner på {memory} GiB bliver tilgængelige, når fuld Pro starter den {date}. Pro-prøveperioden understøtter op til {max} GiB.",
       "action": "cmux vm new --size {max}g"
     },
+    "memoryTrialUndated": {
+      "title": "cmux Pro-prøveperiode",
+      "message": "Maskiner på {memory} GiB bliver tilgængelige, når fuld Pro starter. Pro-prøveperioden understøtter op til {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryTrialMax": {
       "title": "cmux Pro-prøveperiode",
       "message": "Denne størrelse kræver Max-planen. Pro-prøveperioden understøtter op til {max} GiB.",

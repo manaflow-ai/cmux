@@ -101,6 +101,11 @@
       "message": "{memory} GiB 머신은 정식 Pro가 시작되는 {date}부터 사용할 수 있습니다. Pro 체험은 최대 {max} GiB까지 지원합니다.",
       "action": "cmux vm new --size {max}g"
     },
+    "memoryTrialUndated": {
+      "title": "cmux Pro 체험",
+      "message": "{memory} GiB 머신은 정식 Pro가 시작되면 사용할 수 있습니다. Pro 체험은 최대 {max} GiB까지 지원합니다.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryTrialMax": {
       "title": "cmux Pro 체험",
       "message": "이 크기에는 Max 요금제가 필요합니다. Pro 체험은 최대 {max} GiB까지 지원합니다.",

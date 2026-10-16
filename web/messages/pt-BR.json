@@ -101,6 +101,11 @@
       "message": "Máquinas de {memory} GiB ficam disponíveis quando o Pro completo começar, em {date}. O teste do Pro suporta até {max} GiB.",
       "action": "cmux vm new --size {max}g"
     },
+    "memoryTrialUndated": {
+      "title": "Teste do cmux Pro",
+      "message": "Máquinas de {memory} GiB ficam disponíveis quando o Pro completo começar. O teste do Pro suporta até {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryTrialMax": {
       "title": "Teste do cmux Pro",
       "message": "Este tamanho exige o plano Max. O teste do Pro suporta até {max} GiB.",

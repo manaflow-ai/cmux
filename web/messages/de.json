@@ -101,6 +101,11 @@
       "message": "Maschinen mit {memory} GiB sind verfügbar, sobald das volle Pro am {date} beginnt. Die Pro-Testphase unterstützt bis zu {max} GiB.",
       "action": "cmux vm new --size {max}g"
     },
+    "memoryTrialUndated": {
+      "title": "cmux Pro-Testphase",
+      "message": "Maschinen mit {memory} GiB sind verfügbar, sobald das volle Pro beginnt. Die Pro-Testphase unterstützt bis zu {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryTrialMax": {
       "title": "cmux Pro-Testphase",
       "message": "Diese Größe erfordert den Max-Tarif. Die Pro-Testphase unterstützt bis zu {max} GiB.",

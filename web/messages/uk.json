@@ -101,6 +101,11 @@
       "message": "Машини на {memory} ГіБ стануть доступні, коли почнеться повний Pro, {date}. Пробний період Pro підтримує до {max} ГіБ.",
       "action": "cmux vm new --size {max}g"
     },
+    "memoryTrialUndated": {
+      "title": "Пробний період cmux Pro",
+      "message": "Машини на {memory} ГіБ стануть доступні, коли почнеться повний Pro. Пробний період Pro підтримує до {max} ГіБ.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryTrialMax": {
       "title": "Пробний період cmux Pro",
       "message": "Для цього розміру потрібен тариф Max. Пробний період Pro підтримує до {max} ГіБ.",

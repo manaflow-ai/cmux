@@ -268,6 +268,11 @@
       "message": "{memory} GiB machines become available when full Pro starts on {date}. The Pro trial supports up to {max} GiB.",
       "action": "cmux vm new --size {max}g"
     },
+    "memoryTrialUndated": {
+      "title": "cmux Pro trial",
+      "message": "{memory} GiB machines become available when full Pro starts. The Pro trial supports up to {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryTrialMax": {
       "title": "cmux Pro trial",
       "message": "This size needs the Max plan. The Pro trial supports up to {max} GiB.",

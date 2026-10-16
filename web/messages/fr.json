@@ -101,6 +101,11 @@
       "message": "Les machines de {memory} Gio seront disponibles quand Pro complet commencera, le {date}. L’essai Pro prend en charge jusqu’à {max} Gio.",
       "action": "cmux vm new --size {max}g"
     },
+    "memoryTrialUndated": {
+      "title": "Essai cmux Pro",
+      "message": "Les machines de {memory} Gio seront disponibles quand Pro complet commencera. L’essai Pro prend en charge jusqu’à {max} Gio.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryTrialMax": {
       "title": "Essai cmux Pro",
       "message": "Cette taille nécessite le forfait Max. L’essai Pro prend en charge jusqu’à {max} Gio.",

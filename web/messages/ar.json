@@ -101,6 +101,11 @@
       "message": "تصبح الأجهزة بسعة {memory} GiB متاحة عند بدء Pro الكامل في {date}. تدعم الفترة التجريبية لـ Pro حتى {max} GiB.",
       "action": "cmux vm new --size {max}g"
     },
+    "memoryTrialUndated": {
+      "title": "الفترة التجريبية لـ cmux Pro",
+      "message": "تصبح الأجهزة بسعة {memory} GiB متاحة عند بدء Pro الكامل. تدعم الفترة التجريبية لـ Pro حتى {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryTrialMax": {
       "title": "الفترة التجريبية لـ cmux Pro",
       "message": "يتطلب هذا الحجم خطة Max. تدعم الفترة التجريبية لـ Pro حتى {max} GiB.",

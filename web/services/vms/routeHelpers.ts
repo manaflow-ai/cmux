@@ -611,14 +611,16 @@ export async function vmMemoryUnavailableResponse(maxMemoryMb: number, locale: L
 export async function vmMemoryTrialResponse(input: {
   readonly memoryMb: number;
   readonly maxMemoryMb: number;
-  readonly trialEndsAt: Date;
+  /** Null when the trial is known but its end date is not (a reconcile is pending). */
+  readonly trialEndsAt: Date | null;
   /** The size needs Max, which full Pro does not include either. */
   readonly needsMax?: boolean;
 }, locale: Locale = "en"): Promise<Response> {
   const memoryGb = Math.round(input.memoryMb / 1024);
   const maxGb = Math.round(input.maxMemoryMb / 1024);
-  const date = new Intl.DateTimeFormat(locale, { dateStyle: "long", timeZone: "UTC" }).format(input.trialEndsAt);
-  const copy = await vmMemoryErrorCopy(input.needsMax ? "memoryTrialMax" : "memoryTrial", locale, { memory: memoryGb, max: maxGb, date });
+  const date = input.trialEndsAt ? new Intl.DateTimeFormat(locale, { dateStyle: "long", timeZone: "UTC" }).format(input.trialEndsAt) : "";
+  const kind = input.needsMax ? "memoryTrialMax" : input.trialEndsAt ? "memoryTrial" : "memoryTrialUndated";
+  const copy = await vmMemoryErrorCopy(kind, locale, { memory: memoryGb, max: maxGb, date });
   return vmErrorResponse({
     error: "vm_memory_requires_plan",
     status: 402,
@@ -627,11 +629,11 @@ export async function vmMemoryTrialResponse(input: {
     displayTitle: copy.title,
     phase: "billing",
     retryable: false,
-    details: { requestedMemoryMb: input.memoryMb, maxMemoryMb: input.maxMemoryMb, trialEndsAt: input.trialEndsAt.toISOString() },
+    details: { requestedMemoryMb: input.memoryMb, maxMemoryMb: input.maxMemoryMb, trialEndsAt: input.trialEndsAt?.toISOString() ?? null },
     extra: {
       upgradeRequired: false,
       trial: true,
-      trialEndsAt: input.trialEndsAt.toISOString(),
+      trialEndsAt: input.trialEndsAt?.toISOString() ?? null,
       memoryMb: input.memoryMb,
       maxMemoryMb: input.maxMemoryMb,
     },
@@ -647,8 +649,10 @@ export async function vmMemoryRequiresPlanResponse(input: {
   // A Pro trial is already the Pro subscription and gets no upgrade offer
   // (the apps hide them too): a Pro size comes when full Pro starts; a Max
   // size is only named.
+  // The trial check does not depend on the date: without a known end date
+  // the trial still gets no offer, only undated copy.
   const trialEndsAt = input.planId === "go" ? await vmCallerTrialEndsAt() : null;
-  if (trialEndsAt) {
+  if (trialEndsAt || (input.planId === "go" && await vmCallerOnGoTrial())) {
     return vmMemoryTrialResponse({
       memoryMb: input.memoryMb, maxMemoryMb: input.maxMemoryMb, trialEndsAt, needsMax: input.upgradePlanId !== "pro",
     }, locale);

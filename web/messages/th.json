@@ -101,6 +101,11 @@
       "message": "เครื่องขนาด {memory} GiB จะใช้ได้เมื่อ Pro แบบเต็มเริ่มในวันที่ {date} ช่วงทดลองใช้ Pro รองรับสูงสุด {max} GiB",
       "action": "cmux vm new --size {max}g"
     },
+    "memoryTrialUndated": {
+      "title": "ช่วงทดลองใช้ cmux Pro",
+      "message": "เครื่องขนาด {memory} GiB จะใช้ได้เมื่อ Pro แบบเต็มเริ่มต้น ช่วงทดลองใช้ Pro รองรับสูงสุด {max} GiB",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryTrialMax": {
       "title": "ช่วงทดลองใช้ cmux Pro",
       "message": "ขนาดนี้ต้องใช้แพ็กเกจ Max ช่วงทดลองใช้ Pro รองรับสูงสุด {max} GiB",

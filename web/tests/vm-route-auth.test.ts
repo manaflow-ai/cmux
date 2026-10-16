@@ -109,9 +109,11 @@ const realDeleteVmPublicationsForVmDeletion =
 const dbClientModule = await import("../db/client");
 const goUsageModule = { ...(await import("../services/vms/goUsage")) };
 let goTrialEnd: Date | null = null;
+let goTrialKnown = false;
 mock.module("../services/vms/goUsage", () => ({
   ...goUsageModule,
   goTrialEndsAt: async () => goTrialEnd,
+  isGoTrialUser: async () => goTrialKnown,
 }));
 const realCloudDb = dbClientModule.cloudDb;
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
@@ -1131,12 +1133,21 @@ describe("VM REST auth", () => {
       expect(max).toMatchObject({ error: "vm_memory_requires_plan", upgradeRequired: false, trial: true });
       expect(max.message).toBe("This size needs the Max plan. The Pro trial supports up to 4 GiB.");
       expect(max.upgradeUrl).toBeUndefined();
+      expect(max.upgradePlanId).toBeUndefined();
+      // A known trial whose end date is not known yet still gets no offer.
+      goTrialEnd = null;
+      goTrialKnown = true;
+      const undated = await (await POST(request())).json() as Record<string, unknown>;
+      expect(undated).toMatchObject({ upgradeRequired: false, trial: true, trialEndsAt: null });
+      expect(undated.message).toBe("8 GiB machines become available when full Pro starts. The Pro trial supports up to 4 GiB.");
+      goTrialKnown = false;
       expect(JSON.stringify(max)).not.toContain("checkout");
       // Without a trial, the same Go request offers Pro as before.
       goTrialEnd = null;
       expect(await (await POST(request())).json()).toMatchObject({ upgradeRequired: true, upgradePlanId: "pro" });
     } finally {
       goTrialEnd = null;
+      goTrialKnown = false;
     }
   });
 

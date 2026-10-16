@@ -101,6 +101,11 @@
       "message": "Maszyny {memory} GiB będą dostępne, gdy pełny Pro zacznie się {date}. Okres próbny Pro obsługuje do {max} GiB.",
       "action": "cmux vm new --size {max}g"
     },
+    "memoryTrialUndated": {
+      "title": "Okres próbny cmux Pro",
+      "message": "Maszyny {memory} GiB będą dostępne, gdy zacznie się pełny Pro. Okres próbny Pro obsługuje do {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryTrialMax": {
       "title": "Okres próbny cmux Pro",
       "message": "Ten rozmiar wymaga planu Max. Okres próbny Pro obsługuje do {max} GiB.",

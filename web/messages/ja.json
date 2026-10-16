@@ -268,6 +268,11 @@
       "message": "{memory} GiB のマシンは、正式な Pro が始まる {date} から使えます。Pro トライアルは最大 {max} GiB までです。",
       "action": "cmux vm new --size {max}g"
     },
+    "memoryTrialUndated": {
+      "title": "cmux Pro トライアル",
+      "message": "{memory} GiB のマシンは、正式な Pro が始まると使えます。Pro トライアルは最大 {max} GiB までです。",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryTrialMax": {
       "title": "cmux Pro トライアル",
       "message": "このサイズには Max プランが必要です。Pro トライアルは最大 {max} GiB までです。",

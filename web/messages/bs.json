@@ -101,6 +101,11 @@
       "message": "Mašine od {memory} GiB postaju dostupne kada puni Pro počne {date}. Pro probni period podržava do {max} GiB.",
       "action": "cmux vm new --size {max}g"
     },
+    "memoryTrialUndated": {
+      "title": "cmux Pro probni period",
+      "message": "Mašine od {memory} GiB postaju dostupne kada počne puni Pro. Pro probni period podržava do {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryTrialMax": {
       "title": "cmux Pro probni period",
       "message": "Za ovu veličinu potreban je Max plan. Pro probni period podržava do {max} GiB.",
