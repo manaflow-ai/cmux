@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextDesign
 import Foundation
 import ImageIO
 import Testing
@@ -28,7 +29,7 @@ struct DebugWindowSnapshotPNGTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        let encodedOffMain = try await DebugWindowSnapshot.encodePNG(image, to: url)
+        let encodedOffMain = try await NSWindow.encodeSnapshotPNG(image, to: url)
         #expect(encodedOffMain)
 
         let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
