@@ -81,8 +81,12 @@ extension CEFRuntime {
         case .beforeClose(let browser):
             browserClosed(browser)
         case .devToolsResult(let browser, let messageID, let success, let json):
-            devToolsCalls.resolve(CEFDevToolsKey(browser: browser, message: messageID),
-                                  with: success ? .success(json) : .failure(BrowserTabError.javaScript(json)))
+            let key = CEFDevToolsKey(browser: browser, message: messageID)
+            let result: Result<String, any Error> = success ? .success(json) : .failure(BrowserTabError.javaScript(json))
+            if !devToolsCalls.resolve(key, with: result) {
+                // A synchronous answer: devTools(_:method:) takes it when the shim call returns.
+                synchronousDevToolsResults?[key] = result
+            }
         case .reply(_, let id, let value, let json):
             let reply = CEFSiteReply(value: value, json: json)
             if !siteReplies.resolve(id, with: .success(reply)), siteReplyBrowsers[id] != nil {
@@ -247,9 +251,18 @@ extension CEFRuntime {
     func devTools(_ browser: Int32, method: String, params: [String: Any] = [:],
                   timeout: Duration = CEFRuntime.devToolsTimeout) async throws -> String {
         guard let shim else { throw BrowserTabError.closed }
+        // Chromium answers some methods inside ExecuteDevToolsMethod, before a
+        // waiter exists; without this the result was dropped and the call
+        // timed out after `timeout` (every device emulation lost 5 s on
+        // Emulation.setEmitTouchEventsForMouse).
+        synchronousDevToolsResults = [:]
         let message = shim.devToolsCall(browser, method, CEFDevToolsResult.params(params))
+        let answered = synchronousDevToolsResults
+        synchronousDevToolsResults = nil
         guard message != 0 else { throw BrowserTabError.closed }
-        return try await devToolsCalls.reply(for: CEFDevToolsKey(browser: browser, message: message), timeout: timeout) {
+        let key = CEFDevToolsKey(browser: browser, message: message)
+        if let result = answered?[key] { return try result.get() }
+        return try await devToolsCalls.reply(for: key, timeout: timeout) {
             BrowserTabError.timedOut("DevTools \(method) (\(timeout))")
         }
     }
