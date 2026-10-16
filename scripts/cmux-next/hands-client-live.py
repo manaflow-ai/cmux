@@ -257,9 +257,12 @@ try:
     check(bool(online), f"hand {HAND} is online")
 
     # The app: signed in as the same owner from the credentials file, scratch HOME, automation launch.
+    # A --app-from-fleet build has the offline (loopback) backend, where the app registers no Cloud
+    # install (CloudService.mayCallCloud): CMUX_NEXT_CLOUD_LINK=app (kept across the launch) turns the
+    # Cloud app server path on, so the install key that signs allows and enrolls exists.
     with open(os.path.join(opts.out, "app.log"), "w") as app_log:
         app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-                                              "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
+                                              "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_CLOUD_LINK": "app",
                                               **APP_SIGN_IN, "CMUX_DEV_AUTH_ACCOUNT": EMAIL},
                                stdout=app_log, stderr=subprocess.STDOUT)
     if not check(bool(wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), 120)), "the app socket answers"):
