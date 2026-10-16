@@ -24,6 +24,40 @@ export function systemFirst<M extends { role: string }>(messages: ReadonlyArray<
   return { messages: [system!, ...out] }
 }
 
+type ToolDecl = { readonly name: string; readonly description?: string; readonly parameters?: unknown }
+type Transcript = { role: string; content?: unknown; toolsAdded?: ReadonlyArray<ToolDecl>; toolsRemoved?: ReadonlyArray<{ name: string }> }
+
+/**
+ * Thinking blocks the model made under another tools list, removed for this request. The model route checks
+ * every replayed signed thinking block against the request's tools list (a changed list is a 400: "Invalid
+ * signature in thinking block ... The tools list differs"), and the API allows dropping thinking from earlier
+ * turns. The tools in force at each assistant message come from the transcript itself (system entries carry
+ * toolsAdded / toolsRemoved), so the comparison is exact; only blocks made under a different list go. Text,
+ * tool calls and tool results stay. The in-progress turn is never touched (its list cannot change mid-turn).
+ */
+export function stripStaleThinking<M extends Transcript>(messages: ReadonlyArray<M>): { messages: Array<M>; stripped: number } {
+  const tools = new Map<string, string>()
+  const keyOf = () => JSON.stringify([...tools])
+  const keys: Array<string | null> = []
+  for (const m of messages) {
+    if (m.role === "system") {
+      for (const t of m.toolsRemoved ?? []) tools.delete(t.name)
+      for (const t of m.toolsAdded ?? []) tools.set(t.name, JSON.stringify([t.description ?? "", t.parameters ?? {}]))
+    }
+    keys.push(m.role === "assistant" ? keyOf() : null)
+  }
+  const now = keyOf()
+  let stripped = 0
+  const out = messages.map((m, i) => {
+    if (m.role !== "assistant" || keys[i] === now || !Array.isArray(m.content)) return m
+    const kept = (m.content as Array<{ type: string }>).filter((b) => b.type !== "thinking" && b.type !== "redacted_thinking")
+    if (kept.length === (m.content as Array<unknown>).length) return m
+    stripped += (m.content as Array<unknown>).length - kept.length
+    return { ...m, content: kept }
+  })
+  return { messages: out, stripped }
+}
+
 const nameOf = (head: Head, id: string) => head.participants.find((p) => p.id === id)?.display_name ?? id
 
 /**

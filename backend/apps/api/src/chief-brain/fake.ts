@@ -153,10 +153,8 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
   // Like Anthropic's API: a signed thinking block of an earlier step is valid only with the same tools list.
   const hash = toolsHash(context);
   if (!compact) {
-    // Only the open turn (assistant messages after the last user message) is checked, as Anthropic does: a
-    // finished turn's thinking stays valid when the tools change before the next user message.
-    const lastUser = messages.map((m) => m.role).lastIndexOf("user");
-    for (const m of messages.slice(lastUser + 1)) {
+    // Every replayed signed thinking block is checked against this request's tools list, as the model route does.
+    for (const m of messages) {
       if (m.role !== "assistant" || !Array.isArray(m.content)) continue;
       for (const [i, b] of (m.content as Array<{ type: string; thinkingSignature?: string }>).entries()) {
         if (b.type === "thinking" && b.thinkingSignature?.startsWith("sig:") && b.thinkingSignature !== `sig:${hash}`)
@@ -213,7 +211,11 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
     }
   }
   const reply = fauxText(`[${model.id}] reply to: ${text.slice(0, 200)}`);
-  return fauxAssistantMessage(text.includes("THINK") ? [fauxThinking("pondering the request"), reply] : [reply]);
+  if (!text.includes("THINK")) return fauxAssistantMessage([reply]);
+  // Every thinking block the fake makes is signed for the tools list of its request.
+  const pondering = fauxThinking("pondering the request");
+  (pondering as { thinkingSignature?: string }).thinkingSignature = `sig:${hash}`;
+  return fauxAssistantMessage([pondering, reply]);
 };
 
 let core: ReturnType<typeof createFauxCore> | undefined;
