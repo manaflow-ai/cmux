@@ -123,7 +123,8 @@ def main():
         if made.returncode:
             sys.exit(f"create failed: {made.stderr[-300:]}")
         reply = json.loads(made.stdout or "{}")
-        ws_id = reply.get("id") or reply.get("workspace_id") or (reply.get("workspace") or {}).get("id")
+        value = reply.get("value") or {}
+        ws_id = value.get("workspace_id") or reply.get("workspace_id") or reply.get("id")
         wait(lambda: name in titles(), 15)
         if not ws_id:
             sys.exit(f"no workspace id in the create reply: {made.stdout[:300]}")
