@@ -202,14 +202,14 @@ extension TerminalController {
             }
 
         case "reload", "reload_tab":
-            guard let browserPanel = workspace.browserPanel(for: panelId) else {
+            guard let browserPanel = workspace.browserPanelForAutomation(panelId) else {
                 return .reloadNotBrowser
             }
             browserPanel.reload(dialogOwner: .automation)
             return finish(.none)
 
         case "duplicate", "duplicate_tab":
-            guard let browserPanel = workspace.browserPanel(for: panelId) else {
+            guard let browserPanel = workspace.browserPanelForAutomation(panelId) else {
                 return .duplicateNotBrowser
             }
             guard BrowserAvailabilitySettings.isEnabled() else {
@@ -241,7 +241,8 @@ extension TerminalController {
                 focus: focus,
                 inheritWorkingDirectoryFallback: true,
                 workingDirectoryFallbackSourcePanelId: panelId,
-                allowTextBoxFocusDefault: false
+                allowTextBoxFocusDefault: false,
+                inheritStartupWork: false
             ) {
             case .created(let newPanel):
                 _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)

@@ -87,6 +87,9 @@ public struct HTTPBillingAPI: BillingAPI {
         request.setValue("Bearer \(pair.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(pair.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
         request.setValue(bundleID, forHTTPHeaderField: "x-cmux-bundle-id")
+        // This client offers a Monthly/Yearly choice, so the server may list
+        // yearly products; older clients do not send it and get monthly only.
+        request.setValue("monthly,yearly", forHTTPHeaderField: "x-cmux-billing-periods")
         if let environment = await storeKitEnvironment() {
             request.setValue(environment, forHTTPHeaderField: "x-cmux-storekit-environment")
         }

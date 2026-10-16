@@ -161,13 +161,10 @@ export function createHexclaveServerApi(config: HexclaveServerApiConfig): Hexcla
     return fetchImpl(url, {
       method: "GET",
       headers: {
-        // Current Hexclave names plus the Stack aliases, as in app/lib/stack.ts.
+        // Hexclave names only, as in app/lib/stack.ts.
         "x-hexclave-access-type": "server",
         "x-hexclave-project-id": config.projectId,
         "x-hexclave-secret-server-key": config.secretServerKey,
-        "x-stack-access-type": "server",
-        "x-stack-project-id": config.projectId,
-        "x-stack-secret-server-key": config.secretServerKey,
       },
       signal: AbortSignal.timeout(config.timeoutMs ?? 10_000),
       cache: "no-store",

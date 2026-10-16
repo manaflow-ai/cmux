@@ -180,7 +180,7 @@ struct SidebarNewLocalWorkspaceTests {
         #expect(fixture.app.performNewWorkspaceAction(
             tabManager: fixture.manager,
             debugSource: "test.context.cmdN",
-            skipConfiguredAction: true
+            localOnly: true
         ))
 
         let created = try #require(fixture.manager.selectedWorkspace)

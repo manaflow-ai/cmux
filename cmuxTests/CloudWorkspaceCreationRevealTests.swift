@@ -269,11 +269,32 @@ struct CloudWorkspaceCreationRevealTests {
                 : app.performNewCloudWorkspaceOnCurrentMachineAction(tabManager: manager, vmID: "a"))
             for await _ in entered.stream { break }
             #expect(SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: manager) != nil)
-            #expect(app.commitMainWindowClose(window))
+            autoreleasepool { #expect(app.commitMainWindowClose(window)) }
         }
-        #expect(closed == nil, "A create in flight must not keep a closed window's manager alive")
+        // The create is still parked on `release`. Let the close's own
+        // autoreleased notifications and deferred main-queue work finish
+        // first, so a manager alive after this has a real owner.
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+        // Name the holder when this fails: the create task, the shared
+        // controller/app state, or something that outlives both.
+        let leakedWhileInFlight = closed != nil
+        let heldByController = closed != nil
+            && TerminalController.shared.activeTabManagerForCallerNotification() === closed
+        let heldAsActive = closed != nil && AppDelegate.shared?.tabManager === closed
         release.continuation.yield(())
         await operations.waitForPendingOperations()
+        let leakedAfterCompletion = closed != nil
+        TerminalController.shared.setActiveTabManager(nil)
+        AppDelegate.shared = previousAppDelegate
+        let leakedAfterSharedReset = closed != nil
+        #expect(
+            !leakedWhileInFlight,
+            Comment(rawValue: "A create in flight must not keep a closed window's manager alive: "
+                + "controller=\(heldByController) active=\(heldAsActive) "
+                + "afterCompletion=\(leakedAfterCompletion) afterSharedReset=\(leakedAfterSharedReset)")
+        )
     }
 
     @Test("Device ⌘N reveals the workspace it selects, unless the user navigated first",

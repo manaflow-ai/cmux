@@ -105,6 +105,16 @@ extension CMUXCLI {
             case codexConfigToml // write hooks = true to config.toml on install, remove on uninstall
         }
 
+        /// Whether `resolvedConfigDir()` comes from a non-empty env override.
+        var resolvesConfigDirFromEnvOverride: Bool {
+            guard configDirResolver == nil,
+                  let envKey = configDirEnvOverride,
+                  let value = ProcessInfo.processInfo.environment[envKey] else {
+                return false
+            }
+            return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+
         /// Resolves the config directory, respecting env override if set.
         func resolvedConfigDir() -> String {
             if let configDirResolver {

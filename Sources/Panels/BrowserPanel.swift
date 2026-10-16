@@ -2141,6 +2141,10 @@ final class BrowserPanel: Panel, ObservableObject {
     var browserAutomationUserScripts: [WKUserScript] = []
     var browserAutomationInitScriptCount = 0
     var browserAutomationStyleScriptCount = 0
+    /// Geolocation and offline emulation set by `browser.geolocation.set` /
+    /// `browser.offline.set`; follows the tab across web view replacements
+    /// the same way automation init scripts do.
+    let browserEmulation = BrowserWebKitEmulationController()
     var webViewDidRequestClose: (() -> Void)?
     var openAppLinkInBrowserSplit: ((URL) -> Bool)?
     var mobileBrowserStreamSignalHandlers: [UUID: (MobileBrowserPanelNativeSignal) -> Void] = [:]
@@ -8602,27 +8606,6 @@ extension BrowserPanel {
             webView: webView,
             source: source
         )
-    }
-}
-
-extension WKWebView {
-    func cmuxInspectorObject() -> NSObject? {
-        let selector = NSSelectorFromString("_inspector")
-        guard responds(to: selector),
-              let inspector = perform(selector)?.takeUnretainedValue() as? NSObject else {
-            return nil
-        }
-        return inspector
-    }
-
-    func cmuxInspectorFrontendWebView() -> WKWebView? {
-        guard let inspector = cmuxInspectorObject() else { return nil }
-        let selector = NSSelectorFromString("inspectorWebView")
-        guard inspector.responds(to: selector),
-              let inspectorWebView = inspector.perform(selector)?.takeUnretainedValue() as? WKWebView else {
-            return nil
-        }
-        return inspectorWebView
     }
 }
 

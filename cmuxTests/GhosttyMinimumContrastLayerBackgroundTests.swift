@@ -42,7 +42,7 @@ struct GhosttyMinimumContrastLayerBackgroundTests {
             ghostty_config_finalize(config)
             defer { ghostty_config_free(config) }
 
-            let terminal = try ScrollbackTestTerminal()
+            let terminal = try ScrollbackTestTerminal(pinsOnScreenOcclusion: true)
             defer { terminal.close() }
             try await terminal.launch()
             let runtime = try #require(terminal.surface.surface)

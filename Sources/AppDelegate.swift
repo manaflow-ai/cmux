@@ -1,5 +1,6 @@
 import CmuxCloud
 import CmuxCloudBannerCore
+import CmuxProductAnalytics
 import CmuxCloudTui
 import CmuxComputerUse
 import CmuxCloudMachines
@@ -847,7 +848,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private(set) var cloudMachinePinStore: CloudMachinePinStore?
     /// "Introducing cmux cloud", shown once from the first main window.
     private(set) lazy var cloudWelcomeWindowController = CloudWelcomeWindowController()
-    private(set) lazy var cloudActivationCoordinator = CloudActivationCoordinator(prepare: { try await CmuxTuiSurfaceProviderRegistry.shared.prepareForActivation() }, cleanup: { await CmuxTuiSurfaceProviderRegistry.shared.cancelActivationPreparation() })
+    private(set) lazy var cloudActivationCoordinator = CloudActivationCoordinator(prepare: { try await CmuxTuiSurfaceProviderRegistry.shared.prepareForActivation() }, cleanup: { await CmuxTuiSurfaceProviderRegistry.shared.cancelActivationPreparation() }, analytics: .app)
     var cloudWorkspaceCoordinator: CloudWorkspaceCoordinator?
     var cloudWorkspaceOperationController: CloudWorkspaceOperationController?
     var deviceWorkspaceCreationCoordinator: DeviceWorkspaceCreationCoordinator?
@@ -1914,6 +1915,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             PostHogAnalytics.shared.startIfNeeded()
             StartupBreadcrumbLog.append("appDelegate.didFinish.posthog.complete")
         }
+        startProductAnalytics()
         // `DisableTelemetry` (MDM) also stops the remote feature-flag fetch: it
         // carries the same anonymous install id, and flags then use their
         // built-in defaults.
@@ -2164,6 +2166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "tabCount": tabManager?.tabs.count ?? 0
         ])
         if TelemetrySettings.enabledForCurrentLaunch && !isRunningUnderXCTestCached {
+            refreshProductAnalyticsActivityContext()
             PostHogAnalytics.shared.trackActive(reason: "didBecomeActive")
         }
         // A Mac that slept through the reply nudge picks parked replies up here.
@@ -2676,6 +2679,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let cloudUploader = CloudTelemetryUploader(
             auth: auth.coordinator, baseURL: CloudTelemetryUploader.telemetryBaseURL, client: .current()
         )
+        cloudUploader.attach(to: auth.coordinator.rateLimitTelemetry)
+        Task { await cloudUploader.resumePending() }
         let cloudOperations = CloudOperationRecorder(uploader: cloudUploader, identity: { [weak coordinator = auth.coordinator] in
             coordinator?.authenticatedSessionIdentity
         })
@@ -8551,18 +8556,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         event: NSEvent? = nil,
         placementOverride: WorkspacePlacement? = nil,
         debugSource: String = "newWorkspace",
-        skipConfiguredAction: Bool = false
+        skipConfiguredAction: Bool = false,
+        localOnly: Bool = false
     ) -> Bool {
         // This is the context-following path used by the ordinary New Workspace
         // controls. On an active remote-tmux mirror it follows the routing toggle;
         // `performNewLocalWorkspaceAction` is the explicit local escape hatch.
+        //
+        // `localOnly` is Cmd+N and the controls that share it: they never start
+        // a device or Cloud workspace from the selection, but a custom
+        // `ui.newWorkspace.action` is still what they create. `skipConfiguredAction`
+        // is the built-in action picked by name, which must not run the
+        // configured one in its place.
+        let staysLocal = skipConfiguredAction || localOnly
         let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
         let manager = context?.tabManager ?? preferredTabManager
-        if !skipConfiguredAction, let manager, let machine = manager.selectedWorkspace?.deviceMachineForNewWorkspace {
+        if !staysLocal, let manager, let machine = manager.selectedWorkspace?.deviceMachineForNewWorkspace {
             return deviceWorkspaceCreationCoordinator?.start(on: machine, in: manager) ?? false
         }
-        if !skipConfiguredAction, let manager,
+        if !staysLocal, let manager,
            let vmID = manager.selectedWorkspace?.cloudVMID,
            !vmID.isEmpty {
             // Once this intent targets a VM, an unavailable or pending cloud
@@ -8575,8 +8588,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             event: event,
             placementOverride: placementOverride,
             debugSource: debugSource,
-            skipConfiguredAction: skipConfiguredAction,
-            inheritWorkingDirectoryOverride: skipConfiguredAction
+            skipConfiguredAction: staysLocal,
+            runsCustomConfiguredAction: localOnly && !skipConfiguredAction,
+            forceLocal: localOnly,
+            inheritWorkingDirectoryOverride: staysLocal
                 ? manager.map { shouldInheritWorkingDirectoryForLocalWorkspace(in: $0) }
                 : nil
         )
@@ -8851,9 +8866,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         focusInitialBrowserAddressBarOnCreate: Bool = true,
         createdWorkspaceHandler: ((Workspace) -> Void)? = nil,
         skipConfiguredAction: Bool = false,
+        runsCustomConfiguredAction: Bool = false,
         forceLocal: Bool = false,
         inheritWorkingDirectoryOverride: Bool? = nil
     ) -> Bool {
+        // `runsCustomConfiguredAction` narrows `skipConfiguredAction`: the
+        // caller keeps its own plain workspace when the configured action is
+        // the built-in default, and yields only to a custom one.
+        let runsConfiguredAction: (MainWindowContext?) -> Bool = { context in
+            guard skipConfiguredAction else { return true }
+            guard runsCustomConfiguredAction,
+                  let action = context?.cmuxConfigStore?.resolvedNewWorkspaceAction() else { return false }
+            if case .builtIn(.newWorkspace) = action.action { return false }
+            return true
+        }
         let preferredContext = preferredTabManager.flatMap { mainWindowContext(for: $0) }
         let livePreferredContext: MainWindowContext? = {
             guard let preferredContext else { return nil }
@@ -8879,7 +8905,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let initialWorkspace = context.tabManager.selectedWorkspace
                 switch initialSurface {
                 case .terminal:
-                    if !skipConfiguredAction {
+                    if runsConfiguredAction(context) {
                         _ = executeConfiguredNewWorkspaceActionIfAvailable(
                             in: context,
                             debugSource: debugSource,
@@ -8928,7 +8954,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // workspace layout) keeps its existing meaning on a selected mirror.
         // The built-in `.newWorkspace` action is the default and deliberately
         // continues through the remote route below.
-        let configuredNewWorkspaceAction = initialSurface == .terminal && !skipConfiguredAction
+        let configuredNewWorkspaceAction = initialSurface == .terminal && runsConfiguredAction(context)
             ? context?.cmuxConfigStore?.resolvedNewWorkspaceAction()
             : nil
         let hasCustomConfiguredNewWorkspaceAction: Bool = {
@@ -15710,7 +15736,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             performNewWorkspaceAction(
                 event: event,
                 debugSource: "shortcut.cmdN",
-                skipConfiguredAction: true
+                localOnly: true
             )
             return true
         }
@@ -15900,8 +15926,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Otherwise allow the event to continue through the responder chain.
             return handled
         }
-
-        if handleAgentTurnNavigationShortcut(event: event) { return true }
 
         if matchConfiguredShortcut(event: event, action: .focusTextBoxInput) {
             if performFocusedDockShortcut(
@@ -20148,6 +20172,10 @@ private extension NSWindow {
         let firstResponderWebView = self.firstResponder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
+        // Web Inspector and other web views' responders are not page content.
+        let firstResponderIsPageContent = firstResponderWebView.map {
+            !$0.cmuxResponderBelongsToOtherWebContent(self.firstResponder)
+        } ?? false
         let firstResponderHasMarkedText = shortcutResponderHasMarkedText(self.firstResponder)
         let firstResponderIsCommandPaletteFieldEditor = Self.cmuxCommandPaletteOwnsFieldEditor(
             self.firstResponder as? NSTextView,
@@ -20385,15 +20413,24 @@ private extension NSWindow {
             return true
         }
 
-        // Web forms rely on Return/Enter flowing through keyDown. Route it directly to the first responder.
+        // WebKit's focused responder can be an internal view or field editor.
+        // The owning web view must receive Return so its native form handling runs.
         if shouldDispatchBrowserReturnViaFirstResponderKeyDown(
             keyCode: event.keyCode,
-            firstResponderIsBrowser: firstResponderWebView != nil,
+            firstResponderIsBrowser: firstResponderIsPageContent,
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
+            // Consume only our exact synchronous replay, preventing the alert beep
+            // without swallowing a different event or redispatching into WebKit.
+            if cmuxIsForceDispatchingKeyDown(event) { return true }
             if browserWebKitKeyDownReentry { return false }
-            guard let target = self.firstResponder else { return false }
+            guard let target = firstResponderWebView else { return false }
+            if event.modifierFlags.contains(.command),
+               AppDelegate.shared?.isBrowserFocusModeActive(for: target) != true,
+               AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
+                return true
+            }
             if cmuxForceDispatchKeyDownOnce(event, to: target, reason: "browser Return/Enter") {
                 return true
             }
@@ -20458,6 +20495,7 @@ private extension NSWindow {
         }
 
         if let firstResponderWebView,
+           firstResponderIsPageContent,
            AppDelegate.shared?.isBrowserFocusModeActive(for: firstResponderWebView) == true {
             let handled = firstResponderWebView.performKeyEquivalent(with: event)
 #if DEBUG

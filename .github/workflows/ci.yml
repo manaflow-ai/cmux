@@ -61,6 +61,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       macos: ${{ steps.detect.outputs.macos }}
+      # The last green head a merge-only head was routed from; empty otherwise.
+      delta_base_sha: ${{ steps.delta.outputs.base_sha }}
       cli: ${{ steps.detect.outputs.cli }}
       claude_wrapper: ${{ steps.standalone.outputs.claude_wrapper }}
       browser: ${{ steps.standalone.outputs.browser }}
@@ -1657,10 +1659,12 @@ jobs:
     # the ZIP to the default-branch publisher. That publisher writes the
     # private R2 object and keeps one short-lived signed link on the PR while
     # the fleet controller is tailnet-only.
+    # A head that only merged main is routed from its last green head, so its
+    # macOS area reads false; the label still asks for a build of this head.
     # <!-- cmux:dogfood-build -->
     name: "Dogfood build #${{ github.event.pull_request.number }}"
     needs: [changes, static-preflight]
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'feat-cmux-next' && contains(github.event.pull_request.labels.*.name, 'dev-build') && github.event.action != 'unlabeled' && (github.event.action != 'labeled' || github.event.label.name == 'dev-build') && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && needs.changes.outputs.macos != 'false' }}
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'feat-cmux-next' && contains(github.event.pull_request.labels.*.name, 'dev-build') && github.event.action != 'unlabeled' && (github.event.action != 'labeled' || github.event.label.name == 'dev-build') && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.delta_base_sha != '') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     # This job is intentionally outside ci-status, so a build or publication

@@ -1,3 +1,4 @@
+import CmuxAgentJournal
 import CmuxSidebar
 import Foundation
 
@@ -11,8 +12,10 @@ extension Workspace {
         // reported program status have nothing to drop. A clear has nothing to remove either.
         if report.event == .promptStart || report.state == .clear,
            programStatusStoresByPanelId[panelId] == nil { return }
+        let previousStore = programStatusStoresByPanelId[panelId] ?? ProgramStatusRecordStore()
         let updatedStore = updateProgramStatusStore(panelId: panelId) { $0.apply(report) }
         guard let store = updatedStore else { return }
+        scheduleAgentTurnSettlement(panelId: panelId, previous: previousStore, current: store)
         CmuxEventBus.shared.publishProgramStatusChanged(
             workspaceId: id,
             surfaceId: panelId,
@@ -23,8 +26,10 @@ extension Workspace {
 
     /// Removes working and blocked records after prompt-idle or child exit.
     func dropTransientProgramStatus(panelId: UUID) {
+        let previousStore = programStatusStoresByPanelId[panelId] ?? ProgramStatusRecordStore()
         let updatedStore = updateProgramStatusStore(panelId: panelId, createIfMissing: false) { $0.dropTransient() }
         guard let store = updatedStore else { return }
+        scheduleAgentTurnSettlement(panelId: panelId, previous: previousStore, current: store)
         CmuxEventBus.shared.publishProgramStatusChanged(
             workspaceId: id,
             surfaceId: panelId,
@@ -191,5 +196,107 @@ extension Workspace {
         let text = String(String.UnicodeScalarView(scalars)).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
         return String(text.prefix(512))
+    }
+
+    /// How long an agent's own end-of-activity report waits for the turn's
+    /// Stop hook before the pane settles without it. A Stop that is merely
+    /// late keeps its notification and summary; one that never comes (an Esc
+    /// interrupt, a timed-out or failed hook) no longer leaves "Running".
+    static let agentTurnSettlementGrace: Duration = .seconds(3)
+
+    /// The bounded wait before a settlement re-checks the pane. Tests replace
+    /// it to run the grace without real time.
+    nonisolated(unsafe) static var agentTurnSettlementWait: @Sendable (Duration) async throws -> Void = { duration in
+        try await Task.sleep(for: duration)
+    }
+
+    /// Settles a pane whose agent reported the end of its activity over
+    /// OSC 7501 while its hook-driven lifecycle still says running.
+    ///
+    /// Each change for a panel restarts its pending settlement, so the grace
+    /// always runs from the latest edge, and a new working report cancels it.
+    private func scheduleAgentTurnSettlement(
+        panelId: UUID,
+        previous: ProgramStatusRecordStore,
+        current: ProgramStatusRecordStore
+    ) {
+        let settlement = ProgramStatusAgentSettlement()
+        for (taskKey, task) in agentTurnSettlementTasks where taskKey.hasPrefix(panelId.uuidString) {
+            let statusKey = String(taskKey.dropFirst(panelId.uuidString.count + 1))
+            if settlement.isActive(statusKey: statusKey, in: current) {
+                task.cancel()
+                agentTurnSettlementTasks.removeValue(forKey: taskKey)
+            }
+        }
+        let endedKeys = settlement.endedActivityStatusKeys(previous: previous, current: current)
+            .filter { agentLifecycleStatesByPanelId[panelId]?[$0] == .running }
+        let edge = Date()
+        for key in endedKeys {
+            let taskKey = "\(panelId.uuidString)|\(key)"
+            agentTurnSettlementTasks[taskKey]?.cancel()
+            agentTurnSettlementTasks[taskKey] = Task { @MainActor [weak self] in
+                do {
+                    try await Self.agentTurnSettlementWait(Self.agentTurnSettlementGrace)
+                } catch {
+                    return
+                }
+                guard let self, !Task.isCancelled else { return }
+                self.agentTurnSettlementTasks.removeValue(forKey: taskKey)
+                self.settleAgentTurnFromProgramStatus(key: key, panelId: panelId, edge: edge)
+            }
+        }
+    }
+
+    /// Re-checks the pane after the grace, then settles it at the time the
+    /// agent's activity ended. Any hook report after that edge wins: a late
+    /// Stop already settled the turn, and a new prompt started another one.
+    func settleAgentTurnFromProgramStatus(key: String, panelId: UUID, edge: Date) {
+        guard panels[panelId] != nil,
+              agentLifecycleStatesByPanelId[panelId]?[key] == .running else { return }
+        // Only a foreground Running row is stale. A Waiting or subagent row
+        // means the turn ended with background work still live.
+        guard let reported = agentStatusEntriesByPanelId[panelId]?[key],
+              reported.workState == .running,
+              reported.timestamp <= edge else { return }
+        let store = programStatusStoresByPanelId[panelId] ?? ProgramStatusRecordStore()
+        guard !ProgramStatusAgentSettlement().isActive(statusKey: key, in: store) else { return }
+        let source = key == "claude_code" ? "claude" : key
+#if DEBUG
+        cmuxDebugLog("agentTurn.settleFromProgramStatus panel=\(panelId.uuidString.prefix(8)) key=\(key)")
+#endif
+        let sessionID = surfaceResumeBindingsByPanelId[panelId].flatMap { binding -> String? in
+            guard binding.isAgentHookBinding,
+                  binding.kind?.lowercased() == source else { return nil }
+            return binding.checkpointId
+        }
+        let draft = sessionID.map { sessionID in
+            AgentJournalEventDraft(
+                kind: .turnCompleted,
+                occurredAtMs: Int64(edge.timeIntervalSince1970 * 1_000),
+                source: source,
+                agentKey: key,
+                sessionId: sessionID,
+                workspaceId: id.uuidString,
+                surfaceId: panelId.uuidString,
+                nativeEvent: "program_status_idle"
+            )
+        }
+        if let draft, draft.validationProblem() == nil {
+            // The journal projects the lifecycle, so it and the reducer agree.
+            AgentJournalLifecycleCenter.shared.enqueueAppend(draft)
+        } else {
+            setAgentLifecycle(key: key, panelId: panelId, lifecycle: .idle)
+        }
+        setStatusEntry(
+            SidebarStatusEntry(
+                key: key,
+                value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
+                icon: "pause.circle.fill",
+                color: "#8E8E93",
+                timestamp: edge
+            ),
+            key: key,
+            panelId: panelId
+        )
     }
 }

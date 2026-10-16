@@ -1967,7 +1967,8 @@ class TerminalController {
              "browser.storage.get", "browser.storage.set", "browser.storage.clear",
              "browser.console.list", "browser.console.clear", "browser.errors.list",
              "browser.state.save", "browser.state.load",
-             "browser.addinitscript", "browser.addscript", "browser.addstyle":
+             "browser.addinitscript", "browser.addscript", "browser.addstyle",
+             "browser.geolocation.set", "browser.offline.set":
             // Keep ref payloads fresh like the main-actor dispatch path does.
             v2MainSync { self.v2RefreshKnownRefs() }
             return v2Result(id: request.id, v2BrowserAutomationCommandOnSocketWorker(method: request.method, params: request.params))
@@ -3630,10 +3631,6 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserTabClose(params: params))
         case "browser.viewport.set":
             return v2Result(id: id, self.v2BrowserViewportSet(params: params))
-        case "browser.geolocation.set":
-            return v2Result(id: id, self.v2BrowserGeolocationSet(params: params))
-        case "browser.offline.set":
-            return v2Result(id: id, self.v2BrowserOfflineSet(params: params))
         case "browser.trace.start":
             return v2Result(id: id, self.v2BrowserTraceStart(params: params))
         case "browser.trace.stop":
@@ -6974,14 +6971,14 @@ class TerminalController {
            !v2HasNonNullParam(params, "surface_id"),
            !v2HasNonNullParam(params, "tab_id"),
            !v2HasNonNullParam(params, "pane_id"),
-           surfaceId.flatMap({ ws.browserPanel(for: $0) }) == nil {
-            let browsers = ws.panels.values.compactMap { $0 as? BrowserPanel }
-            if browsers.count == 1 { surfaceId = browsers[0].id }
+           !(surfaceId.flatMap({ ws.panels[$0] }).map(Self.v2IsBrowserTab) ?? false) {
+            let browserIDs = ws.panels.values.filter(Self.v2IsBrowserTab).map(\.id)
+            if browserIDs.count == 1 { surfaceId = browserIDs[0] }
         }
         guard let surfaceId else {
             return (nil, .err(code: "not_found", message: "No focused browser surface", data: nil))
         }
-        guard let browserPanel = ws.browserPanel(for: surfaceId) else {
+        guard let browserPanel = ws.browserPanelForAutomation(surfaceId) else {
             return (nil, .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString]))
         }
         return (
@@ -7002,15 +6999,20 @@ class TerminalController {
         panels: [any Panel],
         paneIdForPanel: (UUID) -> PaneID?
     ) -> [String: Any] {
-        let browserPanels = panels.compactMap { $0 as? BrowserPanel }
+        // A browser that session restore kept as a placeholder is still a browser
+        // tab: list it with its restored URL, as `tree` does.
+        let browserPanels = panels.filter(Self.v2IsBrowserTab)
         let tabs: [[String: Any]] = browserPanels.enumerated().map { index, panel in
             let paneId = paneIdForPanel(panel.id)
+            let url = (panel as? BrowserPanel)?.currentURL?.absoluteString
+                ?? (panel as? DeferredBrowserPanel)?.sessionPanelSnapshot.browser?.urlString
+                ?? ""
             return [
                 "id": panel.id.uuidString,
                 "ref": v2Ref(kind: .surface, uuid: panel.id),
                 "index": index,
                 "title": panel.displayTitle,
-                "url": panel.currentURL?.absoluteString ?? "",
+                "url": url,
                 "focused": panel.id == focusedPanelId,
                 "pane_id": v2OrNull(paneId?.id.uuidString),
                 "pane_ref": v2Ref(kind: .pane, uuid: paneId?.id)
@@ -9546,17 +9548,22 @@ class TerminalController {
         // v2HasNonNullParam for presence so an empty string is not mistaken for absent.
         if v2HasNonNullParam(params, "surface_id") {
             guard let sid = v2UUID(params, "surface_id"),
-                  let panel = workspace.browserPanel(for: sid) else { return nil }
+                  let panel = workspace.browserPanelForAutomation(sid) else { return nil }
             return (panel, sid)
         }
-        if let focusedId = workspace.focusedPanelId, let panel = workspace.browserPanel(for: focusedId) {
+        if let focusedId = workspace.focusedPanelId, let panel = workspace.browserPanelForAutomation(focusedId) {
             return (panel, focusedId)
         }
-        let browsers: [(UUID, BrowserPanel)] = workspace.panels.values.compactMap { panel in
-            (panel as? BrowserPanel).map { (panel.id, $0) }
+        let browserIDs = workspace.panels.values.filter(Self.v2IsBrowserTab).map(\.id)
+        if browserIDs.count == 1, let panel = workspace.browserPanelForAutomation(browserIDs[0]) {
+            return (panel, browserIDs[0])
         }
-        if browsers.count == 1 { return (browsers[0].1, browsers[0].0) }
         return nil
+    }
+
+    /// A live browser or a browser restore placeholder: what `tree` lists as a browser.
+    nonisolated static func v2IsBrowserTab(_ panel: any Panel) -> Bool {
+        panel is BrowserPanel || panel is DeferredBrowserPanel
     }
 
     /// Builds the standard workspace/surface/window identity payload for a browser action.
@@ -10532,6 +10539,8 @@ class TerminalController {
         case "browser.addinitscript": return v2BrowserAddInitScript(params: params)
         case "browser.addscript": return v2BrowserAddScript(params: params)
         case "browser.addstyle": return v2BrowserAddStyle(params: params)
+        case "browser.geolocation.set": return v2BrowserGeolocationSet(params: params)
+        case "browser.offline.set": return v2BrowserOfflineSet(params: params)
         default:
             return .err(code: "invalid_dispatch", message: "Unhandled socket-worker browser method \(method)", data: nil)
         }
@@ -11382,7 +11391,7 @@ class TerminalController {
                     return
                 }
                 let browserIds = orderedPanels(in: dock).compactMap { panel -> UUID? in
-                    (panel as? BrowserPanel)?.id
+                    Self.v2IsBrowserTab(panel) ? panel.id : nil
                 }
                 let targetId: UUID? = {
                     if let explicit = v2UUID(params, "target_surface_id") ?? v2UUID(params, "tab_id") {
@@ -11427,7 +11436,7 @@ class TerminalController {
             }
 
             let browserIds = orderedPanels(in: ws).compactMap { panel -> UUID? in
-                (panel as? BrowserPanel)?.id
+                Self.v2IsBrowserTab(panel) ? panel.id : nil
             }
 
             let targetId: UUID? = {
@@ -11485,7 +11494,7 @@ class TerminalController {
                     return
                 }
                 let browserIds = orderedPanels(in: dock).compactMap { panel -> UUID? in
-                    (panel as? BrowserPanel)?.id
+                    Self.v2IsBrowserTab(panel) ? panel.id : nil
                 }
                 guard !browserIds.isEmpty else {
                     result = .err(code: "not_found", message: "No browser tabs", data: nil)
@@ -11533,7 +11542,7 @@ class TerminalController {
             }
 
             let browserIds = orderedPanels(in: ws).compactMap { panel -> UUID? in
-                (panel as? BrowserPanel)?.id
+                Self.v2IsBrowserTab(panel) ? panel.id : nil
             }
             guard !browserIds.isEmpty else {
                 result = .err(code: "not_found", message: "No browser tabs", data: nil)
@@ -11903,14 +11912,6 @@ class TerminalController {
 
     private func v2BrowserViewportSet(params: [String: Any]) -> V2CallResult {
         v2BrowserViewportSetWKWebView(params: params)
-    }
-
-    private func v2BrowserGeolocationSet(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.geolocation.set", details: "WKWebView does not expose per-tab geolocation spoofing hooks equivalent to Playwright/CDP")
-    }
-
-    private func v2BrowserOfflineSet(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.offline.set", details: "WKWebView does not expose reliable per-tab offline emulation")
     }
 
     private func v2BrowserTraceStart(params _: [String: Any]) -> V2CallResult {
@@ -13502,7 +13503,8 @@ class TerminalController {
                 from: targetSurface,
                 orientation: direction.orientation,
                 insertFirst: direction.insertFirst,
-                allowTextBoxFocusDefault: false
+                allowTextBoxFocusDefault: false,
+                inheritStartupWork: false
             ) {
             case .created(let panel):
                 tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
@@ -16073,7 +16075,8 @@ class TerminalController {
             autoRefreshMetadata: false,
             preserveFocusWhenUnfocused: false,
             inheritWorkingDirectoryFallback: true,
-            allowTextBoxFocusDefault: false
+            allowTextBoxFocusDefault: false,
+            inheritStartupWork: false
         ) else {
             return .err(code: "internal_error", message: "Failed to create terminal", data: nil)
         }
