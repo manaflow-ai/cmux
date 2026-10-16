@@ -44,7 +44,7 @@ extension BrowserEmulationOverrides {
       const key = Symbol.for('\#(pageScriptStateKey)');
       let state = globalThis[key];
       if (!state) {
-        state = { geolocation: null, offline: false, watches: new Map(), nextWatchID: 1000000000, deliver: null };
+        state = { geolocation: null, offline: false, watches: new Map(), nextWatchID: 1000000000, deliver: null, nativeFetch: null };
         Object.defineProperty(globalThis, key, { value: state, configurable: false, enumerable: false, writable: false });
 
         const makePosition = (g) => {
@@ -104,6 +104,21 @@ extension BrowserEmulationOverrides {
             get: function () { return state.offline ? false : nativeOnLine.call(this); },
             enumerable: onLine.enumerable, configurable: true,
           });
+        }
+
+        // Some Chromium builds acknowledge Network.setBlockedURLs but leave
+        // fetch requests alive. Keep the page-level contract deterministic by
+        // rejecting fetches while offline; WebKit's content rule still owns
+        // the actual network block there. The native function is captured once
+        // so repeated emulation updates never wrap it again.
+        if (typeof globalThis.fetch === 'function') {
+          state.nativeFetch = globalThis.fetch.bind(globalThis);
+          globalThis.fetch = function () {
+            if (state.offline) {
+              return Promise.reject(new TypeError('Failed to fetch'));
+            }
+            return state.nativeFetch.apply(this, arguments);
+          };
         }
       }
 
