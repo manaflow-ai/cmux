@@ -17,6 +17,7 @@ pub mod agent;
 pub mod config;
 pub mod exec;
 pub mod fsops;
+pub mod gateway;
 pub mod link;
 pub mod pair;
 pub mod patch;

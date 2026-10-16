@@ -4,6 +4,8 @@ import { Effect, Layer } from "effect"
 import type { Env } from "../env.ts"
 import { apiOrigin, handStub, listHands, mintPairCode, resolveHand } from "../hand-api.ts"
 import { createSandbox } from "../hand-sandbox.ts"
+import { payerTeam } from "../credits.ts"
+import { mintRunToken } from "../model-gateway/run-token.ts"
 import { HandsError, type AgentEvent, type HandCaller, type HandReply } from "../hand-wire.ts"
 import { Hands } from "./contract.ts"
 import type { StepPatch } from "./brain-runs.ts"
@@ -29,6 +31,11 @@ export const handsLayer = (env: Env, caller: HandCaller) =>
     Hands.of({
       list: () => rpc(() => listHands(env, caller)),
       pairCode: (name, profile) => rpc(() => mintPairCode(env, caller, name, apiOrigin(env), profile)),
+      runToken: (run) =>
+        Effect.tryPromise({
+          try: () => mintRunToken(env, { team: payerTeam(caller.user), chief: caller.agent ?? "", owner: caller.user, run }),
+          catch: (e) => new HandsError("hand.gateway_unavailable", e instanceof Error ? e.message : String(e))
+        }),
       newSandbox: (name) => rpc(() => createSandbox(env, caller, name, apiOrigin(env))),
       resolve: (hand) => rpc(() => resolveHand(env, caller, hand)),
       call: (hand, action, params, timeoutMs) => rpc(() => handStub(env, hand).call(caller, action, params, timeoutMs)),
@@ -179,7 +186,11 @@ export const agentProgram = (a: AgentArgsT, report: HandsReporter, callId: strin
     const budget = Math.min(Math.max(a.wait_seconds ?? 120, 0), 600) * 1000
     const harness = a.harness ?? "agent"
     if (a.action === "start") {
-      const started = (yield* hands.call(hand, "agent.start", { harness: yield* need(a.harness, "harness"), cwd: yield* need(a.cwd, "cwd"), prompt: yield* need(a.prompt, "prompt"), model: a.model, effort: a.effort }, 60_000)) as { session: string }
+      const harnessName = yield* need(a.harness, "harness")
+      // Claude reaches models through the Cloud gateway with a token for this run only (never a raw key).
+      const run = `${callId}`.replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 128)
+      const model_route = harnessName === "claude" ? { kind: "anthropic", ...(yield* hands.runToken(run)) } : undefined
+      const started = (yield* hands.call(hand, "agent.start", { harness: harnessName, cwd: yield* need(a.cwd, "cwd"), prompt: yield* need(a.prompt, "prompt"), model: a.model, effort: a.effort, model_route }, 60_000)) as { session: string }
       if (budget === 0) return started
       return yield* followTurn(hand, handName, harness, started.session, 0, budget, report, callId)
     }

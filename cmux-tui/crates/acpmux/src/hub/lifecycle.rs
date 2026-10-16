@@ -27,6 +27,7 @@ impl Hub {
             env: session_env,
             workspace_id,
             keep_harness_mode,
+            route,
         } = req;
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
@@ -128,7 +129,8 @@ impl Hub {
         // its id; `ensure_child` then takes it instead of starting cold.
         // A pooled harness started without this session's env: never claimed.
         let pooled = match &adopt {
-            None if meta.session_env.is_empty() => {
+            // A pooled harness was started without this chat's route: never claimed.
+            None if meta.session_env.is_empty() && route.is_none() => {
                 self.pool_claim(&meta, &profile, &defaults.env).await
             }
             _ => None,
@@ -138,6 +140,16 @@ impl Hub {
         let _claim = pooled.as_ref().map(|id| self.pool_claim_guard(id.clone()));
         let id = pooled.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         meta.id = id.clone();
+        // The chat's route is bound before its harness starts, so its first
+        // spawn already runs on it (route_switch.rs reads the binding).
+        if let Some(route_id) = &route {
+            let (dir, state) = crate::routes::places(&*self.config.read().await);
+            crate::routes::find(dir.as_deref(), route_id).map_err(|e| {
+                RpcError::invalid_params(format!("route {route_id}: {}", e.message()))
+            })?;
+            crate::routes::set_binding(&state, &format!("chat:{id}"), Some(route_id))
+                .map_err(|e| RpcError::invalid_params(e.message().to_owned()))?;
+        }
         // Pick or check the name and insert under one lock, so concurrent
         // creations can never publish the same name twice.
         let session = {

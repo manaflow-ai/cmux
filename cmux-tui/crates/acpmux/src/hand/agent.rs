@@ -15,6 +15,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
+pub use super::gateway::ModelRoute;
+
 pub const HARNESSES: &[&str] = &["claude", "codex", "opencode"];
 /// Text is sent once this much has gathered, or at the next non-text event.
 const TEXT_FLUSH: usize = 2048;
@@ -63,8 +65,11 @@ impl Agents {
             })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn start(
         &self,
+        api: &str,
+        model_route: Option<ModelRoute>,
         policy: &str,
         harness: &str,
         cwd: PathBuf,
@@ -89,6 +94,23 @@ impl Agents {
             .await
             .map_err(|e| HandError::new("agent.daemon", format!("{e:#}")))?;
         let mut meta = json!({ "harness": harness, "policy": policy });
+        // A per-run model route: this chat talks to the Cloud's model gateway
+        // with a short-lived token (gateway.rs); the route is bound before the
+        // harness starts and removed with the session.
+        let route = match &model_route {
+            Some(r) => {
+                if harness != "claude" {
+                    return Err(HandError::new(
+                        "agent.route_harness",
+                        format!("a gateway route serves claude, not {harness}"),
+                    ));
+                }
+                let id = super::gateway::prepare(&client, api, r).await?;
+                meta["route"] = json!(id);
+                Some(id)
+            }
+            None => None,
+        };
         if let Some(m) = model {
             meta["model"] = json!(m);
         }
@@ -100,8 +122,16 @@ impl Agents {
                 method::SESSION_NEW,
                 json!({ "cwd": cwd, "mcpServers": [], "_meta": { "acpmux": meta } }),
             )
-            .await
-            .map_err(|e| HandError::new("agent.start_failed", format!("{e:#}")))?;
+            .await;
+        let created = match created {
+            Ok(c) => c,
+            Err(e) => {
+                if let Some(id) = &route {
+                    super::gateway::remove(&client, id).await;
+                }
+                return Err(HandError::new("agent.start_failed", format!("{e:#}")));
+            }
+        };
         let session = created
             .get("sessionId")
             .and_then(Value::as_str)
@@ -125,6 +155,7 @@ impl Agents {
         let backlog: Vec<Value> =
             attached.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
         let agents = self.clone();
+        let route_client = client.clone();
         tokio::spawn(async move {
             let mut text = TextBuffer::default();
             for ev in backlog {
@@ -145,6 +176,9 @@ impl Agents {
             }
             text.flush(&sid, None, &sink).await;
             agents.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&sid);
+            if let Some(id) = &route {
+                super::gateway::remove(&route_client, id).await;
+            }
         });
         let prompt_id = self.prompt(&session, prompt)?;
         Ok(json!({ "session": session, "harness": harness, "cwd": cwd, "prompt_id": prompt_id }))

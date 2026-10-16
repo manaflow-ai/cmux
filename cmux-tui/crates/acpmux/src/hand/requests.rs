@@ -160,8 +160,15 @@ where
             exec::run(&argv, &path, opt_u(p, "timeout_ms")).await
         }
         "agent.start" => {
+            let model_route = p
+                .get("model_route")
+                .filter(|v| !v.is_null())
+                .map(super::gateway::parse)
+                .transpose()?;
             ctx.agents
                 .start(
+                    &ctx.cfg.api,
+                    model_route,
                     &ctx.cfg.agent_policy,
                     s(p, "harness")?,
                     path,
