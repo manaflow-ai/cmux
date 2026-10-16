@@ -33,6 +33,9 @@ final class ScreenContentView: NSView {
     /// changes size keeps one host frame (`SplitMotion.heldFrame`), so its terminal or page lays
     /// out once, and is clipped to the frame the spring presents.
     private var heldFrames: [PaneID: CGRect] = [:]
+    /// Capture a prototype's token when the gesture begins, so toggling it never retimes a motion in flight.
+    private var frameSpring: MotionSpring = .move
+    private let paneMotionVariant: () -> PaneMotionVariant
     /// A divider released with this pointer velocity (pt/s along its axis): the next layout's
     /// spring starts from it (`SplitMotion.seed`).
     var releasedDivider: (kind: DividerHandleView.Kind, velocity: CGFloat, time: CFTimeInterval)?
@@ -64,10 +67,12 @@ final class ScreenContentView: NSView {
     var scrollbarOffset: CGFloat?
     var scrollbarFlash = false
 
-    init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext) {
+    init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext,
+         paneMotionVariant: @escaping () -> PaneMotionVariant = { LayoutTunables.paneMotionVariant.value }) {
         self.screenID = screenID
         self.layout = layout
         self.context = context
+        self.paneMotionVariant = paneMotionVariant
         self.baseGeometry = ScreenGeometry.compute(layout, viewport: .zero, style: context.style)
         self.geometry = baseGeometry
         super.init(frame: .zero)
@@ -143,12 +148,20 @@ final class ScreenContentView: NSView {
         let revealing = animate && structural && unzooming
         // A zoom: the other panes fade out under the zoomed one (`PaneZoomMotion`), rather than leaving a hole.
         let covering = animate && structural && zooming
-        if structural { zoomMotion.begin(covering ? baseGeometry.panes.keys.first : revealing ? paneFrames.keys.first { baseGeometry.panes[$0] != nil } : nil, zooming: covering, frames: paneFrames, to: baseGeometry) }
+        if structural {
+            zoomMotion.begin(covering ? baseGeometry.panes.keys.first : revealing ? paneFrames.keys.first { baseGeometry.panes[$0] != nil } : nil,
+                             zooming: covering, frames: paneFrames, to: baseGeometry, variant: paneMotionVariant())
+        }
         // A split still springing when the next structural update lands (the daemon's echo of the
         // split moves the tab into the new pane ~75 ms in) keeps springing from where it shows,
         // with its velocity, instead of snapping to the end (hq-1d: Cmd-D measured 4 frames).
         let inFlight = splits && structural && arrivals.isEmpty && !departing
             && paneFrames.values.contains { $0.rect != $0.targetRect }
+        if structural && !inFlight {
+            frameSpring = departing && !zooming ? paneMotionVariant().closeSpring : .move
+        } else if !paneFrames.values.contains(where: { $0.rect != $0.targetRect }) {
+            frameSpring = .move
+        }
         let carried = !arrivals.isEmpty || departing || revealing
         // Strip springs run in strip coordinates and fixed ones in the view's: a moved strip origin (a dock
         // that came or went) or a pane changing sides (a zoom shows its pane fixed) keeps it where it showed.
@@ -310,13 +323,13 @@ final class ScreenContentView: NSView {
     func step(_ dt: Double) -> Bool {
         var moving = false
         for key in Array(paneFrames.keys) {
-            if paneFrames[key]?.advance(dt, parameters: Motion.spring(zoomMotion.spring(for: key)),
+            if paneFrames[key]?.advance(dt, parameters: Motion.spring(zoomMotion.spring(for: key, fallback: frameSpring)),
                                         alphaParameters: Motion.spring(.appear)) == true { moving = true }
         }
         if zoomMotion.advance(dt) { moving = true }
         releaseCovered()
         for key in Array(dividerFrames.keys) {
-            if dividerFrames[key]?.advance(dt, parameters: Motion.spring(.move)) == true { moving = true }
+            if dividerFrames[key]?.advance(dt, parameters: Motion.spring(frameSpring)) == true { moving = true }
         }
         if stepRows(dt) { moving = true }
         if MotionTrace.isEnabled { MotionTrace.sample("layout.travel", Double(travelLeft)) }
