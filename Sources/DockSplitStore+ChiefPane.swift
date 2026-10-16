@@ -30,8 +30,8 @@ extension DockSplitStore {
         guard let panelID = newSurface(
             kind: .chief,
             inPane: pane,
-            conversationID: conversationID,
-            focus: false
+            focus: false,
+            conversationID: conversationID
         ) else {
             return nil
         }

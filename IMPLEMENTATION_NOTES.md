@@ -1,5 +1,12 @@
 ## 2026-10-15 tagged build compile fix
 
+- Read every unique compiler diagnostic from the fleet logs: corrected the
+  argument order in both detached Dock transfers and Chief Dock creation.
+  Extracted the Home overlay from the sidebar's large SwiftUI body so its
+  generic type is checked independently. The permission bypass remains exposed
+  in Chief Settings and Automation settings, off by default, and feeds both
+  harnesses when a new turn starts.
+
 - The first exact-head fleet build caught two Xcode-only issues in the Home
   conversation host: it now imports `CmuxFoundation` for `CmuxAccentColor` and
   explicitly implements the unavailable required `NSHostingView` initializer.

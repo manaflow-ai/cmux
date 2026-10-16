@@ -12098,64 +12098,7 @@ struct VerticalTabsSidebar: View, Equatable {
             }
         }
         .overlay(alignment: .top) {
-            // Pinned above every list implementation, in the band
-            // SidebarWorkspaceListMetrics reserves below the titlebar.
-            if isPresented && showsChiefHome {
-                ZStack(alignment: .top) {
-                    if isChiefHomeSelected, let chiefHome {
-                        // Home selected: show a short, animated conversation picker under
-                        // the pinned row. The workspace list stays mounted below it, so Home
-                        // does not replace the sidebar and switching back is immediate.
-                        ChiefConversationListRepresentable(home: chiefHome, accent: tabItemSettings.accentColor)
-                            .padding(.top, SidebarWorkspaceListMetrics.homeRowTopOffset
-                                + SidebarWorkspaceListMetrics.homeRowHeight
-                                + SidebarWorkspaceListMetrics.homeRowBottomGap)
-                            .frame(maxWidth: .infinity, height: 292, alignment: .top)
-                            .background(.regularMaterial)
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .shadow(color: .black.opacity(0.18), radius: 14, y: 5)
-                            .padding(.horizontal, 8)
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                            .zIndex(2)
-                    } else if isChiefHomeExpanded, let chiefHome {
-                        ChiefHomeConversationRowsRepresentable(
-                            home: chiefHome,
-                            accent: tabItemSettings.accentColor
-                        )
-                        .padding(.top, SidebarWorkspaceListMetrics.homeRowTopOffset
-                            + SidebarWorkspaceListMetrics.homeRowHeight
-                            + SidebarWorkspaceListMetrics.homeRowBottomGap)
-                        .frame(maxWidth: .infinity, height: 238, alignment: .top)
-                        .background(.regularMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .shadow(color: .black.opacity(0.16), radius: 12, y: 4)
-                        .padding(.horizontal, 8)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                        .zIndex(2)
-                    }
-                    SidebarChiefHomeRow(
-                        isSelected: isChiefHomeSelected,
-                        isExpanded: isChiefHomeExpanded,
-                        settings: tabItemSettings,
-                        globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
-                        conversationID: chiefHome?.selected,
-                        onSelect: { selection = selection == .home ? .tabs : .home },
-                        onNewConversation: chiefHome.map { home -> () -> Void in { home.newConversation() } },
-                        onToggleExpanded: {
-                            withAnimation(.easeInOut(duration: 0.22)) {
-                                isChiefHomeExpanded.toggle()
-                            }
-                        }
-                    )
-                    .padding(.top, SidebarWorkspaceListMetrics.homeRowTopOffset)
-                }
-                .animation(
-                    NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-                        ? nil
-                        : .easeInOut(duration: 0.22),
-                    value: isChiefHomeSelected || isChiefHomeExpanded
-                )
-            }
+            chiefHomeOverlay(settings: tabItemSettings)
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
@@ -12230,6 +12173,68 @@ struct VerticalTabsSidebar: View, Equatable {
             sidebarDisplayAccessibility = options
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private func chiefHomeOverlay(settings: SidebarTabItemSettingsSnapshot) -> some View {
+        // Pinned above every list implementation, in the band
+        // SidebarWorkspaceListMetrics reserves below the titlebar.
+        if isPresented && showsChiefHome {
+            ZStack(alignment: .top) {
+                if isChiefHomeSelected, let chiefHome {
+                    // Home selected: show a short, animated conversation picker under
+                    // the pinned row. The workspace list stays mounted below it, so Home
+                    // does not replace the sidebar and switching back is immediate.
+                    ChiefConversationListRepresentable(home: chiefHome, accent: settings.accentColor)
+                        .padding(.top, SidebarWorkspaceListMetrics.homeRowTopOffset
+                            + SidebarWorkspaceListMetrics.homeRowHeight
+                            + SidebarWorkspaceListMetrics.homeRowBottomGap)
+                        .frame(maxWidth: .infinity, height: 292, alignment: .top)
+                        .background(.regularMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .shadow(color: .black.opacity(0.18), radius: 14, y: 5)
+                        .padding(.horizontal, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .zIndex(2)
+                } else if isChiefHomeExpanded, let chiefHome {
+                    ChiefHomeConversationRowsRepresentable(
+                        home: chiefHome,
+                        accent: settings.accentColor
+                    )
+                    .padding(.top, SidebarWorkspaceListMetrics.homeRowTopOffset
+                        + SidebarWorkspaceListMetrics.homeRowHeight
+                        + SidebarWorkspaceListMetrics.homeRowBottomGap)
+                    .frame(maxWidth: .infinity, height: 238, alignment: .top)
+                    .background(.regularMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .shadow(color: .black.opacity(0.16), radius: 12, y: 4)
+                    .padding(.horizontal, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(2)
+                }
+                SidebarChiefHomeRow(
+                    isSelected: isChiefHomeSelected,
+                    isExpanded: isChiefHomeExpanded,
+                    settings: settings,
+                    globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
+                    conversationID: chiefHome?.selected,
+                    onSelect: { selection = selection == .home ? .tabs : .home },
+                    onNewConversation: chiefHome.map { home -> () -> Void in { home.newConversation() } },
+                    onToggleExpanded: {
+                        withAnimation(.easeInOut(duration: 0.22)) {
+                            isChiefHomeExpanded.toggle()
+                        }
+                    }
+                )
+                .padding(.top, SidebarWorkspaceListMetrics.homeRowTopOffset)
+            }
+            .animation(
+                NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                    ? nil
+                    : .easeInOut(duration: 0.22),
+                value: isChiefHomeSelected || isChiefHomeExpanded
+            )
+        }
     }
 
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
