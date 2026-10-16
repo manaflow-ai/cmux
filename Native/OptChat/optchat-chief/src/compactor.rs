@@ -11,18 +11,7 @@
 //! login); the preset turns off auto-memory, CLAUDE.md files, bundled
 //! skills and Claude Code's own refusal fallback, and the slot's project
 //! settings deny every tool and every hook. The session's cwd is a slot
-//! directory under the system temporary directory, outs        let id = self
-            .port
-            .new_session(&spec)
-            .inspect_err(|e| {
-                if e.contains("is taken") {
-                    let listed = self.port.find(name);
-                    self.say(&format!(
-                        "compactor: acpmux says session name {name} is taken; its list finds {listed:?}"
-                    ));
-                }
-            })
-            .and_then(|id| {e any directory
+//! directory under the system temporary directory, outside any directory
 //! with instruction files. The request maps onto the session's prompts.
 //! On a Claude harness whose acpmux takes a preset `systemPrompt`, the
 //! cached layout: each slot has its own preset, whose system prompt the
