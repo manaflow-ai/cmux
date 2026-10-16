@@ -63,6 +63,8 @@ DB_EXACT = {
     "web/drizzle.config.ts",
     "web/package.json",
     "web/scripts/db-local.sh",
+    "web/scripts/db-migrate-local.mjs",
+    "web/scripts/db-migrate.mjs",
     "web/scripts/run-db-behavior-tests.sh",
 }
 DB_PREFIXES = (
@@ -71,6 +73,7 @@ DB_PREFIXES = (
     "web/db/",
     "web/openapi/",
     "web/orpc/",
+    "web/scripts/cloud-vm/",
     "web/services/",
     "web/types/",
 )

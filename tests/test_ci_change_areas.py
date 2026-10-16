@@ -6207,6 +6207,8 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
         (["web/messages/fr.json"], (False, False, True, True, False, True, True)),
         (["web/app/[locale]/page.tsx"], (False, False, True, True, False, True, True)),
         (["web/services/vms/workflows.ts"], (True, False, False, True, False, True, True)),
+        (["web/scripts/cloud-vm/migrate-planetscale.mjs"], (True, False, False, True, False, True, True)),
+        (["web/scripts/db-migrate.mjs"], (True, False, False, True, False, True, True)),
         (["web/app/api/account/route.ts"], (True, False, True, True, False, True, True)),
         (["webviews/src/App.tsx"], (False, False, False, False, True, False, False)),
         (["webviews/src/diff/App.tsx"], (False, True, False, False, True, False, False)),
