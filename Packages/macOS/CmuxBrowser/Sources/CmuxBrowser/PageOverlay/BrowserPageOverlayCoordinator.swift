@@ -37,6 +37,16 @@ public final class BrowserPageOverlayCoordinator: ObservableObject {
     /// is attached). SwiftUI mount points switch on it.
     @Published public private(set) var hostsFloatingOverlaysInPanels = false
 
+    /// Extra native hit-target rectangles that must remain above a child-window
+    /// page, such as the pane's tab-drag drop target. They use the attached
+    /// content view's coordinates and are merged with overlay holes.
+    public var additionalOcclusionRects: [CGRect] = [] {
+        didSet {
+            guard additionalOcclusionRects != oldValue else { return }
+            update()
+        }
+    }
+
     private weak var contentView: NSView?
     private weak var occlusionTarget: (any BrowserPageOcclusionHosting)?
     private var occludingAnchors: [String: WeakView] = [:]
@@ -155,7 +165,8 @@ public final class BrowserPageOverlayCoordinator: ObservableObject {
         // flipped view or a bounds offset).
         let plan = BrowserPageOcclusionPlan(
             contentBounds: contentView.bounds,
-            overlays: occludingAnchors.compactMap { id, anchor in
+            overlays: additionalOcclusionRects.map { BrowserPageOcclusionPlan.Overlay(rect: $0) } +
+                occludingAnchors.compactMap { id, anchor in
                 Self.shownRectInWindow(anchor.view, window: window).map {
                     BrowserPageOcclusionPlan.Overlay(rect: contentView.convert($0, from: nil),
                                                      cornerRadius: occludingRadii[id] ?? 0)

@@ -21,6 +21,9 @@ struct BrowserEnginePageHost: NSViewRepresentable {
     let shouldFocus: Bool
     /// Called with the page's content view once it is in the container.
     var onAttach: (NSView) -> Void = { _ in }
+    /// Called after every SwiftUI layout update so native child-window holes
+    /// follow the pane's current drag target immediately.
+    var onLayout: (NSView) -> Void = { _ in }
     /// A click into the page chose it.
     var onPageClicked: () -> Void = {}
     /// The page went on or off screen (crash recovery restores a page that
@@ -40,6 +43,7 @@ struct BrowserEnginePageHost: NSViewRepresentable {
         }
         container.wantsPageFocus = shouldFocus && isVisible
         container.onPageClicked = onPageClicked
+        container.onLayout = onLayout
         // The first attach runs before the container is in a window; attach
         // again once it is, so overlays sync with the placed page.
         container.onMovedToWindow = { [onAttach, page] in onAttach(page.contentView) }
@@ -51,10 +55,12 @@ struct BrowserEnginePageHost: NSViewRepresentable {
         if shouldFocus, isVisible {
             page.setFocused(true)
         }
+        onLayout(page.contentView)
     }
 
     static func dismantleNSView(_ container: BrowserEnginePageContainerView, coordinator: ()) {
         container.onPageClicked = nil
+        container.onLayout = nil
         container.onMovedToWindow = nil
         for subview in container.subviews {
             subview.removeFromSuperview()
@@ -88,10 +94,12 @@ final class BrowserEnginePageContainerView: NSView {
         }
     }
     var onPageClicked: (() -> Void)?
+    var onLayout: ((NSView) -> Void)?
     /// The visibility last reported through `onVisibilityChange`.
     var reportedVisible: Bool?
     var onMovedToWindow: (() -> Void)?
     private var keyObserver: (any NSObjectProtocol)?
+    private var mouseMonitor: Any?
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -105,13 +113,39 @@ final class BrowserEnginePageContainerView: NSView {
             let keyWindow = note.object as? NSWindow
             MainActor.assumeIsolated { self?.pageWindowBecameKey(keyWindow) }
         }
+        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            guard let self else { return event }
+            self.pageMouseDown(event)
+            return event
+        }
     }
 
     deinit {
         guard Thread.isMainThread else { return }
         MainActor.assumeIsolated {
             if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
+            if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
         }
+    }
+
+    override func layout() {
+        super.layout()
+        onLayout?(subviews.first ?? self)
+    }
+
+    private func pageMouseDown(_ event: NSEvent) {
+        guard let window, let eventWindow = event.window,
+              eventWindow !== window, eventWindow.isChromiumPageWindow,
+              eventWindow.chromiumActingWindow(fallback: nil) === window,
+              !isHiddenOrHasHiddenAncestor else { return }
+        let pagePoint = event.locationInWindow
+        let screenPoint = eventWindow.convertToScreen(pagePoint)
+        let paneRect = window.convertToScreen(convert(bounds, to: nil))
+        guard paneRect.contains(screenPoint) else { return }
+        // A local monitor runs before the child window's normal mouse dispatch,
+        // so the pane focus model sees the click even when Chromium is already
+        // key and AppKit emits no second didBecomeKey notification.
+        onPageClicked?()
     }
 
     private func pageWindowBecameKey(_ keyWindow: NSWindow?) {

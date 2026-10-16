@@ -1976,6 +1976,12 @@ struct BrowserPanelView: View {
                     isVisible: isVisibleInUI && isCurrentPaneOwner,
                     shouldFocus: isFocused && !addressBarFocused,
                     onAttach: { contentView in panel.attachPageOverlays(contentView: contentView) },
+                    onLayout: { contentView in
+                        let rects = paneDropZone.map {
+                            [BrowserPaneDropRouting.overlayFrame(for: $0, in: contentView.bounds.size)]
+                        } ?? []
+                        panel.pageOverlays.additionalOcclusionRects = rects
+                    },
                     onPageClicked: {
                         // As a click into a WebKit page: the pane takes focus
                         // and the address bar lets go.

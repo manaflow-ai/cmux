@@ -254,4 +254,17 @@ private final class FlippedView: NSView {
         #expect(second.pageOcclusionRects == [CGRect(x: 50, y: 10, width: 50, height: 50)])
         withExtendedLifetime(window) {}
     }
+
+    @Test func additionalOcclusionRectKeepsNativeDragTargetAbovePage() {
+        let (window, root, page) = makeWindow()
+        let coordinator = BrowserPageOverlayCoordinator()
+        let target = FakeOcclusionTarget()
+        coordinator.attach(contentView: page, target: target)
+        coordinator.additionalOcclusionRects = [CGRect(x: 0, y: 0, width: 500, height: 360)]
+
+        #expect(target.pageOcclusionRects == [CGRect(x: 0, y: 0, width: 500, height: 360)])
+        coordinator.additionalOcclusionRects = []
+        #expect(target.pageOcclusionRects.isEmpty)
+        withExtendedLifetime((window, root)) {}
+    }
 }

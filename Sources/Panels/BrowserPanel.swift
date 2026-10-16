@@ -5336,6 +5336,11 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewFocusRequestGeneration &+= 1
         clearBrowserFocusMode(reason: "panelUnfocus")
         invalidateSearchFocusRequests(reason: "panelUnfocus")
+        // Chromium renders in a separate child window. Release its focus before
+        // handing the window back to another pane or the address bar; leaving
+        // the CEF focus bit set lets the child window reclaim key status on the
+        // next AppKit update and makes clicks appear delayed or lost.
+        enginePage?.setFocused(false)
         guard let window = webView.window else { return }
         // A REPL-driven tab in the automation render window keeps page focus;
         // pane focus concerns the user's windows only.
