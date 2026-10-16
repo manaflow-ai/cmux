@@ -218,7 +218,11 @@ def prepare_jobs(gh: GitHub, repo: str, run: dict) -> dict[str, dict]:
         # A build_only run skips its prepare jobs and is skipped here. A run that
         # built an app and has no prepare job at all (a nightly.yml without the
         # producer) is refused, so it shows red instead of passing silently.
-        has_prepare = any(PREPARE_JOB_NAME.match(str(job.get("name", ""))) for job in jobs)
+        # A matrix job skipped by its `if:` is listed once, by its bare name.
+        has_prepare = any(
+            str(job.get("name", "")) == PREPARE_JOB or PREPARE_JOB_NAME.match(str(job.get("name", "")))
+            for job in jobs
+        )
         if not has_prepare and any(job.get("name") == BUILD_JOB and job.get("conclusion") == "success" for job in jobs):
             fail(f"source run built an app ({BUILD_JOB} passed) but has no {PREPARE_JOB} job")
         raise Skipped("source run prepared no app (no successful prepare-nightly-variant job)")

@@ -417,9 +417,10 @@ class AdmitCase(unittest.TestCase):
     def test_build_only_run_with_skipped_prepare_jobs_is_skipped(self) -> None:
         data = scenario("main", ())
         data["jobs"][1]["conclusion"] = "success"
-        for index, variant in enumerate(("arm64", "universal")):
-            data["jobs"].append({"id": 400 + index, "name": f"prepare-nightly-variant ({variant})", "conclusion": "skipped",
-                                 "run_id": RUN_ID, "head_sha": HEAD, "run_attempt": ATTEMPT})
+        # GitHub does not expand a matrix job its `if:` skips: one job, bare name
+        # (run 38902061362).
+        data["jobs"].append({"id": 400, "name": "prepare-nightly-variant", "conclusion": "skipped",
+                             "run_id": RUN_ID, "head_sha": HEAD, "run_attempt": ATTEMPT})
         self.assert_skipped(self.run_tool(data), "prepared no app")
 
     def test_prepare_jobs_that_disagree_on_publishing_are_refused(self) -> None:
