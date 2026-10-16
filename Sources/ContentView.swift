@@ -12163,6 +12163,7 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private var chiefHomeSidebarOverlay: some View {
+        let settings = tabItemSettingsStore.snapshot
         Group {
             if isPresented && showsChiefHome {
                 ZStack(alignment: .top) {
@@ -12171,14 +12172,15 @@ struct VerticalTabsSidebar: View, Equatable {
                         // sidebar, while the normal cmux workspace rows remain directly below.
                         // Conversations stay owned by Chief Home and never become duplicate
                         // native workspaces.
-                        ChiefConversationListRepresentable(home: chiefHome, accent: tabItemSettings.accentColor)
+                        ChiefConversationListRepresentable(home: chiefHome, accent: settings.accentColor)
                             .padding(.top, SidebarWorkspaceListMetrics.firstRowTopOffset
                                 + SidebarWorkspaceListMetrics.homeRowBottomGap)
-                            .frame(maxWidth: .infinity, height: Self.chiefHomeConversationListHeight, alignment: .top)
+                            .frame(maxWidth: .infinity, alignment: .top)
+                            .frame(height: Self.chiefHomeConversationListHeight, alignment: .top)
                     }
                     SidebarChiefHomeRow(
                         isSelected: isChiefHomeSelected,
-                        settings: tabItemSettings,
+                        settings: settings,
                         globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
                         onSelect: { selection = selection == .home ? .tabs : .home },
                         onNewConversation: chiefHome.map { home -> () -> Void in { home.newConversation() } }
