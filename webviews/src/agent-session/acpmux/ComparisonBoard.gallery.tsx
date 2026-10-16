@@ -195,7 +195,7 @@ export default componentEntry<Props>({
     layoutShiftMax: { value: 0, reason: "Variant controls replace content inside the fixed glass shell." },
     longFrameFailMs: { value: 33, reason: "Local section and treatment toggles should remain responsive." },
   },
-  load: () => ComparisonBoard,
+  load: async () => ComparisonBoard,
   styles: () =>
     Promise.all([import("./styles.css"), import("./composerControls.css"), import("./ComparisonBoard.gallery.css")]),
   variants: {
