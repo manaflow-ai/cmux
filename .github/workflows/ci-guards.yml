@@ -1129,7 +1129,10 @@ jobs:
 
       - name: Validate universal nightly workflow
         if: ${{ matrix.group == 'release-notary' }}
-        run: bash ./tests/test_nightly_universal_build.sh
+        run: |
+          bash ./tests/test_nightly_universal_build.sh
+          python3 tests/test_nightly_trusted_routing.py
+          python3 tests/test_nightly_build_state.py
 
       - name: Validate feat-cmux-next runs these release guards
         if: ${{ matrix.group == 'release-notary' }}
