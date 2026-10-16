@@ -203,13 +203,14 @@ await requireBrowserLane("agent-pane-model-sticks.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  const CHIP = ".acpmux-model-name";
+  // Model identity stays in the tooltip when the visible chip omits its vendor.
+  const CHIP = ".acpmux-model .acpmux-picker-button";
   /// The chip's text once it settles: what it shows for half a second running.
   async function settledChip(page: Page): Promise<string | null> {
     let last: string | null = null;
     let since = Date.now();
     for (const deadline = Date.now() + 10_000; Date.now() < deadline; await Bun.sleep(50)) {
-      const text = (await page.locator(CHIP).first().textContent()) ?? null;
+      const text = (await page.locator(CHIP).first().getAttribute("title"))?.split(" · ")[0] ?? null;
       if (text !== last) [last, since] = [text, Date.now()];
       else if (Date.now() - since >= 500) break;
     }
