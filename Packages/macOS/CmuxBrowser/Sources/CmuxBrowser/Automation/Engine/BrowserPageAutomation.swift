@@ -89,6 +89,10 @@ public struct BrowserPageAutomation {
             // Chromium captures device pixels; clip to the visible viewport
             // and scale by 1/devicePixelRatio so the PNG is its CSS size, as
             // WebKit's is.
+            // CEF may accept Page.captureScreenshot before the Page domain is
+            // enabled but never deliver its reply. Enable it on every capture
+            // so hidden and newly-created pages use the same protocol path.
+            _ = try await devTools("Page.enable", [:])
             let metrics = try? await evaluate(codec.viewportMetricsScript, form: .expression, world: .page)
             let params = codec.cssScreenshotParams(viewportMetrics: metrics) ?? codec.screenshotParams
             let json = try await devTools("Page.captureScreenshot", params)

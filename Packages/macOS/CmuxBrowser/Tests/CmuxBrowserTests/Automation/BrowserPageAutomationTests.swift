@@ -151,7 +151,7 @@ struct ChromiumBrowserPageAutomationTests {
         #expect(page.calls.first?.params["format"] as? String == "png")
         // The capture ran with the page made visible to its engine (a hidden
         // page draws no frames), and the page is hidden again afterwards.
-        #expect(page.visibleForCaptureMethods == ["Page.captureScreenshot"])
+        #expect(page.visibleForCaptureMethods == ["Page.enable", "Page.captureScreenshot"])
         #expect(page.visibleForCaptureDepth == 0)
     }
 
