@@ -54,7 +54,7 @@ export const handsLayer = (env: Env, caller: HandCaller, turn?: HandsTurn) =>
         }),
       bindToken: (jti, hand, session) => Effect.sync(() => void turn?.ledger?.(jti, { op: "bind", hand, session })),
       revokeSession: (hand, session) => Effect.sync(() => void turn?.ledger?.("", { op: "revoke", hand, session })),
-      newSandbox: (name) => rpc(() => createSandbox(env, caller, name, apiOrigin(env))),
+      newSandbox: (name) => rpc(() => createSandbox(env, caller, name)),
       resolve: (hand) => rpc(() => resolveHand(env, caller, hand)),
       call: (hand, action, params, timeoutMs) => rpc(() => handStub(env, hand).call(caller, action, params, timeoutMs)),
       events: (hand, session, afterSeq, waitMs) => rpc(() => handStub(env, hand).events(caller, session, afterSeq, waitMs))

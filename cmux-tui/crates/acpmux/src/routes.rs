@@ -603,8 +603,12 @@ pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, Route
         std::fs::rename(&route.path, backups.join(&name))
             .map_err(|e| RouteError::Failed(e.to_string()))?;
     }
-    // Chats bound to it fall back to their inherited route.
-    update_bindings(home, |b| b.chats.retain(|_, r| r != id))?;
+    // Chats bound to it fall back to their inherited route, except a one-run
+    // route's chat: it keeps the binding, so its next spawn fails ("route is
+    // gone") instead of running on the owner's own provider without a word.
+    if !id.starts_with(ONE_RUN_PREFIX) {
+        update_bindings(home, |b| b.chats.retain(|_, r| r != id))?;
+    }
     Ok(name)
 }
 
