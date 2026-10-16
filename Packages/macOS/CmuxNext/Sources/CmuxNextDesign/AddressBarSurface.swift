@@ -3,8 +3,9 @@ public import CmuxTheme
 /// The address bar's fills, from the terminal theme (cx-d0d.101): the bar
 /// is a tonal step of the theme's text color over the toolbar, stronger on
 /// hover. While editing, and as the top of the suggestion card, it is the
-/// opaque popup surface (`Palette.popupSurface`, the one surface of every
-/// overlay that carries text), as the card is.
+/// opaque `card` color, as the card is: the background (light) or a 0.12
+/// step toward the text (dark), the reference's results surface (chief
+/// 2026-10-15: the omnibar matches it; other overlays keep the popup surface).
 ///
 /// Steps are fractions from the background toward the text, read off 2x
 /// captures of the reference browser's default theme (light and dark,
@@ -46,8 +47,11 @@ public nonisolated struct AddressBarSurface: Hashable, Sendable {
         return step
     }
 
-    /// The selected suggestion row over the popup surface, with a neutral selection.
-    static func rowSelectedAlpha(isDark: Bool) -> Double { isDark ? 0.085 : 0.05 }
+    /// The opaque card step toward the text, dark then light.
+    static func cardStep(isDark: Bool) -> Double { isDark ? 0.12 : 0 }
+
+    /// The selected suggestion row over the card, with a neutral selection.
+    static func rowSelectedAlpha(isDark: Bool) -> Double { isDark ? 0.105 : 0.05 }
 
     public let background: ThemeRGB
     public let text: ThemeRGB
@@ -67,7 +71,10 @@ public nonisolated struct AddressBarSurface: Hashable, Sendable {
         layered(step: readableStep(state), coverage: resolvedCoverage(coverage))
     }
 
-    /// A selected suggestion row over the popup surface, when the theme's selection is neutral.
+    /// The opaque suggestion card, and the bar while editing or topping it.
+    public var card: ThemeRGB { background.mixed(toward: text, Self.cardStep(isDark: isDark)) }
+
+    /// A selected suggestion row over `card`, when the theme's selection is neutral.
     public var rowSelected: ThemeRGB { text.withAlpha(Self.rowSelectedAlpha(isDark: isDark)) }
 
     /// `coverage` raised to the legibility floor of every state (rest and

@@ -63,9 +63,13 @@ extension TabStripView {
         let handed = model.takeSuccessions(shown: Set(cells.keys), next: ids)
         for (id, cell) in cells where !ids.contains(id) && !dying.contains(id) && !handed.values.contains(id) {
             if cellsAnimate {
+                // Chrome: it shrinks to the close width with its left edge pinned to the previous
+                // tab's right edge (`relayout` pins x), no fade; it goes when the tween ends.
                 dying.insert(id)
-                motion[id]?.width.target = 0
-                motion[id]?.alpha.target = 0
+                let shown = displayed.filter { !dying.contains($0.id) || $0.id == id }.map(\.id)
+                if let i = shown.firstIndex(of: id) { closingAnchors[id] = .some(i > 0 ? shown[i - 1] : nil) }
+                motion[id]?.use(.tabClose)
+                motion[id]?.width.target = metrics.chrome.closeEndWidth
                 cell.beginClosing()
             } else {
                 removeTab(id)
@@ -76,6 +80,7 @@ extension TabStripView {
         for item in ordered {
             if let cell = cells[item.id] {
                 dying.remove(item.id)
+                closingAnchors[item.id] = nil
                 cell.update(item: item)
                 // A torn-out tab dropped back here takes the drop gap's geometry.
                 if pendingDrop?.id == item.id { added.insert(item.id) }
@@ -88,7 +93,11 @@ extension TabStripView {
             }
         }
         added.formUnion(syncChips(ordered, animated: animated))
-        if hasSynced, !added.isEmpty { closingModeWidth = nil }
+        if hasSynced, !added.isEmpty {
+            // An insert ends closing mode (Chrome).
+            closingModeWidth = nil
+            endClosingModeWatch()
+        }
 
         if pendingDrop.map({ ids.contains($0.id) }) == true { (dropPlaceholderIndex, dropPlaceholderGroup) = (nil, nil) }
 
@@ -105,7 +114,8 @@ extension TabStripView {
             needsLayout = true
         }
 
-        relayout(animated: animated || (styleChanged && !reduceMotion), added: added, growsAdded: cellsAnimate && adding)
+        relayout(animated: animated || (styleChanged && !reduceMotion), added: added, growsAdded: cellsAnimate && adding,
+                 token: cellsAnimate && removing && !adding ? .tabClose : nil)
 
         let selected = model.selectedID
         if let selected, selected != lastSelectedID || added.contains(selected) {
@@ -134,7 +144,8 @@ extension TabStripView {
         cell.accessibility.onFocus = { [weak self] focused in self?.noteAccessibilityFocus(element, focused) }
         tabsClip.layer?.addSublayer(cell.layer)
         cells[id] = cell
-        motion[id] = TabMotion(x: 0, width: 0, alpha: animated ? 0 : 1)
+        // Placed by `relayout` (Chrome: an opening tab never fades).
+        motion[id] = TabMotion(x: 0, width: 0, alpha: 1)
         return id
     }
 
@@ -170,6 +181,7 @@ extension TabStripView {
         cells[id] = nil
         motion[id] = nil
         dying.remove(id)
+        closingAnchors[id] = nil
         if hoveredID == id { hoveredID = nil }
         if closeHoveredID == id { closeHoveredID = nil }
     }

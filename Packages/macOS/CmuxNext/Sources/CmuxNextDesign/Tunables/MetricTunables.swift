@@ -65,6 +65,22 @@ public nonisolated enum MetricTunables {
                                                          compact: 24, comfortable: 30)
     public static let tabMaxWidth = MetricTunable.make("tabMaxWidth", .tabs, "Tab max width", help: "Widest an unpinned tab gets.",
                                                        compact: 200, comfortable: 240, key: .tabMaxWidth)
+    /// The crowding minimums (cx-kp9b4, Lawrence 2026-10-15: "bigger tabs min width"): wider than
+    /// Chrome's 32 (icon only) so a shrunk unpinned tab keeps its icon and a few title glyphs: the
+    /// 8 pt inset, the icon, the 6 pt gap and about five glyphs of the body font before the fade
+    /// (76 compact, 80 comfortable with its 16 pt icon and larger type). The selected tab adds its
+    /// close button and gap (+20), so it never shows less title than the others.
+    /// `appearance.metrics.*` overrides them. `TabStripMetrics` keeps inactive <= active <= max.
+    public static let tabMinActiveWidth = MetricTunable.make(
+        "tabMinActiveWidth", .tabs, "Tab min width (active)", help: "Narrowest the selected tab gets when the strip is crowded.",
+        compact: 96, comfortable: 100, key: .tabMinActiveWidth, range: 32...200)
+    public static let tabMinInactiveWidth = MetricTunable.make(
+        "tabMinInactiveWidth", .tabs, "Tab min width (inactive)", help: "Narrowest the other tabs get before the strip scrolls.",
+        compact: 76, comfortable: 80, key: .tabMinInactiveWidth, range: 16...120)
+    public static let tabPinnedWidth = MetricTunable.make(
+        "tabPinnedWidth", .tabs, "Pinned tab width", help: "Width of a pinned tab.",
+        compact: MotionTabStrip(comfortable: false).pinnedWidth, comfortable: MotionTabStrip(comfortable: true).pinnedWidth,
+        key: .tabPinnedWidth, range: 24...120)
     public static let tabMinWidth = MetricTunable.make("tabMinWidth", .tabs, "Tab min width", help: "Icon-only width (pinned and fully shrunk tabs).",
                                                        compact: 32, comfortable: 40)
 
@@ -101,7 +117,7 @@ public nonisolated enum MetricTunables {
 
     static var metrics: [MetricTunable] {
         [sidebarWidth, titlebarHeight, sidebarRowHeight, sidebarRowHeightWithSubtitle, sidebarHeaderHeight, roomDotDiameter, roomDotSlot,
-         tabStripHeight, tabHeight, controlHeight, tabMaxWidth, tabMinWidth, paletteRowHeight, paletteSearchHeight, paletteWidth, panelInset,
+         tabStripHeight, tabHeight, controlHeight, tabMaxWidth, tabMinActiveWidth, tabMinInactiveWidth, tabPinnedWidth, tabMinWidth, paletteRowHeight, paletteSearchHeight, paletteWidth, panelInset,
          columnGap, densityPaneCornerRadius, panelCornerRadius, itemCornerRadius, iconSize, smallIconSize, scrollEdgeFade]
     }
 }

@@ -24,6 +24,9 @@ export const outboxFailure = (channel: string, e: unknown): OutboxFailure => {
   return "poison"
 }
 
+/** The class name of a Chief wake queue target (home-core conversation outbox `mux.wake`). */
+const MUX_CLASS = "MuxDO"
+
 /**
  * One alarm's outbox work for an owner: each due channel (PlanetScale projections, or one target
  * object) is drained, fails and backs off on its own; dead items older than DEAD_REPLAY_MS replay.
@@ -39,8 +42,14 @@ export const drainOutboxChannels = async <S>(
 ): Promise<void> => {
     const outbox = engine.outbox
     // Each channel (PlanetScale projections, or one target object) reads, fails and backs off on
-    // its own, so a dead target cannot stop projections or healthy targets.
-    for (const channel of outbox.dueChannels(Date.now())) {
+    // its own, so a dead target cannot stop projections or healthy targets. A Chief's wake queue
+    // (MuxDO) goes first: a person waits on it (staging: the wake waited 1-3 s behind the database
+    // projection). Every other channel keeps its order: dueChannels has no ORDER BY, and some targets
+    // (automations, integrations) read the projection, so the projection ("") is put first explicitly.
+    // (A cross-channel order was never guaranteed: each channel backs off on its own.)
+    const due = outbox.dueChannels(Date.now())
+    const wake = (c: string) => c.startsWith(`${MUX_CLASS}:`)
+    for (const channel of [...due.filter(wake), ...due.filter((c) => c === ""), ...due.filter((c) => c !== "" && !wake(c))]) {
       // After a failure a target channel sends its head alone, so a poison item is found by itself.
       const rows = outbox.pending(channel, channel !== "" && outbox.isolating(channel) ? 1 : 100)
       if (rows.length === 0) continue

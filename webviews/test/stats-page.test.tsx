@@ -6,8 +6,17 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { formatDay, formatDuration, formatHour, heatmap, hourShares } from "../src/pages/stats/shape";
+import {
+  attentionRows,
+  formatDay,
+  formatDuration,
+  formatHour,
+  formatWait,
+  heatmap,
+  hourShares,
+} from "../src/pages/stats/shape";
 import { pageError, type PageClient } from "../src/pages/shared/pageClient";
+import { mockSummary } from "../src/pages/stats/mockProvider";
 import type { StatsSummary } from "../src/pages/stats/types";
 
 const scope = globalThis as Record<string, unknown>;
@@ -44,6 +53,60 @@ test("durations read as hours and minutes without plural strings", () => {
   expect(formatDuration(45 * 60_000, "en")).toBe("45m");
   expect(formatDuration(3 * 3_600_000, "en")).toBe("3h");
   expect(formatDuration(200 * 60_000, "en")).toBe("3h 20m");
+});
+
+test("waits keep their seconds under ten minutes", () => {
+  expect(formatWait(0, "en")).toBe("0s");
+  expect(formatWait(12_400, "en")).toBe("12s");
+  expect(formatWait(59_600, "en")).toBe("1m");
+  expect(formatWait(89_000, "en")).toBe("1m 29s");
+  expect(formatWait(599_000, "en")).toBe("9m 59s");
+  expect(formatWait(14 * 60_000 + 20_000, "en")).toBe("14m");
+  expect(formatWait(200 * 60_000, "en")).toBe("3h 20m");
+});
+
+test("attention rows show what acpmux sent and hide what an older daemon did not", () => {
+  const base = mockSummary("busy", 7, 0, NOON);
+  const summary: StatsSummary = {
+    ...base,
+    turns: 40,
+    steers: 6,
+    permissionAnswered: 4,
+    permissionUnanswered: 1,
+    permissionWaitMs: 100_000,
+    permissionWaitMaxMs: 61_000,
+    limitErrors: 2,
+  };
+  expect(attentionRows(summary)).toEqual([
+    { key: "stats.attention.averageWait", wait: 25_000 },
+    { key: "stats.attention.longestWait", wait: 61_000 },
+    { key: "stats.attention.answered", count: 4 },
+    { key: "stats.attention.unanswered", count: 1 },
+    { key: "stats.attention.limitErrors", count: 2 },
+    { key: "stats.attention.steersPerTurn", ratio: 0.15 },
+  ]);
+  // No question answered yet: no wait to average, but the counts still read.
+  expect(
+    attentionRows({ ...summary, permissionAnswered: 0, permissionWaitMs: 0, permissionWaitMaxMs: 0 }).map(
+      (row) => row.key,
+    ),
+  ).toEqual([
+    "stats.attention.answered",
+    "stats.attention.unanswered",
+    "stats.attention.limitErrors",
+    "stats.attention.steersPerTurn",
+  ]);
+  // An older daemon sends none of the new fields; no turns means no steers per turn.
+  const {
+    permissionAnswered: _a,
+    permissionUnanswered: _u,
+    permissionWaitMs: _w,
+    permissionWaitMaxMs: _m,
+    limitErrors: _l,
+    ...older
+  } = summary;
+  expect(attentionRows(older).map((row) => row.key)).toEqual(["stats.attention.steersPerTurn"]);
+  expect(attentionRows({ ...older, turns: 0, steers: 0 })).toEqual([]);
 });
 
 test("the heatmap pads to Sunday and scales levels to the busiest day", () => {
@@ -126,6 +189,20 @@ test("the page shows the summary, switches range and drops a stale reply", async
   expect(tile("Most at once")).toBe("5");
   expect(tile("Streak")).toBe("4 days");
   expect(host.querySelectorAll(".stats-heat:not(.is-padding)").length).toBe(84);
+  const attention = Object.fromEntries(
+    [...host.querySelectorAll(".stats-attention .stats-outcome")].map((node) => [
+      node.querySelector("dt")?.textContent,
+      node.querySelector("dd")?.textContent,
+    ]),
+  );
+  expect(attention).toEqual({
+    "Average wait": formatWait(summary.permissionWaitMs! / summary.permissionAnswered!, "en"),
+    "Longest wait": formatWait(summary.permissionWaitMaxMs!, "en"),
+    "Questions answered": String(summary.permissionAnswered),
+    "Questions unanswered": String(summary.permissionUnanswered),
+    "Limit errors": String(summary.limitErrors),
+    "Steers per turn": new Intl.NumberFormat("en", { maximumFractionDigits: 2 }).format(summary.steers / summary.turns),
+  });
   expect([...host.querySelectorAll(".stats-harness-name")].map((node) => node.textContent)).toEqual([
     "Claude Code",
     "Codex",

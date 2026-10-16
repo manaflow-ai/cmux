@@ -713,17 +713,27 @@ refuse_unpushed_source() {
 }
 
 # True when a branch head on origin now (git ls-remote, no fetch) contains
-# <commit>. Heads this clone lacks the objects for are skipped. When origin
-# cannot be reached the answer is false: the local refs decide, as before.
+# <commit>. Only commits this clone already has count, and no head is looked up
+# by id: in a partial clone each lookup of a commit the clone lacks starts a
+# lazy fetch, and origin has thousands of heads (a per-head `cat-file -e` loop
+# took 111 min). One local walk lists the descendants of <commit> reachable from
+# the local refs and HEAD; a head counts when it is one of them (or <commit>
+# itself). The publishing branches are checked first. When origin cannot be
+# reached or the walk fails the answer is false: the local refs decide, as before.
 on_origin_branch() {
-  local commit="$1" heads sha
+  local commit="$1" heads descendants branch sha
   heads="$(git -C "$repo_root" ls-remote --heads origin 2>/dev/null)" || return 1
-  while read -r sha _; do
-    [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || continue
-    git -C "$repo_root" cat-file -e "$sha^{commit}" 2>/dev/null || continue
-    git -C "$repo_root" merge-base --is-ancestor "$commit" "$sha" 2>/dev/null && return 0
-  done <<<"$heads"
-  return 1
+  descendants="$(git -C "$repo_root" rev-list --ancestry-path "^$commit" --all HEAD 2>/dev/null)" || return 1
+  descendants+=$'\n'"$commit"
+  for branch in feat-cmux-next feat-cmux-next-acpmux; do
+    sha="$(awk -v ref="refs/heads/$branch" '$2 == ref { print $1 }' <<<"$heads")"
+    [[ "$sha" =~ ^[0-9a-f]{40}$ ]] && grep -qxF "$sha" <<<"$descendants" && return 0
+  done
+  [[ -n "$heads" ]] || return 1
+  # Full SHAs only on both sides: an empty line must never match.
+  awk 'NR == FNR { if ($1 ~ /^[0-9a-f]{40}$/) local_desc[$1]; next }
+    $1 ~ /^[0-9a-f]{40}$/ && ($1 in local_desc) { found = 1; exit } END { exit !found }' \
+    <(printf '%s\n' "$descendants") <(printf '%s\n' "$heads")
 }
 
 # True when <binary> reports a build commit whose tree key is this

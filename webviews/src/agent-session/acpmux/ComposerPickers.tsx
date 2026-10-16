@@ -177,8 +177,9 @@ export function ComposerPickers({
   pickerCatalog,
 }: Props) {
   const t = useT();
-  // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts).
-  const { showContextUsage } = useComposerSettings();
+  // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts);
+  // the reasoning menu draws a slider when the person opted in (the Debug Settings toggle agent.reasoningSlider).
+  const { showContextUsage, reasoningSlider } = useComposerSettings();
   const summary = snapshot.summary;
   // The rail lists the harnesses set up here (Leo 2026-10-11): one whose launcher check failed (not
   // installed, not signed in) stays behind the rail's +, unless this chat runs it. A failed model
@@ -601,6 +602,7 @@ export function ComposerPickers({
               : undefined
           }
           chevron={<ChevronIcon />}
+          slider={reasoningSlider}
           onPick={(value) => {
             pending.current = undefined;
             onEffort(effort.id, value);
@@ -682,7 +684,7 @@ function PendingChip({ kind, label, modeId }: { kind: "effort" | "mode"; label: 
   ) : (
     <span className={`acpmux-mode acpmux-access acpmux-chip-pending${warning}`} aria-hidden="true">
       <span className="acpmux-picker-button acpmux-access-trigger">
-        <LockIcon />
+        <ModeShield modeId={modeId} />
         <span className="acpmux-mode-text">{label}</span>
         <ChevronIcon />
       </span>
@@ -690,8 +692,9 @@ function PendingChip({ kind, label, modeId }: { kind: "effort" | "mode"; label: 
   );
 }
 
-/** The permission control stays quiet in the footer: a lock names the control and the menu
- * carries the mode title and one-line explanation. Base UI owns focus, typeahead and Escape. */
+/** The permission control stays quiet in the footer: the mode's shield names the control (a lock
+ * when the harness offers no modes and only grants remain) and the menu carries the mode title
+ * and one-line explanation, each row with its own shield. Base UI owns focus, typeahead and Escape. */
 function AccessMenu({
   label,
   modes,
@@ -735,7 +738,7 @@ function AccessMenu({
     <span className={`acpmux-mode acpmux-access${unrestricted(value) ? " acpmux-unrestricted" : ""}`}>
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-picker-button acpmux-access-trigger" label={label} aria-haspopup="menu">
-          <LockIcon />
+          {modes.length > 0 ? <ModeShield modeId={value} /> : <LockIcon />}
           <span className="acpmux-mode-text">
             {currentMode?.name ?? (modes.length === 0 ? grants[0]?.label : undefined) ?? label}
           </span>
@@ -770,7 +773,7 @@ function AccessMenu({
                   className={`acpmux-access-item${unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
                 >
                   <span className="acpmux-access-item-icon" aria-hidden="true">
-                    {choice.icon ?? <ShieldIcon />}
+                    {choice.icon ?? <ModeShield modeId={choice.id} />}
                   </span>
                   <span className="acpmux-menu-text">
                     <span className="acpmux-menu-label">{choice.name}</span>
@@ -1191,10 +1194,11 @@ export function Picker({
 }
 
 // Composer icons (a 16px grid drawn at 18px, stroke in currentColor).
-function Icon({ children, size = 18 }: { children: React.ReactNode; size?: number }) {
+function Icon({ children, size = 18, shield }: { children: React.ReactNode; size?: number; shield?: string }) {
   return (
     <svg
       className="acpmux-icon"
+      data-shield={shield}
       width={size}
       height={size}
       viewBox="0 0 16 16"
@@ -1210,11 +1214,27 @@ function Icon({ children, size = 18 }: { children: React.ReactNode; size?: numbe
     </svg>
   );
 }
-export const ShieldIcon = () => (
-  <Icon>
-    <path d="M8 1.9 13 3.7v4.1c0 3.1-2.3 5.3-5 6.3-2.7-1-5-3.2-5-6.3V3.7Z" />
+const SHIELD = "M8 1.9 13 3.7v4.1c0 3.1-2.3 5.3-5 6.3-2.7-1-5-3.2-5-6.3V3.7Z";
+/** Full access: the shield with an exclamation mark, drawn in the warning color by its row. */
+export const ShieldIcon = ({ shield }: { shield?: string }) => (
+  <Icon shield={shield}>
+    <path d={SHIELD} />
     <path d="M8 5.2v3.3" />
     <circle cx="8" cy="10.9" r=".35" fill="currentColor" />
+  </Icon>
+);
+/** A mode that asks first (Claude's default and plan, Codex read-only): the shield with a check. */
+const ShieldCheckIcon = ({ shield }: { shield?: string }) => (
+  <Icon shield={shield}>
+    <path d={SHIELD} />
+    <path d="m5.9 8.1 1.5 1.5 2.8-2.9" />
+  </Icon>
+);
+/** A mode that acts without asking within its limits (accept edits, Codex auto, Claude's don't
+ * ask): the plain shield. */
+const ShieldPlainIcon = ({ shield }: { shield?: string }) => (
+  <Icon shield={shield}>
+    <path d={SHIELD} />
   </Icon>
 );
 export const LockIcon = () => (
@@ -1223,6 +1243,27 @@ export const LockIcon = () => (
     <path d="M5.5 7V5.6a2.5 2.5 0 0 1 5 0V7" />
   </Icon>
 );
+/** One shield family for the permission mode, the same on the trigger and in the menu: the mark
+ * inside the shield carries the risk (compact-composer verdict, 2026-10-14). The svg itself
+ * carries data-shield, with no wrapper: it stays the trigger's first child, as the lock was, so
+ * the trailing-chevron rules (`.acpmux-icon:last-child`) never restyle it. */
+function ModeShield({ modeId }: { modeId?: unknown }) {
+  const kind =
+    typeof modeId !== "string"
+      ? "plain"
+      : unrestricted(modeId)
+        ? "alert"
+        : /accept|auto|dont[-_ ]?ask/i.test(modeId)
+          ? "plain"
+          : "check";
+  return kind === "alert" ? (
+    <ShieldIcon shield={kind} />
+  ) : kind === "check" ? (
+    <ShieldCheckIcon shield={kind} />
+  ) : (
+    <ShieldPlainIcon shield={kind} />
+  );
+}
 export const ChevronIcon = () => (
   <Icon size={14}>
     <path d="M4.6 6.3 8 9.6l3.4-3.3" />
