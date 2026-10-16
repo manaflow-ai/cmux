@@ -180,7 +180,12 @@ final class ScreenContentView: NSView {
                 if host.superview !== self {
                     addSubview(host, positioned: .below, relativeTo: revealAnchor ?? firstDividerView)
                 }
-                var frame = AnimatedFrame(arrivals[pane]?.seed ?? target)
+                // A pane that grows in from a split reveals its content on a
+                // short appearance fade. Keep this opacity on the pane frame,
+                // rather than animating the host's geometry, so the terminal
+                // or page stays at its final size while the split spring runs.
+                let revealAlpha: CGFloat = arrivals[pane] != nil && animateFrames ? 0 : 1
+                var frame = AnimatedFrame(arrivals[pane]?.seed ?? target, alpha: revealAlpha)
                 if let back = zoomMotion.returning(pane, revealing: revealing) { frame.alpha = back }
                 frame.setTarget(target, alpha: 1)
                 paneFrames[pane] = frame
@@ -305,7 +310,8 @@ final class ScreenContentView: NSView {
     func step(_ dt: Double) -> Bool {
         var moving = false
         for key in Array(paneFrames.keys) {
-            if paneFrames[key]?.advance(dt, parameters: Motion.spring(zoomMotion.spring(for: key))) == true { moving = true }
+            if paneFrames[key]?.advance(dt, parameters: Motion.spring(zoomMotion.spring(for: key)),
+                                        alphaParameters: Motion.spring(.appear)) == true { moving = true }
         }
         if zoomMotion.advance(dt) { moving = true }
         releaseCovered()
