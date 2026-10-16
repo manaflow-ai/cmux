@@ -37,7 +37,7 @@ extension TabCell: StatusIndicatorConfigClient {
             }
         } else {
             if let spinnerLayer {
-                hideSpinner(spinnerLayer, animated: item.indicator.isLoading)
+                hideSpinner(spinnerLayer, animated: TabTunables.loadingAnimation.value != .instant)
             }
         }
         layoutLayers()
