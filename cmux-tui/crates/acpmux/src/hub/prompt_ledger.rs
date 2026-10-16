@@ -1,6 +1,7 @@
 //! Pending prompt identities remain owned by the session until they settle.
 
-use super::PromptOutcome;
+use super::{Hub, PromptOutcome, Session};
+use serde_json::{Value, json};
 use std::collections::VecDeque;
 
 /// Only completed outcomes count against the retry cache's bound. Pending senders
@@ -23,6 +24,57 @@ pub(super) fn prune(ledger: &mut VecDeque<(String, PromptOutcome)>) {
             true
         }
     });
+}
+
+impl Hub {
+    /// A prompt id the session's log already holds (`user_message` or
+    /// `queued`), answered from the log: its turn's result when it ended,
+    /// else `interrupted` (the daemon stopped during the turn).
+    pub(super) fn logged_prompt(&self, session: &Session, prompt_id: &str) -> Option<Value> {
+        let last = session.meta().last_turn;
+        if let Some(last) =
+            last.filter(|l| l.get("promptId").and_then(Value::as_str) == Some(prompt_id))
+        {
+            return Some(json!({
+                "stopReason": last.get("stopReason").cloned().unwrap_or(Value::Null),
+                "_meta": {"acpmux": {"promptId": prompt_id, "turnId": last.get("turnId"), "status": last.get("status"), "duplicate": true}},
+            }));
+        }
+        let mut turn_id: Option<String> = None;
+        let mut ended: Option<Value> = None;
+        let _ = self.store.scan(&session.id, 0, &mut |rec| {
+            match (rec.kind.as_str(), &turn_id) {
+                ("user_message" | "queued", None)
+                    if rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) =>
+                {
+                    turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+                }
+                ("turn_result", Some(id))
+                    if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>
+                {
+                    ended = Some(rec.msg);
+                    return false;
+                }
+                ("queue_removed", Some(id))
+                    if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>
+                {
+                    ended = Some(json!({"stopReason": "cancelled", "status": "withdrawn"}));
+                    return false;
+                }
+                _ => {}
+            }
+            true
+        });
+        let turn_id = turn_id?;
+        let status = ended
+            .as_ref()
+            .and_then(|e| e.get("status").cloned())
+            .unwrap_or_else(|| json!("interrupted"));
+        Some(json!({
+            "stopReason": ended.as_ref().and_then(|e| e.get("stopReason").cloned()).unwrap_or(Value::Null),
+            "_meta": {"acpmux": {"promptId": prompt_id, "turnId": turn_id, "status": status, "duplicate": true}},
+        }))
+    }
 }
 
 #[cfg(test)]
