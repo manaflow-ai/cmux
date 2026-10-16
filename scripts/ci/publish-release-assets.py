@@ -416,7 +416,7 @@ def main() -> int:
     parser.add_argument("--feed", action="append", default=[])
     parser.add_argument("--replace-feeds", action="store_true")
     parser.add_argument("--github-output", type=Path,
-                        help="Append release_id and asset_count for later workflow steps")
+                        help="Append release_id, asset_count and asset_names for later workflow steps")
     args = parser.parse_args()
     # Hash and validate every local file before any remote mutation.
     phases = plan(args.immutable, args.optional_immutable, args.alias, args.feed, replace_feeds=args.replace_feeds)
@@ -426,7 +426,8 @@ def main() -> int:
     if args.github_output:
         # Later steps publish and verify this exact release id, never a tag lookup.
         with args.github_output.open("a") as output:
-            output.write(f"release_id={release_id}\nasset_count={sum(map(len, phases))}\n")
+            names = " ".join(asset.path.name for phase in phases for asset in phase)
+            output.write(f"release_id={release_id}\nasset_count={sum(map(len, phases))}\nasset_names={names}\n")
     return 0
 
 

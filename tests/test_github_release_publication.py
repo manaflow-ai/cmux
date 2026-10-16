@@ -288,7 +288,9 @@ class PublicationTests(unittest.TestCase):
     def test_nightly_finalization_targets_the_channel_release(self):
         text = (ROOT / ".github/workflows/nightly.yml").read_text()
         metadata = text.index("- name: Publish verified nightly release metadata")
-        self.assertIn("tag_name: ${{ needs.decide.outputs.release_tag }}", text[metadata:])
+        self.assertIn("RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}", text[metadata:])
+        self.assertIn("RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}", text[metadata:])
+        self.assertNotIn("softprops/action-gh-release", text[metadata:])
 
     def test_stable_release_stays_draft_until_downloads_are_verified(self):
         text = (ROOT / ".github/workflows/release.yml").read_text()
@@ -301,10 +303,10 @@ class PublicationTests(unittest.TestCase):
         # second release and published it with 0 assets. Publish the staged id.
         step = text[finalize:text.index("- name: Upload release appcast to R2")]
         self.assertNotIn("softprops/action-gh-release", step)
-        self.assertIn("RELEASE_ID: ${{ steps.upload_release.outputs.release_id }}", step)
-        self.assertIn('releases/$RELEASE_ID"', step)
-        self.assertIn("-F draft=false", step)
-        self.assertIn('"$EXPECTED_ASSETS"', step)
+        self.assertIn("RELEASE_ID: ${{ steps.upload_release.outputs.release_id", step)
+        self.assertIn('finalize-release.py publish', step)
+        self.assertIn('--release-id "$RELEASE_ID"', step)
+        self.assertIn('--expect-count "$UPLOADED_COUNT"', step)
 
     def test_stable_release_clears_staged_prerelease_before_finalizing(self):
         # publish-release-assets.py stages a missing release as a draft
@@ -313,7 +315,7 @@ class PublicationTests(unittest.TestCase):
         text = (ROOT / ".github/workflows/release.yml").read_text()
         finalize = text.index("- name: Publish verified release")
         step = text[finalize:text.index("- name: Upload release appcast to R2")]
-        self.assertLess(step.index("-F prerelease=false"), step.index("-F draft=false"))
+        self.assertIn("--prerelease false", step)
 
 
 class TransportTests(unittest.TestCase):
