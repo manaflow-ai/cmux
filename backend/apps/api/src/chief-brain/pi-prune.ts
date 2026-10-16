@@ -7,14 +7,16 @@
  * Rule: for a pi conversation with no task still running and no submission queued or placed, the
  * entries before its newest head marker's range (min of the marker's id and its `head`) are never
  * read again (pi derives context from the newest head marker onwards), so they go. Runs only when
- * CHIEF_BRAIN_PRUNE_PI is "1" (on in staging; off in production until a week of staging soak).
+ * Nothing in this brain reads pi context at an older point (`at`): runs and steps are the brain's own
+ * cb_step rows, and the turn reads only the newest context. A future history view over pi entries
+ * would have to keep more ranges. CHIEF_BRAIN_PRUNE_PI is "1" (on in staging; off in production until a week of staging soak).
  */
 /** The agents SDK's PiHarness prefixes pi-durable's tables (DEFAULT_PREFIX "pi_"). */
 const P = "pi_"
 const tableExists = (sql: SqlStorage, name: string) => sql.exec(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`, name).toArray().length > 0
 
 export const prunePiEntries = (sql: SqlStorage): { readonly deleted: number; readonly skipped: ReadonlyArray<string> } => {
-  if (!tableExists(sql, `${P}entries`) || !tableExists(sql, `${P}tasks`) || !tableExists(sql, `${P}submissions`)) return { deleted: 0, skipped: ["no pi tables"] }
+  if (!tableExists(sql, `${P}entries`) || !tableExists(sql, `${P}tasks`) || !tableExists(sql, `${P}submissions`)) return { deleted: 0, skipped: [] }
   let deleted = 0
   const skipped: Array<string> = []
   for (const c of sql.exec<{ id: number }>(`SELECT DISTINCT conversation_id AS id FROM ${P}entries`).toArray()) {
@@ -27,7 +29,9 @@ export const prunePiEntries = (sql: SqlStorage): { readonly deleted: number; rea
     const head = sql.exec<{ id: number; head: number | null }>(`SELECT id, head FROM ${P}entries WHERE conversation_id = ? AND head IS NOT NULL ORDER BY id DESC LIMIT 1`, c.id).toArray()[0]
     if (!head) continue
     const keepFrom = Math.min(Number(head.id), head.head === null ? Number(head.id) : Number(head.head))
-    deleted += sql.exec(`DELETE FROM ${P}entries WHERE conversation_id = ? AND id < ?`, c.id, keepFrom).rowsWritten
+    const n = Number(sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM ${P}entries WHERE conversation_id = ? AND id < ?`, c.id, keepFrom).one().n)
+    if (n > 0) sql.exec(`DELETE FROM ${P}entries WHERE conversation_id = ? AND id < ?`, c.id, keepFrom)
+    deleted += n
   }
   return { deleted, skipped }
 }
