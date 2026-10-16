@@ -711,13 +711,18 @@ enum TerminalSSHSessionDetector {
     private static func isInteractiveSSHArguments(_ arguments: [String]) -> Bool {
         guard !arguments.isEmpty else { return false }
         var index = RemoteShellSessionParsing.normalizedExecutableName(arguments[0]) == "ssh" ? 1 : 0
+        var forcedTTY = false
         while index < arguments.count {
             let argument = arguments[index]
             if argument == "--" {
-                return index + 2 >= arguments.count
+                return forcedTTY || index + 2 >= arguments.count
             }
             if !argument.hasPrefix("-") || argument == "-" {
-                return index == arguments.count - 1
+                // OpenSSH normally runs a remote command without a terminal,
+                // but `ssh -tt host command` is still an interactive PTY
+                // session. This is how local panes commonly enter tmux over
+                // SSH, so keep the forced-PTY lane eligible for paste upload.
+                return forcedTTY || index == arguments.count - 1
             }
 
             if argument.count > 2,
@@ -728,6 +733,10 @@ enum TerminalSSHSessionDetector {
                 if option == "o",
                    isNonInteractiveSSHOption(String(argument.dropFirst(2))) {
                     return false
+                }
+                if option == "o",
+                   isForcedTTYSSHOption(String(argument.dropFirst(2))) {
+                    forcedTTY = true
                 }
                 index += 1
                 continue
@@ -741,6 +750,11 @@ enum TerminalSSHSessionDetector {
                    isNonInteractiveSSHOption(arguments[index + 1]) {
                     return false
                 }
+                if option == "o",
+                   index + 1 < arguments.count,
+                   isForcedTTYSSHOption(arguments[index + 1]) {
+                    forcedTTY = true
+                }
                 index += 2
                 continue
             }
@@ -752,9 +766,24 @@ enum TerminalSSHSessionDetector {
             if flags.contains(where: { nonInteractiveFlags.contains($0) }) {
                 return false
             }
+            if flags.contains("t") {
+                forcedTTY = true
+            }
             index += 1
         }
         return false
+    }
+
+    private static func isForcedTTYSSHOption(_ rawOption: String) -> Bool {
+        let parts = rawOption
+            .split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+        let key = parts.first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let value = parts.count == 2
+            ? parts[1].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            : nil
+        return key == "requesttty" && (value == "yes" || value == "force")
     }
 
     private static func isNonInteractiveSSHOption(_ rawOption: String) -> Bool {
