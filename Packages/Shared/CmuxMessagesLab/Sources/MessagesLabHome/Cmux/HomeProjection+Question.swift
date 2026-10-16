@@ -33,6 +33,10 @@ extension HomeProjection {
         onOpenCloudWorkspace(machine, workspace)
     }
 
+    func openCloudDesktop(machine: String) {
+        onOpenCloudDesktop(machine)
+    }
+
     /// Stop Machine: one message from the user to the Chief ("Stop cloud machine chief-dogfood-1
     /// (vm-794a…)"), sent like a typed one. The click is the request, not the consent to run it: the
     /// Chief's `cmux vm pause` shows its approval card, the one confirmation every state change gets.

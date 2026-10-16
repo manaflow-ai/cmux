@@ -207364,55 +207364,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock control type must be terminal or browser."
+            "value": "Dock control type must be terminal, browser, or Chief."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dockコントロールのtypeはterminalまたはbrowserである必要があります。"
+            "value": "Dockコントロールの種類はterminal、browser、またはChiefである必要があります。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock 控件类型必须是 terminal 或 browser。"
+            "value": "Dock 控件类型必须是 terminal、browser 或 Chief。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Typ der Dock-Steuerung muss „terminal“ oder „browser“ sein."
+            "value": "Der Typ der Dock-Steuerung muss „terminal“, „browser“ oder „Chief“ sein."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le type de contrôle du Dock doit être terminal ou browser."
+            "value": "Le type de contrôle du Dock doit être terminal, browser ou Chief."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يجب أن يكون نوع عنصر تحكم Dock هو terminal أو browser."
+            "value": "يجب أن يكون نوع عنصر تحكم Dock هو terminal أو browser أو Chief."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El tipo de control de Dock debe ser terminal o browser."
+            "value": "El tipo de control de Dock debe ser terminal, browser o Chief."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock 控制項類型必須為 terminal 或 browser。"
+            "value": "Dock 控制項類型必須為 terminal、browser 或 Chief。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock 컨트롤 유형은 터미널 또는 브라우저여야 합니다."
+            "value": "Dock 컨트롤 유형은 터미널, 브라우저 또는 Chief여야 합니다."
           }
         }
       }
@@ -207423,7 +207423,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يدعم موضع Dock أسطح terminal وbrowser فقط"
+            "value": "يدعم وضع Dock أسطح terminal وbrowser وChief"
           }
         },
         "bs": {
@@ -207441,25 +207441,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Dock-Platzierung unterstützt nur terminal- und browser-Oberflächen"
+            "value": "Die Dock-Platzierung unterstützt Terminal-, Browser- und Chief-Oberflächen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock placement supports only terminal and browser surfaces"
+            "value": "Dock placement supports terminal, browser, and Chief surfaces"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La ubicación en Dock solo admite superficies terminal y browser"
+            "value": "La ubicación en Dock admite superficies terminal, browser y Chief"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le placement dans le Dock prend en charge uniquement les surfaces terminal et browser"
+            "value": "Le placement dans le Dock prend en charge les surfaces terminal, browser et Chief"
           }
         },
         "it": {
@@ -207471,7 +207471,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock配置でサポートされるサーフェスはterminalとbrowserのみです"
+            "value": "Dock配置ではterminal、browser、Chiefサーフェスをサポートします"
           }
         },
         "km": {
@@ -207483,7 +207483,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock 배치는 terminal 및 browser 표면만 지원합니다"
+            "value": "Dock 배치는 터미널, 브라우저 및 Chief 표면을 지원합니다"
           }
         },
         "nb": {
@@ -207531,13 +207531,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock 放置仅支持 terminal 和 browser 表面"
+            "value": "Dock 放置支持 terminal、browser 和 Chief 表面"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dock 放置僅支援 terminal 和 browser 介面"
+            "value": "Dock 放置支援 terminal、browser 和 Chief 表面"
           }
         }
       }
@@ -665665,6 +665665,20 @@
         }
       }
     },
+    "chief.cloud.desktopOpenFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn’t open the desktop on %@." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Der Schreibtisch auf %@ konnte nicht geöffnet werden." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Impossible d’ouvrir le bureau sur %@." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تعذّر فتح سطح المكتب على %@." } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se pudo abrir el escritorio en %@." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法開啟 %@ 上的桌面。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法打开 %@ 上的桌面。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%@에서 데스크톱을 열 수 없습니다." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ のデスクトップを開けませんでした。" } }
+      }
+    },
     "sidebar.chiefHome.backToWorkspaces": {
       "extractionState": "manual",
       "localizations": {
@@ -666320,7 +666334,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                           [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                           [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                           (-- <task words...> | --prompt-file <path|->)\n\nStart one coding agent on one task in a new workspace. The workspace is titled\n--name (default: the task's first line) and has no description.\n\nThe task is passed to the agent as one argument and never through a shell, so\nquotes, $ and newlines arrive unchanged. --prompt-file - reads it from stdin.\nThe task is the agent's last command-line argument, so `ps` and other tools\non this Mac can show it while the agent runs. Keep secrets out of it.\n\nOptions:\n  --agent codex|claude   Default codex, started as `codex --yolo`; claude starts as `claude`.\n  --agent-arg <arg>      Append one argument to the agent's command (repeatable).\n  --cwd <dir>            The agent's directory (default: the app's default).\n  --worktree <repo>      First run `git -C <repo> worktree add -b <branch> <repo>-<slug>`\n                         and start the agent there. <slug> comes from the title.\n  --branch <name>        The new branch for --worktree (default: <slug>).\n  --focus, --no-focus    Switch to the new workspace, or stay where you are. By default it\n                         switches only when a person runs the command in a terminal.\n  --wait-working         Wait until the terminal shows the agent working\n                         (Codex \"Working (…)\", a Claude Code spinner row).\n  --timeout <seconds>    How long --wait-working waits (default 60, max 600).\n  --json                 Print workspace_id, workspace_ref, surface_id, agent and status.\n\nstatus is working (seen working), started (not checked) or failed (with a reason:\ntimeout, trust_prompt, sign_in or agent_not_found). A failed check exits 1.\n\nExamples:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
+            "value": "Usage: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                           [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                           [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                           (-- <task words...> | --prompt-file <path|->)\n\nStart one coding agent on one task in a new workspace. The workspace is titled\n--name (default: the task's first line) and has no description.\n\nThe task is passed to the agent as one argument and never through a shell, so\nquotes, $ and newlines arrive unchanged. --prompt-file - reads it from stdin.\nThe task is the agent's last command-line argument, so `ps` and other tools\non this Mac can show it while the agent runs. Keep secrets out of it.\n\nOptions:\n  --agent codex|claude   Default codex, started with normal permission prompts.\n  --agent-arg <arg>      Append one argument to the agent's command (repeatable).\n                       Add `--agent-arg --yolo` only when the user explicitly enabled\n                       Chief's dangerous permission bypass setting.\n  --cwd <dir>            The agent's directory (default: the app's default).\n  --worktree <repo>      First run `git -C <repo> worktree add -b <branch> <repo>-<slug>`\n                         and start the agent there. <slug> comes from the title.\n  --branch <name>        The new branch for --worktree (default: <slug>).\n  --focus, --no-focus    Switch to the new workspace, or stay where you are. By default it\n                         switches only when a person runs the command in a terminal.\n  --wait-working         Wait until the terminal shows the agent working\n                         (Codex \"Working (…)\", a Claude Code spinner row).\n  --timeout <seconds>    How long --wait-working waits (default 60, max 600).\n  --json                 Print workspace_id, workspace_ref, surface_id, agent and status.\n\nstatus is working (seen working), started (not checked) or failed (with a reason:\ntimeout, trust_prompt, sign_in or agent_not_found). A failed check exits 1.\n\nExamples:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
           }
         },
         "de": {
@@ -667962,6 +667976,1147 @@
           "stringUnit": {
             "state": "translated",
             "value": "オンにする"
+          }
+        }
+      }
+    },
+    "preview.audio": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice message"
+          }
+        }
+      }
+    },
+    "preview.file": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File"
+          }
+        }
+      }
+    },
+    "preview.photo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photo"
+          }
+        }
+      }
+    },
+    "preview.video": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video"
+          }
+        }
+      }
+    },
+    "tapback.dislike": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thumbs Down"
+          }
+        }
+      }
+    },
+    "tapback.emphasize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exclamation Marks"
+          }
+        }
+      }
+    },
+    "tapback.laugh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ha Ha"
+          }
+        }
+      }
+    },
+    "tapback.like": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thumbs Up"
+          }
+        }
+      }
+    },
+    "tapback.love": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heart"
+          }
+        }
+      }
+    },
+    "tapback.picker": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reactions"
+          }
+        }
+      }
+    },
+    "tapback.question": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Question Mark"
+          }
+        }
+      }
+    },
+    "attachment.kind.archive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archive"
+          }
+        }
+      }
+    },
+    "attachment.kind.audio": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio"
+          }
+        }
+      }
+    },
+    "attachment.kind.document": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Document"
+          }
+        }
+      }
+    },
+    "attachment.kind.image": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Image"
+          }
+        }
+      }
+    },
+    "attachment.kind.pdf": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF Document"
+          }
+        }
+      }
+    },
+    "attachment.kind.text": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text Document"
+          }
+        }
+      }
+    },
+    "attachment.kind.video": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video"
+          }
+        }
+      }
+    },
+    "ax.attachment.file": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@, %3$@"
+          }
+        }
+      }
+    },
+    "ax.attachment.photo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photo, %@"
+          }
+        }
+      }
+    },
+    "ax.attachment.video": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video, %@"
+          }
+        }
+      }
+    },
+    "ax.compose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message"
+          }
+        }
+      }
+    },
+    "ax.from.me": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From you"
+          }
+        }
+      }
+    },
+    "ax.from.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From %@"
+          }
+        }
+      }
+    },
+    "ax.typing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typing"
+          }
+        }
+      }
+    },
+    "compose.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message"
+          }
+        }
+      }
+    },
+    "label.mayNotHaveBeenDelivered": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "May Not Have Been Delivered"
+          }
+        }
+      }
+    },
+    "label.notDelivered": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not Delivered"
+          }
+        }
+      }
+    },
+    "receipt.delivered": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delivered"
+          }
+        }
+      }
+    },
+    "receipt.read": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read"
+          }
+        }
+      }
+    },
+    "row.unsent.mine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You unsent a message"
+          }
+        }
+      }
+    },
+    "row.unsent.theirs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A message was unsent"
+          }
+        }
+      }
+    },
+    "separator.today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Today"
+          }
+        }
+      }
+    },
+    "separator.yesterday": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yesterday"
+          }
+        }
+      }
+    },
+    "compose.attach": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Attachment"
+          }
+        }
+      }
+    },
+    "compose.emoji": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emoji"
+          }
+        }
+      }
+    },
+    "compose.stop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop"
+          }
+        }
+      }
+    },
+    "header.contact": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contact details for %@"
+          }
+        }
+      }
+    },
+    "header.video": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FaceTime Video"
+          }
+        }
+      }
+    },
+    "home.approval.allow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow"
+          }
+        }
+      }
+    },
+    "home.approval.allowed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allowed"
+          }
+        }
+      }
+    },
+    "home.approval.denied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denied"
+          }
+        }
+      }
+    },
+    "home.approval.deny": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deny"
+          }
+        }
+      }
+    },
+    "home.approval.expired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expired"
+          }
+        }
+      }
+    },
+    "home.approval.moreOptions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More Options"
+          }
+        }
+      }
+    },
+    "home.approval.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow or deny above to continue"
+          }
+        }
+      }
+    },
+    "home.approval.prominentHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Return"
+          }
+        }
+      }
+    },
+    "home.approval.reason.cloud": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creates a cloud machine"
+          }
+        }
+      }
+    },
+    "home.approval.reason.dispatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starts a coding agent"
+          }
+        }
+      }
+    },
+    "home.approval.refusalHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc"
+          }
+        }
+      }
+    },
+    "home.approval.role": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "approval request"
+          }
+        }
+      }
+    },
+    "home.failure.role": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "error"
+          }
+        }
+      }
+    },
+    "home.failure.tryAgain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try Again"
+          }
+        }
+      }
+    },
+    "home.failure.tryAgainHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send your last message again"
+          }
+        }
+      }
+    },
+    "home.memory.undo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undo"
+          }
+        }
+      }
+    },
+    "home.memory.undoHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forget this note"
+          }
+        }
+      }
+    },
+    "home.status.waitingForYou": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for you"
+          }
+        }
+      }
+    },
+    "home.tool.findTools": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find tools"
+          }
+        }
+      }
+    },
+    "home.tool.hide": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide"
+          }
+        }
+      }
+    },
+    "home.tool.showAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show All"
+          }
+        }
+      }
+    },
+    "home.tool.state.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        }
+      }
+    },
+    "home.tool.state.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed"
+          }
+        }
+      }
+    },
+    "home.tool.state.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running"
+          }
+        }
+      }
+    },
+    "home.cloud.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't create cloud machine"
+          }
+        }
+      }
+    },
+    "home.cloud.openDesktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Desktop"
+          }
+        }
+      }
+    },
+    "home.cloud.openWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Workspace"
+          }
+        }
+      }
+    },
+    "home.cloud.ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud machine ready"
+          }
+        }
+      }
+    },
+    "home.cloud.resultRole": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud workspace"
+          }
+        }
+      }
+    },
+    "home.cloud.status.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed"
+          }
+        }
+      }
+    },
+    "home.cloud.status.needsSignIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs sign-in"
+          }
+        }
+      }
+    },
+    "home.cloud.status.ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready"
+          }
+        }
+      }
+    },
+    "home.cloud.status.working": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent working"
+          }
+        }
+      }
+    },
+    "home.cloud.stopMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop Machine"
+          }
+        }
+      }
+    },
+    "home.question.answeredInChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answered in chat"
+          }
+        }
+      }
+    },
+    "home.question.cancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelled"
+          }
+        }
+      }
+    },
+    "home.question.role": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Question"
+          }
+        }
+      }
+    },
+    "home.question.submit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Submit"
+          }
+        }
+      }
+    },
+    "home.menu.cancelUpload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel Upload"
+          }
+        }
+      }
+    },
+    "home.menu.openInDefaultApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in Default App"
+          }
+        }
+      }
+    },
+    "home.send.chiefRestarted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Chief restarted. Press Return to send."
+          }
+        }
+      }
+    },
+    "home.send.waitingForChief": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for the Chief to connect…"
+          }
+        }
+      }
+    },
+    "home.send.waitingToConnect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting to connect…"
+          }
+        }
+      }
+    },
+    "home.thread.rootNotReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can reply in this thread once its first message is delivered."
+          }
+        }
+      }
+    },
+    "home.video.pause": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause Video"
+          }
+        }
+      }
+    },
+    "home.video.play": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play Video"
+          }
+        }
+      }
+    },
+    "ax.attachment": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attachment: %@"
+          }
+        }
+      }
+    },
+    "ax.message.format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@, %3$@"
+          }
+        }
+      }
+    },
+    "ax.message.role": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "message"
+          }
+        }
+      }
+    },
+    "ax.messages": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messages"
+          }
+        }
+      }
+    },
+    "ax.you": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You"
+          }
+        }
+      }
+    },
+    "chief.memory.editFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief couldn’t update that note. Try again."
+          }
+        }
+      }
+    },
+    "chief.memory.sheet.editNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit note"
+          }
+        }
+      }
+    },
+    "chief.memory.sheet.saveNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
+          }
+        }
+      }
+    },
+    "chief.conversation.openInDock": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Chief in Dock"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DockでChiefを開く"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief im Dock öffnen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir Chief dans le Dock"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح Chief في Dock"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Chief en el Dock"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Dock 開啟 Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Dock 中打开 Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock에서 Chief 열기"
+          }
+        }
+      }
+    },
+    "dock.action.newChief": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいChief"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouveau Chief"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief جديد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增 Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建 Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 Chief"
           }
         }
       }

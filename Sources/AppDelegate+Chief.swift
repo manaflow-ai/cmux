@@ -1,6 +1,30 @@
 import AppKit
+import CmuxHomeCore
 
 extension AppDelegate {
+    /// Opens the selected Chief conversation in the active window's movable
+    /// right Dock, reusing the existing tab when it is already present.
+    @discardableResult
+    func openChiefInRightDock(
+        conversationID: ConversationID,
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else {
+            return false
+        }
+        let dock = context.windowDockStore(notificationStore: notificationStore)
+        guard let panelID = dock.openOrFocusChiefSurface(conversationID: conversationID, focus: true) else {
+            return false
+        }
+        _ = focusRightSidebarInActiveMainWindow(
+            mode: .dock,
+            focusFirstItem: false,
+            preferredWindow: context.window
+        )
+        dock.focusPanelFromDockInteraction(panelID, window: context.window)
+        return true
+    }
+
     /// Starts Chief at launch when `chief.enabled` is on, so the sidebar's
     /// Home row shows unread replies before Home is first opened, and wires
     /// the first-run rows that open a terminal or an agent.

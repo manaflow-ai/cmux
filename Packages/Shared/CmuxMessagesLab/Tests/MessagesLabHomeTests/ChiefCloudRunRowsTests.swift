@@ -95,7 +95,7 @@ import Testing
     @Test func stopMachineAsksTheChiefWithTheNameAndTheID() {
         let text = CmuxStrings.cloudStopMachineRequest("chief-dogfood-1", "vm-794a")
         #expect(text.contains("chief-dogfood-1") && text.contains("vm-794a"))
-        let view = ChiefResultCardView(frame: CGRect(x: 0, y: 0, width: 340, height: 120))
+        let view = ChiefResultCardView(frame: CGRect(x: 0, y: 0, width: 340, height: 160))
         let result = ChiefCloudRows.Result(title: "Codex is working", subtitle: nil, machine: "vm-794a", workspace: "ws_1",
                                            state: .running, name: "chief-dogfood-1")
         let context = CustomRowContext(ref: PartRef(messageId: "m1", partIndex: 0), size: view.bounds.size, layout: .bubbleIncoming,
@@ -106,5 +106,8 @@ import Testing
         #expect(stop?.isEnabled == true)
         #expect(stop?.isHidden == false)
         #expect(stop?.toolTip == "cmux vm pause vm-794a")
+        let desktop = view.subviews.compactMap { $0 as? ChiefOptionButton }.first { $0.accessibilityIdentifier() == "ChiefResultOpenDesktop" }
+        #expect(desktop?.isHidden == false)
+        #expect(desktop?.toolTip == "cmux vm desktop vm-794a")
     }
 }

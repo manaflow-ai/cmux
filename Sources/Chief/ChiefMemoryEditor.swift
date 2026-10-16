@@ -339,7 +339,13 @@ final class ChiefMemoryEditor: NSObject, NSTableViewDataSource, NSTableViewDeleg
             for fact in facts {
                 let row = ChiefMemoryNoteRow(fact: fact, width: width, compact: false)
                 row.onForget = { [weak self] id in
-                    if !ChiefMemoryStore.shared.forget(id) { self?.showFailure(ChiefMemoryStrings.forgetFailed) }
+                    if ChiefMemoryStore.shared.forget(id) {
+                        // The file watcher is intentionally asynchronous. Refresh the sheet
+                        // from the same mutation path so the clicked X disappears immediately.
+                        self?.showSelection()
+                    } else {
+                        self?.showFailure(ChiefMemoryStrings.forgetFailed)
+                    }
                 }
                 row.onEdit = { [weak self] fact in self?.editNote(fact) }
                 row.apply(theme)

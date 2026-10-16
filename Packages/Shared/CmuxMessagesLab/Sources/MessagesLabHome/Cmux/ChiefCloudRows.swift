@@ -11,7 +11,8 @@ import CmuxHomeCore
 /// - The result card: a work part whose `host` is the machine and whose `session` is the
 ///   machine workspace (`ws_…`, from a `cmux-result` block): title, subtitle, the agent's
 ///   state, an "Open Workspace" button (`ChatIntents.openCloudWorkspace`, the app's
-///   `cmux vm workspace open` path) and a quiet "Stop Machine" (`ChatIntents.stopCloudMachine`:
+///   `cmux vm workspace open` path), an "Open Desktop" button (`ChatIntents.openCloudDesktop`,
+///   the app's `cmux vm desktop` path) and a quiet "Stop Machine" (`ChatIntents.stopCloudMachine`:
 ///   the click asks the Chief, whose `cmux vm pause` shows an approval card, so stopping is
 ///   still confirmed where every other state change is). A `waiting` card (the agent waits for
 ///   the user's sign-in, the Chief's `needs_sign_in`) shows an orange dot and "Needs sign-in".
@@ -264,6 +265,8 @@ final class ChiefResultCardProvider: TranscriptCustomRowProvider {
     static let statusHeight: CGFloat = 16
     static let buttonGap: CGFloat = 10
     static let buttonHeight: CGFloat = 28
+    static let secondaryButtonGap: CGFloat = 6
+    static let secondaryButtonHeight: CGFloat = 24
     static let maxWidth: CGFloat = 340
 
     static let titleFont = HomeFonts.system(ofSize: 13, weight: .semibold)
@@ -297,7 +300,7 @@ final class ChiefResultCardProvider: TranscriptCustomRowProvider {
             y = frame.maxY
         }
         let status = CGRect(x: padX, y: y + statusGap, width: inner, height: statusHeight)
-        y = status.maxY + buttonGap + buttonHeight + padBottom
+        y = status.maxY + buttonGap + buttonHeight + secondaryButtonGap + secondaryButtonHeight + padBottom
         return (title, subtitle, status, CGSize(width: w, height: y))
     }
 
@@ -333,6 +336,8 @@ final class ChiefResultCardView: NSView {
     private var result: ChiefCloudRows.Result?
     private var context: CustomRowContext?
     private let button = ChiefOptionButton(option: CmuxStrings.cloudOpenWorkspace, style: .prominent)
+    /// Opens the machine's live display so the user can operate it when Chief should not.
+    private let desktopButton = ChiefOptionButton(option: CmuxStrings.cloudOpenDesktop, style: .plain)
     /// Stop Machine: quiet, left of Open Workspace; once clicked it stays disabled (the Chief asks next).
     private let stopButton = ChiefOptionButton(option: CmuxStrings.cloudStopMachine, style: .plain)
     private var stopSent: String?
@@ -345,6 +350,10 @@ final class ChiefResultCardView: NSView {
         button.action = #selector(openClicked)
         button.setAccessibilityIdentifier("ChiefResultOpenWorkspace")
         addSubview(button)
+        desktopButton.target = self
+        desktopButton.action = #selector(desktopClicked)
+        desktopButton.setAccessibilityIdentifier("ChiefResultOpenDesktop")
+        addSubview(desktopButton)
         stopButton.target = self
         stopButton.action = #selector(stopClicked)
         stopButton.setAccessibilityIdentifier("ChiefResultStopMachine")
@@ -362,6 +371,7 @@ final class ChiefResultCardView: NSView {
         context = nil
         stopSent = nil
         stopButton.isEnabled = true
+        desktopButton.isEnabled = true
     }
 
     func show(_ r: ChiefCloudRows.Result, context: CustomRowContext) {
@@ -373,6 +383,8 @@ final class ChiefResultCardView: NSView {
         self.context = context
         button.restyle() // the theme's accent may have changed
         button.toolTip = "cmux vm workspace open \(r.machine) \(r.workspace)"
+        desktopButton.restyle()
+        desktopButton.toolTip = "cmux vm desktop \(r.machine)"
         stopButton.restyle()
         stopButton.toolTip = "cmux vm pause \(r.machine)"
         setAccessibilityLabel(r.title)
@@ -387,12 +399,15 @@ final class ChiefResultCardView: NSView {
         super.layout()
         let p = ChiefResultCardProvider.self
         let w = max(120, ceil(button.intrinsicContentSize.width) + 28)
-        let y = bounds.height - p.padBottom - p.buttonHeight
+        let secondaryY = bounds.height - p.padBottom - p.secondaryButtonHeight
+        let y = secondaryY - p.secondaryButtonGap - p.buttonHeight
         button.frame = NSRect(x: bounds.width - p.padX - w, y: y, width: w, height: p.buttonHeight)
-        let sw = ceil(stopButton.intrinsicContentSize.width) + 24
-        let sx = button.frame.minX - 8 - sw
-        stopButton.frame = NSRect(x: sx, y: y, width: sw, height: p.buttonHeight)
-        stopButton.isHidden = sx < p.padX
+        let desktopWidth = ceil(desktopButton.intrinsicContentSize.width) + 20
+        desktopButton.frame = NSRect(x: p.padX, y: secondaryY, width: desktopWidth, height: p.secondaryButtonHeight)
+        let stopWidth = ceil(stopButton.intrinsicContentSize.width) + 20
+        let stopX = desktopButton.frame.maxX + p.secondaryButtonGap
+        stopButton.frame = NSRect(x: stopX, y: secondaryY, width: stopWidth, height: p.secondaryButtonHeight)
+        stopButton.isHidden = stopX + stopWidth > bounds.width - p.padX
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -427,6 +442,11 @@ final class ChiefResultCardView: NSView {
     }
 
     @objc private func openClicked() { open() }
+
+    @objc private func desktopClicked() {
+        guard let r = result, let intents = hostIntents else { return }
+        intents.openCloudDesktop(machine: r.machine)
+    }
 
     /// Stop Machine: the Chief hears "Stop cloud machine <name> (<id>)" and asks with its approval
     /// card before `cmux vm pause` runs. The button stays off for this card once sent.

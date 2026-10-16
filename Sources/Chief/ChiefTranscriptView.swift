@@ -24,6 +24,8 @@ final class ChiefTranscriptView: NSView {
     private let workingStatus = ChiefWorkingStatusView()
     private let unavailableLabel = NSTextField(wrappingLabelWithString: "")
     private let settingsPanel = ChiefSettingsPanel()
+    /// Mirrors this conversation in the movable right Dock.
+    private let dockButton = NSButton()
     /// "Opus 5.5 · Medium" under the name pill, and the pill's tooltip (``ChiefSettingsBrainHint``).
     private let brainHint = ChiefSettingsBrainHint()
     /// Chief memory: reports saved notes to the owner, whose "Chief will remember … · Undo"
@@ -81,6 +83,17 @@ final class ChiefTranscriptView: NSView {
         // The settings panel slides in from beyond the right edge.
         clipsToBounds = true
         if let transcript { addSubview(transcript) }
+        dockButton.image = NSImage(systemSymbolName: "sidebar.right", accessibilityDescription: ChiefStrings.openInDock)
+        dockButton.imagePosition = .imageOnly
+        dockButton.bezelStyle = .texturedRounded
+        dockButton.isBordered = false
+        dockButton.isTransparent = true
+        dockButton.target = self
+        dockButton.action = #selector(openInDock)
+        dockButton.setAccessibilityLabel(ChiefStrings.openInDock)
+        dockButton.toolTip = ChiefStrings.openInDock
+        dockButton.setAccessibilityIdentifier("ChiefOpenInDock")
+        addSubview(dockButton)
         addSubview(firstRun)
         firstRun.isHidden = true
         noticeLabel.isHidden = true
@@ -215,6 +228,7 @@ final class ChiefTranscriptView: NSView {
         transcript.onCancelSend = { [weak binding] key in binding?.cancelSend(key) ?? false }
         transcript.onRefusal = { [weak self] _, rejection in self?.showNotice(ChiefStrings.rejection(rejection)) }
         transcript.onOpenCloudWorkspace = { [weak self] machine, workspace in self?.openCloudWorkspace(machine, workspace) }
+        transcript.onOpenCloudDesktop = { [weak self] machine in self?.openCloudDesktop(machine) }
         // A turn's end, a failure or an approval card drops the typing dots at once (no fading ghost).
         transcript.typingLeavesAtOnce = true
         let id = conversation
@@ -496,6 +510,13 @@ final class ChiefTranscriptView: NSView {
         Task { await ChiefService.shared.stop(id) }
     }
 
+    @objc private func openInDock() {
+        _ = AppDelegate.shared?.openChiefInRightDock(
+            conversationID: conversation,
+            preferredWindow: window
+        )
+    }
+
     // MARK: Settings panel
 
     /// The name pill: the settings panel slides in from the right while the
@@ -571,6 +592,7 @@ final class ChiefTranscriptView: NSView {
 
     override func layout() {
         super.layout()
+        dockButton.frame = CGRect(x: max(8, bounds.maxX - 42), y: 12, width: 28, height: 28)
         if let transcript {
             let place = transcriptFrame(open: settingsOpen)
             if transcript.frame != place {
@@ -623,6 +645,25 @@ final class ChiefTranscriptView: NSView {
                 self?.showNotice(ChiefStrings.cloudOpenFailed(machine))
             }
         }
+    }
+
+    /// A Cloud result card's Open Desktop: use the same bundled CLI path as the Cloud menu,
+    /// leaving the display in cmux for the user to inspect or operate.
+    private func openCloudDesktop(_ machine: String) {
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        let started = CloudVMActionLauncher.shared.start(
+            socketPath: socketPath,
+            preferredWindow: window,
+            arguments: ["vm", "desktop", machine],
+            presentsFailureAlert: false,
+            onCompletion: { [weak self] completion in
+                guard !completion.succeeded else { return }
+                self?.showNotice(ChiefStrings.cloudDesktopOpenFailed(machine))
+            }
+        )
+        if !started { showNotice(ChiefStrings.cloudDesktopOpenFailed(machine)) }
     }
 
     func showNotice(_ text: String?) {

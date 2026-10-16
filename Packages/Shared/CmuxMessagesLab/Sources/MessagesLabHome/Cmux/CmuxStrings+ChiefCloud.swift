@@ -33,6 +33,10 @@ extension CmuxStrings {
     static var cloudOpenWorkspace: String {
         String(localized: "home.cloud.openWorkspace", defaultValue: "Open Workspace", table: "CmuxHome", bundle: .module)
     }
+    /// The result card's live-display action.
+    static var cloudOpenDesktop: String {
+        String(localized: "home.cloud.openDesktop", defaultValue: "Open Desktop", table: "CmuxHome", bundle: .module)
+    }
     /// VoiceOver's name for the result card.
     static var cloudResultRole: String {
         String(localized: "home.cloud.resultRole", defaultValue: "Cloud workspace", table: "CmuxHome", bundle: .module)

@@ -70,6 +70,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var onCancelSend: (IdempotencyKey) -> Bool = { _ in false }
     /// cmux-classic: a Cloud result card's Open Workspace (machine id, `ws_…` id).
     var onOpenCloudWorkspace: (_ machine: String, _ workspace: String) -> Void = { _, _ in }
+    /// cmux-classic: a Cloud result card's Open Desktop (machine id).
+    var onOpenCloudDesktop: (_ machine: String) -> Void = { _ in }
     /// cmux-classic: a failure row's Try Again and a memory row's Undo (ChiefNoticeRows.swift); each
     /// calls its completion with whether the host did it.
     var onRetryLastTurn: (_ completion: @escaping (Bool) -> Void) -> Void = { $0(false) }

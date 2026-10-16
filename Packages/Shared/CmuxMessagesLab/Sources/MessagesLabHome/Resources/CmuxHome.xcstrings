@@ -5948,6 +5948,20 @@
         }
       }
     },
+    "home.cloud.openDesktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Desktop" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Schreibtisch öffnen" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ouvrir le bureau" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "فتح سطح المكتب" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Abrir escritorio" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "開啟桌面" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "打开桌面" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "데스크톱 열기" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デスクトップを開く" } }
+      }
+    },
     "home.cloud.resultRole": {
       "extractionState": "manual",
       "localizations": {

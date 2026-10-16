@@ -12069,7 +12069,9 @@ struct VerticalTabsSidebar: View, Equatable {
                 workspaceScrollArea(renderContext: renderContext)
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
-                    .modifier(SidebarWorkspaceRowsChiefHomeCover(isCovered: isChiefHomeSelected))
+                        // Chief's conversation picker is a compact overlay; the workspace list
+                        // remains available underneath it instead of becoming a second sidebar.
+                        .modifier(SidebarWorkspaceRowsChiefHomeCover(isCovered: false))
             }
             if isPresented {
                 SidebarFooter(
@@ -12087,15 +12089,20 @@ struct VerticalTabsSidebar: View, Equatable {
             if isPresented && showsChiefHome {
                 ZStack(alignment: .top) {
                     if isChiefHomeSelected, let chiefHome {
-                        // Home selected: the sidebar is the conversation list (cmux-next's
-                        // rail swaps its one column; Messages has one list). The workspace
-                        // rows stay mounted underneath, hidden, so leaving Home is instant.
+                        // Home selected: show a short, animated conversation picker under
+                        // the pinned row. The workspace list stays mounted below it, so Home
+                        // does not replace the sidebar and switching back is immediate.
                         ChiefConversationListRepresentable(home: chiefHome, accent: tabItemSettings.accentColor)
-                            .padding(.top, SidebarWorkspaceListMetrics.firstRowTopOffset
-                                + SidebarWorkspaceListMetrics.homeBackRowHeight
-                                + SidebarWorkspaceListMetrics.homeBackRowBottomGap)
-                            .padding(.bottom, SidebarWorkspaceListMetrics.bottomScrimHeight)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding(.top, SidebarWorkspaceListMetrics.homeRowTopOffset
+                                + SidebarWorkspaceListMetrics.homeRowHeight
+                                + SidebarWorkspaceListMetrics.homeRowBottomGap)
+                            .frame(maxWidth: .infinity, height: 292, alignment: .top)
+                            .background(.regularMaterial)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .shadow(color: .black.opacity(0.18), radius: 14, y: 5)
+                            .padding(.horizontal, 8)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                            .zIndex(2)
                     }
                     SidebarChiefHomeRow(
                         isSelected: isChiefHomeSelected,
@@ -12105,17 +12112,13 @@ struct VerticalTabsSidebar: View, Equatable {
                         onNewConversation: chiefHome.map { home -> () -> Void in { home.newConversation() } }
                     )
                     .padding(.top, SidebarWorkspaceListMetrics.homeRowTopOffset)
-                    if isChiefHomeSelected {
-                        // The way back: the workspace rows are hidden while Home is selected.
-                        SidebarChiefHomeBackRow(
-                            workspaceCount: workspaceCount,
-                            settings: tabItemSettings,
-                            globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
-                            onShowWorkspaces: { selection = .tabs }
-                        )
-                        .padding(.top, SidebarWorkspaceListMetrics.firstRowTopOffset)
-                    }
                 }
+                .animation(
+                    NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                        ? nil
+                        : .easeInOut(duration: 0.22),
+                    value: isChiefHomeSelected
+                )
             }
         }
         .accessibilityIdentifier("Sidebar")
@@ -12333,7 +12336,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     bottomHeight: sidebarBottomScrimHeight
                 )
             )
-            .modifier(SidebarWorkspaceRowsChiefHomeCover(isCovered: isChiefHomeSelected))
+            .modifier(SidebarWorkspaceRowsChiefHomeCover(isCovered: false))
             .overlay(alignment: .top) {
                 // The sidebar top strip remains draggable and handles
                 // double-clicks with the standard titlebar action.
@@ -12535,7 +12538,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     bottomHeight: sidebarBottomScrimHeight
                 )
             )
-            .modifier(SidebarWorkspaceRowsChiefHomeCover(isCovered: isChiefHomeSelected))
+            .modifier(SidebarWorkspaceRowsChiefHomeCover(isCovered: false))
             .overlay(alignment: .top) {
                 if isPresented {
                     // The sidebar top strip remains draggable and handles

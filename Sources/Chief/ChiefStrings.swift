@@ -191,6 +191,10 @@ enum ChiefStrings {
     static var conversationsList: String {
         String(localized: "chief.conversation.list", defaultValue: "Chief Conversations")
     }
+    /// Tooltip for the header action that mirrors this conversation in the right Dock.
+    static var openInDock: String {
+        String(localized: "chief.conversation.openInDock", defaultValue: "Open Chief in Dock")
+    }
 
     // MARK: Composer notices
 
@@ -243,6 +247,11 @@ enum ChiefStrings {
     /// A Cloud result card's Open Workspace failed; `machine` is the machine id.
     static func cloudOpenFailed(_ machine: String) -> String {
         String(localized: "chief.cloud.openFailed", defaultValue: "Couldn’t open the workspace on \(machine).")
+    }
+
+    /// The notice shown when the Cloud result card cannot open its live display.
+    static func cloudDesktopOpenFailed(_ machine: String) -> String {
+        String(localized: "chief.cloud.desktopOpenFailed", defaultValue: "Couldn’t open the desktop on \(machine).")
     }
 
     /// A send refused after it left the composer.
