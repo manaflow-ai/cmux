@@ -73,7 +73,9 @@
   top: 4px;
   left: 0;
   background: currentColor;
-  opacity: 0.4;
+  /* The reference rail is about 25/255 darker than the first pass. Keep the tick quiet so the
+     transcript remains primary while hover/focus can still reach full text contrast. */
+  opacity: 0.28;
   transform-origin: 0 50%;
   /* Hovering in: the spring (the first line is the fallback for an engine without linear()). */
   transition: transform 160ms cubic-bezier(0.25, 1, 0.5, 1);
@@ -117,13 +119,14 @@
   color: var(--acpmux-minimap-text);
 }
 .acpmux-minimap__tick[data-tone="current"] .acpmux-minimap__bar {
-  opacity: 0.6;
+  /* Match the same measured contrast correction for prompts currently in view. */
+  opacity: 0.48;
 }
 .acpmux-minimap__rail[data-hovering] .acpmux-minimap__tick[data-tone="current"] {
   color: var(--acpmux-minimap-rest);
 }
 .acpmux-minimap__rail[data-hovering] .acpmux-minimap__tick[data-tone="current"] .acpmux-minimap__bar {
-  opacity: 0.4;
+  opacity: 0.28;
 }
 /* The hovered, scrubbed or focused row: the text, at once (no color transition). */
 .acpmux-minimap__tick[data-tone="active"] {
