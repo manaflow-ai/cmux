@@ -11548,6 +11548,7 @@ struct VerticalTabsSidebar: View, Equatable {
     /// workspaces down instead of letting either list paint over the other.
     @State private var chiefHomeSectionHeight: CGFloat = Self.defaultChiefHomeSectionHeight
     @State private var chiefHomeSectionDragStartHeight: CGFloat?
+    @State private var chiefHomeConversationsExpanded = true
     // Pending keyed refresh ids are intentionally non-observed. Workspace
     // publisher bursts cross into SwiftUI once per run-loop batch instead of
     // invalidating the full parent projection once per emitting workspace.
@@ -12173,15 +12174,19 @@ struct VerticalTabsSidebar: View, Equatable {
         return Group {
             if isPresented && showsChiefHome {
                 Group {
-                    if isChiefHomeSelected, let chiefHome {
+                    if isChiefHomeSelected, let chiefHome, chiefHomeConversationsExpanded {
                         chiefHomeConversationSection(home: chiefHome, settings: settings)
                     } else {
                         SidebarChiefHomeRow(
-                            isSelected: false,
+                            isSelected: isChiefHomeSelected,
+                            isExpanded: false,
                             settings: settings,
                             globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
-                            onSelect: { selection = .home },
-                            onNewConversation: nil
+                            onSelect: { selection = isChiefHomeSelected ? .tabs : .home },
+                            onNewConversation: isChiefHomeSelected
+                                ? chiefHome.map { home -> () -> Void in { home.newConversation() } }
+                                : nil,
+                            onToggleExpanded: { chiefHomeConversationsExpanded = true }
                         )
                     }
                 }
@@ -12189,7 +12194,9 @@ struct VerticalTabsSidebar: View, Equatable {
                 .frame(maxWidth: .infinity, alignment: .top)
                 .frame(
                     height: SidebarWorkspaceListMetrics.homeRowTopOffset
-                        + (isChiefHomeSelected ? chiefHomeSectionHeight : SidebarWorkspaceListMetrics.homeRowHeight),
+                        + (isChiefHomeSelected && chiefHomeConversationsExpanded
+                            ? chiefHomeSectionHeight
+                            : SidebarWorkspaceListMetrics.homeRowHeight),
                     alignment: .top
                 )
             }
@@ -12207,10 +12214,12 @@ struct VerticalTabsSidebar: View, Equatable {
         VStack(spacing: 0) {
             SidebarChiefHomeRow(
                 isSelected: true,
+                isExpanded: true,
                 settings: settings,
                 globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
                 onSelect: { selection = .tabs },
-                onNewConversation: { home.newConversation() }
+                onNewConversation: { home.newConversation() },
+                onToggleExpanded: { chiefHomeConversationsExpanded = false }
             )
 
             ChiefConversationListRepresentable(home: home, accent: settings.accentColor)
@@ -12298,9 +12307,13 @@ struct VerticalTabsSidebar: View, Equatable {
         // changes the table's viewport as well as its origin, so local cmux
         // workspaces remain visible directly below Home's conversation list.
         .safeAreaInset(edge: .top, spacing: 0) {
-            if isChiefHomeSelected {
+            if isChiefHomeSelected && chiefHomeConversationsExpanded {
                 Color.clear
                     .frame(height: Self.chiefHomeConversationListTopPadding(chiefHomeSectionHeight))
+                    .allowsHitTesting(false)
+            } else if isChiefHomeSelected {
+                Color.clear
+                    .frame(height: Self.chiefHomeConversationListTopPadding(SidebarWorkspaceListMetrics.homeRowHeight))
                     .allowsHitTesting(false)
             }
         }
