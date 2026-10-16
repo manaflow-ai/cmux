@@ -215,6 +215,22 @@ import Testing
         wire.connection.stop()
     }
 
+    /// A link slower than the burst leaves far more queued than the pipe holds: here every
+    /// pane's seed commands at once, about 1.8 MB, into a pipe nobody reads yet. That is a
+    /// slow pipe, not a dead one, so the stream stays up and every byte arrives in order.
+    @Test func aBurstLargerThanThePipeHoldsKeepsTheStreamUp() throws {
+        let wire = connectedWire()
+        for paneId in 1...1_500 {
+            wire.connection.seedPane(paneId: paneId, clearScrollback: true)
+        }
+
+        #expect(wire.connection.connectionState == .connected)
+        #expect(wire.writer.unwrittenBytes > 256 * 1024, "the burst must outgrow what the pipe holds")
+        let sent = try collect(wire)
+        #expect(sent.contains { $0.contains("%1500") }, "the last pane's seed reached the pipe")
+        wire.connection.stop()
+    }
+
     /// The agent hook installer carries a 17 KB payload. Sending one copy per session made
     /// every attach of a 15-session host queue about 255 KB of the same bytes. Sessions that
     /// ask while an install is out wait for it and then share one payload.
