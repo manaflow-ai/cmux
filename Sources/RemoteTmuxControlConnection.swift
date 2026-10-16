@@ -1081,7 +1081,7 @@ final class RemoteTmuxControlConnection {
     /// Tears down the current spawn's process and I/O handles WITHOUT changing
     /// `connectionState`, so the connection can either end (``stop()``) or re-spawn
     /// (reconnect) from a clean slate.
-    private func teardownProcessHandles() {
+    func teardownProcessHandles() {
         processGeneration &+= 1
         ingestTask?.cancel()
         ingestTask = nil
@@ -1502,7 +1502,7 @@ final class RemoteTmuxControlConnection {
     }
 
     /// Schedules the next reconnect attempt after a capped exponential backoff.
-    private func scheduleReconnectAttempt() {
+    func scheduleReconnectAttempt() {
         let attempt = reconnectAttemptCount
         reconnectAttemptCount += 1
         let delay = min(
@@ -1539,9 +1539,8 @@ final class RemoteTmuxControlConnection {
         record("reconnect-attempt")
         do {
             try spawnProcess(mode: everReachedControlMode ? .attach : attachMode)
-        } catch {
-            scheduleReconnectAttempt()
-        }
+            watchReconnectAttempt(processGeneration: processGeneration)
+        } catch { scheduleReconnectAttempt() }
     }
 
     /// Re-seeds every mirrored pane after a successful reconnect: the fresh ssh
