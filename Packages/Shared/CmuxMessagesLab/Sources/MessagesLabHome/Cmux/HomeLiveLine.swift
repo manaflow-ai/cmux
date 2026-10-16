@@ -13,6 +13,8 @@ final class HomeLiveLine {
     private var shown: String?
     private var clock: Timer?
     private var hiding = false
+    /// Counts hide requests: a close pending for an earlier one never closes a later one early.
+    private var hides = 0
     private let now: () -> Date
 
     init(now: @escaping () -> Date = Date.init) {
@@ -21,7 +23,8 @@ final class HomeLiveLine {
 
     func show(_ activity: HomeLiveActivity?) {
         if activity != nil { hiding = false }
-        guard activity != self.activity else { return }
+        // The same line again after a hide stopped its clock: the clock runs again.
+        guard activity != self.activity || (activity != nil && clock == nil) else { return }
         self.activity = activity
         clock?.invalidate()
         clock = nil
@@ -37,17 +40,32 @@ final class HomeLiveLine {
         tick()
     }
 
-    /// The line closes on the next display frame (after the commit that lands the reply);
-    /// a line shown again before then stays.
+    /// The line closes on the display frame after the one that presents the commit that lands the reply
+    /// (cx-06vn1: the first display link fire after that commit starts the frame that presents it, so a
+    /// change there joins the hand-off frame); a line shown again before then stays.
     func hide(after controller: ChatController) {
         guard activity != nil, !hiding else { return }
         hiding = true
+        hides += 1
+        let ticket = hides
+        closeAfterHandOffFires = nil
+        // A pending close shows the line as it is: no new second while it waits.
+        clock?.invalidate()
+        clock = nil
+        // Not on screen (occluded, minimized, no window): no display frame comes and nothing moves on screen.
+        guard controller.host.window?.occlusionState.contains(.visible) == true else { return close(ticket, controller) }
         controller.nextFrame { [weak self, weak controller] in
-            guard let self, self.hiding else { return }
-            self.hiding = false
-            self.show(nil)
-            self.closed(fires: controller?.frameTick.fires)
+            guard let self, self.hiding, self.hides == ticket else { return }
+            guard let controller else { return self.close(ticket, nil) }
+            controller.nextFrame { [weak self, weak controller] in self?.close(ticket, controller) }
         }
+    }
+
+    private func close(_ ticket: Int, _ controller: ChatController?) {
+        guard hiding, hides == ticket else { return }
+        hiding = false
+        show(nil)
+        closed(fires: controller?.frameTick.fires)
     }
 
     /// Automation (DEBUG socket): the display frame the reply's hand-off (`.streamEnd(_, replacedBy:)`) was
@@ -67,6 +85,9 @@ final class HomeLiveLine {
     }
 
     func stop() {
+        // A close pending when the view stops never runs.
+        hiding = false
+        hides += 1
         clock?.invalidate()
         clock = nil
     }
