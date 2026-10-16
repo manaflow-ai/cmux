@@ -4,12 +4,11 @@ import { afterEach, describe, expect, it } from "vitest"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /**
-* A message that arrives during a turn joins it (spec 7; parity run: "12 x 12" was answered 155 s later, after the first turn). Was: a turn never waits on the compactor (parity run 2026-10-16: 48 of 52 turns waited the full 60 s
- * while a rate-limited compactor failed). With the compactor hanging on every call, a person's
- * messages are still answered at once, on the frozen view plus the delta (OptChat 5a): each run's
- * wake path (admitted -> settled) stays under a second. Fake model, real Worker boundary.
- */
-const testEnv = env as unknown as Record<string, any>
+ * A message that arrives while a Cloud Chief turn runs joins that turn after its current model or
+ * tool step (spec 7), instead of waiting for the turn to end (parity run 2026-10-16: "12 x 12" was
+ * answered 155 s later, by a second turn). One run answers both; its one reply answers the later
+ * message. Fake model (SLOW streams over a few seconds), real Worker boundary.
+ */const testEnv = env as unknown as Record<string, any>
 const worker = (exports as unknown as { default: Fetcher }).default
 const sessionToken = async (sub: string) =>
   new SignJWT({ email: `${sub}@example.com`, email_verified: true, name: sub })

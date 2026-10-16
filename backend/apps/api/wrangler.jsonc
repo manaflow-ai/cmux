@@ -117,6 +117,8 @@
       // console (HOME_INVITE_ORIGIN, a plain var). Invites on (Lawrence, 2026-10-13): HOME_INVITES_SEND "on"; deploy-worker.sh
       // refuses a production deploy until the HOME_INVITE_FROM secret exists (prod-promote.ts config). Email only
       // (Lawrence, 2026-10-13): HOME_INVITES_TEXT "off" keeps the SendBlue secrets idle.
+      // No CHIEF_BRAIN_CLAUDE_DAILY_TURNS_TOTAL in production (decision 2026-10-16): prepaid credits (reserve per call), the
+      // per-owner daily limit and the chatmux service sub-cap (5k USD) bound spend; a deployment counter would put every turn through one object.
       "vars": { "ENVIRONMENT": "production", "CHIEF_BRAIN_ENABLED": "1", "CHIEF_BRAIN_MODEL": "claude-opus-5-5", "CHIEF_BRAIN_CLAUDE_AUTH": "service-key", "CHIEF_BRAIN_CLAUDE_MODELS": "claude-opus-5-5,claude-sonnet-5-5,claude-haiku-5-5", "CHIEF_BRAIN_CLAUDE_OWNERS": "team_2fcc617e7ba8be229bcb,team_6197db2f4b9d28c7115a,team_7648bed712529f7a64fa,team_760c83ddd31c6360c927", "CHIEF_BRAIN_FALLBACK_MODEL": "claude-haiku-5-5", "CHIEF_BRAIN_COMPACTOR_MODEL": "claude-haiku-5-5", "CHIEF_RUN_TOKEN_CAP_USD": "5", "HOME_INVITE_ORIGIN": "https://console.cmux.dev", "HOME_INVITES_SEND": "on", "HOME_INVITES_TEXT": "off", "INFERENCE_ENABLED": "1", "INFERENCE_FREE_ENABLED": "0", "INFERENCE_DAILY_CAP_USD": "20", "INFERENCE_FREE_DAILY_CAP_USD": "10", "CLOUD_API_ORIGIN": "https://cloud-api.cmux.dev", "CLOUD_NAME_PREFIX": "cmuxnp-prod-cld-", "WORKER_NAME": "cmux-api", "TEAM_VM_SLUG_PREFIX": "cmux-tvm-", "DASHBOARD_ORIGIN": "https://console.cmux.dev", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.com.cmux.app", "STACK_PROJECT_ID": "9790718f-14cd-4f7e-824d-eaf527a82b82" },
       "durable_objects": {
         "bindings": [
