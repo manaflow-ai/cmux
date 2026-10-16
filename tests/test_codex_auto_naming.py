@@ -4,6 +4,7 @@
 No running app, real credentials or model request is used.
 """
 import argparse
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,84 @@ import time
 import uuid
 
 from claude_teams_test_utils import FIXTURE_SOCKET_PASSWORD, accept_fixture_socket_authentication
+
+
+@contextmanager
+def naming_socket_server(socket_path, workspace, surface, trigger):
+    requests = []
+    applied_event = threading.Event()
+    listener = socket.socket(socket.AF_UNIX)
+    listener.bind(socket_path)
+    listener.listen()
+    listener.settimeout(0.1)
+    stopped = threading.Event()
+
+    def serve():
+        while not stopped.is_set():
+            try:
+                connection, _ = listener.accept()
+            except socket.timeout:
+                continue
+            with connection:
+                stream = connection.makefile("rwb")
+                applied_on_connection = False
+                for raw in stream:
+                    prefix = b"_cmux_capability_v1 fixture-local-capability "
+                    has_capability = raw.startswith(prefix)
+                    if has_capability:
+                        raw = raw[len(prefix):]
+                    try:
+                        if trigger == "stop" and not has_capability:
+                            stream.write(b"ERROR: Access denied\n")
+                            stream.flush()
+                            break
+                        if accept_fixture_socket_authentication(raw, stream):
+                            continue
+                        if not raw.lstrip().startswith(b"{"):
+                            stream.write(b"OK\n")
+                            stream.flush()
+                            continue
+                    except BrokenPipeError:
+                        break
+                    request = json.loads(raw)
+                    requests.append(request)
+                    result = {"enabled": True, "workspace_user_owned": False,
+                              "workspace_applied": True, "panel_applied": True,
+                              "surfaces": [{"id": surface, "ref": "surface:1", "focused": True}]}
+                    if request.get("method") == "agent.resolve_delivery_target":
+                        result = {"source": "surface", "workspace_id": workspace, "surface_id": surface}
+                    applied_on_connection |= bool(request.get("params", {}).get("title"))
+                    try:
+                        stream.write((json.dumps({"id": request["id"], "ok": True,
+                                                  "result": result}) + "\n").encode())
+                        stream.flush()
+                    except BrokenPipeError:
+                        break
+                if applied_on_connection:
+                    applied_event.set()
+
+    server = threading.Thread(target=serve)
+    server.start()
+    try:
+        yield requests, applied_event
+    finally:
+        stopped.set()
+        server.join(timeout=2)
+        listener.close()
+
+
+def test_socket_server_closes_stalled_client():
+    with tempfile.TemporaryDirectory(prefix="codex-naming-cleanup-", dir="/tmp") as temporary:
+        socket_path = str(Path(temporary) / "control.sock")
+        with socket.socket(socket.AF_UNIX) as client:
+            # Bound this regression even when fixture teardown leaves its read blocked.
+            client.settimeout(3)
+            with naming_socket_server(socket_path, "workspace", "surface", "auto-name"):
+                client.connect(socket_path)
+                client.sendall(f"auth {FIXTURE_SOCKET_PASSWORD}\n".encode())
+                assert client.recv(1024) == b"OK\n", "Fixture did not accept the client"
+            assert client.recv(1) == b"", "Fixture left the stalled connection open"
+    print("PASS socket fixture closes a stalled client")
 
 
 def run_case(cli, custom_home, trigger, codex=None):
@@ -82,62 +161,8 @@ def run_case(cli, custom_home, trigger, codex=None):
             "sessionId": session, "workspaceId": workspace, "surfaceId": surface,
             "transcriptPath": str(transcript), "startedAt": now, "updatedAt": now
         }}}))
-        requests = []
-        applied_event = threading.Event()
         socket_path = str(root / "control.sock")
-        listener = socket.socket(socket.AF_UNIX)
-        listener.bind(socket_path)
-        listener.listen()
-        listener.settimeout(0.1)
-        stopped = threading.Event()
-
-        def serve():
-            while not stopped.is_set():
-                try:
-                    connection, _ = listener.accept()
-                except socket.timeout:
-                    continue
-                with connection:
-                    stream = connection.makefile("rwb")
-                    applied_on_connection = False
-                    for raw in stream:
-                        prefix = b"_cmux_capability_v1 fixture-local-capability "
-                        has_capability = raw.startswith(prefix)
-                        if has_capability:
-                            raw = raw[len(prefix):]
-                        try:
-                            if trigger == "stop" and not has_capability:
-                                stream.write(b"ERROR: Access denied\n")
-                                stream.flush()
-                                break
-                            if accept_fixture_socket_authentication(raw, stream):
-                                continue
-                            if not raw.lstrip().startswith(b"{"):
-                                stream.write(b"OK\n")
-                                stream.flush()
-                                continue
-                        except BrokenPipeError:
-                            break
-                        request = json.loads(raw)
-                        requests.append(request)
-                        result = {"enabled": True, "workspace_user_owned": False,
-                                  "workspace_applied": True, "panel_applied": True,
-                                  "surfaces": [{"id": surface, "ref": "surface:1", "focused": True}]}
-                        if request.get("method") == "agent.resolve_delivery_target":
-                            result = {"source": "surface", "workspace_id": workspace, "surface_id": surface}
-                        applied_on_connection |= bool(request.get("params", {}).get("title"))
-                        try:
-                            stream.write((json.dumps({"id": request["id"], "ok": True,
-                                                      "result": result}) + "\n").encode())
-                            stream.flush()
-                        except BrokenPipeError:
-                            break
-                    if applied_on_connection:
-                        applied_event.set()
-
-        server = threading.Thread(target=serve)
-        server.start()
-        try:
+        with naming_socket_server(socket_path, workspace, surface, trigger) as (requests, applied_event):
             environment = {
                 "HOME": temporary, "CFFIXED_USER_HOME": temporary,
                 "PATH": f"{temporary}:/usr/bin:/bin",
@@ -169,10 +194,6 @@ def run_case(cli, custom_home, trigger, codex=None):
             }), env=environment, capture_output=True, text=True, timeout=15)
             if trigger == "stop":
                 assert applied_event.wait(8), "Stop hook never applied an automatic title"
-        finally:
-            stopped.set()
-            server.join(timeout=2)
-            listener.close()
         assert result.returncode == 0, result.stderr
         assert observed.is_file(), "Codex summarizer was not invoked"
         invocation = json.loads(observed.read_text())
@@ -201,6 +222,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if not args.cli:
         parser.error("--cli or CMUX_CLI_BIN is required")
+    test_socket_server_closes_stalled_client()
     for trigger in ("auto-name", "stop"):
         for custom_home in (False, True):
             run_case(str(Path(args.cli).resolve()), custom_home, trigger,
