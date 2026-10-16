@@ -8,8 +8,9 @@ import type { Env } from "../env.ts"
  * accepted only by the gateway's HTTP route (audience `model-gateway`, type `cmux-gw+jwt`), so it can
  * never act as an API token. Spend through it goes through the team's prepaid credits like any call.
  *
- * It works only while its run runs (the run's end or a cancel revokes it at once) and within its
- * spend cap (claim `cap`, USD; run-ledger.ts in the run's brain object).
+ * It works only while its run runs (the run's end or a cancel revokes it: every later call is
+ * refused; a stream already open finishes, bounded by that call's held maximum) and within its spend
+ * cap (claim `cap`, USD, never above CHIEF_RUN_TOKEN_CAP_USD; run-ledger.ts in the run's brain object).
  * The hand passes it to the agent as ANTHROPIC_AUTH_TOKEN with ANTHROPIC_BASE_URL = gatewayBaseUrl().
  */
 export const RUN_TOKEN_AUDIENCE = "model-gateway"
@@ -62,7 +63,8 @@ export const verifyRunToken = async (env: Env, token: string): Promise<RunGrant 
     const { payload, protectedHeader } = await jwtVerify(token, createLocalJWKSet(publicJwks(env) as { keys: Array<JWK> }), { algorithms: ["ES256"], issuer: issuer(env), audience: RUN_TOKEN_AUDIENCE, typ: TYP, clockTolerance: 30 })
     const p = payload as { team?: unknown; chf?: unknown; run?: unknown; conv?: unknown; sub?: unknown; jti?: unknown; cap?: unknown }
     if (protectedHeader.typ !== TYP || typeof p.team !== "string" || typeof p.chf !== "string" || typeof p.run !== "string" || typeof p.sub !== "string" || typeof p.conv !== "string" || typeof p.jti !== "string" || typeof p.cap !== "number" || !(p.cap > 0)) return null
-    return { team: p.team, chief: p.chf, owner: p.sub, run: p.run, conversation: p.conv, jti: p.jti, cap_usd: p.cap }
+    // A lower deployment cap applies to tokens already out, too.
+    return { team: p.team, chief: p.chf, owner: p.sub, run: p.run, conversation: p.conv, jti: p.jti, cap_usd: Math.min(p.cap, runTokenCap(env)) }
   } catch {
     return null
   }

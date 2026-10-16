@@ -84,12 +84,13 @@ const fakeRoute = () => {
   return seen
 }
 
-const owner = async (sub: string, credits: number, model: string, effort = "low", allow = false) => {
+const owner = async (sub: string, credits: number, model: string, effort = "low", allow: false | "user" | "team" = false) => {
   const token = await sessionToken(sub)
   const ensured = (await op(token, "user.ensure", {})).value
   const team = ensured.personal_team as string
   // A third allowed owner, on the no-deploy list (read at every call).
-  if (allow) testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA = `${testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA ?? ""},${ensured.id}`
+  // By user id, or by the user's personal team id (production lists people by team id).
+  if (allow) testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA = `${testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA ?? ""},${allow === "team" ? team : ensured.id}`
   if (credits > 0) await meter(team).creditAdd(team, `grant-${sub}`, "grant", Math.round(credits * 1e6), "test", "gateway test")
   const chief = (await op(token, "chief.create", { display_name: "Gateway Chief" }, `chief-${sub}`)).value as { id: string; main_conversation: string }
   const userDO = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(ensured.id))
@@ -180,7 +181,7 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
     testEnv.CHIEF_BRAIN_CLAUDE_DAILY_TURNS = "1"
     testEnv.CHIEF_BRAIN_FALLBACK_MODEL = "claude-sonnet-5-5"
     try {
-      const { token, chief } = await owner("brain-gateway-cap", 5, "claude-opus-5-5", "low", true)
+      const { token, chief } = await owner("brain-gateway-cap", 5, "claude-opus-5-5", "low", "user")
       expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: "f1", parts: [{ type: "text", text: "anyone?" }] }, "f1")).ok).toBe(true)
       await drive(chief.main_conversation, chief.id, async () => (await runsOf(token, chief.id, chief.main_conversation)).some((r: any) => r.status === "failed"), "the failed run")
       const run = (await runsOf(token, chief.id, chief.main_conversation))[0]
@@ -197,7 +198,7 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
 
   it("serves a hand's coding agent over HTTP with a per-run token: Anthropic Messages in, events out, charged to the team", async () => {
     const seen = fakeRoute()
-    const { chief, team } = await owner("brain-gateway-http", 5, "claude-opus-5-5", "low", true)
+    const { chief, team } = await owner("brain-gateway-http", 5, "claude-opus-5-5", "low", "team")
     const ownerId = (await op(await sessionToken("brain-gateway-http"), "user.ensure", {})).value.id as string
     await runState(chief.id, chief.main_conversation, "run_500", "running")
     const { token } = await mintRunToken(testEnv as any, { team, chief: chief.id, owner: ownerId, run: "run_500", conversation: chief.main_conversation })
@@ -239,7 +240,7 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
 
   it("refuses a run token whose team has no credits (402) without calling the route", async () => {
     const seen = fakeRoute()
-    const { chief, team } = await owner("brain-gateway-broke", 0, "claude-opus-5-5", "low", true)
+    const { chief, team } = await owner("brain-gateway-broke", 0, "claude-opus-5-5", "low", "user")
     const ownerId = (await op(await sessionToken("brain-gateway-broke"), "user.ensure", {})).value.id as string
     await runState(chief.id, chief.main_conversation, "run_501", "running")
     const { token } = await mintRunToken(testEnv as any, { team, chief: chief.id, owner: ownerId, run: "run_501", conversation: chief.main_conversation })
