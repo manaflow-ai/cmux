@@ -62,6 +62,7 @@ extension Workspace {
         // Remote workspaces receive their authoritative icon from SurfaceCatalog;
         // local lifecycle updates must not overwrite that projection.
         guard !isRemoteWorkspace,
+              SurfaceCatalog.shared.machineOwningPanel(panelId)?.isLocal != false,
               panels[panelId] is TerminalPanel,
               let tabID = surfaceIdFromPanelId(panelId),
               let tab = bonsplitController.tab(tabID) else { return }

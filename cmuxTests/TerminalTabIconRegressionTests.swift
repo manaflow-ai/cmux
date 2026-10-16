@@ -121,6 +121,29 @@ struct TerminalTabIconRegressionTests {
     }
 
     @MainActor
+    @Test func catalogOwnedRemoteIconSurvivesLifecycleSync() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
+        let catalog = SurfaceCatalog.shared
+        let resource = SurfaceResourceID(
+            machine: .ssh("terminal-tab-icon-regression"),
+            kind: .terminal,
+            key: "terminal-tab-icon-regression"
+        )
+        catalog.record(SurfaceProjection(resource: resource, workspaceID: workspace.id, panelID: panel.id))
+        defer { catalog.endProjections(panelID: panel.id, reason: .replaced) }
+
+        workspace.bonsplitController.updateTab(tabId, iconAsset: .some("AgentIcons/Codex"))
+        let remoteKey = RemoteAgentSidebarStatus.statusKeyPrefix + "codex"
+        workspace.setAgentLifecycle(key: remoteKey, panelId: panel.id, lifecycle: .running)
+        #expect(workspace.clearAgentLifecycle(key: remoteKey, panelId: panel.id))
+
+        let tab = try #require(workspace.bonsplitController.tab(tabId))
+        #expect(tab.iconAsset == "AgentIcons/Codex")
+    }
+
+    @MainActor
     @Test func restoredAgentThatQuitToTheShellLeavesNoAgentMark() throws {
         let workspace = Workspace()
         let panel = try #require(workspace.focusedTerminalPanel)
