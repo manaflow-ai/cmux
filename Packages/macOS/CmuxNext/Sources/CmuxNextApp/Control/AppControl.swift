@@ -114,6 +114,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.report(call.params, services: services))
             },
+            // Chief hands (cx-om025): levels, presence key, waiting requests; answers HandsService.debug JSON text.
+            .mainActor("debug.hands") { [weak services] call in
+                guard let hands = services?.cloud.hands else { return .value(.null) }
+                return .followUp { [params = call.params.compactMapValues(\.stringValue)] in .string(await hands.debug(params)) }
+            },
             // Unread tabs, attention marks, banners and the dismissal log
             // (plans/cmux-next/notifications.md); "click" runs a banner click.
             .mainActor("debug.notifications") { [weak services] call in
