@@ -56,7 +56,8 @@ public final class DaemonSidebarDocRemote: SidebarDocRemote {
             return try await body()
         } catch let error as DaemonError {
             switch error {
-            case .timedOut, .connectionClosed, .daemonShutdown: throw SidebarDocUnsettled()
+            // No connection yet (between asks, a reconnect): an earlier ask may still have reached the daemon.
+            case .timedOut, .connectionClosed, .daemonShutdown, .notConnected, .connectFailed: throw SidebarDocUnsettled()
             default: throw error
             }
         }

@@ -684,7 +684,7 @@ try:
         keep = next((r for r in sorted(listed, key=lambda r: r["window_frame"]["y"]) if r.get("in_list") and r.get("title")
                      and r["title"] != "V100" and r["window_frame"]["y"] >= TOP), None)
         document = doc_operation("sidebar.get") or {}
-        ids = {made["V100"], row_id(active)}
+        ids = {made["V100"], row_id(active)} if active else {made["V100"]}
         item = next((i for i in document.get("items", []) if (i.get("body") or {}).get("type") == "workspace"
                      and ids & {(i["body"].get("ref") or {}).get("workspace_id"), (i["body"].get("ref") or {}).get("workspace_key")}), None)
         top = item and min((i for i in document.get("items", []) if i.get("section") == item.get("section") and not i.get("parent")
@@ -698,9 +698,13 @@ try:
             after = next((r for r in window().get("rows", []) if r.get("title") == keep["title"]), None)
             still = bool(after and abs(after["window_frame"]["y"] - keep["window_frame"]["y"]) <= 0.5)
             selected = [r.get("title") for r in window().get("rows", []) if r.get("selected")]
-            record("another client moves the active row out of view: the view does not move", bool(gone) and still and selected == ["V100"],
+            # The move really happened in the document (the check is not trivially true).
+            placed = next((i for i in (doc_operation("sidebar.get") or {}).get("items", []) if i["id"] == item["id"]), {})
+            first = placed.get("order", "") < top.get("order", "")
+            record("another client moves the active row out of view: the view does not move",
+                   bool(gone) and still and first and selected == ["V100"],
                    f"kept={keep['title']} y {keep['window_frame']['y']} -> {after and after['window_frame']['y']} gone={bool(gone)} "
-                   f"selected={selected} reply={str(moved)[:120]}")
+                   f"selected={selected} first_in_doc={first} reply={str(moved)[:120]}")
             shot("v2-reveal-other-client")
         else:
             record("another client moves the active row out of view: the view does not move", False,

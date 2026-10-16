@@ -61,6 +61,10 @@ public final class SidebarDocStore {
     /// The page icon address last sent for each url item (`storeIconURLs` sends each one once).
     @ObservationIgnored var requestedIconURLs: [String: String] = [:]
     @ObservationIgnored var projectionCache: (version: UInt64, live: [SidebarDocWorkspaceRef], projection: SidebarDocProjection)?
+    /// Changes whose outcome no reply told (all asks unanswered, or answered only after an ask went unanswered: the
+    /// echo may have gone to a closed connection). They stay pending until the next document load, which says where
+    /// the rows really are: the load drops them (cx-ml98q).
+    @ObservationIgnored private var unanswered: Set<String> = []
     /// Refs already sent to `sidebar.adopt` this session.
     @ObservationIgnored private var adopting: Set<SidebarDocWorkspaceRef> = []
 
@@ -87,6 +91,8 @@ public final class SidebarDocStore {
             return
         }
         loading = true
+        // The load answers the changes unanswered before it was asked for (a later one asks for another load).
+        let answering = unanswered
         // task-owner: one sidebar.get; settles the load
         Task { [weak self] in
             defer {
@@ -95,6 +101,9 @@ public final class SidebarDocStore {
             }
             guard let data = try? await remote.get(), let records = try? SidebarDocRecords(document: data), let self else { return }
             guard mirror.load(data) else { return }
+            // The document has each unanswered change or never will: it shows as loaded (no replay on top).
+            for key in answering { mirror.reject(key) }
+            self.unanswered.subtract(answering)
             self.records = records
             self.isActive = true
             self.bump()
@@ -238,6 +247,9 @@ public final class SidebarDocStore {
                 do {
                     let reply = try await body(remote, key, stamped)
                     guard let self else { return }
+                    // Answered only after an unanswered ask: the daemon replays a committed change without a new
+                    // echo, and the first echo may have gone to a closed connection. The next load settles the key.
+                    if asked > 1 { self.settleByLoad(key) }
                     // A no-op change echoes no batch: its intent must not stay pending.
                     if !reply.hasInverse {
                         self.drop(key)
@@ -259,10 +271,14 @@ public final class SidebarDocStore {
                 } catch {
                     guard let self else { return }
                     if let origin { self.onUndoRefused(origin) }
-                    // The daemon refused it (or never answered): no batch will echo the key. The rows spring back once.
+                    if error is SidebarDocUnsettled {
+                        // Never answered: the daemon may have the change. The rows keep the optimistic look until the
+                        // next load shows the document (the change stays, or the rows spring back once).
+                        self.settleByLoad(key)
+                        return
+                    }
+                    // The daemon refused it: no batch will echo the key. The rows spring back once.
                     self.drop(key)
-                    // Unanswered: the daemon's document says where the rows really are.
-                    if error is SidebarDocUnsettled { self.refresh() }
                     self.refuse(SidebarDocStrings.describe(error), key: key)
                     return
                 }
@@ -272,6 +288,12 @@ public final class SidebarDocStore {
 
     /// How many times one change is sent under its key before an unanswered change counts as refused.
     private static let unsettledAsks = 4
+
+    /// `key`'s outcome is not known from a reply: the next document load settles it (now, or after a reconnect).
+    private func settleByLoad(_ key: String) {
+        unanswered.insert(key)
+        refresh()
+    }
 
     private func drop(_ key: String) {
         mirror?.reject(key)
