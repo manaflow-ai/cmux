@@ -63,6 +63,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
   private turnConversation: string | undefined
   private draining: Promise<void> | undefined
   private readonly posting = new Set<string>()
+  /** Operations that joined the running turn (messages that came in while it ran): the turn waits for them too. */
+  private steered: Array<string> = []
   private authing: Promise<string> | undefined
 
   readonly harness = new PiHarness({
@@ -264,8 +266,31 @@ export class ChiefBrainDO extends DurableObject<Env> {
     this.sql.exec(`UPDATE cb_inbox SET woke = 1 WHERE conversation = ? AND seq = ? AND state = 'queued'`, w.conversation, w.seq)
     this.sql.exec(`INSERT INTO cb_cursor (conversation, seq) VALUES (?, ?) ON CONFLICT (conversation) DO UPDATE SET seq = MAX(seq, excluded.seq)`, w.conversation, top)
     if (queued === 0 && top > cursor) await ackWake(this.env, w.agent, chiefPrincipal(w.agent, w.owner), w.conversation, top).catch(() => undefined)
+    // A message that comes in while this conversation's turn runs joins that turn after its current
+    // model or tool step (spec 7), instead of waiting for the turn to end.
+    if (queued > 0 && this.turnId && this.turnConversation === w.conversation) await this.steerQueued(w.conversation).catch((e: unknown) => console.warn(JSON.stringify({ msg: "chief_brain.steer_failed", error: String(e).slice(0, 200) })))
     this.kick()
     return { queued }
+  }
+
+  /** Logs the conversation's queued messages into the running turn and gives them to it (pi steer). */
+  private async steerQueued(conversation: string): Promise<void> {
+    const turn = this.turnId
+    if (!turn) return
+    const rows = this.sql.exec<{ n: number; message: string; seq: number; text: string }>(`SELECT n, message, seq, text FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, conversation).toArray()
+    if (rows.length === 0) return
+    this.ctx.storage.transactionSync(() => {
+      for (const r of rows) {
+        this.sql.exec(`INSERT INTO oc_logged (key) VALUES (?) ON CONFLICT DO NOTHING`, `user:${r.message}`)
+        this.memory.append("user", r.text)
+        this.sql.exec(`UPDATE cb_inbox SET state = 'running', turn = ? WHERE n = ?`, turn, r.n)
+      }
+      this.sql.exec(`UPDATE cb_turn SET last_seq = MAX(last_seq, ?) WHERE id = ?`, Math.max(...rows.map((r) => r.seq)), turn)
+    })
+    this.compactor.pump()
+    const op = `${turn}:steer:${rows[0]!.n}`
+    await this.harness.session().steer([{ type: "text" as const, text: rows.map((r) => r.text).join("\n\n") }], { operationId: op })
+    this.steered.push(op)
   }
 
   // ------------------------------------------------------------------ logging
@@ -398,7 +423,12 @@ export class ChiefBrainDO extends DurableObject<Env> {
         await this.harness.submit(blocks.map((text) => ({ type: "text" as const, text })), { operationId: id })
       }
       const limit = new Promise<"timeout">((r) => (timer = setTimeout(() => r("timeout"), TURN_MS)))
-      const result = await Promise.race([this.harness.wait(id), limit])
+      let result = await Promise.race([this.harness.wait(id), limit])
+      // Messages that joined the turn: wait for them as well (one that came after the last step runs on, under this turn).
+      for (let i = 0; i < this.steered.length && result !== "timeout"; i++) {
+        const joined = await Promise.race([this.harness.wait(this.steered[i]!), limit])
+        if (joined === "timeout" || joined.status !== "done") result = joined
+      }
       if (result === "timeout") {
         void this.harness.abort({ operationId: id }).catch(() => undefined)
         reason = "timeout"
@@ -410,6 +440,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       reason = e instanceof Error ? e.message : String(e)
     } finally {
       clearTimeout(timer)
+      this.steered = []
       this.turnId = undefined
       this.turnConversation = undefined
     }
