@@ -16,7 +16,7 @@ turn's first request. Every turn after the first must reach --min-hit. It also p
 MCP tool servers of the turns' Claude Code transcripts, for a failed run. Ends with quitEndSessions,
 acpmux shutdown and the tag's daemon stop.
 
-Usage: chief-cache-live.py --tag <tag> --app PATH [--turns 5] [--min-hit 90] [--out DIR]
+Usage: chief-cache-live.py --tag <tag> --app PATH [--turns 5] [--min-hit 87] [--out DIR]
 Submit the nx-remote job with --allow-agents, under `zsh -lic` (the subrouter route).
 """
 import argparse, glob, json, os, re, shutil, signal, socket, subprocess, sys, tempfile, time
@@ -25,7 +25,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", required=True)
 parser.add_argument("--turns", type=int, default=5)
-parser.add_argument("--min-hit", type=float, default=90.0, help="percent of a warm turn's first request read from the cache")
+parser.add_argument("--min-hit", type=float, default=87.0,
+                    help="percent of a warm turn's first request read from the cache (hq-6d 2026-10-16: 87 with the"
+                         " live Home block after the cache mark, about 1,170 uncached tokens; 90 needs the block in the"
+                         " cached delta, cx-4a5w2)")
 parser.add_argument("--turn-deadline", type=float, default=180)
 parser.add_argument("--out", default="/tmp")
 opts = parser.parse_args()
