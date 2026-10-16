@@ -102,6 +102,8 @@ export default defineConfig({
           // The second allowed owner comes from the no-deploy list (a secret on staging).
           CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA: testUser("brain-claude-fail"),
           CHIEF_BRAIN_FALLBACK_MODEL: "fake",
+          // Old pi entries are pruned at each turn start (chief-brain/pi-prune.ts), as on staging.
+          CHIEF_BRAIN_PRUNE_PI: "1",
           // Team VMs use the in-object fake provider (team-vm-driver.ts).
           TEAM_VM_DRIVER: "fake",
           // The team VM bind runs against the fake guest (team-vm-fake-guest.ts).

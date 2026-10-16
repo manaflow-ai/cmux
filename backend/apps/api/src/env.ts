@@ -241,6 +241,8 @@ export interface Env {
   readonly CHIEF_BRAIN_CLAUDE_DAILY_TURNS?: string
   /** Paid-model turns of the whole deployment per UTC day (unset: no deployment limit; the per-owner limit applies). */
   readonly CHIEF_BRAIN_CLAUDE_DAILY_TURNS_TOTAL?: string
+  /** "1": prune a brain's old pi entries at each turn start (chief-brain/pi-prune.ts). On in staging; off in production until a week of staging soak. */
+  readonly CHIEF_BRAIN_PRUNE_PI?: string
   /** Overrides of the Claude route, its sign-in refresh URL and project (tests). */
   readonly CHIEF_BRAIN_CLAUDE_URL?: string
   /** The Claude route's auth: "stack-session" (default), "service-key" (secret CHIEF_BRAIN_CLAUDE_SERVICE_KEY) or "bearer" (secret CHIEF_BRAIN_CLAUDE_TOKEN); model-gateway/routes.ts. */

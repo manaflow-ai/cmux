@@ -10,6 +10,7 @@ import { clip, clipInput, flushMarks, lastTalk, markPending, runError, readRun, 
 import { type BrainConfig, patchError, readConfig, SCHEMA, writeConfig } from "./brain-store.ts"
 import { AUTH_FAILED, holderAuth, holderInvalidate, holderTurn, HOLDER } from "./claude-auth.ts"
 import { Compactor, type CallRecord } from "./compactor.ts"
+import { prunePiEntries } from "./pi-prune.ts"
 import { type LedgerAnswer, type LedgerOp, runLedger } from "../model-gateway/run-ledger.ts"
 import { capText, type Kind, Memory, RETRY_MS } from "./memory.ts"
 import { brainModels, compactorDefault, compactorModel, creditsCanStart, creditsNotice, FAKE, turnFailedNotice, gatewayOptions, isClaude, liveOf, modelRefusal, pickTurnModel, validModelName } from "./models.ts"
@@ -444,6 +445,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
         const root = await (await this.harness.pi()).root(BACKGROUND_CONTEXT)
         await root.configure({ model: { provider: model.provider, modelId: model.id }, thinkingLevel: this.models.thinking(row.model) }, BACKGROUND_CONTEXT)
         // A fresh context every turn: the model sees the view, the new messages and its own tool loop.
+        // The previous turns' pi entries are never read again (each turn starts a fresh context): pruned when allowed.
+        if (this.env.CHIEF_BRAIN_PRUNE_PI === "1") {
+          const p = prunePiEntries(this.sql)
+          if (p.deleted > 0 || p.skipped.length > 0) console.log(JSON.stringify({ msg: "chief_brain.pi_pruned", run: id, deleted: p.deleted, skipped: p.skipped.slice(0, 3) }))
+        }
         await this.harness.session().reset()
         this.sql.exec(`UPDATE cb_turn SET submitted = 1 WHERE id = ?`, id)
         await this.harness.submit(blocks.map((text) => ({ type: "text" as const, text })), { operationId: id })
