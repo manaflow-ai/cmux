@@ -239,6 +239,7 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
     const steeredBefore = b.steered.length
     if (!child && result !== "timeout" && result.status === "done" && (cont === "pending" || cont === "submitted")) {
       if (cont === "pending") writeConfig(b.sql, { [`hands_cont:${id}`]: "submitted" })
+      b.sql.exec(`INSERT INTO cb_marks (turn, mark, at) VALUES (?, 'continuation', ?) ON CONFLICT DO NOTHING`, id, Date.now())
       b.startTurnHands()
       // pi takes a repeated operation id once, so a resumed turn submits again safely.
       await b.harness.submit([{ type: "text" as const, text: HANDS_CONTINUE }], { operationId: `${id}:hands` })
