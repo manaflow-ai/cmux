@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Execute nightly runner selectors for trusted pushes, overflow, and unsigned resume."""
 import json
+import re
+import subprocess
+import tempfile
 import sys
 import unittest
 from pathlib import Path
@@ -94,6 +97,23 @@ class NightlyTrustedRouting(unittest.TestCase):
                      'Save Xcode compilation cache', 'Save Swift packages'):
             with self.subTest(step=name):
                 self.assertFalse(evaluate(parse_expression(steps[name]['if']), context))
+
+    def test_runner_guard_accepts_only_the_complete_nightly_capability_tuple(self):
+        source = (ROOT / 'tests/test_ci_self_hosted_guard.sh').read_text()
+        function = re.search(r'^check_no_self_hosted_fleet_runners\(\) \{\n.*?^\}',
+                             source, re.M | re.S).group()
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            workflows = fixture / '.github/workflows'
+            workflows.mkdir(parents=True)
+            nightly = workflows / 'nightly.yml'
+            nightly.write_text('runs-on: ' + DOC['jobs']['build-nightly-app']['runs-on'] + '\n')
+            script = 'ROOT_DIR="$1"\n' + function + '\ncheck_no_self_hosted_fleet_runners'
+            def check():
+                return subprocess.run(['bash', '-c', script, 'guard', str(fixture)], capture_output=True, text=True)
+            self.assertEqual(check().returncode, 0)
+            nightly.write_text('runs-on: glaeda-trusted-next-nightly\n')
+            self.assertNotEqual(check().returncode, 0)
 
     @unittest.skipUnless('nightly_next_unsigned_run' in DOC[True]['workflow_dispatch']['inputs'],
                          'unsigned resume is owned by PR 21161, not landed on this base yet')
