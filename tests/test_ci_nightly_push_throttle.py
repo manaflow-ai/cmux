@@ -155,6 +155,8 @@ def run_decide(
         "SEED_ONLY": "false",
         "COLD_CACHE": "false",
         "PUSH_MIN_INTERVAL_HOURS": interval,
+        # The live repository value; a test that checks the writer gate overrides it.
+        "NIGHTLY_NEXT_WRITER": "mac",
         "SCENARIO": json.dumps(
             {
                 "script": decide_script(),
