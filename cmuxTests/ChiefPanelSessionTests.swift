@@ -14,6 +14,27 @@ import Testing
 /// Chief as a workspace pane: session round trip, canonical Home protection, and wire tokens.
 @MainActor
 @Suite struct ChiefPanelSessionTests {
+    @Test func changingHomeConversationKeepsTheListBesideTheTranscript() throws {
+        let suite = "ChiefPanelSessionTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let home = ChiefHomeView(defaults: defaults)
+        defer {
+            home.teardown()
+            defaults.removePersistentDomain(forName: suite)
+        }
+        home.isActive = false
+        home.frame = NSRect(x: 0, y: 0, width: 980, height: 600)
+        home.layout()
+        #expect(home.list.superview === home)
+        #expect(home.list.frame.width > 0)
+
+        home.list.list.onSelect("conv_pane_selection")
+        let transcript = try #require(home.transcript)
+        #expect(transcript.conversation == ConversationID("conv_pane_selection"))
+        #expect(transcript.frame.minX >= home.list.frame.maxX)
+        #expect(!transcript.frame.intersects(home.list.frame))
+    }
+
     @Test func aHomeDragResolvesToItsConversationAndRetiresAfterDrop() throws {
         let registry = TabDragTransferRegistry()
         let conversation = ConversationID("conv_drag_test")
