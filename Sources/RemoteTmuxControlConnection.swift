@@ -333,16 +333,16 @@ final class RemoteTmuxControlConnection {
     /// deliberately parked (frozen, not ended) until ``resumeAfterInteractiveAuth()``
     /// or ``stop()``.
     private(set) var awaitingInteractiveAuth = false
-    /// stderr text captured for the in-flight spawn, inspected when a reconnect
-    /// attempt's process exits to tell "session genuinely gone" from "host still
-    /// unreachable". Reset at the start of each spawn.
+    /// stderr text captured for the in-flight spawn, inspected when a reconnect attempt's process
+    /// exits to tell "session genuinely gone" from "host still unreachable". Reset per spawn.
     private var stderrBuffer = ""
     private var preControlOutputBuffer = ""
     /// When this spawn last produced output, or when it started if none. Read by ``attachProgress(now:)``.
-    private var lastTransportOutputAt: ContinuousClock.Instant?
+    private var lastTransportOutputAt: ContinuousClock.Instant? { didSet { reconnectAttemptOutputArrived() } }
     var reconnectQuietLimits = RemoteTmuxAttachProgress.QuietLimits.standard
-    /// Set the first time the pre-control region looks like an unanswered prompt, and never unset for
-    /// this process.
+    var reconnectAttemptDeadline: Task<Void, Never>? // see ReconnectAttemptWatch
+    var transportClock: @Sendable () -> ContinuousClock.Instant = { .now }
+    /// Set the first time the pre-control region looks like an unanswered prompt; never unset for this process.
     ///
     /// The region is capped at ``maxStderrBytes`` and drops its oldest bytes, so recomputing the answer
     /// on demand meant a chatty transport could push the prompt out of the window and the observation
@@ -696,7 +696,7 @@ final class RemoteTmuxControlConnection {
         attachBlockDrained = false
         stderrBuffer = ""
         preControlOutputBuffer = ""
-        lastTransportOutputAt = .now
+        lastTransportOutputAt = transportClock()
         sawUnansweredCredentialPrompt = false
         enterReceived = false
         controlModeEnteredAt = nil
@@ -860,7 +860,7 @@ final class RemoteTmuxControlConnection {
     /// can't grow it without limit. Keeps the tail (the most recent, where the
     /// failure reason is).
     private func appendStderr(_ text: String) {
-        lastTransportOutputAt = .now
+        lastTransportOutputAt = transportClock()
         stderrBuffer += text
         if stderrBuffer.utf8.count > Self.maxStderrBytes {
             stderrBuffer = String(decoding: Array(stderrBuffer.utf8.suffix(Self.maxStderrBytes)), as: UTF8.self)
@@ -1083,6 +1083,7 @@ final class RemoteTmuxControlConnection {
     /// (reconnect) from a clean slate.
     func teardownProcessHandles() {
         processGeneration &+= 1
+        cancelReconnectAttemptDeadline()
         ingestTask?.cancel()
         ingestTask = nil
         stderrTask?.cancel()
@@ -1284,7 +1285,7 @@ final class RemoteTmuxControlConnection {
     /// check reads the parser's unterminated tail, and a test that brings its own parser would not
     /// exercise it.
     func ingest(_ data: Data) {
-        lastTransportOutputAt = .now
+        lastTransportOutputAt = transportClock()
         for message in parser.feed(data) {
             handle(message)
         }
@@ -1539,7 +1540,7 @@ final class RemoteTmuxControlConnection {
         record("reconnect-attempt")
         do {
             try spawnProcess(mode: everReachedControlMode ? .attach : attachMode)
-            watchReconnectAttempt(processGeneration: processGeneration)
+            armReconnectAttemptDeadline()
         } catch { scheduleReconnectAttempt() }
     }
 
