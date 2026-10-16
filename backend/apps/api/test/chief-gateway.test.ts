@@ -77,7 +77,7 @@ const fakeRoute = () => {
     const req = new Request(input, init)
     if (req.url.startsWith("https://claude.test/")) {
       seen.push({ headers: Object.fromEntries(req.headers.entries()), body: await req.json() })
-      return new Response(eventStream(`Routed answer ${seen.length}`), { headers: { "content-type": "application/vnd.amazon.eventstream" } })
+      return new Response(eventStream(`Routed answer ${seen.length}`), { headers: { "content-type": "application/vnd.amazon.eventstream", "x-bedrock-region": "us-west-2" } })
     }
     return real(input, init)
   })
@@ -147,6 +147,8 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
     expect(run.cost_usd).toBeGreaterThan(0)
     // Timing: the first model request after the run started, the first token after the request.
     expect(run.timing.request_at).toBeGreaterThanOrEqual(run.started_at)
+    // The Bedrock region that answered (the route's x-bedrock-region) is on the run.
+    expect(run.timing.regions).toEqual(["us-west-2"])
     expect(run.timing.first_token_at).toBeGreaterThanOrEqual(run.timing.request_at)
     // The wake path's marks, in order: the brain got the wake, the turn was admitted, the view was ready, the run started.
     expect(run.timing.wake_at).toBeLessThanOrEqual(run.timing.admitted_at)
