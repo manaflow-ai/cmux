@@ -97,7 +97,8 @@ const decision = await guard.decide({
   surfaceText: scenario.surface, sleep: async () => {},
 });
 const approvers = await guard.approvedBy({ github, owner: 'manaflow-ai', repo: 'cmux', runId: 1 });
-const policy = guard.parsePolicy(scenario.surface);
+let policy = { require_non_lander_approver: true };
+try { policy = guard.parsePolicy(scenario.surface); } catch (error) { /* decide() refused it */ }
 const ack = guard.ackDecision({ decision, approvers, triggeringActor: scenario.triggeringActor, expectedCurrent: scenario.current, requireNonLander: policy.require_non_lander_approver });
 let moveError = null;
 if (scenario.movedTo !== undefined) {
@@ -190,6 +191,24 @@ def test_lander_rule_ships_off_and_a_lander_may_approve() -> None:
     out = run(case)
     assert out["decision"]["action"] == "needs-ack"
     assert out["ack"]["ok"] and out["ack"]["approver"] == "teamleaderleo", out["ack"]
+
+
+def test_an_unknown_policy_line_refuses_the_promotion() -> None:
+    case = surface_change()
+    case["surface"] = SURFACE.replace("@require_non_lander_approver off", "@require_non_lander_approver ON")
+    out = run(case)
+    assert out["decision"]["action"] == "refuse"
+    assert "unknown policy line" in out["decision"]["reason"]
+
+
+def test_with_the_lander_rule_off_an_unknown_push_actor_does_not_block() -> None:
+    case = surface_change(lander_rule=False)
+    case["activity"] = []
+    case["approvals"] = [{"state": "approved", "user": {"login": "lawrencecchen"},
+                          "environments": [{"name": "release-surface-ack"}]}]
+    out = run(case)
+    assert out["decision"]["action"] == "needs-ack", out["decision"]
+    assert out["ack"]["ok"]
 
 
 def test_with_the_lander_rule_off_an_approval_is_still_required() -> None:

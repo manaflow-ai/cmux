@@ -471,8 +471,9 @@ jobs:
   # The promote guard (scripts/ci/promote-nightly-next.mjs, run from this
   # main checkout, never from the SHA under test): the SHA must be on
   # feat-cmux-next and green in a trusted cmux-next.yml push run. A promotion
-  # whose range changes a file in .github/release-surface.txt waits for one
-  # release approver who did not land that range (promote-nightly-next-acked).
+  # whose range changes a file in .github/release-surface.txt waits for an
+  # approval (promote-nightly-next-acked); the surface file's policy line says
+  # whether a lander of the range may give it.
   promote-nightly-next:
     if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
     # Holds only the release App credentials (CMUX_RELEASE_APP_*).
@@ -560,8 +561,9 @@ jobs:
 
   # A release surface change waits here for one approval in the
   # release-surface-ack environment (required reviewers: release-approvers,
-  # prevent self-review). The guard then refuses an approver who landed any
-  # surface-changing commit of the range or who started this run.
+  # prevent self-review). With `@require_non_lander_approver on` in the surface
+  # file, the guard then refuses an approver who landed any surface-changing
+  # commit of the range or who started this run.
   promote-nightly-next-acked:
     needs: promote-nightly-next
     if: needs.promote-nightly-next.outputs.action == 'needs-ack' && needs.promote-nightly-next.outputs.dry_run != 'true'

@@ -13,8 +13,10 @@
 //       otherwise it needs a release approver ("needs-ack");
 //   G4  for "needs-ack", the landers of every first-parent commit in the range
 //       that touches the surface: the push actor (repository activity), the
-//       PR author and merger, and the commit author and committer. The
-//       approval must come from someone who is not a lander (approvedBy()).
+//       PR author and merger, and the commit author and committer. With the
+//       policy line `@require_non_lander_approver on` the approval must come
+//       from someone who is not a lander (ackDecision()); off, any approval in
+//       the approval environment counts.
 // Anything it cannot establish is a "refuse" (fail closed).
 //
 // The functions take injected clients so tests drive them with a fake API.
@@ -43,8 +45,12 @@ export function parseSurface(text) {
 export function parsePolicy(text) {
   const policy = { require_non_lander_approver: false };
   for (const raw of text.split('\n')) {
-    const match = /^@([a-z_]+)\s+(on|off)\s*$/.exec(raw.trim());
-    if (match && match[1] in policy) policy[match[1]] = match[2] === 'on';
+    const line = raw.trim();
+    if (!line.startsWith('@')) continue;
+    const match = /^@([a-z_]+)\s+(on|off)$/.exec(line);
+    // A typo must not silently leave a rule off: an unknown policy line throws.
+    if (!match || !(match[1] in policy)) throw new Error(`unknown policy line in the release surface: ${line}`);
+    policy[match[1]] = match[2] === 'on';
   }
   return policy;
 }
@@ -246,6 +252,12 @@ export async function decide({
   }
 
   // G3: release surface.
+  let policy;
+  try {
+    policy = parsePolicy(surfaceText);
+  } catch (error) {
+    return refuse(error.message);
+  }
   const matches = surfaceMatcher(parseSurface(surfaceText));
   if (!current) {
     return { action: 'needs-ack', reason: `${TARGET} does not exist; the first promotion needs a release approver`, sha, current, force, surfaceFiles: ['*'], landers: [] };
@@ -295,7 +307,7 @@ export async function decide({
     if (!logins) unresolved.push(commit.sha);
     else logins.forEach((login) => landers.add(login));
   }
-  if (unresolved.length) {
+  if (unresolved.length && policy.require_non_lander_approver) {
     return refuse(`no push actor found for ${unresolved.join(', ')}; the landers of the release surface change are unknown`, { sha, current, surfaceFiles });
   }
   return {
