@@ -257,7 +257,7 @@ class PublicationTests(unittest.TestCase):
         # left two full asset sets, so a rerun adopts its single staged draft.
         client = publisher.GitHub("owner/repo", "fake-token")
         listing = [
-            {"id": 11, "tag_name": "v1.2.3", "draft": False},
+            {"id": 11, "tag_name": "v1.2.2", "draft": False},
             {"id": 8, "tag_name": "v1.2.4", "draft": True},
             {"id": 5, "tag_name": "v1.2.3", "draft": True},
         ]

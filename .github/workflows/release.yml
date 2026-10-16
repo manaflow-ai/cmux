@@ -933,7 +933,11 @@ jobs:
             fi
           }
 
-          read -r id draft tag count pending < <(release_state "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID")
+          if ! state="$(release_state "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID")"; then
+            echo "::error::Could not read staged release $RELEASE_ID"
+            exit 1
+          fi
+          read -r id draft tag count pending <<<"$state"
           if [ "$tag" != "$GITHUB_REF_NAME" ]; then
             echo "::error::Release $RELEASE_ID is not for tag $GITHUB_REF_NAME"
             exit 1
@@ -952,7 +956,19 @@ jobs:
             echo "Release $RELEASE_ID is already published"
           fi
 
-          read -r id draft tag count pending < <(release_state "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME")
+          # The release is public now. Retry the read so list/tag lag does not
+          # fail a correct publish; a wrong id or asset count still fails.
+          state=""
+          for attempt in 1 2 3; do
+            state="$(release_state "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME")" && break
+            echo "Tag lookup for $GITHUB_REF_NAME failed (attempt $attempt/3)"
+            [ "$attempt" = 3 ] || sleep 10
+          done
+          if [ -z "$state" ]; then
+            echo "::error::Release $RELEASE_ID was published but tag $GITHUB_REF_NAME could not be read back"
+            exit 1
+          fi
+          read -r id draft tag count pending <<<"$state"
           if [ "$id" != "$RELEASE_ID" ] || [ "$draft" != "false" ]; then
             echo "::error::Tag $GITHUB_REF_NAME resolves to release $id (draft=$draft), not the published staged release $RELEASE_ID"
             exit 1

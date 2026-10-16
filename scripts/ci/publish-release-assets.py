@@ -138,32 +138,28 @@ class GitHub:
     def release_id(self, tag: str) -> int:
         url = f"{self.api_url}/repos/{self.repo}/releases/tags/{quote(tag, safe='')}"
         try:
-            release = self.request("GET", url)
+            ids = {int(self.request("GET", url)["id"])}
         except RequestError as error:
             if error.status != 404:
                 raise
-            # The tags endpoint 404s for drafts, so a rerun must find its
-            # staged draft by listing. Exactly one staged draft may exist:
-            # with two, the assets and the release that gets published can
-            # be different objects (v0.65.2 shipped with 0 assets that way),
-            # so refuse before uploading anything.
-            drafts = sorted(
-                int(release["id"])
-                for release in self.releases()
-                if release.get("draft") and release.get("tag_name") == tag
+            ids = set()
+        # The tags endpoint 404s for drafts, so list every release for the tag.
+        # Exactly one release object may exist: with two, the assets and the
+        # release that gets published can differ (v0.65.2 shipped with 0
+        # assets that way), so refuse before uploading anything.
+        ids.update(int(release["id"]) for release in self.releases() if release.get("tag_name") == tag)
+        if len(ids) > 1:
+            raise RuntimeError(
+                f"Refusing to upload: {len(ids)} releases exist for {tag} "
+                f"(ids {', '.join(map(str, sorted(ids)))}). Delete the extra drafts, then rerun."
             )
-            if len(drafts) > 1:
-                raise RuntimeError(
-                    f"Refusing to upload: {len(drafts)} staged draft releases exist for {tag} "
-                    f"(ids {', '.join(map(str, drafts))}). Delete the extra drafts, then rerun."
-                )
-            if drafts:
-                return drafts[0]
-            release = self.request(
-                "POST",
-                f"{self.api_url}/repos/{self.repo}/releases",
-                body=json.dumps({"tag_name": tag, "name": tag, "draft": True, "prerelease": True}).encode(),
-            )
+        if ids:
+            return ids.pop()
+        release = self.request(
+            "POST",
+            f"{self.api_url}/repos/{self.repo}/releases",
+            body=json.dumps({"tag_name": tag, "name": tag, "draft": True, "prerelease": True}).encode(),
+        )
         return int(release["id"])
 
     def releases(self) -> list[dict]:
