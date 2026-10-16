@@ -21,9 +21,13 @@ extension Workspace {
         let resolver = TerminalTabAgentIconResolver()
         let pidStatusKeys = agentPIDKeysByPanelId[panelId, default: []]
             .map(agentStatusKey(forAgentPIDKey:))
-        let lifecycleStatusKeys = agentLifecycleStatesByPanelId[panelId, default: [:]]
-            .keys
-            .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0) }
+        let lifecycleStates = agentLifecycleStatesByPanelId[panelId, default: [:]]
+        // Lifecycle maps may contain custom keys, but only the fixed built-in
+        // IDs and aliases can resolve to a tab asset. Look those keys up
+        // directly instead of scanning the whole map on every lifecycle event.
+        let lifecycleStatusKeys = CmuxTaskManagerCodingAgentDefinition.builtIns
+            .flatMap { [$0.id] + $0.launchKinds + $0.directBasenames }
+            .filter { lifecycleStates[$0] != nil }
         let statusKeys = Set(pidStatusKeys).union(lifecycleStatusKeys).sorted()
         if let asset = statusKeys.compactMap(resolver.assetName(forStatusKey:)).first {
             return asset
