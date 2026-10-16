@@ -55,9 +55,10 @@ export const nextDeliveryAt = (sql: SqlStorage): number | null => {
 export const sendWake = async (env: Env, w: Wake, opencode: boolean): Promise<boolean> => {
   const pi = () => env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(w.agent, w.conversation))).wake(w)
   const o = opencode && env.OPENCODE_BRAIN_DO ? env.OPENCODE_BRAIN_DO.get(env.OPENCODE_BRAIN_DO.idFromName(w.agent)) : undefined
-  const limit = <T>(p: Promise<T>) => {
+  type Answer = { queued: number } | { skipped: string }
+  const limit = (p: Promise<unknown>): Promise<Answer> => {
     let timer: ReturnType<typeof setTimeout> | undefined
-    return Promise.race([p, new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error("wake send timed out")), SEND_TIMEOUT_MS)))]).finally(() => clearTimeout(timer))
+    return Promise.race([p as Promise<Answer>, new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error("wake send timed out")), SEND_TIMEOUT_MS)))]).finally(() => clearTimeout(timer))
   }
   try {
     const r = o ? await limit(o.wake(w)) : await limit(pi())
