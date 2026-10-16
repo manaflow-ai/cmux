@@ -38,7 +38,7 @@ describe("a Cloud Chief brain prunes old pi entries", { timeout: 180_000 }, () =
     for (let i = 0; i < 20 && on.status !== 200; i++) [await fireAlarm(userDO), (on = await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, { enabled: true }))]
     const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(chief.main_conversation))
     const brain = testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName(`${chief.id}/${chief.main_conversation}`))
-    const entries = () => runInDurableObject(brain, async (_i: unknown, s: DurableObjectState) => Number(s.storage.sql.exec(`SELECT COUNT(*) AS n FROM entries`).one().n))
+    const entries = () => runInDurableObject(brain, async (_i: unknown, s: DurableObjectState) => Number(s.storage.sql.exec(`SELECT COUNT(*) AS n FROM pi_entries`).one().n))
     const answered = async (n: number) => {
       for (let i = 0; i < 400 && (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id).length < n; i++) [await fireAlarm(conv), i % 10 === 9 && (await fireAlarm(brain)), await new Promise((r) => setTimeout(r, 25))]
       return (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)

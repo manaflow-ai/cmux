@@ -9,23 +9,25 @@
  * read again (pi derives context from the newest head marker onwards), so they go. Runs only when
  * CHIEF_BRAIN_PRUNE_PI is "1" (on in staging; off in production until a week of staging soak).
  */
+/** The agents SDK's PiHarness prefixes pi-durable's tables (DEFAULT_PREFIX "pi_"). */
+const P = "pi_"
 const tableExists = (sql: SqlStorage, name: string) => sql.exec(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`, name).toArray().length > 0
 
 export const prunePiEntries = (sql: SqlStorage): { readonly deleted: number; readonly skipped: ReadonlyArray<string> } => {
-  if (!tableExists(sql, "entries") || !tableExists(sql, "tasks") || !tableExists(sql, "submissions")) return { deleted: 0, skipped: ["no pi tables"] }
+  if (!tableExists(sql, `${P}entries`) || !tableExists(sql, `${P}tasks`) || !tableExists(sql, `${P}submissions`)) return { deleted: 0, skipped: ["no pi tables"] }
   let deleted = 0
   const skipped: Array<string> = []
-  for (const c of sql.exec<{ id: number }>(`SELECT DISTINCT conversation_id AS id FROM entries`).toArray()) {
-    const busyTasks = Number(sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM tasks WHERE conversation_id = ? AND status != 'terminal'`, c.id).one().n)
-    const pending = Number(sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM submissions WHERE conversation_id = ? AND status IN ('queued', 'placed')`, c.id).one().n)
+  for (const c of sql.exec<{ id: number }>(`SELECT DISTINCT conversation_id AS id FROM ${P}entries`).toArray()) {
+    const busyTasks = Number(sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM ${P}tasks WHERE conversation_id = ? AND status != 'terminal'`, c.id).one().n)
+    const pending = Number(sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM ${P}submissions WHERE conversation_id = ? AND status IN ('queued', 'placed')`, c.id).one().n)
     if (busyTasks > 0 || pending > 0) {
       skipped.push(`conversation ${c.id}: ${busyTasks} running tasks, ${pending} pending submissions`)
       continue
     }
-    const head = sql.exec<{ id: number; head: number | null }>(`SELECT id, head FROM entries WHERE conversation_id = ? AND head IS NOT NULL ORDER BY id DESC LIMIT 1`, c.id).toArray()[0]
+    const head = sql.exec<{ id: number; head: number | null }>(`SELECT id, head FROM ${P}entries WHERE conversation_id = ? AND head IS NOT NULL ORDER BY id DESC LIMIT 1`, c.id).toArray()[0]
     if (!head) continue
     const keepFrom = Math.min(Number(head.id), head.head === null ? Number(head.id) : Number(head.head))
-    deleted += sql.exec(`DELETE FROM entries WHERE conversation_id = ? AND id < ?`, c.id, keepFrom).rowsWritten
+    deleted += sql.exec(`DELETE FROM ${P}entries WHERE conversation_id = ? AND id < ?`, c.id, keepFrom).rowsWritten
   }
   return { deleted, skipped }
 }
