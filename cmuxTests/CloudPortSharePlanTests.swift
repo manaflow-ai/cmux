@@ -45,6 +45,20 @@ import Testing
         #expect(plan.steps(to: .stopSharing) == [.delete(id: "b"), .update(id: "c", .personal), .delete(id: "a")])
     }
 
+    @Test func disabledPublicationsDoNotKeepAStoppedPortShared() {
+        let disabled = VMPublication(
+            id: "disabled", hostname: "disabled.example.test", url: "https://disabled.example.test",
+            domainKind: "generated", vmID: "vm-1", port: 3000, accessMode: .personal,
+            teamID: nil, state: "disabled", routingRevision: 2, verification: nil
+        )
+        let plan = CloudPortSharePlan(
+            publications: [CloudPortPublicationRef(disabled)], machineID: "vm-1", port: 3000
+        )
+
+        #expect(plan.current == .unshared)
+        #expect(plan.steps(to: .stopSharing).isEmpty)
+    }
+
     @Test func aSecondShareForTheSamePortDoesNotStartWhileTheFirstRuns() {
         #expect(CloudPortShareFlow.beginFlow(machineID: "vm-test-share", port: 3000))
         #expect(!CloudPortShareFlow.beginFlow(machineID: "vm-test-share", port: 3000))
