@@ -264,6 +264,10 @@ export interface Env {
   readonly CHIEF_BRAIN_CLAUDE_PROJECT?: string
   /** Turns one chief's brains may start per UTC day (default 300): a spend bound for Workers AI. */
   readonly CHIEF_BRAIN_DAILY_TURNS?: string
+  /** Subagents (chief-brain/brain-spawn.ts): most children one Chief runs at once (default 4); the rest wait. */
+  readonly CHIEF_SPAWN_MAX?: string
+  /** Subagents' model (default: the model of the turn that spawned them). */
+  readonly CHIEF_SPAWN_MODEL?: string
   /** Test only: the OptChat view budget in bytes (0 = the spec's 128,000). */
   readonly CHIEF_BRAIN_VIEW_BUDGET?: string
   /** One OpencodeBrainDO per chief: the opencode brain (implementation O, chief-brain-opencode/) and its container. Absent: O is off. */

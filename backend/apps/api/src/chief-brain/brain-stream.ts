@@ -71,6 +71,7 @@ export const activityLine = (line: string): string => {
 export const toolActivity = (name: string, args: unknown): string => {
   const a = (args ?? {}) as Record<string, unknown>
   if (name === "zoom" || name === "date") return "Reading memory"
+  if (name === "spawn") return "Starting subagents"
   if (name === "chiefs") return typeof a.action === "string" ? `Chiefs: ${a.action}` : "Working on Chiefs"
   const target = [a.path, a.file, a.cwd, a.url].find((v): v is string => typeof v === "string" && v.length > 0)
   return target ? `${name} ${target}` : `Running ${name}`

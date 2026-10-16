@@ -34,6 +34,8 @@ export interface Run {
   readonly harness: "pi-durable"
   readonly session: { readonly kind: "pi"; readonly id: string; readonly host: string }
   readonly error?: string
+  /** A subagent's run (brain-spawn.ts): the run that spawned it. */
+  readonly parent_run?: string
   /** Where the reply went: posted (with its message id), no_reply (NO_REPLY or empty), refused (with the code), none (failed turn). */
   readonly reply?: { readonly state: string; readonly message?: string }
   /** Model tokens of the run (cache_read / (input + cache_read + cache_write) = cache hit) and its provider cost. */
@@ -132,7 +134,7 @@ export const readRun = (sql: SqlStorage, agent: string, id: string): Run | null 
   const marks: Record<string, unknown> = Object.fromEntries(markRows.filter((r) => !String(r.mark).startsWith("region:")).map((r) => [`${r.mark}_at`, Number(r.at)]))
   if (regions.length > 0) marks.regions = regions
   const kind = String(t.trigger_kind)
-  const threadRoot = kind === "chief" || kind === "dm" ? (t.trigger_thread_root === null ? undefined : String(t.trigger_thread_root)) : String(t.trigger_thread_root ?? t.trigger_message)
+  const threadRoot = kind === "spawn" ? undefined : kind === "chief" || kind === "dm" ? (t.trigger_thread_root === null ? undefined : String(t.trigger_thread_root)) : String(t.trigger_thread_root ?? t.trigger_message)
   return {
     id,
     conversation: String(t.conversation),
@@ -148,6 +150,7 @@ export const readRun = (sql: SqlStorage, agent: string, id: string): Run | null 
     model: String(t.model),
     harness: "pi-durable",
     session: { kind: "pi", id, host: "cloud" },
+    ...(kind === "spawn" ? { parent_run: String(t.trigger_message) } : {}),
     ...(status === "failed" && t.reason !== null ? { error: errorOf(sql, id, String(t.reason)) } : {}),
     ...(t.post === null ? {} : { reply: { state: String(t.post), ...(t.posted_message === null ? {} : { message: String(t.posted_message) }) } }),
     ...(tm || Object.keys(marks).length > 0 ? { timing: { ...marks, ...(!tm || tm.request_at === null ? {} : { request_at: Number(tm.request_at) }), ...(!tm || tm.first_token_at === null ? {} : { first_token_at: Number(tm.first_token_at) }) } } : {}),

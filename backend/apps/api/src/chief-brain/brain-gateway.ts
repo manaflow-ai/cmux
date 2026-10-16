@@ -17,12 +17,14 @@ export interface BrainNow {
   readonly run: string | undefined
   readonly conversation: string | undefined
   readonly config: BrainConfig
+  /** False: no live frames (a subagent's run; its parent shows "N subagents"). */
+  readonly live?: boolean
 }
 
 export const gatewayOptions = (ctx: DurableObjectState, env: Env, now: () => BrainNow): { who: () => GatewayWho; hooks: GatewayHooks } => {
   const live = liveOf(ctx, env, () => {
     const n = now()
-    return { run: n.run, conversation: n.conversation, agent: n.config.agent }
+    return { run: n.run, conversation: n.live === false ? undefined : n.conversation, agent: n.config.agent }
   })
   // First request and first token of each run (the first write of each mark wins): Run.timing.
   live.onMark = (run, mark, at) => void ctx.storage.sql.exec(`INSERT INTO cb_timing (turn, ${mark === "request" ? "request_at" : "first_token_at"}) VALUES (?, ?) ON CONFLICT (turn) DO UPDATE SET ${mark === "request" ? "request_at = COALESCE(request_at, excluded.request_at)" : "first_token_at = COALESCE(first_token_at, excluded.first_token_at)"}`, run, at)
