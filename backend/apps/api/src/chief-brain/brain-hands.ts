@@ -32,13 +32,12 @@ export const handsLayer = (env: Env, caller: HandCaller, turn?: { readonly run?:
     Hands.of({
       list: () => rpc(() => listHands(env, caller)),
       pairCode: (name, profile) => rpc(() => mintPairCode(env, caller, name, apiOrigin(env), profile)),
-      runToken: (run) =>
+      runToken: (_label) =>
         Effect.tryPromise({
           // The hand reads seconds.
           try: async () => {
             if (!caller.agent || !turn?.run || !turn.conversation) throw new Error("a run token is for a Chief's running turn")
             // The token names the brain's run (not the tool call), so the run's end revokes it; `run` is the call's label only.
-            void run
             const t = await mintRunToken(env, { team: payerTeam(caller.user), chief: caller.agent, owner: caller.user, run: turn.run, conversation: turn.conversation })
             return { token: t.token, expires_at: Math.floor(t.expires_at / 1000) }
           },

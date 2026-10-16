@@ -1,5 +1,4 @@
 import { Effect } from "effect"
-import { authenticate } from "../auth.ts"
 import { HOLDER, signedFetch } from "../chief-brain/claude-auth.ts"
 import { claudeModel } from "../chief-brain/models.ts"
 import { Credits, CreditsLive, creditsRequired, maxCallCostUsd, payerTeam, type Reservation } from "../credits.ts"
@@ -14,8 +13,9 @@ import type { LedgerAnswer, LedgerOp } from "./run-ledger.ts"
  *
  *   POST /v1/model-gateway/v1/messages     Anthropic Messages request (stream: true) -> server-sent events
  *
- * Auth (`Authorization: Bearer` or `x-api-key`): a run token (run-token.ts, scoped to team, chief, owner
- * and run) or a chief token (the chief acting for its owner). The model is a Claude name the route
+ * Auth (`Authorization: Bearer` or `x-api-key`): a run token only (run-token.ts, scoped to team, chief,
+ * owner and run, revoked at the run's end, capped per token). A chief token is refused here: it has no
+ * per-token cap, and in-Worker brains use the gateway in process (gatewayMessages). The model is a Claude name the route
  * serves; the owner must be allowed paid models. Every request holds the call's maximum price in the
  * payer team's prepaid credits before it goes upstream and is charged its real cost (from the
  * stream's usage) when the stream ends, also when it fails or the client goes away. Errors use the
@@ -27,15 +27,13 @@ const err = (status: number, type: string, message: string) => Response.json({ t
 const safeId = (s: string) => s.replace(/[^A-Za-z0-9._:-]/g, "_").slice(0, 128)
 const run = <A, E>(env: Env, p: Effect.Effect<A, E, Credits>) => Effect.runPromise(p.pipe(Effect.provide(CreditsLive(env))))
 
-type Who = Omit<RunGrant, "conversation" | "jti" | "cap_usd"> & { readonly conversation?: string; readonly grant?: RunGrant }
+export type Who = Omit<RunGrant, "conversation" | "jti" | "cap_usd"> & { readonly conversation?: string; readonly grant?: RunGrant }
 const whoOf = async (env: Env, request: Request): Promise<Who | null> => {
   const auth = request.headers.get("authorization") ?? ""
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : (request.headers.get("x-api-key") ?? "")
   if (!token) return null
   const scoped = await verifyRunToken(env, token)
-  if (scoped) return { ...scoped, grant: scoped }
-  const p = await authenticate(env, token).catch(() => undefined)
-  return p?.user && p.agent ? { team: payerTeam(p.user), chief: p.agent, owner: p.user, run: "chief" } : null
+  return scoped ? { ...scoped, grant: scoped } : null
 }
 
 interface Usage {
@@ -87,10 +85,22 @@ const usageTap = (end: (u: Usage) => Promise<void>): TransformStream<Uint8Array,
   } as Transformer<Uint8Array, Uint8Array> & { cancel(): void })
 }
 
-export const handleModelGateway = async (request: Request, env: Env): Promise<Response> => {
+export const handleModelGateway = async (request: Request, env: Env, ctx?: { waitUntil(p: Promise<unknown>): void }): Promise<Response> => {
   if (request.method !== "POST") return err(405, "invalid_request_error", "POST only")
   const who = await whoOf(env, request)
-  if (!who) return err(401, "authentication_error", "a run token or chief token is required")
+  if (!who) return err(401, "authentication_error", "a run token is required")
+  return gatewayMessages(env, who, request, ctx)
+}
+
+/** Upstream statuses worth one more try (throttled or overloaded route; Bedrock throttles per region). */
+const RETRY_STATUS = new Set([429, 503, 529])
+
+/**
+ * One Messages call for a caller the host already knows (a run token's grant, or a Worker brain such
+ * as the opencode brain's container route): allow-list, the run token's ledger, credits, the route
+ * (one retry on a throttled or overloaded answer), usage-based charge when the stream ends.
+ */
+export const gatewayMessages = async (env: Env, who: Who, request: Request, ctx?: { waitUntil(p: Promise<unknown>): void }): Promise<Response> => {
   const text = await request.text()
   let body: { model?: unknown; stream?: unknown; max_tokens?: unknown }
   try {
@@ -113,7 +123,7 @@ export const handleModelGateway = async (request: Request, env: Env): Promise<Re
   if (g && ledger) {
     const a = await ledger.runToken(g.run, g.jti, g.cap_usd, { op: "hold", usd: maxCost }).catch(() => null)
     if (!a) return err(503, "overloaded_error", "the run could not be checked; retry")
-    if (!a.ok) return a.code === "run_ended" ? err(401, "authentication_error", "this run has ended; the token no longer works") : err(429, "rate_limit_error", `this run's model budget (${g.cap_usd} USD) is spent`)
+    if (!a.ok) return a.code === "run_ended" ? err(401, "authentication_error", "this run has ended; the token no longer works") : err(429, "rate_limit_error", `this run token's model budget is spent: ${a.used_usd.toFixed(4)} of ${g.cap_usd} USD used, this call holds up to ${maxCost.toFixed(4)} USD`)
   }
   const unhold = (usd: number) => (g && ledger ? ledger.runToken(g.run, g.jti, g.cap_usd, { op: "settle", held: maxCost, usd }).catch(() => undefined) : Promise.resolve())
   let held: Reservation | null = null
@@ -138,7 +148,12 @@ export const handleModelGateway = async (request: Request, env: Env): Promise<Re
   const fetchRoute = signedFetch(() => holder.claudeAuth(), () => holder.claudeInvalidate(), { auth: route.auth, models: route.models, effortBody: route.effortBody, ...(env.CHIEF_BRAIN_CLAUDE_SERVICE_KEY ? { key: env.CHIEF_BRAIN_CLAUDE_SERVICE_KEY } : {}), ...(env.CHIEF_BRAIN_CACHE_TTL ? { ttl: env.CHIEF_BRAIN_CACHE_TTL } : {}) })
   let res: Response
   try {
-    res = await fetchRoute(`${route.url}/v1/messages`, { method: "POST", headers: { "content-type": "application/json", "x-cmux-team-id": team, "x-cmux-chief-id": who.chief, "x-request-id": request_id }, body: JSON.stringify({ ...body, model: name }) })
+    const send = (id: string) => fetchRoute(`${route.url}/v1/messages`, { method: "POST", headers: { "content-type": "application/json", "x-cmux-team-id": team, "x-cmux-chief-id": who.chief, "x-request-id": id }, body: JSON.stringify({ ...body, model: name }) })
+    res = await send(request_id)
+    if (RETRY_STATUS.has(res.status)) {
+      await res.body?.cancel().catch(() => undefined)
+      res = await send(`${request_id}:r1`.slice(0, 128))
+    }
   } catch {
     // Not sent (the route's sign-in failed before the request): nothing to charge.
     await unhold(0)
@@ -152,5 +167,6 @@ export const handleModelGateway = async (request: Request, env: Env): Promise<Re
     await settle({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })
     return err(res.status >= 400 && res.status < 600 ? res.status : 502, res.status === 429 ? "rate_limit_error" : "api_error", `the model route answered ${res.status}`)
   }
-  return new Response(res.body.pipeThrough(usageTap((u) => settle(u))), { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } })
+  // The charge outlives a client that goes away mid-stream (waitUntil), so the hold is settled, not left.
+  return new Response(res.body.pipeThrough(usageTap((u) => { const p = settle(u); ctx?.waitUntil(p); return p })), { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } })
 }
