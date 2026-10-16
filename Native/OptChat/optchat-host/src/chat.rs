@@ -575,19 +575,24 @@ impl OptChat {
         optchat_core::render_parts(parts, &st.store)
     }
 
-    /// A turn's input after the system prompt (spec 5a): the frozen view
-    /// `frozen` and the delta after it, or a new view when 5a.4 says so.
-    /// `first_new`: the log id of the turn's first new message (logged).
-    pub fn turn_input(&self, frozen: Option<&Frozen>, first_new: u64) -> TurnInput {
+    /// A turn's input after the system prompt (spec 5a, optchat-core
+    /// `turn_input`): the frozen view `frozen` and the delta after it, or a
+    /// new view. `new`: how many entries at the log's end are the turn's new
+    /// ones (logged before this call). Also the log length the delta runs to.
+    pub fn turn_input(&self, frozen: Option<&Frozen>, new: u64) -> (TurnInput, u64) {
         let st = self.shared.lock();
-        optchat_core::turn_input(&st.memory, &st.store, frozen, first_new)
+        let input = optchat_core::turn_input(&st.memory, &st.store, frozen, new);
+        (input, st.memory.len())
     }
 
-    /// The delta blocks of entries `front..end` cut at `cuts` (a traced
-    /// turn's, shown again by the inspector).
-    pub fn delta_blocks(&self, front: u64, end: u64, cuts: &[u64]) -> Vec<String> {
+    /// A traced turn's frozen view text and delta (`front..end`, new
+    /// messages from `new_from`), shown again by the inspector.
+    pub fn turn_input_at(&self, frozen: &Frozen, new_from: u64, end: u64) -> (String, Vec<String>) {
         let st = self.shared.lock();
-        optchat_core::delta_blocks(&st.memory, &st.store, front, end, cuts)
+        (
+            optchat_core::frozen_text(frozen, &st.store),
+            optchat_core::delta_range(&st.memory, &st.store, frozen.front, new_from, end),
+        )
     }
 
     /// The log id of the conversation message `key` (`<conversation>#<seq>`),

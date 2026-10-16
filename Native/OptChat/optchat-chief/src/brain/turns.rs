@@ -470,19 +470,29 @@ impl Brain {
             .chain(resumes.iter())
             .cloned()
             .collect();
-        self.note_engine(&engine);
-        // Spec 5a: the frozen view and the delta after it (this turn's
-        // messages and the engine note included), or a new view. The host
-        // only keeps the record; optchat-core decides.
+        // Spec 5a: the frozen view and the delta after it (this turn's new
+        // messages last), or a new view: optchat-core `turn_input` decides;
+        // the host only keeps the record. The engine note goes after, so the
+        // input ends with the turn's own messages (the next turn's delta
+        // takes the note with this turn's work, in one block).
         let frozen = self
             .state
             .frozen
             .as_ref()
             .and_then(crate::state::FrozenRecord::frozen);
-        let input = self.chat.turn_input(frozen.as_ref(), first_new);
+        let len = self.chat.status().messages;
+        let (input, delta_end) = self
+            .chat
+            .turn_input(frozen.as_ref(), len.saturating_sub(first_new));
         self.state.frozen = Some(crate::state::FrozenRecord::of(&input.frozen));
         self.save();
-        let view = &input.view;
+        self.note_engine(&engine);
+        let view = optchat_host::RenderedView {
+            marks: optchat_core::cache_marks(&input.view),
+            parts: input.frozen.parts.clone(),
+            text: input.view.clone(),
+        };
+        let view = &view;
         let cached = cached.as_deref();
         let (blocks, system_prompt, preset) = match cached {
             Some(preset) => {
@@ -540,10 +550,11 @@ impl Brain {
         // The delta by its log range and cuts: the inspector renders it again.
         layout["delta"] = serde_json::json!({
             "front": input.frozen.front,
-            "end": input.end,
-            "cuts": input.frozen.cuts,
+            "new_from": first_new,
+            "end": delta_end,
+            "unbuilt": input.frozen.unbuilt.iter().map(|p| p.name()).collect::<Vec<_>>(),
             "bytes": input.delta.iter().map(String::len).sum::<usize>(),
-            "rendered": input.rendered,
+            "rendered": input.rerendered,
         });
         if !resumes.is_empty() {
             layout["resumes"] = serde_json::json!(resumes);

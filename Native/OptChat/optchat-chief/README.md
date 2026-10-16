@@ -714,14 +714,15 @@ the next 10 turns skip it (`MARK_RETRY_AFTER`); then it is tried again. An acpmu
 **Frozen view and delta (spec 5a, cx-d7a4d).** A turn sends the view frozen at
 the last re-render (`optchat_core::turn_input`; the host keeps only the
 `frozen` record in its state), then every log entry after the view's front as
-`<id>|<kind>: <text>` lines in blocks cut at user/other kind changes and at
-each earlier request's end, then the per-turn tail (subagents at work, the Home
+`<id>+1|<kind>: <text>` lines, one block per run of user or of other kinds
+(the turn's new messages always start one; the view keeps an unbuilt line as
+the placeholder until the next re-render), then the turn's images, then the per-turn tail (subagents at work, the Home
 workspace, resume notes). Our three marks sit on the `<chat>` header, the
 view's end and the delta's end, so a turn reads the whole previous input. An
 edit or retraction of a logged message is logged as a note (`edit of <id>:
-<text>`, `retracted <id>`). A re-render happens past 8,000 delta bytes when the
-compactor built past the front, past 32,000 bytes, or with no reproducible
-frozen view. Claude Code's own system message after our blocks (deferred
+<text>`, `retracted <id>`; a queued one takes the edit or leaves the queue). A re-render happens past 8,000 delta bytes when the
+compactor folded over the front, past 32,000 bytes, or with no frozen view
+(optchat-core `turn_input`, shared with the Cloud brain). Claude Code's own system message after our blocks (deferred
 tools and the rest, below) stays uncached each request: 3,400 tokens with the
 cmux MCP server's 165 deferred tools (measured 2026-10-16).
 

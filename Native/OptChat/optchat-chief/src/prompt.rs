@@ -37,15 +37,17 @@ pub fn base_prompt() -> String {
 /// delta's description goes after it.
 const VIEW_END: &str = "A text too\nlong for one message is split over several in a row.";
 
+/// The spec's rule for delta entries that change an earlier line (5a.2).
+pub const DELTA_RULE: &str = "A line after </chat> that names an earlier line id (edit of, retracted, deleted) replaces what that line says.";
+
 /// What follows `</chat>` in a turn (spec 5a.2), with the spec's rule for
 /// entries that change an earlier line.
 pub fn delta_doc() -> String {
     format!(
         "After </chat> come the log entries since the view was made, oldest first,\n\
-         one per line as id|kind: text (newlines as spaces), or id|edit of <id>: text,\n\
-         id|retracted <id>, id|deleted <id>; the turn's new messages are the last user\n\
-         lines. {}",
-        optchat_core::DELTA_RULE
+         one per line as id+1|kind: text (newlines as spaces), or id+1|edit of <id>: text,\n\
+         id+1|retracted <id>, id+1|deleted <id>; the turn's new messages are the last\n\
+         user lines. {DELTA_RULE}"
     )
 }
 

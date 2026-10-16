@@ -49,6 +49,8 @@ export interface HandSummary {
   readonly revoked_at: number | null
   readonly last_seen: number | null
   readonly online: boolean
+  /** A sandbox hand (its VM was made for it and is deleted with it). */
+  readonly sandbox?: boolean
 }
 
 export interface HandError {

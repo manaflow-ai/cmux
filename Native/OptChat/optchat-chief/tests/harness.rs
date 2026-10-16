@@ -108,7 +108,7 @@ fn a_claude_turn_sends_the_frozen_view_then_the_delta_with_three_marks() {
     let delta = t[pieces.len()..].to_vec();
     assert_eq!(
         delta.last().unwrap(),
-        &format!("\n{id}|user: where is project 7?")
+        &format!("{id}+1|user: where is project 7?\n")
     );
     // The header, the view's end and the delta's end, at 1 hour.
     assert_eq!(markers(blocks), vec![0, pieces.len() - 1, t.len() - 1]);
@@ -167,7 +167,7 @@ fn without_system_prompt_support_a_claude_turn_keeps_the_old_layout_and_its_clau
     assert_eq!(inner.specs[0].preset, None);
     assert_eq!(
         inner.prompts[0],
-        input_blocks(&view, &[format!("\n{id}|user: hello")], &[], "")
+        input_blocks(&view, &[format!("{id}+1|user: hello\n")], &[], "")
     );
     assert_eq!(
         std::fs::read_to_string(h.dir.path().join("session").join("CLAUDE.md")).unwrap(),
@@ -201,7 +201,7 @@ fn a_codex_turn_sends_the_view_first_and_the_messages_last_with_no_marker_and_no
     assert_eq!(inner.specs[0].preset, None);
     assert_eq!(
         inner.prompts[0],
-        input_blocks(&view, &[format!("\n{id}|user: one")], &[], "")
+        input_blocks(&view, &[format!("{id}+1|user: one\n")], &[], "")
     );
     assert!(inner.prompts.iter().all(|b| markers(b).is_empty()));
     // Automatic prefix caching (spec 5a): the second turn's input starts
@@ -209,7 +209,7 @@ fn a_codex_turn_sends_the_view_first_and_the_messages_last_with_no_marker_and_no
     let first = texts(&inner.prompts[0]);
     let second = texts(&inner.prompts[1]);
     assert_eq!(second[..first.len()], first[..]);
-    assert!(second.last().unwrap().ends_with("|user: two"));
+    assert!(second.last().unwrap().ends_with("|user: two\n"));
 }
 
 #[test]

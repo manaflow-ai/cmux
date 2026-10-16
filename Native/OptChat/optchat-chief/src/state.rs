@@ -717,45 +717,47 @@ impl MarkRecord {
     }
 }
 
-/// `optchat_core::Frozen` as saved: the view's parts by name (`id+n`).
+/// `optchat_core::Frozen` as saved: the view's parts and its unbuilt parts by
+/// name (`id+n`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FrozenRecord {
     pub parts: Vec<String>,
     pub front: u64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub cuts: Vec<u64>,
-    pub bytes: usize,
-    pub hash: u64,
+    pub unbuilt: Vec<String>,
+}
+
+fn node_names(parts: &[optchat_core::NodeId]) -> Vec<String> {
+    parts.iter().map(|p| p.name()).collect()
+}
+
+/// Parts by name; None when one does not parse.
+pub fn parse_nodes(names: &[String]) -> Option<Vec<optchat_core::NodeId>> {
+    names
+        .iter()
+        .map(|name| {
+            let (id, n) = name.split_once('+')?;
+            optchat_core::NodeId::from_name(id.parse().ok()?, n.parse().ok()?)
+        })
+        .collect()
 }
 
 impl FrozenRecord {
     pub fn of(frozen: &optchat_core::Frozen) -> FrozenRecord {
         FrozenRecord {
-            parts: frozen.parts.iter().map(|p| p.name()).collect(),
+            parts: node_names(&frozen.parts),
             front: frozen.front,
-            cuts: frozen.cuts.clone(),
-            bytes: frozen.bytes,
-            hash: frozen.hash,
+            unbuilt: node_names(&frozen.unbuilt),
         }
     }
 
     /// The record as optchat-core takes it; None when a part does not parse
     /// (then the turn renders a new view).
     pub fn frozen(&self) -> Option<optchat_core::Frozen> {
-        let parts = self
-            .parts
-            .iter()
-            .map(|name| {
-                let (id, n) = name.split_once('+')?;
-                optchat_core::NodeId::from_name(id.parse().ok()?, n.parse().ok()?)
-            })
-            .collect::<Option<Vec<_>>>()?;
         Some(optchat_core::Frozen {
-            parts,
+            parts: parse_nodes(&self.parts)?,
             front: self.front,
-            cuts: self.cuts.clone(),
-            bytes: self.bytes,
-            hash: self.hash,
+            unbuilt: parse_nodes(&self.unbuilt)?,
         })
     }
 }

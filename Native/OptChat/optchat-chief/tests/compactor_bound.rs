@@ -2,9 +2,9 @@
 //! 10 s; hq-6d 2026-10-14, "the chief responds too slow": 1 s).
 //! The brain, its memory and its turn loop run end to end; only the
 //! compactor model is held. A turn whose view lines are still building
-//! starts after `SETTLE_BOUND` and reads those messages whole, in the delta
-//! after its view (spec 5a: a frozen view never shows the placeholder); the
-//! next turn reads the same input again, then its own message.
+//! starts after `SETTLE_BOUND` and reads them as the placeholder; the next
+//! turn sends that frozen view again byte for byte (spec 5a.1: a fold alone
+//! does not change it; a re-render folds the summaries in).
 
 mod common;
 
@@ -116,7 +116,7 @@ fn a_turn_waits_at_most_the_bound_for_lines_still_building_and_the_next_turn_rea
     h.connect();
 
     // Turn 1: the compactor is building (held), so the turn waits the bound
-    // and no longer, then reads the unbuilt messages whole in its delta.
+    // and no longer, then reads the messages as the placeholder.
     h.say("user_local", "where do releases go?");
     let waited = until_prompt(&mut h, 1);
     assert!(waited >= SETTLE_BOUND, "it waited the bound: {waited:?}");
@@ -130,16 +130,9 @@ fn a_turn_waits_at_most_the_bound_for_lines_still_building_and_the_next_turn_rea
     );
     let first = prompt_text(&h, 0);
     assert!(
-        !first.contains(PLACEHOLDER),
-        "turn 1 reads no placeholder: {first}"
+        first.contains(PLACEHOLDER),
+        "turn 1 reads the placeholder: {first}"
     );
-    for i in 0..4 {
-        assert!(
-            first.contains(&format!("{i}|{}", if i % 2 == 0 { "user" } else { "talk" }))
-                && first.contains(&long_message(i)),
-            "turn 1 reads message {i} whole in its delta: {first}"
-        );
-    }
     let status = chat.status();
     assert!(
         status.failures.is_empty() && status.stuck.is_empty(),
@@ -167,10 +160,6 @@ fn a_turn_waits_at_most_the_bound_for_lines_still_building_and_the_next_turn_rea
         "turn 2 did not wait: {waited:?}"
     );
     let second = prompt_text(&h, 1);
-    assert!(
-        !second.contains(PLACEHOLDER),
-        "turn 2 reads no placeholder: {second}"
-    );
     assert!(
         second.starts_with(&first[..first.find("where do releases go?").unwrap()]),
         "turn 2 sends turn 1's view and delta again: {second}"

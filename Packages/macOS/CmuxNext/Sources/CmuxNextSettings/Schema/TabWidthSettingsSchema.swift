@@ -1,6 +1,6 @@
 import CmuxNextDesign
 
-/// The tab width rows of the Tabs group (`appearance.metrics.tabMaxWidth`, `tabMinActiveWidth`,
+/// The tab overflow and width rows of the Tabs group (`tabs.overflow`, `appearance.metrics.tabMaxWidth`, `tabMinActiveWidth`,
 /// `tabMinInactiveWidth`, `tabPinnedWidth`; Lawrence 2026-10-15: "keep chrome's minimums but needs to
 /// be customizable"). Unset means the density's value from the shared tokens; the strip keeps
 /// min <= max. Its own type: the schema type's line budget is per type.
@@ -8,6 +8,20 @@ nonisolated enum TabWidthSettingsSchema {
     static func descriptors(group: SettingText) -> [SettingDescriptor] {
         let densityDefault = SettingsText.keyed("settings.default.density", "Density default")
         return [
+            // Shrink (Chrome's) or Scroll (cx-kp9b4): the palette's Tabs: Use Scrolling Tabs and Tabs: Use
+            // Shrinking Tabs, and the strip's one-time hint at the minimum width, write it.
+            SettingDescriptor(
+                TabOverflowSetting.configPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.tabs.overflow", "Tab Overflow"),
+                help: SettingsText.keyed("settings.tabs.overflow.help",
+                                         "Shrink narrows every tab to the minimum width before the strip scrolls. Scroll keeps tabs wide and scrolls sooner."),
+                kind: .choice([
+                    SettingChoice(TabOverflow.shrink.rawValue, SettingsText.keyed("settings.choice.tabOverflowShrink", "Shrink")),
+                    SettingChoice(TabOverflow.scroll.rawValue, SettingsText.keyed("settings.choice.tabOverflowScroll", "Scroll")),
+                ]),
+                default: .string(TabOverflowSetting.fallback.rawValue),
+                keywords: ["tab", "tabs", "overflow", "scroll", "scrolling", "shrink", "crowded", "width", "many"]
+            ).consumed(by: [.cmuxNext]),
             row(.tabMaxWidth, group, SettingsText.keyed("settings.tabs.tabMaxWidth", "Maximum Tab Width"),
                 SettingsText.keyed("settings.tabs.tabMaxWidth.help", "Widest a tab gets when the strip has room."),
                 densityDefault, keywords: ["tab", "width", "max", "maximum", "wide", "tabMaxWidth"]),

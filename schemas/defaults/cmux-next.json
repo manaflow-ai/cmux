@@ -546,6 +546,7 @@
     "setting.tabs.cmdWClosesPinnedTabs": false,
     "setting.tabs.newTabPosition": "end",
     "setting.tabs.newTabTemplate": "default",
+    "setting.tabs.overflow": "shrink",
     "setting.tabs.plusButton": "hover",
     "setting.tabs.swapCmdTAndCmdN": false,
     "setting.tabs.toolbarButtons": [],

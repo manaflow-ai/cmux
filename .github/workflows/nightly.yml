@@ -3352,6 +3352,8 @@ jobs:
       CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
       CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
       CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
+      # Publication tooling from this workflow's own commit (see the step below).
+      PUBLISH_TOOLING: ${{ github.workspace }}/.publish-tooling/scripts
     steps:
       # This run's build when Apple accepted it, else an earlier nightly-next
       # build that recover-nightly-next-notarization continued; every later
@@ -3405,6 +3407,22 @@ jobs:
           persist-credentials: false
           ref: ${{ steps.source.outputs.build_sha }}
 
+      # The steps below pass this workflow's arguments, so the publication
+      # tooling must come from the workflow's own commit, not from the
+      # published build's checkout. A recovered build can be days older: run
+      # 38855116561 recovered 0664bd9847b5, whose nightly_version.py predates
+      # --already-published-ok (#20986), and the recheck failed. Scripts that
+      # read the build's own source tree still run from the publish ref:
+      # verify_remote_daemon_release.py, fetch-release-notes-span.sh,
+      # release-notes.py, check_ghostty_vt_notices.py, ghostty_source_archive.py.
+      - name: Checkout publication tooling at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .publish-tooling
+          sparse-checkout: scripts
+
       - name: Download nightly variant artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -3433,7 +3451,7 @@ jobs:
           for appcast in appcast.xml appcast-arm64.xml appcast-x86_64.xml; do
             feeds+=(--feed-if-present "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
           done
-          result="$(python3 scripts/ci/nightly_version.py check-build --already-published-ok --build "$NIGHTLY_BUILD" "${feeds[@]}")"
+          result="$(python3 "$PUBLISH_TOOLING/ci/nightly_version.py" check-build --already-published-ok --build "$NIGHTLY_BUILD" "${feeds[@]}")"
           printf '%s\n' "$result"
           if [ "$(tail -n 1 <<< "$result")" = already_published=true ]; then
             echo "::notice title=Nothing to publish::build $NIGHTLY_BUILD is already published; nothing to do"
@@ -3528,7 +3546,7 @@ jobs:
           # rather than the decide job's baseline from before the build started.
           # nightly_release_notes.py preserves the cmux-published-sha: marker
           # used for the next exact range and its repair/recovery path.
-          python3 scripts/ci/nightly_release_notes.py \
+          python3 "$PUBLISH_TOOLING/ci/nightly_release_notes.py" \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             --head "$NOTES_HEAD" --branch "$NOTES_BRANCH" \
             --details nightly-downloads.md --out nightly-notes.md \
@@ -3562,7 +3580,7 @@ jobs:
         run: |
           set -euo pipefail
           for appcast in $NIGHTLY_FEEDS; do
-            python3 scripts/ci/nightly-next-guard.py appcast "nightly-out/$appcast"
+            python3 "$PUBLISH_TOOLING/ci/nightly-next-guard.py" appcast "nightly-out/$appcast"
           done
 
       - name: Prune old nightly release assets
@@ -3571,7 +3589,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python3 ./scripts/prune_nightly_release_assets.py \
+          python3 "$PUBLISH_TOOLING/prune_nightly_release_assets.py" \
             --repo manaflow-ai/cmux \
             --release-tag "$CHANNEL_RELEASE_TAG" \
             --name-prefix "${CHANNEL_DMG_PREFIX}-" \
@@ -3611,7 +3629,7 @@ jobs:
           for feed in $NIGHTLY_FEEDS; do
             args+=(--feed "nightly-out/$feed")
           done
-          python3 scripts/ci/publish-release-assets.py \
+          python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             --github-output "$GITHUB_OUTPUT" \
             --replace-feeds "${args[@]}"
@@ -3659,7 +3677,7 @@ jobs:
           else
             gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/cmux-next-src-$short" -f "sha=$HEAD_SHA" >/dev/null
           fi
-          python3 scripts/ci/publish-release-assets.py \
+          python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             --immutable "source-out/cmux-next-source-${NIGHTLY_BUILD}.tar.gz"
 
@@ -3711,7 +3729,7 @@ jobs:
           names=()
           read -ra names <<<"$UPLOADED_ASSETS"
           for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
-          python3 scripts/ci/finalize-release.py publish \
+          python3 "$PUBLISH_TOOLING/ci/finalize-release.py" publish \
             --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" \
             --name "$RELEASE_NAME" --target-commitish "$BUILD_SHA" \
             --body-file "$RUNNER_TEMP/nightly-release-body.md" \
@@ -3732,7 +3750,7 @@ jobs:
           # first: the app rewrites the legacy feed URL to a thin feed, so those
           # must already be current when the legacy feed changes.
           for appcast in $NIGHTLY_FEEDS; do
-            python3 scripts/ci/upload-r2-object.py \
+            python3 "$PUBLISH_TOOLING/ci/upload-r2-object.py" \
               --file "nightly-out/$appcast" \
               --endpoint-url "$R2_ENDPOINT" \
               --bucket cmux-binaries \
@@ -3756,9 +3774,9 @@ jobs:
           set -euo pipefail
           for appcast in $NIGHTLY_FEEDS; do
             key="${NIGHTLY_NEXT_R2_PREFIX}${appcast}"
-            python3 scripts/ci/nightly-next-guard.py appcast "nightly-out/$appcast"
-            python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
-            python3 scripts/ci/upload-r2-object.py \
+            python3 "$PUBLISH_TOOLING/ci/nightly-next-guard.py" appcast "nightly-out/$appcast"
+            python3 "$PUBLISH_TOOLING/ci/nightly-next-guard.py" r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
+            python3 "$PUBLISH_TOOLING/ci/upload-r2-object.py" \
               --file "nightly-out/$appcast" \
               --endpoint-url "$R2_ENDPOINT" \
               --bucket "$NIGHTLY_NEXT_R2_BUCKET" \
@@ -3801,7 +3819,7 @@ jobs:
           names=()
           read -ra names <<<"$UPLOADED_ASSETS"
           for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
-          python3 scripts/ci/finalize-release.py publish \
+          python3 "$PUBLISH_TOOLING/ci/finalize-release.py" publish \
             --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" \
             --name "$RELEASE_NAME" --target-commitish "$BUILD_SHA" \
             --body-file "$RUNNER_TEMP/nightly-release-body.md" \
@@ -3828,7 +3846,7 @@ jobs:
           # move from a baseline build (see promote-nightly-next on main). The helper retries
           # only transient API/network failures and reads the ref back before
           # declaring the marker updated. Permission failures are terminal.
-          python3 scripts/ci/update-release-tag.py \
+          python3 "$PUBLISH_TOOLING/ci/update-release-tag.py" \
             --repo "$GITHUB_REPOSITORY" \
             --tag "$CHANNEL_RELEASE_TAG" \
             --sha "${{ steps.source.outputs.build_sha }}" \

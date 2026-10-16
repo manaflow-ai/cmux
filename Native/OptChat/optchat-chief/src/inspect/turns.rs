@@ -114,18 +114,36 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
                 "blocks".to_owned()
             }
         });
-    let view_text = view.as_deref().unwrap_or("");
-    // Spec 5a turns: the frozen view, the delta (its log range and cuts),
-    // then the per-turn tail.
-    let delta = start["layout"]["delta"].as_object().map(|d| {
+    // Spec 5a turns: the frozen view (its unbuilt parts as the
+    // placeholder), the delta (its log range), then the per-turn tail.
+    let frozen_input = start["layout"]["delta"].as_object().and_then(|d| {
         let n = |k: &str| d.get(k).and_then(Value::as_u64).unwrap_or(0);
-        let cuts: Vec<u64> = d
-            .get("cuts")
-            .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_u64).collect())
-            .unwrap_or_default();
-        chat.delta_blocks(n("front"), n("end"), &cuts)
+        let names = |k: &str| -> Vec<String> {
+            d.get(k)
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(str::to_owned))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let frozen = optchat_core::Frozen {
+            parts: parts.clone(),
+            front: n("front"),
+            unbuilt: crate::state::parse_nodes(&names("unbuilt"))?,
+        };
+        Some(chat.turn_input_at(&frozen, n("new_from"), n("end")))
     });
+    let (view, view_matches) = match &frozen_input {
+        Some((text, _)) => (
+            Some(text.clone()),
+            Some(hash(text).as_str()) == view_ev["hash"].as_str(),
+        ),
+        None => (view, view_matches),
+    };
+    let delta = frozen_input.map(|(_, delta)| delta);
+    let view_text = view.as_deref().unwrap_or("");
     let input_tail = || {
         at_work
             .into_iter()
