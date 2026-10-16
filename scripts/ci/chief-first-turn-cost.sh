@@ -9,7 +9,7 @@
 #     --arg=count_url=http://HOST:PORT [--arg=limit=50000] [--arg=claude=X.Y.Z] \
 #     [--arg=force_full_tools=1] [--arg=turns=N] [--arg=real=1 --arg=min_hit=PCT] --timeout 6000
 # count_url= is a Claude route that needs no credential (a router that signs
-# requests itself); only count_tokens goes there, never a turn.
+# requests itself); only count_tokens goes there, never a turn (except real=1).
 # force_full_tools=1 proves the guard red: Claude Code gets a --settings file
 # with ENABLE_TOOL_SEARCH=false (it wins over the turn's project
 # settings), which is the behavior before session_dir::TURN_SETTINGS_ENV: every
@@ -20,6 +20,8 @@
 # CHIEF-TURN-CACHE line per turn with its usage and cache hit (cache_read /
 # (input + cache_read + cache_write), spec 5a.5) and fails when a warm turn (2..N)
 # is under min_hit percent (min_hit=0: measure only). No count_tokens step then.
+# real=1 reports each reply's correctness but does not check it, and a route that
+# fails mid-run exits 1 (a failed turn), not 3.
 # Exit: 0 pass; 1 over the limit, a failed turn or setup; 3 the route answered
 # 503 (stop: it is down); 4 another router error.
 # Output: FIRST-TURN-COST lines; files under .build/chief-first-turn.
