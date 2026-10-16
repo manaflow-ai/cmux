@@ -765,7 +765,7 @@ class WriterGateTests(unittest.TestCase):
         decide = workflow()["jobs"]["decide"]
         text = json.dumps(decide)
         self.assertIn("${{ vars.NIGHTLY_NEXT_WRITER || '' }}", text)
-        self.assertIn("track === 'nightly-next' && nextWriter !== 'mac'", text)
+        self.assertIn("track === 'nightly-next' && shouldPublish && !notaryDispatchInput && nextWriter !== 'mac'", text)
         self.assertIn("!nextNotWriter && !nextHold", text)
 
     def test_the_token_mint_cannot_fail_the_run(self):

@@ -645,8 +645,13 @@ jobs:
 
             const shouldPublish = !seedOnly && (isTrackRef || isRcRef) && !buildOnly && !fastBuild;
             const appBuildSelected = shouldBuild && !pushThrottled && !scheduledCacheOnly;
+            // NIGHTLY_NEXT_WRITER governs publication: a nightly-next run that
+            // publishes builds only while the Mac is the writer. Runs that never
+            // publish (build-only, fast, notary test and probe dispatches) still build.
             const nextWriter = (process.env.NIGHTLY_NEXT_WRITER || '').trim();
-            const nextNotWriter = track === 'nightly-next' && nextWriter !== 'mac';
+            const notaryDispatchInput = ['NOTARY_TEST_PASSWORDS', 'NOTARY_TEST_BROWSER_DATA', 'NOTARY_PROBE'].some((name) => process.env[name] === 'true')
+              || (process.env.NOTARY_IMPORT_PART || 'none') !== 'none';
+            const nextNotWriter = track === 'nightly-next' && shouldPublish && !notaryDispatchInput && nextWriter !== 'mac';
             if (nextNotWriter) {
               core.warning(`nightly-next writer is '${nextWriter || '<unset>'}' (repository variable NIGHTLY_NEXT_WRITER), not mac: this Mac pipeline builds and publishes nothing. Make the Mac the writer: gh variable set NIGHTLY_NEXT_WRITER -R manaflow-ai/cmux --body mac`);
             }
@@ -3879,11 +3884,11 @@ jobs:
           # variable does not exist (404); fails with the error on anything else.
           var() {
             local out
-            if out="$(GH_TOKEN="$WRITER_TOKEN" gh api "repos/$GITHUB_REPOSITORY/actions/variables/$1" --jq .value 2>&1)"; then
+            if out="$(GH_TOKEN="$WRITER_TOKEN" gh api "repos/$GITHUB_REPOSITORY/actions/variables/$1" --jq .value 2>"$RUNNER_TEMP/var.err")"; then
               tr -d '[:space:]' <<<"$out"; return 0
             fi
-            if grep -q "HTTP 404" <<<"$out"; then printf '<unset>'; return 0; fi
-            tr '\n' ' ' <<<"$out"; return 1
+            if grep -q "HTTP 404" "$RUNNER_TEMP/var.err"; then printf '<unset>'; return 0; fi
+            tr '\n' ' ' < "$RUNNER_TEMP/var.err"; return 1
           }
           if [ "$TRACK" = nightly-next ]; then
             [ -n "$WRITER_TOKEN" ] || refuse "the release App token could not be minted, so NIGHTLY_NEXT_WRITER is unreadable"
