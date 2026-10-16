@@ -25,14 +25,14 @@ import Testing
         let pipe = Pipe()
         pipe.fileHandleForReading.readabilityHandler = { _ = $0.availableData }
         let budget = 64 * 1024
+        let finished = DispatchSemaphore(value: 0)
         let writer = RemoteTmuxControlPipeWriter(
             handle: pipe.fileHandleForWriting,
             label: "remote-tmux-writer-budget-test",
             maxPendingBytes: budget,
+            onWriteFinished: { finished.signal() },
             onFailure: {}
         )
-        let finished = DispatchSemaphore(value: 0)
-        writer.writeFinishedForTesting = { finished.signal() }
         defer {
             pipe.fileHandleForReading.readabilityHandler = nil
             writer.close()
@@ -88,12 +88,12 @@ import Testing
     @Test func eachFinishedWriteRestartsTheStallLimit() throws {
         let pipe = Pipe()
         let clock = ManualClock()
+        let finished = DispatchSemaphore(value: 0)
         let writer = RemoteTmuxControlPipeWriter(
             handle: pipe.fileHandleForWriting, label: "remote-tmux-writer-progress-test",
-            maxPendingBytes: 8 << 20, stallLimit: .seconds(30), now: { clock.now() }, onFailure: {}
+            maxPendingBytes: 8 << 20, stallLimit: .seconds(30), now: { clock.now() },
+            onWriteFinished: { finished.signal() }, onFailure: {}
         )
-        let finished = DispatchSemaphore(value: 0)
-        writer.writeFinishedForTesting = { finished.signal() }
 
         #expect(writer.enqueue(Data(count: Self.blockingSize)))
         #expect(writer.enqueue(Data(count: Self.blockingSize)))

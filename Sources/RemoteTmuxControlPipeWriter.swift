@@ -25,12 +25,10 @@ final class RemoteTmuxControlPipeWriter {
     private let queue: DispatchQueue
     private let ledger: Ledger
     private let onFailure: @MainActor @Sendable () -> Void
+    /// Called on the write queue after each write returns and its bytes are released. The
+    /// connection passes nil; an observer can use it to wait on the pipe instead of on time.
+    private let onWriteFinished: (@Sendable () -> Void)?
     private var closed = false
-    #if DEBUG
-    /// Called on the write queue after each write returns, so a test can wait for the pipe to
-    /// take its bytes instead of guessing how long that takes.
-    var writeFinishedForTesting: (@Sendable () -> Void)?
-    #endif
 
     init(
         handle: FileHandle,
@@ -38,11 +36,13 @@ final class RemoteTmuxControlPipeWriter {
         maxPendingBytes: Int,
         stallLimit: Duration = RemoteTmuxControlPipeWriter.defaultStallLimit,
         now: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
+        onWriteFinished: (@Sendable () -> Void)? = nil,
         onFailure: @escaping @MainActor @Sendable () -> Void
     ) {
         self.handle = handle
         self.queue = DispatchQueue(label: label, qos: .userInitiated)
         self.ledger = Ledger(ceiling: maxPendingBytes, stallLimit: stallLimit, now: now)
+        self.onWriteFinished = onWriteFinished
         self.onFailure = onFailure
     }
 
@@ -56,11 +56,8 @@ final class RemoteTmuxControlPipeWriter {
         guard !data.isEmpty else { return true }
         guard !closed, ledger.admit(data.count) else { return false }
 
-        #if DEBUG
-        let writeFinished = writeFinishedForTesting
-        #endif
         let ledger = self.ledger
-        queue.async { [weak self, handle, data] in
+        queue.async { [weak self, handle, data, onWriteFinished] in
             var didFail = false
             do {
                 try handle.write(contentsOf: data)
@@ -71,9 +68,7 @@ final class RemoteTmuxControlPipeWriter {
             // long main-actor turn (the attach of a host with many windows) would
             // otherwise keep counting bytes the pipe already took.
             ledger.release(data.count)
-            #if DEBUG
-            writeFinished?()
-            #endif
+            onWriteFinished?()
             guard didFail else { return }
             Task { @MainActor [weak self] in
                 guard let self, !self.closed else { return }
