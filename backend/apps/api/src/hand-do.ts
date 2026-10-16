@@ -75,6 +75,8 @@ export class HandDO extends DurableObject<Env> {
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_approval (id TEXT PRIMARY KEY, req TEXT NOT NULL, summary TEXT NOT NULL, at INTEGER NOT NULL, answered_at INTEGER, allow INTEGER, who TEXT)`)
     createVerdictTable(sql)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_agent (session TEXT PRIMARY KEY, chief TEXT NOT NULL, conversation TEXT NOT NULL, at INTEGER NOT NULL)`)
+    // The brain that drove the session last (agent.send / agent.events): its agent turn outcomes go there; the revoke stays with the starter (its ledger).
+    if (!sql.exec<{ name: string }>(`PRAGMA table_info(hand_agent)`).toArray().some((c) => c.name === "driver")) sql.exec(`ALTER TABLE hand_agent ADD COLUMN driver TEXT`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_sandbox (id INTEGER PRIMARY KEY CHECK (id = 1), vm TEXT NOT NULL)`)
     if (!sql.exec<{ name: string }>(`PRAGMA table_info(hand_sandbox)`).toArray().some((c) => c.name === "provider")) sql.exec(`ALTER TABLE hand_sandbox ADD COLUMN provider TEXT`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_event (seq INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT NOT NULL, at INTEGER NOT NULL, body TEXT NOT NULL)`)
@@ -316,6 +318,8 @@ export class HandDO extends DurableObject<Env> {
     if (typeof session === "string" && caller.agent && caller.conversation) {
       this.ctx.storage.sql.exec(`INSERT INTO hand_agent (session, chief, conversation, at) VALUES (?, ?, ?, ?) ON CONFLICT(session) DO NOTHING`, session, caller.agent, caller.conversation, Date.now())
     }
+    const driven = result.ok && action === "agent.send" ? (params as { session?: unknown } | null)?.session : undefined
+    if (typeof driven === "string" && caller.agent && caller.conversation) this.ctx.storage.sql.exec(`UPDATE hand_agent SET driver = ? WHERE session = ?`, `${caller.agent}/${caller.conversation}`, driven)
     return result
   }
 
@@ -443,6 +447,8 @@ export class HandDO extends DurableObject<Env> {
   async events(caller: HandCaller, session: string, afterSeq: number, waitMs = 0): Promise<HandReply<{ events: Array<StoredEvent>; last_seq: number; head_seq: number }>> {
     const denied = this.authorize(caller, this.row())
     if (denied) return refuse(denied, `refused: ${denied}`)
+    // A Chief that waits on the session drives it now: its later turn outcomes go to that Chief's brain.
+    if (caller.agent && caller.conversation) this.ctx.storage.sql.exec(`UPDATE hand_agent SET driver = ? WHERE session = ?`, `${caller.agent}/${caller.conversation}`, session)
     const read = () =>
       this.ctx.storage.sql
         .exec<{ seq: number; session: string; at: number; body: string }>(`SELECT seq, session, at, body FROM hand_event WHERE session = ? AND seq > ? ORDER BY seq LIMIT 500`, session, afterSeq)
@@ -529,7 +535,7 @@ export class HandDO extends DurableObject<Env> {
   private async agentOutcome(session: string): Promise<void> {
     const sql = this.ctx.storage.sql
     const r = this.row()
-    const a = sql.exec<{ chief: string; conversation: string }>(`SELECT chief, conversation FROM hand_agent WHERE session = ?`, session).toArray()[0]
+    const a = sql.exec<{ chief: string; conversation: string; driver: string | null }>(`SELECT chief, conversation, driver FROM hand_agent WHERE session = ?`, session).toArray()[0]
     if (!r || !a) return
     const rows = sql.exec<{ seq: number; body: string }>(`SELECT seq, body FROM hand_event WHERE session = ? ORDER BY seq DESC LIMIT 400`, session).toArray().reverse()
     const start = rows.map((x) => (JSON.parse(x.body) as AgentEvent).kind).lastIndexOf("turn_start")
@@ -541,8 +547,11 @@ export class HandDO extends DurableObject<Env> {
     const text = turn.flatMap((x) => (x.e.kind === "text" ? [x.e.text] : [])).join("").slice(-4_000)
     const tools = [...new Set(turn.flatMap((x) => (x.e.kind === "tool" && x.e.title ? [x.e.title] : [])))].slice(0, 20)
     const errors = turn.flatMap((x) => (x.e.kind === "error" ? [x.e.message ?? "error"] : [])).slice(0, 5)
-    const outcome = { hand: r.hand, hand_name: r.name, session, seq: last.seq, status: last.e.kind === "turn_end" ? "done" : "failed", stop_reason: last.e.kind === "turn_end" ? (last.e.stop_reason ?? "") : last.e.kind === "session_end" ? `session ended${last.e.reason ? `: ${last.e.reason}` : ""}` : "error", text, tools, errors }
-    const brain = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(`${a.chief}/${a.conversation}`)) as unknown as { agentOutcome(o: typeof outcome): Promise<unknown> }
+    // One outcome per turn: keyed by the turn's turn_start event (a repeated turn_end frame posts nothing new).
+    const first = turn[0]!
+    if (first.e.kind !== "turn_start") return
+    const outcome = { hand: r.hand, hand_name: r.name, session, seq: first.seq, end_seq: last.seq, status: last.e.kind === "turn_end" ? "done" : "failed", stop_reason: last.e.kind === "turn_end" ? (last.e.stop_reason ?? "") : last.e.kind === "session_end" ? `session ended${last.e.reason ? `: ${last.e.reason}` : ""}` : "error", text, tools, errors }
+    const brain = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(a.driver ?? `${a.chief}/${a.conversation}`)) as unknown as { agentOutcome(o: typeof outcome): Promise<unknown> }
     for (let i = 0; i < 2; i++) if (await brain.agentOutcome(outcome).then(() => true, () => false)) return
   }
 
@@ -644,7 +653,7 @@ export class HandDO extends DurableObject<Env> {
         const kind = (f.event as { kind?: unknown }).kind
         // A Chief's agent turn ended (or failed, or the session ended mid-turn): its brain gets the outcome, so a
         // result that comes after the Chief's agent call returned (an approval answered later) still reaches it.
-        if (kind === "turn_end" || kind === "error" || kind === "session_end") this.ctx.waitUntil(this.agentOutcome(session))
+        if (kind === "turn_end" || kind === "session_end") this.ctx.waitUntil(this.agentOutcome(session))
         if (kind === "session_end") await this.sessionEnded(session)
         return
       }

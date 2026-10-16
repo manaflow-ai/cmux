@@ -5,6 +5,7 @@ import type { Principal } from "@cmux/ownership"
 import { liveFrame, postWork, runChanged } from "./brain-io.ts"
 import type { BrainConfig } from "./brain-store.ts"
 import { replyTarget } from "./brain-text.ts"
+import { readRun, readSteps } from "./brain-runs.ts"
 
 /**
  * `spawn(tasks[])`: subagents of a Cloud Chief, with no hand (unii parity gap 4, hq-1f SPAWN-HANDOFF).
@@ -226,10 +227,12 @@ export const keepMs = (env: Env): number => {
   const d = Number(env.CHIEF_SPAWN_KEEP_DAYS ?? "7")
   return (Number.isFinite(d) && d >= 0 ? d : 7) * 86_400_000
 }
-/** The run record the parent keeps for a deleted child: the run and up to 200 steps, each text cut to 2 KB. */
+/** The run record the parent keeps for a deleted child: the run, its first 20 and last 180 steps (the answer is last), long texts cut to 2 KB. */
 export const archiveOf = (run: unknown, steps: ReadonlyArray<Record<string, unknown>>): string => {
   const cut = (v: unknown) => (typeof v === "string" && v.length > 2_048 ? `${v.slice(0, 2_048)} [cut]` : v)
-  const slim = steps.slice(0, 200).map((st) => ({ ...st, ...(st.text === undefined ? {} : { text: cut(st.text) }), ...(st.tool ? { tool: { ...(st.tool as Record<string, unknown>), output: cut((st.tool as Record<string, unknown>).output), input: cut(JSON.stringify((st.tool as Record<string, unknown>).input ?? null)) } } : {}) }))
+  const cutInput = (v: unknown) => (JSON.stringify(v ?? null).length > 2_048 ? cut(JSON.stringify(v)) : v)
+  const kept = steps.length <= 200 ? steps : [...steps.slice(0, 20), ...steps.slice(-180)]
+  const slim = kept.map((st) => ({ ...st, ...(st.text === undefined ? {} : { text: cut(st.text) }), ...(st.tool ? { tool: { ...(st.tool as Record<string, unknown>), output: cut((st.tool as Record<string, unknown>).output), input: cutInput((st.tool as Record<string, unknown>).input) } } : {}) }))
   return JSON.stringify({ run, steps: slim })
 }
 
@@ -344,11 +347,15 @@ export const noteAgentCall = (sql: SqlStorage, output: string, where: { conversa
 }
 
 /** Queues an outcome (once per session and event seq) where `where` says it belongs. */
-export const queueOutcome = (sql: SqlStorage, o: AgentOutcome, where: { conversation: string; kind: string; thread_root: string | null }, label: string, checked: boolean, now = Date.now()): void =>
-  void sql.exec(
+/** Most outcomes one agent session may post per hour (a hand that repeats turn frames cannot flood the Chief). */
+const OUTCOMES_PER_HOUR = 20
+export const queueOutcome = (sql: SqlStorage, o: AgentOutcome, where: { conversation: string; kind: string; thread_root: string | null }, label: string, checked: boolean, now = Date.now()): void => {
+  if (Number(sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM cb_agent_out WHERE session = ? AND at > ?`, o.session, now - 3_600_000).one().n) >= OUTCOMES_PER_HOUR) return
+  sql.exec(
     `INSERT INTO cb_agent_out (key, session, seq, conversation, kind, thread_root, label, body, checked, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (key) DO NOTHING`,
     `${o.session}:${o.seq}`, o.session, o.seq, where.conversation, where.kind, where.thread_root, label, JSON.stringify(o), checked ? 1 : 0, now
   )
+}
 
 /** Unchecked outcomes: the ones the Chief's own call already saw are dropped (posted = 2); the rest are returned and marked checked. */
 export const checkOutcomes = (sql: SqlStorage): Array<{ key: string; outcome: AgentOutcome }> => {
@@ -397,4 +404,59 @@ export const postOutcomes = async (env: Env, sql: SqlStorage, transaction: (f: (
     })
   }
   return { conversations, retry }
+}
+
+// ------------------------------------------------------------------ child helpers (kept out of brain-do.ts)
+
+/** A child's report: its last answer, or a short failure line with no internal detail. */
+export const childReportText = (ok: boolean, talk: string, why: string): string =>
+  ok
+    ? talk && talk.replace(/[^A-Za-z_]/g, "").toUpperCase() !== "NO_REPLY" ? talk : "(no answer)"
+    : /^(disabled|other_chief|chief_archived|chief_placed)$/.test(why)
+      ? "I could not do the task: the Chief is off or archived."
+      : /credits/i.test(why)
+        ? "I could not do the task: this team is out of Cloud credits."
+        : /daily_turn_limit|daily_cap/.test(why)
+          ? "I could not do the task: the Chief reached today's limit."
+          : "I could not finish the task (the model did not answer, or it ran too long)."
+
+/** Where a turn's replies go (its conversation, kind and thread). */
+export const turnWhereOf = (sql: SqlStorage, turn: string): { conversation: string; kind: string; thread_root: string | null } | null => {
+  const t = sql.exec<{ conversation: string; m: string; k: string; r: string | null }>(`SELECT conversation, trigger_message AS m, trigger_kind AS k, trigger_thread_root AS r FROM cb_turn WHERE id = ?`, turn).toArray()[0]
+  return t ? { conversation: t.conversation, kind: t.k, thread_root: turnThread(t.k, t.m, t.r) } : null
+}
+
+/**
+ * Child cleanup: the run record goes to the parent (`keep`), then every table of the brain and of pi is
+ * dropped; the lifecycle's own job tables (cf_*) stay, since it records this job's end. False: try later.
+ */
+export const archiveAndDrop = async (sql: SqlStorage, c: ChildStart, keep: (body: string) => Promise<unknown>): Promise<boolean> => {
+  const id = childRunId(c.n)
+  const run = readRun(sql, c.agent, id)
+  try {
+    if (run) await keep(archiveOf(run, readSteps(sql, id, 0, 5_000) as unknown as Array<Record<string, unknown>>))
+  } catch {
+    return false
+  }
+  console.log(JSON.stringify({ msg: "chief_brain.spawn_child_deleted", child: childObject(c.agent, c.conversation, c.n) }))
+  for (const { name } of sql.exec<{ name: string }>(`SELECT name FROM sqlite_master WHERE type = 'table'`).toArray()) if (!name.startsWith("cf_") && !name.startsWith("_cf") && !name.startsWith("sqlite_")) sql.exec(`DROP TABLE IF EXISTS "${name.replace(/"/g, '""')}"`)
+  return true
+}
+
+/** Where an agent outcome belongs: the conversation and thread of the call that saw the session, else of the newest turn. */
+export const outcomeWhere = (sql: SqlStorage, session: string): { conversation: string; kind: string; thread_root: string | null } | null => {
+  const seen = sql.exec<{ conversation: string; kind: string; thread_root: string | null }>(`SELECT conversation, kind, thread_root FROM cb_agent_seen WHERE session = ?`, session).toArray()[0]
+  if (seen) return seen
+  const last = sql.exec<{ id: string }>(`SELECT id FROM cb_turn ORDER BY started DESC LIMIT 1`).toArray()[0]
+  return last ? turnWhereOf(sql, last.id) : null
+}
+
+/** A child's checked outcomes to its parent; false when one did not go (try later). */
+export const forwardOutcomes = async (sql: SqlStorage, send: (o: AgentOutcome) => Promise<unknown>): Promise<boolean> => {
+  let ok = true
+  for (const r of sql.exec<{ key: string; body: string }>(`SELECT key, body FROM cb_agent_out WHERE checked = 1 AND posted = 0`).toArray()) {
+    if (await send(JSON.parse(r.body) as AgentOutcome).then(() => true, () => false)) sql.exec(`UPDATE cb_agent_out SET posted = 1 WHERE key = ?`, r.key)
+    else ok = false
+  }
+  return ok
 }

@@ -94,12 +94,15 @@ export const ownerTurn = async (env: Env, sql: SqlStorage, owner: string, model:
   const total = Number(env.CHIEF_BRAIN_CLAUDE_DAILY_TURNS_TOTAL)
   if (Number.isFinite(total) && total > 0) {
     const key = `claude.lease:${day}`
-    let left = Number(row(sql, key) ?? 0)
-    if (left <= 0) {
-      left = await lease(day, LEASE)
-      if (left <= 0) return "daily_cap"
+    if (Number(row(sql, key) ?? 0) <= 0) {
+      // `lease` is single-flight in the owner's object: the first waiter gets the grant (added, never overwritten), the others 0 and read the row again.
+      const got = await lease(day, LEASE).catch(() => 0)
+      if (got > 0) put(sql, key, String(Number(row(sql, key) ?? 0) + got))
+      if (Number(row(sql, key) ?? 0) <= 0) return "daily_cap"
+      // The per-owner cap again: other turns may have counted during the lease.
+      if (Number(row(sql, mine) ?? 0) >= (Number(env.CHIEF_BRAIN_CLAUDE_DAILY_TURNS) || DEFAULT_DAILY_CLAUDE_TURNS)) return "daily_cap"
     }
-    put(sql, key, String(left - 1))
+    put(sql, key, String(Number(row(sql, key) ?? 0) - 1))
   }
   if (usedMine === 0) [dropOldDays(sql, "claude.turns:", day), dropOldDays(sql, "claude.lease:", day)]
   put(sql, mine, String(Number(row(sql, mine) ?? 0) + 1))
@@ -132,7 +135,13 @@ export const claudeAuthFor = (env: Env, holder: () => { claudeAuth(): Promise<st
   reading ??= holder()
     .claudeAuth()
     .then((header) => {
-      const access = (JSON.parse(header) as { accessToken?: string }).accessToken ?? ""
+      let access = ""
+      try {
+        access = (JSON.parse(header) as { accessToken?: string }).accessToken ?? ""
+      } catch {
+        // Never a parse error that quotes the header (token bytes).
+        throw new ClaudeAuthError()
+      }
       cached = { header, access }
       return header
     })
@@ -215,8 +224,16 @@ export const signedFetch = (auth: () => Promise<string>, refused: () => Promise<
     // The Chatmux session route names Opus in its own Bedrock URL; a service-key or multi-model route reads `model` (the Bedrock id).
     const model = service ? (id: string) => BEDROCK_IDS[id] ?? id : undefined
     const body = typeof init?.body === "string" ? bedrockBody(init.body, { keepModel: service || route.models.length > 1, ...(model ? { modelId: model } : {}), effort: route.effortBody === true, ...(route.forwardBetas ? { betas } : {}), ...(route.log ? { dropped: route.log } : {}), ...(route.ttl ? { ttl: route.ttl } : {}) }) : init?.body
-    const res = await fetch(input, { ...init, headers, ...(body === undefined ? {} : { body }) })
-    if (res.status === 401) await refused().catch(() => undefined)
+    let res = await fetch(input, { ...init, headers, ...(body === undefined ? {} : { body }) })
+    if (res.status === 401) {
+      await refused().catch(() => undefined)
+      // A cached header another isolate's refresh made stale: one more try with a fresh one.
+      if (!service) {
+        headers.set(route.auth === "bearer" ? "authorization" : "X-Stack-Auth", await auth())
+        res = await fetch(input, { ...init, headers, ...(body === undefined ? {} : { body }) })
+        if (res.status === 401) await refused().catch(() => undefined)
+      }
+    }
     // The route answers Bedrock's event stream; the Anthropic client reads Messages events.
     if (!res.ok || !res.body || !(res.headers.get("content-type") ?? "").includes("amazon.eventstream")) return res
     // The route names the Bedrock region that answered (x-bedrock-region): kept for the run's timing.

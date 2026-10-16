@@ -188,7 +188,8 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     if (row.tries === 0 && isMetered(model)) {
       // The owner's turns object counts it (no global object; claude-auth.ts ownerTurn). Only "ok" runs.
       const turns = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(turnsObject(owner)))
-      if ((await turns.claudeTurn(owner, model).catch(() => "unreachable")) !== "ok") return this.endWake(row.n, run, "skipped", "the deployment's daily Claude cap is reached")
+      const verdict = await turns.claudeTurn(owner, model).catch(() => "unreachable")
+      if (verdict !== "ok") return this.endWake(row.n, run, "skipped", `no paid turn (${verdict})`)
     }
     this.sql.exec(`UPDATE oc_wake SET state = 'running', run = ?, tries = tries + 1 WHERE n = ?`, run, row.n)
     // An eviction mid-turn loses the in-memory loop: the alarm picks the running row up again.
