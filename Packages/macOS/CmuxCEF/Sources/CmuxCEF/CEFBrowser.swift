@@ -136,7 +136,12 @@ public final class CEFBrowser {
     }
 
     /// A tab Chromium created for `opener` (already in the opener's window).
-    init(adopting id: Int32, from opener: CEFBrowser, runtime: CEFRuntime) {
+    ///
+    /// `targetURL` comes from the shim's `AFTER_CREATED` event. Chromium can
+    /// commit the popup before cmux has attached its page adapter, so the
+    /// normal address event may have no listener yet. Seed the state with the
+    /// target URL so the owner can create its tab with the right address.
+    init(adopting id: Int32, from opener: CEFBrowser, runtime: CEFRuntime, targetURL: URL? = nil) {
         var configuration = opener.configuration
         configuration.initialURL = nil
         configuration.restoreState = nil
@@ -144,6 +149,7 @@ public final class CEFBrowser {
         self.configuration = configuration
         self.runtime = runtime
         self.opener = opener
+        state.url = targetURL
         awaitsWindowMove = true
         hostView.onPresentationChange = { [weak self] _ in self?.presentationChanged() }
     }
