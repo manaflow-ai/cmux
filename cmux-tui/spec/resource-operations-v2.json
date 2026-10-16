@@ -7295,17 +7295,6 @@
           },
           "description": "The workspace a tab or screen was closed from."
         },
-        "workspace_key": {
-          "required": false,
-          "type": {
-            "kind": "nullable",
-            "value": {
-              "kind": "primitive",
-              "name": "string"
-            }
-          },
-          "description": "The first member's `workspace_key`. Absent (an older daemon) reads as null; this daemon always sends it."
-        },
         "pane_id": {
           "required": true,
           "type": {
@@ -7459,17 +7448,6 @@
               "resource": "workspace"
             }
           }
-        },
-        "workspace_key": {
-          "required": false,
-          "type": {
-            "kind": "nullable",
-            "value": {
-              "kind": "primitive",
-              "name": "string"
-            }
-          },
-          "description": "A closed workspace's registry key; null for a tab or screen and for a workspace closed before the record kept it. Absent (an older daemon) reads as null; this daemon always sends it."
         },
         "pane_id": {
           "required": true,

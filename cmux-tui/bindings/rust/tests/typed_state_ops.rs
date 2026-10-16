@@ -800,26 +800,9 @@ fn request_raw_keeps_the_full_protocol_two_error() {
 
 /// `closed_ids` across versions (hq-6d): `close_with` sends no flag and still
 /// decodes the empty value an older daemon (and this one, unasked) sends;
-/// `close_reporting_with` sends `report_closed_ids` and decodes the ids; a
-/// closed item decodes with `workspace_key` (this daemon) and without it (an
-/// older daemon: `None`).
+/// `close_reporting_with` sends `report_closed_ids` and decodes the ids.
 #[test]
-fn workspace_close_reporting_and_closed_items_decode_across_versions() {
-    let item = |key: Option<&str>| {
-        let mut member = json!({"kind": "workspace", "name": "same", "workspace_id": null,
-                                "pane_id": null, "index": 0, "screens": []});
-        let mut item = json!({"id": "closed_1", "kind": "workspace", "name": "same",
-                              "workspace_id": null, "pane_id": null, "index": 0,
-                              "closed_at_ms": "5", "screens": [], "window": null,
-                              "member_count": 1});
-        if let Some(key) = key {
-            member["workspace_key"] = json!(key);
-            item["workspace_key"] = json!(key);
-        }
-        item["members"] = json!([member]);
-        item
-    };
-    let (new_item, old_item) = (item(Some("key-1")), item(None));
+fn workspace_close_reporting_sends_the_flag_and_plain_close_keeps_the_empty_value() {
     let mock = mock(move |stream, reader| {
         let plain = request(reader, "workspace.close");
         assert!(plain["params"].get("report_closed_ids").is_none(), "{plain}");
@@ -827,22 +810,16 @@ fn workspace_close_reporting_and_closed_items_decode_across_versions() {
         let reporting = request(reader, "workspace.close");
         assert_eq!(reporting["params"]["report_closed_ids"], true, "{reporting}");
         mutation_ok(stream, &reporting, json!({"closed_ids": ["closed_1"]}));
-        let listed = request(reader, "closed.list");
-        respond(stream, &listed, json!({"ok": true, "result": [new_item, old_item]}));
     });
     let client = mock.client();
-    let session = client.session(SessionId::parse(SESSION).unwrap());
-    let workspace = session.workspace(WorkspaceId::parse(WORKSPACE).unwrap());
+    let workspace = client
+        .session(SessionId::parse(SESSION).unwrap())
+        .workspace(WorkspaceId::parse(WORKSPACE).unwrap());
     let closed = workspace.close_with(MutationOptions::new("close-1").unwrap()).unwrap();
     assert_eq!(closed.revision, 9);
     let reported =
         workspace.close_reporting_with(MutationOptions::new("close-2").unwrap()).unwrap();
     assert_eq!(reported.value.closed_ids, vec!["closed_1".to_string()]);
-    let items = session.closed_items(cmux::ClosedListOptions::default()).unwrap();
-    assert_eq!(items[0].workspace_key.as_deref(), Some("key-1"));
-    assert_eq!(items[0].members[0].workspace_key.as_deref(), Some("key-1"));
-    assert_eq!(items[1].workspace_key, None);
-    assert_eq!(items[1].members[0].workspace_key, None);
     client.close().unwrap();
     mock.finish();
 }

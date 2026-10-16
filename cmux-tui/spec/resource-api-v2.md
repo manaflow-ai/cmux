@@ -258,10 +258,7 @@ workspace that a close empties joins the close's item). Without the flag
 `workspace.close` keeps its empty value, which older SDKs decode strictly. `closed.reopen` of each id restores exactly that close,
 also when other closed workspaces have the same name, so an Undo of a bulk
 close reopens what it closed and nothing else. `room.delete` keeps its single
-`closed_id`. A `ClosedMemberRecord` of a closed workspace names its registry
-`workspace_key` (the item mirrors its first member's; absent from an older
-daemon, which reads as null); `workspace_id` stays null for a closed
-workspace, since its id is gone.
+`closed_id`.
 `workspace-group-icon-v1` gives a personal group an icon:
 `workspace_group.update {icon}` sets it to the shared icon string (one emoji,
 an SF Symbol name, or a stored `image:sha256-<hex>` or `svg:sha256-<hex>`

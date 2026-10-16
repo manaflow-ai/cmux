@@ -509,8 +509,7 @@ fn named_workspace(mux: &Arc<Mux>, name: &str, key: &str) -> String {
 
 /// `workspace.close` answers `closed_ids`, the closed groups it stored, so an
 /// Undo (GPUI's bulk close) reopens exactly what that close stored, even when
-/// the closed workspaces share a name. A closed workspace's member names its
-/// registry `workspace_key`.
+/// the closed workspaces share a name.
 #[test]
 fn a_workspace_close_names_the_groups_it_stored_and_reopens_exactly_them() {
     let mux = Mux::new_for_test("closed-ids-workspace", SurfaceOptions::default());
@@ -540,10 +539,7 @@ fn a_workspace_close_names_the_groups_it_stored_and_reopens_exactly_them() {
     let items = read(&mux, "closed.list", json!({}));
     assert_eq!(items.as_array().unwrap().len(), 3, "{items}");
     assert_eq!(closed_third["closed_ids"], json!([items[0]["id"]]), "{closed_third}");
-    let member = &items[0]["members"][0];
-    assert_eq!(member["kind"], "workspace");
-    assert!(member["workspace_key"].as_str().is_some_and(|key| !key.is_empty()), "{member}");
-    assert_eq!(items[0]["workspace_key"], member["workspace_key"]);
+    assert_eq!(items[0]["members"][0]["kind"], "workspace");
 
     for (index, closed) in [&closed_first, &closed_second].into_iter().enumerate() {
         let id = closed["closed_ids"][0].clone();

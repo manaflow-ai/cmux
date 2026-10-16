@@ -107,12 +107,8 @@ fn workspace_close_reports_its_groups_on_request() {
     let closed_plain = v2(&server, "workspace.close", json!({"workspace": plain}), Some("close-3"));
     assert_eq!(closed_plain["value"], json!({}), "{closed_plain}");
 
-    // closed.list names the closed workspace's key.
     let items = closed(&server);
-    let member = &items[1]["members"][0];
-    assert_eq!(member["kind"], "workspace", "{member}");
-    assert!(member["workspace_key"].as_str().is_some_and(|key| !key.is_empty()), "{member}");
-    assert_eq!(items[1]["workspace_key"], member["workspace_key"]);
+    assert_eq!(items[1]["members"][0]["kind"], "workspace", "{items:?}");
 
     for (index, closed_one) in [&closed_first, &closed_second].into_iter().enumerate() {
         let id = closed_one["value"]["closed_ids"][0].clone();

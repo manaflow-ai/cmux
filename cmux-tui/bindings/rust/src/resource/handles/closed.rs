@@ -55,10 +55,6 @@ pub struct ClosedMemberRecord {
     pub name: Option<String>,
     /// The workspace a tab or screen was closed from.
     pub workspace_id: Option<WorkspaceId>,
-    /// A closed workspace's registry key; `None` for a tab or screen, and
-    /// from a daemon that does not report it.
-    #[serde(default)]
-    pub workspace_key: Option<String>,
     /// The pane a tab was closed from.
     pub pane_id: Option<PaneId>,
     /// Position the object held when it closed.
@@ -80,9 +76,6 @@ pub struct ClosedItemSnapshot {
     pub kind: String,
     pub name: Option<String>,
     pub workspace_id: Option<WorkspaceId>,
-    /// The first member's `workspace_key`.
-    #[serde(default)]
-    pub workspace_key: Option<String>,
     pub pane_id: Option<PaneId>,
     pub index: u32,
     #[serde(deserialize_with = "deserialize_decimal")]

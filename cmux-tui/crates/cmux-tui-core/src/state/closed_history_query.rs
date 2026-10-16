@@ -100,9 +100,6 @@ fn public_member(member: &Value, evicted: &HashSet<String>) -> Value {
         "kind": member["kind"],
         "name": member["name"],
         "workspace_id": member["workspace_id"],
-        // A closed workspace's registry key (null for a tab or screen, and
-        // for a record that predates it).
-        "workspace_key": member.get("workspace_key").cloned().unwrap_or(Value::Null),
         "pane_id": member["pane_id"],
         "index": member["index"].as_u64().unwrap_or(0),
         "screens": screens,
@@ -134,7 +131,6 @@ fn public_item_in(record: &Value, evicted: &HashSet<String>) -> Value {
             first["name"].clone()
         },
         "workspace_id": first["workspace_id"],
-        "workspace_key": first.get("workspace_key").cloned().unwrap_or(Value::Null),
         "pane_id": first["pane_id"],
         "index": first["index"].as_u64().unwrap_or(0),
         "closed_at_ms": record["closed_at_ms"],
