@@ -8,6 +8,7 @@ public enum ProductFeature: String, Sendable, CaseIterable {
     case dock
     case cloudSidebar = "cloud_sidebar"
     case customSidebar = "custom_sidebar"
+    case snippets
     /// The Cloud sidebar's Devices section.
     case devices
     case cmuxSSH = "cmux_ssh"
