@@ -104,6 +104,13 @@ re-render happens.
    the next block. A block, once sent, is sent again byte for byte; a turn adds blocks only at the
    end. The cache marks: one at the frozen view's end, one at the request's end (the provider looks
    back from a mark for the previous request's mark, so the previous turn's whole input is read).
+   An entry that edits, retracts or deletes something a line of the frozen view already shows names
+   that line's id: `<id>|edit of <target-id>: <new text>`, `<id>|retracted <target-id>`,
+   `<id>|deleted <target-id>`. The system prompt says: "A line after </chat> that names an earlier
+   line id (edit of, retracted, deleted) replaces what that line says." The next re-render folds the
+   change into the view. Conformance case `delta-edit` (brain corpus, both brains): edit a line that
+   the frozen view shows, run a turn, and the model's input carries the edit entry naming the line;
+   with the scripted model, the reply quotes the edited text, not the old one.
 3. Anchoring (spec 7). The new messages are logged before the turn's input is built and appear only
    in the delta (never also in the view); the turn answers the newest woken message as before. A
    message delivered mid-run is logged and goes to the model as a user message, as before.
