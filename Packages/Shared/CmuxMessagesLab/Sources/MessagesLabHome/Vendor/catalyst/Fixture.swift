@@ -48,16 +48,16 @@ enum Fixture {
     static let maxLinkWidth: CGFloat = 350
     static let mediaWidth: CGFloat = 240
 
-    /// Inactive-window palette (measured on macOS 26 Messages in an inactive
-    /// window, 2x screenshot): background 30, incoming bubbles and badges 59,
-    /// outgoing blue lighter (red 0.5 x + 61, green 0.67 x + 57, blue 248),
-    /// connectors 66. Set on the main thread; a change bumps `paletteGeneration`.
-    static var inactive = false { didSet { if inactive != oldValue { paletteGeneration += 1 } } }
+    // The inactive-window state is not here: it is each window view's own (MessagesWindowView.inactive, set by its
+    // setInactive from its own window's key state; cx-3cb inactive-per-view). Two windows draw two states at the same
+    // time, as Messages: a non-key window draws inactive while another one is key. Its readers take it as a value
+    // (`typingColors(inactive:)`, ChromeView.inactive, RowCell.inactive). macOS 27's bubbles, background and
+    // connectors are the same in both states (see the palette below), so no cached bitmap depends on it.
     /// Light system appearance (the host sets it from its effective appearance).
     /// Link cards follow it: Messages' light card is the light incoming grey
     /// (#E9E9EB) with dark text. A change bumps `paletteGeneration`.
     static var lightAppearance = false { didSet { if lightAppearance != oldValue { paletteGeneration += 1 } } }
-    /// Bumped by a palette or a scale change: cached bitmaps are stale.
+    /// Bumped by an appearance or a colour space change: cached bitmaps are stale (not by a window's key state).
     static fileprivate(set) var paletteGeneration = 0
     /// The bitmaps' colour space changed (a window moved to a display of another colour space): every cache keyed
     /// on the palette generation draws again (MessagesWindowView.displayColorSpaceChanged).
@@ -80,7 +80,7 @@ enum Fixture {
     /// (fixtures, the differential harness), light or dark (`lightAppearance`).
     static var theme: FixtureTheme? { didSet { if theme != oldValue { paletteGeneration += 1 } } }
     private static func themed(_ pick: (FixtureTheme.Colors) -> UIColor) -> UIColor? {
-        theme.map { pick(inactive ? $0.inactive : $0.active) }
+        theme.map { pick($0.active) }
     }
     /// Light appearance (`lightAppearance`), measured on light and dark captures of the same
     /// Messages window (screencapture -l, Display P3, cmux-lawrence-2 macOS 27, 2026-10-09):
@@ -103,19 +103,18 @@ enum Fixture {
     /// is not (59, 59, 61; dots dim 92, 92, 94, lit 134, 134, 135: typing-unfocused-take1, its 61 frames at rest),
     /// while the incoming bubbles are 59, 59, 61 in both (tools/evidence/ANIMATIONS.md section 6, cx-3cb
     /// typing-colour). Light appearance and the thread view's rows: no reference; the incoming grey and the dark dots.
-    static var typingFill: UIColor {
-        // cmux: on a theme, the theme's incoming grey; a dark one is one level darker in red and green in
-        // the key window, as Messages' (a light theme has no reference: the incoming grey).
-        if theme != nil { return isLight || elevated || inactive ? incoming : oneLevelDarker(incoming) }
-        return lightAppearance || elevated ? incoming : inactive ? p3(59, 59, 61) : p3(58, 58, 61)
-    }
-    static var typingDotDim: UIColor {
-        if theme != nil, isLight { return typingDot }  // cmux: a light theme's dots; a dark one keeps the measured levels
-        return inactive && !lightAppearance && !elevated ? p3(92, 92, 94) : p3(91, 91, 94)
-    }
-    static var typingDotLit: UIColor {
-        if theme != nil, isLight { return typingDotHighlight }  // cmux
-        return inactive && !lightAppearance && !elevated ? p3(134, 134, 135) : p3(133, 133, 135)
+    /// `inactive`: the drawing view's own state (MessagesWindowView.inactive, through RowCell.inactive).
+    static func typingColors(inactive: Bool) -> (fill: UIColor, dotDim: UIColor, dotLit: UIColor) {
+        let dim = inactive && !lightAppearance && !elevated
+        // cmux: on a theme, the theme's incoming grey; a dark one is one level darker in red and green in the key
+        // window, as Messages' (a light theme has no reference: the incoming grey and the theme's dots).
+        if theme != nil {
+            let fill = isLight || elevated || inactive ? incoming : oneLevelDarker(incoming)
+            if isLight { return (fill, typingDot, typingDotHighlight) }
+            return (fill, dim ? p3(92, 92, 94) : p3(91, 91, 94), dim ? p3(134, 134, 135) : p3(133, 133, 135))
+        }
+        return (lightAppearance || elevated ? incoming : inactive ? p3(59, 59, 61) : p3(58, 58, 61),
+                dim ? p3(92, 92, 94) : p3(91, 91, 94), dim ? p3(134, 134, 135) : p3(133, 133, 135))
     }
     /// cmux: 1/255 less red and green (Display P3), the key window's typing fill on a dark theme.
     private static func oneLevelDarker(_ c: UIColor) -> UIColor {
@@ -161,7 +160,7 @@ enum Fixture {
     private static var measuredGradient: CGGradient? { (lightAppearance ? lightGradient : nil) ?? darkGradient }
     /// cmux: the themed outgoing gradient as (2x px window y, colour) stops;
     /// nil keeps the measured stops (`gradientStops`, `gradientBlue`).
-    static var themedGradient: [(CGFloat, UIColor)]? { themedAccent ? theme.map { (inactive ? $0.inactive : $0.active).gradientStops } : nil }
+    static var themedGradient: [(CGFloat, UIColor)]? { themedAccent ? theme.map { $0.active.gradientStops } : nil }
     static func color(in s: [(CGFloat, UIColor)], atPx px: CGFloat) -> UIColor {
         guard s.count > 1 else { return s.first?.1 ?? outgoing }
         // cmux: the first inner stop at or past px, else the last; checked reads.
@@ -176,7 +175,7 @@ enum Fixture {
                        blue: ca.blueComponent + (cb.blueComponent - ca.blueComponent) * f, alpha: 1)
     }
     static var outgoingGradient: CGGradient? {
-        if let t = theme, themedAccent { return (inactive ? t.inactive : t.active).outgoingGradient }
+        if let t = theme, themedAccent { return t.active.outgoingGradient }
         return measuredGradient
     }
     /// Text colours measured with screencapture -l (macOS 27, 2026-10-05).
@@ -191,6 +190,6 @@ enum Fixture {
     static var waveform: UIColor { themed(\.waveform) ?? waveformInk }
     static var chipFill: UIColor { themed(\.chipFill) ?? UIColor(white: 1, alpha: 0.12) }
     /// The field glass and its buttons render light glass on a light theme.
-    static var isLight: Bool { theme.map { (inactive ? $0.inactive : $0.active).isLight } ?? false }
+    static var isLight: Bool { theme.map { $0.active.isLight } ?? false }
 }
 

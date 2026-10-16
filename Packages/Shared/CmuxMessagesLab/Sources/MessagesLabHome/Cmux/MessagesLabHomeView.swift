@@ -99,12 +99,13 @@ public final class MessagesLabHomeView: NSView {
         set { projection.isVisibleToUser = newValue }
     }
 
-    /// The theme's palettes for the key and the non-key window. One theme
-    /// per app: the palette is process-wide (`Fixture.theme`).
+    /// The theme's palette (the key window's: every Home window draws its
+    /// bubbles with it in both key states, MessagesLab 806ef0c / macOS 27).
+    /// One theme per app: the palette is process-wide (`Fixture.theme`).
     /// `measuredAccent`: the theme names no accent, so sent bubbles keep
     /// MessagesLab's measured blue and gradient.
-    public func applyTheme(active: HomePalette, inactive: HomePalette, measuredAccent: Bool = false) {
-        let theme = FixtureTheme(active: active, inactive: inactive, measuredAccent: measuredAccent)
+    public func applyTheme(active: HomePalette, measuredAccent: Bool = false) {
+        let theme = FixtureTheme(active: active, measuredAccent: measuredAccent)
         defer {
             // Per view: a second Home tab finds the process-wide theme set.
             controller.host.headerBackdrop.setTint(Fixture.background)
@@ -120,9 +121,9 @@ public final class MessagesLabHomeView: NSView {
         Fixture.theme = theme
         RowBitmaps.shared.removeAll()
         if let demo = controller.demo {
-            let inactiveNow = Fixture.inactive
-            demo.setInactive(!inactiveNow)
-            demo.setInactive(inactiveNow)
+            // The theme's rows draw again in this view (the bitmaps were dropped, the palette generation moved).
+            demo.chrome.setNeedsDisplay()
+            demo.refreshVisibleCells()
             demo.backgroundColor = Fixture.background
             // The placeholder, waveform and chips are drawn once with the palette.
             demo.compose.rescale()

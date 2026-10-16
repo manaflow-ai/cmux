@@ -305,14 +305,13 @@ public final class HomeNativeTranscriptView: NSView {
         Motion.duration(shown ? .fadeIn : .fadeOut)
     }
 
-    /// The theme's palettes (key and non-key window) for the MessagesLab
+    /// The theme's palette (the key window's, for every window) for the MessagesLab
     /// Fixture colours, and the first-run panel's colours.
     private func applyTheme() {
         let accent = accentOverride
         let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, accentOverride: accent) }
-        let inactive = performWithTheme { HomeThemePalette.resolveInScope(active: false, accentOverride: accent) }
         let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(accentOverride: accent) }
-        transcript.applyTheme(active: active, inactive: inactive, measuredAccent: measured)
+        transcript.applyTheme(active: active, measuredAccent: measured)
         // The header's band: a light fade of the window background, shown only
         // near the top; the design system's fades.
         let (fade, maxAlpha) = performWithTheme { (Palette.surfaceBackground.withAlphaComponent(1), Palette.legibilityScrimOpacity) }
