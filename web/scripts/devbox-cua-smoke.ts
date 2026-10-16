@@ -4,6 +4,11 @@ import { shellQuote } from "../services/vms/drivers/cmuxTuiDaemon";
 
 const probe = readFileSync(new URL("./devbox-cua-smoke.py", import.meta.url)).toString("base64");
 
+/** Read immutable evidence without repeating any desktop actions. */
+export async function readCuaProof<T>(read: () => Promise<T>): Promise<T> {
+  return read();
+}
+
 /** Speak MCP using the guest's native agent configuration, under its desktop login environment. */
 export function devboxCuaSmokeCommand(outputDirectory: string): string {
   const python = `import base64; exec(compile(base64.b64decode("${probe}"), "devbox-cua-smoke.py", "exec"))`;

@@ -23,7 +23,7 @@
 // build-devbox-freestyle.ts), the same platform the shipped driver speaks.
 import { Freestyle, type Vm } from "freestyle";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { devboxCuaSmokeCommand } from "./devbox-cua-smoke";
+import { devboxCuaSmokeCommand, readCuaProof } from "./devbox-cua-smoke";
 import { agentLaunchCheck, codexHookTrustCheck } from "./devbox-agent-launch";
 import { DEFAULT_VM_EDGE_ALIAS_DOMAIN } from "../services/coderouter/vmGuestEnv";
 import path from "node:path";
@@ -363,9 +363,9 @@ async function verifyComputerUse(vm: Vm, exec: Exec, phase: string): Promise<voi
     const destination = path.join(proofDirectory, phase);
     mkdirSync(destination, { recursive: true });
     writeFileSync(path.join(destination, "probe.log"), result.output);
-    for (const file of await vm.fs.readDir(guestDirectory)) {
+    for (const file of await readCuaProof(() => vm.fs.readDir(guestDirectory))) {
       if (/^[a-z-]+\.(png|json)$/.test(file.name)) {
-        writeFileSync(path.join(destination, file.name), await vm.fs.readFile(`${guestDirectory}/${file.name}`));
+        writeFileSync(path.join(destination, file.name), await readCuaProof(() => vm.fs.readFile(`${guestDirectory}/${file.name}`)));
       }
     }
   }

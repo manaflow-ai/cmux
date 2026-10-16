@@ -14,6 +14,7 @@ on:
       - web/scripts/verify-devbox-image.ts
       - web/scripts/devbox-agent-launch.*
       - web/scripts/devbox-cua-smoke.*
+      - web/tests/devbox-cua-smoke.test.ts
       - web/tests/devbox-agent-launch-test.py
       - web/scripts/devbox-codex-hook-trust.py
       - web/tests/devbox-codex-hook-trust-test.py
@@ -36,6 +37,7 @@ on:
       - web/scripts/verify-devbox-image.ts
       - web/scripts/devbox-agent-launch.*
       - web/scripts/devbox-cua-smoke.*
+      - web/tests/devbox-cua-smoke.test.ts
       - web/tests/devbox-agent-launch-test.py
       - web/scripts/devbox-codex-hook-trust.py
       - web/tests/devbox-codex-hook-trust-test.py
@@ -102,7 +104,7 @@ jobs:
         run: bun run devbox:manifest:check
 
       - name: Test image contracts
-        run: bun test tests/vm-image-manifest.test.ts tests/vm-image-sizes.test.ts tests/vm-devbox-image.test.ts
+        run: bun test tests/vm-image-manifest.test.ts tests/vm-image-sizes.test.ts tests/vm-devbox-image.test.ts tests/devbox-cua-smoke.test.ts
 
   promote:
     if: github.repository == 'manaflow-ai/cmux' && github.ref_type == 'branch' && ((inputs.promote == true && inputs.confirm == 'PROMOTE') || inputs.verify_image != '')
