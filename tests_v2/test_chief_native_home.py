@@ -6,8 +6,21 @@ CMUX_SOCKET_PATH=/tmp/cmux-debug-<tag>.sock python3 tests_v2/test_chief_native_h
 """
 
 import os
+import time
 
 from cmux import cmux, cmuxError
+
+
+def wait_for_surfaces(client, workspace_id, predicate):
+    """Topology reads are published asynchronously after a pane mutation."""
+    deadline = time.monotonic() + 5
+    while True:
+        rows = client._call("surface.list", {"workspace_id": workspace_id})["surfaces"]
+        if predicate(rows):
+            return rows
+        if time.monotonic() >= deadline:
+            raise AssertionError(f"Surface topology did not settle: {rows}")
+        time.sleep(0.15)
 
 
 def main():
@@ -16,7 +29,13 @@ def main():
         raise RuntimeError("Set CMUX_SOCKET_PATH to an isolated tagged development socket")
     with cmux(path) as client:
         before = client._call("workspace.list")["workspaces"]
-        local = next((row for row in before if row["title"] != "Home"), None)
+        groups = client._call("workspace.group.list")["groups"]
+        chief_members = {
+            member
+            for group in groups if group.get("external_id") == "cmux.chief.home"
+            for member in group["member_workspace_ids"]
+        }
+        local = next((row for row in before if row["id"] not in chief_members and row["title"] != "Home"), None)
         assert local is not None, "Keep a local workspace for the Home navigation regression"
         client._call("workspace.select", {"workspace_id": local["id"]})
         client._call("chief.open")
@@ -44,13 +63,15 @@ def main():
         split = client._call("surface.split", {"workspace_id": home["id"], "direction": "right", "type": "terminal"})
         split_id = split["surface_id"]
         try:
-            split_surfaces = client._call("surface.list", {"workspace_id": home["id"]})["surfaces"]
-            assert any(row["id"] == split_id and row["type"] == "terminal" for row in split_surfaces)
+            split_surfaces = wait_for_surfaces(client, home["id"], lambda rows: any(
+                row["id"] == split_id and row["type"] == "terminal" for row in rows
+            ))
             assert any(row["id"] == chiefs[0]["id"] for row in split_surfaces), "Splitting Home removed its Chief"
             selected = next(row for row in client._call("workspace.list")["workspaces"] if row["selected"])
             assert selected["id"] == home["id"], "A split must stay in Home's native pane layout"
         finally:
             client._call("surface.close", {"workspace_id": home["id"], "surface_id": split_id, "force": True})
+            wait_for_surfaces(client, home["id"], lambda rows: all(row["id"] != split_id for row in rows))
         for method, params in [
             ("surface.close", {"workspace_id": home["id"], "surface_id": chiefs[0]["id"], "force": True}),
             ("workspace.close", {"workspace_id": home["id"]}),
