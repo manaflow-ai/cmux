@@ -7,8 +7,12 @@
 //! reaches the next spawn; a file another user could read, or a symlink, is
 //! refused at spawn; only the unix socket may name a route at creation.
 //!
+//! Unix only: the owner-only file check is Unix (a Windows reference is refused).
+//!
 //! One test: the methods read acpmux's home from ACPMUX_HOME, a process-wide
 //! setting.
+
+#![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
