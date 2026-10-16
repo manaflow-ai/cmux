@@ -147,7 +147,7 @@ struct SceneNodeViewRenderingTests {
         })
         #expect(runtime.store.node(menuId)?.type == "contextMenu")
         runtime.dispatchEvent(nodeId: rowId, event: "tap")
-        let expected = [
+        let expected: [ActionCommand] = [
             .cmux(method: "workspace.select", params: ["workspace_id": "w1"]),
         ]
         await waitForAction(expected, captured: { captured })
