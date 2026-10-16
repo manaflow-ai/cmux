@@ -34,6 +34,44 @@ import Testing
         #expect(host.view.workspaces.map(\.windowIds) == [["@1", "@7"]], "the new window must surface as a tab")
     }
 
+    /// cmux links a window and marks it with a window option; the next bringup reads the mark
+    /// to know the window is cmux's. If the mark write fails and the window's session dies while
+    /// the stream is down, the window is left in the view alone and unmarked. The bringup must
+    /// still treat it as cmux's and destroy it, or it lingers in the view for good.
+    @Test func aLinkWhoseMarkFailedIsDestroyedWhenItsSessionDiesDuringAnOutage() async {
+        let host = ScriptedViewHost(sessions: [
+            .init(name: "work", id: 1, windowIds: ["@1", "@2"]),
+            .init(name: "keep", id: 2, windowIds: ["@5"]),
+        ], prelinked: false)
+        host.failingMarks = ["@2"]
+        defer { host.close() }
+        await host.connect()
+        #expect(host.linkedIntoView.sorted() == ["@1", "@2", "@5"])
+        #expect(host.marked == ["@1", "@5"], "the mark on @2 was refused")
+
+        await host.reattach { host.sessions.removeAll { $0.name == "work" } }
+
+        #expect(host.linkedIntoView == ["@5"], "both of the dead session's windows are destroyed")
+    }
+
+    /// The same outage, but the mark is refused only once. The bringup writes it again before it
+    /// reads the view, so tmux holds the mark again and later bringups can rely on it.
+    @Test func aRefusedMarkIsWrittenAgainBeforeTheBringupReadsTheView() async {
+        let host = ScriptedViewHost(sessions: [
+            .init(name: "work", id: 1, windowIds: ["@1", "@2"]),
+            .init(name: "keep", id: 2, windowIds: ["@5"]),
+        ], prelinked: false)
+        host.failingMarksOnce = ["@2"]
+        defer { host.close() }
+        await host.connect()
+        #expect(host.marked == ["@1", "@5"])
+
+        await host.reattach { host.sessions.removeAll { $0.name == "work" } }
+
+        #expect(host.markWrites["@2"] == 2, "the refused mark is written again on the next bringup")
+        #expect(host.linkedIntoView == ["@5"])
+    }
+
     @Test func sessionsChangedOnTheViewStreamSurfacesTheNewSession() async {
         let host = ScriptedViewHost(sessions: [.init(name: "work", id: 1, windowIds: ["@1"])])
         defer { host.close() }
@@ -167,22 +205,31 @@ private final class ScriptedViewHost {
     var sessions: [Session]
     /// The next command starting with this text is answered with an empty block, once.
     var emptyReplyOnce: String?
+    /// Windows whose mark write tmux answers with `%error`, every time or only the first time.
+    var failingMarks: Set<String> = []
+    var failingMarksOnce: Set<String> = []
+    /// Windows that carry this view's mark, and how many mark writes each received.
+    private(set) var marked: Set<String> = []
+    private(set) var markWrites: [String: Int] = [:]
     /// Windows linked into the view after its placeholder, in link order.
     private(set) var linkedIntoView: [String] = []
+    /// Each linked window's index in the view. tmux keeps indices when a window leaves, so an
+    /// unlink must not shift the windows after it.
+    private var viewIndex: [String: Int] = [:]
     /// Every command the connection wrote, in send order.
     private(set) var sentCommands: [String] = []
 
     private let ownerId = "unlinked-window-test-owner"
     private let viewSessionId = 99
     private let placeholderWindowId = "@0"
-    private let pipe = Pipe()
-    private let writer: RemoteTmuxControlPipeWriter
+    private var pipe = Pipe()
+    private var writer: RemoteTmuxControlPipeWriter
     private var parser = RemoteTmuxControlStreamParser()
     private var unreadBytes: [UInt8] = []
     private var answeredCount = 0
     private var observerToken: RemoteTmuxControlConnection.ObserverToken?
 
-    init(sessions: [Session]) {
+    init(sessions: [Session], prelinked: Bool = true) {
         self.sessions = sessions
         let host = RemoteTmuxHost(destination: "user@unlinked-window-test")
         view = RemoteTmuxViewConnection(host: host, ownerId: ownerId)
@@ -199,11 +246,26 @@ private final class ScriptedViewHost {
         // The same wiring `RemoteTmuxViewConnection.start()` installs on the stream it opens.
         observerToken = connection.addObserver(
             onTopologyChanged: { [weak view] in view?.requestReconcile() },
-            onConnectionStateChanged: { [weak view] state in
-                if state == .connected { view?.requestReconcile() }
-            }
+            onConnectionStateChanged: { [weak view] state in view?.streamStateChanged(state) }
         )
-        linkedIntoView = sessions.flatMap(\.windowIds)
+        linkedIntoView = prelinked ? sessions.flatMap(\.windowIds) : []
+    }
+
+    /// Drops the stream, runs `outage` against the server model, and attaches a fresh stream,
+    /// the way a reconnect does: the view sees a new client and runs its bringup again.
+    func reattach(during outage: () -> Void) async {
+        connection.beginReconnecting()
+        outage()
+        pipe = Pipe()
+        writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting, label: "remote-tmux-unlinked-view-test", maxPendingBytes: 1 << 20,
+            onFailure: {})
+        connection.installStdinWriterForTesting(writer)
+        parser = RemoteTmuxControlStreamParser()
+        unreadBytes = []
+        sentCommands = []
+        answeredCount = 0
+        await connect()
     }
 
     /// How many times the coordinator has read the server's session list.
@@ -260,8 +322,10 @@ private final class ScriptedViewHost {
             }
             let command = sentCommands[answeredCount]
             answeredCount += 1
+            let refused = refusesMark(command)
             connection.handleMessageForTesting(
-                .commandResult(commandNumber: answeredCount + 1, lines: reply(to: command), isError: false)
+                .commandResult(commandNumber: answeredCount + 1, lines: refused ? ["refused"] : reply(to: command),
+                               isError: refused)
             )
         }
     }
@@ -279,6 +343,25 @@ private final class ScriptedViewHost {
                 sentCommands.append(contentsOf: line.components(separatedBy: " ; "))
             }
         }
+    }
+
+    /// Applies a mark write to the model, or refuses it as scripted.
+    private func refusesMark(_ command: String) -> Bool {
+        guard command.hasPrefix("set-option -w -t @"),
+              command.contains(RemoteTmuxViewConnection.windowMarkOption(viewSessionName: view.view.sessionName)),
+              let windowId = command.split(separator: " ").dropFirst(3).first.map(String.init) else { return false }
+        markWrites[windowId, default: 0] += 1
+        if failingMarks.contains(windowId) { return true }
+        if failingMarksOnce.remove(windowId) != nil { return true }
+        marked.insert(windowId)
+        return false
+    }
+
+    private func indexInView(_ windowId: String) -> Int {
+        if let index = viewIndex[windowId] { return index }
+        let index = (viewIndex.values.max() ?? 0) + 1
+        viewIndex[windowId] = index
+        return index
     }
 
     private func reply(to command: String) -> [String] {
@@ -299,13 +382,20 @@ private final class ScriptedViewHost {
                 }
             }
             rows.append("$\(viewSessionId):\(placeholderWindowId):0:1:\(viewName)")
-            for (offset, windowId) in linkedIntoView.enumerated() {
-                rows.append("$\(viewSessionId):\(windowId):\(offset + 1):0:\(viewName)")
+            for windowId in linkedIntoView {
+                rows.append("$\(viewSessionId):\(windowId):\(indexInView(windowId)):0:\(viewName)")
             }
             return rows
         }
         if command.hasPrefix("list-windows -t") {
-            return ["\(placeholderWindowId) 0"] + linkedIntoView.map { "\($0) 1" }
+            let inSessions = Set(sessions.flatMap(\.windowIds))
+            return ["\(placeholderWindowId) 0 "] + linkedIntoView.map {
+                "\($0) \(inSessions.contains($0) ? 1 : 0) \(marked.contains($0) ? "1" : "")"
+            }
+        }
+        if command.hasPrefix("unlink-window -k -t"), let index = command.split(separator: ":").last.flatMap({ Int($0) }),
+           let windowId = linkedIntoView.first(where: { indexInView($0) == index }) {
+            linkedIntoView.removeAll { $0 == windowId }
         }
         if command.hasPrefix("link-window") {
             let tokens = command.split(separator: " ").map(String.init)
