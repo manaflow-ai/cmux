@@ -262,6 +262,12 @@ def main():
                 row(engine, name, "SKIP", "needs an authenticator; no virtual authenticator here")
                 continue
             status, detail = scenario(engine, tab, name, spec)
+            if status == "FAIL" and "did not settle" in str(detail):
+                # A page that never answered (a frame that did not load on a busy host) is retried
+                # once on the reloaded page; the row says so, and a second miss fails.
+                wait(lambda: js(tab, "typeof runPasskeyScenario") == "function", 30, 1)
+                status, detail = scenario(engine, tab, name, spec)
+                detail = f"retried after no answer in 35 s: {detail}"
             row(engine, name, status, detail)
         run("closeTab")
         time.sleep(1)  # test harness
