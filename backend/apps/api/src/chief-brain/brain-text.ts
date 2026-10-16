@@ -33,9 +33,13 @@ type Transcript = { role: string; content?: unknown; toolsAdded?: ReadonlyArray<
  * signature in thinking block ... The tools list differs"), and the API allows dropping thinking from earlier
  * turns. The tools in force at each assistant message come from the transcript itself (system entries carry
  * toolsAdded / toolsRemoved), so the comparison is exact; only blocks made under a different list go. Text,
- * tool calls and tool results stay. The in-progress turn is never touched (its list cannot change mid-turn).
+ * tool calls and tool results stay. The in-progress turn (after the last user message; tool results are their own
+ * role) is never touched: its thinking is required with its tool calls, and its list cannot change mid-turn (a
+ * mismatch there is counted in `openMismatch`). The fold matches the route while one tool name is redefined in
+ * place (pi-ai then sends the folded list as `tools`); the Bedrock body drops the route's own block_binding, so
+ * this client-side strip is what keeps a changed list valid there.
  */
-export function stripStaleThinking<M extends Transcript>(messages: ReadonlyArray<M>): { messages: Array<M>; stripped: number } {
+export function stripStaleThinking<M extends Transcript>(messages: ReadonlyArray<M>): { messages: Array<M>; stripped: number; openMismatch: number } {
   const tools = new Map<string, string>()
   const keyOf = () => JSON.stringify([...tools])
   const keys: Array<string | null> = []
@@ -47,15 +51,18 @@ export function stripStaleThinking<M extends Transcript>(messages: ReadonlyArray
     keys.push(m.role === "assistant" ? keyOf() : null)
   }
   const now = keyOf()
+  const open = messages.map((m) => m.role).lastIndexOf("user")
   let stripped = 0
+  let openMismatch = 0
   const out = messages.map((m, i) => {
     if (m.role !== "assistant" || keys[i] === now || !Array.isArray(m.content)) return m
+    if (i > open) return (openMismatch++, m)
     const kept = (m.content as Array<{ type: string }>).filter((b) => b.type !== "thinking" && b.type !== "redacted_thinking")
     if (kept.length === (m.content as Array<unknown>).length) return m
     stripped += (m.content as Array<unknown>).length - kept.length
     return { ...m, content: kept }
   })
-  return { messages: out, stripped }
+  return { messages: out, stripped, openMismatch }
 }
 
 const nameOf = (head: Head, id: string) => head.participants.find((p) => p.id === id)?.display_name ?? id

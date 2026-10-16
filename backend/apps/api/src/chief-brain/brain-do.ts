@@ -99,6 +99,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
               // Thinking made under another tools list (a run's hands continuation, a hand paired between turns) is dropped.
               const fresh = stripStaleThinking(messages)
               if (fresh.stripped > 0) console.log(JSON.stringify({ msg: "chief_brain.thinking_stripped", run: this.turnId ?? null, blocks: fresh.stripped }))
+              if (fresh.openMismatch > 0) console.error(JSON.stringify({ msg: "chief_brain.thinking_open_turn_mismatch", run: this.turnId ?? null, messages: fresh.openMismatch }))
               return systemFirst(fresh.messages) ?? (fresh.stripped > 0 ? { messages: fresh.messages } : undefined)
             },
             afterResponse: (message, api) => this.onResponse(message, String(api.taskId))
@@ -548,7 +549,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
         if (joined === "timeout" || joined.status !== "done") result = joined
       }
       // The turn made or found the Chief's first hand: one continuation in the same run, with the full tools (the
-      // tools list changes only between pi turns; the finished turn's thinking stays valid). At most one per run.
+      // tools list changes only between pi turns; the finished turn's thinking is dropped from the continuation's
+      // requests by stripStaleThinking, since the route checks every replayed block). At most one per run.
       const cont = this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `hands_cont:${id}`).toArray()[0]?.value
       const steeredBefore = this.steered.length
       if (!child && result !== "timeout" && result.status === "done" && (cont === "pending" || cont === "submitted")) {
