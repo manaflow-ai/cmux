@@ -216,7 +216,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             tracing::warn!("could not save the moved web listener: {e}");
         }
     }
-    let hub = Hub::new(config, store);
+    let mailbox = crate::mailbox::Mailbox::open(home().join("mailbox"))?;
+    let hub = Hub::new_with_mailbox(config, store, mailbox);
     if let Some(key) = person_key {
         // A Team-signed daemon takes the key only from the signed app's
         // `_acpmux/person_enroll`: a same-uid process could restart it with
