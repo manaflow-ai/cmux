@@ -258,12 +258,14 @@ def run_select(**env: str) -> dict[str, str]:
 OWN = dict(
     OWN_RESULT="success",
     OWN_PENDING="",
+    OWN_VERIFIED="success",
     OWN_BUILD="50001",
     OWN_BUILD_SHA="a" * 40,
     OWN_TIP_SHA="b" * 40,
     OWN_BEHIND="0",
     OWN_BEHIND_HOURS="0",
     RECOVERED="",
+    RECOVERED_VERIFIED="",
     RECOVERED_RUN_ID="",
     RECOVERED_BUILD="",
     RECOVERED_BUILD_SHA="",
@@ -273,6 +275,7 @@ OWN = dict(
 )
 RECOVERED = dict(
     RECOVERED="true",
+    RECOVERED_VERIFIED="success",
     RECOVERED_RUN_ID="498",
     RECOVERED_BUILD="49801",
     RECOVERED_BUILD_SHA="c" * 40,
@@ -333,7 +336,7 @@ class WorkflowTests(unittest.TestCase):
         condition = workflow()["jobs"]["publish-nightly"]["if"]
         self.assertTrue(condition.startswith("!cancelled() && needs.decide.result == 'success' && "), condition)
         self.assertIn(
-            "((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true') || needs.recover-nightly-next-notarization.outputs.accepted == 'true')",
+            "((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))",
             condition,
         )
 
@@ -345,7 +348,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(selected["build_sha"], "a" * 40)
 
     def test_select_publishes_the_recovered_build_when_this_one_is_pending_or_failed(self):
-        for own in (dict(OWN, OWN_PENDING="true"), dict(OWN, OWN_RESULT="failure"), dict(OWN, OWN_RESULT="skipped")):
+        # A build whose secret-free verify job failed is not published either.
+        for own in (dict(OWN, OWN_PENDING="true"), dict(OWN, OWN_RESULT="failure"), dict(OWN, OWN_RESULT="skipped"),
+                    dict(OWN, OWN_VERIFIED="failure")):
             selected = run_select(**dict(own, **RECOVERED))
             self.assertEqual(selected["source"], "recovered")
             self.assertEqual(selected["build"], "49801")
@@ -355,10 +360,14 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(selected["behind"], "1")
             self.assertEqual(selected["behind_hours"], "2")
             self.assertEqual(selected["variant_pattern"], "cmux-nightly-recovered-variant-*")
+            self.assertEqual(selected["tested_pattern"], "cmux-nightly-recovered-tested-*")
 
     def test_select_refuses_with_nothing_accepted(self):
         with self.assertRaises(AssertionError):
             run_select(**dict(OWN, OWN_PENDING="true"))
+        # A recovered build that its verify job did not launch is not published.
+        with self.assertRaises(AssertionError):
+            run_select(**dict(OWN, OWN_PENDING="true", **dict(RECOVERED, RECOVERED_VERIFIED="failure")))
 
     def test_recovered_publication_skips_deltas_and_note_signing(self):
         jobs = workflow()["jobs"]
@@ -418,9 +427,12 @@ class FailureIssueTests(unittest.TestCase):
 
     def publication(self, source, **results):
         jobs = ("decide", "build-nightly-ghostty-cli-helper", "build-nightly-app", "resolve-nightly-cmux-tui-client",
-                "build-sign-notarize-nightly", "publish-nightly", "generate-nightly-deltas", "republish-nightly-deltas",
+                "prepare-nightly-variant", "build-sign-notarize-nightly", "verify-signed-nightly",
+                "verify-recovered-nightly-next", "publish-nightly", "generate-nightly-deltas", "republish-nightly-deltas",
                 "sign-release-notes", "publish-release-notes")
         outcome = dict.fromkeys(jobs, "success")
+        if source == "own":
+            outcome["verify-recovered-nightly-next"] = "skipped"
         if source == "recovered":
             outcome.update({"generate-nightly-deltas": "skipped", "sign-release-notes": "skipped", "publish-release-notes": "skipped"})
         outcome.update(results)
