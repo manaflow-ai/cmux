@@ -140,8 +140,10 @@ impl Mux {
             size,
             on_exit,
         )?;
+        crate::debug_spans::mark("create.fingerprinted");
         let replay =
             { self.workspace_registry.lock().unwrap().replay_terminal(mutation, &fingerprint)? };
+        crate::debug_spans::mark("create.replay_checked");
         if let Some(replay) = replay {
             let terminal_id = replay.result["terminal_id"]
                 .as_str()
@@ -170,10 +172,12 @@ impl Mux {
             size,
             Some(reservation),
         )?;
+        crate::debug_spans::mark("create.placed");
         let identity = self
             .resource_terminal_host_identity(&surface)
             .ok_or_else(|| anyhow::anyhow!("created terminal has no host identity"))?;
         let terminal_revision = self.workspace_registry.lock().unwrap().terminal_revision()?;
+        crate::debug_spans::mark("create.terminal_revision");
         Ok(TerminalPlacementResult {
             placement: Some(placement),
             terminal_id: identity.terminal_id,
@@ -226,6 +230,7 @@ impl Mux {
         }
         let lifecycle = self.workspace_lifecycle(workspace);
         let workspace_lifecycle = lifecycle.lock().unwrap();
+        crate::debug_spans::mark("create.lifecycle_locked");
         #[cfg(test)]
         if let Some(hook) = self.terminal_create_after_materialization_lock.lock().unwrap().clone()
         {
@@ -244,6 +249,7 @@ impl Mux {
             workspace.key.clone()
         };
         let cwd = self.new_terminal_cwd(cwd, None, Some(workspace));
+        crate::debug_spans::mark("create.cwd_resolved");
         let surface = match reservation {
             Some(reservation) => self.spawn_surface_in_workspace_reserved(
                 &workspace_key,
@@ -254,6 +260,7 @@ impl Mux {
             )?,
             None => self.spawn_surface_in_workspace(&workspace_key, cwd, size, argv)?,
         };
+        crate::debug_spans::mark("create.surface_spawned");
         self.pending_workspace_surfaces.lock().unwrap().insert(surface.id, workspace);
         let pending_surface = self.pending_workspace_surface(surface.id);
         if let Some(name) = name {
@@ -278,7 +285,9 @@ impl Mux {
                     return Err(error);
                 }
             };
+            crate::debug_spans::mark("create.bound");
             let _ = surface.persist_host_workspace(&canonical_workspace);
+            crate::debug_spans::mark("create.host_workspace_persisted");
             if changed {
                 self.emit(MuxEvent::TreeChanged);
             }

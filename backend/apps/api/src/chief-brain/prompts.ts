@@ -37,7 +37,13 @@ a computer task, which the log holds as a user message starting
 "[id] "). A short message is its own line, word for word. Recent lines
 cover one message each; the older the messages, the more a line covers.
 A message not summarized yet shows as "(not summarized yet: zoom it)".
-No message appears in full, not even the last ones.
+Inside <chat>, no message appears in full, not even the last ones.
+
+After </chat> come the messages since the view was made, oldest first, one
+line each in the form id+1|kind: text (each in full, up to 30,000
+characters). A line after </chat> that names an earlier line id (edit of,
+retracted, deleted) replaces what that line says. The newest user lines
+are the messages you answer now.
 
 Navigating: zoom(id, n) opens line id+n into the two lines of n/2
 messages it was made from; zoom(id, 1) gives message id in full. Zoom

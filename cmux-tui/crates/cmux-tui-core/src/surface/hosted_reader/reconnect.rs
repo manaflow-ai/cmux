@@ -213,7 +213,16 @@ impl HostedReader {
                 let mut term = pty.term.lock().unwrap();
                 **term = replacement_term;
                 self.shell_marks = crate::prompt_mode_reset::ShellMarks::joined_midway();
-                *pty.terminal_metadata.lock().unwrap() = replacement_metadata;
+                {
+                    let mut metadata = pty.terminal_metadata.lock().unwrap();
+                    // The host's shell state, or this daemon's when the host
+                    // hands over none.
+                    match replacement_snapshot.shell_activity {
+                        Some(activity) => replacement_metadata.activity.restore(activity),
+                        None => replacement_metadata.activity = metadata.activity,
+                    }
+                    *metadata = replacement_metadata;
+                }
                 pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                 *geometry = next_geometry;
                 *pty.title.lock().unwrap() = title.clone();

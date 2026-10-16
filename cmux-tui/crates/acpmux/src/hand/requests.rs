@@ -86,7 +86,7 @@ where
                 })?],
                 None,
             ),
-            "agent.send" | "agent.cancel" | "agent.events" | "agent.deny" => {
+            "agent.send" | "agent.cancel" | "agent.events" | "agent.deny" | "agent.stop" => {
                 (vec![ctx.agents.cwd_of(s(p, "session")?)?], None)
             }
             other => {
@@ -160,8 +160,15 @@ where
             exec::run(&argv, &path, opt_u(p, "timeout_ms")).await
         }
         "agent.start" => {
+            let model_route = p
+                .get("model_route")
+                .filter(|v| !v.is_null())
+                .map(super::gateway::parse)
+                .transpose()?;
             ctx.agents
                 .start(
+                    &ctx.cfg.api,
+                    model_route,
                     &ctx.cfg.agent_policy,
                     s(p, "harness")?,
                     path,
@@ -174,10 +181,14 @@ where
         }
         "agent.send" => {
             let session = s(p, "session")?;
+            if let Some(r) = p.get("model_route").filter(|v| !v.is_null()) {
+                ctx.agents.renew_route(session, &super::gateway::parse(r)?)?;
+            }
             let id = ctx.agents.prompt(session, s(p, "prompt")?)?;
             Ok(json!({ "session": session, "prompt_id": id }))
         }
         "agent.cancel" => ctx.agents.cancel(s(p, "session")?).await,
+        "agent.stop" => ctx.agents.stop(s(p, "session")?, &ctx.sink).await,
         "agent.deny" => ctx.agents.deny(s(p, "session")?, s(p, "permission_id")?).await,
         "agent.events" => {
             ctx.agents

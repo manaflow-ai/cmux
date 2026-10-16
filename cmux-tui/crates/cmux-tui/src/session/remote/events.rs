@@ -498,7 +498,9 @@ impl RemoteSession {
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .to_string(),
+                    subtitle: value.get("subtitle").and_then(Value::as_str).map(str::to_string),
                     body: value.get("body").and_then(Value::as_str).unwrap_or_default().to_string(),
+                    preview: value.get("preview").and_then(Value::as_str).map(str::to_string),
                     level,
                     surface: surface_id(),
                     source: value

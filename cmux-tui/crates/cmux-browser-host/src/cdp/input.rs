@@ -31,6 +31,8 @@ impl Inner {
             }
             (x, y, tab.buttons)
         };
+        // The tab keeps CSS px (`tab.mouse`); Chromium gets view points.
+        let (x, y) = self.input_point((x, y));
         let mut event = json!({"x": x, "y": y, "modifiers": modifiers, "buttons": buttons});
         match kind {
             "move" => {
@@ -50,10 +52,12 @@ impl Inner {
             "wheel" => {
                 event["type"] = json!("mouseWheel");
                 event["button"] = json!("none");
+                // Deltas are view points too under the emulation scale.
+                let scale = self.input_scale();
                 event["deltaX"] =
-                    json!(params.get("deltaX").and_then(Value::as_f64).unwrap_or(0.0));
+                    json!(params.get("deltaX").and_then(Value::as_f64).unwrap_or(0.0) * scale);
                 event["deltaY"] =
-                    json!(params.get("deltaY").and_then(Value::as_f64).unwrap_or(0.0));
+                    json!(params.get("deltaY").and_then(Value::as_f64).unwrap_or(0.0) * scale);
             }
             other => return Err(DriverError::invalid(format!("Unknown mouse event {other}"))),
         }
@@ -139,6 +143,7 @@ impl Inner {
         }
         let session = self.session(&json!({"targetId": target_id}))?;
         let deadline = Instant::now() + super::driver::INTERNAL_TIMEOUT;
+        let (x, y) = self.input_point((x, y));
         let modifier = |key: &str| match key {
             "Alt" => 1,
             "Control" => 2,

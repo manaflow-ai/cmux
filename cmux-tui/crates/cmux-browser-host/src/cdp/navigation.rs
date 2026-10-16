@@ -259,6 +259,13 @@ impl Inner {
 
     pub(super) fn set_viewport(&self, params: &Value) -> Result<Value, DriverError> {
         let session = self.session(params)?;
+        // The person's fit or device emulation owns this app tab's metrics (cx-mogig): a second
+        // override would drop its scale while the driver still converts input by it.
+        if self.input_scale() != 1.0 {
+            return Err(DriverError::invalid(
+                "tab.setViewport: the tab shows a fit or device emulation the person chose; end it in cmux first",
+            ));
+        }
         if params.get("reset").and_then(Value::as_bool) == Some(true) {
             // Back to the hidden-tab size on headless; an app tab's own size.
             match self.hidden_viewport_step() {

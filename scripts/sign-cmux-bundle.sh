@@ -15,6 +15,12 @@
 #   CMUX_TIMESTAMP             set to "none" for un-timestamped local sigs
 #   CMUX_SIGN_SKIP_NUCLEO_FFI  set to "1" for an app that embeds no command palette
 #                              Nucleo FFI (cmux NEXT DEV: cmux-next removed it)
+#   CMUX_SIGNING_KEYCHAIN_TOOL default scripts/ci/signing-keychain.sh. While it
+#                              reports a CI signing keychain, this script runs
+#                              no code from the bundle: it defers the diff
+#                              sidecar handshake, and the workflow runs
+#                              scripts/verify-diff-sidecar-artifact.sh again
+#                              after the keychain is deleted.
 #   CMUX_SIGN_MODE             "all" (default), "all-except-computer-use", or
 #                              "main-only". The split Computer Use notarization
 #                              flow uses all-except-computer-use while Apple's
@@ -59,6 +65,7 @@ APP_ENTITLEMENTS="$2"
 IDENTITY="$3"
 HELPER_ENTITLEMENTS="${CMUX_HELPER_ENTITLEMENTS:-cmux-helper.entitlements}"
 SIGN_MODE="${CMUX_SIGN_MODE:-all}"
+SIGNING_KEYCHAIN_TOOL="${CMUX_SIGNING_KEYCHAIN_TOOL:-$SCRIPT_DIR/ci/signing-keychain.sh}"
 
 if [[ ! -d "$APP_PATH" ]]; then
   echo "error: app bundle not found at $APP_PATH" >&2
@@ -79,6 +86,9 @@ case "$SIGN_MODE" in
     exit 2
     ;;
 esac
+
+# A long notarization wait can pass the CI keychain's short idle lock.
+"$SIGNING_KEYCHAIN_TOOL" unlock
 
 if [[ "${CMUX_TIMESTAMP:-}" == "none" ]]; then
   TS_FLAG=(--timestamp=none)
@@ -180,10 +190,16 @@ if [[ -d "$COMPUTER_USE_HELPER" ]]; then
 fi
 # The sidecar must carry exactly the slices the app does: universal for stable
 # and the transitional nightly, one architecture for thinned nightlies.
+SIDECAR_CHECK=(--archs "$(lipo -archs "$APP_PATH/Contents/MacOS/cmux")" --require-signed)
+if "$SIGNING_KEYCHAIN_TOOL" is-present; then
+  # Run no bundle code while the signing identity is usable. The workflow
+  # repeats this check with the handshake after it deletes the keychain.
+  echo "==> CI signing keychain present: deferring the diff sidecar handshake"
+  SIDECAR_CHECK+=(--static-only)
+fi
 "$SCRIPT_DIR/verify-diff-sidecar-artifact.sh" \
   "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
-  --archs "$(lipo -archs "$APP_PATH/Contents/MacOS/cmux")" \
-  --require-signed
+  "${SIDECAR_CHECK[@]}"
 
 # The browser host, when the bundle carries one, sits beside bin/cmux (the
 # daemon runs its sibling) and is signed like it: Developer ID, hardened runtime.

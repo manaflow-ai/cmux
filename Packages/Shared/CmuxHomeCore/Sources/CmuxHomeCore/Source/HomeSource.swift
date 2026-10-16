@@ -151,6 +151,10 @@ public protocol HomeSource: Sendable {
     /// Asks the owner of `conversation` for its live run snapshot (`run.live`),
     /// which arrives as a `.live(.snapshot)` event: on open and after a missed frame.
     func requestLive(of conversation: ConversationID) async
+
+    /// The talk steps of a running run as its rows hold them (id, text), for reply
+    /// segments the owner's live buffer already freed (a mid-run join). nil: no read.
+    func liveRunRows(of conversation: ConversationID, run: String, author: ParticipantID) async -> [HomeLiveRunSnapshot.Step]?
 }
 
 extension HomeSource {
@@ -159,6 +163,11 @@ extension HomeSource {
 
     /// Default: an owner without live frames.
     public func requestLive(of conversation: ConversationID) async {}
+
+    /// Default: an owner without run reads.
+    public func liveRunRows(of conversation: ConversationID, run: String, author: ParticipantID) async -> [HomeLiveRunSnapshot.Step]? {
+        nil
+    }
 
     /// Default: no link preview parts (send plain text).
     public func acceptsLinkPreviews(in conversation: ConversationID) async -> Bool { false }
