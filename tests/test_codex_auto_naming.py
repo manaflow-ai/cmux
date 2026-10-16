@@ -17,10 +17,10 @@ import uuid
 from claude_teams_test_utils import FIXTURE_SOCKET_PASSWORD, accept_fixture_socket_authentication
 
 
-def run_case(cli, custom_home):
+def run_case(cli, custom_home, trigger):
     with tempfile.TemporaryDirectory(prefix="codex-naming-", dir="/tmp") as temporary:
         root = Path(temporary)
-        workspace, surface = str(uuid.uuid4()), str(uuid.uuid4())
+        workspace, surface = str(uuid.uuid4()).upper(), str(uuid.uuid4()).upper()
         session = str(uuid.uuid4())
         codex_home = root / ("custom-codex-home" if custom_home else ".codex")
         codex_home.mkdir(mode=0o700)
@@ -66,6 +66,7 @@ def run_case(cli, custom_home):
             "transcriptPath": str(transcript), "startedAt": now, "updatedAt": now
         }}}))
         requests = []
+        applied_event = threading.Event()
         socket_path = str(root / "control.sock")
         listener = socket.socket(socket.AF_UNIX)
         listener.bind(socket_path)
@@ -81,16 +82,41 @@ def run_case(cli, custom_home):
                     continue
                 with connection:
                     stream = connection.makefile("rwb")
+                    applied_on_connection = False
                     for raw in stream:
-                        if accept_fixture_socket_authentication(raw, stream):
-                            continue
+                        prefix = b"_cmux_capability_v1 fixture-local-capability "
+                        has_capability = raw.startswith(prefix)
+                        if has_capability:
+                            raw = raw[len(prefix):]
+                        try:
+                            if trigger == "stop" and not has_capability:
+                                stream.write(b"ERROR: Access denied\n")
+                                stream.flush()
+                                break
+                            if accept_fixture_socket_authentication(raw, stream):
+                                continue
+                            if not raw.lstrip().startswith(b"{"):
+                                stream.write(b"OK\n")
+                                stream.flush()
+                                continue
+                        except BrokenPipeError:
+                            break
                         request = json.loads(raw)
                         requests.append(request)
                         result = {"enabled": True, "workspace_user_owned": False,
-                                  "workspace_applied": True, "panel_applied": True}
-                        stream.write((json.dumps({"id": request["id"], "ok": True,
-                                                  "result": result}) + "\n").encode())
-                        stream.flush()
+                                  "workspace_applied": True, "panel_applied": True,
+                                  "surfaces": [{"id": surface, "ref": "surface:1", "focused": True}]}
+                        if request.get("method") == "agent.resolve_delivery_target":
+                            result = {"source": "surface", "workspace_id": workspace, "surface_id": surface}
+                        applied_on_connection |= bool(request.get("params", {}).get("title"))
+                        try:
+                            stream.write((json.dumps({"id": request["id"], "ok": True,
+                                                      "result": result}) + "\n").encode())
+                            stream.flush()
+                        except BrokenPipeError:
+                            break
+                    if applied_on_connection:
+                        applied_event.set()
 
         server = threading.Thread(target=serve)
         server.start()
@@ -101,16 +127,31 @@ def run_case(cli, custom_home):
                 "CMUX_AGENT_HOOK_STATE_DIR": temporary,
                 "CMUX_CLAUDE_HOOK_STATE_PATH": str(store),
                 "CMUX_SOCKET_PATH": socket_path,
+                "CMUX_SOCKET_PASSWORD": FIXTURE_SOCKET_PASSWORD,
+                "CMUX_WORKSPACE_ID": workspace, "CMUX_SURFACE_ID": surface,
+                "CMUX_CODEX_PID": str(os.getpid()),
                 "CMUX_CLI_SENTRY_DISABLED": "1"
             }
             if custom_home:
                 environment["CODEX_HOME"] = str(codex_home)
-            result = subprocess.run([
+            arguments = [
                 cli, "--socket", socket_path, "--password", FIXTURE_SOCKET_PASSWORD,
-                "hooks", "codex", "auto-name", "--session", session,
-                "--workspace", workspace, "--surface", surface,
-                "--transcript", str(transcript)
-            ], env=environment, capture_output=True, text=True, timeout=15)
+                "hooks", "codex", trigger
+            ]
+            if trigger == "auto-name":
+                arguments += ["--session", session, "--workspace", workspace,
+                              "--surface", surface, "--transcript", str(transcript)]
+            else:
+                # Model the app-issued worker capability. The separate delivery
+                # process regression verifies that local workers receive it.
+                environment["CMUX_SOCKET_CAPABILITY"] = "fixture-local-capability"
+            result = subprocess.run(arguments, input=json.dumps({
+                "hook_event_name": "Stop", "session_id": session,
+                "cwd": temporary, "transcript_path": str(transcript),
+                "last_assistant_message": "Repair Codex Naming"
+            }), env=environment, capture_output=True, text=True, timeout=15)
+            if trigger == "stop":
+                assert applied_event.wait(8), "Stop hook never applied an automatic title"
         finally:
             stopped.set()
             server.join(timeout=2)
@@ -132,7 +173,7 @@ def run_case(cli, custom_home):
         assert not Path(invocation["home"]).exists(), "Temporary credentials were not cleaned up"
         assert auth.read_text() == "refreshed-fixture-login\n", "Refreshed login was discarded"
         assert (codex_home / "config.toml").read_text() == config
-        print(f"PASS Codex saved login ({'custom CODEX_HOME' if custom_home else 'default home'})")
+        print(f"PASS Codex {trigger} ({'custom CODEX_HOME' if custom_home else 'default home'})")
 
 
 if __name__ == "__main__":
@@ -141,5 +182,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if not args.cli:
         parser.error("--cli or CMUX_CLI_BIN is required")
-    for custom_home in (False, True):
-        run_case(str(Path(args.cli).resolve()), custom_home)
+    for trigger in ("auto-name", "stop"):
+        for custom_home in (False, True):
+            run_case(str(Path(args.cli).resolve()), custom_home, trigger)
