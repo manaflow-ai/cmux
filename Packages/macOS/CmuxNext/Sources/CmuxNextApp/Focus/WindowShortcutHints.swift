@@ -58,7 +58,7 @@ final class WindowShortcutHints {
             guard index < 8 || index == workspaces.count - 1 else { continue }
             let digit = index == workspaces.count - 1 && index >= 8 ? 9 : index + 1
             guard digit <= 9, let rect = frames[workspace.id], let text = label("selectWorkspaceByNumber", digit: digit) else { continue }
-            hints.append(.init(text: text, rect: root.convert(rect, from: sidebar)))
+            hints.append(.init(text: text, rect: root.convert(rect, from: sidebar), target: "workspace:\(workspace.id.rawValue)"))
         }
         for (index, rect) in sidebar.shortcutHintSpaceFrames.enumerated() where index < 9 {
             if let text = label("space.selectByNumber", digit: index + 1) {
@@ -99,6 +99,7 @@ final class WindowShortcutHints {
     func keyDown() { monitor?.keyDown() }
 
     #if DEBUG
+    var shownHints: [ShortcutHintOverlayView.Hint] { overlay.hints }
     func debugHold(_ flags: NSEvent.ModifierFlags) async -> Bool {
         guard let monitor, let window = controller?.window else { return false }
         return await monitor.debugHold(flags, window: window)
