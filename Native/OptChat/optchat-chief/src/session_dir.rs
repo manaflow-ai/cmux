@@ -241,6 +241,89 @@ pub const TURN_DENIED_TOOLS: [&str; 25] = [
     "Workflow",
 ];
 
+/// The cmux MCP tools a Chief turn keeps (cx-68uof, hq-6d 2026-10-16):
+/// conversations, Chiefs, workspaces and panes, agents. The Chief's own
+/// `optchat` server (spawn, tell, zoom, date, chiefs, profile) always loads.
+/// Every other cmux MCP tool is denied in the turn's settings and stays
+/// reachable through the `cmux` CLI.
+pub const CHIEF_CMUX_TOOLS: [&str; 21] = [
+    "conversation_list",
+    "conversation_get",
+    "conversation_history",
+    "conversation_search",
+    "conversation_send",
+    "chief_profile_list",
+    "chief_profile_get",
+    "chief_profile_create",
+    "chief_profile_update",
+    "chief_engine_get",
+    "session_list",
+    "agents_workspace_create",
+    "agents_workspace_select",
+    "agents_terminal_split",
+    "agents_terminal_focus",
+    "agents_tab_select",
+    "agents_events",
+    "agents_wait",
+    "agent_message_list",
+    "agent_message_send",
+    "render",
+];
+
+/// How long `cmux mcp tools` may take before a turn keeps every tool.
+const TOOL_LIST_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// The cmux MCP tool names of the CLI the turn's env runs (`cmux --json
+/// mcp tools`, the list `cmux mcp serve` gives every agent chat), None when
+/// it fails or takes longer than `TOOL_LIST_LIMIT`.
+pub fn cmux_tool_names(env: &BTreeMap<String, String>) -> Option<Vec<String>> {
+    let mut command = std::process::Command::new("cmux");
+    command
+        .args(["--json", "mcp", "tools"])
+        .envs(env)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    let child = command.spawn().ok()?;
+    let pid = child.id();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(child.wait_with_output());
+    });
+    let Ok(output) = rx.recv_timeout(TOOL_LIST_LIMIT) else {
+        // Our own child, by its pid: it never answered.
+        let _ = std::process::Command::new("kill")
+            .arg(pid.to_string())
+            .status();
+        return None;
+    };
+    let output = output.ok().filter(|o| o.status.success())?;
+    let value: Value = serde_json::from_slice(&output.stdout).ok()?;
+    value["tools"].as_array().map(|tools| {
+        tools
+            .iter()
+            .filter_map(|t| t["name"].as_str().map(str::to_owned))
+            .collect()
+    })
+}
+
+/// Deny rules (`mcp__cmux__<name>`) for every cmux MCP tool of `env`'s CLI
+/// not in `CHIEF_CMUX_TOOLS`. When the list cannot be read, none: the turn
+/// keeps every tool (behind ToolSearch) and host.log says so.
+pub fn cmux_tool_denials(env: &BTreeMap<String, String>) -> Vec<String> {
+    let Some(names) = cmux_tool_names(env) else {
+        crate::log::log(
+            "reading the cmux MCP tool list (cmux --json mcp tools) failed; Chief turns keep every cmux tool",
+        );
+        return Vec::new();
+    };
+    names
+        .into_iter()
+        .filter(|name| !CHIEF_CMUX_TOOLS.contains(&name.as_str()))
+        .map(|name| format!("mcp__cmux__{name}"))
+        .collect()
+}
+
 /// The Claude Code env of every turn, in the turn directory's project
 /// settings (over the user's settings env; acpmux's built-in Chief presets
 /// take no env from the host): tool search on, so every MCP tool but the
@@ -338,7 +421,16 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         pretty(&mcp_json(setup, paths))?.as_bytes(),
     )?;
     // Private: they may hold the user's settings env (an API token).
-    let mut settings = settings_json(setup, paths, &TURN_DENIED_TOOLS);
+    // cx-68uof: only the Chief's cmux MCP tools load with a turn; the rest
+    // are denied, so Claude Code lists none of them (the deferred-tool list
+    // it appends after our cached input was 3,365 tokens for 165 tools).
+    let denied = cmux_tool_denials(&setup.env);
+    let deny: Vec<&str> = TURN_DENIED_TOOLS
+        .iter()
+        .copied()
+        .chain(denied.iter().map(String::as_str))
+        .collect();
+    let mut settings = settings_json(setup, paths, &deny);
     for (key, value) in TURN_SETTINGS_ENV {
         settings["env"][key] = json!(value);
     }
