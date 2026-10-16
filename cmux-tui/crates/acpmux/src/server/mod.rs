@@ -101,10 +101,6 @@ impl Conn {
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock().unwrap().get(session_id).cloned()
     }
-    /// A mailbox ack is authorized only for a session attached to this connection.
-    pub(super) fn has_subscription(&self, session_id: &str) -> bool {
-        self.subs.lock().unwrap().contains_key(session_id)
-    }
     /// Subscribe with default options; keeps options already set.
     fn subscribe(&self, session_id: &str) -> bool {
         let mut subs = self.subs.lock().unwrap();

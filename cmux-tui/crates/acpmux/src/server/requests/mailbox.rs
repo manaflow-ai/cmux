@@ -15,7 +15,7 @@ pub(super) async fn handle(
         crate::rpc::method::MUX_MAIL_SEND => {
             let id = required_string(params, "id")?;
             let sender = required_string(params, "sender")?;
-            require_attached(conn.has_subscription(&sender), "send", &sender)?;
+            require_attached(is_attached(conn, &sender), "send", &sender)?;
             let recipient = required_string(params, "recipient")?;
             let body = params
                 .get("body")
@@ -39,7 +39,7 @@ pub(super) async fn handle(
         }
         crate::rpc::method::MUX_MAIL_READ | crate::rpc::method::MUX_MAIL_WAIT => {
             let recipient = required_string(params, "recipient")?;
-            require_attached(conn.has_subscription(&recipient), "read", &recipient)?;
+            require_attached(is_attached(conn, &recipient), "read", &recipient)?;
             let after = params.get("after").and_then(Value::as_u64).unwrap_or(0);
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
             let page = if method == crate::rpc::method::MUX_MAIL_WAIT {
@@ -54,7 +54,7 @@ pub(super) async fn handle(
         }
         crate::rpc::method::MUX_MAIL_ACK => {
             let recipient = required_string(params, "recipient")?;
-            require_attached(conn.has_subscription(&recipient), "ack", &recipient)?;
+            require_attached(is_attached(conn, &recipient), "ack", &recipient)?;
             let message_id = required_string(params, "messageId")?;
             let delivery = hub.mailbox().acknowledge(&recipient, &message_id).map_err(map_error)?;
             Ok(json!({"delivery": delivery}))
@@ -69,6 +69,10 @@ fn require_attached(attached: bool, operation: &str, session_id: &str) -> Result
     }
     Err(RpcError::new(-32002, format!("mailbox {operation} requires an attached session"))
         .with_data(json!({"reason": "session_not_attached", "sessionId": session_id})))
+}
+
+fn is_attached(conn: &Conn, session_id: &str) -> bool {
+    conn.subs.lock().unwrap().contains_key(session_id)
 }
 
 fn required_string(params: &Value, name: &str) -> Result<String, RpcError> {
