@@ -153,7 +153,10 @@ describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }
     expect(b2.slice(0, b1.length - 1).map((b) => b.text)).toEqual(b1.slice(0, b1.length - 1).map((b) => b.text))
     expect(b2[b1.length - 1]!.text).toBe(b1[b1.length - 1]!.text)
     const viewEnd = b2.find((b) => b.text.endsWith("</chat>"))!
-    expect(viewEnd.cache_control).toMatchObject({ type: "ephemeral", ttl: "1h" })
+    // Turn 1 marks the view's end; turn 2 marks where turn 1 ended (its user block), so it reads all of turn 1's input.
+    expect(b1.find((b) => b.text.endsWith("</chat>"))!.cache_control).toMatchObject({ type: "ephemeral", ttl: "1h" })
+    const turn1End = b2.find((b) => b.text === b1.at(-1)!.text)!
+    expect(turn1End.cache_control).toMatchObject({ type: "ephemeral", ttl: "1h" })
     expect(viewEnd.text).not.toContain("second question")
     expect(b2.at(-1)!.text).toMatch(/\|user: .*second question/)
     // The expired configured token was refreshed once; the second turn used the stored one.

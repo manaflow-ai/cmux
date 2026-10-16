@@ -102,8 +102,10 @@ re-render happens.
    render is invisible. The delta is cut into blocks at each change between the kind `user` and the
    other kinds, so the new messages of a turn are one block and that turn's work (talk, tool, echo)
    the next block. A block, once sent, is sent again byte for byte; a turn adds blocks only at the
-   end. The cache marks: one at the frozen view's end, one at the request's end (the provider looks
-   back from a mark for the previous request's mark, so the previous turn's whole input is read).
+   end. The cache marks: one at the request's end, and one where the previous turn's request ended
+   (its newest user block: the second to last user block of the delta), or at the frozen view's end
+   when there is none. Bedrock reads a cache entry only at a mark (no look-back; measured on staging
+   2026-10-16: reads stopped at the view's end until this mark), so the previous end needs its own mark.
    An entry that edits, retracts or deletes something a line of the frozen view already shows names
    that line's id: `<id>|edit of <target-id>: <new text>`, `<id>|retracted <target-id>`,
    `<id>|deleted <target-id>`. The system prompt says: "A line after </chat> that names an earlier
