@@ -65,6 +65,8 @@ public final class SidebarDocStore {
     /// echo may have gone to a closed connection). They stay pending until the next document load, which says where
     /// the rows really are: the load drops them (cx-ml98q).
     @ObservationIgnored private var unanswered: Set<String> = []
+    /// Loads failed in a row while unanswered changes wait (a `sidebar.get` that timed out under the same load).
+    @ObservationIgnored private var failedLoads = 0
     /// Refs already sent to `sidebar.adopt` this session.
     @ObservationIgnored private var adopting: Set<SidebarDocWorkspaceRef> = []
 
@@ -99,8 +101,16 @@ public final class SidebarDocStore {
                 self?.loading = false
                 if self?.refetchAgain == true { self?.refetchAgain = false; self?.refresh() }
             }
-            guard let data = try? await remote.get(), let records = try? SidebarDocRecords(document: data), let self else { return }
-            guard mirror.load(data) else { return }
+            guard let data = try? await remote.get(), let records = try? SidebarDocRecords(document: data), let self,
+                  mirror.load(data) else {
+                // Unanswered changes wait for a load: ask again (a bounded number of times; a reconnect loads anyway).
+                if let self, !answering.isEmpty, self.failedLoads < Self.unsettledAsks {
+                    self.failedLoads += 1
+                    self.refetchAgain = true
+                }
+                return
+            }
+            self.failedLoads = 0
             // The document has each unanswered change or never will: it shows as loaded (no replay on top).
             for key in answering { mirror.reject(key) }
             self.unanswered.subtract(answering)
