@@ -362,13 +362,22 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   }, []);
 
   /// Replaces the document with `markdown`. Parsing drops the spaces at its end ("/review "),
-  /// so they go back where the caret goes.
+  /// so they go back where the caret goes. It drops a blank line at its end too: after a block
+  /// that is not a paragraph (a quote put in for the reply), an empty paragraph takes the caret,
+  /// so typing goes on below the block, not inside it.
   const setDocument = (markdown: string) => {
     editor.current?.action(replaceAll(markdown));
     const current = view.current;
+    if (!current) return;
     const tail = /[ \t]+$/.exec(markdown)?.[0];
-    if (current && tail && !trailingSpaces(current))
+    if (tail && !trailingSpaces(current)) {
       current.dispatch(current.state.tr.insertText(tail, current.state.doc.content.size - 1));
+      return;
+    }
+    const { doc, schema } = current.state;
+    if (!/\n[ \t]*\n$/.test(markdown) || !doc.lastChild || doc.lastChild.type === schema.nodes.paragraph) return;
+    const tr = current.state.tr.insert(doc.content.size, schema.nodes.paragraph.create());
+    current.dispatch(tr.setSelection(TextSelection.create(tr.doc, tr.doc.content.size - 1)));
   };
 
   // A value from outside (a send cleared it, the menu wrote a command) replaces the document.

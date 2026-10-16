@@ -27,12 +27,14 @@ enum AgentPanePageHost {
         if let theme = AgentPageEvent.theme(view.themeTokens, surface: view.surfaceKind) { events.append(theme) }
         events.append(.shortcuts(view.shortcuts))
         events.append(.preview(view.previewFeatures))
+        events.append(AgentPaneSuggestedTasks.shared.event(for: view))
         events.append(.deviceChats(AgentPaneDeviceChat.shown(view.deviceChats, in: view)))
         events.append(.recentlyClosed(view.recentlyClosed))
         events.append(.editedFiles(view.editedFiles))
         events.append(.composer(view.model.composer))
         events.append(.diffColors(view.model.diffColors))
         events.append(.toolCards(view.model.toolCards))
+        events.append(view.model.tabRow.event)
         if !view.customization.isEmpty { events += AgentPageEvent.customization(view.customization) }
         return events
     }

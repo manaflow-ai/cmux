@@ -624,16 +624,23 @@ fn workspace_of_screen(
         .optional()?)
 }
 
-/// The workspaces, screens and tabs `patch` tombstones, in patch order.
+/// The workspaces, screens, panes and tabs `patch` tombstones, in patch
+/// order.
 struct Closing {
     workspaces: Vec<String>,
     screens: Vec<String>,
+    panes: HashSet<String>,
     tabs: Vec<String>,
 }
 
 impl Closing {
     fn of(patch: &ResourcePatch) -> Self {
-        let mut closing = Self { workspaces: Vec::new(), screens: Vec::new(), tabs: Vec::new() };
+        let mut closing = Self {
+            workspaces: Vec::new(),
+            screens: Vec::new(),
+            panes: HashSet::new(),
+            tabs: Vec::new(),
+        };
         for change in &patch.changes {
             match change {
                 ResourceChange::TombstoneWorkspace { workspace_id } => {
@@ -641,6 +648,9 @@ impl Closing {
                 }
                 ResourceChange::TombstoneScreen { screen_id } => {
                     closing.screens.push(screen_id.as_str().to_string());
+                }
+                ResourceChange::TombstonePane { pane_id } => {
+                    closing.panes.insert(pane_id.as_str().to_string());
                 }
                 ResourceChange::TombstoneTab { tab_id, .. } => {
                     closing.tabs.push(tab_id.as_str().to_string());
@@ -705,7 +715,13 @@ pub(crate) fn capture_closed(
     }
     let mut tabs = Vec::new();
     for tab_id in &closing.tabs {
-        tabs.extend(tab_member(transaction, tab_id, &closing_workspaces, &closing_screens)?);
+        tabs.extend(tab_member(
+            transaction,
+            tab_id,
+            &closing_workspaces,
+            &closing_screens,
+            &closing.panes,
+        )?);
     }
     // Restore order: ascending position per pane, so each tab goes back to
     // its own index after the lower ones are in place.
@@ -751,12 +767,14 @@ fn capture_screen(
 }
 
 /// The member of one closing tab, unless its screen or workspace closes
-/// with it (they record it) or its workspace is ephemeral.
+/// with it (they record it) or its workspace is ephemeral. A tab whose
+/// pane closes with it keeps where that pane was split (`split`).
 fn tab_member(
     transaction: &Transaction<'_>,
     tab_id: &str,
     closing_workspaces: &HashSet<String>,
     closing_screens: &HashSet<String>,
+    closing_panes: &HashSet<String>,
 ) -> anyhow::Result<Option<Value>> {
     let placement = transaction
         .query_row(
@@ -778,7 +796,7 @@ fn tab_member(
         return Ok(None);
     }
     let Some(tab) = tab_record(transaction, tab_id)? else { return Ok(None) };
-    Ok(Some(json!({
+    let mut member = json!({
         "kind": "tab",
         // The closed tab's id: a closed tab group names its tabs by it.
         "tab_id": tab_id,
@@ -787,7 +805,14 @@ fn tab_member(
         "pane_id": pane_id,
         "index": position,
         "screens": [{"name": null, "tabs": [tab]}],
-    })))
+    });
+    if closing_panes.contains(&pane_id)
+        && let Some(split) =
+            super::closed_pane_split::pane_placement(transaction, &screen_id, &pane_id)?
+    {
+        member["split"] = split;
+    }
+    Ok(Some(member))
 }
 
 /// Record a closing workspace. An ephemeral workspace leaves no record.

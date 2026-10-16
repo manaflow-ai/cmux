@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextLayout
+import CmuxNextSettings
 import CmuxNextSidebar
 
 extension AppActions {
@@ -33,14 +34,16 @@ extension AppActions {
         services.pages.register(HomePageTab(services: services))
         registry.bind("home.tab", invoke: { _ = HomePageTab.open(services, focus: $0.allowsViewChange) })
         services.pages.register(HomeChannelsPageTab(services: services))
-        // The docked Home's tab (HomeDockTab): the Messages | Channels switch over both views.
+        // The docked Home's tab (HomeDockTab): the Messages or Channels view (the sidebar's Home or Channels entry).
         services.pages.register(HomeDockTab(services: services))
         #if DEBUG
         services.pages.register(DebugHomeNativeFixture())
         #endif
         registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
-        // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it.
-        registry.bind("home.show") { showHome(services) }
+        // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it;
+        // the sidebar's Home entry, so a dock showing Channels goes back to Messages (cx-frn2y).
+        registry.bind("home.show") { if showHome(services), services.home.dockMode == .channels { HomeDockTab.view(services)?.switchTo(.messages) } }
+        HomeChannelsSetting().bind(into: registry, settings: { [weak services] in services?.settings }, unavailable: RefusalStrings.homeNotReady)
         // The composer's attach button as an action (home.attachFiles): a path
         // goes to the shown Home composer through its own intake (as a drop);
         // without one the shown composer opens its file picker.

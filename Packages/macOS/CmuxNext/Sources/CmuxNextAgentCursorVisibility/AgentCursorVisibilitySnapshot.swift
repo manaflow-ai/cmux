@@ -120,10 +120,13 @@ public nonisolated struct AgentCursorVisibilitySnapshot: Codable, Equatable, Sen
         public var viewport: AgentCursorRect
         /// The tab's page zoom (`BrowserTabState.zoom`).
         public var zoom: Double
+        /// Points per CSS px of the page at zoom 1 (an emulation's scale, cx-d077f); nil is 1.
+        public var scale: Double?
 
-        public init(viewport: AgentCursorRect, zoom: Double) {
+        public init(viewport: AgentCursorRect, zoom: Double, scale: Double? = nil) {
             self.viewport = viewport
             self.zoom = zoom
+            self.scale = scale
         }
     }
 }

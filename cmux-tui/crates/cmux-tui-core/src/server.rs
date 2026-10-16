@@ -156,6 +156,7 @@ mod close_tabs_command;
 mod cloud_attachments;
 mod cloud_conversations;
 mod conversation_attachments;
+mod conversation_live;
 mod conversation_resource;
 mod conversation_runs;
 mod resource_trust;
@@ -250,6 +251,7 @@ mod terminal_resources;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
 mod capabilities;
+pub use capabilities::build_capabilities;
 mod daemon_build;
 pub use daemon_build::{DAEMON_BUILD_CAPABILITY, DaemonBuild, install_daemon_build};
 mod socket_path;
@@ -1693,6 +1695,7 @@ enum Command {
     CloudInboxUnsubscribe,
     CloudConversationSubscribe(cloud_conversations::TargetParams),
     CloudConversationUnsubscribe(cloud_conversations::TargetParams),
+    CloudConversationLive(cloud_conversations::TargetParams),
     /// The leased chief's MuxDO wake queue (`mux:<agent>`, agent from the
     /// chief token), and the ack of handled wakes.
     CloudMuxSubscribe(cloud_conversations::NoParams),
@@ -1710,6 +1713,8 @@ enum Command {
     ConversationRunAppend(conversation_runs::AppendParams),
     ConversationRuns(conversation_runs::RunsParams),
     ConversationRun(conversation_runs::RunParams),
+    ConversationLivePublish(conversation_live::PublishParams),
+    ConversationLive(conversation_live::LiveParams),
     ConversationImport(conversations::ImportParams),
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
