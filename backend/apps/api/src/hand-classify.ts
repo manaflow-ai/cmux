@@ -1,7 +1,7 @@
 import type { Context } from "@earendil-works/pi-ai"
 import type { Env } from "./env.ts"
 import { brainModels } from "./chief-brain/models.ts"
-import { HOLDER } from "./chief-brain/claude-auth.ts"
+import { claudeAuthFor, forgetClaudeAuth, HOLDER } from "./chief-brain/claude-auth.ts"
 import { HAIKU } from "./model-gateway/routes.ts"
 
 /**
@@ -134,7 +134,7 @@ export const classify = async (env: Env, hand: string, owner: string, agent: str
   if (CREDENTIAL_PATH.test(summary.text)) return { verdict: "ask", reason: "it names a credential or key location: the person decides", model: "rule", ms: 0 }
   const holder = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(HOLDER)) as unknown as { claudeAuth(): Promise<string>; claudeInvalidate(): Promise<void> }
   const models = brainModels(env, `hand:${hand}`, {
-    claude: { auth: () => holder.claudeAuth(), refused: () => holder.claudeInvalidate() },
+    claude: { auth: () => claudeAuthFor(env, () => holder), refused: () => (forgetClaudeAuth(), holder.claudeInvalidate()) },
     effort: () => "low",
     who: () => ({ run: `classify:${request}`.slice(0, 128), generation: request, conversation: undefined, agent: agent ?? null, owner })
   })

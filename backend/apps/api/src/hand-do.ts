@@ -521,6 +521,31 @@ export class HandDO extends DurableObject<Env> {
     this.ctx.waitUntil(user.handFrame(owner, frame).catch(() => undefined))
   }
 
+  /**
+   * The outcome of a Chief agent session's latest turn (its events since the last turn_start) to the brain
+   * object that started it (`<chief>/<conversation>`, a spawn child included): `agentOutcome` there posts it
+   * only when the Chief's own agent call did not already see it. Best effort, tried twice.
+   */
+  private async agentOutcome(session: string): Promise<void> {
+    const sql = this.ctx.storage.sql
+    const r = this.row()
+    const a = sql.exec<{ chief: string; conversation: string }>(`SELECT chief, conversation FROM hand_agent WHERE session = ?`, session).toArray()[0]
+    if (!r || !a) return
+    const rows = sql.exec<{ seq: number; body: string }>(`SELECT seq, body FROM hand_event WHERE session = ? ORDER BY seq DESC LIMIT 400`, session).toArray().reverse()
+    const start = rows.map((x) => (JSON.parse(x.body) as AgentEvent).kind).lastIndexOf("turn_start")
+    const turn = rows.slice(Math.max(0, start)).map((x) => ({ seq: x.seq, e: JSON.parse(x.body) as AgentEvent }))
+    const last = turn.at(-1)
+    if (!last) return
+    // A session that ended between turns has no new outcome.
+    if (last.e.kind === "session_end" && turn.some((x) => x.e.kind === "turn_end")) return
+    const text = turn.flatMap((x) => (x.e.kind === "text" ? [x.e.text] : [])).join("").slice(-4_000)
+    const tools = [...new Set(turn.flatMap((x) => (x.e.kind === "tool" && x.e.title ? [x.e.title] : [])))].slice(0, 20)
+    const errors = turn.flatMap((x) => (x.e.kind === "error" ? [x.e.message ?? "error"] : [])).slice(0, 5)
+    const outcome = { hand: r.hand, hand_name: r.name, session, seq: last.seq, status: last.e.kind === "turn_end" ? "done" : "failed", stop_reason: last.e.kind === "turn_end" ? (last.e.stop_reason ?? "") : last.e.kind === "session_end" ? `session ended${last.e.reason ? `: ${last.e.reason}` : ""}` : "error", text, tools, errors }
+    const brain = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(`${a.chief}/${a.conversation}`)) as unknown as { agentOutcome(o: typeof outcome): Promise<unknown> }
+    for (let i = 0; i < 2; i++) if (await brain.agentOutcome(outcome).then(() => true, () => false)) return
+  }
+
   /** The hand says an agent session ended: its agent tokens stop now (model-gateway/run-token.ts). */
   private async sessionEnded(session: string): Promise<void> {
     const r = this.row()
@@ -616,7 +641,11 @@ export class HandDO extends DurableObject<Env> {
         sql.exec(`INSERT INTO hand_event (session, at, body) VALUES (?, ?, ?)`, session, now, capJson(f.event, 64_000))
         if (++this.inserts % 100 === 0) sql.exec(`DELETE FROM hand_event WHERE seq <= (SELECT MAX(seq) FROM hand_event) - ?`, KEEP_EVENTS)
         for (const wake of [...this.waiters]) wake()
-        if ((f.event as { kind?: unknown }).kind === "session_end") await this.sessionEnded(session)
+        const kind = (f.event as { kind?: unknown }).kind
+        // A Chief's agent turn ended (or failed, or the session ended mid-turn): its brain gets the outcome, so a
+        // result that comes after the Chief's agent call returned (an approval answered later) still reaches it.
+        if (kind === "turn_end" || kind === "error" || kind === "session_end") this.ctx.waitUntil(this.agentOutcome(session))
+        if (kind === "session_end") await this.sessionEnded(session)
         return
       }
     }

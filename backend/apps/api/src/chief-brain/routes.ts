@@ -70,6 +70,8 @@ export const handleChiefBrain = async (request: Request, env: Env, agent: string
   // Step tool inputs are JSON values (unknown), which the RPC stub type cannot express: read the shape here.
   const sub = /^sub_([0-9]{1,15})$/.exec(run)
   if (sub && !(await (convBrain as unknown as { spawned(n: number): Promise<boolean> }).spawned(Number(sub[1])))) return fail(hidden)
+  const archived = sub ? await (convBrain as unknown as { spawnRun(n: number): Promise<{ run: { conversation: string } } | null> }).spawnRun(Number(sub[1])) : null
+  if (archived) return archived.run.conversation === conversation ? ok(archived) : fail(hidden)
   const holder = sub ? env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(childObject(agent, conversation, Number(sub[1])))) : convBrain
   const found = (await (holder.run(run, Math.max(0, Math.floor(num("after_seq") ?? 0)), 500) as unknown as Promise<{ run: { conversation: string } } | null>))
   return found && found.run.conversation === conversation ? ok(found) : fail(hidden)

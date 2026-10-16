@@ -3,6 +3,7 @@ import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { fireAlarm } from "./setup/alarm.ts"
+import { forgetClaudeAuth } from "../src/chief-brain/claude-auth.ts"
 import { TURN_FAILED_NOTICE } from "../src/chief-brain/brain-gateway.ts"
 
 /**
@@ -116,7 +117,8 @@ const replies = async (token: string, conversation: string, chief: string, n: nu
   }
   throw new Error(`no ${n} chief replies`)
 }
-const forgetRefreshed = () => runInDurableObject(testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName("claude-david-auth")), async (_i, state) => void state.storage.sql.exec("DELETE FROM cb_config WHERE name = 'claude.access'"))
+// The holder's stored token and this isolate's cached copy (claude-auth.ts claudeAuthFor) both go.
+const forgetRefreshed = () => (forgetClaudeAuth(), runInDurableObject(testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName("claude-david-auth")), async (_i, state) => void state.storage.sql.exec("DELETE FROM cb_config WHERE name = 'claude.access'")))
 
 describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }, () => {
   it("signs each streamed Opus request (Bedrock body, event stream answer) with a refreshed X-Stack-Auth and posts the answer; no token reaches a reply or run", async () => {

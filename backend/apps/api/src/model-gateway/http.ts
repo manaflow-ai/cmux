@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { HOLDER, signedFetch } from "../chief-brain/claude-auth.ts"
+import { claudeAuthFor, forgetClaudeAuth, HOLDER, signedFetch } from "../chief-brain/claude-auth.ts"
 import { claudeModel } from "../chief-brain/models.ts"
 import { Credits, CreditsLive, creditsRequired, maxCallCostUsd, payerTeam, type Reservation } from "../credits.ts"
 import type { Env } from "../env.ts"
@@ -159,7 +159,7 @@ export const gatewayMessages = async (env: Env, who: Who, request: Request, ctx?
   const route = claudeRoute(env)
   const holder = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(HOLDER)) as unknown as { claudeAuth(): Promise<string>; claudeInvalidate(): Promise<void> }
   const dropped: Array<string> = []
-  const fetchRoute = signedFetch(() => holder.claudeAuth(), () => holder.claudeInvalidate(), { log: (w) => void dropped.push(w), forwardBetas: true, auth: route.auth, models: route.models, effortBody: route.effortBody, ...(env.CHIEF_BRAIN_CLAUDE_SERVICE_KEY ? { key: env.CHIEF_BRAIN_CLAUDE_SERVICE_KEY } : {}), ...(env.CHIEF_BRAIN_CACHE_TTL ? { ttl: env.CHIEF_BRAIN_CACHE_TTL } : {}) })
+  const fetchRoute = signedFetch(() => claudeAuthFor(env, () => holder), () => (forgetClaudeAuth(), holder.claudeInvalidate()), { log: (w) => void dropped.push(w), forwardBetas: true, auth: route.auth, models: route.models, effortBody: route.effortBody, ...(env.CHIEF_BRAIN_CLAUDE_SERVICE_KEY ? { key: env.CHIEF_BRAIN_CLAUDE_SERVICE_KEY } : {}), ...(env.CHIEF_BRAIN_CACHE_TTL ? { ttl: env.CHIEF_BRAIN_CACHE_TTL } : {}) })
   let res: Response
   try {
     // The caller's betas go on (the Bedrock conversion maps the ones Bedrock takes and logs the rest).

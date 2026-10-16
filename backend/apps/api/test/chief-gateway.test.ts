@@ -294,6 +294,29 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
     }
   })
 
+  it("counts paid turns in each owner's own object and the deployment bound by leases, not one holder call per turn", async () => {
+    fakeRoute()
+    testEnv.CHIEF_BRAIN_CLAUDE_DAILY_TURNS_TOTAL = "1"
+    try {
+      const a = await owner("brain-shard-a", 5, "claude-opus-5-5", "low", "user")
+      for (const k of ["s1", "s2"]) {
+        expect((await op(a.token, "message.send", { conversation: a.chief.main_conversation, client_msg_id: k, parts: [{ type: "text", text: `q ${k}` }] }, k)).ok).toBe(true)
+        await drive(a.chief.main_conversation, a.chief.id, async () => (await runsOf(a.token, a.chief.id, a.chief.main_conversation)).filter((r: any) => r.status !== "running").length >= (k === "s2" ? 2 : 1), `run ${k}`)
+      }
+      const runs = await runsOf(a.token, a.chief.id, a.chief.main_conversation)
+      // The bound of 1 holds across the lease: one turn ran, the second was refused.
+      expect(runs.map((r: any) => r.status)).toEqual(["failed", "done"])
+      const day = new Date().toISOString().slice(0, 10)
+      const rows = (name: string) => runInDurableObject(testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName(name)), async (_i: unknown, s: DurableObjectState) => s.storage.sql.exec(`SELECT name, value FROM cb_config WHERE name LIKE 'claude.%' AND name != 'claude.access' AND name != 'claude.refresh'`).toArray() as Array<{ name: string; value: string }>)
+      const user = a.chief.id && (await op(a.token, "user.ensure", {})).value.id
+      // The holder keeps only the deployment's lease total; the owner's count lives in the owner's object.
+      expect((await rows("claude-david-auth")).filter((r) => r.name.includes(user))).toEqual([])
+      expect((await rows(`claude-turns/${user}`)).find((r) => r.name === `claude.turns:${user}:${day}`)?.value).toBe("1")
+    } finally {
+      delete testEnv.CHIEF_BRAIN_CLAUDE_DAILY_TURNS_TOTAL
+    }
+  })
+
   it("names the route's refusal in Run.error when a turn fails, and tells the person once", async () => {
     const seen = fakeRoute()
     const { token, chief } = await owner("brain-gateway-fail", 5, "claude-opus-5-5", "low", "user")
