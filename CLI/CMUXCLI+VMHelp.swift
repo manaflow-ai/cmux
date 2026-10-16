@@ -459,7 +459,7 @@ extension CMUXCLI {
         Usage:
           cmux vm ports <machine> [--all] [--json]
 
-        Show the servers you started inside a Cloud VM: PORT, PROCESS, PRIVATE URL
+        Show the listening TCP ports and the servers you started inside a Cloud VM: PORT, PROCESS, PRIVATE URL
         (reachable only through your cmux VPN) and SHARED (none, you, team or PUBLIC,
         set with `cmux vm share`). System listeners (SSH, DNS, cmux, Desktop) are
         hidden; --all shows them with their KIND. --json lists every port with a

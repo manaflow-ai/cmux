@@ -2980,8 +2980,12 @@ enum SocketPasswordResolver {
         if let explicit = normalized(explicit) {
             return explicit
         }
-        if let env = normalized(ProcessInfo.processInfo.environment["CMUX_SOCKET_PASSWORD"]) {
-            return env
+        // An explicitly present environment variable, including an empty
+        // value, is authoritative. This lets isolated clients and fixtures
+        // opt out of a password without accidentally falling through to the
+        // app's saved Keychain password.
+        if let env = ProcessInfo.processInfo.environment["CMUX_SOCKET_PASSWORD"] {
+            return normalized(env)
         }
         if let filePassword = loadFromFile() {
             return filePassword

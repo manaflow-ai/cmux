@@ -29,6 +29,11 @@ extension AppDelegate {
             return true
         }
         if matchConfiguredShortcut(event: event, action: .openRepositoryInCloud) {
+            // Keep the shortcut transparent while signed out. The repository
+            // action is unavailable in that state (the palette hides it), so
+            // consuming a layout-translated key here would steal an unrelated
+            // shortcut such as Close Other Tabs on Dvorak.
+            guard CloudMachinesFeature.isEnabled, auth?.accountFlow.isAuthenticated == true else { return false }
             if !openRepositoryInCloud(preferredWindow: window, debugSource: "shortcut.openRepositoryInCloud") { NSSound.beep() }
             return true
         }
@@ -70,7 +75,7 @@ extension AppDelegate {
     @MainActor
     @discardableResult
     func openRepositoryInCloud(preferredWindow: NSWindow?, debugSource: String) -> Bool {
-        guard CloudMachinesFeature.isEnabled else { return false }
+        guard CloudMachinesFeature.isEnabled, auth?.accountFlow.isAuthenticated == true else { return false }
         performOpenRepositoryInCloudAction(preferredWindow: preferredWindow, debugSource: debugSource)
         return true
     }

@@ -288,15 +288,15 @@ struct CloudTreeRowToolTipTests {
         #expect(cell.accessibilityLabel()?.isEmpty == false)
     }
 
-    @Test("A port without a process name has no hover text and keeps its port label")
-    func barePortRowExplainsOpenAction() {
+    @Test("A port without a process name still explains its private audience")
+    func barePortRowExplainsAudience() {
         let cell = Self.cell(presence: [])
         cell.configure(
             node: Self.barePortNode(),
             machineActions: Self.machineActions(),
             nodeActions: Self.nodeActions()
         )
-        #expect(cell.toolTip == nil)
+        #expect(cell.toolTip?.contains("Private") == true)
         #expect(cell.accessibilityLabel() == "Port 3000")
     }
 

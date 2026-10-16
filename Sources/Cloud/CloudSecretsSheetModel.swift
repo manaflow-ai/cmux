@@ -306,8 +306,13 @@ final class CloudSecretsSheetModel {
     /// Set… on a ghost row: the add card with the name filled in, scoped to the
     /// project that declares it, and the repository's description as its hint.
     func beginSetRequirement(_ requirement: CloudSecretRequirement) {
-        guard let key = ghostRowsProjectKey, !hasModalCard else { return }
-        let label = unsetRequirementsProjectLabel
+        // A machine sheet can be on the All tab when a caller invokes the
+        // action (for example, the linked-project needs card). In that tab
+        // there are no ghost rows, but the declaration still belongs to the
+        // machine's remembered project. Resolve that project before changing
+        // tabs so the editor keeps the requirement's intended scope.
+        guard let key = ghostRowsProjectKey ?? requirementProjectKey, !hasModalCard else { return }
+        let label = projectLabel(key)
         tab = .project
         projectKey = key
         beginAdd(name: requirement.name)

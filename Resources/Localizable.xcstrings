@@ -679508,55 +679508,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage:\n  cmux vm ports <machine> [--all] [--json]\n\nShow the servers you started inside a Cloud VM: PORT, PROCESS, PRIVATE URL\n(reachable only through your cmux VPN) and SHARED (none, you, team or PUBLIC,\nset with `cmux vm share`). System listeners (SSH, DNS, cmux, Desktop) are\nhidden; --all shows them with their KIND. --json lists every port with a\n`system` flag, plus the raw inventory.\n\nOpen one:  cmux vm open <machine> <port>\nShare one: cmux vm share <machine> <port> --team"
+            "value": "Usage:\n  cmux vm ports <machine> [--all] [--json]\n\nShow the listening TCP ports and the servers you started inside a Cloud VM: PORT, PROCESS, PRIVATE URL\n(reachable only through your cmux VPN) and SHARED (none, you, team or PUBLIC,\nset with `cmux vm share`). System listeners (SSH, DNS, cmux, Desktop) are\nhidden; --all shows them with their KIND. --json lists every port with a\n`system` flag, plus the raw inventory.\n\nOpen one:  cmux vm open <machine> <port>\nShare one: cmux vm share <machine> <port> --team"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung:\n  cmux vm ports <machine> [--all] [--json]\n\nZeigt die Server, die Sie in einer Cloud-VM gestartet haben: PORT, PROZESS, PRIVATE URL\n(nur über Ihr cmux VPN erreichbar) und FREIGABE (keine, Sie, Team oder ÖFFENTLICH,\nfestgelegt mit `cmux vm share`). System-Listener (SSH, DNS, cmux, Desktop) werden\nausgeblendet; --all zeigt sie mit ihrer ART an. --json listet jeden Port mit einem\n`system`-Flag sowie das Rohinventar auf.\n\nÖffnen:    cmux vm open <machine> <port>\nFreigeben: cmux vm share <machine> <port> --team"
+            "value": "Verwendung:\n  cmux vm ports <machine> [--all] [--json]\n\nZeigt die lauschenden TCP-Ports und die Server, die Sie in einer Cloud-VM gestartet haben: PORT, PROZESS, PRIVATE URL\n(nur über Ihr cmux VPN erreichbar) und FREIGABE (keine, Sie, Team oder ÖFFENTLICH,\nfestgelegt mit `cmux vm share`). System-Listener (SSH, DNS, cmux, Desktop) werden\nausgeblendet; --all zeigt sie mit ihrer ART an. --json listet jeden Port mit einem\n`system`-Flag sowie das Rohinventar auf.\n\nÖffnen:    cmux vm open <machine> <port>\nFreigeben: cmux vm share <machine> <port> --team"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation :\n  cmux vm ports <machine> [--all] [--json]\n\nAfficher les serveurs que vous avez lancés dans une VM Cloud : PORT, PROCESSUS,\nURL PRIVÉE (accessible uniquement via votre cmux VPN) et PARTAGE (aucun, vous,\néquipe ou PUBLIC, défini avec `cmux vm share`). Les écouteurs système (SSH, DNS,\ncmux, Desktop) sont masqués ; --all les affiche avec leur TYPE. --json liste\nchaque port avec un indicateur `system`, ainsi que l’inventaire brut.\n\nEn ouvrir un :   cmux vm open <machine> <port>\nEn partager un : cmux vm share <machine> <port> --team"
+            "value": "Utilisation :\n  cmux vm ports <machine> [--all] [--json]\n\nAfficher les ports TCP à l’écoute et les serveurs que vous avez lancés dans une VM Cloud : PORT, PROCESSUS,\nURL PRIVÉE (accessible uniquement via votre cmux VPN) et PARTAGE (aucun, vous,\néquipe ou PUBLIC, défini avec `cmux vm share`). Les écouteurs système (SSH, DNS,\ncmux, Desktop) sont masqués ; --all les affiche avec leur TYPE. --json liste\nchaque port avec un indicateur `system`, ainsi que l’inventaire brut.\n\nEn ouvrir un :   cmux vm open <machine> <port>\nEn partager un : cmux vm share <machine> <port> --team"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام:\n  cmux vm ports <machine> [--all] [--json]\n\nيعرض الخوادم التي شغّلتها داخل Cloud VM: المنفذ، والعملية، وعنوان URL الخاص\n(لا يمكن الوصول إليه إلا عبر cmux VPN)، والمشاركة (لا أحد أو أنت أو الفريق أو عام،\nتُضبط باستخدام `cmux vm share`). المستمعات النظامية (SSH وDNS وcmux وDesktop)\nمخفية؛ ويعرضها --all مع النوع. يسرد --json كل منفذ مع علامة\n`system`، بالإضافة إلى الجرد الخام.\n\nفتح منفذ:   cmux vm open <machine> <port>\nمشاركة منفذ: cmux vm share <machine> <port> --team"
+            "value": "الاستخدام:\n  cmux vm ports <machine> [--all] [--json]\n\nيعرض منافذ TCP المستمعة والخوادم التي شغّلتها داخل Cloud VM: المنفذ، والعملية، وعنوان URL الخاص\n(لا يمكن الوصول إليه إلا عبر cmux VPN)، والمشاركة (لا أحد أو أنت أو الفريق أو عام،\nتُضبط باستخدام `cmux vm share`). المستمعات النظامية (SSH وDNS وcmux وDesktop)\nمخفية؛ ويعرضها --all مع النوع. يسرد --json كل منفذ مع علامة\n`system`، بالإضافة إلى الجرد الخام.\n\nفتح منفذ:   cmux vm open <machine> <port>\nمشاركة منفذ: cmux vm share <machine> <port> --team"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso:\n  cmux vm ports <machine> [--all] [--json]\n\nMuestra los servidores que iniciaste dentro de una VM de Cloud: PUERTO, PROCESO, URL PRIVADA\n(accesible solo a través de tu cmux VPN) y COMPARTIDO (ninguno, tú, equipo o PÚBLICO,\nse define con `cmux vm share`). Los procesos de escucha del sistema (SSH, DNS, cmux, Desktop)\nestán ocultos; --all los muestra con su TIPO. --json lista todos los puertos con un indicador\n`system`, además del inventario sin procesar.\n\nAbrir uno:     cmux vm open <machine> <port>\nCompartir uno: cmux vm share <machine> <port> --team"
+            "value": "Uso:\n  cmux vm ports <machine> [--all] [--json]\n\nMuestra los puertos TCP en escucha y los servidores que iniciaste dentro de una VM de Cloud: PUERTO, PROCESO, URL PRIVADA\n(accesible solo a través de tu cmux VPN) y COMPARTIDO (ninguno, tú, equipo o PÚBLICO,\nse define con `cmux vm share`). Los procesos de escucha del sistema (SSH, DNS, cmux, Desktop)\nestán ocultos; --all los muestra con su TIPO. --json lista todos los puertos con un indicador\n`system`, además del inventario sin procesar.\n\nAbrir uno:     cmux vm open <machine> <port>\nCompartir uno: cmux vm share <machine> <port> --team"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：\n  cmux vm ports <machine> [--all] [--json]\n\n顯示您在 Cloud VM 內啟動的伺服器：連接埠、程序、私人 URL\n（只能透過您的 cmux VPN 存取）以及分享（無、您、團隊或公開，\n以 `cmux vm share` 設定）。系統監聽程式（SSH、DNS、cmux、Desktop）會\n隱藏；--all 會連同其類型一併顯示。--json 會列出每個連接埠並附上\n`system` 旗標，以及原始清單。\n\n開啟：  cmux vm open <machine> <port>\n分享：  cmux vm share <machine> <port> --team"
+            "value": "用法：\n  cmux vm ports <machine> [--all] [--json]\n\n顯示正在監聽的 TCP 連接埠，以及您在 Cloud VM 內啟動的伺服器：連接埠、程序、私人 URL\n（只能透過您的 cmux VPN 存取）以及分享（無、您、團隊或公開，\n以 `cmux vm share` 設定）。系統監聽程式（SSH、DNS、cmux、Desktop）會\n隱藏；--all 會連同其類型一併顯示。--json 會列出每個連接埠並附上\n`system` 旗標，以及原始清單。\n\n開啟：  cmux vm open <machine> <port>\n分享：  cmux vm share <machine> <port> --team"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：\n  cmux vm ports <machine> [--all] [--json]\n\n显示你在 Cloud VM 内启动的服务器：端口、进程、私密 URL\n（只能通过你的 cmux VPN 访问）和共享（无、你、团队或公开，\n通过 `cmux vm share` 设置）。系统监听程序（SSH、DNS、cmux、Desktop）\n默认隐藏；--all 会显示它们及其类型。--json 列出所有端口并附带\n`system` 标志，以及原始清单。\n\n打开端口：cmux vm open <machine> <port>\n共享端口：cmux vm share <machine> <port> --team"
+            "value": "用法：\n  cmux vm ports <machine> [--all] [--json]\n\n显示正在监听的 TCP 端口，以及你在 Cloud VM 内启动的服务器：端口、进程、私密 URL\n（只能通过你的 cmux VPN 访问）和共享（无、你、团队或公开，\n通过 `cmux vm share` 设置）。系统监听程序（SSH、DNS、cmux、Desktop）\n默认隐藏；--all 会显示它们及其类型。--json 列出所有端口并附带\n`system` 标志，以及原始清单。\n\n打开端口：cmux vm open <machine> <port>\n共享端口：cmux vm share <machine> <port> --team"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법:\n  cmux vm ports <machine> [--all] [--json]\n\nCloud VM 안에서 직접 시작한 서버를 표시합니다: 포트, 프로세스, 비공개 URL\n(cmux VPN을 통해서만 접근 가능) 및 공유(없음, 본인, 팀 또는 공개,\n`cmux vm share`로 설정). 시스템 리스너(SSH, DNS, cmux, Desktop)는\n숨겨지며, --all은 종류와 함께 표시합니다. --json은 모든 포트를\n`system` 플래그 및 원시 인벤토리와 함께 나열합니다.\n\n열기:  cmux vm open <machine> <port>\n공유: cmux vm share <machine> <port> --team"
+            "value": "사용법:\n  cmux vm ports <machine> [--all] [--json]\n\n수신 대기 중인 TCP 포트와 Cloud VM 안에서 직접 시작한 서버를 표시합니다: 포트, 프로세스, 비공개 URL\n(cmux VPN을 통해서만 접근 가능) 및 공유(없음, 본인, 팀 또는 공개,\n`cmux vm share`로 설정). 시스템 리스너(SSH, DNS, cmux, Desktop)는\n숨겨지며, --all은 종류와 함께 표시합니다. --json은 모든 포트를\n`system` 플래그 및 원시 인벤토리와 함께 나열합니다.\n\n열기:  cmux vm open <machine> <port>\n공유: cmux vm share <machine> <port> --team"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使い方:\n  cmux vm ports <machine> [--all] [--json]\n\nCloud VM 内で起動したサーバを表示します: ポート、プロセス、プライベート URL\n（cmux VPN 経由でのみアクセス可能）、共有（なし、自分、チーム、公開。\n`cmux vm share` で設定）。システムのリスナー（SSH、DNS、cmux、Desktop）は\n非表示です。--all を指定すると種類とともに表示します。--json はすべてのポートを\n`system` フラグ付きで、未加工のインベントリとともに一覧表示します。\n\n開く: cmux vm open <machine> <port>\n共有: cmux vm share <machine> <port> --team"
+            "value": "使い方:\n  cmux vm ports <machine> [--all] [--json]\n\nTCP リスニングポートと Cloud VM 内で起動したサーバを表示します: ポート、プロセス、プライベート URL\n（cmux VPN 経由でのみアクセス可能）、共有（なし、自分、チーム、公開。\n`cmux vm share` で設定）。システムのリスナー（SSH、DNS、cmux、Desktop）は\n非表示です。--all を指定すると種類とともに表示します。--json はすべてのポートを\n`system` フラグ付きで、未加工のインベントリとともに一覧表示します。\n\n開く: cmux vm open <machine> <port>\n共有: cmux vm share <machine> <port> --team"
           }
         }
       }

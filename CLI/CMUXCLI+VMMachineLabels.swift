@@ -49,11 +49,15 @@ extension CMUXCLI {
     /// lookup failure, so a command that already ran on a machine is never run again.
     static func isVMMachineNotFoundError(_ error: Error) -> Bool {
         guard let error = error as? CLIError, error.isStructuredProtocolResponse || error.v2Code != nil else { return false }
-        if error.vmBackendHTTPStatus == 404 { return true }
         if let code = error.vmBackendCode?.lowercased(), code.contains("not_found") { return true }
         if let code = error.v2Code?.lowercased(), code == "not_found" || code == "vm_not_found" { return true }
         let message = error.message.lowercased()
-        return ["not found", "unknown machine", "unknown surface", "not connected", "404"]
+        // A provider subrequest can legitimately return a generic HTTP 404
+        // while the machine still exists (for example, missing metadata). A
+        // bare status code must not trigger a second `vm.list` lookup or rerun
+        // the user's command. Only explicit machine/resource wording is safe
+        // to interpret as a label lookup miss.
+        return ["not found", "unknown machine", "unknown surface", "not connected"]
             .contains { message.contains($0) }
     }
 
