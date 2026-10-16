@@ -2,7 +2,7 @@
 // Rich HTML/JSX paste must remain editable text. Milkdown's default HTML parser turns an
 // unrecognized HTML fragment into a non-editable atom; clicking it and typing then replaces the
 // whole pasted fragment.
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
