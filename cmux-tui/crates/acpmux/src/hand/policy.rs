@@ -127,39 +127,41 @@ fn destructive_path(action: &str, p: &Path) -> Option<String> {
     None
 }
 
+/// Credential, startup and profile places under the home folder.
+const UNDER_HOME: &[&str] = &[
+    ".ssh",
+    ".aws",
+    ".gnupg",
+    ".netrc",
+    ".docker/config.json",
+    ".kube",
+    ".config/gh",
+    ".config/gcloud",
+    ".azure",
+    ".npmrc",
+    ".pypirc",
+    ".gitconfig",
+    ".git-credentials",
+    ".zshrc",
+    ".zprofile",
+    ".zshenv",
+    ".bashrc",
+    ".bash_profile",
+    ".profile",
+    "Library/Keychains",
+    "Library/LaunchAgents",
+    "Library/Cookies",
+    "Library/Application Support/Google/Chrome",
+    "Library/Application Support/Firefox",
+    "Library/Application Support/BraveSoftware",
+    "Library/Safari",
+];
+
 /// Paths that always need the owner's answer on a mac hand, whatever the
 /// host's verdict: credentials, keychains, shell startup files, launch agents,
 /// git config and hooks.
 fn sensitive_path(p: &Path) -> bool {
     let Some(home) = dirs::home_dir().map(canon) else { return false };
-    const UNDER_HOME: &[&str] = &[
-        ".ssh",
-        ".aws",
-        ".gnupg",
-        ".netrc",
-        ".docker/config.json",
-        ".kube",
-        ".config/gh",
-        ".config/gcloud",
-        ".azure",
-        ".npmrc",
-        ".pypirc",
-        ".gitconfig",
-        ".git-credentials",
-        ".zshrc",
-        ".zprofile",
-        ".zshenv",
-        ".bashrc",
-        ".bash_profile",
-        ".profile",
-        "Library/Keychains",
-        "Library/LaunchAgents",
-        "Library/Cookies",
-        "Library/Application Support/Google/Chrome",
-        "Library/Application Support/Firefox",
-        "Library/Application Support/BraveSoftware",
-        "Library/Safari",
-    ];
     UNDER_HOME
         .iter()
         .any(|rel| p.starts_with(home.join(rel)) || p.starts_with(canon(home.join(rel))))
@@ -175,9 +177,11 @@ fn holds_protected(root: &Path, own: &[PathBuf]) -> bool {
     }
     let Some(home) = dirs::home_dir().map(canon) else { return false };
     home.starts_with(root)
-        || [".ssh", ".aws", ".gnupg", "Library"]
+        || UNDER_HOME
             .iter()
-            .any(|d| canon(home.join(d)).starts_with(root))
+            .any(|d| canon(home.join(d)).starts_with(root) || home.join(d).starts_with(root))
+        || Path::new("/Library/LaunchAgents").starts_with(root)
+        || Path::new("/Library/LaunchDaemons").starts_with(root)
 }
 
 /// An exec whose words name a sensitive or protected path (best effort: a
