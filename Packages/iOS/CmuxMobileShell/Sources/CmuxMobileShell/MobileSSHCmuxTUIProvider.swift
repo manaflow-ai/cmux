@@ -37,7 +37,9 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
     private let remote: CmuxTUIRemote
     private let route: Route
     /// Owns the one control and its session-wide notification subscription.
-    private lazy var topologyReconnect = MobileSSHCmuxTUITopologyReconnect<CmuxTUIControl>(
+    private var topologyReconnect: MobileSSHCmuxTUITopologyReconnect<CmuxTUIControl>!
+    private func makeTopologyReconnect() -> MobileSSHCmuxTUITopologyReconnect<CmuxTUIControl> {
+        MobileSSHCmuxTUITopologyReconnect<CmuxTUIControl>(
         open: { [weak self] in
             guard let self else { throw CancellationError() }
             return try await self.openControl()
@@ -55,7 +57,8 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
         onControlConnected: { [weak self] generation, recovered in
             self?.topologyControlConnected(generation: generation, recovered: recovered)
         }
-    )
+        )
+    }
     private var topology = MobileSSHCmuxTUITopologyGate()
     /// Called when the session's tree changed elsewhere (a laptop added a
     /// screen or tab, a terminal exited), at most once per listing.
@@ -70,6 +73,7 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
         self.session = session
         self.route = route
         self.idleCloseSeconds = idleCloseSeconds
+        self.topologyReconnect = makeTopologyReconnect()
     }
 
     private func openControl() async throws -> CmuxTUIControl {
