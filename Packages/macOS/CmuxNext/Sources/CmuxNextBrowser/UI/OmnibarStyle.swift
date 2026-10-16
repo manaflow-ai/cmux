@@ -1,20 +1,18 @@
 import AppKit
 import CmuxNextDesign
 
-/// Omnibar and toolbar geometry and colors. Comfortable density uses the
-/// base numbers below; compact scales the heights down by 4 pt so the
-/// toolbar stays close to a pane tab strip. Focus ring, text selection and
-/// keyword text use neutral grays: cmux chrome has no blue accents.
+/// Omnibar and toolbar geometry and colors: one size at every density
+/// (chief 2026-10-15, cx-d0d.102: a 28 pt bar with 14 pt text, the
+/// reference browser's metrics). Focus ring, text selection and keyword
+/// text use neutral grays: cmux chrome has no blue accents.
 enum OmnibarStyle {
-    private static var compact: Bool { Metrics.density == .compact }
-
     /// Base padding: most spacing is a multiple of it.
     static let basePadding: CGFloat = 3
 
     // MARK: Toolbar
 
     /// Omnibox and toolbar button height.
-    static var barHeight: CGFloat { compact ? 24 : 28 }
+    static var barHeight: CGFloat { 28 }
     /// The browser chrome's one vertical gap (R101): above the tab pills,
     /// from the active tab to the omnibar, and from the omnibar to the
     /// page. It is the pane chrome's tab gap (`PaneChromeMetrics.tabGap`),
@@ -34,7 +32,7 @@ enum OmnibarStyle {
     /// Toolbar buttons: square, bar height, 8 pt hover shape.
     static var buttonSize: CGFloat { barHeight }
     static let buttonCornerRadius: CGFloat = 8
-    static var buttonSymbolSize: CGFloat { compact ? 13 : 15 }
+    static var buttonSymbolSize: CGFloat { 15 }
     static let buttonSpacing: CGFloat = 0
     /// Gap between the reload button and the omnibox, and the omnibox and
     /// the extension slot.
@@ -52,9 +50,9 @@ enum OmnibarStyle {
     /// Text distance after the chip.
     static let textLeading: CGFloat = 5
     static let trailingPadding: CGFloat = 8
-    static var iconPointSize: CGFloat { compact ? 12 : 13 }
-    /// 14 pt regular system text (13 pt compact).
-    static var font: NSFont { Typography.system(size: compact ? 13 : 14, weight: .regular) }
+    static var iconPointSize: CGFloat { 13 }
+    /// 14 pt regular system text.
+    static var font: NSFont { Typography.system(size: 14, weight: .regular) }
     static var ringWidth: CGFloat { 2 }
 
     // MARK: Popup
@@ -62,7 +60,8 @@ enum OmnibarStyle {
     /// The popup card: the one popup corner (`PopupStyle`, cx-iif6y),
     /// reaching 3 pt above the bar and 6 pt past each side so the bar sits
     /// inside it (6 keeps the card off the reload button with cmux's 6 pt gap).
-    static var cardCornerRadius: CGFloat { PopupStyle.standard.cornerRadius }
+    /// 12 pt, the reference browser's results frame (chief 2026-10-15); other popups keep `PopupStyle`.
+    static var cardCornerRadius: CGFloat { 12 }
     static let cardTopOutset: CGFloat = basePadding
     static let cardSideOutset: CGFloat = 2 * basePadding
     /// Rows: bar height, inset 4 at the sides, 2 between rows, 4 at the end.
@@ -87,7 +86,9 @@ enum OmnibarStyle {
     }
     /// Editing fill and popup card: the solid popup surface, so no page text
     /// shows through the suggestions (the field's editing card joins it).
-    static var cardFill: NSColor { Palette.popupSurface } // theme-scoped
+    /// The omnibar's own card color (`AddressBarSurface.card`, chief 2026-10-15):
+    /// other overlays keep `Palette.popupSurface`.
+    static var cardFill: NSColor { Palette.addressBar.card.nsColor } // theme-scoped
     /// Neutral ring while editing with the popup closed.
     static var ring: NSColor { Palette.focusRing } // theme-scoped
     /// The highlighted row: the theme's accent selection when it names one,

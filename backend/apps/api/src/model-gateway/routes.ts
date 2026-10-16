@@ -1,24 +1,29 @@
 import type { Env } from "../env.ts"
-import { Effort, ModelName } from "./contract.ts"
+import { Effort, ModelName } from "../chief-brain/contract.ts"
 import { Schema } from "effect"
 
 /**
- * Where each Chief model runs, all from configuration so an enterprise can point the brain at its own
- * routes (nothing here is a fixed host or key):
+ * The model gateway's routes (hq-1f PROTOCOL.md `model/stream`: Cloud brains reach models only
+ * through the host, which owns keys, routes, caps and credits). Everything is configuration, so an
+ * enterprise can point the gateway at its own routes; nothing here is a fixed host or key.
  *
- * - Claude (`claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`): an Anthropic-Messages route
- *   in front of Bedrock. CHIEF_BRAIN_CLAUDE_URL (default: the Chatmux metered route),
- *   CHIEF_BRAIN_CLAUDE_AUTH `stack` (default: X-Stack-Auth of a signed-in person, claude-auth.ts) or
- *   `bearer` (secret CHIEF_BRAIN_CLAUDE_TOKEN as `Authorization: Bearer`), CHIEF_BRAIN_CLAUDE_MODELS
- *   (the Claude names the route serves, comma separated; default `claude-opus-5-5`, the only model
- *   the Chatmux route serves today). A route that serves more than one model gets the name in the
- *   request body's `model`.
+ * - Claude (`claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`): a route in front of Bedrock
+ *   that takes Bedrock's body and answers Bedrock's event stream (bedrock-stream.ts converts both
+ *   ways). CHIEF_BRAIN_CLAUDE_URL (default: the Chatmux metered route); CHIEF_BRAIN_CLAUDE_AUTH:
+ *   - `stack-session` (default; `stack` is the same): X-Stack-Auth of a signed-in person, refreshed by
+ *     the holder object (claude-auth.ts);
+ *   - `service-key`: the route's scoped service key (secret CHIEF_BRAIN_CLAUDE_SERVICE_KEY) as
+ *     `x-api-key`, with `x-cmux-team-id` (the payer team, required), `x-cmux-chief-id`,
+ *     `x-request-id` (the credits request id) and a User-Agent; the body names the Bedrock model id;
+ *   - `bearer`: a generic route token (secret CHIEF_BRAIN_CLAUDE_TOKEN) as `Authorization: Bearer`.
+ *   CHIEF_BRAIN_CLAUDE_MODELS: the Claude names the route serves (default: Opus for `stack-session`,
+ *   all three for `service-key`).
  * - `openrouter:<vendor>/<model>`: OpenRouter with the Worker secret OPENROUTER_API_KEY;
  *   OPENROUTER_BASE_URL overrides the endpoint.
- * - `fake` and Workers AI `@cf/...` as before (models.ts).
+ * - `fake` and Workers AI `@cf/...` (models.ts).
  *
- * Until prepaid credits land (UsageMeterDO), Claude and OpenRouter bill a deployment account, so
- * only owners on CHIEF_BRAIN_CLAUDE_OWNERS(+_EXTRA) may pick them.
+ * Paid models (Claude, OpenRouter) also need an owner on CHIEF_BRAIN_CLAUDE_OWNERS(+_EXTRA), the
+ * deployment's daily cap and, per call, prepaid credits (gateway.ts).
  */
 export const OPUS = "claude-opus-5-5"
 export const SONNET = "claude-sonnet-5-5"
@@ -33,9 +38,13 @@ export const isOpenRouter = (name: string | undefined | null): name is string =>
 /** A model billed to a deployment account (Claude route or OpenRouter): allow-list, holder cap, never the compactor. */
 export const isMetered = (name: string | undefined | null): name is string => isClaude(name) || isOpenRouter(name)
 
+export type RouteAuth = "stack-session" | "service-key" | "bearer"
+/** The Bedrock model id a `service-key` route takes in the body's `model`. */
+export const BEDROCK_IDS: Readonly<Record<string, string>> = { [OPUS]: "global.anthropic.claude-opus-5-5", [SONNET]: "global.anthropic.claude-sonnet-5-5", [HAIKU]: "global.anthropic.claude-haiku-5-5" }
+
 export interface ClaudeRoute {
   readonly url: string
-  readonly auth: "stack" | "bearer"
+  readonly auth: RouteAuth
   readonly models: ReadonlyArray<string>
   /**
    * Send effort (`output_config`) and `thinking.display` in the Bedrock body. Off by default on the
@@ -44,17 +53,24 @@ export interface ClaudeRoute {
    */
   readonly effortBody: boolean
 }
-export const claudeRoute = (env: Env): ClaudeRoute => ({
-  url: env.CHIEF_BRAIN_CLAUDE_URL || DEFAULT_CLAUDE_URL,
-  auth: env.CHIEF_BRAIN_CLAUDE_AUTH === "bearer" ? "bearer" : "stack",
-  models: (env.CHIEF_BRAIN_CLAUDE_MODELS || OPUS).split(",").map((s) => s.trim()).filter(isClaude),
-  effortBody: env.CHIEF_BRAIN_CLAUDE_EFFORT_BODY ? env.CHIEF_BRAIN_CLAUDE_EFFORT_BODY === "1" : env.CHIEF_BRAIN_CLAUDE_AUTH === "bearer"
-})
+export const routeAuth = (env: Env): RouteAuth => (env.CHIEF_BRAIN_CLAUDE_AUTH === "service-key" || env.CHIEF_BRAIN_CLAUDE_AUTH === "bearer" ? env.CHIEF_BRAIN_CLAUDE_AUTH : "stack-session")
+export const claudeRoute = (env: Env): ClaudeRoute => {
+  const auth = routeAuth(env)
+  return {
+    url: env.CHIEF_BRAIN_CLAUDE_URL || DEFAULT_CLAUDE_URL,
+    auth,
+    models: (env.CHIEF_BRAIN_CLAUDE_MODELS || (auth === "service-key" ? CLAUDE_NAMES.join(",") : OPUS)).split(",").map((s) => s.trim()).filter(isClaude),
+    // The service-key route passes effort and thinking through (1f-D, chatmux2 PR 766).
+    effortBody: env.CHIEF_BRAIN_CLAUDE_EFFORT_BODY ? env.CHIEF_BRAIN_CLAUDE_EFFORT_BODY === "1" : auth !== "stack-session"
+  }
+}
 export const openRouterUrl = (env: Env): string => env.OPENROUTER_BASE_URL || DEFAULT_OPENROUTER_URL
 
-/** Whether the route has its credential configured (the stack secret, or the bearer token). */
+/** Whether the route has its credential configured (the stack secret, the service key, or the bearer token). */
 export const claudeRouteReady = (env: Env): boolean => {
-  if (claudeRoute(env).auth === "bearer") return !!env.CHIEF_BRAIN_CLAUDE_TOKEN
+  const auth = routeAuth(env)
+  if (auth === "service-key") return !!env.CHIEF_BRAIN_CLAUDE_SERVICE_KEY
+  if (auth === "bearer") return !!env.CHIEF_BRAIN_CLAUDE_TOKEN
   try {
     const v = JSON.parse(env.CHIEF_BRAIN_CLAUDE_STACK_AUTH ?? "") as { refreshToken?: unknown }
     return typeof v.refreshToken === "string" && v.refreshToken.length > 0
@@ -97,3 +113,18 @@ export const compactorDefault = (env: Env, turnModel: string, fallback: string):
 
 /** The compactor's model at run time: a metered model becomes the fallback (see modelRefusal). */
 export const compactorModel = (_env: Env, set: string, fallback: string): string => (isMetered(set) ? (isMetered(fallback) ? "fake" : fallback) : set)
+
+/**
+ * The model a turn runs on: `model` when it is not paid or `allowed(model)` (owner allow-list, the
+ * route serves it, the deployment's daily cap; claude-auth.ts holderTurn); else the configured
+ * fallback, which passes the same gate when it is paid. `model` null = no model may run (no silent
+ * paid spend). `reason` says why the Chief's model was refused (shown on the run as a note step).
+ */
+export const pickTurnModel = async (model: string, fallback: string | undefined, allowed: (m: string) => Promise<string>): Promise<{ readonly model: string | null; readonly reason?: string }> => {
+  const verdict = isMetered(model) ? await allowed(model) : "ok"
+  if (verdict === "ok") return { model }
+  const reason = `${model}: ${verdict}`
+  if (!fallback) return { model: null, reason }
+  const second = isMetered(fallback) ? await allowed(fallback) : "ok"
+  return second === "ok" ? { model: fallback, reason } : { model: null, reason: `${reason}; ${fallback}: ${second}` }
+}
