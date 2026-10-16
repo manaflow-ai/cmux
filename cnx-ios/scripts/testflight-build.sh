@@ -482,7 +482,8 @@ open(sys.argv[1],"w").write(k if k.endswith("\n") else k+"\n")' "$private/AuthKe
     asc_ builds wait --app "$app_id" --build-number "$build_number" --platform IOS --fail-on-invalid --timeout 45m --output json > "$out/logs/process.json" 2>&1 \
       || { tail -20 "$out/logs/process.json"; die "build $build_number did not finish processing"; }
     if [[ -n "$what_to_test" ]]; then
-      asc_ builds test-notes create --app "$app_id" --build-number "$build_number" --platform IOS --locale en-US \
+      # App Store Connect makes the en-US entry on processing: update it.
+      asc_ builds test-notes update --app "$app_id" --build-number "$build_number" --platform IOS --locale en-US \
         --whats-new "$what_to_test" --output json > "$out/logs/notes.json" 2>&1 \
         || { tail -20 "$out/logs/notes.json"; die "could not set What to Test for $build_number"; }
     fi
