@@ -1452,32 +1452,15 @@ jobs:
       daemon_build: ${{ steps.resume.outputs.build || steps.remote_daemon.outputs.build }}
       daemon_version: ${{ steps.resume.outputs.version || steps.remote_daemon.outputs.version }}
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.continue_only != 'true'
-    # Owned minis first. Attempt 1 of a push or schedule run on main takes one
-    # trusted owned mini while CI_PR_POOL_OWNED is 1 and both variables below
-    # are set: runs-on asks for the trusted pool label (vars.CI_SEED_TRUSTED_POOL,
-    # glaeda-trusted-<class>-xcode-<version>) and that runner's own label
-    # (vars.CI_NIGHTLY_TRUSTED_RUNNER, glaeda-runner-<runner name>), so only a
-    # runner carrying both can take it. Today that is cmux15-glaeda: the
-    # trusted mini with no pull request runners and no dev-build worker. The
-    # other trusted mini (cmuxs-mac-mini-6) builds team dev builds as the same
-    # user, so it keeps seeding but never builds the shipped app. Its
-    # job-started hook admits only main's own push and schedule jobs. Not the
-    # pull request pool: this job holds the ci-cache-writer R2 keys and the
-    # Sentry token, and its app is what build-sign-notarize-nightly signs and
-    # ships. runner_label_policy.py holds both variables to those shapes.
-    # ci-owned-pool-rescue.yml watches the run (owned_pool_rescue.py,
-    # NIGHTLY_WORKFLOW_PATH): when the mini does not take the job within its
-    # budget, or refuses it at job start, the failed jobs are re-run, and
-    # every later attempt takes Blacksmith below. Either variable empty is
-    # Blacksmith. Signing stays on Blacksmith (build-sign-notarize-nightly).
-    # Blacksmith runs share the cache warmer's and stable release lane's image
-    # and toolchain, which is what the compilation cache is keyed on — OS, arch
-    # and toolchain, never instance size, which is deliberately larger here.
-    # An owned mini keys its own lineage (see the cache key step). Fast
-    # branch dogfood always uses the dedicated Blacksmith image. A
-    # repository-wide runner override may point at a slower shared builder,
-    # which defeats the purpose of the one-architecture path.
-    runs-on: ${{ inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}
+    # Attempt 1 of main's push/schedule uses its existing trusted runner.
+    # NEXT's own push uses a separately configured trusted runner whose hook
+    # admits only nightly.yml/build-nightly-app on nightly-next. Both labels
+    # are required, keeping the shipped app off PR and dev-build workers.
+    # Main's ci-cache-writer environment never follows NEXT onto that worker:
+    # NEXT retains only its own local Release state, without shared restores.
+    # Rescue on main watches both refs; retries and dispatches take Blacksmith.
+    # Fast dogfood keeps the dedicated Blacksmith image. Signing stays hosted.
+    runs-on: ${{ inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && (github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && vars.CI_NIGHTLY_NEXT_TRUSTED_POOL != '' && vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER != '' && fromJSON(format('["{0}", "{1}", "glaeda-trusted-next-nightly"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))) || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # The Blacksmith cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
@@ -1597,13 +1580,17 @@ jobs:
         run: scripts/ci/clear-dirs.sh remote-daemon-assets
 
       - name: Prepare persistent Release DerivedData
-        if: inputs.nightly_next_unsigned_run == ''
+        if: inputs.nightly_next_unsigned_run == '' 
         run: |
           set -euo pipefail
           # Owned Glaeda runners keep their checkout between jobs. Keep one
           # DerivedData tree per channel and pinned Xcode/SDK so the next
           # classic Release build can be incremental. Blacksmith remains on
           # the workspace-local path and the normal compilation cache.
+          if [ "${{ needs.decide.outputs.track }}" = nightly-next ]; then
+            python3 scripts/ci/nightly_build_state.py prepare nightly-next
+            exit 0
+          fi
           case "${RUNNER_NAME:-}" in
             *-glaeda|*-glaeda-[0-9]*)
               toolchain_key="$({ xcodebuild -version; xcrun --sdk macosx --show-sdk-build-version; } | shasum -a 256 | awk '{print $1}')"
@@ -1636,6 +1623,7 @@ jobs:
           # each lineage restores only its own, and Blacksmith's key is
           # unchanged.
           identity="$(xcodebuild -version)"
+          if [ "${{ needs.decide.outputs.track }}" = nightly-next ]; then identity="$identity"$'\n'"track:nightly-next"; fi
           case "${RUNNER_NAME:-}" in
             *-glaeda | *-glaeda-[0-9]*) identity="$identity"$'\n'"owned-workspace:$GITHUB_WORKSPACE" ;;
           esac
@@ -1770,6 +1758,7 @@ jobs:
       - name: Cache Swift packages
         if: inputs.nightly_next_unsigned_run == ''
         id: swift-packages-restore
+        if: steps.persistent-release.outputs.enabled != 'true'
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -1867,6 +1856,10 @@ jobs:
           # phases find the local-source helpers fresh instead of building them after
           # the compile. A failed or late prebuild only leaves that work to the
           # phases, so its status never fails this step.
+          # Replay only identical tracked/generated inputs after the forced web
+          # build and browser-import rewrite, then record what Xcode consumes.
+          python3 scripts/ci/nightly_build_state.py replay
+          python3 scripts/ci/nightly_build_state.py record
           python3 scripts/ci/run-with-helper-prebuild.py \
             --derived-data build-universal --configuration Release --archs "$archs" \
             --log "$RUNNER_TEMP/helper-prebuild.log" -- \
@@ -1936,7 +1929,7 @@ jobs:
           echo "save=${save}" >> "$GITHUB_OUTPUT"
 
       - name: Save Xcode compilation cache
-        if: inputs.nightly_next_unsigned_run == '' && (steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true')
+        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next' && steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true' 
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
@@ -1950,7 +1943,7 @@ jobs:
           key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
 
       - name: Save Swift packages
-        if: inputs.nightly_next_unsigned_run == '' && (steps.swift-packages-restore.outputs.cache-hit != 'true')
+        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next' && steps.swift-packages-restore.outputs.cache-hit != 'true' 
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.

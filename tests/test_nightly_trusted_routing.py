@@ -44,7 +44,7 @@ def evaluate(node, context):
 
 def select(field='runs-on', **changes):
     context = {
-        'github.repository_owner': 'manaflow-ai', 'github.event_name': 'push',
+        'github.repository_owner': 'manaflow-ai', 'github.repository': 'manaflow-ai/cmux', 'github.event_name': 'push',
         'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
         'vars.CI_PR_POOL_OWNED': '1',
         'vars.CI_SEED_TRUSTED_POOL': 'glaeda-trusted-std-xcode-26.6',
@@ -59,7 +59,7 @@ def select(field='runs-on', **changes):
 
 class NightlyTrustedRouting(unittest.TestCase):
     def test_next_push_selects_its_dedicated_trusted_worker(self):
-        self.assertEqual(select(), ['glaeda-trusted-std-xcode-26.6', 'glaeda-runner-next-glaeda'])
+        self.assertEqual(select(), ['glaeda-trusted-std-xcode-26.6', 'glaeda-runner-next-glaeda', 'glaeda-trusted-next-nightly'])
 
     def test_main_keeps_its_worker_and_writer_environment(self):
         changes = {'github.ref': 'refs/heads/main'}
@@ -75,12 +75,25 @@ class NightlyTrustedRouting(unittest.TestCase):
         cases = [
             {'github.event_name': 'workflow_dispatch'}, {'github.run_attempt': 2},
             {'needs.decide.outputs.fast_build': 'true'}, {'vars.CI_PR_POOL_OWNED': '0'},
-            {'github.ref': 'refs/heads/rc/1.2'}, {'github.ref': 'refs/heads/feat-cmux-next'},
+            {'github.ref': 'refs/heads/rc/1.2'}, {'github.repository': 'manaflow-ai/another'}, {'github.ref': 'refs/heads/feat-cmux-next'},
         ]
         for changes in cases:
             with self.subTest(changes=changes):
                 self.assertEqual(select(**changes), 'blacksmith-12vcpu-macos-26')
         self.assertEqual(select(**{'github.repository_owner': 'someone'}), 'macos-26')
+
+    def test_trusted_next_uses_its_own_state_without_shared_cache_secrets(self):
+        steps = {step.get('name'): step for step in DOC['jobs']['build-nightly-app']['steps']}
+        context = {
+            'needs.decide.outputs.track': 'nightly-next',
+            'steps.persistent-release.outputs.enabled': 'true',
+            'needs.decide.outputs.cold_cache': 'false',
+            'steps.compilation-cache-bound.outputs.save': 'true',
+        }
+        for name in ('Restore Xcode compilation cache', 'Cache Swift packages',
+                     'Save Xcode compilation cache', 'Save Swift packages'):
+            with self.subTest(step=name):
+                self.assertFalse(evaluate(parse_expression(steps[name]['if']), context))
 
     @unittest.skipUnless('nightly_next_unsigned_run' in DOC[True]['workflow_dispatch']['inputs'],
                          'unsigned resume is owned by PR 21161, not landed on this base yet')
