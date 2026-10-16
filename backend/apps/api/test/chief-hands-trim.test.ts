@@ -57,8 +57,10 @@ const dmAndReply = async (token: string, chief: { id: string; main_conversation:
 }
 
 const sha = async (s: string) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s))), (b) => b.toString(16).padStart(2, "0")).join("")
+// Turn requests of the Chief's own loop that carried this marker (requests with no tool set, such as a summary
+// pass over the same text, are left out).
 const turnTools = (marker: string) =>
-  fakeCalls.filter((c) => c.kind === "turn" && (c.firstUser.join("\n").includes(marker) || c.laterUsers.join("\n").includes(marker))).map((c) => c.tools)
+  fakeCalls.filter((c) => c.kind === "turn" && c.tools.length > 0 && (c.firstUser.join("\n").includes(marker) || c.laterUsers.join("\n").includes(marker))).map((c) => c.tools)
 
 describe("Chief hands tools by hand", { timeout: 120_000 }, () => {
   it("offers a compact hands entry without a hand, and the full hands and agent tools once a hand is paired", async () => {
@@ -85,7 +87,7 @@ describe("Chief hands tools by hand", { timeout: 120_000 }, () => {
     const second = turnTools("marker-two")
     expect(second.length, "the tool call took no second request").toBeGreaterThanOrEqual(2)
     const after = second.at(-1)!
-    expect(after.map((t) => t.name)).toEqual(expect.arrayContaining(["hands", "agent"]))
+    expect(after.map((t) => t.name), JSON.stringify(second)).toEqual(expect.arrayContaining(["hands", "agent"]))
     expect(after.find((t) => t.name === "hands")!.size).toBeGreaterThan(compact * 3)
 
     // Later turns keep them.
