@@ -19,3 +19,16 @@ extension AgentPaneView {
         return menu.items(menu.pathRows(for: file, isDirectory: resolved.isFolder).filter { $0.kind != .open }, file: file)
     }
 }
+
+#if DEBUG
+extension AgentPaneView {
+    /// `debug.terminal.links agentLink` (DEBUG): opens `url` as a click on a link in an agent
+    /// chat does: the gesture rule (one recorded click), then the pane's own opener (the shared
+    /// link rule). True when it opened.
+    public static func debugOpenClickedLink(_ url: URL) -> Bool {
+        let gestures = AgentPaneUserGestures()
+        gestures.record(click: true)
+        return AgentPaneNavigation.openOutside(url, gestures: gestures) { routedOpenURL($0, false) }
+    }
+}
+#endif

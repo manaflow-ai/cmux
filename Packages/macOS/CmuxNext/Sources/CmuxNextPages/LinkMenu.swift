@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextSettings
 import UniformTypeIdentifiers
 
 /// One row of a link's or a path's context menu (cx-ir3z4): plain data, so the debug socket
@@ -24,12 +25,12 @@ public struct LinkMenuRow: Sendable, Equatable {
         self.children = children
     }
 
-    /// The row as JSON-ready text (the debug socket's readback).
-    public var summary: [String: Any] {
-        var row: [String: Any] = ["kind": kind.rawValue, "title": title]
-        if let app { row["app"] = app.path }
-        if !children.isEmpty { row["children"] = children.map(\.summary) }
-        return row
+    /// The row as JSON (the debug socket's readback).
+    public var json: JSONValue {
+        var row: [String: JSONValue] = ["kind": .string(kind.rawValue), "title": .string(title)]
+        if let app { row["app"] = .string(app.path) }
+        if !children.isEmpty { row["children"] = .array(children.map(\.json)) }
+        return .object(row)
     }
 }
 
