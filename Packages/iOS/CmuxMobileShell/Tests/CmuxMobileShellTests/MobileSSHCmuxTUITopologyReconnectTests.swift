@@ -60,6 +60,38 @@ import CmuxMobileSSH
         await reconnect.close()
     }
 
+    @Test func deadOwnerExhaustsRecoverySoDiscoveryCanDropProvider() async throws {
+        let first = FakeControl(id: 1)
+        var openCount = 0
+        let (gaps, gapContinuation) = AsyncStream<UInt64>.makeStream()
+        let reconnect = MobileSSHCmuxTUITopologyReconnect<FakeControl>(
+            open: {
+                openCount += 1
+                if openCount == 1 { return first }
+                throw CmuxTUIError.closed
+            },
+            subscribe: { $0.stream },
+            close: { $0.close() },
+            transportIsOpen: { true },
+            sleep: { _ in },
+            onEvent: { _, _ in },
+            onTransportGap: { generation in gapContinuation.yield(generation) },
+            onControlConnected: { _, _ in }
+        )
+
+        _ = try await reconnect.connect()
+        first.continuation.yield(.disconnected)
+        var gapIterator = gaps.makeAsyncIterator()
+        #expect(await gapIterator.next() == 2)
+
+        let result = Task { @MainActor in
+            try? await reconnect.connect()
+        }
+        #expect(await result.value == nil)
+        #expect(openCount == MobileSSHCmuxTUITopologyReconnect<FakeControl>.maximumRecoveryAttempts + 1)
+        #expect(first.isClosed)
+    }
+
     @Test func retryBackoffIsBounded() {
         let delays = (0..<10).map(MobileSSHCmuxTUITopologyReconnect<FakeControl>.backoff(forAttempt:))
         #expect(delays.prefix(6) == [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(16), .seconds(30)])

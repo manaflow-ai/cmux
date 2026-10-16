@@ -1,3 +1,4 @@
+internal import CmuxMobileSSH
 import Foundation
 
 /// Keeps a cmux-tui topology subscription alive across transient control
@@ -17,9 +18,13 @@ final class MobileSSHCmuxTUITopologyReconnect<Control: AnyObject & Sendable> {
     typealias Sleep = @MainActor (Duration) async throws -> Void
 
     /// The first retry delay after a topology control disconnects.
-    static let initialBackoff = Duration.seconds(1)
+    static var initialBackoff: Duration { .seconds(1) }
     /// The maximum retry delay while the owning SSH transport remains open.
-    static let maximumBackoff = Duration.seconds(30)
+    static var maximumBackoff: Duration { .seconds(30) }
+    /// A dead owner must eventually be allowed to fall out of discovery. The
+    /// retry window covers the normal transient case while keeping a cached
+    /// provider from blocking workspace listing forever.
+    static var maximumRecoveryAttempts: Int { 3 }
 
     /// Returns the capped delay for a zero-based reconnect attempt.
     static func backoff(forAttempt attempt: Int) -> Duration {
@@ -189,7 +194,8 @@ final class MobileSSHCmuxTUITopologyReconnect<Control: AnyObject & Sendable> {
             return
         }
         let task = Task { @MainActor [weak self] in
-            await self?.runRecovery(from: control, generation: generation)
+            guard let self else { return }
+            await self.runRecovery(from: control, generation: generation)
         }
         recoveryTask = task
         await task.value
@@ -206,19 +212,20 @@ final class MobileSSHCmuxTUITopologyReconnect<Control: AnyObject & Sendable> {
         guard transportIsOpen() else { return }
 
         var attempt = 0
-        while !Task.isCancelled, !stopped, transportIsOpen() {
+        while !Task.isCancelled, !stopped, transportIsOpen(), attempt < Self.maximumRecoveryAttempts {
             do {
                 _ = try await connectFresh()
                 return
             } catch is CancellationError {
                 return
             } catch {
+                attempt += 1
+                guard attempt < Self.maximumRecoveryAttempts else { return }
                 do {
-                    try await sleep(Self.backoff(forAttempt: attempt))
+                    try await sleep(Self.backoff(forAttempt: attempt - 1))
                 } catch {
                     return
                 }
-                attempt += 1
             }
         }
     }
