@@ -15,7 +15,7 @@ final class MobileSSHCmuxTUITopologyReconnect<Control: AnyObject & Sendable> {
     typealias Subscribe = @MainActor (Control) async throws -> AsyncStream<CmuxTUIControlEvent>
     typealias Close = @MainActor (Control) async -> Void
     typealias TransportIsOpen = @MainActor () -> Bool
-    typealias Sleep = @MainActor (Duration) async throws -> Void
+    typealias Sleep = (Duration) async throws -> Void
 
     /// The first retry delay after a topology control disconnects.
     static var initialBackoff: Duration { .seconds(1) }
