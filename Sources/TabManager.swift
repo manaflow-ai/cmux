@@ -2634,14 +2634,6 @@ class TabManager: ObservableObject {
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
         guard !workspace.isChiefHome, tabs.count > 1 else { return }
         guard tabs.contains(where: { $0.id == workspace.id }) else { return }
-        if workspace.groupId.flatMap({ id in workspaceGroups.first { $0.id == id }?.externalID })
-            == ChiefHomeNavigation.homeGroupExternalID {
-            var hidden = Set(UserDefaults.standard.stringArray(forKey: ChiefHomeNavigation.hiddenConversationsKey) ?? [])
-            for panel in workspace.panels.values.compactMap({ $0 as? ChiefPanel }) {
-                if let id = panel.conversationID { hidden.insert(id.rawValue) }
-            }
-            UserDefaults.standard.set(hidden.sorted(), forKey: ChiefHomeNavigation.hiddenConversationsKey)
-        }
         // Teardown SIGHUPs child processes and publishes a closed event. Only this
         // manager may close its own live workspaces; stale or foreign objects must
         // never tear down terminals or publish a second close.

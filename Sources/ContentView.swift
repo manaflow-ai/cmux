@@ -981,16 +981,6 @@ struct ContentView: View {
         nonmutating set { sidebarLayout.width = newValue }
     }
 
-    /// The canonical Chief Home pane owns its own conversation navigation, so
-    /// the workspace sidebar is absent while that pane is selected. The saved
-    /// sidebar preference remains unchanged and returns with another workspace.
-    private var isChiefHomeSelected: Bool {
-        tabManager.selectedWorkspace?.isChiefHome == true
-    }
-
-    private var isWorkspaceSidebarVisible: Bool {
-        sidebarState.isVisible && !isChiefHomeSelected
-    }
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
     @State private var sidebarDragStartWidth: CGFloat?
@@ -1300,7 +1290,7 @@ struct ContentView: View {
     /// sidebar already narrowed.
     private func resolvedRightSidebarAvailableWidth(_ availableWidth: CGFloat? = nil) -> CGFloat {
         let windowWidth = resolvedWindowContentWidth(availableWidth)
-        return windowWidth - (isWorkspaceSidebarVisible ? sidebarWidth : 0)
+        return windowWidth - (sidebarState.isVisible ? sidebarWidth : 0)
     }
 
     private func resolvedWindowContentWidth(_ availableWidth: CGFloat? = nil) -> CGFloat {
@@ -1357,7 +1347,7 @@ struct ContentView: View {
 
     private var currentSidePanelFit: SidePanelWidthFit {
         SidePanelWidthFit(
-            isLeftVisible: isWorkspaceSidebarVisible,
+            isLeftVisible: sidebarState.isVisible,
             isRightVisible: fileExplorerState.isVisible,
             isLeftAutoCollapsed: sidebarState.isAutoCollapsed,
             isRightAutoCollapsed: fileExplorerState.isAutoCollapsed,
@@ -1427,7 +1417,7 @@ struct ContentView: View {
     }
 
     private func updateSidebarResizerBandState(using _: NSEvent? = nil) {
-        guard isWorkspaceSidebarVisible || rightSidebarVisible,
+        guard sidebarState.isVisible || rightSidebarVisible,
               let window = observedWindow,
               let contentView = window.contentView else {
             isResizerBandActive = false
@@ -1441,7 +1431,7 @@ struct ContentView: View {
         let isInDividerBand = sidebarResizerOcclusionResolver.dividerBandContains(
             point: pointInContent,
             contentBounds: contentView.bounds,
-            isLeftSidebarVisible: isWorkspaceSidebarVisible,
+            isLeftSidebarVisible: sidebarState.isVisible,
             leftDividerX: sidebarWidth,
             isRightSidebarVisible: rightSidebarVisible,
             rightDividerX: contentView.bounds.maxX - rightSidebarWidth
@@ -1719,7 +1709,7 @@ struct ContentView: View {
             fileExplorerState: fileExplorerState,
             sessionIndexStore: sessionIndexStore,
             featureFlags: featureFlags,
-            isPresented: isWorkspaceSidebarVisible,
+            isPresented: sidebarState.isVisible,
             sidebarUnread: sidebarUnread,
             titlebarControlsLayoutModel: titlebarControlsLayoutModel,
             windowId: windowId,
@@ -2148,7 +2138,7 @@ struct ContentView: View {
 
             SidebarWidthReader(layout: sidebarLayout) { width in
                 HStack(spacing: 8) {
-                    if isFullScreen && !isWorkspaceSidebarVisible {
+                    if isFullScreen && !sidebarState.isVisible {
                         // Reserve the controls' width so the title flows to their right.
                         // The visible controls are rendered once in the band overlay (see
                         // `workspaceTitlebarBand`) so their position never depends on
@@ -2178,7 +2168,7 @@ struct ContentView: View {
                 .padding(.top, 2)
                 .padding(.leading, Self.customTitlebarLeadingPadding(
                     isFullScreen: isFullScreen,
-                    isSidebarVisible: isWorkspaceSidebarVisible,
+                    isSidebarVisible: sidebarState.isVisible,
                     sidebarWidth: width,
                     minimumSidebarWidth: minimumSidebarWidth,
                     titlebarLeadingInset: titlebarLeadingInset
@@ -2196,7 +2186,7 @@ struct ContentView: View {
                     orientation: .horizontal,
                     backgroundColor: appearance.resolvedChromeBackgroundColor
                 )
-                    .padding(.leading, isWorkspaceSidebarVisible ? width : 0)
+                    .padding(.leading, sidebarState.isVisible ? width : 0)
             }
         }
     }
@@ -2230,12 +2220,12 @@ struct ContentView: View {
             .overlay(alignment: .topLeading) {
                 if let placement = Self.fullscreenControlsPlacement(
                     isFullScreen: isFullScreen,
-                    isSidebarVisible: isWorkspaceSidebarVisible
+                    isSidebarVisible: sidebarState.isVisible
                 ) {
                     fullscreenControls
                         .environment(
                             \.colorScheme,
-                            isWorkspaceSidebarVisible
+                            sidebarState.isVisible
                                 ? appearance.sidebarContentColorScheme
                                 : appearance.chromeColorScheme
                         )
@@ -2250,7 +2240,7 @@ struct ContentView: View {
 
     private func syncTrafficLightInset(isMinimalMode: Bool? = nil) {
         let resolvedIsMinimalMode = isMinimalMode ?? currentIsMinimalMode
-        let inset: CGFloat = (resolvedIsMinimalMode && !isWorkspaceSidebarVisible && !isFullScreen)
+        let inset: CGFloat = (resolvedIsMinimalMode && !sidebarState.isVisible && !isFullScreen)
             ? CGFloat(titlebarDebugChromeSnapshot.trafficLightTabBarLeadingInset)
             : 0
         tabManager.syncWorkspaceTabBarLeadingInset(inset)
@@ -2276,7 +2266,7 @@ struct ContentView: View {
         // both presentation modes. Avoid rewriting every workspace's Bonsplit
         // appearance during a mode toggle; that would invalidate each mounted
         // WorkspaceContentView even though no geometry changes.
-        if !isWorkspaceSidebarVisible {
+        if !sidebarState.isVisible {
             syncTrafficLightInset(isMinimalMode: isMinimalMode)
         }
     }
@@ -2533,14 +2523,14 @@ struct ContentView: View {
                     terminalContentWithRightSidebarPanel(appearance: appearance)
                         .modifier(SidebarWidthLeadingPaddingModifier(
                             layout: sidebarLayout,
-                            enabled: isWorkspaceSidebarVisible
+                            enabled: sidebarState.isVisible
                         ))
                     SidebarWidthReader(layout: sidebarLayout) { width in
                         sidebarPanelWithBackdrop(appearance: appearance)
-                            .frame(width: isWorkspaceSidebarVisible ? width : 0, alignment: .leading)
+                            .frame(width: sidebarState.isVisible ? width : 0, alignment: .leading)
                             .clipped()
-                            .allowsHitTesting(isWorkspaceSidebarVisible)
-                            .accessibilityHidden(!isWorkspaceSidebarVisible)
+                            .allowsHitTesting(sidebarState.isVisible)
+                            .accessibilityHidden(!sidebarState.isVisible)
                     }
                 }
             )
@@ -2554,13 +2544,13 @@ struct ContentView: View {
                         terminalContentWithSidebarDropOverlay(appearance: appearance)
                             .modifier(SidebarWidthLeadingPaddingModifier(
                                 layout: sidebarLayout,
-                                enabled: isWorkspaceSidebarVisible
+                                enabled: sidebarState.isVisible
                             ))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .layoutPriority(1)
                         rightSidebarPanelWithBackdrop(appearance: appearance)
                     }
-                    if isWorkspaceSidebarVisible {
+                    if sidebarState.isVisible {
                         sidebarPanelWithBackdrop(appearance: appearance)
                     }
                 }
@@ -2569,7 +2559,7 @@ struct ContentView: View {
             // Standard HStack mode for behindWindow blur
             layout = AnyView(
                 HStack(spacing: 0) {
-                    if isWorkspaceSidebarVisible {
+                    if sidebarState.isVisible {
                         sidebarPanelWithBackdrop(appearance: appearance)
                     }
                     terminalContentWithRightSidebarPanel(appearance: appearance)
@@ -2580,7 +2570,7 @@ struct ContentView: View {
         return AnyView(
             layout
                 .overlay(alignment: .leading) {
-                    if isWorkspaceSidebarVisible {
+                    if sidebarState.isVisible {
                         sidebarResizerOverlay
                             .zIndex(1000)
                     }
@@ -2799,10 +2789,6 @@ struct ContentView: View {
                 ChiefHomeNavigation(sidebarSelectionState: sidebarSelectionState, tabManager: tabManager).open()
             }
             updateTitlebarText()
-        })
-
-        view = AnyView(view.onChange(of: ChiefService.shared.conversations.map { $0.id.rawValue + ":" + $0.title }) { _, _ in
-            ChiefHomeNavigation.restoreConversations(in: tabManager)
         })
 
         view = AnyView(view.onChange(of: chiefEnabled) { _, enabled in

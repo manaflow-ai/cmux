@@ -5,8 +5,7 @@ import MessagesLabHome
 import MessagesLabSidebar
 import Observation
 
-/// Chief Home for the canonical Chief pane. It keeps the iMessage-style
-/// conversation list beside the selected transcript inside that pane.
+/// The conversation list and selected transcript inside a Chief pane.
 ///
 /// The Home pane keeps one instance while its workspace is mounted: the list
 /// and transcript are two views of the same selection, and leaving Home keeps
@@ -16,11 +15,15 @@ final class ChiefHomeView: NSView {
     private static let selectionKey = "chief.home.selectedConversation"
     private static let unreadMarksKey = "chief.home.unreadMarks"
     private static let hiddenConversationsKey = "chief.home.hiddenConversations"
+    private static let showsConversationsKey = "chief.home.showsConversations"
 
     /// The conversation list shown beside the transcript in the Home pane.
     let list = ChiefConversationListView()
     private(set) var transcript: ChiefTranscriptView?
     private(set) var selected: ConversationID
+    private(set) var showsConversations: Bool
+    private let remembersSelection: Bool
+    private let divider = NSView()
     private var stopped = false
     // SAFETY: written only on the main actor; `deinit` reads it once no other
     // reference exists, and NotificationCenter removal is thread-safe.
@@ -40,31 +43,40 @@ final class ChiefHomeView: NSView {
     /// Width reserved for the iMessage-style conversation list in the pane.
     private static let listWidth: CGFloat = 320
 
-    /// Called when a conversation is chosen while Home is collapsed in the
-    /// sidebar. The host uses this to reveal Home before showing the thread.
-    var onRequestActivation: (() -> Void)?
-
-    /// Called after the list projection changes. The compact Home disclosure
-    /// uses this value snapshot instead of reaching through the AppKit list.
+    /// Records a choice in the panel model for session restore and pane drags.
+    var onSelectConversation: ((ConversationID) -> Void)?
+    /// Snapshot for compact list hosts that still use the same projection.
     var onRowsChanged: (([CmuxSidebarEntry]) -> Void)?
 
     /// Whether the host shows Home now; a hidden Home sends no read receipts.
-    var isActive = true {
+    var isActive = false {
         didSet {
+            guard isActive != oldValue else { return }
             transcript?.isActive = isActive
             if isActive { markSelectedReadIfShown() }
         }
     }
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, conversation: ConversationID? = nil,
+         remembersSelection: Bool = true) {
         self.defaults = defaults
+        self.remembersSelection = remembersSelection
         let service = ChiefService.shared
         service.start()
-        selected = defaults.string(forKey: Self.selectionKey).map { ConversationID($0) } ?? service.defaultConversationID
+        let remembered = remembersSelection ? defaults.string(forKey: Self.selectionKey).map { ConversationID($0) } : nil
+        selected = conversation ?? remembered ?? service.defaultConversationID
+        showsConversations = remembersSelection
+            ? (defaults.object(forKey: Self.showsConversationsKey) as? Bool ?? true)
+            : false
         unreadMarks = Set(defaults.stringArray(forKey: Self.unreadMarksKey) ?? [])
         hiddenConversations = Set(defaults.stringArray(forKey: Self.hiddenConversationsKey) ?? [])
         super.init(frame: .zero)
+        wantsLayer = true
+        clipsToBounds = true
         addSubview(list)
+        divider.wantsLayer = true
+        divider.setAccessibilityElement(false)
+        addSubview(divider)
         connectList()
         observeNotifications()
         listAvatar = ChiefAvatarArtwork.listAvatar(ChiefAvatarArtwork.current())
@@ -117,13 +129,13 @@ final class ChiefHomeView: NSView {
     }
 
     /// Shows `conversation` (from the list, a link, or a new conversation).
-    func select(_ conversation: ConversationID) {
-        if !isActive { onRequestActivation?() }
+    func select(_ conversation: ConversationID, notifySelection: Bool = true) {
         guard conversation != selected || transcript == nil else { return }
         selected = conversation
-        defaults.set(conversation.rawValue, forKey: Self.selectionKey)
+        if remembersSelection { defaults.set(conversation.rawValue, forKey: Self.selectionKey) }
         show(conversation)
         reload()
+        if notifySelection { onSelectConversation?(conversation) }
     }
 
     private func show(_ conversation: ConversationID) {
@@ -135,13 +147,13 @@ final class ChiefHomeView: NSView {
         transcript?.removeFromSuperview()
         let view = ChiefTranscriptView(conversation: conversation)
         view.isActive = isActive
-        // Home hides the workspace rows while it shows.
-        view.hidesWorkspaces = true
         view.onOpenConversation = { [weak self] id in self?.select(id) }
-        view.frame = bounds
-        view.autoresizingMask = [.width, .height]
+        view.onToggleConversations = { [weak self] in self?.toggleConversations() }
+        view.showsConversations = showsConversations
         addSubview(view)
         transcript = view
+        // Set both columns before the replacement transcript can be displayed.
+        layoutColumns()
         // Opening a conversation is a read action even before AppKit has made
         // the window key. This keeps the list's dot from lagging behind the
         // conversation the user just chose (and avoids a capture-time race).
@@ -151,23 +163,51 @@ final class ChiefHomeView: NSView {
 
     /// Applies the current window appearance to the embedded Messages list.
     func applyCurrentAppearance() {
-        let appearance = effectiveAppearance
-        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let theme = ChiefTheme.current()
+        appearance = theme.appearance
+        layer?.backgroundColor = theme.opaqueBackground.cgColor
+        list.wantsLayer = true
+        list.layer?.backgroundColor = theme.panelFill.cgColor
+        divider.layer?.backgroundColor = theme.hairline.cgColor
         list.apply(
-            isDark: isDark,
+            isDark: theme.isDark,
             accent: (AppDelegate.shared?.accentColor ?? CmuxAccentColor()).nsColor(for: appearance)
         )
     }
 
+    override var isFlipped: Bool { true }
+
+    /// The list is local to this pane; hiding it gives the transcript the space.
+    func toggleConversations() {
+        showsConversations.toggle()
+        if remembersSelection { defaults.set(showsConversations, forKey: Self.showsConversationsKey) }
+        if !showsConversations,
+           let responder = window?.firstResponder as? NSView, responder.isDescendant(of: list) {
+            focusComposer()
+        }
+        transcript?.showsConversations = showsConversations
+        layoutColumns()
+    }
+
     override func layout() {
         super.layout()
-        let width = min(Self.listWidth, max(0, bounds.width - 420))
-        let listFrame = CGRect(x: 0, y: 0, width: max(0, width), height: bounds.height)
+        layoutColumns()
+    }
+
+    private func layoutColumns() {
+        // In a narrow split, both columns remain inside the pane. The list can
+        // always be collapsed using the transcript's header button.
+        let width = showsConversations ? min(Self.listWidth, floor(max(0, bounds.width) * 0.4)) : 0
+        let listFrame = CGRect(x: 0, y: 0, width: width, height: bounds.height)
+        list.isHidden = !showsConversations
+        divider.isHidden = !showsConversations
         if list.frame != listFrame { list.frame = listFrame }
+        let dividerWidth: CGFloat = showsConversations ? min(1, max(0, bounds.width - width)) : 0
+        divider.frame = CGRect(x: width, y: 0, width: dividerWidth, height: bounds.height)
         let transcriptFrame = CGRect(
-            x: listFrame.maxX,
+            x: divider.frame.maxX,
             y: 0,
-            width: max(0, bounds.width - listFrame.maxX),
+            width: max(0, bounds.width - divider.frame.maxX),
             height: bounds.height
         )
         if transcript?.frame != transcriptFrame { transcript?.frame = transcriptFrame }
@@ -176,6 +216,7 @@ final class ChiefHomeView: NSView {
     // MARK: List
 
     private func connectList() {
+        list.onNewConversation = { [weak self] in self?.newConversation() }
         let rows = list.list
         rows.onSelect = { [weak self] id in
             guard let id else { return }
@@ -430,6 +471,12 @@ final class ChiefHomeView: NSView {
 
     private func observeNotifications() {
         let center = NotificationCenter.default
+        for name in [Notification.Name.ghosttyConfigDidReload, .ghosttyDefaultBackgroundDidChange,
+                     CmuxAccentColor.didChangeNotification] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.applyCurrentAppearance() } // main-proof: observer on queue: .main
+            })
+        }
         observers.append(center.addObserver(forName: .cmuxChiefHomeDidActivate, object: nil, queue: .main) { [weak self] note in
             MainActor.assumeIsolated { // main-proof: observer on queue: .main
                 self?.homeDidActivate(in: note.object as? NSWindow)

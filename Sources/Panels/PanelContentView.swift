@@ -253,6 +253,7 @@ struct PanelContentView: View {
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI
                 )
+                    .id(chiefPanel.id)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .simultaneousGesture(TapGesture().onEnded { onRequestPanelFocus() })
             }

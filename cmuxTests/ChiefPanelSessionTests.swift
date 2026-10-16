@@ -35,6 +35,107 @@ import Testing
         #expect(!transcript.frame.intersects(home.list.frame))
     }
 
+    @Test func conversationSidebarCollapsesInsideItsPaneAndRestoresItsPreference() throws {
+        let suite = "ChiefPanelSessionTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let home = ChiefHomeView(defaults: defaults)
+        defer { home.teardown() }
+        for width in [980.0, 640.0, 420.0] {
+            home.frame = NSRect(x: 0, y: 0, width: width, height: 600)
+            home.layout()
+            let transcript = try #require(home.transcript)
+            #expect(home.list.frame.width > 0)
+            #expect(!transcript.frame.intersects(home.list.frame))
+            #expect(transcript.frame.maxX <= home.bounds.maxX)
+            home.toggleConversations()
+            #expect(home.list.isHidden)
+            #expect(transcript.frame == home.bounds)
+            home.toggleConversations()
+            #expect(!home.list.isHidden)
+            #expect(transcript.frame.minX >= home.list.frame.maxX)
+        }
+        home.toggleConversations()
+        let restored = ChiefHomeView(defaults: defaults)
+        defer { restored.teardown() }
+        #expect(!restored.showsConversations)
+    }
+
+    @Test func aListChoiceUpdatesThePaneAndSurvivesUnrelatedPresentationUpdates() throws {
+        let suite = "ChiefPanelSessionTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = ConversationID("conv_pane_first")
+        let second = ConversationID("conv_pane_second")
+        let panel = ChiefPanel(conversationID: first, isHome: true)
+        let host = ChiefPanelHostView(conversation: first, isHome: true, defaults: defaults)
+        defer { host.stop() }
+        host.onOpenConversation = { panel.conversationID = $0 }
+        host.homeView.list.list.onSelect(second.rawValue)
+        #expect(panel.conversationID == second)
+        let selectedTranscript = try #require(host.transcript)
+        #expect(selectedTranscript.conversation == second)
+        host.updatePresentation(visible: false, focused: false, generation: 1)
+        host.show(panel.conversationID)
+        #expect(host.transcript === selectedTranscript)
+        #expect(!selectedTranscript.isActive)
+        host.show(first)
+        #expect(host.transcript?.conversation == first)
+    }
+
+    @Test func anOrdinaryChiefPaneCanRevealItsOwnList() throws {
+        let suite = "ChiefPanelSessionTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let host = ChiefPanelHostView(conversation: nil, isHome: false, defaults: defaults)
+        defer { host.stop() }
+        #expect(!host.homeView.showsConversations)
+        host.homeView.toggleConversations()
+        #expect(!host.homeView.list.isHidden)
+        #expect(host.homeView.showsConversations)
+        #expect(host.transcript?.hidesWorkspaces == false)
+    }
+
+    @Test func homeMigrationRetiresGeneratedRowsAndPreservesCustomizedWorkspaces() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        defer { manager.finalizeAllWorkspacesForWindowClose() }
+        let home = try makeChiefOnlyWorkspace(in: manager, name: "Home", isHome: true)
+        let generated = try makeChiefOnlyWorkspace(in: manager, name: "Generated")
+        let renamed = try makeChiefOnlyWorkspace(in: manager, name: "Renamed")
+        let mixed = try makeChiefOnlyWorkspace(in: manager, name: "Mixed")
+        manager.setCustomTitle(tabId: renamed.id, title: "My notes", source: .user)
+        let mixedPane = try #require(mixed.bonsplitController.focusedPaneId)
+        _ = mixed.newChiefSurface(inPane: mixedPane, conversationID: ConversationID("conv_extra"), focus: false)
+        _ = try #require(manager.createWorkspaceGroup(
+            name: "Home", childWorkspaceIds: [home.id, generated.id, renamed.id, mixed.id],
+            selectAnchor: false, externalID: ChiefHomeNavigation.homeGroupExternalID
+        ))
+        manager.selectWorkspace(generated)
+        let selectedConversation = (generated.panels.values.first as? ChiefPanel)?.conversationID
+        manager.removeLegacyChiefConversationWorkspaces(in: home)
+        #expect(!manager.tabs.contains { $0.id == generated.id })
+        #expect(manager.tabs.contains { $0.id == renamed.id })
+        #expect(manager.tabs.contains { $0.id == mixed.id })
+        #expect(manager.selectedTabId == home.id)
+        #expect((home.panels.values.first as? ChiefPanel)?.conversationID == selectedConversation)
+    }
+
+    private func makeChiefOnlyWorkspace(in manager: TabManager, name: String, isHome: Bool = false) throws -> Workspace {
+        let workspace = try #require(manager.addWorkspaceIfActive(
+            title: name, titleSource: .auto, inheritWorkingDirectory: false, select: false,
+            initialTerminalStartsOnFirstVisit: true, autoWelcomeIfNeeded: false, autoRefreshMetadata: false
+        ))
+        let pane = try #require(workspace.bonsplitController.focusedPaneId)
+        let scaffold = Array(workspace.panels.keys)
+        _ = try #require(workspace.newChiefSurface(
+            inPane: pane, conversationID: ConversationID("conv_\(name)"), isHome: isHome, focus: false
+        ))
+        workspace.withClosedPanelHistorySuppressed {
+            for panelID in scaffold { _ = workspace.closePanel(panelID, force: true) }
+        }
+        return workspace
+    }
+
     @Test func aHomeDragResolvesToItsConversationAndRetiresAfterDrop() throws {
         let registry = TabDragTransferRegistry()
         let conversation = ConversationID("conv_drag_test")

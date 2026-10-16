@@ -24,7 +24,6 @@ extension Notification.Name {
 @MainActor
 struct ChiefHomeNavigation {
     static let homeGroupExternalID = "cmux.chief.home"
-    static let hiddenConversationsKey = "chief.home.hiddenConversations"
 
     let sidebarSelectionState: SidebarSelectionState
     let tabManager: TabManager
@@ -131,7 +130,8 @@ struct ChiefHomeNavigation {
     /// Ensures the canonical Home workspace exists. Conversations are loaded by
     /// the list inside that pane rather than materialized as sidebar workspaces.
     static func restoreConversations(in manager: TabManager) {
-        _ = ensureHome(in: manager)
+        guard let home = ensureHome(in: manager) else { return }
+        manager.removeLegacyChiefConversationWorkspaces(in: home)
     }
 
     private static func makeWorkspace(
