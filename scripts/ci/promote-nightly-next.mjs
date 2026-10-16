@@ -386,6 +386,94 @@ export async function decide({
   };
 }
 
+// The job that waits for the release-surface-ack approval
+// (await-release-surface-ack in nightly.yml) is named after its decision, so a
+// later request can read what an earlier one waits to promote and from where.
+// Keep this pattern and the job's `name:` in nightly.yml in step.
+const WAITER_NAME = /^nightly-next promotion ([0-9a-f]{40}) from ([0-9a-f]{40}|none)$/;
+const WAITER_RUN_STATUSES = ['waiting', 'queued', 'in_progress'];
+
+// Every other promotion request on main whose await-release-surface-ack job has
+// not finished: { runId, sha, current, status }.
+export async function pendingPromotions({ github, owner, repo, runId }) {
+  const pending = [];
+  const seen = new Set();
+  for (const status of WAITER_RUN_STATUSES) {
+    const { data } = await github.rest.actions.listWorkflowRuns({
+      owner, repo, workflow_id: 'nightly.yml', event: 'workflow_dispatch', branch: 'main', status, per_page: 50,
+    });
+    for (const run of data.workflow_runs || []) {
+      if (run.id === runId || seen.has(run.id)) continue;
+      seen.add(run.id);
+      const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+        owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
+      });
+      for (const job of jobs) {
+        const match = WAITER_NAME.exec(job.name || '');
+        if (!match || job.status === 'completed') continue;
+        pending.push({ runId: run.id, sha: match[1], current: match[2] === 'none' ? null : match[2], status: job.status });
+      }
+    }
+  }
+  return pending;
+}
+
+// Newest request wins. A request is cheap to repeat but an approval is not, and
+// requests arrive out of order (an older commit's Release compile or cmux-tui
+// tree can finish after a newer one's). Before deciding, read the requests that
+// wait for (or just got) the release-surface-ack approval:
+// - when one of them targets a commit that contains this request's commit and
+//   was decided against the current nightly-next, it stays and this request
+//   steps aside ("superseded"): that approval still promotes everything here;
+// - otherwise this request decides the newest commit among its own and theirs
+//   (a later request never moves nightly-next to less than a waiting one), and
+//   its await-release-surface-ack job, in the shared cancel-in-progress group,
+//   cancels the older waiters. A waiter decided against an older nightly-next
+//   is dead (ackDecision refuses it), so it never makes this request step aside.
+// If the adopted commit is refused, the request decides its own commit. If the
+// scan fails, `scanFailed` is set and the workflow waits in a per-run group,
+// which cancels nothing (the behavior before this rule).
+export async function decideNewest({ github, core, owner, repo, sha, runId, ...rest }) {
+  let pending = [];
+  let current = null;
+  let target = sha;
+  let scanFailed = false;
+  try {
+    pending = await pendingPromotions({ github, owner, repo, runId });
+    try {
+      current = (await github.rest.git.getRef({ owner, repo, ref: `heads/${TARGET}` })).data.object.sha;
+    } catch (error) {
+      if (error.status !== 404) throw error;
+    }
+    for (const waiter of pending) {
+      if (waiter.sha === target) continue;
+      const { data } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${target}...${waiter.sha}` });
+      if (data.status === 'ahead') target = waiter.sha;
+    }
+  } catch (error) {
+    core?.warning?.(`Could not read the other nightly-next promotion requests (${error.status || error.message}); deciding ${sha} without cancelling them.`);
+    return { decision: await decide({ github, core, owner, repo, sha, ...rest }), requested: sha, scanFailed: true };
+  }
+  const live = pending.find((waiter) => waiter.sha === target && waiter.current === current);
+  if (live) {
+    return {
+      decision: {
+        action: 'superseded',
+        reason: `run ${live.runId} already waits to promote ${target} from ${current || 'nothing'}, which contains ${sha}; that request stays`,
+        sha: target, current,
+      },
+      requested: sha, scanFailed,
+    };
+  }
+  if (target !== sha) {
+    core?.notice?.(`A waiting request targets ${target}, which contains ${sha}; deciding ${target}.`);
+    const adopted = await decide({ github, core, owner, repo, sha: target, ...rest });
+    if (adopted.action !== 'refuse') return { decision: adopted, requested: sha, scanFailed };
+    core?.notice?.(`${target} is refused (${adopted.reason}); deciding the requested ${sha}.`);
+  }
+  return { decision: await decide({ github, core, owner, repo, sha, ...rest }), requested: sha, scanFailed };
+}
+
 export async function approvedBy({ github, owner, repo, runId, environment = ACK_ENVIRONMENT }) {
   const { data } = await github.request('GET /repos/{owner}/{repo}/actions/runs/{run_id}/approvals', { owner, repo, run_id: runId });
   return (data || [])
