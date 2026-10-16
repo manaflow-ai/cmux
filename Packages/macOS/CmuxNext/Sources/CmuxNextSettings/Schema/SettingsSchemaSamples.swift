@@ -27,7 +27,7 @@ nonisolated enum SettingsSchemaSamples {
         case .color:
             return ([.string("#1a2B3c"), .string("#1A2B3C80"), .string("1a2b3c")],
                     [.string("red"), .string("#12345"), .string("#1234567"), .string("#12345g"), .number(0)])
-        case .sound, .theme, .fontFamily:
+        case .sound, .theme, .fontFamily, .text:
             // Valid names depend on the machine; only the shape is portable.
             return ([], [.number(1), .bool(true), .null])
         case .url where BrowserOmnibarSetting.templatePaths.contains(descriptor.path):

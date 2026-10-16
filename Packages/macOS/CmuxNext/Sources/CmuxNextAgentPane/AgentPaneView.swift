@@ -18,9 +18,9 @@ public final class AgentPaneView: NSView {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")
     public let model: AgentPaneModel
     public let webView: WKWebView
-    /// Opens a link the user clicked in the transcript. Defaults to the
-    /// system handler; the App can route it to a cmux browser tab.
-    public var openURL: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
+    /// Opens a link the user clicked in the transcript: the shared link rule (``LinkRouter``,
+    /// `browser.openLinksInCmuxBrowser`), `otherTarget` for a Shift-Command click.
+    public var openURL: (_ url: URL, _ otherTarget: Bool) -> Void = { LinkRouter.shared.open($0, otherTarget: $1) }
 
     public let source: AgentPaneSource
     public var customization = AgentPaneCustomization() {
