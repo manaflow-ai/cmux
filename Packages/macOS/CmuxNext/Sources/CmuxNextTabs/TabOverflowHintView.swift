@@ -29,7 +29,6 @@ public final class TabOverflowHintView: NSView {
         label.textColor = .secondaryLabelColor
         label.toolTip = Strings.overflowHint
         useButton.isBordered = false
-        useButton.contentTintColor = .controlAccentColor
         useButton.target = self
         useButton.action = #selector(useScrolling)
         dismissButton.isBordered = false
@@ -41,6 +40,7 @@ public final class TabOverflowHintView: NSView {
         dismissButton.toolTip = Strings.overflowHintDismiss
         for view in [label, useButton, dismissButton] as [NSView] { addSubview(view) }
         applyTokens()
+        applyTint()
     }
 
     @available(*, unavailable)
@@ -52,6 +52,16 @@ public final class TabOverflowHintView: NSView {
         dismissButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: Strings.overflowHintDismiss)?
             .withSymbolConfiguration(.init(pointSize: Typography.caption.pointSize - 2, weight: .semibold))
         needsLayout = true
+    }
+
+    override public func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyTint()
+    }
+
+    private func applyTint() {
+        useButton.contentTintColor = performWithTheme { Palette.accent }
+        dismissButton.contentTintColor = performWithTheme { Palette.textSecondary }
     }
 
     /// The width the hint asks for: the sentence, the button, the x and the gaps between them.
