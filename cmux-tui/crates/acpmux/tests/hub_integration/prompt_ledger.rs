@@ -20,7 +20,8 @@ async fn retry_behind_a_full_queue(resend: bool) {
     for i in 0..65 {
         let prompt_id = format!("p-queued-{i}");
         c.send(method::SESSION_PROMPT, prompt_with_id(&id, "hi", &prompt_id, false)).await;
-        let accepted = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == prompt_id).await;
+        let accepted =
+            c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == prompt_id).await;
         assert_eq!(accepted["queued"], true);
         if i == 0 {
             first_turn = accepted["turnId"].clone();
@@ -28,15 +29,18 @@ async fn retry_behind_a_full_queue(resend: bool) {
     }
 
     let mut retry = connect(&hub).await;
-    let request = retry
-        .send(method::SESSION_PROMPT, prompt_with_id(&id, "hi", "p-queued-0", resend))
-        .await;
-    let accepted = retry.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-queued-0").await;
+    let request =
+        retry.send(method::SESSION_PROMPT, prompt_with_id(&id, "hi", "p-queued-0", resend)).await;
+    let accepted =
+        retry.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-queued-0").await;
     let early = tokio::time::timeout(Duration::from_millis(50), retry.response(request)).await.ok();
 
     // Open the gate before asserting, so even a failing regression shuts the fake agent down.
     let gate_write = gate.clone();
-    tokio::task::spawn_blocking(move || std::fs::write(gate_write, b"open")).await.unwrap().unwrap();
+    tokio::task::spawn_blocking(move || std::fs::write(gate_write, b"open"))
+        .await
+        .unwrap()
+        .unwrap();
     let replied_early = early.is_some();
     let reply = match early {
         Some((reply, _)) => reply.unwrap(),
@@ -115,9 +119,8 @@ async fn prompt_ledger_keeps_recovered_pending_identity_until_withdrawn() {
     let session = hub.resolve(&id).unwrap();
     assert_eq!(hub.session_summary(&session)["queued"], 65);
     let mut retry = connect(&hub).await;
-    let request = retry
-        .send(method::SESSION_PROMPT, prompt_with_id(&id, "hi", "p-restored-0", true))
-        .await;
+    let request =
+        retry.send(method::SESSION_PROMPT, prompt_with_id(&id, "hi", "p-restored-0", true)).await;
     retry.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-restored-0").await;
     assert!(hub.remove_queued(&session, "p-restored-0"));
     let reply = retry.response(request).await.0.unwrap();
