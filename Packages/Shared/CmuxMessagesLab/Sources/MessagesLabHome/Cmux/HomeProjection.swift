@@ -141,7 +141,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         apply(items: homeStore.transcript(for: conversation), summary: homeStore.summary(conversation),
               typing: (homeStore.typing[conversation] ?? []).union(live.map { [$0.participant] } ?? []),
               hasOlder: homeStore.hasOlderMessages(in: conversation), draft: live.map(\.turnDraft) ?? homeStore.drafts[conversation])
-        // The line closes one display frame after the reply took the bubble's place, never with it (cx-zz30r).
+        // The line closes on the frame after the one that shows the reply in the bubble's place (cx-zz30r, cx-06vn1).
         if let activity = live?.activity { liveLine.show(activity) } else { liveLine.hide(after: controller) }
         revealIfLoaded()
         refreshThreadHeader()
@@ -190,11 +190,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
             // where its posted reply is among them (`.streamEnd(replacedBy:)`, in transcript order).
             let cut = diff.handOffAt ?? diff.actions.count
             for (i, a) in diff.actions.enumerated() {
-                if i == cut { for s in streamed { controller.dispatch(s) } }
+                if i == cut { dispatchStreamed(streamed) }
                 if case .prependPage = a { olderRequested = false }
                 controller.dispatchTimingTapback(a) // my tapback chosen in the menu: from its input (MessagesLab 7518134)
             }
-            if cut >= diff.actions.count { for s in streamed { controller.dispatch(s) } }
+            if cut >= diff.actions.count { dispatchStreamed(streamed) }
             if diff.rebuild { rebuild() }
             for a in core.typing(store.state, wanted: typing) { controller.dispatch(a) }
         }
