@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Block } from "../src/session";
+import type { AgentEvent } from "../types";
 
 Object.defineProperty(globalThis, "location", {
   configurable: true,
@@ -9,7 +10,7 @@ Object.defineProperty(globalThis, "location", {
 const { foldEvent } = await import("../src/session");
 
 function update(toolId: string, fields: Record<string, string>) {
-  return { kind: "tool-update", toolId, ...fields } as never;
+  return { kind: "tool-update", toolId, ...fields } as Extract<AgentEvent, { kind: "tool-update" }>;
 }
 
 test("folds repeated progress into one running tool row", () => {

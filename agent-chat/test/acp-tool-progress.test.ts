@@ -31,9 +31,9 @@ test("emits ACP progress updates and terminal tool events", async () => {
       { kind: "tool-start", toolId: "progress", name: "Long task", detail: "src/work.ts" },
       { kind: "tool-start", toolId: "failure", name: "Failing task", detail: "src/fail.ts" },
     ]);
-    expect(events.filter((event) => (event as { kind: string }).kind === "tool-update")).toEqual([
+    expect(events.filter((event) => event.kind === "tool-update")).toEqual([
       { kind: "tool-update", toolId: "progress", out: "step 1" },
-      { kind: "tool-update", toolId: "progress", name: "Long task (still running)", out: "diff src/work.ts (+1/-1)\nnew line" },
+      { kind: "tool-update", toolId: "progress", name: "Long task (still running)", out: "diff src/work.ts (+1/-1) new line" },
       { kind: "tool-update", toolId: "failure", out: "checking" },
     ]);
     expect(events.filter((event) => event.kind === "tool-end")).toEqual([
