@@ -75,9 +75,9 @@ import Testing
         let used = Counter()
         TabOverflowHintView.defaults = defaults
         TabOverflowHintView.owner = nil
-        TabOverflowHintView.useScrollingTabs = { used.count += 1 }
+        DesignSettings.shared.useScrollingTabs = { used.count += 1 }
         defer {
-            TabOverflowHintView.useScrollingTabs = nil
+            DesignSettings.shared.useScrollingTabs = nil
             TabOverflowHintView.defaults = .standard
             TabOverflowHintView.owner = nil
             defaults.removePersistentDomain(forName: suite)

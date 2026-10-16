@@ -2,7 +2,6 @@ import CmuxNextActions
 import CoreGraphics
 import CmuxNextDesign
 import CmuxNextSettings
-import CmuxNextTabs
 
 /// Density, animation speed, titlebar style, interface size (the chrome body
 /// font; terminal fonts come from the Ghostty config) and pane chrome
@@ -13,8 +12,7 @@ import CmuxNextTabs
 enum AppearanceHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let uiScale = UIScaleSetting()
-        // Customize Appearance… opens Settings on Appearance (R82: the floating studio panel went
-        // with the Swift Settings UI; the page's sliders preview live in every window).
+        // Customize Appearance… opens Settings on Appearance (R82: the studio panel went with the Swift Settings UI).
         registry.bind("appearance.customize", run: { invocation in
             try context.services.settingsWindow.show(section: .appearance, focus: invocation.allowsViewChange)
         })
@@ -44,8 +42,6 @@ enum AppearanceHandlers {
                                   path: CenterFocusedColumnSetting.configPath, fileValue: { .string($0.rawValue) }, save: save) { context.design.centerFocusedColumn = $0 }
         ChromeStyleSetting.bindActions(into: registry, design: context.design, save: save)
         TabOverflowSetting.bindActions(into: registry, design: context.design, save: save)
-        // The crowded strip's one-time hint turns scrolling tabs on through the same action (cx-kp9b4).
-        TabOverflowHintView.useScrollingTabs = { [weak registry] in _ = registry?.perform("tabs.overflow.scroll", invocation: ActionInvocation(origin: .user)) }
         registry.bind("appearance.interfaceSize.increase", run: { _ in try stepInterfaceSize(by: 1, context) })
         registry.bind("appearance.interfaceSize.decrease", run: { _ in try stepInterfaceSize(by: -1, context) })
         registry.bind("appearance.uiScale.increase", run: { _ in try stepUIScale(by: uiScale.step, context) })

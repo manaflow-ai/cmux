@@ -8,9 +8,6 @@ import CmuxNextDesign
 /// `cmux.next.browser.fitExplained`), and only one strip shows it at a time. A strip that stops being
 /// crowded hides it without recording, so it can come back until the person answers it.
 public final class TabOverflowHintView: NSView {
-    /// Turns scrolling tabs on (set by the App: runs `tabs.overflow.scroll`). While nil (tests, galleries)
-    /// no strip shows the hint.
-    public static var useScrollingTabs: (@MainActor () -> Void)?
     /// Where the once-ever flag lives; a test passes its own suite.
     public static var defaults = UserDefaults.standard
     static let answeredKey = "cmux.next.tabs.overflowHintAnswered"

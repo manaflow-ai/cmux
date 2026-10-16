@@ -26,6 +26,8 @@ extension TabOverflowSetting {
     @MainActor public static func bindActions(into registry: ActionRegistry, design: DesignSettings, save: @escaping SettingChoiceActions.Save) {
         SettingChoiceActions.bind(TabOverflow.allCases, into: registry, id: { "tabs.overflow.\($0.rawValue)" }, path: configPath,
                                   fileValue: fileValue, save: save) { design.tabOverflow = $0 }
+        // The crowded strip's one-time hint turns scrolling tabs on through the same action.
+        design.useScrollingTabs = { [weak registry] in _ = registry?.perform("tabs.overflow.scroll", invocation: ActionInvocation(origin: .user)) }
     }
 
     /// The cmux.json value: the default (shrink) removes the key.

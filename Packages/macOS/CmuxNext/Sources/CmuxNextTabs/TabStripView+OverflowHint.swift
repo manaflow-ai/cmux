@@ -29,7 +29,7 @@ extension TabStripView {
             }
             return
         }
-        guard TabOverflowHintView.useScrollingTabs != nil, !TabOverflowHintView.isAnswered,
+        guard DesignSettings.shared.useScrollingTabs != nil, !TabOverflowHintView.isAnswered,
               TabOverflowHintView.owner == nil || TabOverflowHintView.owner === self,
               window != nil, drag == nil, isCrowdedAtMinimum else { return }
         let hint = overflowHint ?? makeOverflowHint()
@@ -51,7 +51,7 @@ extension TabStripView {
     func answerOverflowHint(usesScrolling: Bool) {
         TabOverflowHintView.defaults.set(true, forKey: TabOverflowHintView.answeredKey)
         hideOverflowHint()
-        if usesScrolling { TabOverflowHintView.useScrollingTabs?() }
+        if usesScrolling { DesignSettings.shared.useScrollingTabs?() }
     }
 
     /// Places the hint after the tabs' viewport (and its +), on the tabs' line.
