@@ -80,6 +80,8 @@ public final class DesignSettings {
     public private(set) var paneChrome = PaneChromeOverrides()
     /// `layout.centerFocusedColumn`.
     public var centerFocusedColumn: CenterFocusedColumn = .never
+    /// `tabs.overflow`: crowded tab strips shrink their tabs (default) or scroll sooner.
+    public var tabOverflow: TabOverflow = .shrink
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .system
     /// `sidebar.*`: section look and pinned band caps.
