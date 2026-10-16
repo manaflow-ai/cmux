@@ -1,12 +1,12 @@
 import { env, exports } from "cloudflare:workers"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { afterEach, describe, expect, it } from "vitest"
-import { failFakeCompacts } from "../src/chief-brain/fake.ts"
+import { holdCompacts } from "../src/chief-brain/fake.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /**
  * A turn never waits on the compactor (parity run 2026-10-16: 48 of 52 turns waited the full 60 s
- * while a rate-limited compactor failed). With the compactor failing on every call, a person's
+ * while a rate-limited compactor failed). With the compactor hanging on every call, a person's
  * messages are still answered at once, on the frozen view plus the delta (OptChat 5a): each run's
  * wake path (admitted -> settled) stays under a second. Fake model, real Worker boundary.
  */
@@ -27,10 +27,11 @@ const http = async (method: string, path: string, token: string, body?: unknown)
 }
 const op = async (token: string, name: string, params: unknown, key: string = crypto.randomUUID()) => (await http("POST", "/v1/ops", token, { op: name, params, idempotency_key: key, origin: "user" })).json
 const history = async (token: string, conversation: string) => (await http("POST", "/v1/read", token, { op: "conversation.history", params: { conversation, limit: 50 } })).json.value.messages as Array<any>
-afterEach(() => failFakeCompacts(0))
+let release: (() => void) | undefined
+afterEach(() => release?.())
 
 describe("a Cloud Chief turn never waits on the compactor", { timeout: 120_000 }, () => {
-  it("answers each message at once while every compactor call fails", async () => {
+  it("answers each message at once while the compactor hangs", async () => {
     const token = await sessionToken("brain-nowait")
     const user = (await op(token, "user.ensure", {})).value.id as string
     const chief = (await op(token, "chief.create", { display_name: "Fast Chief" }, "chief-nowait")).value as { id: string; main_conversation: string }
@@ -38,7 +39,8 @@ describe("a Cloud Chief turn never waits on the compactor", { timeout: 120_000 }
     let on = { status: 0, json: {} as any }
     for (let i = 0; i < 20 && on.status !== 200; i++) [await fireAlarm(userDO), (on = await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, { enabled: true }))]
     expect(on.status).toBe(200)
-    failFakeCompacts(1_000_000)
+    // The compactor hangs (as a rate-limited one did): no compactor call ever answers during the test.
+    release = holdCompacts()
     const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(chief.main_conversation))
     for (const [n, text] of ["first: a long team note ".repeat(40), "second question", "third question"].entries()) {
       const t0 = Date.now()

@@ -46,6 +46,16 @@ export function failFakeCompacts(n: number): void {
 }
 
 let held: Promise<void> | undefined;
+let heldCompacts: Promise<void> | undefined;
+/** Compactor requests wait until the returned function is called (a slow or rate-limited compactor). */
+export function holdCompacts(): () => void {
+  let release!: () => void;
+  heldCompacts = new Promise<void>((r) => (release = r));
+  return () => {
+    heldCompacts = undefined;
+    release();
+  };
+}
 /** Turn requests wait until the returned function is called. */
 export function holdTurns(): () => void {
   let release!: () => void;
@@ -99,6 +109,7 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
     reasoning: (options as { reasoning?: string } | undefined)?.reasoning,
     maxTokens: options?.maxTokens,
   });
+  if (compact && heldCompacts) await heldCompacts;
   if (compact && failNext > 0) {
     failNext--;
     throw new Error("fake model failure (scripted)");
