@@ -96,6 +96,11 @@
       "message": "{memory} GiB 的機器需要 cmux {plan}。目前方案最多支援 {max} GiB。",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "cmux Pro 試用",
+      "message": "{memory} GiB 的機器將在完整 Pro 於 {date} 開始後可用。Pro 試用最多支援 {max} GiB。",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "無法驗證來源機器的記憶體大小。",
       "action": "cmux vm new --size 4g"

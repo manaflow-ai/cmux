@@ -263,6 +263,11 @@
       "message": "{memory} GiB のマシンには cmux {plan} が必要です。現在のプランの上限は {max} GiB です。",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "cmux Pro トライアル",
+      "message": "{memory} GiB のマシンは、正式な Pro が始まる {date} から使えます。Pro トライアルは最大 {max} GiB までです。",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "元のマシンの RAM 容量を確認できませんでした。",
       "action": "cmux vm new --size 4g"

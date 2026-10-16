@@ -47,7 +47,7 @@ import {
 import { recordSpanTiming } from "./timings";
 import { planIncludes } from "../billing/planTier";
 import { authProviderErrorResponse } from "./authErrors";
-import { goCapacityConstraint, isGoTrialUser } from "./goUsage";
+import { goCapacityConstraint, goTrialEndsAt, isGoTrialUser } from "./goUsage";
 import { isSyntheticAccountEmail, rememberSyntheticUser } from "../analytics/syntheticAccounts";
 import {
   captureVmRequestOutcome,
@@ -604,12 +604,47 @@ export async function vmMemoryUnavailableResponse(maxMemoryMb: number, locale: L
   return vmErrorResponse({ error: "vm_memory_unavailable", status: 409, message: copy.message, action: copy.action, displayTitle: copy.title, phase: "billing" });
 }
 
+/**
+ * A Pro trial account asked for a size beyond the trial: it becomes available
+ * when full Pro starts (the trial's end date, shown in the caller's locale).
+ */
+export async function vmMemoryTrialResponse(input: {
+  readonly memoryMb: number;
+  readonly maxMemoryMb: number;
+  readonly trialEndsAt: Date;
+}, locale: Locale = "en"): Promise<Response> {
+  const memoryGb = Math.round(input.memoryMb / 1024);
+  const maxGb = Math.round(input.maxMemoryMb / 1024);
+  const date = new Intl.DateTimeFormat(locale, { dateStyle: "long", timeZone: "UTC" }).format(input.trialEndsAt);
+  const copy = await vmMemoryErrorCopy("memoryTrial", locale, { memory: memoryGb, max: maxGb, date });
+  return vmErrorResponse({
+    error: "vm_memory_requires_plan",
+    status: 402,
+    message: copy.message,
+    action: copy.action,
+    displayTitle: copy.title,
+    phase: "billing",
+    retryable: false,
+    details: { requestedMemoryMb: input.memoryMb, maxMemoryMb: input.maxMemoryMb, trialEndsAt: input.trialEndsAt.toISOString() },
+    extra: {
+      upgradeRequired: false,
+      trial: true,
+      trialEndsAt: input.trialEndsAt.toISOString(),
+      memoryMb: input.memoryMb,
+      maxMemoryMb: input.maxMemoryMb,
+    },
+  });
+}
+
 export async function vmMemoryRequiresPlanResponse(input: {
   readonly memoryMb: number;
   readonly maxMemoryMb: number;
   readonly planId: string;
   readonly upgradePlanId: string;
 }, locale: Locale = "en"): Promise<Response> {
+  // A Pro trial is already the Pro subscription: no upgrade; the size comes when full Pro starts.
+  const trialEndsAt = input.planId === "go" && input.upgradePlanId === "pro" ? await vmCallerTrialEndsAt() : null;
+  if (trialEndsAt) return vmMemoryTrialResponse({ memoryMb: input.memoryMb, maxMemoryMb: input.maxMemoryMb, trialEndsAt }, locale);
   const memoryGb = Math.round(input.memoryMb / 1024);
   const maxGb = Math.round(input.maxMemoryMb / 1024);
   const upgradeName = input.upgradePlanId.charAt(0).toUpperCase() + input.upgradePlanId.slice(1);
@@ -922,6 +957,11 @@ export function vmModelPlaneErrorResponse(
  * trial (internally the Go entitlement). Read lazily, only when a Go limit
  * answers the request.
  */
+async function vmCallerTrialEndsAt(): Promise<Date | null> {
+  const userId = currentVmRequestContext()?.userId;
+  return userId ? await goTrialEndsAt(userId) : null;
+}
+
 async function vmCallerOnGoTrial(): Promise<boolean> {
   const userId = currentVmRequestContext()?.userId;
   return userId ? await isGoTrialUser(userId) : false;

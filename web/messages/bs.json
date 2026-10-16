@@ -96,6 +96,11 @@
       "message": "Mašine sa {memory} GiB zahtijevaju cmux {plan}. Vaš paket podržava do {max} GiB.",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "cmux Pro probni period",
+      "message": "Mašine od {memory} GiB postaju dostupne kada puni Pro počne {date}. Pro probni period podržava do {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "Nije moguće provjeriti veličinu RAM-a izvorne mašine.",
       "action": "cmux vm new --size 4g"

@@ -96,6 +96,11 @@
       "message": "تتطلب الأجهزة بسعة {memory} GiB اشتراك cmux {plan}. تدعم خطتك حتى {max} GiB.",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "الفترة التجريبية لـ cmux Pro",
+      "message": "تصبح الأجهزة بسعة {memory} GiB متاحة عند بدء Pro الكامل في {date}. تدعم الفترة التجريبية لـ Pro حتى {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "تعذر التحقق من حجم RAM للجهاز المصدر.",
       "action": "cmux vm new --size 4g"

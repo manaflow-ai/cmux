@@ -107,6 +107,12 @@ const vmPublicationDeletionModule = await import(
 const realDeleteVmPublicationsForVmDeletion =
   vmPublicationDeletionModule.deleteVmPublicationsForVmDeletion;
 const dbClientModule = await import("../db/client");
+const goUsageModule = { ...(await import("../services/vms/goUsage")) };
+let goTrialEnd: Date | null = null;
+mock.module("../services/vms/goUsage", () => ({
+  ...goUsageModule,
+  goTrialEndsAt: async () => goTrialEnd,
+}));
 const realCloudDb = dbClientModule.cloudDb;
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
 const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
@@ -1097,6 +1103,31 @@ describe("VM REST auth", () => {
       maxMemoryMb: 16384,
     });
     expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("a Pro trial account asking for a larger machine is told when full Pro starts, not to upgrade", async () => {
+    getUser.mockResolvedValue(stackUserForPlan("go"));
+    goTrialEnd = new Date("2026-10-22T12:00:00Z");
+    try {
+      const request = (locale?: string) => new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test", ...(locale ? { "accept-language": locale } : {}) },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 8192 }),
+      });
+      const response = await POST(request());
+      expect(response.status).toBe(402);
+      const payload = await response.json() as Record<string, unknown>;
+      expect(payload).toMatchObject({ error: "vm_memory_requires_plan", upgradeRequired: false, trial: true, trialEndsAt: "2026-10-22T12:00:00.000Z" });
+      expect(payload.upgradeUrl).toBeUndefined();
+      expect(JSON.stringify(payload)).toContain("October 22, 2026");
+      expect(JSON.stringify(payload)).not.toContain("checkout");
+      expect(runVmWorkflow).not.toHaveBeenCalled();
+      // Without a trial, the same Go request offers Pro as before.
+      goTrialEnd = null;
+      expect(await (await POST(request())).json()).toMatchObject({ upgradeRequired: true, upgradePlanId: "pro" });
+    } finally {
+      goTrialEnd = null;
+    }
   });
 
   test("starts a 32 GB machine on Max", async () => {

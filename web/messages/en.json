@@ -263,6 +263,11 @@
       "message": "{memory} GiB machines need cmux {plan}. Your plan supports up to {max} GiB.",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "cmux Pro trial",
+      "message": "{memory} GiB machines become available when full Pro starts on {date}. The Pro trial supports up to {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "The source machine’s RAM size could not be verified.",
       "action": "cmux vm new --size 4g"

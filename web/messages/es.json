@@ -96,6 +96,11 @@
       "message": "Las máquinas de {memory} GiB requieren cmux {plan}. Tu plan admite hasta {max} GiB.",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "Prueba de cmux Pro",
+      "message": "Las máquinas de {memory} GiB estarán disponibles cuando empiece Pro completo, el {date}. La prueba de Pro admite hasta {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "No se pudo verificar la RAM de la máquina de origen.",
       "action": "cmux vm new --size 4g"

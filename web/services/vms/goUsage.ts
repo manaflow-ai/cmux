@@ -87,6 +87,19 @@ export async function isGoTrialUser(userId: string, now = new Date()): Promise<b
   }
 }
 
+/**
+ * When the caller's iOS Pro free trial ends (full Pro starts then), or null
+ * when the caller is not on the trial. Fails closed to null.
+ */
+export async function goTrialEndsAt(userId: string, now = new Date()): Promise<Date | null> {
+  try {
+    const subscription = await personalBillingPeriod(userId, { now, stripeStatuses: ["active", "trialing"] });
+    return subscription?.planId === "go" && subscription.trial === true ? subscription.period?.end ?? null : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Drizzle wraps PostgreSQL constraints; inspect only the known public limits. */
 export function goCapacityConstraint(cause: unknown): "saved" | "active" | "hours" | "period" | null {
   const seen = new Set<unknown>();

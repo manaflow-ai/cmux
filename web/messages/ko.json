@@ -96,6 +96,11 @@
       "message": "{memory} GiB 머신에는 cmux {plan}이 필요합니다. 현재 요금제는 최대 {max} GiB를 지원합니다.",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "cmux Pro 체험",
+      "message": "{memory} GiB 머신은 정식 Pro가 시작되는 {date}부터 사용할 수 있습니다. Pro 체험은 최대 {max} GiB까지 지원합니다.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "원본 머신의 RAM 크기를 확인할 수 없습니다.",
       "action": "cmux vm new --size 4g"

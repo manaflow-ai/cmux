@@ -96,6 +96,11 @@
       "message": "เครื่องขนาด {memory} GiB ต้องใช้ cmux {plan} แผนของคุณรองรับสูงสุด {max} GiB",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "ช่วงทดลองใช้ cmux Pro",
+      "message": "เครื่องขนาด {memory} GiB จะใช้ได้เมื่อ Pro แบบเต็มเริ่มในวันที่ {date} ช่วงทดลองใช้ Pro รองรับสูงสุด {max} GiB",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "ไม่สามารถตรวจสอบขนาด RAM ของเครื่องต้นทางได้",
       "action": "cmux vm new --size 4g"
