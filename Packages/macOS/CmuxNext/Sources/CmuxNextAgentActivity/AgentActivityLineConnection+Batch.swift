@@ -1,5 +1,5 @@
 public import CmuxNextCompat
-import Foundation
+public import Foundation
 
 extension AgentActivityLineConnection {
     /// Starts the connection and delivers its lines to the main actor in
