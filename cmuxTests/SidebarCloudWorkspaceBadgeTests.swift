@@ -63,7 +63,7 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(snapshot.cloudWorkspaceLabel == nil)
     }
 
-    @Test func deviceProjectionUsesComputerBadgeInBothSidebarSnapshots() throws {
+    @Test func deviceProjectionUsesComputerBadge() throws {
         let workspace = Workspace(title: "Project", initialSurface: .cloudVMLoading)
         let panelID = try #require(workspace.focusedPanelId)
         let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "default"))

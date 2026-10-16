@@ -70,48 +70,37 @@ import Testing
 
     static func snapshot(
         presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey? = nil,
-        title: String = "workspace",
-        customDescription: String? = nil,
-        isPinned: Bool = false,
-        customColorHex: String? = nil,
-        hasManualCustomColor: Bool? = nil,
-        remoteConnectionStatusText: String = "Disconnected",
-        latestConversationMessage: String? = nil,
-        listeningPorts: [Int] = [],
-        finderDirectoryPath: String? = nil,
-        mediaActivity: BrowserMediaActivity = BrowserMediaActivity(),
-        activeCodingAgentCount: Int = 0,
-        compactStatusGlyph: SidebarCompactStatusGlyph? = nil
+        title: String = "workspace"
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey ?? Self.presentationKey(),
             title: title,
-            customDescription: customDescription,
-            isPinned: isPinned,
+            customDescription: nil,
+            isPinned: false,
             isMuted: false,
-            customColorHex: customColorHex,
-            hasManualCustomColor: hasManualCustomColor ?? (customColorHex != nil),
+            customColorHex: nil,
+            hasManualCustomColor: false,
             cloudWorkspaceLabel: nil,
             remoteWorkspaceSidebarText: nil,
-            remoteConnectionStatusText: remoteConnectionStatusText,
+            remoteConnectionStatusText: "Disconnected",
             remoteStateHelpText: "",
             showsRemoteReconnectAffordance: false,
             copyableSidebarSSHError: nil,
-            latestConversationMessage: latestConversationMessage,
+            latestConversationMessage: nil,
             metadataEntries: [],
             metadataBlocks: [],
             latestLog: nil,
             progress: nil,
-            activeCodingAgentCount: activeCodingAgentCount,
+            activeCodingAgentCount: 0,
             compactGitBranchSummaryText: nil,
             compactDirectoryCandidates: [],
             compactBranchDirectoryCandidates: [],
             branchDirectoryLines: [],
             branchLinesContainBranch: false,
             pullRequestRows: [],
-            listeningPorts: listeningPorts,
-            finderDirectoryPath: finderDirectoryPath,
-            mediaActivity: mediaActivity,
+            listeningPorts: [],
+            finderDirectoryPath: nil,
+            mediaActivity: BrowserMediaActivity(),
             taskStatus: nil,
             todoStatusMenuModel: nil,
             hasManualTaskStatus: false,
@@ -119,7 +108,7 @@ import Testing
             checklistCompletedCount: 0,
             checklistTotalCount: 0,
             checklistFirstUncheckedText: nil,
-            compactStatusGlyph: compactStatusGlyph
+            compactStatusGlyph: nil
         )
     }
 
