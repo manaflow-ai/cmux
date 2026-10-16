@@ -62,6 +62,11 @@ on:
         required: false
         default: ""
         type: string
+      bake_result:
+        description: "Adopt an existing bake receipt JSON, then verify and derive sizes (requires PROMOTE)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -142,13 +147,19 @@ jobs:
           CMUX_DEVBOX_CUA_PROOF_DIR: ${{ runner.temp }}/devbox-cua-proof
           SLUG: cmux-devbox-${{ github.run_id }}
           VERIFY_IMAGE: ${{ inputs.verify_image }}
+          BAKE_RESULT: ${{ inputs.bake_result }}
         run: |
           set -euo pipefail
           if [ -n "$VERIFY_IMAGE" ]; then
             bun run devbox:verify -- freestyle "$VERIFY_IMAGE" --expect-kind desktop
             exit 0
           fi
-          bun run devbox:promote -- freestyle \
+          adopt=()
+          if [ -n "$BAKE_RESULT" ]; then
+            printf '%s\n' "$BAKE_RESULT" > "$RUNNER_TEMP/devbox-bake.json"
+            adopt=(--bake-result "$RUNNER_TEMP/devbox-bake.json")
+          fi
+          bun run devbox:promote -- freestyle "${adopt[@]}" \
             --slug "$SLUG" \
             --pointer-slug none \
             --out "$PROMOTION_OUT"

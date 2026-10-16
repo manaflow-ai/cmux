@@ -83,7 +83,7 @@ class McpClient:
 
 
 def screenshot(client, destination):
-    result = client.call("get_desktop_state", {"max_image_dimension": 0})
+    result = client.call("get_desktop_state", {})
     images = [item for item in result.get("content", []) if item.get("type") == "image"]
     assert images, "MCP returned no desktop image"
     data = base64.b64decode(images[0]["data"], validate=True)
