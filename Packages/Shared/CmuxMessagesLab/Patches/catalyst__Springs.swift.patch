@@ -10,3 +10,13 @@
                let data = try? Data(contentsOf: url),
                let obj = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] else { return [:] }
          var out: [String: SpringElement] = [:]
+@@ -195,7 +196,8 @@
+     }()
+     /// The `travelLaw` objects of springs.json, by element name.
+     static let travelLaws: [String: TravelLaw] = {
+-        guard let url = Bundle.main.url(forResource: "springs", withExtension: "json"),
++        // cmux: a package resource, as `all` (Bundle.main has no springs.json: no travel law, the old width).
++        guard let url = Bundle.module.url(forResource: "springs", withExtension: "json"),
+               let data = try? Data(contentsOf: url),
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] else { return [:] }
+         var out: [String: TravelLaw] = [:]
