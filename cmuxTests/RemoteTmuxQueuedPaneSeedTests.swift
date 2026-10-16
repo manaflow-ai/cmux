@@ -118,6 +118,76 @@ import Testing
         #expect(fixture.connection.queuedPaneSeedIDs.isEmpty)
     }
 
+    /// A seed outside the queue (a repaint or a reconnect reseed) holds the whole seed budget.
+    /// When the queue pops a pane the budget refuses, that pane goes to the budget recovery and
+    /// the pop stops, leaving the panes behind it waiting. If no queued seed is in flight then,
+    /// nothing finishing in the queue will start them, so the recovery has to once the budget
+    /// frees.
+    @Test func panesWaitingBehindAFullSeedBudgetStartWhenItFrees() async {
+        // Measure what the holder seed retains once its capture is in, then size the budget so
+        // the holder fits and a queued pane's 11-byte reset prefix does not fit beside it.
+        let probe = Self.attachedConnection()
+        Self.startHolderSeed(on: probe.connection)
+        let holderBytes = probe.connection.pendingPaneSeedByteCount
+        probe.close()
+        let fixture = Self.attachedConnection(pendingPaneSeedByteLimit: holderBytes + 5)
+        defer { fixture.close() }
+        var commandNumber = Self.startHolderSeed(on: fixture.connection)
+        #expect(fixture.connection.pendingPaneSeedByteCount == holderBytes)
+
+        fixture.connection.queuePaneSeed(paneId: 1)
+        #expect(fixture.connection.queuedPaneSeedIDs.isEmpty, "the budget is full, so no queued seed started")
+        // Panes 2 to 4 were already waiting behind pane 1 when its pop was refused: the state
+        // the queue is left in when the pop stops at a refused pane with no seed in flight.
+        fixture.connection.queuedPaneSeedPaneIDs = [2, 3, 4]
+
+        var seeded: Set<Int> = []
+        var quietTurns = 0
+        var answered: [String] = []
+        while quietTurns < 3, answered.count < 400 {
+            seeded.formUnion(fixture.connection.pendingPaneSeeds.keys)
+            if let kind = fixture.connection.pendingCommandKindsForTesting.first {
+                quietTurns = 0
+                // The holder's capture fills the budget; the queued panes' captures are empty.
+                let lines: [String]
+                if case let .capturePane(paneId, _) = kind {
+                    lines = paneId == 99 ? [String(repeating: "x", count: 16)] : []
+                } else {
+                    lines = Self.reply(to: kind)
+                }
+                fixture.connection.handleMessageForTesting(
+                    .commandResult(commandNumber: commandNumber, lines: lines, isError: false))
+                commandNumber += 1
+                answered.append(String(describing: kind).prefix(while: { $0 != "(" }).description)
+            } else {
+                // The budget recovery runs as a main-actor task after the release that frees it.
+                await Task { @MainActor in }.value
+                quietTurns += 1
+            }
+        }
+
+        #expect(answered.count < 400, "the replies never ran out: \(answered.suffix(24)) events: \(fixture.connection.snapshot().recentEvents.suffix(30))")
+        #expect(fixture.connection.connectionState == .connected)
+        #expect(seeded.isSuperset(of: [1, 2, 3, 4]), "seeded: \(seeded.sorted())")
+        #expect(fixture.connection.queuedPaneSeedPaneIDs.isEmpty)
+    }
+
+    /// Seeds pane 99 outside the queue and delivers its capture, stopping before the state
+    /// reply that would finish it. Returns the next command number to answer with.
+    @discardableResult
+    private static func startHolderSeed(on connection: RemoteTmuxControlConnection) -> Int {
+        _ = connection.seedPane(paneId: 99, clearScrollback: true)
+        var commandNumber = 40
+        while let kind = connection.pendingCommandKindsForTesting.first {
+            if case .paneState = kind { break }
+            let lines: [String]
+            if case .capturePane = kind { lines = [String(repeating: "x", count: 16)] } else { lines = reply(to: kind) }
+            connection.handleMessageForTesting(.commandResult(commandNumber: commandNumber, lines: lines, isError: false))
+            commandNumber += 1
+        }
+        return commandNumber
+    }
+
     private static func reply(to kind: RemoteTmuxControlConnection.CommandKind) -> [String] {
         switch kind {
         case .paneReflow: return ["0|zsh"]
@@ -133,10 +203,13 @@ import Testing
         }
     }
 
-    private static func attachedConnection() -> Fixture {
+    private static func attachedConnection(
+        pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes
+    ) -> Fixture {
         let connection = RemoteTmuxControlConnection(
             host: RemoteTmuxHost(destination: "queued-seed.test"),
-            sessionName: "work")
+            sessionName: "work",
+            pendingPaneSeedByteLimit: pendingPaneSeedByteLimit)
         let pipe = Pipe()
         // Drain like ssh would, so a write never blocks on a full pipe.
         pipe.fileHandleForReading.readabilityHandler = { _ = $0.availableData }
