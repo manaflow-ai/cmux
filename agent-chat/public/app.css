@@ -856,6 +856,37 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 .gallery-inline-overflow {
   position: static; width: 100%; max-width: none;
 }
+.orchestration-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;
+}
+.orchestration-card {
+  min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--bg-input); transition: border-color .14s ease-out, box-shadow .14s ease-out;
+}
+.orchestration-card.selected {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.orchestration-card-select {
+  display: flex; width: 100%; flex-direction: column; gap: 4px; padding: 12px 12px 10px;
+  border: 0; border-bottom: 1px solid var(--border); color: var(--text); text-align: left;
+  background: transparent; cursor: pointer;
+}
+.orchestration-card-select:hover { background: var(--bg-hover); }
+.orchestration-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.orchestration-card-title { font: 500 var(--font-size-base) var(--font-sans); }
+.orchestration-card-description { color: var(--text-faint); font: calc(var(--font-size-base) - 1px) / 1.35 var(--font-sans); }
+.orchestration-status {
+  flex: none; border-radius: 999px; padding: 2px 7px; color: var(--text-dim);
+  font: 500 calc(var(--font-size-code) - 1.5px) var(--font-mono); text-transform: uppercase;
+}
+.orchestration-status-running { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+.orchestration-status-reserved { background: color-mix(in srgb, #d9a441 17%, transparent); color: #d9a441; }
+.orchestration-status-queued { background: color-mix(in srgb, var(--text-faint) 15%, transparent); }
+.orchestration-fields { display: grid; gap: 7px; margin: 0; padding: 12px; }
+.orchestration-fields > div { display: grid; grid-template-columns: minmax(86px, .7fr) minmax(0, 1.3fr); gap: 8px; }
+.orchestration-fields dt { color: var(--text-faint); font: calc(var(--font-size-code) - 1.5px) / 1.3 var(--font-mono); }
+.orchestration-fields dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--text-dim); font: calc(var(--font-size-code) - 1px) / 1.3 var(--font-mono); }
 .gallery-tooltip-row {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 46px;
 }
