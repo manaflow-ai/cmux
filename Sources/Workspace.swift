@@ -11324,7 +11324,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     func requestCloseTab(_ tabId: TabID, force: Bool) -> Bool {
         // Chief Home is the workspace's canonical anchor. Its split tab is
-        // intentionally pinned (which hides Bonsplit's close affordance), but
+        // intentionally ordinary so it can move like every other Bonsplit tab;
         // keep this guard for force/API paths that bypass the tab chrome.
         if let panelId = panelIdFromSurfaceId(tabId),
            (panels[panelId] as? ChiefPanel)?.isHome == true {
