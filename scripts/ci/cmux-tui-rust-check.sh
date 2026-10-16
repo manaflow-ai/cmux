@@ -41,6 +41,22 @@ if [[ -n "$filter" && ! "$filter" =~ ^[A-Za-z0-9_:.-]{1,200}$ ]]; then
   echo "error: TEST_FILTER must be one Rust test-name substring (letters, digits, _ : . -)" >&2
   exit 2
 fi
+# CMUX_RUST_TEST_SHARD=i/n (cmux-ci run --shards N) runs the i-th of n nextest
+# partitions (--partition count:i/n) of the workspace tests; fmt, clippy and the
+# doc tests run only in shard 1, so the n steps together run each check once.
+shard="${CMUX_RUST_TEST_SHARD:-}"
+shard_i=1
+if [[ -n "$shard" ]]; then
+  if [[ ! "$shard" =~ ^([1-9][0-9]?)/([1-9][0-9]?)$ ]] || (( BASH_REMATCH[1] > BASH_REMATCH[2] )); then
+    echo "error: CMUX_RUST_TEST_SHARD must be i/n with 1 <= i <= n <= 99" >&2
+    exit 2
+  fi
+  shard_i="${BASH_REMATCH[1]}"
+  case "$mode" in test|all) ;; *) echo "error: CMUX_RUST_TEST_SHARD applies only to the test and all modes" >&2; exit 2 ;; esac
+  # A partition of a filtered run can hold no test, which --no-tests=fail makes red.
+  [[ -z "$filter" ]] || { echo "error: CMUX_RUST_TEST_SHARD does not take a TEST_FILTER" >&2; exit 2; }
+  echo "gate-notice: shard $shard (nextest --partition count:$shard)"
+fi
 umask 022
 root="$(pwd -P)"
 # Public CI keeps the step-private target directory. HQ marks managed workers
@@ -530,6 +546,7 @@ workspace_tests() {
   local junit="$root/cmux-tui/target/nextest/ci/junit.xml" rc rrc vrc n expr verdict line
   local args=(nextest run --workspace --locked --profile ci --no-tests=fail)
   [[ "$fail_fast" != 1 ]] || args+=(--fail-fast)
+  [[ -z "$shard" ]] || args+=(--partition "count:$shard")
   [[ -z "$filter" ]] || args+=("$filter")
   [[ "${#skip_args[@]}" -eq 0 ]] || args+=(-- "${skip_args[@]}")
   mkdir -p "$(dirname "$test_log")"
@@ -586,7 +603,7 @@ crate_table() {
 }
 finish() {
   echo
-  echo "=== cmux-tui-rust-check summary (mode $mode${filter:+, filter $filter}, $( [[ "$fail_fast" == 1 ]] && echo fail-fast || echo no-fail-fast ))"
+  echo "=== cmux-tui-rust-check summary (mode $mode${filter:+, filter $filter}${shard:+, shard $shard}, $( [[ "$fail_fast" == 1 ]] && echo fail-fast || echo no-fail-fast ))"
   printf '%-28s %-22s %s\n' step result seconds
   local row
   for row in "${step_rows[@]}"; do
@@ -649,17 +666,17 @@ if [[ "$mode" == rb-testhost ]]; then
   step "rb-testhost artifact" copy_testhost
   finish
 fi
-if [[ "$mode" == fmt || "$mode" == all ]]; then
+if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
   step fmt cargo fmt --all --check
 fi
-if [[ "$mode" == clippy || "$mode" == all ]]; then
+if [[ "$mode" == clippy || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
   step clippy cargo clippy --workspace --all-targets --locked -- -D warnings
 fi
 if [[ "$mode" == test || "$mode" == all ]]; then
   step "base-red list" load_base_red
   step "cargo-nextest" ensure_nextest
   step "workspace tests" workspace_tests
-  if [[ -z "$filter" ]]; then
+  if [[ -z "$filter" && "$shard_i" == 1 ]]; then
     step "doc tests" doc_tests
   fi
   # A Testbox or another host without a step reaper keeps what the run left.
