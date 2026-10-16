@@ -11,8 +11,10 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
         freeAccessWindowDays: Int = 0,
         freeAccessExpiresAt: Date? = nil,
         freeAccessBanner: FreeAccessBanner = .none,
-        resourcePool: CloudVMResourcePool? = nil
+        resourcePool: CloudVMResourcePool? = nil,
+        isProTrial: Bool = false
     ) {
+        self.isProTrial = isProTrial
         self.activeCount = activeCount
         self.maxActiveVms = maxActiveVms
         self.planId = planId
@@ -34,6 +36,9 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
     /// The vCPU and memory pool every active machine shares; nil for plans
     /// without a pool (Go, free) and control planes that predate it.
     public var resourcePool: CloudVMResourcePool? = nil
+    /// The plan is a Pro free trial on the Go allowance (`planId` is "go").
+    /// A trial is never offered an upgrade: full Pro starts when it converts.
+    public var isProTrial: Bool = false
 
     /// The count the Cloud Machines header shows, and whether it is at the ceiling.
     public var usage: CloudMachinesUsage {
@@ -50,6 +55,7 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
     /// from Pro up (Pro, Team, Founders, Max) sells the same machine count, so
     /// only Free, Go and an unknown id can move up.
     public var hasHigherPlan: Bool {
+        if isProTrial { return false }
         guard let tier = CmuxPlanTier(planID: planId) else { return true }
         return !tier.includesPro
     }
@@ -58,7 +64,8 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
     /// Team and Founders have the same active-machine tier as Max but can still
     /// upgrade their shared pool to Max capacity.
     public var hasHigherResourcePoolPlan: Bool {
-        planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "max"
+        if isProTrial { return false }
+        return planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "max"
     }
 
     public static func isPaidPlanID(_ planId: String) -> Bool {

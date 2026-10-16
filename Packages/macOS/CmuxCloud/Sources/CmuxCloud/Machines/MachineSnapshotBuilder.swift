@@ -231,7 +231,8 @@ public enum MachineSnapshotBuilder: Sendable {
             freeAccessWindowDays: limits.freeAccessWindowDays,
             freeAccessExpiresAt: expiresAt,
             freeAccessBanner: freeAccessBanner(expiresAt: expiresAt, isPaidPlan: isPaidPlan, now: now),
-            resourcePool: limits.resourcePool
+            resourcePool: limits.resourcePool,
+            isProTrial: limits.isProTrial
         )
     }
 }

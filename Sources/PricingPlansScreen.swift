@@ -2,6 +2,7 @@ import CmuxCloud
 import CmuxProductAnalytics
 import AppKit
 import CMUXMobileCore
+import CmuxSettingsUI
 import Bonsplit
 import Foundation
 import SwiftUI
@@ -259,6 +260,17 @@ private struct NativeBillingPlanResponse: Decodable {
     let subscriptionPlanId: String?
     let isPro: Bool
     let user: User?
+    /// Present while the account is on a Pro free trial (`subscriptionPlanId`
+    /// is then "pro"). The trial is named "Pro trial" and sold nothing.
+    let trial: CmuxProTrial?
+    let teamPlanId: String?
+
+    /// The personal trial, unless a team plan of Pro or higher outranks it
+    /// (the same rule as the account's billing plan in Settings).
+    var proTrial: CmuxProTrial? {
+        guard let trial, !(CmuxPlanTier(planID: teamPlanId) ?? .free).includesPro else { return nil }
+        return trial
+    }
 
     /// The plan the pricing cards mark as current.
     var resolvedPlanId: NativePricingPlanID {
@@ -276,9 +288,12 @@ private struct NativePricingSnapshot: Equatable, Sendable {
     var planId: NativePricingPlanID = .free
     var isPro = false
     var email: String?
+    var proTrial: CmuxProTrial?
 
     var isMax: Bool { planId == .max }
     var isGo: Bool { planId == .go }
+    /// A Pro free trial: shown as "Pro trial", offered no plan purchase.
+    var isProTrial: Bool { proTrial != nil && planId == .pro }
 }
 
 private struct NativeBillingTokens: Sendable {
@@ -375,7 +390,8 @@ private final class NativePricingPlanStore: ObservableObject {
                 billingAvailable: decoded.billingAvailable,
                 planId: decoded.resolvedPlanId,
                 isPro: decoded.isPro,
-                email: decoded.user?.primaryEmail
+                email: decoded.user?.primaryEmail,
+                proTrial: decoded.proTrial
             ))
         } catch is CancellationError {
             return .idle
@@ -448,6 +464,12 @@ private struct NativePricingPlansView: View {
                 actionTitle: String(localized: "pricing.native.status.retry", defaultValue: "Retry"),
                 action: { store.refresh() }
             )
+        case .loaded(let snapshot) where snapshot.isProTrial:
+            NativePricingStatusRow(
+                text: snapshot.proTrial?.summaryText ?? CmuxProTrial.displayName,
+                actionTitle: nil,
+                action: nil
+            )
         case .loaded(let snapshot) where !snapshot.billingAvailable:
             NativePricingStatusRow(
                 text: String(localized: "pricing.native.status.billingUnavailable", defaultValue: "Billing is not configured for this environment."),
@@ -463,6 +485,8 @@ private struct NativePricingPlansView: View {
         let plan: String
         if snapshot.isMax {
             plan = String(localized: "pricing.native.plan.max", defaultValue: "Max")
+        } else if snapshot.isProTrial {
+            plan = CmuxProTrial.displayName
         } else if snapshot.isGo {
             plan = String(localized: "pricing.native.plan.go", defaultValue: "Go")
         } else if snapshot.isPro {
@@ -549,28 +573,33 @@ private struct NativePricingPlansView: View {
                 period: String(localized: "pricing.native.period.month", defaultValue: "/month"),
                 isCurrent: snapshot.isMax,
                 actionTitle: maxActionTitle,
-                action: snapshot.isMax ? nil : { ProUpgradePresenter.presentCheckout(source: .nativePricingPreview, plan: .max) },
+                // A Pro free trial buys nothing here: a second subscription
+                // would bill twice, and full Pro starts when the trial converts.
+                action: snapshot.isMax || snapshot.isProTrial ? nil : { ProUpgradePresenter.presentCheckout(source: .nativePricingPreview, plan: .max) },
                 isProminent: snapshot.isMax,
                 features: [
                     String(localized: "pricing.native.max.feature.sizes", defaultValue: "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM; Max unlocks 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB / 32 vCPU"),
                     String(localized: "pricing.native.max.feature.pro", defaultValue: "Unlimited workspaces and the iOS app"),
                 ]
             )
-            NativePricingPlanCard(
-                name: String(localized: "pricing.native.plan.team", defaultValue: "Team"),
-                price: String(localized: "pricing.native.team.price", defaultValue: "$60"),
-                period: String(localized: "pricing.native.period.userMonth", defaultValue: "/user/month"),
-                isCurrent: false,
-                actionTitle: String(localized: "pricing.native.team.cta", defaultValue: "Get Teams"),
-                action: { NSWorkspace.shared.open(AuthEnvironment.websiteOrigin) },
-                features: [
-                    String(localized: "pricing.native.team.feature.billing", defaultValue: "Unified billing for the whole team"),
-                    String(localized: "pricing.native.team.feature.seats", defaultValue: "Centralized seat management"),
-                    String(localized: "pricing.native.team.feature.compute", defaultValue: "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team"),
-                    String(localized: "pricing.native.team.feature.gateway", defaultValue: "Team-wide model gateway analytics"),
-                    String(localized: "pricing.native.team.feature.support", defaultValue: "Priority email support"),
-                ]
-            )
+            // A Pro free trial is offered no plan purchase, so Teams is not shown to it.
+            if !snapshot.isProTrial {
+                NativePricingPlanCard(
+                    name: String(localized: "pricing.native.plan.team", defaultValue: "Team"),
+                    price: String(localized: "pricing.native.team.price", defaultValue: "$60"),
+                    period: String(localized: "pricing.native.period.userMonth", defaultValue: "/user/month"),
+                    isCurrent: false,
+                    actionTitle: String(localized: "pricing.native.team.cta", defaultValue: "Get Teams"),
+                    action: { NSWorkspace.shared.open(AuthEnvironment.websiteOrigin) },
+                    features: [
+                        String(localized: "pricing.native.team.feature.billing", defaultValue: "Unified billing for the whole team"),
+                        String(localized: "pricing.native.team.feature.seats", defaultValue: "Centralized seat management"),
+                        String(localized: "pricing.native.team.feature.compute", defaultValue: "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team"),
+                        String(localized: "pricing.native.team.feature.gateway", defaultValue: "Team-wide model gateway analytics"),
+                        String(localized: "pricing.native.team.feature.support", defaultValue: "Priority email support"),
+                    ]
+                )
+            }
             NativePricingPlanCard(
                 name: String(localized: "pricing.native.plan.enterprise", defaultValue: "Enterprise"),
                 price: String(localized: "pricing.native.enterprise.price", defaultValue: "Custom"),
@@ -597,6 +626,9 @@ private struct NativePricingPlansView: View {
         if snapshot.isMax {
             return String(localized: "pricing.native.manageBilling", defaultValue: "Manage billing")
         }
+        if snapshot.isProTrial {
+            return CmuxProTrial.displayName
+        }
         if snapshot.isPro && !snapshot.isGo {
             return String(localized: "pricing.native.currentPlan", defaultValue: "Current plan")
         }
@@ -612,7 +644,7 @@ private struct NativePricingPlansView: View {
         if snapshot.isMax {
             return { ProUpgradePresenter.presentBillingPortal() }
         }
-        if snapshot.isPro && !snapshot.isGo {
+        if snapshot.isProTrial || (snapshot.isPro && !snapshot.isGo) {
             return nil
         }
         return { ProUpgradePresenter.presentCheckout(source: .nativePricingPreview) }
@@ -621,6 +653,9 @@ private struct NativePricingPlansView: View {
     private var maxActionTitle: String {
         if snapshot.isMax {
             return String(localized: "pricing.native.currentPlan", defaultValue: "Current plan")
+        }
+        if snapshot.isProTrial {
+            return String(localized: "pricing.native.max.afterTrial", defaultValue: "Available after trial")
         }
         return String(localized: "pricing.native.max.cta", defaultValue: "Get Max")
     }

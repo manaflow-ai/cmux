@@ -1,4 +1,5 @@
 import CmuxCloud
+import CMUXMobileCore
 import CmuxSettingsUI
 import Foundation
 
@@ -58,7 +59,10 @@ extension HostSettingsActions {
         // Same classifier as the Machines panel so Settings and the panel never
         // disagree about an unknown plan id (both fail closed to "not paid").
         let isPaid = MachinePlanSnapshot.isPaidPlanID(limits.planId)
-        let planLabel = isPaid
+        // A Pro free trial runs on the Go allowance; it is named Pro trial.
+        let planLabel = limits.isProTrial
+            ? CmuxProTrial.displayName
+            : isPaid
             ? limits.planId.capitalized
             : String(localized: "settings.cloudMachines.plan.free", defaultValue: "Free")
         return CloudMachinesPlanSummary(

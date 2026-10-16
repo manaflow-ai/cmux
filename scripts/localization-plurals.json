@@ -781,5 +781,17 @@
     "arguments": [
       1
     ]
+  },
+  "plan.proTrial.machines": {
+    "source": "%d machines",
+    "arguments": [
+      1
+    ]
+  },
+  "plan.proTrial.vmHours": {
+    "source": "%d VM-hours",
+    "arguments": [
+      1
+    ]
   }
 }
