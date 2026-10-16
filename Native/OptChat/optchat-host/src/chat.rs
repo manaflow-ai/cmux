@@ -591,7 +591,14 @@ impl OptChat {
         let st = self.shared.lock();
         (
             optchat_core::frozen_text(frozen, &st.store),
-            optchat_core::delta_range(&st.memory, &st.store, frozen.front, new_from, end),
+            optchat_core::delta_range(
+                &st.memory,
+                &st.store,
+                frozen.front,
+                new_from,
+                end,
+                &frozen.cuts,
+            ),
         )
     }
 

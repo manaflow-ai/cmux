@@ -282,7 +282,7 @@ impl OptChat {
         serde_json::to_string(&parts).unwrap_or_else(|_| "[]".into())
     }
 
-    /// The turn input of spec 5a as JSON `{frozen: {parts: [[l, i]], front}, rerendered, view: [piece],
+    /// The turn input of spec 5a as JSON `{frozen: {parts: [[l, i]], front, unbuilt, cuts}, rerendered, view: [piece],
     /// delta: [block]}`: the frozen view cut into its 4-line blocks (`block_pieces`), then the delta
     /// blocks. `frozen` is the JSON this returned last turn, or "" for none; `new` is how many of the
     /// log's last messages are this turn's new ones (never shown in a re-rendered view).
@@ -294,6 +294,8 @@ impl OptChat {
             front: u64,
             #[serde(default)]
             unbuilt: Vec<(u32, u64)>,
+            #[serde(default)]
+            cuts: Vec<u64>,
         }
         #[derive(Serialize)]
         struct Out<'a> {
@@ -324,6 +326,7 @@ impl OptChat {
                     parts,
                     front: f.front,
                     unbuilt: ids(&f.unbuilt),
+                    cuts: f.cuts.clone(),
                 })
             }
         };
@@ -335,6 +338,7 @@ impl OptChat {
                 parts: t.frozen.parts.iter().map(|p| (p.l, p.i)).collect(),
                 front: t.frozen.front,
                 unbuilt: t.frozen.unbuilt.iter().map(|p| (p.l, p.i)).collect(),
+                cuts: t.frozen.cuts.clone(),
             },
             rerendered: t.rerendered,
             view: core::block_pieces(&t.view),

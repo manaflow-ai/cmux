@@ -608,14 +608,18 @@ pub const DATE_DESCRIPTION: &str = "The date and time of message id.";
 
 /// A turn's input in the cached layout (spec 5a): the frozen view in its
 /// blocks of 4 lines, the delta's blocks, the turn's `images`, then `tail`
-/// (per-turn state, never logged). Nothing per-turn goes before the delta's end. With `ttl`, three marks of the API's four: the `<chat>` header
-/// (the system prompt's own entry), the view's end and the delta's end. The
-/// previous turn's input is a prefix of this one up to its delta's end, a
-/// block boundary here, so the provider reads all of it.
+/// (per-turn state, never logged). Nothing per-turn goes before the delta's
+/// end. With `ttl`, marks on the view's end, on the previous request's end
+/// (`prev_end`, a delta block index: Bedrock has no look-back, so a read needs a
+/// mark exactly where the last request wrote; hq-1f measured 0.93 without it,
+/// 0.97 with it) and on the delta's end; with no previous end (a new view) the
+/// `<chat>` header instead, the system prompt's own entry. Three marks of the
+/// API's four.
 pub fn input_layout(
     system: &str,
     view: &str,
     delta: &[String],
+    prev_end: Option<usize>,
     images: &[Value],
     tail: &str,
     ttl: Option<CacheTtl>,
@@ -628,8 +632,12 @@ pub fn input_layout(
     let view_end = blocks.len() - 1;
     blocks.extend(delta.iter().map(|b| text(b)));
     let delta_end = blocks.len() - 1;
+    let first = match prev_end.filter(|b| *b < delta.len()) {
+        Some(b) => view_end + 1 + b,
+        None => 0,
+    };
     if let Some(ttl) = ttl {
-        for i in [0, view_end, delta_end] {
+        for i in [first, view_end, delta_end] {
             blocks[i]["cache_control"] = ttl.cache_control();
         }
     }
@@ -646,7 +654,18 @@ pub fn input_layout(
 /// `input_layout` without marks or system prompt: the blocks of a harness
 /// with automatic prefix caching (codex), byte-stable the same way.
 pub fn input_blocks(view: &str, delta: &[String], images: &[Value], tail: &str) -> Vec<Value> {
-    input_layout("", view, delta, images, tail, None).blocks
+    input_layout("", view, delta, None, images, tail, None).blocks
+}
+
+/// The index of the delta block that ends at log index `end` (an earlier
+/// request's end): the block before the first one whose first line is at or
+/// past it. None when no block ends there.
+pub fn block_ending_at(delta: &[String], end: u64) -> Option<usize> {
+    let first_id = |b: &String| -> Option<u64> { b.split_once('+')?.0.parse().ok() };
+    let next = delta
+        .iter()
+        .position(|b| first_id(b).is_some_and(|id| id >= end))?;
+    next.checked_sub(1)
 }
 
 /// The turn's user message (spec 6): the view rendered before the new

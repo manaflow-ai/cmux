@@ -493,6 +493,20 @@ impl Brain {
             text: input.view.clone(),
         };
         let view = &view;
+        // The previous request's end (the last cut before this one), when
+        // this turn kept the frozen view: it gets a mark (see input_layout).
+        let prev_end = (!input.rerendered)
+            .then(|| {
+                input
+                    .frozen
+                    .cuts
+                    .iter()
+                    .rev()
+                    .find(|c| **c < delta_end)
+                    .copied()
+            })
+            .flatten()
+            .and_then(|end| crate::prompt::block_ending_at(&input.delta, end));
         let cached = cached.as_deref();
         let (blocks, system_prompt, preset) = match cached {
             Some(preset) => {
@@ -512,6 +526,7 @@ impl Brain {
                     &self.settings.system_text,
                     &view.text,
                     &input.delta,
+                    prev_end,
                     &image_blocks,
                     &tail.join("\n\n"),
                     mark,
@@ -553,8 +568,11 @@ impl Brain {
             "new_from": first_new,
             "end": delta_end,
             "unbuilt": input.frozen.unbuilt.iter().map(|p| p.name()).collect::<Vec<_>>(),
+            // The cuts this delta was built with (this request's own end is past it).
+            "cuts": input.frozen.cuts.iter().filter(|c| **c < delta_end).collect::<Vec<_>>(),
             "bytes": input.delta.iter().map(String::len).sum::<usize>(),
             "rendered": input.rerendered,
+            "prev_end_block": prev_end,
         });
         if !resumes.is_empty() {
             layout["resumes"] = serde_json::json!(resumes);
@@ -839,18 +857,15 @@ impl Brain {
         let view = rendered.text.as_str();
         self.turn_clock = Some(std::time::Instant::now());
         // A spawn in this turn gives its subagents this view and the delta
-        // after it (the turn's new messages included), one line each, as
-        // one-message view lines (`id+1|...`).
+        // after it (the turn's new messages included): its lines are
+        // one-message view lines already (`id+1|...`).
         let mut turn_view = view.strip_suffix("</chat>").unwrap_or(view).to_owned();
         for line in delta
             .iter()
             .flat_map(|b| b.lines())
             .filter(|l| !l.is_empty())
         {
-            match line.split_once('|') {
-                Some((id, rest)) => turn_view.push_str(&format!("{id}+1|{rest}")),
-                None => turn_view.push_str(line),
-            }
+            turn_view.push_str(line);
             turn_view.push('\n');
         }
         turn_view.push_str("</chat>");

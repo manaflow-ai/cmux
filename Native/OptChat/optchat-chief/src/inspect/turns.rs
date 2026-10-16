@@ -86,7 +86,7 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
     let images = start["layout"]["images"].as_u64().unwrap_or(0);
     if images > 0 && note.is_none() {
         note = Some(format!(
-            "This turn also sent {images} image block(s) before its messages; they are not shown."
+            "This turn also sent {images} image block(s) after its delta; they are not shown."
         ));
     }
     if ids.is_empty() && note.is_none() {
@@ -132,6 +132,11 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
             parts: parts.clone(),
             front: n("front"),
             unbuilt: crate::state::parse_nodes(&names("unbuilt"))?,
+            cuts: d
+                .get("cuts")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_u64).collect())
+                .unwrap_or_default(),
         };
         Some(chat.turn_input_at(&frozen, n("new_from"), n("end")))
     });
@@ -169,6 +174,9 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
                 system_text,
                 view_text,
                 delta,
+                start["layout"]["delta"]["prev_end_block"]
+                    .as_u64()
+                    .map(|b| b as usize),
                 &[],
                 &input_tail(),
                 marker.then_some(ttl),

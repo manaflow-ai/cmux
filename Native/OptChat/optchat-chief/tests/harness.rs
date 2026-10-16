@@ -122,6 +122,7 @@ fn a_claude_turn_sends_the_frozen_view_then_the_delta_with_three_marks() {
         &claude_md(None),
         &view,
         &delta,
+        None,
         &[],
         "",
         Some(CacheTtl::OneHour),
@@ -879,11 +880,11 @@ fn the_next_turn_repeats_the_whole_last_input_and_marks_its_ends_within_the_look
         "the header, the view's end and the delta's end"
     );
     assert_eq!(ma[2], a.len() - 1, "the first input's end is marked");
-    assert_eq!(mb[..2], ma[..2], "the same frozen view, the same marks");
-    assert!(
-        mb[2] > ma[2] && mb[2] - ma[2] <= optchat_core::LOOKBACK_BLOCKS,
-        "marks {ma:?} then {mb:?}"
-    );
+    // The second turn marks the same view end, the first turn's end (the
+    // exact entry it wrote: Bedrock has no look-back) and its own end.
+    assert_eq!(mb.len(), 3, "marks {ma:?} then {mb:?}");
+    assert_eq!(mb[..2], ma[1..], "the view's end and the first input's end");
+    assert_eq!(mb[2], b.len() - 1, "and its own end");
 }
 
 /// The Chief's own codex (the cmux codex fork, which reads the Chief's
