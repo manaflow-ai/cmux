@@ -61,7 +61,7 @@ pub async fn run(cfg: HandConfig) -> Result<()> {
             Ok(()) => backoff = Duration::from_secs(1),
             Err(Ended::Revoked(code)) => {
                 eprintln!(
-                    "hand: the Cloud refused this hand's key (close {code}); pair it again. Retrying in 10 min."
+                    "hand: the Cloud refused this hand (close {code}: a removed hand, a wrong key or a profile that does not match its pairing); pair it again. Retrying in 10 min."
                 );
                 backoff = Duration::from_secs(600);
             }

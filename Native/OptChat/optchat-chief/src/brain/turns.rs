@@ -570,6 +570,8 @@ impl Brain {
             "unbuilt": input.frozen.unbuilt.iter().map(|p| p.name()).collect::<Vec<_>>(),
             // The cuts this delta was built with (this request's own end is past it).
             "cuts": input.frozen.cuts.iter().filter(|c| **c < delta_end).collect::<Vec<_>>(),
+            // The forced block starts this delta was built with.
+            "starts": input.frozen.starts.iter().filter(|s| **s <= first_new).collect::<Vec<_>>(),
             "bytes": input.delta.iter().map(String::len).sum::<usize>(),
             "rendered": input.rerendered,
             "prev_end_block": prev_end,

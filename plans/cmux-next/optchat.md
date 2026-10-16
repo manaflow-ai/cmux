@@ -116,7 +116,10 @@ re-render happens.
 3. Anchoring (spec 7). The new messages are logged before the turn's input is built and appear only
    in the delta (never also in the view); the turn answers the newest woken message as before. A
    message delivered mid-run is logged and goes to the model as a user message, as before.
-4. Re-render (one cache write of the view). A turn re-renders, freezing a new view and an empty
+4. Re-render (one cache write of the view). The delta bytes counted here are the entries before
+   this turn's new messages (a turn's own long message never forces a re-render), and imported
+   messages are never delta lines (their build state changes later; the view shows them after a
+   re-render). A turn re-renders, freezing a new view and an empty
    delta, when (a) the delta is over DELTA_MAX = 8,000 bytes (about 2,000 tokens) and the
    compactor has built nodes past the front (the re-rendered view is then shorter than view +
    delta), or (b) the delta is over DELTA_HARD = 32,000 bytes (the growth cap between folds:

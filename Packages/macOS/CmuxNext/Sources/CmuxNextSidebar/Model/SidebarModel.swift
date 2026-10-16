@@ -38,6 +38,18 @@ public final class SidebarModel {
         access(keyPath: \.sections)
         return sectionsRevision
     }
+    /// `sectionsRevision` when the user last moved rows (a keyboard move, a drop): the next structural set may scroll to
+    /// the moved active row. Nil: no move of the user's waits. Changes from others never move the view (DESIGN.md
+    /// scroll reveal, cx-ml98q).
+    @ObservationIgnored public private(set) var userMoveRevision: UInt64?
+    /// The user moved rows: the structural set that shows the move may reveal the active row.
+    public func noteUserMove() { userMoveRevision = sectionsRevision }
+    /// True once: at the first structural set after the user's move.
+    public func takeUserMove() -> Bool {
+        guard let mark = userMoveRevision, mark != sectionsRevision else { return false }
+        userMoveRevision = nil
+        return true
+    }
     /// Where each workspace sits in `sections`; rebuilt on the first patch after a set.
     @ObservationIgnored var rowIndex: SidebarRowIndex?
     /// Told the workspaces `patchWorkspaces` changed in place (the list reconfigures their rows).
@@ -380,8 +392,13 @@ public final class SidebarModel {
     public func moveSelection(_ direction: KeyboardReorder.Direction) -> Bool {
         guard !locksReorder else { return false }
         let ids = orderedSelection
-        if isFiltering, let docDrag { return docDrag.keyboardMove(ids, up: direction == .up, model: self) }
+        if isFiltering, let docDrag {
+            guard docDrag.keyboardMove(ids, up: direction == .up, model: self) else { return false }
+            noteUserMove()
+            return true
+        }
         guard let position = KeyboardReorder.target(moving: ids, direction: direction, in: sections) else { return false }
+        noteUserMove()
         send(.reorder(ids, to: position))
         return true
     }
