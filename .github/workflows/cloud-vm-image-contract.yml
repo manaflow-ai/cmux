@@ -57,6 +57,11 @@ on:
         required: false
         default: ""
         type: string
+      verify_image:
+        description: "Verify an existing snapshot only (no bake, manifest, or pointer changes)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -95,7 +100,7 @@ jobs:
         run: bun test tests/vm-image-manifest.test.ts tests/vm-image-sizes.test.ts tests/vm-devbox-image.test.ts
 
   promote:
-    if: github.repository == 'manaflow-ai/cmux' && github.ref_type == 'branch' && inputs.promote == true && inputs.confirm == 'PROMOTE'
+    if: github.repository == 'manaflow-ai/cmux' && github.ref_type == 'branch' && ((inputs.promote == true && inputs.confirm == 'PROMOTE') || inputs.verify_image != '')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 180
     environment: cloud-vm-image-checks
@@ -107,6 +112,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - name: Setup Bun
@@ -135,8 +141,13 @@ jobs:
           PROMOTION_OUT: ${{ runner.temp }}/devbox-promotion.json
           CMUX_DEVBOX_CUA_PROOF_DIR: ${{ runner.temp }}/devbox-cua-proof
           SLUG: cmux-devbox-${{ github.run_id }}
+          VERIFY_IMAGE: ${{ inputs.verify_image }}
         run: |
           set -euo pipefail
+          if [ -n "$VERIFY_IMAGE" ]; then
+            bun run devbox:verify -- freestyle "$VERIFY_IMAGE" --expect-kind desktop
+            exit 0
+          fi
           bun run devbox:promote -- freestyle \
             --slug "$SLUG" \
             --pointer-slug none \
@@ -145,7 +156,7 @@ jobs:
           cp services/vms/images/manifest.json "$RUNNER_TEMP/devbox-manifest.json"
 
       - name: Summarize the staged promotion
-        if: success()
+        if: success() && inputs.verify_image == ''
         env:
           PROMOTION_OUT: ${{ runner.temp }}/devbox-promotion.json
         run: |
@@ -161,7 +172,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload manifest and promotion receipt
-        if: success()
+        if: success() && inputs.verify_image == ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: devbox-promotion-${{ github.run_id }}
