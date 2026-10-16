@@ -11,12 +11,20 @@ public nonisolated enum AgentPaneTopStripStyle: String, Sendable, CaseIterable, 
     case bump
     /// Plain muted text a few px above the card, no fill or rim, on the card's content edge.
     case plain
+    /// New Tab only: today's tab fitted to its folder and computer, flowing into the card through
+    /// rounded shoulders. A started chat keeps the default strip.
+    case fitted
+    /// New Tab only: the folder and computer as plain text over the card, as Cursor's home draws
+    /// them, and the create actions as outlined pills. A started chat keeps the default strip.
+    case cursor
 
     public var tunableTitle: String {
         switch self {
         case .default: "Default (tab on the card)"
         case .bump: "Bump (tab a few px above, own hairline)"
         case .plain: "Plain (floating text, no chrome)"
+        case .fitted: "Fitted (New Tab: a tab fitted to its pickers)"
+        case .cursor: "Cursor (New Tab: text above the card, pill actions)"
         }
     }
 }

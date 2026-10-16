@@ -1,0 +1,142 @@
+/* Two New Tab designs as values of the composer's top strip switch (Debug Settings
+   agentPane.debug.topStripStyle, data-top-strip on <html>; composerLocation.css has the switch's
+   other values and the rules every value shares: the card's whole rim, no masked seam). Lucas
+   2026-10-16. The strip's controls, order and menus stay the same; a started chat keeps its default
+   strip under both (composerLocation.css leaves them out of its chat rules).
+   - fitted: Lawrence's tab, fitted to its folder and computer;
+   - cursor: plain text over the card, as Cursor's home draws it, and pill create actions. */
+/* cursor (after Cursor's home): plain text over the card, a small gap between, no tab shape. */
+:root[data-top-strip="cursor"] .nt-screen .nt-composer {
+  gap: 6px;
+}
+:root[data-top-strip="cursor"] .nt-screen .nt-composer .acpmux-composer-strip {
+  --acpmux-strip-height: 26px;
+  margin: 0;
+  /* The ghost buttons' own inset puts the folder icon on the field's text edge. */
+  padding: 0 6px;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+/* fitted: Lawrence's tab, fitted to its pickers like a folder's or a browser's tab, and flowing into
+   the card through rounded shoulders: its top corners and the shoulders share one radius, so the
+   outline runs from the card's edge up and over the tab in one curve. It stands past the card's
+   corner, on its straight edge. The tab keeps the strip's fill (the card's surface and its hover
+   lift, screen.css), and the shoulders paint the same layers, so tab and card stay one surface at
+   rest and on hover. It covers the card's rim where it stands, one pixel down, so no seam shows
+   however wide the folder's name makes it. */
+:root[data-top-strip="fitted"] .nt-screen .nt-composer {
+  --nt-tab-radius: 14px;
+  --nt-tab-line: var(--cmux-hairline, .5px);
+  --nt-tab-edge: var(--acpmux-composer-edge);
+  /* The shoulders stand on the card's rim: their bottom line on it, the tab's pixel below. */
+  --nt-tab-foot: calc(1px - var(--nt-tab-line));
+}
+:root[data-top-strip="fitted"] .nt-screen .nt-composer .acpmux-composer-strip {
+  --acpmux-strip-height: 32px;
+  align-self: flex-start;
+  /* Sized by its pickers: the strip is a size container elsewhere (composerLocation.css), whose
+     width ignores what it holds, so the fitted tab drew 16 px wide. The cap below bounds it. */
+  container-type: normal;
+  z-index: var(--layer-raised);
+  max-width: calc(100% - 2 * (20px + var(--nt-tab-radius)));
+  /* It reaches a whole pixel into the card, so the card's rim never shows under it. */
+  margin: 0 0 -1px calc(20px + var(--nt-tab-radius));
+  padding: 0 8px 1px;
+  border-radius: var(--nt-tab-radius) var(--nt-tab-radius) 0 0;
+  box-shadow:
+    inset 0 var(--nt-tab-line) 0 var(--nt-tab-edge),
+    inset var(--nt-tab-line) 0 0 var(--nt-tab-edge),
+    inset calc(-1 * var(--nt-tab-line)) 0 0 var(--nt-tab-edge);
+}
+/* Each shoulder is two layers on the same square, the curve's centre at its outer top corner. Its
+   fill is the strip's own (::before, ::after, masked to the outside of the curve), so the tab and
+   the shoulders stay one surface at rest and on hover. Its line is a real rounded border (the
+   context's ::before, ::after), so the curve is the same hairline the card's rim and the tab's
+   sides draw, never a softer, wider gradient ring (Lucas 2026-10-16). The square stands one hairline
+   in from the tab's edge, so the curve starts on the tab's side line and ends on the card's rim. */
+:root[data-top-strip="fitted"] .nt-screen .nt-composer .acpmux-composer-strip::before,
+:root[data-top-strip="fitted"] .nt-screen .nt-composer .acpmux-composer-strip::after {
+  content: "";
+  position: absolute;
+  /* Down to the tab's foot, so the fill covers the card's rim under the shoulder too. */
+  bottom: 0;
+  width: var(--nt-tab-radius);
+  height: calc(var(--nt-tab-radius) + var(--nt-tab-foot));
+  pointer-events: none;
+  background: var(--nt-tab-fill);
+  /* Clear inside the curve, solid from a hair inside its line with a hard edge: the fill hides the
+     tab's straight side line where the curve takes over (a soft edge left it showing beside the
+     curve, so the curve read twice as thick), and its edge stays under the curve's line. */
+  --nt-tab-mask: radial-gradient(
+    circle at var(--nt-tab-curve),
+    transparent calc(var(--nt-tab-radius) - var(--nt-tab-line) + .25px),
+    #000 calc(var(--nt-tab-radius) - var(--nt-tab-line) + .25px)
+  );
+  -webkit-mask: var(--nt-tab-mask);
+  mask: var(--nt-tab-mask);
+}
+:root[data-top-strip="fitted"] .nt-screen .nt-composer .acpmux-composer-strip {
+  --nt-tab-fill: linear-gradient(var(--nt-box-fill), var(--nt-box-fill)),
+    var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
+}
+:root[data-top-strip="fitted"] .nt-screen .nt-composer .acpmux-composer-strip::before {
+  --nt-tab-curve: 0 0;
+  left: calc(var(--nt-tab-line) - var(--nt-tab-radius));
+}
+:root[data-top-strip="fitted"] .nt-screen .nt-composer .acpmux-composer-strip::after {
+  --nt-tab-curve: 100% 0;
+  right: calc(var(--nt-tab-line) - var(--nt-tab-radius));
+}
+:root[data-top-strip="fitted"] .nt-screen .acpmux-composer-strip > .acpmux-composer-context::before,
+:root[data-top-strip="fitted"] .nt-screen .acpmux-composer-strip > .acpmux-composer-context::after {
+  content: "";
+  position: absolute;
+  z-index: var(--layer-raised);
+  bottom: var(--nt-tab-foot);
+  width: var(--nt-tab-radius);
+  height: var(--nt-tab-radius);
+  box-sizing: border-box;
+  border: 0 solid var(--nt-tab-edge);
+  border-bottom-width: var(--nt-tab-line);
+  pointer-events: none;
+}
+:root[data-top-strip="fitted"] .nt-screen .acpmux-composer-strip > .acpmux-composer-context::before {
+  left: calc(var(--nt-tab-line) - var(--nt-tab-radius));
+  border-right-width: var(--nt-tab-line);
+  border-bottom-right-radius: var(--nt-tab-radius);
+}
+:root[data-top-strip="fitted"] .nt-screen .acpmux-composer-strip > .acpmux-composer-context::after {
+  right: calc(var(--nt-tab-line) - var(--nt-tab-radius));
+  border-left-width: var(--nt-tab-line);
+  border-bottom-left-radius: var(--nt-tab-radius);
+}
+/* The pickers set the tab's width; a long folder name ellipsizes inside the cap above. */
+:root[data-top-strip="fitted"] .nt-screen .acpmux-composer-context > .acpmux-location-leading {
+  flex: 0 1 auto;
+}
+
+/* cursor's create actions are outlined pills, as Cursor's home draws its starters: New terminal,
+   New browser tab and New chat read as buttons, not as text. */
+:root[data-top-strip="cursor"] .nt-screen .nt-create {
+  gap: 6px;
+  margin: 10px 0 0;
+}
+:root[data-top-strip="cursor"] .nt-screen .nt-create .nt-tool {
+  height: 28px;
+  padding: 0 12px 0 10px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 12%, transparent);
+  color: var(--agent-soft);
+  font-weight: 400;
+}
+:root[data-top-strip="cursor"] .nt-screen .nt-create .nt-tool:hover,
+:root[data-top-strip="cursor"] .nt-screen .nt-create .nt-tool:focus-visible {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  color: var(--agent-text);
+}
+:root[data-top-strip="cursor"] .nt-screen .nt-create .nt-tool:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 55%, transparent);
+  outline-offset: 1px;
+}

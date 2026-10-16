@@ -574,16 +574,18 @@
      its own closed hairline, and the card draws its whole rim (#20789).
    - plain: no fill, no rim and no tab: muted text floating --acpmux-strip-gap above the card, its
      ink on the card's content edge (where the prompt's text starts), as Codex and Claude Code
-     desktop show the context above their prompt. */
-:root[data-top-strip] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box,
+     desktop show the context above their prompt.
+   - fitted, cursor: New Tab designs (newtab/topStripVariants.css); a started chat keeps the
+     default strip under them, so the chat composer's rules here leave them out. */
+:root[data-top-strip]:not([data-top-strip="fitted"], [data-top-strip="cursor"]) .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box,
 :root[data-top-strip] .nt-composer:has(.acpmux-composer-strip) .nt-box {
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
-:root[data-top-strip] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box::before,
+:root[data-top-strip]:not([data-top-strip="fitted"], [data-top-strip="cursor"]) .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box::before,
 :root[data-top-strip] .nt-composer:has(.acpmux-composer-strip) .nt-box::before {
   content: none;
 }
-:root[data-top-strip] .acpmux-composer { --acpmux-strip-gap: 4px; }
+:root[data-top-strip]:not([data-top-strip="fitted"], [data-top-strip="cursor"]) .acpmux-composer { --acpmux-strip-gap: 4px; }
 :root[data-top-strip] .nt-composer { --acpmux-strip-gap: 4px; }
 
 /* bump */
