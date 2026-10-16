@@ -2586,29 +2586,14 @@ jobs:
             --bundle-id com.cmuxterm.app.next --name "cmux NEXT" --profile-name "cmux NEXT Developer ID" \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
+      # The signing keychain exists only while this job signs. It is deleted
+      # before any step runs code from the bundle, and created again for the
+      # DMG signature. scripts/ci/signing-keychain.sh owns its lifetime.
       - name: Import signing cert
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          if [ -z "$APPLE_CERTIFICATE_BASE64" ]; then
-            echo "Missing APPLE_CERTIFICATE_BASE64 secret" >&2
-            exit 1
-          fi
-          if [ -z "$APPLE_CERTIFICATE_PASSWORD" ]; then
-            echo "Missing APPLE_CERTIFICATE_PASSWORD secret" >&2
-            exit 1
-          fi
-          KEYCHAIN_PASSWORD="$(uuidgen)"
-          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > /tmp/cert.p12
-          security delete-keychain build.keychain >/dev/null 2>&1 || true
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -lut 21600 build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-          ./scripts/import-apple-developer-id-intermediates.sh build.keychain
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-          security list-keychains -d user -s build.keychain
+        run: ./scripts/ci/signing-keychain.sh create
 
       # Each channel has its own Developer ID profile:
       # APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 / APPLE_RC_PROVISIONING_PROFILE_BASE64.
@@ -2713,6 +2698,10 @@ jobs:
       - name: Verify the Computer Use helper signature
         run: ./scripts/ci/verify-computer-use-helper.sh signed "$CHANNEL_APP_PATH"
 
+      - name: Delete signing keychain before runtime checks
+        if: always()
+        run: ./scripts/ci/signing-keychain.sh delete
+
       - name: Verify bundled Mach-O load commands
         run: ./scripts/verify-bundle-load-commands.sh "$CHANNEL_APP_PATH"
 
@@ -2740,6 +2729,16 @@ jobs:
             --manifest "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
             --assets-dir remote-daemon-assets \
             --app "$CHANNEL_APP_PATH" "${bundle_args[@]}"
+
+      # sign-cmux-bundle.sh ran only the static sidecar checks while the
+      # keychain existed. Run the full check, with the handshake, now.
+      - name: Verify signed diff sidecar runtime contract
+        run: |
+          set -euo pipefail
+          ./scripts/verify-diff-sidecar-artifact.sh \
+            "$CHANNEL_APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
+            --archs "$(lipo -archs "$CHANNEL_APP_PATH/Contents/MacOS/cmux")" \
+            --require-signed
 
       - name: Smoke launch signed app before notarization
         run: |
@@ -2810,6 +2809,15 @@ jobs:
           echo "::notice title=nightly-next notarization paused::NIGHTLY_NEXT_NOTARY_PAUSED=1: the signed app was built, no notary submission was made and nothing is published."
           echo "### nightly-next notarization paused (NIGHTLY_NEXT_NOTARY_PAUSED=1): no notary submission, nothing published" >> "$GITHUB_STEP_SUMMARY"
 
+      # The helper re-seal and the DMG need the identity again. Both run no
+      # bundle code; notarize-nightly-dmg.sh deletes the keychain right after
+      # the DMG signature, before any later launch smoke.
+      - name: Import signing cert for the DMG signature
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: ./scripts/ci/signing-keychain.sh create
+
       - name: Notarize app ticket through final DMG
         id: notarize-nightly
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true'
@@ -2844,6 +2852,22 @@ jobs:
             "$CHANNEL_APP_PATH" \
             "$NIGHTLY_DMG_RELEASE" \
             "$NIGHTLY_DMG_IMMUTABLE"
+
+      - name: Package signed fast dogfood DMG
+        if: needs.decide.outputs.fast_build == 'true'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          CMUX_CHANNEL: ${{ needs.decide.outputs.channel }}
+          CMUX_SKIP_NOTARIZATION: "true"
+        run: |
+          ./scripts/ci/notarize-nightly-dmg.sh \
+            "$CHANNEL_APP_PATH" \
+            "$NIGHTLY_DMG_RELEASE" \
+            "$NIGHTLY_DMG_IMMUTABLE"
+
+      - name: Delete signing keychain after the DMG signature
+        if: always()
+        run: ./scripts/ci/signing-keychain.sh delete
 
       - name: Prepare pending notarization recovery artifact
         id: prepare-notarization-recovery
@@ -2976,18 +3000,6 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Package signed fast dogfood DMG
-        if: needs.decide.outputs.fast_build == 'true'
-        env:
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          CMUX_CHANNEL: ${{ needs.decide.outputs.channel }}
-          CMUX_SKIP_NOTARIZATION: "true"
-        run: |
-          ./scripts/ci/notarize-nightly-dmg.sh \
-            "$CHANNEL_APP_PATH" \
-            "$NIGHTLY_DMG_RELEASE" \
-            "$NIGHTLY_DMG_IMMUTABLE"
-
       - name: Gate distribution with syspolicy_check
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true'
         run: syspolicy_check distribution "$CHANNEL_APP_PATH"
@@ -3104,7 +3116,8 @@ jobs:
       - name: Cleanup keychain
         if: always()
         run: |
-          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
+            || security delete-keychain build.keychain >/dev/null 2>&1 || true
           rm -f /tmp/cert.p12
 
   # nightly-next continuation. A build whose notarization wait ran out left a
@@ -3339,6 +3352,8 @@ jobs:
       CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
       CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
       CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
+      # Publication tooling from this workflow's own commit (see the step below).
+      PUBLISH_TOOLING: ${{ github.workspace }}/.publish-tooling/scripts
     steps:
       # This run's build when Apple accepted it, else an earlier nightly-next
       # build that recover-nightly-next-notarization continued; every later
@@ -3392,6 +3407,22 @@ jobs:
           persist-credentials: false
           ref: ${{ steps.source.outputs.build_sha }}
 
+      # The steps below pass this workflow's arguments, so the publication
+      # tooling must come from the workflow's own commit, not from the
+      # published build's checkout. A recovered build can be days older: run
+      # 38855116561 recovered 0664bd9847b5, whose nightly_version.py predates
+      # --already-published-ok (#20986), and the recheck failed. Scripts that
+      # read the build's own source tree still run from the publish ref:
+      # verify_remote_daemon_release.py, fetch-release-notes-span.sh,
+      # release-notes.py, check_ghostty_vt_notices.py, ghostty_source_archive.py.
+      - name: Checkout publication tooling at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .publish-tooling
+          sparse-checkout: scripts
+
       - name: Download nightly variant artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -3420,7 +3451,7 @@ jobs:
           for appcast in appcast.xml appcast-arm64.xml appcast-x86_64.xml; do
             feeds+=(--feed-if-present "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
           done
-          result="$(python3 scripts/ci/nightly_version.py check-build --already-published-ok --build "$NIGHTLY_BUILD" "${feeds[@]}")"
+          result="$(python3 "$PUBLISH_TOOLING/ci/nightly_version.py" check-build --already-published-ok --build "$NIGHTLY_BUILD" "${feeds[@]}")"
           printf '%s\n' "$result"
           if [ "$(tail -n 1 <<< "$result")" = already_published=true ]; then
             echo "::notice title=Nothing to publish::build $NIGHTLY_BUILD is already published; nothing to do"
@@ -3515,7 +3546,7 @@ jobs:
           # rather than the decide job's baseline from before the build started.
           # nightly_release_notes.py preserves the cmux-published-sha: marker
           # used for the next exact range and its repair/recovery path.
-          python3 scripts/ci/nightly_release_notes.py \
+          python3 "$PUBLISH_TOOLING/ci/nightly_release_notes.py" \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             --head "$NOTES_HEAD" --branch "$NOTES_BRANCH" \
             --details nightly-downloads.md --out nightly-notes.md \
@@ -3549,7 +3580,7 @@ jobs:
         run: |
           set -euo pipefail
           for appcast in $NIGHTLY_FEEDS; do
-            python3 scripts/ci/nightly-next-guard.py appcast "nightly-out/$appcast"
+            python3 "$PUBLISH_TOOLING/ci/nightly-next-guard.py" appcast "nightly-out/$appcast"
           done
 
       - name: Prune old nightly release assets
@@ -3558,7 +3589,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python3 ./scripts/prune_nightly_release_assets.py \
+          python3 "$PUBLISH_TOOLING/prune_nightly_release_assets.py" \
             --repo manaflow-ai/cmux \
             --release-tag "$CHANNEL_RELEASE_TAG" \
             --name-prefix "${CHANNEL_DMG_PREFIX}-" \
@@ -3568,6 +3599,7 @@ jobs:
             --execute
 
       - name: Publish nightly release assets
+        id: publish_assets
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -3597,8 +3629,9 @@ jobs:
           for feed in $NIGHTLY_FEEDS; do
             args+=(--feed "nightly-out/$feed")
           done
-          python3 scripts/ci/publish-release-assets.py \
+          python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
+            --github-output "$GITHUB_OUTPUT" \
             --replace-feeds "${args[@]}"
 
       - name: Download the cmux-next source archive
@@ -3644,7 +3677,7 @@ jobs:
           else
             gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/cmux-next-src-$short" -f "sha=$HEAD_SHA" >/dev/null
           fi
-          python3 scripts/ci/publish-release-assets.py \
+          python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             --immutable "source-out/cmux-next-source-${NIGHTLY_BUILD}.tar.gz"
 
@@ -3670,20 +3703,37 @@ jobs:
       # with the release App token; other channels keep the Actions token.
       - name: Publish verified nightly release metadata
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
-        with:
-          token: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
-          tag_name: ${{ needs.decide.outputs.release_tag }}
-          target_commitish: ${{ steps.source.outputs.build_sha }}
-          name: ${{ needs.decide.outputs.release_name }}
-          prerelease: true
-          make_latest: false
-          draft: false
-          body: |
-            Automated ${{ needs.decide.outputs.channel }} build for `${{ steps.source.outputs.build_short_sha }}` from `${{ github.ref_name }}`.
-            Published commit: `${{ steps.source.outputs.build_sha }}`.
-            Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip `${{ steps.source.outputs.tip_sha }}`, ${{ steps.source.outputs.behind }} commits and ${{ steps.source.outputs.behind_hours }} h behind it.
-            ${{ steps.notes.outputs.downloads }}
+        env:
+          GH_TOKEN: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
+          RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
+          UPLOADED_ASSETS: ${{ steps.publish_assets.outputs.asset_names }}
+          RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.decide.outputs.release_name }}
+          BUILD_SHA: ${{ steps.source.outputs.build_sha }}
+          BUILD_SHORT_SHA: ${{ steps.source.outputs.build_short_sha }}
+          CHANNEL: ${{ needs.decide.outputs.channel }}
+          REF_NAME: ${{ github.ref_name }}
+          TIP_SHA: ${{ steps.source.outputs.tip_sha }}
+          BEHIND: ${{ steps.source.outputs.behind }}
+          BEHIND_HOURS: ${{ steps.source.outputs.behind_hours }}
+          DOWNLOADS: ${{ steps.notes.outputs.downloads }}
+        run: |
+          set -euo pipefail
+          {
+            printf "Automated %s build for \`%s\` from \`%s\`.\n" "$CHANNEL" "$BUILD_SHORT_SHA" "$REF_NAME"
+            printf "Published commit: \`%s\`.\n" "$BUILD_SHA"
+            printf "Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip \`%s\`, %s commits and %s h behind it.\n" "$TIP_SHA" "$BEHIND" "$BEHIND_HOURS"
+            printf '%s\n' "$DOWNLOADS"
+          } > "$RUNNER_TEMP/nightly-release-body.md"
+          expect=()
+          names=()
+          read -ra names <<<"$UPLOADED_ASSETS"
+          for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
+          python3 "$PUBLISH_TOOLING/ci/finalize-release.py" publish \
+            --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" \
+            --name "$RELEASE_NAME" --target-commitish "$BUILD_SHA" \
+            --body-file "$RUNNER_TEMP/nightly-release-body.md" \
+            --prerelease true --make-latest false "${expect[@]}"
 
       - name: Upload nightly appcasts to R2
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track != 'nightly-next' && steps.recheck.outputs.already_published != 'true'
@@ -3700,7 +3750,7 @@ jobs:
           # first: the app rewrites the legacy feed URL to a thin feed, so those
           # must already be current when the legacy feed changes.
           for appcast in $NIGHTLY_FEEDS; do
-            python3 scripts/ci/upload-r2-object.py \
+            python3 "$PUBLISH_TOOLING/ci/upload-r2-object.py" \
               --file "nightly-out/$appcast" \
               --endpoint-url "$R2_ENDPOINT" \
               --bucket cmux-binaries \
@@ -3724,9 +3774,9 @@ jobs:
           set -euo pipefail
           for appcast in $NIGHTLY_FEEDS; do
             key="${NIGHTLY_NEXT_R2_PREFIX}${appcast}"
-            python3 scripts/ci/nightly-next-guard.py appcast "nightly-out/$appcast"
-            python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
-            python3 scripts/ci/upload-r2-object.py \
+            python3 "$PUBLISH_TOOLING/ci/nightly-next-guard.py" appcast "nightly-out/$appcast"
+            python3 "$PUBLISH_TOOLING/ci/nightly-next-guard.py" r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
+            python3 "$PUBLISH_TOOLING/ci/upload-r2-object.py" \
               --file "nightly-out/$appcast" \
               --endpoint-url "$R2_ENDPOINT" \
               --bucket "$NIGHTLY_NEXT_R2_BUCKET" \
@@ -3742,21 +3792,38 @@ jobs:
       # a complete one.
       - name: Record verified nightly publication
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
-        with:
-          token: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
-          tag_name: ${{ needs.decide.outputs.release_tag }}
-          target_commitish: ${{ steps.source.outputs.build_sha }}
-          name: ${{ needs.decide.outputs.release_name }}
-          prerelease: true
-          make_latest: false
-          draft: false
-          body: |
-            <!-- cmux-published-sha: ${{ steps.source.outputs.build_sha }} -->
-            Automated ${{ needs.decide.outputs.channel }} build for `${{ steps.source.outputs.build_short_sha }}` from `${{ github.ref_name }}`.
-            Published commit: `${{ steps.source.outputs.build_sha }}`.
-            Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip `${{ steps.source.outputs.tip_sha }}`, ${{ steps.source.outputs.behind }} commits and ${{ steps.source.outputs.behind_hours }} h behind it.
-            ${{ steps.notes.outputs.downloads }}
+        env:
+          GH_TOKEN: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
+          RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
+          UPLOADED_ASSETS: ${{ steps.publish_assets.outputs.asset_names }}
+          RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.decide.outputs.release_name }}
+          BUILD_SHA: ${{ steps.source.outputs.build_sha }}
+          BUILD_SHORT_SHA: ${{ steps.source.outputs.build_short_sha }}
+          CHANNEL: ${{ needs.decide.outputs.channel }}
+          REF_NAME: ${{ github.ref_name }}
+          TIP_SHA: ${{ steps.source.outputs.tip_sha }}
+          BEHIND: ${{ steps.source.outputs.behind }}
+          BEHIND_HOURS: ${{ steps.source.outputs.behind_hours }}
+          DOWNLOADS: ${{ steps.notes.outputs.downloads }}
+        run: |
+          set -euo pipefail
+          {
+            printf '<!-- cmux-published-sha: %s -->\n' "$BUILD_SHA"
+            printf "Automated %s build for \`%s\` from \`%s\`.\n" "$CHANNEL" "$BUILD_SHORT_SHA" "$REF_NAME"
+            printf "Published commit: \`%s\`.\n" "$BUILD_SHA"
+            printf "Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip \`%s\`, %s commits and %s h behind it.\n" "$TIP_SHA" "$BEHIND" "$BEHIND_HOURS"
+            printf '%s\n' "$DOWNLOADS"
+          } > "$RUNNER_TEMP/nightly-release-body.md"
+          expect=()
+          names=()
+          read -ra names <<<"$UPLOADED_ASSETS"
+          for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
+          python3 "$PUBLISH_TOOLING/ci/finalize-release.py" publish \
+            --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" \
+            --name "$RELEASE_NAME" --target-commitish "$BUILD_SHA" \
+            --body-file "$RUNNER_TEMP/nightly-release-body.md" \
+            --prerelease true --make-latest false "${expect[@]}"
 
       # The channel's release tag is the fast completion marker used by the
       # decide job. Move it to the fixed candidate selected at dispatch only
@@ -3779,7 +3846,7 @@ jobs:
           # move from a baseline build (see promote-nightly-next on main). The helper retries
           # only transient API/network failures and reads the ref back before
           # declaring the marker updated. Permission failures are terminal.
-          python3 scripts/ci/update-release-tag.py \
+          python3 "$PUBLISH_TOOLING/ci/update-release-tag.py" \
             --repo "$GITHUB_REPOSITORY" \
             --tag "$CHANNEL_RELEASE_TAG" \
             --sha "${{ steps.source.outputs.build_sha }}" \
@@ -4097,20 +4164,7 @@ jobs:
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          set -euo pipefail
-          if [ -z "$APPLE_CERTIFICATE_BASE64" ] || [ -z "$APPLE_CERTIFICATE_PASSWORD" ]; then echo "Missing signing certificate secrets" >&2; exit 1; fi
-          KEYCHAIN_PASSWORD="$(uuidgen)"
-          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
-          security delete-keychain build.keychain >/dev/null 2>&1 || true
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -lut 21600 build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security import "$RUNNER_TEMP/cert.p12" -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-          rm -f "$RUNNER_TEMP/cert.p12"
-          ./scripts/import-apple-developer-id-intermediates.sh build.keychain
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-          security list-keychains -d user -s build.keychain
+        run: ./scripts/ci/signing-keychain.sh create
 
       - name: Sign the build as cmux NIGHTLY
         if: steps.order.outputs.skip != 'true' && env.LEGACY_ACTION == 'new'
@@ -4461,7 +4515,9 @@ jobs:
 
       - name: Cleanup keychain
         if: always()
-        run: security delete-keychain build.keychain >/dev/null 2>&1 || true
+        run: |
+          ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
+            || security delete-keychain build.keychain >/dev/null 2>&1 || true
 
   generate-nightly-deltas:
     # Delta work is deliberately downstream of the first publication. A slow

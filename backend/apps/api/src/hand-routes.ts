@@ -1,6 +1,7 @@
 import type { Env } from "./env.ts"
 import { apiOrigin, handStub, indexStub, listHands, mintPairCode } from "./hand-api.ts"
 import { handInstallScript } from "./hand-install.ts"
+import { createSandbox } from "./hand-sandbox.ts"
 import { HAND_ID, PAIR_CODE, sha256Hex, type HandCaller, type HandReply } from "./hand-wire.ts"
 import { callerOf } from "./home-attachments.ts"
 import { chiefOwnedBy } from "./chief-brain/brain-io.ts"
@@ -13,6 +14,7 @@ import { chiefOwnedBy } from "./chief-brain/brain-io.ts"
  *   GET    /v1/hands/<hand>/socket                   the hand's socket; Authorization: Bearer <hand key>
  *   POST   /v1/hands/pair-codes                      the person: {name?, profile?} -> {hand, code, expires_at, install}
  *   GET    /v1/hands                                 the person: their hands
+ *   POST   /v1/hands/sandboxes                       the person: {name} -> a new Freestyle sandbox with its hand
  *   PUT    /v1/hands/grants/<agent>                  the person: {on: boolean} a Chief's hands grant
  *   GET    /v1/hands/<hand>                          the person: one hand and its hello
  *   DELETE /v1/hands/<hand>                          the person: remove (the key stops working at once)
@@ -88,6 +90,11 @@ export const handleHands = async (request: Request, env: Env, path: string): Pro
     const b = (await body(request)) ?? {}
     const profile = b.profile === "mac" ? "mac" : "sandbox"
     return reply(await mintPairCode(env, caller, typeof b.name === "string" ? b.name : "", apiOrigin(env, request), profile))
+  }
+  if (path === "/v1/hands/sandboxes") {
+    if (request.method !== "POST") return fail(405, "method_not_allowed", "POST")
+    const b = (await body(request)) ?? {}
+    return reply(await createSandbox(env, caller, typeof b.name === "string" ? b.name : ""))
   }
   if (path === "/v1/hands") return request.method === "GET" ? reply(await listHands(env, caller)) : fail(405, "method_not_allowed", "GET")
   const grant = path.match(/^\/v1\/hands\/grants\/(agent_[0-9A-HJKMNP-TV-Z]{26})$/)

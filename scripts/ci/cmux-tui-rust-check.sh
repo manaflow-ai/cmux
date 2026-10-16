@@ -21,7 +21,11 @@
 # Mac never runs it (the laptop and the minis by hand stay off limits), so
 # outside a step (CMUX_CI_STEP_KEY) it refuses. The target dir is the step's
 # own (.build/cmux-tui-rust-target in its checkout), and files are created
-# with umask 022.
+# with umask 022. A fleet worker may run the step in a warm checkout (HQ
+# build-fleet step_warm.go, cargo pool: one step at a time per slot, at one
+# path, reset to the exact commit except .build), so the target can hold the
+# last step's build; cargo's fingerprints decide what is rebuilt, and
+# warm_target_guard wipes it when the toolchain or its stamp changes.
 set -euo pipefail
 if [[ -z "${CMUX_CI_STEP_KEY:-}" ]]; then
   cat >&2 <<'MSG'
@@ -36,6 +40,22 @@ case "$mode" in fmt|clippy|test|all|rd-host|rb-testhost|optchat-chief) ;; *) ech
 if [[ -n "$filter" && ! "$filter" =~ ^[A-Za-z0-9_:.-]{1,200}$ ]]; then
   echo "error: TEST_FILTER must be one Rust test-name substring (letters, digits, _ : . -)" >&2
   exit 2
+fi
+# CMUX_RUST_TEST_SHARD=i/n (cmux-ci run --shards N) runs the i-th of n nextest
+# partitions (--partition count:i/n) of the workspace tests; fmt, clippy and the
+# doc tests run only in shard 1, so the n steps together run each check once.
+shard="${CMUX_RUST_TEST_SHARD:-}"
+shard_i=1
+if [[ -n "$shard" ]]; then
+  if [[ ! "$shard" =~ ^([1-9][0-9]?)/([1-9][0-9]?)$ ]] || (( BASH_REMATCH[1] > BASH_REMATCH[2] )); then
+    echo "error: CMUX_RUST_TEST_SHARD must be i/n with 1 <= i <= n <= 99" >&2
+    exit 2
+  fi
+  shard_i="${BASH_REMATCH[1]}"
+  case "$mode" in test|all) ;; *) echo "error: CMUX_RUST_TEST_SHARD applies only to the test and all modes" >&2; exit 2 ;; esac
+  # A partition of a filtered run can hold no test, which --no-tests=fail makes red.
+  [[ -z "$filter" ]] || { echo "error: CMUX_RUST_TEST_SHARD does not take a TEST_FILTER" >&2; exit 2; }
+  echo "gate-notice: shard $shard (nextest --partition count:$shard)"
 fi
 umask 022
 root="$(pwd -P)"
@@ -93,6 +113,39 @@ rustup component list --installed
 toolchain_cargo="$(rustup which cargo)" || { echo "error: rustup which cargo failed" >&2; exit 3; }
 export PATH="$(dirname "$toolchain_cargo"):$PATH"
 echo "cargo: $toolchain_cargo"
+# The step's own target dir (in its checkout) may be warm: the worker's warm
+# slot keeps the checkout's .build between steps. Cargo keeps another rustc's
+# artifacts beside the old ones, so a new toolchain (`rustc -vV`, from the
+# directory whose rust-toolchain.toml applies), a new zig (ghostty-vt-sys
+# reruns its zig build only when $ZIG changes, not when the zig on PATH does)
+# or a new stamp version wipes the target first. Raise warm_target_version to
+# make every warm slot build cold once. A kept target
+# (CMUX_RUST_CHECK_KEEP_TARGET_DIR, rbx) or a target dir outside the checkout
+# (the managed fleet resolver, shared) is never wiped.
+warm_target_version=1
+warm_target_guard() {
+  local dir="$CARGO_TARGET_DIR" stamp want have zig_version
+  if [[ "${CMUX_RUST_CHECK_KEEP_TARGET_DIR:-0}" == 1 || "$dir" != "$root/.build/"* ]]; then
+    echo "cargo target: $dir (kept or not this checkout's; not checked)"
+    return 0
+  fi
+  stamp="$dir/.cmux-rust-check-stamp"
+  zig_version="$("${ZIG:-zig}" version 2>/dev/null || echo none)"
+  want="cmux-tui-rust-check target v$warm_target_version"$'\n'"zig $zig_version"$'\n'"$(rustc -vV)" || { echo "error: rustc -vV failed; no cargo command ran" >&2; exit 3; }
+  if [[ -d "$dir" && -n "$(ls -A "$dir" 2>/dev/null)" ]]; then
+    have="$(cat "$stamp" 2>/dev/null || true)"
+    if [[ "$have" == "$want" ]]; then
+      echo "cargo target: warm ($dir, same toolchain and stamp v$warm_target_version)"
+    else
+      echo "cargo target: wiped ($dir: the toolchain or the stamp changed, or no stamp)"
+      rm -rf "$dir"
+    fi
+  else
+    echo "cargo target: cold ($dir is empty)"
+  fi
+  mkdir -p "$dir" && printf '%s\n' "$want" >"$stamp"
+}
+warm_target_guard
 # Every mode runs all of its steps, even after a red one (no fail-fast), and
 # prints a summary table at the end; the step exits with the first red step's
 # exit code. CMUX_RUST_CHECK_FAIL_FAST=1 restores stop-at-first-red (and cargo
@@ -335,7 +388,9 @@ pty_watch_stop() { # START
 # ancestors are never stopped; no name is matched. Hermetic acpmux tests clear
 # the environment and work in the target dir, so their leaks are found only by
 # the roots (a fleet target dir outside the checkout is shared, so it is not a
-# root; neither is rbx's TMPDIR /t, which all lanes share). The PTY count is the
+# root; neither is rbx's TMPDIR /t, which all lanes share). In a worker's warm
+# slot the target stays inside the checkout, which this step holds alone, so
+# the checkout root still covers every test binary. The PTY count is the
 # host's: a concurrent job on the host changes it.
 run_marker="CMUX_RUST_CHECK_RUN=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')-$$"
 leak_notes=()
@@ -491,6 +546,7 @@ workspace_tests() {
   local junit="$root/cmux-tui/target/nextest/ci/junit.xml" rc rrc vrc n expr verdict line
   local args=(nextest run --workspace --locked --profile ci --no-tests=fail)
   [[ "$fail_fast" != 1 ]] || args+=(--fail-fast)
+  [[ -z "$shard" ]] || args+=(--partition "count:$shard")
   [[ -z "$filter" ]] || args+=("$filter")
   [[ "${#skip_args[@]}" -eq 0 ]] || args+=(-- "${skip_args[@]}")
   mkdir -p "$(dirname "$test_log")"
@@ -547,7 +603,7 @@ crate_table() {
 }
 finish() {
   echo
-  echo "=== cmux-tui-rust-check summary (mode $mode${filter:+, filter $filter}, $( [[ "$fail_fast" == 1 ]] && echo fail-fast || echo no-fail-fast ))"
+  echo "=== cmux-tui-rust-check summary (mode $mode${filter:+, filter $filter}${shard:+, shard $shard}, $( [[ "$fail_fast" == 1 ]] && echo fail-fast || echo no-fail-fast ))"
   printf '%-28s %-22s %s\n' step result seconds
   local row
   for row in "${step_rows[@]}"; do
@@ -573,6 +629,7 @@ if [[ "$mode" == optchat-chief ]]; then
   # Its own workspace and lockfile, so its own target dir.
   export CARGO_TARGET_DIR="$root/.build/optchat-chief-target"
   cd "$root/Native/OptChat/optchat-chief"
+  warm_target_guard
   # Its tests bind Unix sockets under the temp dir; the step's own TMPDIR is
   # longer than SUN_LEN (step b1563a89: "path must be shorter than SUN_LEN").
   short_tmp="$(mktemp -d /tmp/occ.XXXXXX)"
@@ -587,6 +644,7 @@ if [[ "$mode" == rd-host ]]; then
   # Its own workspace and lockfile, so its own target dir.
   export CARGO_TARGET_DIR="$root/.build/cmux-rd-host-target"
   cd "$root/cmux-tui/crates/cmux-rd-host"
+  warm_target_guard
   step "rd-host fmt" cargo fmt --check
   step "rd-host clippy" cargo clippy --locked --all-targets --no-default-features --features bench -- -D warnings
   step "rd-host test" cargo test --locked ${no_fail_fast[@]+"${no_fail_fast[@]}"} --no-default-features --features bench ${filter:+"$filter"}
@@ -600,6 +658,7 @@ copy_testhost() {
 if [[ "$mode" == rb-testhost ]]; then
   export CARGO_TARGET_DIR="$root/.build/cmux-rb-testhost-target"
   cd "$root/cmux-tui/crates/cmux-remote-browser-testhost"
+  warm_target_guard
   step "rb-testhost fmt" cargo fmt --check
   step "rb-testhost clippy" cargo clippy --locked --all-targets -- -D warnings
   step "rb-testhost test" cargo test --locked ${no_fail_fast[@]+"${no_fail_fast[@]}"} ${filter:+"$filter"}
@@ -607,17 +666,17 @@ if [[ "$mode" == rb-testhost ]]; then
   step "rb-testhost artifact" copy_testhost
   finish
 fi
-if [[ "$mode" == fmt || "$mode" == all ]]; then
+if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
   step fmt cargo fmt --all --check
 fi
-if [[ "$mode" == clippy || "$mode" == all ]]; then
+if [[ "$mode" == clippy || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
   step clippy cargo clippy --workspace --all-targets --locked -- -D warnings
 fi
 if [[ "$mode" == test || "$mode" == all ]]; then
   step "base-red list" load_base_red
   step "cargo-nextest" ensure_nextest
   step "workspace tests" workspace_tests
-  if [[ -z "$filter" ]]; then
+  if [[ -z "$filter" && "$shard_i" == 1 ]]; then
     step "doc tests" doc_tests
   fi
   # A Testbox or another host without a step reaper keeps what the run left.

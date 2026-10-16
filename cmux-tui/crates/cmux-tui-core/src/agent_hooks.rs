@@ -54,6 +54,37 @@ pub fn agent_hook_live_prompt(native_event: &str, native: &Value) -> Option<Stri
     live_prompt_text(text)
 }
 
+/// The agent's last message a finished or failed turn carries (Claude's
+/// `last_assistant_message`, a provider's `message`/`response`/`summary`), for the banner's
+/// preview: shown text, whitespace folded, at most [`LIVE_PROMPT_CHARS`] characters. Read
+/// before redaction; like the prompt it travels beside the event and is kept in memory only
+/// until its banner takes it (cx-kz6m0). `None` for other events and empty messages.
+pub fn agent_hook_live_reply(source: &str, native_event: &str, native: &Value) -> Option<String> {
+    let normalized = normalized_fields(native);
+    let kind = semantic_kind(source, native_event, &normalized);
+    if !matches!(kind, "agent.turn.completed" | "agent.error.reported") {
+        return None;
+    }
+    live_prompt_text(normalized.get("message")?.as_str()?)
+}
+
+/// The texts a hook sends beside its journal event, memory only (`session.journal.append`
+/// `live_prompt`, `live_reply`). Read them before the event redacts its payload.
+pub fn agent_hook_live_fields(
+    source: &str,
+    native_event: &str,
+    native: &Value,
+) -> Map<String, Value> {
+    let mut fields = Map::new();
+    if let Some(prompt) = agent_hook_live_prompt(native_event, native) {
+        fields.insert("live_prompt".into(), Value::String(prompt));
+    }
+    if let Some(reply) = agent_hook_live_reply(source, native_event, native) {
+        fields.insert("live_reply".into(), Value::String(reply));
+    }
+    fields
+}
+
 /// `text` as a kept prompt: shown text, whitespace folded, cut to [`LIVE_PROMPT_CHARS`].
 pub(crate) fn live_prompt_text(text: &str) -> Option<String> {
     let folded = text.split_whitespace().collect::<Vec<_>>().join(" ");

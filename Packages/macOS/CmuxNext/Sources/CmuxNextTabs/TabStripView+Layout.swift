@@ -45,9 +45,12 @@ extension TabStripView {
         items.insert(placeholder, at: position)
     }
 
-    /// `growsAdded` (default false): the `added` tabs grow in from zero width (`ui.animations.newTab`
-    /// on, outside a gesture); otherwise they are there at once at full width (nx-cmdt-fix). `keepsSelectedInView`: the strip scrolls to the selected tab.
-    func relayout(animated: Bool, added: Set<TabID> = [], growsAdded: Bool = false, keepsSelectedInView: Bool = false) {
+    /// `growsAdded` (default false): the `added` tabs open the Chrome way (`ui.animations.newTab` on,
+    /// outside a gesture); otherwise they are there at once at full width (nx-cmdt-fix). `token` is the
+    /// tween the tabs move on (open when tabs grow in, else this, else `tabMove`): Chrome moves every
+    /// tab from where it is to its slot on one 200 ms ease-out, restarted only by a new target.
+    /// `keepsSelectedInView`: the strip scrolls to the selected tab.
+    func relayout(animated: Bool, added: Set<TabID> = [], growsAdded: Bool = false, token: MotionTween? = nil, keepsSelectedInView: Bool = false) {
         let grows = growsAdded
         result = TabLayoutEngine.layout(
             items: layoutItems(),
@@ -56,34 +59,49 @@ extension TabStripView {
             metrics: metrics,
             closingModeWidth: closingModeWidth
         )
-        // A new tab (Cmd-T, +, a script's tab) is there at once, at its slot and full width, and the
-        // tabs make room for it in the same frame: no grow-in, no slide (Lawrence 2026-10-14: no big
-        // animations by default). A drag or a torn-out tab's drop keeps every spring as it was.
+        // A new tab (Cmd-T, +, a script's tab) with `ui.animations.newTab` off is there at once, at its
+        // slot and full width, and the tabs make room for it in the same frame. A drag or a torn-out
+        // tab's drop keeps every tween as it was.
         let insertsAtOnce = !added.isEmpty && drag == nil && pendingDrop == nil && !grows
+        let tween: MotionTween = grows ? .tabOpen : token ?? .tabMove
+        let scale = window?.backingScaleFactor ?? 2
+        // The previous tab's right edge as it is on screen now (Chrome StartInsertTabAnimation reads the
+        // previous tab's current bounds): a new tab opens there and slides with it to its slot, so the
+        // two move in lockstep on the same tween and never overlap (the proof's open overlap and the
+        // cx-4t1tc hit test: a slot-based start sat under the still-shrinking previous tab).
+        var previousMaxX: CGFloat?
         for slot in result.slots where slot.id != Self.placeholderID {
+            defer { previousMaxX = motion[slot.id].map { $0.x.value + $0.width.value } ?? slot.maxX }
             guard var m = motion[slot.id] else { continue }
             if added.contains(slot.id) {
                 if let pendingDrop, pendingDrop.id == slot.id {
                     m = TabMotion(x: pendingDrop.x, width: pendingDrop.width, alpha: 1)
                     self.pendingDrop = nil
+                } else if grows {
+                    // Chrome (StartInsertTabAnimation): from the previous tab's current right edge minus
+                    // the open width, that wide, no fade; the first tab starts at its slot. Chrome's 18 is
+                    // its tab overlap (a tab 18 wide shows nothing); ours do not overlap, so the token
+                    // is 0: the tab opens from nothing at the previous right edge (hq-4e 2026-10-15).
+                    let open = metrics.chrome.openStartWidth
+                    // A new first tab (index 0) opens at its slot from that width while the old first tab
+                    // slides right; only a strip's very first tab is there at once (Chrome).
+                    let alone = result.slots.count(where: { $0.id != Self.placeholderID }) == 1
+                    m = previousMaxX.map { TabMotion(x: $0 - open, width: open, alpha: 1) }
+                        ?? (alone ? TabMotion(x: slot.x, width: slot.width, alpha: 1) : TabMotion(x: slot.x, width: open, alpha: 1))
                 } else {
-                    // `ui.animations.newTab` on: it grows in from zero width at its slot (hq-1d).
-                    m = TabMotion(x: slot.x, width: grows ? 0 : slot.width, alpha: grows ? 0 : 1)
+                    m = TabMotion(x: slot.x, width: slot.width, alpha: 1)
                 }
             }
-            // A tab growing in and the tabs right of it making room move on one spring (`tabOpen`),
-            // so the strip never overlaps; later moves go back to `move`.
-            if grows, !added.contains(slot.id) { (m.x.token, m.width.token) = (.tabOpen, .tabOpen) }
-            if !grows, m.x.token == .tabOpen, m.x.isSettled { m.x.token = .move }
-            if !grows, m.width.token == .tabOpen, m.width.isSettled { m.width.token = .move }
-            if drag?.id != slot.id { m.x.target = groupDragX(for: slot) ?? slot.x }
+            m.use(tween)
+            if drag?.id != slot.id { m.x.retarget(groupDragX(for: slot) ?? slot.x, scale: scale) }
             if groups.isDragged(slot.id) { m.x.snap() }
-            m.width.target = slot.width
+            m.width.retarget(slot.width, scale: scale)
             // Members of a collapsed group shrink into the chip and fade.
             m.alpha.target = slot.isCollapsed ? 0 : 1
             if !animated || (insertsAtOnce && !groups.isDragged(slot.id)) { m.snap() }
             motion[slot.id] = m
         }
+        pinClosingTabs()
         scroll.target = TabScrollMath.clamp(scroll.target, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
         if keepsSelectedInView, drag == nil, let slot = model.selectedID.flatMap({ result.slot($0) }) { scroll.target = TabScrollMath.offset(revealing: slot, current: scroll.target, contentWidth: result.contentWidth, viewportWidth: viewportWidth, margin: metrics.scrollFadeWidth) }
         if !animated {
@@ -96,6 +114,29 @@ extension TabStripView {
         TabSeparatorVisibility.apply(to: self)
         startAnimating()
         applyFrames()
+        updateOverflowHint()
+    }
+
+    /// A closing tab's left edge stays on the previous tab's right edge minus the close width (0: our
+    /// tabs do not overlap) while it shrinks to that width (Chrome StartRemoveTabAnimation), following
+    /// that tab as it resizes. The previous tab is the one left of it when it closed (by order, not by
+    /// x: a tab opened meanwhile must not move it a slot); the first tab keeps its x.
+    func pinClosingTabs() {
+        let closeWidth = metrics.chrome.closeEndWidth
+        let scale = window?.backingScaleFactor ?? 2
+        for id in dying where id.chipGroupID == nil {
+            guard var m = motion[id] else { continue }
+            let previousMaxX: CGFloat?
+            if let anchor = closingAnchors[id] {
+                // The left neighbour's slot, or its own closing geometry when it is closing too.
+                previousMaxX = anchor.flatMap { a in result.slot(a)?.maxX ?? motion[a].map { $0.x.target + $0.width.target } }
+            } else {
+                previousMaxX = result.slots.last { $0.id != Self.placeholderID && $0.x < m.x.target - 0.5 }?.maxX
+            }
+            m.use(.tabClose)
+            m.x.retarget(previousMaxX.map { $0 - closeWidth } ?? m.x.target, scale: scale)
+            motion[id] = m
+        }
     }
 
     func reveal(_ id: TabID, animated: Bool) {
