@@ -14,6 +14,8 @@ impl Mux {
                 public_id: workspace.public_id.clone(),
                 key: workspace.key.clone(),
                 name: workspace.name.clone(),
+                name_source: workspace.name_source,
+                name_revision: workspace.name_revision,
                 group_key: self.session.clone(),
             })
             .collect()
@@ -296,6 +298,7 @@ impl Mux {
                     "workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})"
                 );
                 let key = generated_key.clone();
+                let name_source = crate::resource_name::NameSource::for_requested(name.is_some());
                 let name = name.clone().unwrap_or_else(|| self.default_workspace_name(state));
                 let index = state.workspaces.len();
                 let workspace = Workspace {
@@ -303,6 +306,8 @@ impl Mux {
                     public_id: public_id.clone(),
                     key: key.clone(),
                     name: name.clone(),
+                    name_source,
+                    name_revision: 0,
                     screens: Vec::new(),
                     active_screen: 0,
                 };
@@ -343,6 +348,8 @@ impl Mux {
                     public_id: public_id.clone(),
                     key: key.clone(),
                     name,
+                    name_source,
+                    name_revision: 0,
                     group_key: self.session.clone(),
                 };
                 let mut desired = self.registry_projection(state);
@@ -414,62 +421,8 @@ impl Mux {
                 let index = state
                     .workspace_index(slot)
                     .with_context(|| format!("workspace {target} has no live slot"))?;
-                let workspace = &state.workspaces[index];
-                let changed = workspace.name != name;
-                let active_screen = workspace
-                    .screens
-                    .get(workspace.active_screen)
-                    .map(|screen| screen.public_id.clone());
-                let durable = RegistryWorkspace {
-                    id: workspace.id,
-                    public_id: workspace.public_id.clone(),
-                    key: workspace.key.clone(),
-                    name: name.clone(),
-                    group_key: self.session.clone(),
-                };
-                let result = serde_json::json!({
-                    "workspace": target.as_str(),
-                    "name": name,
-                    "changed": changed,
-                });
-                let deltas = Value::Array(vec![workspace_resource_upsert(
-                    0,
-                    registry.session_id().as_str(),
-                    &target,
-                    &name,
-                    index,
-                    index == state.active_workspace,
-                )]);
-                let mut desired = self.registry_projection(state);
-                desired[index] = durable.clone();
-                let workspace_key = durable.key.clone();
-                Ok(ResourceMutationPlan::new(
-                    ResourcePatch {
-                        changes: vec![ResourceChange::UpsertWorkspace {
-                            workspace: durable,
-                            position: index,
-                            active_screen,
-                        }],
-                    },
-                    result.clone(),
-                    deltas,
-                    move |state| {
-                        state.workspaces[index].name = name;
-                    },
-                )
-                .with_workspace_ledger(ResourceWorkspaceLedger {
-                    event_kind: "workspace-renamed",
-                    workspace_key,
-                    workspaces: desired,
-                    legacy_result: result,
-                    presentation: None,
-                })
-                .with_metrics(ResourceMutationMetrics {
-                    touched_resources: 1,
-                    order_entries: 0,
-                    terminal_queries: 0,
-                    changed_rows: 1,
-                }))
+                let authority = crate::resource_name::WorkspaceNameUpdate::user();
+                self.workspace_rename_plan(state, registry, &target, index, name, &authority)
             },
         )
     }
@@ -477,17 +430,24 @@ impl Mux {
     pub(crate) fn resource_rename_workspace_selected(
         &self,
         selectors: crate::ResourceSelectors,
-        name: String,
+        name: Option<String>,
+        authority: crate::resource_name::WorkspaceNameUpdate,
         expected_generation: Option<&str>,
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        Self::validate_workspace_name(&name)?;
-        let fingerprint = serde_json::json!({
+        // Only a release may omit the name: it keeps the current one.
+        if let Some(name) = &name {
+            Self::validate_workspace_name(name)?;
+        }
+        let mut fingerprint = serde_json::json!({
             "operation": "workspace.rename",
             "selectors": selectors,
             "name": name,
         });
+        if let Some(name_authority) = authority.fingerprint() {
+            fingerprint["name_authority"] = name_authority;
+        }
         self.commit_resource_mutation_plan(
             mutation,
             "workspace.rename",
@@ -518,62 +478,8 @@ impl Mux {
                 {
                     hook(&target);
                 }
-                let workspace = &state.workspaces[index];
-                let changed = workspace.name != name;
-                let active_screen = workspace
-                    .screens
-                    .get(workspace.active_screen)
-                    .map(|screen| screen.public_id.clone());
-                let durable = RegistryWorkspace {
-                    id: workspace.id,
-                    public_id: workspace.public_id.clone(),
-                    key: workspace.key.clone(),
-                    name: name.clone(),
-                    group_key: self.session.clone(),
-                };
-                let result = serde_json::json!({
-                    "workspace": target.as_str(),
-                    "name": name,
-                    "changed": changed,
-                });
-                let deltas = Value::Array(vec![workspace_resource_upsert(
-                    0,
-                    registry.session_id().as_str(),
-                    &target,
-                    &name,
-                    index,
-                    index == state.active_workspace,
-                )]);
-                let mut desired = self.registry_projection(state);
-                desired[index] = durable.clone();
-                let workspace_key = durable.key.clone();
-                Ok(ResourceMutationPlan::new(
-                    ResourcePatch {
-                        changes: vec![ResourceChange::UpsertWorkspace {
-                            workspace: durable,
-                            position: index,
-                            active_screen,
-                        }],
-                    },
-                    result.clone(),
-                    deltas,
-                    move |state| {
-                        state.workspaces[index].name = name;
-                    },
-                )
-                .with_workspace_ledger(ResourceWorkspaceLedger {
-                    event_kind: "workspace-renamed",
-                    workspace_key,
-                    workspaces: desired,
-                    legacy_result: result,
-                    presentation: None,
-                })
-                .with_metrics(ResourceMutationMetrics {
-                    touched_resources: 1,
-                    order_entries: 0,
-                    terminal_queries: 0,
-                    changed_rows: 1,
-                }))
+                let name = name.unwrap_or_else(|| state.workspaces[index].name.clone());
+                self.workspace_rename_plan(state, registry, &target, index, name, &authority)
             },
         )
     }
@@ -631,6 +537,8 @@ impl Mux {
                             public_id: workspace.public_id.clone(),
                             key: workspace.key.clone(),
                             name: workspace.name.clone(),
+                            name_source: workspace.name_source,
+                            name_revision: workspace.name_revision,
                             group_key: self.session.clone(),
                         },
                         position: old_index,
@@ -784,6 +692,8 @@ impl Mux {
                             public_id: workspace.public_id.clone(),
                             key: workspace.key.clone(),
                             name: workspace.name.clone(),
+                            name_source: workspace.name_source,
+                            name_revision: workspace.name_revision,
                             group_key: self.session.clone(),
                         },
                         position: old_index,

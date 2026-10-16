@@ -2455,7 +2455,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. Optional title, color, and icon carry the shared workspace identity; ephemeral is true for a workspace the daemon closes at its next start; agent_folder is the folder new agent chats start in (workspace.agent_folder.set). Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. Optional title, color, and icon carry the shared workspace identity; ephemeral is true for a workspace the daemon closes at its next start; agent_folder is the folder new agent chats start in (workspace.agent_folder.set). name_source (user or auto) and name_revision (decimal) carry the name provenance (workspace-name-source-v1). Unknown sibling fields remain forbidden."
         }
       },
       "extra": false
@@ -31227,12 +31227,12 @@
         },
         "fields": {
           "name": {
-            "required": true,
+            "required": false,
             "type": {
               "kind": "primitive",
               "name": "string"
             },
-            "description": "Exact name bytes. Empty, whitespace, and Unicode strings are preserved."
+            "description": "Exact name bytes. Empty, whitespace, and Unicode strings are preserved. Required unless release is true."
           },
           "expected_revision": {
             "required": false,
@@ -31241,9 +31241,50 @@
               "name": "decimal"
             },
             "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          },
+          "source": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "auto"
+              ]
+            },
+            "default": "user",
+            "description": "Who chose the name. An automatic name never replaces a user name; a user rename pins the name (workspace-name-source-v1). A refused automatic rename is operation.failed with extra.reason_code name_pinned (over a user name) or name_empty (an empty name)."
+          },
+          "expected_generation": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "expected_name_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The workspace's extra.name_revision the caller read; a rename since then is revision.conflict."
+          },
+          "release": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "With source auto, a person hands the current name back to the automatic namer: the text stays, name_source becomes auto and name_revision advances. Needs no expected_name_revision; name, when present, must equal the current name (workspace-name-source-v1)."
           }
         },
-        "extra": false
+        "extra": false,
+        "constraints": [
+          "source auto requires expected_generation and expected_name_revision unless release is true.",
+          "release requires source auto.",
+          "name is required unless release is true."
+        ]
       },
       "result": {
         "kind": "apply",
