@@ -393,11 +393,15 @@ def live_frames(conversation, session):
 
     while time.time() - t0 < 0.4:
         sample("after-final")
+    rebuilds_before = drive("texts").get("rebuilds")
     brain.request("conversation-run-append", conversation=conversation, run={"id": run, "status": "done"})
     brain.request("conversation-op", conversation=conversation, idempotency_key=run,
                   op={"kind": "message.send", "client_msg_id": run, "parts": [{"type": "text", "text": text}]})
     while time.time() - t0 < 2.0:
         sample("reply")
+    # The reply takes the bubble's place without a whole-window rebuild (MessagesLab ask 11 hand-off).
+    check("no-rebuild-at-handoff", lambda: rebuilds_before is not None and drive("texts").get("rebuilds") == rebuilds_before
+          and drive("texts").get("streams") == 0, seconds=3)
     landed = check("reply-in-place", lambda: (chief_row() or {}).get("live") is None
                    and any(m.get("text") == text and m.get("seq") is not None for m in (chief_row() or {}).get("shown_tail", [])))
     check("line-gone", lambda: drive("texts").get("statusLine") is None)

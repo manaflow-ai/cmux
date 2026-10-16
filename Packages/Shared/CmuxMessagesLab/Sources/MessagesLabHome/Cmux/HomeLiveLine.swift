@@ -90,4 +90,8 @@ final class HomeLiveLine {
 extension MessagesLabHomeView {
     /// Automation (DEBUG socket): the host status line under the transcript (ask 9, `.setNotice`).
     public var debugStatusLine: String? { controller.store?.state.ui.notice }
+    /// Automation (DEBUG socket): whole-window rebuilds of the projection (no animation, a scroll restore).
+    public var debugRebuilds: Int { projection.rebuilds }
+    /// Automation (DEBUG socket): the streaming bubbles' texts (ask 11), oldest first.
+    public var debugStreamTexts: [String] { controller.store?.state.ui.streams.filter { !$0.parts.isEmpty }.map(\.text) ?? [] }
 }
