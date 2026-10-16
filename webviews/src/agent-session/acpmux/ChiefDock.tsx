@@ -96,51 +96,51 @@ export function ChiefDock({ sessions, currentId, onSelect, onNewChat, onMoveToTa
         </button>
       </div>
       <div className="acpmux-chief-dock-cards" aria-hidden={!expanded}>
-          <header className="acpmux-chief-dock-header">
-            <span className="acpmux-chief-dock-title">
-              <Icon name="agent.chief" size={14} /> {t("header.agentChat")}
-            </span>
-            <span className="acpmux-chief-dock-count">{cards.length}</span>
-          </header>
-          <div className="acpmux-chief-dock-stack">
-            {cards.length === 0 && <p className="acpmux-chief-dock-empty">{t("sidebar.noSessions")}</p>}
-            {cards.map((session, index) => {
-              const selected = session.sessionId === currentId;
-              const title = sessionTitle(session);
-              return (
-                <article
-                  className="acpmux-chief-card"
-                  data-selected={selected}
-                  data-status={status(session)}
-                  data-depth={index}
-                  key={session.sessionId}
+        <header className="acpmux-chief-dock-header">
+          <span className="acpmux-chief-dock-title">
+            <Icon name="agent.chief" size={14} /> {t("header.agentChat")}
+          </span>
+          <span className="acpmux-chief-dock-count">{cards.length}</span>
+        </header>
+        <div className="acpmux-chief-dock-stack">
+          {cards.length === 0 && <p className="acpmux-chief-dock-empty">{t("sidebar.noSessions")}</p>}
+          {cards.map((session, index) => {
+            const selected = session.sessionId === currentId;
+            const title = sessionTitle(session);
+            return (
+              <article
+                className="acpmux-chief-card"
+                data-selected={selected}
+                data-status={status(session)}
+                data-depth={index}
+                key={session.sessionId}
+              >
+                <button
+                  type="button"
+                  className="acpmux-chief-card-main"
+                  disabled={!expanded}
+                  onClick={() => onSelect(session.sessionId)}
                 >
-                  <button
-                    type="button"
-                    className="acpmux-chief-card-main"
-                    disabled={!expanded}
-                    onClick={() => onSelect(session.sessionId)}
-                  >
-                    <StatusDot value={status(session)} />
-                    <span className="acpmux-chief-card-copy">
-                      <strong>{title}</strong>
-                      <small>{session.preview || session.branch || session.cwd || t("sidebar.sessions")}</small>
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="acpmux-chief-card-open"
-                    aria-label={t("floating.moveToTab")}
-                    title={t("floating.moveToTab")}
-                    disabled={!expanded}
-                    onClick={() => onMoveToTab(session.sessionId)}
-                  >
-                    <Icon name="link.open.newtab" size={14} />
-                  </button>
-                </article>
-              );
-            })}
-          </div>
+                  <StatusDot value={status(session)} />
+                  <span className="acpmux-chief-card-copy">
+                    <strong>{title}</strong>
+                    <small>{session.preview || session.branch || session.cwd || t("sidebar.sessions")}</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="acpmux-chief-card-open"
+                  aria-label={t("floating.moveToTab")}
+                  title={t("floating.moveToTab")}
+                  disabled={!expanded}
+                  onClick={() => onMoveToTab(session.sessionId)}
+                >
+                  <Icon name="link.open.newtab" size={14} />
+                </button>
+              </article>
+            );
+          })}
+        </div>
       </div>
     </aside>
   );
