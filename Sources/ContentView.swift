@@ -996,6 +996,8 @@ struct ContentView: View {
     /// This window's Chief Home, made the first time Home is shown and kept
     /// (draft, scroll, selection) until Chief is turned off.
     @State private var chiefHome: ChiefHomeView?
+    /// Whether Home's conversation stack is disclosed above the workspace rows.
+    @AppStorage("chief.home.sidebarExpanded") private var chiefHomeExpanded = false
     /// `chief.enabled`, read synchronously (the View menu reads the same key) so a
     /// disabled Chief never flashes its Home row at launch.
     @AppStorage(ChiefCatalogSection().enabled.userDefaultsKey)
@@ -1713,6 +1715,7 @@ struct ContentView: View {
             featureFlags: featureFlags,
             isPresented: sidebarState.isVisible,
             isChiefHomeSelected: sidebarSelectionState.selection == .home,
+            isChiefHomeExpanded: $chiefHomeExpanded,
             showsChiefHome: chiefEnabled,
             chiefHome: chiefHome,
             sidebarUnread: sidebarUnread,
@@ -2804,7 +2807,15 @@ struct ContentView: View {
                 to: newValue,
                 window: observedWindow,
                 tabManager: tabManager,
-                markHomeMounted: { if chiefHome == nil { chiefHome = ChiefHomeView() } }
+                markHomeMounted: {
+                    guard chiefHome == nil else { return }
+                    let home = ChiefHomeView()
+                    home.onRequestActivation = {
+                        sidebarSelectionState.selection = .home
+                        chiefHomeExpanded = true
+                    }
+                    chiefHome = home
+                }
             )
         })
 
@@ -11443,6 +11454,7 @@ struct VerticalTabsSidebar: View, Equatable {
             && lhs.titlebarControlsLayoutModel === rhs.titlebarControlsLayoutModel
             && lhs.isPresented == rhs.isPresented
             && lhs.isChiefHomeSelected == rhs.isChiefHomeSelected
+            && lhs.isChiefHomeExpanded == rhs.isChiefHomeExpanded
             && lhs.showsChiefHome == rhs.showsChiefHome
             && lhs.chiefHome === rhs.chiefHome
             && lhs.chromeBackgroundColor.isEqual(rhs.chromeBackgroundColor)
@@ -11455,6 +11467,8 @@ struct VerticalTabsSidebar: View, Equatable {
     var isPresented: Bool = true
     /// Chief Home is the window's content: the Home row is selected and no workspace row is.
     var isChiefHomeSelected: Bool = false
+    /// Home's compact conversation disclosure stays visible while workspaces are shown.
+    @Binding var isChiefHomeExpanded: Bool = .constant(false)
     /// `chief.enabled`: the Home row and its reserved band show only when on.
     var showsChiefHome: Bool = true
     /// The window's Chief Home, once opened: its conversation list replaces the
@@ -12103,14 +12117,35 @@ struct VerticalTabsSidebar: View, Equatable {
                             .padding(.horizontal, 8)
                             .transition(.move(edge: .top).combined(with: .opacity))
                             .zIndex(2)
+                    } else if isChiefHomeExpanded, let chiefHome {
+                        ChiefHomeConversationRowsRepresentable(
+                            home: chiefHome,
+                            accent: tabItemSettings.accentColor
+                        )
+                        .padding(.top, SidebarWorkspaceListMetrics.homeRowTopOffset
+                            + SidebarWorkspaceListMetrics.homeRowHeight
+                            + SidebarWorkspaceListMetrics.homeRowBottomGap)
+                        .frame(maxWidth: .infinity, height: 238, alignment: .top)
+                        .background(.regularMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .shadow(color: .black.opacity(0.16), radius: 12, y: 4)
+                        .padding(.horizontal, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .zIndex(2)
                     }
                     SidebarChiefHomeRow(
                         isSelected: isChiefHomeSelected,
+                        isExpanded: isChiefHomeExpanded,
                         settings: tabItemSettings,
                         globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
                         conversationID: chiefHome?.selected,
                         onSelect: { selection = selection == .home ? .tabs : .home },
-                        onNewConversation: chiefHome.map { home -> () -> Void in { home.newConversation() } }
+                        onNewConversation: chiefHome.map { home -> () -> Void in { home.newConversation() } },
+                        onToggleExpanded: {
+                            withAnimation(.easeInOut(duration: 0.22)) {
+                                isChiefHomeExpanded.toggle()
+                            }
+                        }
                     )
                     .padding(.top, SidebarWorkspaceListMetrics.homeRowTopOffset)
                 }
@@ -12118,7 +12153,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
                         ? nil
                         : .easeInOut(duration: 0.22),
-                    value: isChiefHomeSelected
+                    value: isChiefHomeSelected || isChiefHomeExpanded
                 )
             }
         }

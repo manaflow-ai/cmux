@@ -42,6 +42,14 @@ final class ChiefHomeView: NSView {
     /// the composer takes focus once it does.
     private var focusOnWindow = false
 
+    /// Called when a conversation is chosen while Home is collapsed in the
+    /// sidebar. The host uses this to reveal Home before showing the thread.
+    var onRequestActivation: (() -> Void)?
+
+    /// Called after the list projection changes. The compact Home disclosure
+    /// uses this value snapshot instead of reaching through the AppKit list.
+    var onRowsChanged: (([CmuxSidebarEntry]) -> Void)?
+
     /// Whether the host shows Home now; a hidden Home sends no read receipts.
     var isActive = true {
         didSet {
@@ -110,6 +118,7 @@ final class ChiefHomeView: NSView {
 
     /// Shows `conversation` (from the list, a link, or a new conversation).
     func select(_ conversation: ConversationID) {
+        if !isActive { onRequestActivation?() }
         guard conversation != selected || transcript == nil else { return }
         selected = conversation
         defaults.set(conversation.rawValue, forKey: Self.selectionKey)
@@ -211,6 +220,7 @@ final class ChiefHomeView: NSView {
         let byID = Dictionary(entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let ordered = pinned.compactMap { byID[$0.rawValue] } + entries.filter { !pinnedSet.contains(ConversationID($0.id)) }
         list.list.show(ordered, pinned: pinned.map(\.rawValue))
+        onRowsChanged?(ordered)
         if list.list.selectedID != selected.rawValue {
             if byID[selected.rawValue] != nil {
                 list.list.select(selected.rawValue)

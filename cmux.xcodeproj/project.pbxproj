@@ -640,6 +640,7 @@
 		C41EF89EF450E4FAFC350CBA /* ChiefFirstRunRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF092222718DC46D80B94 /* ChiefFirstRunRow.swift */; };
 		C41EF1F0C562260916D58DFC /* ChiefFirstRunStrings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF0F46A59AD3C1240F6D3 /* ChiefFirstRunStrings.swift */; };
 		C41EF047A1AC1C607F104930 /* ChiefFirstRunView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EFA31AD57F83409C24CB4 /* ChiefFirstRunView.swift */; };
+		C135DDB560C9A914156A3826 /* ChiefHomeConversationRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D10F73113F55349CE0E475D /* ChiefHomeConversationRows.swift */; };
 		C41EF52AC12F5805088DC79B /* ChiefHomeNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF7A8143B9AA8C11EFA73 /* ChiefHomeNavigation.swift */; };
 		F3CF0E3AB3D16A241EF1C013 /* ChiefHomeNavigationFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEAEDE08274123B49899A372 /* ChiefHomeNavigationFocusTests.swift */; };
 		C41EF3C05F36AAB184B66F66 /* ChiefHomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF8AADBA409A844FAEDC4 /* ChiefHomeView.swift */; };
@@ -650,6 +651,7 @@
 		C41EFCA7F98062CBD707FBB3 /* ChiefMemorySectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EFAC1C70C21B7D37085B9 /* ChiefMemorySectionView.swift */; };
 		C41EFFF2A1C31E4248313D73 /* ChiefMemoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF06BABC0B3DE2B2A23B9 /* ChiefMemoryStore.swift */; };
 		C41EFA05B756CB1C4A5A8A8F /* ChiefMemoryStrings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF0BE4E06934F1BCD1567 /* ChiefMemoryStrings.swift */; };
+		4C8F48379F4C3C01DF018276 /* ChiefPaneDragPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7947118FF892144AE54C82D2 /* ChiefPaneDragPayload.swift */; };
 		C41EF84BB02A81F2A8B89A1F /* ChiefPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EFE2AEB230E955A27DB88 /* ChiefPanel.swift */; };
 		19E97DB221B879A7A25AB8AC /* ChiefPanelSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BA756EDFFAB6F990E00AF37 /* ChiefPanelSessionTests.swift */; };
 		C41EFE167AA92EAC06FEE606 /* ChiefPreviewText.swift in Sources */ = {isa = PBXBuildFile; fileRef = C41EF7D7932443B6545F740A /* ChiefPreviewText.swift */; };
@@ -5432,6 +5434,7 @@
 		C41EF092222718DC46D80B94 /* ChiefFirstRunRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefFirstRunRow.swift; sourceTree = "<group>"; };
 		C41EF0F46A59AD3C1240F6D3 /* ChiefFirstRunStrings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefFirstRunStrings.swift; sourceTree = "<group>"; };
 		C41EFA31AD57F83409C24CB4 /* ChiefFirstRunView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefFirstRunView.swift; sourceTree = "<group>"; };
+		0D10F73113F55349CE0E475D /* ChiefHomeConversationRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/ChiefHomeConversationRows.swift; sourceTree = "<group>"; };
 		C41EF7A8143B9AA8C11EFA73 /* ChiefHomeNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChiefHomeNavigation.swift; sourceTree = "<group>"; };
 		FEAEDE08274123B49899A372 /* ChiefHomeNavigationFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChiefHomeNavigationFocusTests.swift"; sourceTree = "<group>"; };
 		C41EF8AADBA409A844FAEDC4 /* ChiefHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefHomeView.swift; sourceTree = "<group>"; };
@@ -5442,6 +5445,7 @@
 		C41EFAC1C70C21B7D37085B9 /* ChiefMemorySectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefMemorySectionView.swift; sourceTree = "<group>"; };
 		C41EF06BABC0B3DE2B2A23B9 /* ChiefMemoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefMemoryStore.swift; sourceTree = "<group>"; };
 		C41EF0BE4E06934F1BCD1567 /* ChiefMemoryStrings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefMemoryStrings.swift; sourceTree = "<group>"; };
+		7947118FF892144AE54C82D2 /* ChiefPaneDragPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefPaneDragPayload.swift; sourceTree = "<group>"; };
 		C41EFE2AEB230E955A27DB88 /* ChiefPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ChiefPanel.swift; sourceTree = "<group>"; };
 		2BA756EDFFAB6F990E00AF37 /* ChiefPanelSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChiefPanelSessionTests.swift"; sourceTree = "<group>"; };
 		C41EF7D7932443B6545F740A /* ChiefPreviewText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chief/ChiefPreviewText.swift; sourceTree = "<group>"; };
@@ -12515,6 +12519,8 @@
 				C41EF7D7932443B6545F740A /* ChiefPreviewText.swift */,
 				30AA2D44945B6C4A24A6D837 /* TerminalController+BrowserEmulation.swift */,
 				F1C6800D38EC5F238A2994FC /* DockSplitStore+ChiefPane.swift */,
+				7947118FF892144AE54C82D2 /* ChiefPaneDragPayload.swift */,
+				0D10F73113F55349CE0E475D /* ChiefHomeConversationRows.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -15356,6 +15362,7 @@
 				C41EF89EF450E4FAFC350CBA /* ChiefFirstRunRow.swift in Sources */,
 				C41EF1F0C562260916D58DFC /* ChiefFirstRunStrings.swift in Sources */,
 				C41EF047A1AC1C607F104930 /* ChiefFirstRunView.swift in Sources */,
+				C135DDB560C9A914156A3826 /* ChiefHomeConversationRows.swift in Sources */,
 				C41EF52AC12F5805088DC79B /* ChiefHomeNavigation.swift in Sources */,
 				C41EF3C05F36AAB184B66F66 /* ChiefHomeView.swift in Sources */,
 				C41EF790B3B7235DE569DA5D /* ChiefMemoryEditor.swift in Sources */,
@@ -15364,6 +15371,7 @@
 				C41EFCA7F98062CBD707FBB3 /* ChiefMemorySectionView.swift in Sources */,
 				C41EFFF2A1C31E4248313D73 /* ChiefMemoryStore.swift in Sources */,
 				C41EFA05B756CB1C4A5A8A8F /* ChiefMemoryStrings.swift in Sources */,
+				4C8F48379F4C3C01DF018276 /* ChiefPaneDragPayload.swift in Sources */,
 				C41EF84BB02A81F2A8B89A1F /* ChiefPanel.swift in Sources */,
 				C41EFE167AA92EAC06FEE606 /* ChiefPreviewText.swift in Sources */,
 				C41EF3EF3FDBF271EB9D11D8 /* ChiefProfile.swift in Sources */,

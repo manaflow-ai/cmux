@@ -24,6 +24,7 @@ import SwiftUI
 /// the band `SidebarWorkspaceListMetrics` reserves below the titlebar.
 struct SidebarChiefHomeRow: View {
     let isSelected: Bool
+    let isExpanded: Bool
     let settings: SidebarTabItemSettingsSnapshot
     let globalFontMagnificationPercent: Int
     /// The conversation Home currently shows when this row is dragged into a pane.
@@ -31,6 +32,8 @@ struct SidebarChiefHomeRow: View {
     let onSelect: () -> Void
     /// Starts a new conversation; shown as the row's compose button while selected.
     var onNewConversation: (() -> Void)?
+    /// Expands or collapses the inline Home conversation stack.
+    var onToggleExpanded: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -38,6 +41,19 @@ struct SidebarChiefHomeRow: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 7) {
+                Button(action: onToggleExpanded) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(font(9, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .frame(width: 12, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(ChiefStrings.conversationsList)
+                .accessibilityLabel(Text(ChiefStrings.conversationsList))
+                .accessibilityValue(Text(isExpanded ? ChiefStrings.conversationsExpanded : ChiefStrings.conversationsCollapsed))
+                .accessibilityIdentifier("SidebarChiefHomeDisclosure")
+
                 Button(action: onSelect) {
                     HStack(spacing: 7) {
                         Image(systemName: "house.fill")

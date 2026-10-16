@@ -669134,6 +669134,34 @@
         "ko": { "stringUnit": { "state": "translated", "value": "홈" } },
         "ja": { "stringUnit": { "state": "translated", "value": "ホーム" } }
       }
+    },
+    "chief.conversation.collapsed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Collapsed" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Eingeklappt" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Replié" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "مطوي" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Contraído" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已收合" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已折叠" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "축소됨" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "折りたたみ済み" } }
+      }
+    },
+    "chief.conversation.expanded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Expanded" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Ausgeklappt" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Développé" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "موسّع" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Expandido" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已展開" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已展开" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "확장됨" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "展開済み" } }
+      }
     }
   },
   "version": "1.0"

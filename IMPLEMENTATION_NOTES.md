@@ -8,6 +8,22 @@
   create a pane. Added resolver and create/reuse coverage in
   `ChiefPanelSessionTests`.
 
+## 2026-10-15 persistent Home disclosure
+
+- Home now has an explicit disclosure affordance in the left sidebar. When it
+  is collapsed, workspace rows remain the primary list; expanding Home reveals
+  a compact sequential stack of Chief conversations in that same sidebar
+  surface. Selecting a disclosed conversation activates Home and keeps the
+  thread mounted.
+- Each disclosed conversation is a live pane-transfer source, so it can be
+  dragged into a workspace split or the right Dock and becomes a duplicate
+  `ChiefPanel`. The canonical Home row and its default conversation remain
+  protected from delete actions; duplicates continue through the ordinary pane
+  close path.
+- The compact stack uses the same Home projection used by MessagesLab, so
+  unread dots, human previews and Chief selection stay aligned with the full
+  Home list. New disclosure copy is localized in all nine macOS catalogs.
+
 ## 2026-10-15 interaction follow-up
 
 - Added a red-before-green cloud regression for a failed `vm wait`: the provisioning row retains its machine name while showing the failure state, so result copy never falls back to a raw VM id.

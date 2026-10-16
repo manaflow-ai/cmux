@@ -196,6 +196,12 @@ enum ChiefStrings {
     static var conversationsList: String {
         String(localized: "chief.conversation.list", defaultValue: "Chief Conversations")
     }
+    static var conversationsExpanded: String {
+        String(localized: "chief.conversation.expanded", defaultValue: "Expanded")
+    }
+    static var conversationsCollapsed: String {
+        String(localized: "chief.conversation.collapsed", defaultValue: "Collapsed")
+    }
     /// Tooltip for the header action that mirrors this conversation in the right Dock.
     static var openInDock: String {
         String(localized: "chief.conversation.openInDock", defaultValue: "Open Chief in Dock")
