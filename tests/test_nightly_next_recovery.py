@@ -323,6 +323,10 @@ class WorkflowTests(unittest.TestCase):
         tooling = step(job, "Checkout publication tooling at the workflow commit")["with"]
         self.assertEqual(tooling["ref"], "${{ github.sha }}")
         self.assertIn('"$PUBLISH_TOOLING/ci/nightly_version.py"', step(job, "Recheck the recovered build against both feeds")["run"])
+        for moved in ("scripts/ci/nightly_version.py", "scripts/ci/nightly_release_notes.py", "scripts/ci/nightly-next-guard.py",
+                      "scripts/prune_nightly_release_assets.py", "scripts/ci/publish-release-assets.py",
+                      "scripts/ci/finalize-release.py", "scripts/ci/upload-r2-object.py", "scripts/ci/update-release-tag.py"):
+            self.assertNotIn(moved, text, f"publish-nightly must run {moved} from $PUBLISH_TOOLING")
         self.assertEqual(job["outputs"]["source"], "${{ steps.source.outputs.source }}")
 
     def test_publish_runs_for_an_accepted_own_or_recovered_build(self):

@@ -3412,7 +3412,9 @@ jobs:
       # published build's checkout. A recovered build can be days older: run
       # 38855116561 recovered 0664bd9847b5, whose nightly_version.py predates
       # --already-published-ok (#20986), and the recheck failed. Scripts that
-      # read the build's own source tree still run from the publish ref.
+      # read the build's own source tree still run from the publish ref:
+      # verify_remote_daemon_release.py, fetch-release-notes-span.sh,
+      # release-notes.py, check_ghostty_vt_notices.py, ghostty_source_archive.py.
       - name: Checkout publication tooling at the workflow commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
