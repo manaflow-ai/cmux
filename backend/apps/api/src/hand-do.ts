@@ -3,8 +3,9 @@ import type { Env } from "./env.ts"
 import { deleteSandboxVm } from "./hand-sandbox.ts"
 import { revokeAgentSession } from "./model-gateway/run-token.ts"
 import { classify, requestSummary, type Classified } from "./hand-classify.ts"
+import { createVerdictTable, listVerdicts, recordVerdict } from "./hand-verdicts.ts"
 import { createIndexTables, handName, indexGrants, indexList, indexName, indexPut, indexSetGrant } from "./hand-index.ts"
-import { callerLabel, isHandAction, PAIR_TTL_MS, sameHex, type AgentEvent, type HandCaller, type HandError, type HandReply, type HandSummary, type Profile, type StoredEvent } from "./hand-wire.ts"
+import { callerLabel, capJson, isHandAction, PAIR_TTL_MS, sameHex, type AgentEvent, type HandCaller, type HandError, type HandReply, type HandSummary, type Profile, type StoredEvent } from "./hand-wire.ts"
 
 /**
  * HandDO: one object per installed hand (`h:<hand id>`), holding that hand's one hibernating
@@ -48,21 +49,6 @@ type HandRow = {
   last_seen: number | null
 }
 
-/**
- * JSON of `v` within `max` characters, always parseable: long string fields are cut first, and a
- * value that still does not fit is replaced by a marker.
- */
-const capJson = (v: unknown, max: number): string => {
-  const whole = JSON.stringify(v ?? null)
-  if (whole.length <= max) return whole
-  if (v && typeof v === "object" && !Array.isArray(v)) {
-    const cut = Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, typeof x === "string" && x.length > max / 4 ? `${x.slice(0, max / 4)}…[cut]` : x]))
-    const again = JSON.stringify({ ...cut, truncated: true })
-    if (again.length <= max) return again
-  }
-  return JSON.stringify({ kind: (v as { kind?: unknown } | null)?.kind ?? null, truncated: true })
-}
-
 /** Mac hands take Cloud requests only where HANDS_MAC_ENABLED is "1" and, when HANDS_MAC_OWNERS lists owners, only for them. */
 const macEnabledFor = (env: Env, owner: string): boolean => {
   if (env.HANDS_MAC_ENABLED !== "1") return false
@@ -85,7 +71,7 @@ export class HandDO extends DurableObject<Env> {
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_grant (agent TEXT PRIMARY KEY)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_audit (seq INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, req TEXT NOT NULL, action TEXT NOT NULL, who TEXT NOT NULL, outcome TEXT NOT NULL, ms INTEGER)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_approval (id TEXT PRIMARY KEY, req TEXT NOT NULL, summary TEXT NOT NULL, at INTEGER NOT NULL, answered_at INTEGER, allow INTEGER, who TEXT)`)
-    sql.exec(`CREATE TABLE IF NOT EXISTS hand_verdict (seq INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, req TEXT NOT NULL, action TEXT NOT NULL, who TEXT NOT NULL, verdict TEXT NOT NULL, reason TEXT NOT NULL, model TEXT NOT NULL, ms INTEGER NOT NULL, summary TEXT NOT NULL)`)
+    createVerdictTable(sql)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_agent (session TEXT PRIMARY KEY, chief TEXT NOT NULL, conversation TEXT NOT NULL, at INTEGER NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_sandbox (id INTEGER PRIMARY KEY CHECK (id = 1), vm TEXT NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_event (seq INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT NOT NULL, at INTEGER NOT NULL, body TEXT NOT NULL)`)
@@ -304,20 +290,17 @@ export class HandDO extends DurableObject<Env> {
     return result
   }
 
-  /** The classifier's verdict for one request, logged with the request (the owner audits it with verdicts()). */
+  /** The classifier's verdict for one request, logged with the request (hand-verdicts.ts). */
   private async verdict(req: string, caller: HandCaller, owner: string, action: string, params: unknown): Promise<Classified> {
-    const summary = requestSummary(action, params)
-    const v = await classify(this.env, this.row()?.hand ?? "", owner, caller.agent, req, summary)
-    // The log keeps the request's shape (paths, argv, the head of any text), not whole file bodies.
-    this.ctx.storage.sql.exec(`INSERT INTO hand_verdict (at, req, action, who, verdict, reason, model, ms, summary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, Date.now(), req, action, callerLabel(caller), v.verdict, v.reason, v.model, v.ms, requestSummary(action, params, true).text)
-    this.ctx.storage.sql.exec(`DELETE FROM hand_verdict WHERE seq <= (SELECT MAX(seq) FROM hand_verdict) - ?`, KEEP_AUDIT)
+    const v = await classify(this.env, this.row()?.hand ?? "", owner, caller.agent, req, requestSummary(action, params))
+    recordVerdict(this.ctx.storage.sql, req, action, callerLabel(caller), v, requestSummary(action, params, true).text)
     return v
   }
 
   async verdicts(caller: HandCaller, limit = 100): Promise<HandReply<Array<Record<string, unknown>>>> {
     const r = this.row()
     if (caller.kind !== "owner" || !r || r.owner !== caller.user) return refuse("hand.not_found", "no such hand")
-    return { ok: true, value: this.ctx.storage.sql.exec(`SELECT seq, at, req, action, who, verdict, reason, model, ms, summary FROM hand_verdict ORDER BY seq DESC LIMIT ?`, Math.min(Math.max(limit, 1), 1000)).toArray() }
+    return { ok: true, value: listVerdicts(this.ctx.storage.sql, limit) }
   }
 
   /** The sweep (hand-sweep.ts): "live" (keep) or "gone" (no live hand holds it: delete); the sweep keeps it when this call fails. */
