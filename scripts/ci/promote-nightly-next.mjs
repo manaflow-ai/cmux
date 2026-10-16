@@ -354,8 +354,16 @@ export async function decide({
     const full = await commitWithFiles(github, owner, repo, commit.sha);
     detailed.push(full || { sha: commit.sha, truncated: true, files: [], parents: commit.parents || [] });
   }
-  let touching = detailed.filter((commit) => commit.truncated || commit.files.some(touches));
-  if (touching.length === 0) touching = detailed.filter((commit) => (commit.parents || []).length > 1);
+  const touching = detailed.filter((commit) => commit.truncated || commit.files.some(touches));
+  // A surface path that no commit's own diff lists changed through a merge
+  // resolution: every merge commit in the range is a lander for it.
+  const listed = new Set(touching.flatMap((commit) => commit.files.flatMap((file) => [file.filename, file.previous_filename]).filter(Boolean)));
+  const anyTruncated = touching.some((commit) => commit.truncated);
+  if (!anyTruncated && surfaceFiles.some((path) => !listed.has(path))) {
+    for (const commit of detailed) {
+      if ((commit.parents || []).length > 1 && !touching.includes(commit)) touching.push(commit);
+    }
+  }
   if (touching.length === 0) {
     return refuse(`the surface of ${current}...${sha} changed (${surfaceFiles.join(', ')}) but no commit in the range accounts for it`, { sha, current, surfaceFiles });
   }

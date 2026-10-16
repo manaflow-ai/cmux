@@ -504,6 +504,38 @@ def test_a_merge_that_drops_the_old_tips_surface_change_asks_for_an_ack() -> Non
     assert "austinywang" in out["decision"]["landers"]
 
 
+def test_a_merge_that_changes_a_second_surface_file_is_a_lander_too() -> None:
+    # Commit A (Leo) touches nightly.yml; merge S (Austin's push) resolves
+    # cmux-next.yml to a version no commit's own diff lists.
+    base0, a, mline, merge = "0" * 39 + "1", "b" * 40, "e" * 40, "9" * 40
+    nightly, gate = ".github/workflows/nightly.yml", ".github/workflows/cmux-next.yml"
+    case = scenario(commits=[
+        commit(SHA, [merge], ["Sources/App.swift"], "teamleaderleo"),
+        dict(commit(merge, [mline, a], []), tree={nightly: a, gate: base0, "Sources/M.swift": mline}),
+        commit(a, [CURRENT], [nightly], "teamleaderleo"),
+        commit(mline, [base0], ["Sources/M.swift"], "teamleaderleo"),
+        commit(CURRENT, [base0], [gate]),
+        commit(base0, [], [gate]),
+    ], activity=[{"before": CURRENT, "after": SHA, "actor": {"login": "teamleaderleo"}},
+                 {"before": "f" * 40, "after": merge, "actor": {"login": "austinywang"}}],
+        commitPulls={}, surface=LANDER_RULE_ON)
+    out = run(case)
+    assert out["decision"]["action"] == "needs-ack", out["decision"]
+    assert out["decision"]["surfaceFiles"] == [gate, nightly]
+    assert merge in out["decision"]["touching"], out["decision"]
+
+
+def test_a_deleted_surface_file_asks_for_an_ack() -> None:
+    nightly = ".github/workflows/nightly.yml"
+    case = scenario(commits=[
+        dict(commit(SHA, [CURRENT], [nightly], "teamleaderleo"), tree={"Sources/App.swift": SHA}),
+        commit(CURRENT, [], [nightly, "Sources/App.swift"]),
+    ], activity=[{"before": CURRENT, "after": SHA, "actor": {"login": "teamleaderleo"}}], commitPulls={})
+    out = run(case)
+    assert out["decision"]["action"] == "needs-ack", out["decision"]
+    assert out["decision"]["surfaceFiles"] == [nightly]
+
+
 def test_a_commit_list_the_api_cannot_cover_is_refused() -> None:
     out = run(scenario(totalCommitsOverride=5000))
     assert out["decision"]["action"] == "refuse", out["decision"]
