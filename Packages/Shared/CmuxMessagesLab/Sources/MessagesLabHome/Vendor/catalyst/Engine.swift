@@ -25,9 +25,60 @@ struct ConversationUIState: Equatable {
     /// `.tree` mode: the branch the open thread view shows, the drilled messages below the root,
     /// outermost first (empty: the whole thread). A reply sent in the view answers the last one.
     var threadPath: [PartRef] = []
+    /// The host's streaming bubbles (HostHooks.swift, ask 11; `.streamBegin` ... `.streamEnd`), in begin order.
+    /// Empty by default: no row, no change.
+    var streams: [StreamBubble] = []
     /// `offset`: points scrolled up from the bottom (0 when pinned).
     var scroll = Scroll()
     struct Scroll: Equatable { var pinnedToBottom = true; var offset: CGFloat = 0 }
+}
+
+/// The host's id of one streaming bubble (ask 11; cmux: the reply's turn key). Any string; it never names a message.
+typealias StreamID = String
+
+/// One streaming bubble (ask 11, HostHooks.swift): a received message being written. The host begins it, sets or
+/// appends its text, and ends it with the final message (which takes its place) or without one (it goes as the typing
+/// indicator goes). RowBuilder draws it as the message `message` would be, last in the transcript (under every loaded
+/// message, above the host's status line), so the final message's rows are the same rows.
+struct StreamBubble: Equatable {
+    var id: StreamID
+    var sender: ID
+    var format: MessageFormat?
+    var text = ""
+    var parts: [Part] = []
+    /// The last applied seq (nil: none given yet).
+    var seq: Int?
+    /// When its text last changed (engine time): the message's sentAt, close to the final message's.
+    var updatedAt: String
+
+    /// Row keys of a stream name this id: "%stream-" never starts a host's message id that HomeMapping.rowSafe made
+    /// ("%" only as "%25" or "%3A"), and a colon in the stream id is escaped as rowSafe does (RowBuilder.owner).
+    static let idPrefix = "%stream-"
+    static func messageID(_ id: StreamID) -> ID {
+        idPrefix + id.replacingOccurrences(of: "%", with: "%25").replacingOccurrences(of: ":", with: "%3A")
+    }
+    static func isStream(_ messageID: Substring) -> Bool { messageID.hasPrefix(idPrefix) }
+    static func isStream(_ messageID: ID) -> Bool { messageID.hasPrefix(idPrefix) }
+
+    /// The bubble as a received message (no status, no thread, no reactions).
+    var message: Message {
+        Message(id: Self.messageID(id), senderId: sender, sentAt: updatedAt, parts: parts, replyTo: nil, status: nil,
+                edits: nil, retractedAt: nil, reactions: [], format: format)
+    }
+
+    /// MessagesLab's rule for text (its own send): TextParts.parts; no text, no part (the typing indicator shows).
+    static func parts(_ text: String) -> [Part] { text.isEmpty ? [] : TextParts.parts(for: text) }
+
+    /// Applies `change` to stream `id` unless `seq` is not above its last seq (an out-of-order or repeated chunk).
+    static func update(_ streams: inout [StreamBubble], _ id: StreamID, seq: Int?, at stamp: String, _ change: (inout StreamBubble) -> Void) {
+        guard let i = streams.firstIndex(where: { $0.id == id }) else { return }
+        streams.update(at: i) { s in
+            if let seq, let last = s.seq, seq <= last { return }
+            if let seq { s.seq = seq }
+            change(&s)
+            s.updatedAt = stamp
+        }
+    }
 }
 
 struct AppState: Equatable {
@@ -96,6 +147,20 @@ enum Action {
     case remeasureCustom([ID], animated: Bool)
     /// The host's status line under the transcript (ask 9): its text, nil to take it away (HostHooks.swift).
     case setNotice(String?)
+    /// Ask 11 (HostHooks.swift): a streaming bubble from `sender`. With no text yet it shows as the typing
+    /// indicator; a stream id that is already live changes nothing.
+    case streamBegin(StreamID, sender: ID, format: MessageFormat? = nil)
+    /// Ask 11: the stream's whole text. `parts`: how the host shows that text (cmux: the parts of the message
+    /// the final reply will be, HomeMapping), so the bubble draws as the final message; nil: MessagesLab's own
+    /// rule (TextParts.parts, as its send). `seq`: when given, a seq not above the last applied one is ignored.
+    case streamSet(StreamID, text: String, parts: [Part]? = nil, seq: Int? = nil)
+    /// Ask 11: text appended to the stream's text; its parts are MessagesLab's rule again (a host that shows its own parts
+    /// sets the whole text with them). `seq` as in `.streamSet`.
+    case streamAppend(StreamID, text: String, seq: Int? = nil)
+    /// Ask 11: the stream ends. `replacedBy`: the final message, received in the stream's place (the window view
+    /// keeps the bubble's rows and cells: no remove, insert or receive motion); nil: the bubble leaves as the
+    /// typing indicator does.
+    case streamEnd(StreamID, replacedBy: Message?)
 }
 
 extension Action {
@@ -258,6 +323,22 @@ enum Reducer {
             s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .attachment(a) } }
         case let .cmuxNotice(text):  // cmux
             s.ui.cmuxNotice = text
+        case let .streamBegin(id, sender, format):
+            guard !s.ui.streams.contains(where: { $0.id == id }) else { break }
+            s.ui.streams.append(StreamBubble(id: id, sender: sender, format: format, updatedAt: stamp))
+        case let .streamSet(id, text, parts, seq):
+            StreamBubble.update(&s.ui.streams, id, seq: seq, at: stamp) { $0.text = text; $0.parts = parts ?? StreamBubble.parts(text) }
+        case let .streamAppend(id, more, seq):
+            StreamBubble.update(&s.ui.streams, id, seq: seq, at: stamp) { $0.text += more; $0.parts = StreamBubble.parts($0.text) }
+        case let .streamEnd(id, final):
+            s.ui.streams.removeAll { $0.id == id }
+            // The final message arrives as `.receive` does (its sender's typing ends), unless it is already loaded
+            // (a host that rebuilt its window with it first).
+            if let m = final, s.message(m.id) == nil {
+                s.ui.typing.removeAll { $0 == m.senderId }
+                if s.atNewest { s.conversation.messages.append(m) }
+                s.total += 1
+            }
         }
         return nil
     }
@@ -349,7 +430,7 @@ extension Reducer {
         switch action {
         case .send:
             if let sent { w.append(sent) }
-        case let .receive(m):
+        case let .receive(m), let .streamEnd(_, m?):
             w.append(s.message(m.id) ?? m)
         case let .react(ref, _, _):
             if let m = s.message(ref.messageId) { w.update(m) }
@@ -482,10 +563,17 @@ final class Store {
         // window ran the field's send flash and started the send morph again on my last message.
         // Messages shows nothing for it.
         if case .send = action, sent == nil { return }
-        if let writer { Reducer.writeThrough(action, sent: sent, state: state, to: writer) }
+        // A stream's final message that was already loaded (ask 11) was written when it came: it is not appended again.
+        let loadedFinal: Bool = { if case let .streamEnd(_, m?) = action { return old.message(m.id) != nil }; return false }()
+        if let writer, !loadedFinal { Reducer.writeThrough(action, sent: sent, state: state, to: writer) }
         onChange?(action, t, old, state)
         if let sent { responder?.didSend(sent, self) }
-        let fresh: Message? = { if let sent { return sent }; if case let .receive(m) = action { return m }; return nil }()
+        let fresh: Message? = {
+            if let sent { return sent }
+            if case let .receive(m) = action { return m }
+            if case let .streamEnd(_, m?) = action { return m }
+            return nil
+        }()
         for p in fresh?.parts ?? [] {
             guard case let .link(url, title, site, image, _) = p, image == nil, title == nil || title == site else { continue }
             let host = URL(string: url).map(TextParts.host) ?? url
