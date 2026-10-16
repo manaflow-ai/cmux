@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { runInDurableObject } from "cloudflare:test"
 import { fireAlarm } from "./setup/alarm.ts"
 import { gatewayBaseUrl, mintRunToken, revokeAgentSession } from "../src/model-gateway/run-token.ts"
-import { TURN_FAILED_NOTICE } from "../src/chief-brain/brain-gateway.ts"
+import { DAILY_CAP_NOTICE, TURN_FAILED_NOTICE } from "../src/chief-brain/brain-gateway.ts"
 
 /**
  * The model gateway (model-gateway/gateway.ts) at the product boundary: a person writes to a Cloud
@@ -182,23 +182,27 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
 
   it("refuses a paid fallback through the same gate: no turn and no paid call when the Chief's model is refused", async () => {
     const seen = fakeRoute()
-    // The deployment's daily cap of paid turns is spent: Opus is refused, and so is the paid fallback
-    // (Sonnet, which the route serves: before the gate, the turn ran on it unchecked).
+    // The owner's daily limit of paid turns (1) is spent by a first turn: then Opus is refused, and so is
+    // the paid fallback (Sonnet, which the route serves: before the gate, the turn ran on it unchecked).
     testEnv.CHIEF_BRAIN_CLAUDE_DAILY_TURNS = "1"
     testEnv.CHIEF_BRAIN_FALLBACK_MODEL = "claude-sonnet-5-5"
     try {
       const { token, chief } = await owner("brain-gateway-cap", 5, "claude-opus-5-5", "low", "user")
+      expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: "f0", parts: [{ type: "text", text: "first" }] }, "f0")).ok).toBe(true)
+      await drive(chief.main_conversation, chief.id, async () => (await history(token, chief.main_conversation)).some((m) => m.author === chief.id), "the first reply")
       expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: "f1", parts: [{ type: "text", text: "anyone?" }] }, "f1")).ok).toBe(true)
       await drive(chief.main_conversation, chief.id, async () => (await runsOf(token, chief.id, chief.main_conversation)).some((r: any) => r.status === "failed"), "the failed run")
       const run = (await runsOf(token, chief.id, chief.main_conversation))[0]
       expect(run.status).toBe("failed")
       expect(run.model).toBe("claude-opus-5-5")
+      expect(seen).toHaveLength(1)
       expect(run.error).toContain("daily_cap")
-      expect(seen).toHaveLength(0)
-      // Not silent: one short notice from the Chief, no answer.
-      await drive(chief.main_conversation, chief.id, async () => (await history(token, chief.main_conversation)).some((m) => m.author === chief.id), "the failure notice")
+      // Not silent: the Chief says why, once per conversation per day; a second refused turn adds nothing.
+      await drive(chief.main_conversation, chief.id, async () => (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id).length >= 2, "the cap notice")
+      expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: "f2", parts: [{ type: "text", text: "still there?" }] }, "f2")).ok).toBe(true)
+      await drive(chief.main_conversation, chief.id, async () => (await runsOf(token, chief.id, chief.main_conversation)).filter((r: any) => r.status === "failed").length >= 2, "the second failed run")
       const posted = (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)
-      expect(posted.map((m) => m.parts[0].text)).toEqual([TURN_FAILED_NOTICE])
+      expect(posted.map((m) => m.parts[0].text)).toEqual(["Routed answer 1", DAILY_CAP_NOTICE])
     } finally {
       delete testEnv.CHIEF_BRAIN_CLAUDE_DAILY_TURNS
       testEnv.CHIEF_BRAIN_FALLBACK_MODEL = "claude-haiku-5-5"
@@ -264,6 +268,30 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
     await runState(chief.id, chief.main_conversation, "run_500", "done")
     expect((await call({ authorization: `Bearer ${token}` })).status).toBe(401)
     expect(seen).toHaveLength(4)
+  })
+
+  it("counts the daily paid-model limit per owner, and never falls back to an unmetered model for a paid Chief", async () => {
+    const seen = fakeRoute()
+    testEnv.CHIEF_BRAIN_CLAUDE_DAILY_TURNS = "1"
+    testEnv.CHIEF_BRAIN_FALLBACK_MODEL = "fake"
+    try {
+      const a = await owner("brain-cap-a", 5, "claude-opus-5-5", "low", "user")
+      const b = await owner("brain-cap-b", 5, "claude-opus-5-5", "low", "user")
+      for (const [who, k] of [[a, "a1"], [a, "a2"], [b, "b1"]] as const) {
+        expect((await op(who.token, "message.send", { conversation: who.chief.main_conversation, client_msg_id: k, parts: [{ type: "text", text: `q ${k}` }] }, k)).ok).toBe(true)
+        await drive(who.chief.main_conversation, who.chief.id, async () => (await runsOf(who.token, who.chief.id, who.chief.main_conversation)).filter((r: any) => r.status !== "running").length >= (k === "a2" ? 2 : 1), `run ${k}`)
+      }
+      const runsA = await runsOf(a.token, a.chief.id, a.chief.main_conversation)
+      const runsB = await runsOf(b.token, b.chief.id, b.chief.main_conversation)
+      // Owner a: one Opus turn, then refused (no silent fake/unmetered fallback); owner b still gets its turn.
+      expect(runsA.map((r: any) => [r.status, r.model])).toEqual([["failed", "claude-opus-5-5"], ["done", "claude-opus-5-5"]])
+      expect(runsA[0].error).toContain("no paid fallback")
+      expect(runsB.map((r: any) => [r.status, r.model])).toEqual([["done", "claude-opus-5-5"]])
+      expect(seen).toHaveLength(2)
+    } finally {
+      delete testEnv.CHIEF_BRAIN_CLAUDE_DAILY_TURNS
+      testEnv.CHIEF_BRAIN_FALLBACK_MODEL = "claude-haiku-5-5"
+    }
   })
 
   it("names the route's refusal in Run.error when a turn fails, and tells the person once", async () => {

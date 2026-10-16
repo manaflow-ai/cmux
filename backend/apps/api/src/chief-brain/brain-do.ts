@@ -417,7 +417,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     const post = !ok ? "none" : reply === "" || isNoReply(reply) ? "no_reply" : "pending"
     this.sql.exec(`UPDATE cb_turn SET status = ?, reason = ?, ended = ?, input = NULL, reply = ?, post = ? WHERE id = ?`, ok ? "done" : "failed", reason, Date.now(), post === "pending" ? clipReply(reply) : null, post, id)
     this.sql.exec(`UPDATE cb_inbox SET state = ? WHERE turn = ?`, ok ? "done" : "failed", id)
-    if (!ok) [console.warn(JSON.stringify({ msg: "chief_brain.turn_failed", run: id, reason: String(reason).slice(0, 300), error: runError(this.sql, id)?.slice(0, 300) })), await turnFailedNotice(this.env, this.config(), row.conversation, id, String(reason), runError(this.sql, id))]
+    if (!ok) [console.warn(JSON.stringify({ msg: "chief_brain.turn_failed", run: id, reason: String(reason).slice(0, 300), error: runError(this.sql, id)?.slice(0, 300) })), await turnFailedNotice(this.env, this.sql, this.config(), row.conversation, id, String(reason), runError(this.sql, id))]
     this.announce(id, [])
     if (post === "pending") await this.postAndSchedule(id)
     else await this.finish(id)
