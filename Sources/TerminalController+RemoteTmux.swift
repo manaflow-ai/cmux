@@ -380,6 +380,7 @@ extension TerminalController {
         let workspaceName = Self.remoteTmuxWorkspaceName(from: params)
         let newWindow = (params["new_window"] as? Bool) == true
         let routing = remoteTmuxRouting(from: params)
+        let requestIdentity = Self.remoteTmuxRequestIdentity(id)
         return v2VmCall(id: id, timeoutSeconds: RemoteTmuxController.attachSocketTimeoutSeconds) {
             guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
             else {
@@ -393,7 +394,8 @@ extension TerminalController {
                 _ = try await controller.createRemoteSession(
                     host: host,
                     sessionName: sessionName,
-                    workingDirectory: remoteWorkingDirectory
+                    workingDirectory: remoteWorkingDirectory,
+                    requestID: requestIdentity
                 )
             } catch let error as RemoteTmuxError {
                 if case .commandFailed(_, let stderr) = error,
@@ -417,7 +419,11 @@ extension TerminalController {
             switch outcome {
             case .mirrored(let windowId, let workspaceIds):
                 await MainActor.run {
-                    controller.completeRemoteSessionCreation(host: host, sessionName: sessionName)
+                    controller.completeRemoteSessionCreation(
+                        host: host,
+                        sessionName: sessionName,
+                        requestID: requestIdentity
+                    )
                 }
                 return [
                     "host": host.destination,
@@ -498,6 +504,11 @@ extension TerminalController {
                 ?? v2UUID(params, "tab_id"),
             paneID: v2UUID(params, "pane_id")
         )
+    }
+
+    private nonisolated static func remoteTmuxRequestIdentity(_ id: Any?) -> String {
+        guard let id else { return UUID().uuidString }
+        return String(describing: id)
     }
 
     private nonisolated static func remoteTmuxActivate(from params: [String: Any]) -> Bool {

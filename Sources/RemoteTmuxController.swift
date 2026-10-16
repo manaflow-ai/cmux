@@ -36,10 +36,10 @@ final class RemoteTmuxController {
     /// the same endpoint+session reuse the existing connection.
     private var connectionsByHostSession: [String: RemoteTmuxControlConnection] = [:]
     private var connectionObserverTokensByHostSession: [String: RemoteTmuxControlConnection.ObserverToken] = [:]
-    /// Named sessions created by `remote.tmux.new` whose mirror has not completed yet. A retry
-    /// after interactive SSH authentication must attach to this exact session instead of issuing
-    /// another strict `new-session -s` command.
-    private var pendingNewSessionKeys: Set<String> = []
+    /// Named sessions created by `remote.tmux.new` whose mirror has not completed yet. The
+    /// request identity is retained so only an authentication retry of the creating request
+    /// can reuse the session; an independent `new` still performs strict creation.
+    private var pendingNewSessionOwners: [String: String] = [:]
     private var pendingNewSessionCreationTasks: [String: Task<Void, Error>] = [:]
     /// Per-session channels scoping a shared multiplexed view connection down to a
     /// single tmux session, keyed like ``connectionsByHostSession``. Non-private so
@@ -127,14 +127,16 @@ final class RemoteTmuxController {
     func createRemoteSession(
         host: RemoteTmuxHost,
         sessionName: String,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        requestID: String
     ) async throws -> Bool {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
-        if let creationTask = pendingNewSessionCreationTasks[key] {
-            try await creationTask.value
+        if pendingNewSessionOwners[key] == requestID {
             return false
         }
-        if pendingNewSessionKeys.contains(key) {
+        let requestKey = "\(key)\u{1}\(requestID)"
+        if let creationTask = pendingNewSessionCreationTasks[requestKey] {
+            try await creationTask.value
             return false
         }
         let remoteTransport = transport(for: host)
@@ -142,14 +144,14 @@ final class RemoteTmuxController {
             named: sessionName,
             workingDirectory: workingDirectory
         ) }
-        pendingNewSessionCreationTasks[key] = creationTask
+        pendingNewSessionCreationTasks[requestKey] = creationTask
         do {
             try await creationTask.value
-            pendingNewSessionCreationTasks.removeValue(forKey: key)
-            pendingNewSessionKeys.insert(key)
+            pendingNewSessionCreationTasks.removeValue(forKey: requestKey)
+            pendingNewSessionOwners[key] = requestID
             return true
         } catch {
-            pendingNewSessionCreationTasks.removeValue(forKey: key)
+            pendingNewSessionCreationTasks.removeValue(forKey: requestKey)
             throw error
         }
     }
@@ -178,8 +180,10 @@ final class RemoteTmuxController {
 
     /// Marks the exact named session as mirrored, allowing a future `new` request to create it
     /// again only after the previous request completed successfully.
-    func completeRemoteSessionCreation(host: RemoteTmuxHost, sessionName: String) {
-        pendingNewSessionKeys.remove(Self.connectionKey(host: host, sessionName: sessionName))
+    func completeRemoteSessionCreation(host: RemoteTmuxHost, sessionName: String, requestID: String) {
+        let key = Self.connectionKey(host: host, sessionName: sessionName)
+        guard pendingNewSessionOwners[key] == requestID else { return }
+        pendingNewSessionOwners.removeValue(forKey: key)
     }
 
     /// Tears down a host's shared SSH master (used when removing a host).

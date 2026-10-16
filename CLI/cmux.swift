@@ -13718,6 +13718,9 @@ struct CMUXCLI {
         }
 
         // Retry interactive authentication once; never spin on auth-required.
+        // Reuse one JSON-RPC request id across that retry so the app can distinguish
+        // it from an independent `new` request for the same remote session.
+        let requestID = UUID().uuidString
         let method: String
         if case .new = invocation.action {
             method = "remote.tmux.new"
@@ -13734,6 +13737,7 @@ struct CMUXCLI {
                 result = try client.sendV2(
                     method: method,
                     params: params,
+                    requestID: requestID,
                     // Attach owns its inactivity deadline; ongoing login output
                     // may legitimately keep it active without a wall-clock cap.
                     waitUntilCompletion: true

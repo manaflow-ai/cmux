@@ -10,7 +10,7 @@ import Testing
 /// Focused coverage for the strict remote `new` operation used by
 /// `cmux ssh-tmux <host> new <session>`.
 @Suite struct RemoteTmuxNewSessionTests {
-    @Test @MainActor func controllerDoesNotRecreatePendingNamedSession() async throws {
+    @Test @MainActor func controllerOnlyReusesPendingNamedSessionForTheSameRequest() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let environment = try FakeSSHEnvironment(exitCode: 0, stderr: "")
             defer { environment.cleanUp() }
@@ -19,17 +19,23 @@ import Testing
             let controller = RemoteTmuxController()
             let host = RemoteTmuxHost(destination: "user@host")
 
-            #expect(try await controller.createRemoteSession(host: host, sessionName: "work"))
-            #expect(!(try await controller.createRemoteSession(host: host, sessionName: "work")))
+            #expect(try await controller.createRemoteSession(host: host, sessionName: "work", requestID: "request-a"))
+            #expect(!(try await controller.createRemoteSession(host: host, sessionName: "work", requestID: "request-a")))
             let firstInvocations = try environment.invocations()
             #expect(firstInvocations.count == 1)
 
+            // An independent `new` remains strict even while the first request is awaiting its
+            // mirror/authentication retry; it must issue its own create command.
+            #expect(try await controller.createRemoteSession(host: host, sessionName: "work", requestID: "request-b"))
+            let independentInvocations = try environment.invocations()
+            #expect(independentInvocations.count == 2)
+
             // A successful mirror retires the pending marker, so a later explicit `new` request
             // is allowed to issue another strict create operation.
-            controller.completeRemoteSessionCreation(host: host, sessionName: "work")
-            #expect(try await controller.createRemoteSession(host: host, sessionName: "work"))
+            controller.completeRemoteSessionCreation(host: host, sessionName: "work", requestID: "request-b")
+            #expect(try await controller.createRemoteSession(host: host, sessionName: "work", requestID: "request-c"))
             let secondInvocations = try environment.invocations()
-            #expect(secondInvocations.count == 2)
+            #expect(secondInvocations.count == 3)
         }
     }
 

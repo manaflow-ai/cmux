@@ -435722,6 +435722,72 @@
             "state": "translated",
             "value": "remote_cwd は空でない文字列である必要があります"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote_cwd mora biti neprazan niz"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote_cwd skal være en ikke-tom streng"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote_cwd deve essere una stringa non vuota"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote_cwd ត្រូវតែជាខ្សែអក្សរមិនទទេ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote_cwd må være en ikke-tom streng"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote_cwd musi być niepustym ciągiem znaków"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote_cwd deve ser uma string não vazia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote_cwd должен быть непустой строкой"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote_cwd ต้องเป็นสตริงที่ไม่ว่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote_cwd boş olmayan bir dize olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote_cwd має бути непорожнім рядком"
+          }
         }
       }
     },
@@ -643386,6 +643452,72 @@
             "state": "translated",
             "value": "ssh-tmux: -c にはリモート作業ディレクトリが必要です"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: -c zahtijeva udaljeni radni direktorij"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: -c kræver en fjernarbejdsmappe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: -c richiede una directory di lavoro remota"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: -c ត្រូវការថតការងារពីចម្ងាយ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: -c krever en ekstern arbeidskatalog"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: -c wymaga zdalnego katalogu roboczego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: -c requer um diretório de trabalho remoto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: -c требуется удалённый рабочий каталог"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: -c ต้องการไดเรกทอรีการทำงานระยะไกล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: -c uzak çalışma dizini gerektirir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: -c потребує віддаленого робочого каталогу"
+          }
         }
       }
     },
@@ -643444,6 +643576,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "ssh-tmux: リモート作業ディレクトリが複数回指定されています"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: udaljeni radni direktorij naveden je više puta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: fjernarbejdsmappen blev angivet mere end én gang"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: la directory di lavoro remota è stata specificata più volte"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: ថតការងារពីចម្ងាយត្រូវបានបញ្ជាក់ច្រើនជាងមួយដង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: den eksterne arbeidskatalogen ble angitt mer enn én gang"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: zdalny katalog roboczy podano więcej niż raz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: o diretório de trabalho remoto foi especificado mais de uma vez"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: удалённый рабочий каталог указан более одного раза"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: ระบุไดเรกทอรีการทำงานระยะไกลมากกว่าหนึ่งครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: uzak çalışma dizini birden fazla belirtildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: віддалений робочий каталог указано більше одного разу"
           }
         }
       }
@@ -643504,6 +643702,72 @@
             "state": "translated",
             "value": "ssh-tmux attach は -c を受け付けません"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux attach ne prihvata -c"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux attach accepterer ikke -c"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux attach non accetta -c"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux attach មិនទទួលយក -c"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux attach godtar ikke -c"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux attach nie przyjmuje -c"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux attach não aceita -c"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux attach не принимает -c"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux attach ไม่รองรับ -c"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux attach -c seçeneğini kabul etmiyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux attach не приймає -c"
+          }
         }
       }
     },
@@ -643563,6 +643827,72 @@
             "state": "translated",
             "value": "ssh-tmux new にはセッション名が必要です"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux new zahtijeva ime sesije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux new kræver et sessionsnavn"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux new richiede un nome di sessione"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux new ត្រូវការឈ្មោះសម័យ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux new krever et øktnavn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux new wymaga nazwy sesji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux new requer um nome de sessão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux new требует имя сеанса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux new ต้องมีชื่อเซสชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux new bir oturum adı gerektirir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux new потребує назви сеансу"
+          }
         }
       }
     },
@@ -643621,6 +643951,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "ssh-tmux -c は new <session> でのみ使用できます"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux -c vrijedi samo uz new <session>"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux -c er kun gyldig med new <session>"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux -c è valido solo con new <session>"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux -c មានសុពលភាពតែជាមួយ new <session> ប៉ុណ្ណោះ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux -c er bare gyldig med new <session>"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux -c jest dozwolone tylko z new <session>"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux -c só é válido com new <session>"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux -c допустим только с new <session>"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux -c ใช้ได้เฉพาะกับ new <session>"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux -c yalnızca new <session> ile geçerlidir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux -c дійсний лише з new <session>"
           }
         }
       }
