@@ -292,6 +292,8 @@ impl OptChat {
         struct FrozenJson {
             parts: Vec<(u32, u64)>,
             front: u64,
+            #[serde(default)]
+            unbuilt: Vec<(u32, u64)>,
         }
         #[derive(Serialize)]
         struct Out<'a> {
@@ -304,16 +306,23 @@ impl OptChat {
             None
         } else {
             let f: FrozenJson = serde_json::from_str(frozen).map_err(|e| JsError::new(&format!("frozen view is not JSON: {e}")))?;
-            for (l, _) in &f.parts {
+            for (l, _) in f.parts.iter().chain(f.unbuilt.iter()) {
                 level(*l)?;
             }
-            Some(core::Frozen { parts: f.parts.iter().map(|(l, i)| core::NodeId::new(*l, *i)).collect(), front: f.front })
+            let ids = |v: &[(u32, u64)]| v.iter().map(|(l, i)| core::NodeId::new(*l, *i)).collect::<Vec<_>>();
+            // A stored view that does not end at its front (a reset log) is ignored: the core renders again.
+            let parts = ids(&f.parts);
+            if parts.last().map_or(0, |p| p.end()) != f.front {
+                None
+            } else {
+                Some(core::Frozen { parts, front: f.front, unbuilt: ids(&f.unbuilt) })
+            }
         };
         let host = Host::new(store);
         let t = core::turn_input(&self.memory, &host, prior.as_ref(), new.max(0.0) as u64);
         host.check()?;
         let out = Out {
-            frozen: FrozenJson { parts: t.frozen.parts.iter().map(|p| (p.l, p.i)).collect(), front: t.frozen.front },
+            frozen: FrozenJson { parts: t.frozen.parts.iter().map(|p| (p.l, p.i)).collect(), front: t.frozen.front, unbuilt: t.frozen.unbuilt.iter().map(|p| (p.l, p.i)).collect() },
             rerendered: t.rerendered,
             view: core::block_pieces(&t.view),
             delta: t.delta.clone(),

@@ -109,6 +109,7 @@ const markCache = (out: Record<string, unknown>, ttl: string): void => {
   const prefix = blocks.find((b) => b.type === "text" && typeof b.text === "string" && b.text.endsWith("</chat>"))
   const marks = marksOf([out.system, out.tools, out.messages])
   if (prefix && prefix.type === "text" && prefix.cache_control === undefined && marks.length < MAX_MARKS) marks.push(Object.assign(prefix, { cache_control: { type: "ephemeral" } }))
+  else if (prefix && prefix.cache_control === undefined) console.warn(JSON.stringify({ msg: "bedrock_body.view_mark_skipped", marks: marks.length }))
   if (ttl === "5m") return
   for (const b of marks) b.cache_control = { ...(b.cache_control as object), type: "ephemeral", ttl }
 }
