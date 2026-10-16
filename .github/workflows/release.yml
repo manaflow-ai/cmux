@@ -861,12 +861,14 @@ jobs:
           set -euo pipefail
           expect=()
           if [ -n "$UPLOADED_ASSETS" ]; then
-            for name in $UPLOADED_ASSETS; do expect+=(--expect-asset "$name"); done
+            read -ra names <<<"$UPLOADED_ASSETS"
+            for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
             expect+=(--expect-count "$UPLOADED_COUNT")
           else
             # Resumed: everything on the release plus the MDM files the upload
             # step publishes, which the immutable-asset guard does not list.
-            for name in $RESUME_ASSETS; do expect+=(--expect-asset "$name"); done
+            read -ra names <<<"$RESUME_ASSETS"
+            for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
             for file in docs/mdm/com.manaflow.cmux.* docs/mdm/cmux-example.mobileconfig \
               docs/mdm/ddm-legacy-profile-declaration.json docs/mdm/managed-preferences.md; do
               expect+=(--expect-asset "$(basename "$file")")

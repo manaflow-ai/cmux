@@ -124,6 +124,27 @@ def publish(client, args) -> None:
     print(f"Verified {args.tag}: release {args.release_id} with {len(assets)} assets", flush=True)
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+def open_asset(client, url: str):
+    """GET an asset; follow GitHub's redirect without sending the token on."""
+    request = urllib.request.Request(url, headers={
+        "Authorization": f"Bearer {client.token}",
+        "Accept": "application/octet-stream",
+        "X-GitHub-Api-Version": "2022-11-28",
+    })
+    try:
+        return urllib.request.build_opener(_NoRedirect).open(request, timeout=600)
+    except urllib.error.HTTPError as error:
+        location = error.headers.get("Location")
+        if error.code not in (301, 302, 303, 307, 308) or not location or not location.startswith("https://"):
+            raise
+    return urllib.request.urlopen(urllib.request.Request(location), timeout=600)
+
+
 def download(client, args) -> None:
     staged = release(client, args.release_id)
     check_release(staged, args.release_id, args.tag)
@@ -132,15 +153,10 @@ def download(client, args) -> None:
     args.dest.mkdir(parents=True, exist_ok=True)
     for name in args.asset:
         remote = assets[name]
-        request = urllib.request.Request(remote["url"], headers={
-            "Authorization": f"Bearer {client.token}",
-            "Accept": "application/octet-stream",
-            "X-GitHub-Api-Version": "2022-11-28",
-        })
         target = args.dest / name
         digest = hashlib.sha256()
         try:
-            with urllib.request.urlopen(request, timeout=600) as response, target.open("wb") as out:
+            with open_asset(client, remote["url"]) as response, target.open("wb") as out:
                 for chunk in iter(lambda: response.read(1024 * 1024), b""):
                     digest.update(chunk)
                     out.write(chunk)

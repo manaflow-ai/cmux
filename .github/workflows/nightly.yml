@@ -3708,7 +3708,8 @@ jobs:
             printf '%s\n' "$DOWNLOADS"
           } > "$RUNNER_TEMP/nightly-release-body.md"
           expect=()
-          for name in $UPLOADED_ASSETS; do expect+=(--expect-asset "$name"); done
+          read -ra names <<<"$UPLOADED_ASSETS"
+          for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
           python3 scripts/ci/finalize-release.py publish \
             --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" \
             --name "$RELEASE_NAME" --target-commitish "$BUILD_SHA" \
@@ -3796,7 +3797,8 @@ jobs:
             printf '%s\n' "$DOWNLOADS"
           } > "$RUNNER_TEMP/nightly-release-body.md"
           expect=()
-          for name in $UPLOADED_ASSETS; do expect+=(--expect-asset "$name"); done
+          read -ra names <<<"$UPLOADED_ASSETS"
+          for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
           python3 scripts/ci/finalize-release.py publish \
             --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" \
             --name "$RELEASE_NAME" --target-commitish "$BUILD_SHA" \
