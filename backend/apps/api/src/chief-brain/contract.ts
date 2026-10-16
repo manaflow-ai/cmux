@@ -150,13 +150,48 @@ export const WakeReason = Schema.Literals(["dm", "mention", "reply", "channel"])
 /** host -> brain (notification). The brain pulls messages with conversation/read after `cursor`. */
 export const ChiefWake = Schema.Struct({ wake_id: Schema.String, conversation: Schema.String, cursor: Seq, reason: WakeReason })
 /** brain -> host: the wake's outcome; unacked wakes are sent again after a reconnect. */
-export const ChiefAck = Schema.Struct({ wake_id: Schema.String, outcome: Schema.Literals(["answered", "skipped", "failed"]) })
+export const ChiefAck = Schema.Struct({ wake_id: Schema.String, outcome: Schema.Literals(["answered", "skipped", "failed"]), cursor: Seq })
 export const RunStartParams = Schema.Struct({ run: Run })
 export const RunStepParams = Schema.Struct({ run: RunId, step: Step })
 export const RunDeltaParams = Schema.Struct({ run: RunId, step: StepId, kind: LiveKind, seq: Seq, text: DeltaText, final: Schema.optionalKey(Schema.Literal(true)) })
 export const RunActivityParams = Schema.Struct({ run: RunId, line: ActivityLine, since: Ms })
-export const RunEndParams = Schema.Struct({ run: Run })
+/** `cursor`: the highest conversation seq the run took (the host moves the wake cursor past it). */
+export const RunEndParams = Schema.Struct({ run: Run, cursor: Seq })
 export const ConversationPostParams = Schema.Struct({ conversation: Schema.String, client_msg_id: Schema.String, body: Schema.String, thread_root: Schema.optionalKey(Schema.String), run: Schema.optionalKey(RunId) })
+
+/** Which implementation runs a Chief's brain (BrainConfig.brain_impl): P pi-durable, O opencode, R optchat (self-hosted). */
+export const BrainImpl = Schema.Literals(["pi", "opencode", "optchat"])
+/** The Chief profile the host gives a brain (initialize result). */
+export const ChiefProfile = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  owner: Schema.String,
+  role: Schema.String,
+  personality: Schema.String,
+  instructions: Schema.String,
+  model: Schema.String,
+  effort: Schema.String,
+  brain_impl: Schema.optionalKey(BrainImpl)
+})
+/** initialize: brain -> host. */
+export const InitializeParams = Schema.Struct({
+  protocol: Schema.Literal(1),
+  brain: Schema.Struct({ impl: BrainImpl, version: Schema.String }),
+  capabilities: Schema.Struct({ stream: Schema.Boolean, thinking: Schema.Boolean, models: Schema.Array(Schema.String), resume: Schema.Boolean })
+})
+/** initialize result: host -> brain (the Chief's profile, its grants, the host's services). */
+export const InitializeResult = Schema.Struct({
+  protocol: Schema.Literal(1),
+  chief: ChiefProfile,
+  grants: Schema.Array(Schema.String),
+  capabilities: Schema.Struct({ hands: Schema.Boolean, chiefs: Schema.Boolean, model_gateway: Schema.Boolean, credits: Schema.Boolean, approvals: Schema.Boolean, live: Schema.Literal("chief-live-v1") })
+})
+/** chiefs/manage: one method for list, create, update and archive of Chiefs (grant `chiefs`; rules A-C, E). */
+export const ChiefsManageParams = Schema.Struct({
+  action: Schema.Literals(["list", "create", "update", "archive"]),
+  chief: Schema.optionalKey(Schema.String),
+  profile: Schema.optionalKey(Schema.Struct({ name: Schema.optionalKey(Schema.String), role: Schema.optionalKey(Schema.String), personality: Schema.optionalKey(Schema.String), instructions: Schema.optionalKey(Schema.String), model: Schema.optionalKey(Schema.String), effort: Schema.optionalKey(Schema.String), brain_impl: Schema.optionalKey(BrainImpl) }))
+})
 
 /** One brain output call: `{method, params}`; the order of one wake is run/start, run/step|delta|activity..., run/end, conversation/post. */
 export const BrainCall = Schema.Union([
@@ -166,7 +201,8 @@ export const BrainCall = Schema.Union([
   Schema.Struct({ method: Schema.Literal("run/activity"), params: RunActivityParams }),
   Schema.Struct({ method: Schema.Literal("run/end"), params: RunEndParams }),
   Schema.Struct({ method: Schema.Literal("conversation/post"), params: ConversationPostParams }),
-  Schema.Struct({ method: Schema.Literal("chief/ack"), params: ChiefAck })
+  Schema.Struct({ method: Schema.Literal("chief/ack"), params: ChiefAck }),
+  Schema.Struct({ method: Schema.Literal("chiefs/manage"), params: ChiefsManageParams })
 ])
 export type BrainCall = typeof BrainCall.Type
 export type ChiefWake = typeof ChiefWake.Type
@@ -199,7 +235,8 @@ export class Brain extends Context.Service<Brain, BrainShape>()("cmux/chief/Brai
 
 /**
  * CP `model/stream` (host capability `model_gateway`): Cloud brains reach models only through the
- * host, which owns keys, routes, caps and credits. Slice 2 fills the stream; today `offers` only.
+ * host, which owns keys, routes, caps and credits. In process: model-gateway/gateway.ts
+ * (ModelGatewayLive); over HTTP for out-of-process brains: next slice.
  */
 export interface ModelGatewayShape {
   readonly offers: (model: string) => boolean
@@ -217,6 +254,16 @@ export interface HandsShape {
   readonly pairCode: (name: string, profile: Profile) => Effect.Effect<Minted, HandsError>
   /** A new Freestyle sandbox with its hand installed and paired (hand-sandbox.ts). */
   readonly newSandbox: (name: string) => Effect.Effect<Sandbox, HandsError>
+  /**
+   * A model gateway agent token (model-gateway/run-token.ts) for an agent session of this Chief: valid
+   * while the session lives, within its cap. `session` given: bound to that session now (send); else
+   * bind it with `bindToken` once agent.start names the session.
+   */
+  readonly runToken: (label: string, bind?: { readonly hand: string; readonly session: string }) => Effect.Effect<{ readonly token: string; readonly expires_at: number; readonly jti: string }, HandsError>
+  /** Names the session an agent token works for (after agent.start). */
+  readonly bindToken: (jti: string, hand: string, session: string) => Effect.Effect<void, HandsError>
+  /** Ends every agent token of a session at once (the Chief cancels it, or the session ended). */
+  readonly revokeSession: (hand: string, session: string) => Effect.Effect<void, HandsError>
   /** A hand id, or the name of one of the owner's hands. */
   readonly resolve: (hand: string) => Effect.Effect<string, HandsError>
   readonly call: (hand: string, action: string, params: unknown, timeoutMs?: number) => Effect.Effect<unknown, HandsError>

@@ -4,7 +4,9 @@ import { ackWake, chiefPrincipal, typing } from "../chief-brain/brain-io.ts"
 import type { Admission } from "../chief-brain/brain-do.ts"
 import type { Step } from "../chief-brain/brain-runs.ts"
 import { HOLDER, signedFetch } from "../chief-brain/claude-auth.ts"
-import { claudeRoute, isMetered } from "../chief-brain/model-routes.ts"
+import { claudeRoute, isMetered } from "../model-gateway/routes.ts"
+import { gatewayMessages } from "../model-gateway/http.ts"
+import { payerTeam } from "../credits.ts"
 import type { CpNote, CpRun, CpWake } from "./contract.ts"
 import { brainModel, hostCall, HostRefused, type Who } from "./host.ts"
 import { LiveRuns } from "./live-runs.ts"
@@ -390,19 +392,15 @@ export class OpencodeBrainDO extends DurableObject<Env> {
   }
 
   /**
-   * Stub of the host model gateway (Anthropic Messages in, SSE out) until the shared gateway lands:
-   * admission first (a Chief turned off stops spending at once), then the metered Claude route with
-   * the holder's sign-in, exactly the route P uses today. Credits (UsageMeterDO reserve/settle) go
-   * here, the one place every O model call passes.
+   * The container's model route (Anthropic Messages in, SSE out): admission first (a Chief turned off
+   * stops spending at once), then the host model gateway, the same allow-list, credits and Claude
+   * route P uses.
    */
   private async gateway(request: Request): Promise<Response> {
     const who = await this.who()
     if ("refused" in who) return Response.json({ type: "error", error: { type: "permission_error", message: who.refused } }, { status: 403 })
-    const holder = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(HOLDER))
-    // The P brain's Claude route, from the same configuration (url, stack or bearer auth, models, cache TTL).
-    const route = claudeRoute(this.env)
-    const f = signedFetch(() => holder.claudeAuth(), () => holder.claudeInvalidate(), { auth: route.auth, models: route.models, effortBody: route.effortBody, ...(this.env.CHIEF_BRAIN_CACHE_TTL ? { ttl: this.env.CHIEF_BRAIN_CACHE_TTL } : {}) })
-    return f(`${route.url.replace(/\/+$/, "")}/v1/messages`, { method: "POST", headers: request.headers, body: await request.text() }).catch((e: unknown) => Response.json({ type: "error", error: { type: "api_error", message: e instanceof Error ? e.message : "gateway failed" } }, { status: 502 }))
+    // The host model gateway (model-gateway/http.ts): allow-list, prepaid credits of the owner's team, the Claude route.
+    return gatewayMessages(this.env, { team: payerTeam(who.owner), chief: who.agent, owner: who.owner, run: "opencode" }, request)
   }
 
   // ------------------------------------------------------------------ retries, turn guard and idle sleep

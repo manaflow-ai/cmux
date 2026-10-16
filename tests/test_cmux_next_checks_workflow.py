@@ -198,7 +198,7 @@ class GodfileScopes(unittest.TestCase):
         (rust / "at_budget.rs").write_text("// x\n" * 1000)
         (rust / "many_fns.rs").write_text("fn f() {}\n" * 61)
         (rust / "tests.rs").write_text("fn t() {}\n" * 120 + "// x\n" * 1380)
-        git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+        git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"]
         subprocess.run([*git, "init", "-q"], check=True)
         subprocess.run([*git, "add", "."], check=True)
         subprocess.run([*git, "commit", "-qm", "fixture"], check=True)
@@ -299,7 +299,7 @@ class GodfilePullRequestScope(unittest.TestCase):
 
     def git(self, *args: str) -> None:
         subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@t",
-                        "-c", "commit.gpgsign=false", *args], check=True, capture_output=True)
+                        "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", *args], check=True, capture_output=True)
 
     def commit(self, message: str) -> None:
         self.git("add", "-A")

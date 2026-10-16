@@ -289,6 +289,62 @@
 			<string>array</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>Widest a tab gets when the strip has room.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.tabMaxWidth</string>
+			<key>pfm_range_max</key>
+			<real>320</real>
+			<key>pfm_range_min</key>
+			<real>120</real>
+			<key>pfm_title</key>
+			<string>Maximum Tab Width</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.tabMinActiveWidth</string>
+			<key>pfm_range_max</key>
+			<real>200</real>
+			<key>pfm_range_min</key>
+			<real>32</real>
+			<key>pfm_title</key>
+			<string>Minimum Selected Tab Width</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.tabMinInactiveWidth</string>
+			<key>pfm_range_max</key>
+			<real>120</real>
+			<key>pfm_range_min</key>
+			<real>16</real>
+			<key>pfm_title</key>
+			<string>Minimum Tab Width</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Width of a pinned tab.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.tabPinnedWidth</string>
+			<key>pfm_range_max</key>
+			<real>120</real>
+			<key>pfm_range_min</key>
+			<real>24</real>
+			<key>pfm_title</key>
+			<string>Pinned Tab Width</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
@@ -4034,7 +4090,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>transparent</string>
+			<string>off</string>
 			<key>pfm_description</key>
 			<string>The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.</string>
 			<key>pfm_name</key>
@@ -4111,6 +4167,22 @@
 			<string>Address Bar Shadow</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_description</key>
+			<string>How much the address bar covers a see-through window. At 0 it is as see-through as the window, but never so clear that its text stops being readable.</string>
+			<key>pfm_name</key>
+			<string>browser.omnibar.backgroundOpacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Address Bar Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -4311,6 +4383,18 @@
 			<string>home.attachments.keepLocation</string>
 			<key>pfm_title</key>
 			<string>Keep Location in Photos and Videos</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Show Channels below Home in the sidebar. You can also turn it on or off from the command palette.</string>
+			<key>pfm_name</key>
+			<string>home.channelsEnabled</string>
+			<key>pfm_title</key>
+			<string>Channels</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
