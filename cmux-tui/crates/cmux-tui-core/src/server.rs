@@ -14289,24 +14289,48 @@ fn handle_command_with_cancellation(
                     outbound_stream.register_interrupt(&interrupt);
                     attach.lifecycle.register_interrupt(&interrupt);
                     attach.stream.wake_on(&interrupt);
+                    let mut pending_frame: Option<AttachFrame> = None;
                     while writer.is_open()
                         && outbound_stream.is_open()
                         && !attach.lifecycle.is_canceled()
                     {
-                        let frame = match attach.stream.recv_interruptible(&interrupt, None) {
-                            Ok(frame) => frame,
-                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                                attach.lifecycle.cancel();
-                                if writer.is_open() {
-                                    let _ = writer.send_stream_backpressured(
-                                        &json!({"event": "detached", "surface": surface_id}),
-                                        &outbound_stream,
-                                    );
+                        let mut frame = match pending_frame.take() {
+                            Some(frame) => frame,
+                            None => match attach.stream.recv_interruptible(&interrupt, None) {
+                                Ok(frame) => frame,
+                                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                                    attach.lifecycle.cancel();
+                                    if writer.is_open() {
+                                        let _ = writer.send_stream_backpressured(
+                                            &json!({"event": "detached", "surface": surface_id}),
+                                            &outbound_stream,
+                                        );
+                                    }
+                                    break;
                                 }
-                                break;
-                            }
+                            },
                         };
+                        if matches!(frame, AttachFrame::Output(_)) {
+                            let deadline = Instant::now() + ATTACH_OUTPUT_COALESCE_WINDOW;
+                            loop {
+                                match attach
+                                    .stream
+                                    .recv_interruptible(&interrupt, Some(deadline))
+                                {
+                                    Ok(next) => {
+                                        if let Err(next) =
+                                            try_merge_attach_output(&mut frame, next)
+                                        {
+                                            pending_frame = Some(next);
+                                            break;
+                                        }
+                                    }
+                                    Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                                    | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                                }
+                            }
+                        }
                         if let Err(error) = writer.send_attach_frame_backpressured(
                             surface_id,
                             &frame,
@@ -14351,6 +14375,33 @@ fn stamped_build_commit() -> Option<&'static str> {
     option_env!("CMUX_TUI_BUILD_COMMIT")
         .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
         .filter(|commit| !commit.is_empty())
+}
+
+/// Merges a following PTY output chunk without crossing a state transition.
+///
+/// Attach output is normally already coalesced while it is queued. The worker
+/// can pop the first chunk before the producer writes the next one, though, so
+/// the worker uses this bounded merge after the pop as well. Returning `Err`
+/// leaves the caller responsible for preserving `next` as the next frame.
+fn try_merge_attach_output(
+    current: &mut AttachFrame,
+    next: AttachFrame,
+) -> Result<(), AttachFrame> {
+    let AttachFrame::Output(current) = current else {
+        return Err(next);
+    };
+    let mut next = match next {
+        AttachFrame::Output(next) => next,
+        other => return Err(other),
+    };
+    let Some(total) = current.len().checked_add(next.len()) else {
+        return Err(AttachFrame::Output(next));
+    };
+    if total > ATTACH_OUTPUT_COALESCE_MAX_BYTES {
+        return Err(AttachFrame::Output(next));
+    }
+    current.append(&mut next);
+    Ok(())
 }
 
 fn stamped_ghostty_commit() -> Option<&'static str> {
@@ -14565,18 +14616,19 @@ mod tests {
     #[test]
     fn attach_output_coalescer_merges_only_adjacent_output() {
         let mut current = AttachFrame::Output(vec![1, 2]);
-        assert!(try_merge_attach_output(&mut current, AttachFrame::Output(vec![3, 4])));
+        assert!(try_merge_attach_output(&mut current, AttachFrame::Output(vec![3, 4])).is_ok());
         assert_eq!(current, AttachFrame::Output(vec![1, 2, 3, 4]));
 
         let colors = Arc::new(TerminalColors::default());
-        assert!(!try_merge_attach_output(
+        assert!(try_merge_attach_output(
             &mut current,
             AttachFrame::ColorsChanged(colors.clone())
-        ));
+        )
+        .is_err());
         assert_eq!(current, AttachFrame::Output(vec![1, 2, 3, 4]));
 
         let mut oversized = AttachFrame::Output(vec![0; ATTACH_OUTPUT_COALESCE_MAX_BYTES]);
-        assert!(!try_merge_attach_output(&mut oversized, AttachFrame::Output(vec![1])));
+        assert!(try_merge_attach_output(&mut oversized, AttachFrame::Output(vec![1])).is_err());
     }
 
     struct TestSocketDir(PathBuf);
