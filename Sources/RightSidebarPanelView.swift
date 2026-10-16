@@ -462,7 +462,7 @@ struct RightSidebarPanelView: View {
             case .feed:
                 FeedPanelView(chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor)
             case .snippets:
-                EmptyView()
+                SnippetsSidebarView(tabManager: tabManager)
             case .dock:
                 dockPanel(windowAppearance: windowAppearance)
             case .machines:

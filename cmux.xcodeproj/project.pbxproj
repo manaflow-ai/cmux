@@ -3465,9 +3465,12 @@
 		C7B0FACE0000000000000018 /* SleepyStatusProviding.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000019 /* SleepyStatusProviding.swift */; };
 		C7B0FACE0000000000000016 /* SleepyStatusSample.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE0000000000000017 /* SleepyStatusSample.swift */; };
 		9610757FD6B7F9F399B8427D /* SnippetsKeyboardFocusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A145D3F8F5F8E672B272B20 /* SnippetsKeyboardFocusView.swift */; };
+		162409ADF65DA6995C2B16F2 /* SnippetsSidebarFocusBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24C32A57A36A559C9B3CD4C0 /* SnippetsSidebarFocusBridge.swift */; };
 		D86517AC0389C9E77E06D890 /* SnippetsSidebarModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EF2845955A1FA2ED92E1902 /* SnippetsSidebarModeTests.swift */; };
+		47AD9414D4621667F7E7DD09 /* SnippetsSidebarRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 037B361B92E05EF00E849334 /* SnippetsSidebarRow.swift */; };
 		30CF9329E2B4EAFEF0535B60 /* SnippetsSidebarStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB4D766F38F8B7FF094F5D1 /* SnippetsSidebarStore.swift */; };
 		4F710F63A7D6A7B15B30D789 /* SnippetsSidebarStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F52ECDC155D2E508A940D4A4 /* SnippetsSidebarStoreTests.swift */; };
+		A48B3F6DC011797A75B2F154 /* SnippetsSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51B8304C11ACA17B3556AC67 /* SnippetsSidebarView.swift */; };
 		A7984AE10000000000000001 /* SocketACLReloadRegressionTests+Connections.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7984AE10000000000000002 /* SocketACLReloadRegressionTests+Connections.swift */; };
 		A79840010000000000000001 /* SocketACLReloadRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A79840010000000000000002 /* SocketACLReloadRegressionTests.swift */; };
 		5830CA11BAC0000000000004 /* SocketCallbackAwaiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5830CA11BAC0000000000003 /* SocketCallbackAwaiter.swift */; };
@@ -7881,9 +7884,12 @@
 		C7B0FACE0000000000000019 /* SleepyStatusProviding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyStatusProviding.swift; sourceTree = "<group>"; };
 		C7B0FACE0000000000000017 /* SleepyStatusSample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepyStatusSample.swift; sourceTree = "<group>"; };
 		0A145D3F8F5F8E672B272B20 /* SnippetsKeyboardFocusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetsKeyboardFocusView.swift; sourceTree = "<group>"; };
+		24C32A57A36A559C9B3CD4C0 /* SnippetsSidebarFocusBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetsSidebarFocusBridge.swift; sourceTree = "<group>"; };
 		8EF2845955A1FA2ED92E1902 /* SnippetsSidebarModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SnippetsSidebarModeTests.swift"; sourceTree = "<group>"; };
+		037B361B92E05EF00E849334 /* SnippetsSidebarRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetsSidebarRow.swift; sourceTree = "<group>"; };
 		4DB4D766F38F8B7FF094F5D1 /* SnippetsSidebarStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetsSidebarStore.swift; sourceTree = "<group>"; };
 		F52ECDC155D2E508A940D4A4 /* SnippetsSidebarStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SnippetsSidebarStoreTests.swift"; sourceTree = "<group>"; };
+		51B8304C11ACA17B3556AC67 /* SnippetsSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetsSidebarView.swift; sourceTree = "<group>"; };
 		A7984AE10000000000000002 /* SocketACLReloadRegressionTests+Connections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketACLReloadRegressionTests+Connections.swift"; sourceTree = "<group>"; };
 		A79840010000000000000002 /* SocketACLReloadRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketACLReloadRegressionTests.swift; sourceTree = "<group>"; };
 		5830CA11BAC0000000000003 /* SocketCallbackAwaiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketCallbackAwaiter.swift; sourceTree = "<group>"; };
@@ -11965,6 +11971,9 @@
 				4C013CE833A2331E8EFAD330 /* SwiftUIKeyViewProxyResponderGuard.swift */,
 				4DB4D766F38F8B7FF094F5D1 /* SnippetsSidebarStore.swift */,
 				0A145D3F8F5F8E672B272B20 /* SnippetsKeyboardFocusView.swift */,
+				24C32A57A36A559C9B3CD4C0 /* SnippetsSidebarFocusBridge.swift */,
+				037B361B92E05EF00E849334 /* SnippetsSidebarRow.swift */,
+				51B8304C11ACA17B3556AC67 /* SnippetsSidebarView.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -16199,7 +16208,10 @@
 				C7B0FACE0000000000000018 /* SleepyStatusProviding.swift in Sources */,
 				C7B0FACE0000000000000016 /* SleepyStatusSample.swift in Sources */,
 				9610757FD6B7F9F399B8427D /* SnippetsKeyboardFocusView.swift in Sources */,
+				162409ADF65DA6995C2B16F2 /* SnippetsSidebarFocusBridge.swift in Sources */,
+				47AD9414D4621667F7E7DD09 /* SnippetsSidebarRow.swift in Sources */,
 				30CF9329E2B4EAFEF0535B60 /* SnippetsSidebarStore.swift in Sources */,
+				A48B3F6DC011797A75B2F154 /* SnippetsSidebarView.swift in Sources */,
 				5830CA11BAC0000000000004 /* SocketCallbackAwaiter.swift in Sources */,
 					A5001226 /* SocketControlMode+Display.swift in Sources */,
 				F87920000000000000000001 /* SocketReloadConfigurationWaiterAdmission.swift in Sources */,
