@@ -2,6 +2,7 @@ import AppKit
 import CmuxChief
 import CmuxHomeCore
 import CmuxHomeRender
+import CmuxSettings
 import MessagesLabHome
 import Observation
 import UniformTypeIdentifiers

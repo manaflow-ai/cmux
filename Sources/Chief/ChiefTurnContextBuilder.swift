@@ -25,11 +25,11 @@ struct ChiefTurnContextBuilder: Sendable {
             userDisplayName: Self.userDisplayName,
             harness: settings.resolvedHarness.displayName,
             model: settings.resolvedModel,
-            dangerouslySkipPermissions: settings.dangerouslySkipPermissions,
             cmuxVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
             socketPath: socketPath,
             chiefHomePath: input.home.root.path,
-            workspacesSummary: workspaces)
+            workspacesSummary: workspaces,
+            dangerouslySkipPermissions: settings.dangerouslySkipPermissions)
         prompt.apply(memory.snapshot())
         let preamble = await freshness.preamble(for: input.conversation, freshSession: input.resumeSession == nil,
                                                 current: ChiefMemoryState(memory: memory))

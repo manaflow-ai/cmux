@@ -3,7 +3,9 @@
 - The first exact-head fleet build caught two Xcode-only issues in the Home
   conversation host: it now imports `CmuxFoundation` for `CmuxAccentColor` and
   explicitly implements the unavailable required `NSHostingView` initializer.
-  Swift syntax and app-source wiring checks pass after the repair.
+  The follow-up build also caught the missing public `onOpenCloudDesktop` host
+  forwarding property, the missing `CmuxSettings` import, and an initializer
+  label ordering mismatch; all are repaired before the next submission.
 
 ## 2026-10-15 Chief Home pane drag
 
