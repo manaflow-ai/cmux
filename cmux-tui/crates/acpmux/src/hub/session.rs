@@ -70,8 +70,8 @@ pub struct Session {
     /// Last stderr lines of the current turn, quoted when the agent
     /// process dies without an answer ("Not logged in", a launcher error).
     pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
-    /// Recent client prompt ids and their outcomes, newest last: a prompt
-    /// sent again with the same id never runs a second turn.
+    /// All pending client prompt ids and a bounded cache of completed outcomes,
+    /// newest last: retries wait for the original prompt while it is pending.
     pub(super) prompts: StdMutex<std::collections::VecDeque<(String, PromptOutcome)>>,
     /// Bumped when a record failed to reach the store; an agent host entry
     /// is acknowledged only when its record was stored.
