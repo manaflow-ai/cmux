@@ -132,7 +132,9 @@ export const pickTurnModel = async (model: string, fallback: string | undefined,
   const verdict = isMetered(model) ? await allowed(model) : "ok"
   if (verdict === "ok") return { model }
   const reason = `${model}: ${verdict}`
-  if (!fallback) return { model: null, reason }
-  const second = isMetered(fallback) ? await allowed(fallback) : "ok"
+  // A paid Chief falls back only to a paid model the route serves and the same gate allows (Haiku):
+  // never silently to a different, unmetered model (parity run 2026-10-16: a rate-limited Workers AI model).
+  if (!fallback || !isMetered(fallback)) return { model: null, reason: fallback ? `${reason}; no paid fallback (${fallback} is not one)` : reason }
+  const second = await allowed(fallback)
   return second === "ok" ? { model: fallback, reason } : { model: null, reason: `${reason}; ${fallback}: ${second}` }
 }

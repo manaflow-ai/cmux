@@ -43,7 +43,7 @@ const POST_RETRY_MS = 2_500
 const MAX_POST_TRIES = 6
 const HOST = "cloud-chief"
 /** A turn waits at most this long for the compactor to settle the view, then runs on the view as it is. */
-const SETTLE_MS = 60_000
+const SETTLE_MS = 3_000 // only before a forced re-render (Memory.foldDue); a turn never waits on the compactor otherwise
 /** A turn that runs longer is stopped and recorded failed. */
 const TURN_MS = 10 * 60_000
 const DEFAULT_DAILY_TURNS = 300
@@ -345,7 +345,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
         if (cfg.agent && cfg.owner && rows.length > 0) await ackWake(this.env, cfg.agent, chiefPrincipal(cfg.agent, cfg.owner), woken.conversation, Math.max(...rows.map((r) => r.seq))).catch(() => undefined)
         continue
       }
-      await (markPending(this.sql, "admitted"), this.compactor.settle(AbortSignal.timeout(SETTLE_MS)).finally(() => markPending(this.sql, "settled")))
+      await (markPending(this.sql, "admitted"), (this.memory.foldDue() ? this.compactor.settle(AbortSignal.timeout(SETTLE_MS)) : Promise.resolve(true)).finally(() => markPending(this.sql, "settled")))
       if (rows.length > 0) this.openTurn(woken.conversation, rows)
     }
   }
@@ -417,7 +417,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     const post = !ok ? "none" : reply === "" || isNoReply(reply) ? "no_reply" : "pending"
     this.sql.exec(`UPDATE cb_turn SET status = ?, reason = ?, ended = ?, input = NULL, reply = ?, post = ? WHERE id = ?`, ok ? "done" : "failed", reason, Date.now(), post === "pending" ? clipReply(reply) : null, post, id)
     this.sql.exec(`UPDATE cb_inbox SET state = ? WHERE turn = ?`, ok ? "done" : "failed", id)
-    if (!ok) [console.warn(JSON.stringify({ msg: "chief_brain.turn_failed", run: id, reason: String(reason).slice(0, 300), error: runError(this.sql, id)?.slice(0, 300) })), await turnFailedNotice(this.env, this.config(), row.conversation, id, String(reason), runError(this.sql, id))]
+    if (!ok) [console.warn(JSON.stringify({ msg: "chief_brain.turn_failed", run: id, reason: String(reason).slice(0, 300), error: runError(this.sql, id)?.slice(0, 300) })), await turnFailedNotice(this.env, this.sql, this.config(), row.conversation, id, String(reason), runError(this.sql, id))]
     this.announce(id, [])
     if (post === "pending") await this.postAndSchedule(id)
     else await this.finish(id)

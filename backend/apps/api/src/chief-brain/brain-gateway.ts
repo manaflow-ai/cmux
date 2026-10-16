@@ -67,7 +67,29 @@ export const TURN_FAILED_NOTICE = "I could not reach the model, so I stopped her
  * A failed turn is never silent: one short notice as the chief in the turn's conversation (once per
  * run, by its idempotency key). Not for a credits refusal: that has its own notice (the gateway's).
  */
-export const turnFailedNotice = async (env: Env, config: BrainConfig, conversation: string, run: string, reason: string, error: string | undefined): Promise<void> => {
+export const turnFailedNotice = async (env: Env, sql: SqlStorage, config: BrainConfig, conversation: string, run: string, reason: string, error: string | undefined): Promise<void> => {
   if (/credits/i.test(`${reason} ${error ?? ""}`) || !config.agent || !config.owner) return
-  await postText(env, chiefPrincipal(config.agent, config.owner), conversation, TURN_FAILED_NOTICE, `turn-failed:${config.agent}:${run}`).catch(() => undefined)
+  const principal = chiefPrincipal(config.agent, config.owner)
+  // Over today's model limit: say why, once per conversation per UTC day (a marker in this brain object,
+  // since a retry after the loop guard posts under another key); later refused turns stay quiet.
+  if (/daily_cap/.test(reason)) {
+    const marker = `notice.daily-cap:${conversation}:${new Date().toISOString().slice(0, 10)}`
+    if (sql.exec(`SELECT 1 FROM cb_config WHERE name = ?`, marker).toArray().length > 0) return
+    sql.exec(`INSERT INTO cb_config (name, value) VALUES (?, '1') ON CONFLICT (name) DO NOTHING`, marker)
+    return void (await postNotice(env, principal, conversation, DAILY_CAP_NOTICE, marker).catch(() => undefined))
+  }
+  await postNotice(env, principal, conversation, TURN_FAILED_NOTICE, `turn-failed:${config.agent}:${run}`).catch(() => undefined)
 }
+
+/** The loop guard refuses a Chief that spoke under 2 s ago (agent_rate): a notice right after a reply waits that gap, twice at most. */
+const NOTICE_GAP_MS = 2_500
+const postNotice = async (env: Env, principal: ReturnType<typeof chiefPrincipal>, conversation: string, text: string, key: string, tries = 3): Promise<void> => {
+  for (let i = 0; i < tries; i++) {
+    const r = await postText(env, principal, conversation, text, i === 0 ? key : `${key}:r${i}`)
+    if (r.ok || r.code !== "agent_rate") return
+    await new Promise((resolve) => setTimeout(resolve, NOTICE_GAP_MS))
+  }
+}
+
+/** The notice for a Chief over today's model limit (no vendor names). */
+export const DAILY_CAP_NOTICE = "I reached today's model limit for this account, so I cannot answer until 00:00 UTC. Ask an admin to raise it if you need more today."

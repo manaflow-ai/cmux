@@ -44,6 +44,8 @@ export const CAP = 30_000;
 export const JOBS = 8;
 export const TRIES = 5;
 export const RETRY_MS = 10_000;
+/** optchat-core DELTA_HARD (spec 5a.4b): the growth cap between folds. */
+export const DELTA_HARD = 32_000;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -181,6 +183,22 @@ export class Memory {
 
   settled(): boolean {
     return this.core.settled();
+  }
+
+  /**
+   * Whether the next turn input is due a forced re-render (OptChat 5a.4b: the delta since the frozen
+   * view's front is over DELTA_HARD bytes). Only then may a turn wait, briefly, for the compactor:
+   * otherwise the turn runs at once on the frozen view plus the delta, and compaction stays in the background.
+   */
+  foldDue(): boolean {
+    const json = this.sql.exec<{ json: string }>(`SELECT json FROM oc_frozen WHERE id = 1`).toArray()[0]?.json;
+    // No frozen view yet: this turn renders one, which then stays frozen, so it may wait (briefly) for summaries.
+    if (!json) return !this.core.settled();
+    // A heuristic of the core's rule: this count also includes this turn's new and imported messages, so it can
+    // only be high (an early, at most 3 s wait), never low; the core decides the re-render itself.
+    const front = Number((JSON.parse(json) as { front?: unknown }).front ?? 0);
+    const bytes = Number(this.sql.exec<{ n: number | null }>(`SELECT SUM(size) AS n FROM oc_message WHERE i >= ?`, front).one().n ?? 0);
+    return bytes > DELTA_HARD;
   }
 
   /** The rendered `<chat>` view and its cache marks (UTF-8 byte offsets). */

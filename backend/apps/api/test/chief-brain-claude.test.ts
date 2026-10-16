@@ -3,6 +3,7 @@ import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { fireAlarm } from "./setup/alarm.ts"
+import { TURN_FAILED_NOTICE } from "../src/chief-brain/brain-gateway.ts"
 
 /**
  * A Cloud Chief on Claude through the metered route (chief-brain/claude-auth.ts, models.ts): the
@@ -185,7 +186,7 @@ describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }
     expect((await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, { compactor_model: "claude-opus-5-5" })).status).toBe(400)
   })
 
-  it("runs the turn on the fallback model when the sign-in refresh fails, logging no token bytes", async () => {
+  it("refuses the turn (no unmetered fallback for a paid Chief) when the sign-in refresh fails, tells the person once, logging no token bytes", async () => {
     await forgetRefreshed()
     const route = fakeRoute("fail")
     const logs: Array<string> = []
@@ -193,13 +194,15 @@ describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }
     const { token, chief } = await ownerWithClaudeChief("brain-claude-fail")
     expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: "f1", parts: [{ type: "text", text: "anyone there?" }] }, "f1")).ok).toBe(true)
     const [reply] = await replies(token, chief.main_conversation, chief.id, 1)
-    expect(reply.parts[0].text).toContain("[fake-echo] reply to:")
+    // A paid Chief never runs on an unmetered model instead: the turn fails and the Chief says so once.
+    expect(reply.parts[0].text).toBe(TURN_FAILED_NOTICE)
     expect(route.seen).toHaveLength(0)
     expect(route.refreshes()).toBeGreaterThanOrEqual(1)
-    const run = await http("GET", `/v1/chiefs/${chief.id}/runs/${reply.parts[1].session}?conversation=${chief.main_conversation}`, token)
-    expect(run.json.value.run.model).toBe("fake")
+    const runId = (await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, token)).json.value.runs[0].id as string
+    const run = await http("GET", `/v1/chiefs/${chief.id}/runs/${runId}?conversation=${chief.main_conversation}`, token)
+    expect(run.json.value.run).toMatchObject({ model: "claude-opus-5-5", status: "failed" })
     // The fallback's reason is on the run (a note step), not only in the Worker log.
-    expect(run.json.value.steps.find((s: { id: string }) => s.id === "note:model")?.text).toContain("claude-opus-5-5: auth_failed")
+    expect(run.json.value.steps.find((s: { id: string }) => s.id === "note:model")?.text).toContain("claude-opus-5-5: auth_failed; no paid fallback")
     expect(logs).toContain("claude-david auth failed")
     for (const body of [...logs, run.text, JSON.stringify(reply)]) expect(body).not.toContain(REFRESH)
   })

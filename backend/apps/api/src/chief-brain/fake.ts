@@ -18,7 +18,7 @@ import type { Api, Context, Model, ProviderStreams, TranscriptContext } from "@e
  * it answers with the tool result; anything else gets "[model] reply to: <text>". A text with
  * "THINK" also streams a thought first. Compactor calls (system starts "You write the memory of")
  * answer a one-line summary; a step containing "OVERSHOOT" first answers 600 bytes so the size
- * loop retries, and one containing "REFUSE" is refused by the model `fake-echo` (other models
+ * loop retries, a step containing "HANG_COMPACT" answers after 45 s, and one containing "REFUSE" is refused by the model `fake-echo` (other models
  * answer it).
  *
  * `holdTurns()` makes every turn request wait until the returned release is called, so tests can
@@ -46,6 +46,7 @@ export function failFakeCompacts(n: number): void {
 }
 
 let held: Promise<void> | undefined;
+
 /** Turn requests wait until the returned function is called. */
 export function holdTurns(): () => void {
   let release!: () => void;
@@ -99,6 +100,8 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
     reasoning: (options as { reasoning?: string } | undefined)?.reasoning,
     maxTokens: options?.maxTokens,
   });
+  // A step containing "HANG_COMPACT" answers only after 45 s (a rate-limited or slow compactor).
+  if (compact && (blocksOf(firstUser?.content).at(-1) ?? "").includes("HANG_COMPACT")) await new Promise((r) => setTimeout(r, 45_000));
   if (compact && failNext > 0) {
     failNext--;
     throw new Error("fake model failure (scripted)");
