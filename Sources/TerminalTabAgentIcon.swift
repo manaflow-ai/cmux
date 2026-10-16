@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Resolves the provider mark for a local terminal tab from the same agent
@@ -26,8 +27,14 @@ extension Workspace {
         // IDs and aliases can resolve to a tab asset. Look those keys up
         // directly instead of scanning the whole map on every lifecycle event.
         let lifecycleStatusKeys = CmuxTaskManagerCodingAgentDefinition.builtIns
-            .flatMap { [$0.id] + $0.launchKinds + $0.directBasenames }
-            .filter { lifecycleStates[$0] != nil }
+            .flatMap { definition -> [String] in
+                let knownKeys = [definition.id] + definition.launchKinds + definition.directBasenames
+                return knownKeys.compactMap { key in
+                    if lifecycleStates[key] != nil { return key }
+                    let remoteKey = RemoteAgentSidebarStatus.statusKeyPrefix + key
+                    return lifecycleStates[remoteKey] != nil ? key : nil
+                }
+            }
         let statusKeys = Set(pidStatusKeys).union(lifecycleStatusKeys).sorted()
         if let asset = statusKeys.compactMap(resolver.assetName(forStatusKey:)).first {
             return asset

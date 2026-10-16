@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -76,6 +77,26 @@ struct TerminalTabIconRegressionTests {
         #expect(runningTab.iconAsset == expectedAssets[statusKey])
 
         #expect(workspace.clearAgentLifecycle(key: statusKey, panelId: panel.id))
+        try expectNoAgentMark(workspace: workspace, panel: panel, tabId: tabId)
+    }
+
+    @MainActor
+    @Test(arguments: ["claude_code", "codex"])
+    func remoteLifecycleAgentShowsAndClearsItsBrandMark(statusKey: String) throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
+        let remoteKey = RemoteAgentSidebarStatus.statusKeyPrefix + statusKey
+        let expectedAssets = [
+            "claude_code": "AgentIcons/Claude",
+            "codex": "AgentIcons/Codex",
+        ]
+
+        workspace.setAgentLifecycle(key: remoteKey, panelId: panel.id, lifecycle: .running)
+        let runningTab = try #require(workspace.bonsplitController.tab(tabId))
+        #expect(runningTab.iconAsset == expectedAssets[statusKey])
+
+        #expect(workspace.clearAgentLifecycle(key: remoteKey, panelId: panel.id))
         try expectNoAgentMark(workspace: workspace, panel: panel, tabId: tabId)
     }
 
