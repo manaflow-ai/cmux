@@ -142,12 +142,16 @@ def send_from_field(text):
     return drive("send")
 
 
+# Channels on, in a config file of this run only (the host user's cmux.json stays untouched).
+config = os.path.join(opts.out, "cmux.json")
+with open(config, "w") as f:
+    f.write('{"home": {"channelsEnabled": true}}\n')
 if os.path.exists(sock):
     os.unlink(sock)
 env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "SHELL": "/bin/zsh",
        "PATH": f"{home}/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
        "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_DEV_BACKEND_MODE": "local",
-       "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900", **home_classic.ENV}
+       "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900", "CMUX_NEXT_CONFIG_FILE": config, **home_classic.ENV}
 process = subprocess.Popen([f"{app}/Contents/MacOS/cmux DEV"], env=env, cwd=opts.out, stdin=subprocess.DEVNULL,
                            stdout=open(os.path.join(opts.out, "app.log"), "a"), stderr=subprocess.STDOUT, start_new_session=True)
 print(f"launched pid {process.pid}", flush=True)
