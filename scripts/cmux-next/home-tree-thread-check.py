@@ -17,6 +17,9 @@ Chief home's cmux-tui session) it makes a conversation. Then, through the user's
 7. follows the permalink of C (the docked Home's hand-off route `#/conversation/<c>/message/<C>`): Home opens
    C's branch, path [R, A, B, C], the same path the owner resolves;
 8. the Channels page (the React view of the same daemon data) at that route shows A, B and C at depth 1, 2, 3.
+Then the thread header (conversation-thread-objects-v1): resolve by the status chip, rename, assign, each on the owner
+and in the header, and the same state in Channels; Copy Link on C gives the permalink the owner resolves; and a
+permalink to a nested message 130 messages older than the loaded window loads older pages and opens its branch.
 No system input: socket only. Runs on cmux-lawrence-2 (nx-remote --needs gui --app-from-fleet); ends with the
 DEBUG quit fixture, endAgents and the tag's `acpmux daemon shutdown`.
 
@@ -259,6 +262,73 @@ try:
           state.get("thread_path") == want_path and state.get("thread_message") == ids["C"], state)
     shot("6-permalink-C")
 
+    # 9: the thread header (the daemon's thread object, conversation-thread-objects-v1), as in Channels.
+    def root_thread():
+        for m in (daemon(owner, "conversation-snapshot", conversation=conversation, tail=50).get("messages") or []):
+            if m.get("id") == ids["R"]:
+                return m.get("thread") or {}
+        return {}
+    head = drive("header")
+    result["header"] = head
+    check("the thread view has a header: R's first line, open, unassigned",
+          head.get("title") == texts["R"] and head.get("status") == "open" and head.get("owner") == "", head)
+    chip = drive("chip")
+    resolved = poll(lambda: root_thread().get("resolved"))
+    check("a click on the status chip resolves the thread on the owner (thread.update)", bool(resolved), {"chip": chip, "thread": root_thread()})
+    check("the header shows the thread resolved", bool(poll(lambda: drive("header").get("status") == "resolved", timeout=10)), drive("header"))
+    shot("8-header-resolved")
+    new_title = f"Tree title {stamp}"
+    drive("rename", value=new_title)
+    check("rename sets the owner's thread title", bool(poll(lambda: root_thread().get("title") == new_title)), root_thread())
+    check("the header shows the new title", bool(poll(lambda: drive("header").get("title") == new_title, timeout=10)), drive("header"))
+    drive("assign", value=me)
+    check("assign sets the owner's thread owner", bool(poll(lambda: root_thread().get("owner") == me)), root_thread())
+    check("the header names the owner", bool(poll(lambda: drive("header").get("owner") == "Me", timeout=10)), drive("header"))
+    shot("9-header-owner")
+
+    # 10: Copy Link on a message: the daemon's permalink form, which the owner resolves to its thread path.
+    drive("escape"); drive("escape")
+    copied = drive("copy_link", text=texts["C"])
+    result["copy_link"] = copied
+    link = copied.get("link") or ""
+    check("Copy Link copies C's permalink (<scheme>://conversation/<c>/message/<C>)",
+          link.startswith("cmux") and link.endswith(f"://conversation/{conversation}/message/{ids['C']}"), copied)
+    check("the owner resolves the copied link to [R, A, B, C]",
+          (daemon(owner, "conversation-link-resolve", url=link).get("path") if link else None) == want_path, link)
+
+    # 11: a permalink to a nested message older than Home's loaded window (tail 60) loads older pages.
+    created = daemon(owner, "conversation-create", idempotency_key=f"tree-old-{stamp}", actor=me, title=f"Tree old {stamp}",
+                     participants=[{"id": me, "kind": "human", "display_name": "Me"},
+                                   {"id": "agent_instinct", "kind": "agent", "display_name": "Maybe: Instinct"}])
+    old_conv = (created.get("conversation") or {}).get("id")
+
+    def seed(text, parent=None, root=None):
+        key = f"seed-{abs(hash(text))}-{stamp}"
+        op = {"kind": "message.send", "client_msg_id": key, "parts": [{"type": "text", "text": text}]}
+        if parent:
+            op["reply_to"] = {"message_id": parent, "part_index": 0}
+        if root:
+            op["thread_root"] = root
+        r = daemon(owner, "conversation-op", conversation=old_conv, idempotency_key=key, actor=me, op=op)
+        return ((r.get("change") or {}).get("message") or {}).get("id")
+    o_r = seed(f"Old root {stamp}")
+    o_a = seed(f"Old A {stamp}", o_r, o_r)
+    o_b = seed(f"Old B {stamp}", o_a, o_r)
+    for i in range(130):
+        seed(f"Old filler {i} {stamp}")
+    check("the owner holds an old nested reply (depth 2) under 130 newer messages", bool(o_r and o_a and o_b), [o_r, o_a, o_b])
+    conversation = old_conv
+    first = f"Old filler 129 {stamp}"
+    check("Home shows the newest message of the old conversation", bool(poll(opened, timeout=120)), drive("texts"))
+    check("the old reply is outside Home's loaded window", f"Old B {stamp}" not in (drive("texts", limit=500).get("texts") or []))
+    drive("permalink", url=f"#/conversation/{old_conv}/message/{o_b}")
+    state = poll(lambda: (s := drive("thread_state")) and s.get("thread_path") == [o_r, o_a, o_b] and s, timeout=40) or drive("thread_state")
+    result["old_permalink"] = state
+    check("its permalink loads older pages and opens its branch, path [root, A, B]",
+          state.get("thread_path") == [o_r, o_a, o_b] and state.get("thread_message") == o_b, state)
+    shot("10-old-permalink")
+    conversation = result["conversation"]
+
     # 8: the same thread in Channels (the React view of the same daemon data).
     run = rpc("action.run", {"id": "home.channels", "focus": True})
     page = {"page": "cmux.home-channels"}
@@ -278,6 +348,10 @@ try:
     result["channels"] = shown
     check("Channels shows A, B and C in R's thread at depth 1, 2 and 3", shown == {"A": "1", "B": "2", "C": "3"},
           {"shown": shown, "elements": (rpc("debug.page", dict(page, action="query", selector="article.hc-msg")) or {}).get("elements")})
+    sheet = poll(lambda: [e for e in ((rpc("debug.page", dict(page, action="query", selector="[data-status]")) or {}).get("elements") or [])
+                          if (e.get("data") or {}).get("status") == "resolved" and new_title in (e.get("text") or "")], timeout=20)
+    check("Channels shows the same thread resolved, with the title set in Messages", bool(sheet),
+          (rpc("debug.page", dict(page, action="query", selector="[data-status]")) or {}).get("elements"))
     rpc("debug.page", dict(page, action="snapshot", path=os.path.join(opts.out, "7-channels.png")))
 finally:
     reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
