@@ -65,13 +65,17 @@ export const requestSummary = (action: string, params: unknown, forLog = false):
 }
 
 /**
- * The verdict object in a reply: the first balanced `{...}` with a "verdict" key, also inside a
- * code fence or after prose (Opus tends to explain first, Haiku answers bare JSON).
+ * The verdict objects in a reply: each top-level balanced `{...}` with a "verdict" key, also inside
+ * a code fence or after prose (Opus tends to explain first, Haiku answers bare JSON). An object
+ * nested in another one is never read: a reply that quotes the request cannot slip one in.
  */
-const verdictObject = (text: string): Record<string, unknown> | null => {
-  for (let start = text.indexOf("{"); start !== -1; start = text.indexOf("{", start + 1)) {
+const verdictObjects = (text: string): Array<Record<string, unknown>> => {
+  const found: Array<Record<string, unknown>> = []
+  let start = text.indexOf("{")
+  while (start !== -1) {
     let depth = 0
     let quoted = false
+    let end = -1
     for (let i = start; i < text.length; i++) {
       const ch = text[i]
       if (quoted) {
@@ -80,27 +84,39 @@ const verdictObject = (text: string): Record<string, unknown> | null => {
       } else if (ch === '"') quoted = true
       else if (ch === "{") depth++
       else if (ch === "}" && --depth === 0) {
-        try {
-          const j = JSON.parse(text.slice(start, i + 1)) as unknown
-          if (j && typeof j === "object" && !Array.isArray(j) && "verdict" in j) return j as Record<string, unknown>
-        } catch {}
+        end = i
         break
       }
     }
+    if (end === -1) break
+    try {
+      const j = JSON.parse(text.slice(start, end + 1)) as unknown
+      if (j && typeof j === "object" && !Array.isArray(j) && "verdict" in j) found.push(j as Record<string, unknown>)
+    } catch {}
+    start = text.indexOf("{", end + 1)
   }
-  return null
+  return found
+}
+
+/** A finite number, or a numeric string; anything else is no confidence. */
+const confidenceOf = (v: unknown): number => {
+  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN
+  return Number.isFinite(n) ? n : 0
 }
 
 export const parseVerdict = (text: string): { verdict: Verdict; reason: string } | null => {
-  const j = verdictObject(text)
-  if (!j) return null
-  const reason = typeof j.reason === "string" ? j.reason.slice(0, 160) : ""
-  const confidence = typeof j.confidence === "number" ? j.confidence : Number(j.confidence)
-  if (j.verdict === "deny") return { verdict: "deny", reason }
+  const all = verdictObjects(text)
+  if (all.length === 0) return null
+  const reasonOf = (j: Record<string, unknown>) => (typeof j.reason === "string" ? j.reason.slice(0, 160) : "")
+  // A deny anywhere wins; two verdicts that are not a deny are a question for the person.
+  const deny = all.find((j) => j.verdict === "deny")
+  if (deny) return { verdict: "deny", reason: reasonOf(deny) }
+  if (all.length > 1) return { verdict: "ask", reason: "the classifier gave more than one verdict" }
+  const j = all[0]!
   // Allow only with a clear, confident allow; everything else is a question for the person.
-  if (j.verdict === "allow" && confidence >= 0.8) return { verdict: "allow", reason }
+  if (j.verdict === "allow" && confidenceOf(j.confidence) >= 0.8) return { verdict: "allow", reason: reasonOf(j) }
   if (j.verdict !== "allow" && j.verdict !== "ask") return null
-  return { verdict: "ask", reason: reason || "the classifier was not sure" }
+  return { verdict: "ask", reason: reasonOf(j) || "the classifier was not sure" }
 }
 
 export const classify = async (env: Env, hand: string, owner: string, agent: string | undefined, request: string, summary: { text: string; whole: boolean }): Promise<Classified> => {

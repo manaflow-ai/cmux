@@ -102,6 +102,10 @@ fn canon(p: PathBuf) -> PathBuf {
 /// a request that changes them could switch off this policy.
 fn self_paths() -> Vec<PathBuf> {
     let mut out = vec![super::config::home(), crate::config::home()];
+    // The person's own agent daemon home too (the hand's daemon has its own, below the hand home).
+    if let Some(h) = dirs::home_dir() {
+        out.push(h.join(".acpmux"));
+    }
     if let Some(h) = dirs::home_dir() {
         out.push(h.join("Library/LaunchAgents/dev.cmux.hand.plist"));
         out.push(h.join(".config/systemd/user/cmux-hand.service"));
@@ -188,7 +192,8 @@ fn holds_protected(root: &Path, own: &[PathBuf]) -> bool {
 /// and the agent daemon home, as their resolvers name them (config::home(),
 /// crate::config::home()), by full path or by folder name.
 fn names_own_files(line: &str) -> bool {
-    [super::config::home(), crate::config::home()].iter().any(|own| {
+    let person = dirs::home_dir().map(|h| h.join(".acpmux"));
+    [Some(super::config::home()), Some(crate::config::home()), person].iter().flatten().any(|own| {
         line.contains(own.to_string_lossy().as_ref())
             || own.file_name().is_some_and(|n| line.contains(n.to_string_lossy().as_ref()))
     })

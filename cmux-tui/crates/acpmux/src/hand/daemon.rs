@@ -29,9 +29,32 @@ fn key() -> &'static str {
 }
 
 /// The hand's acpmux home: `<hand home>/acpmux` (set once at hand start).
-pub fn use_hand_home() {
-    crate::config::set_home_override(super::config::home().join("acpmux"));
+/// An inherited ACPMUX_HOME or ACPMUX_SOCKET (an app terminal exports both)
+/// would point the hand at the person's own daemon: the hand does not start.
+pub fn use_hand_home() -> anyhow::Result<()> {
+    for var in ["ACPMUX_HOME", "ACPMUX_SOCKET"] {
+        if std::env::var_os(var).is_some() {
+            anyhow::bail!(
+                "{var} is set: it would point the hand at another acpmux daemon; start the hand without it (env -u {var})"
+            );
+        }
+    }
+    let home = super::config::home().join("acpmux");
+    crate::config::set_home_override(home.clone());
+    if crate::config::home() != home {
+        anyhow::bail!(
+            "the hand's acpmux home did not take effect ({})",
+            crate::config::home().display()
+        );
+    }
+    Ok(())
 }
+
+/// Whether this hand run already restarted a daemon that refused its key: it does so once, then
+/// keeps the connection (prompts are then refused), so agents are not cut off at every start.
+static RESTARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// One connect at a time: two starts at once would both start a daemon.
+static CONNECT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 async fn start_keyed() -> Result<(), HandError> {
     use tokio::io::AsyncWriteExt;
@@ -67,10 +90,14 @@ async fn start_keyed() -> Result<(), HandError> {
 /// A connection to the hand's daemon, proven as the person when the daemon
 /// took this hand's key. Starts (or restarts, agents kept) the daemon as needed.
 pub async fn connect() -> Result<(Arc<Client>, bool), HandError> {
+    let _one = CONNECT.lock().await;
     let path = crate::config::socket_path();
     if let Ok(client) = Client::connect(&path).await {
         if client.prove_person(key()).await {
             return Ok((client, true));
+        }
+        if RESTARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return Ok((client, false));
         }
         // Another key (an earlier hand run): restart it keyed, its agents kept.
         let _ = client.request(method::MUX_SHUTDOWN, json!({})).await;

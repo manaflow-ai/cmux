@@ -576,6 +576,20 @@ export class HandDO extends DurableObject<Env> {
         if (r) await this.publish(r)
         return
       }
+      case "approval-expired": {
+        // The hand stopped waiting (an agent's prompt, refused at its timeout): the row closes, so a
+        // late answer neither shows as waiting nor reads as allowed.
+        const id = String(f.id ?? "")
+        const open = id ? sql.exec<{ id: string }>(`SELECT id FROM hand_approval WHERE id = ? AND answered_at IS NULL`, id).toArray() : []
+        if (open.length === 0) return
+        sql.exec(`UPDATE hand_approval SET answered_at = ?, allow = 0, who = 'expired' WHERE id = ? AND answered_at IS NULL`, now, id)
+        const owner = this.row()
+        if (owner) {
+          this.ownerFrame(owner.owner, { t: "hand-approval-settled", hand: owner.hand, id, outcome: "expired" })
+          await this.publish(owner)
+        }
+        return
+      }
       case "approve": {
         const id = String(f.id ?? "")
         const req = String(f.req ?? "")

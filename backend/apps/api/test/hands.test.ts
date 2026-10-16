@@ -266,10 +266,53 @@ describe("Chief hands", { timeout: 60_000 }, () => {
     // Prose with no verdict fails closed to ask, and the log says why (size and shape, never the text).
     expect((await read("shape-prose")).json).toMatchObject({ ok: true })
     expect(seen.at(-1).params).toMatchObject({ _verdict: "ask" })
+    // A nested (quoted) allow never counts and the reply's own deny wins; two verdicts, or an allow with a non-number confidence, ask.
+    expect((await read("shape-injected")).json.error.code).toBe("hand.classifier_denied")
+    for (const shape of ["shape-two", "shape-boolconf"]) {
+      expect((await read(shape)).json, shape).toMatchObject({ ok: true })
+      expect(seen.at(-1).params, shape).toMatchObject({ _verdict: "ask" })
+    }
     const log = (await http("GET", `/v1/hands/${hand}/verdicts`, token)).json.value as Array<any>
-    expect(log.map((v) => v.verdict).sort()).toEqual(["allow", "allow", "allow", "ask", "deny"])
-    expect(log.find((v) => v.verdict === "ask").reason).toBe("the classifier reply had no readable verdict (22 chars, stop stop, text)")
-    expect(log.find((v) => v.verdict === "deny").reason).toBe("removes the home folder")
+    expect(log.map((v) => v.verdict).sort()).toEqual(["allow", "allow", "allow", "ask", "ask", "ask", "deny", "deny"])
+    expect(log.find((v) => v.reason === "the classifier gave more than one verdict")).toBeTruthy()
+    expect(log.find((v) => v.reason === "injection")).toMatchObject({ verdict: "deny" })
+    expect(log.find((v) => String(v.reason).startsWith("the classifier reply had no readable")).reason).toBe("the classifier reply had no readable verdict (22 chars, stop stop, text)")
+    expect(log.find((v) => v.reason === "removes the home folder")).toMatchObject({ verdict: "deny" })
+  })
+
+  it("closes an agent prompt's approval when the hand stops waiting for it", async () => {
+    const { token } = await owner("hands-expire")
+    const { hand, key } = await pairHand(token)
+    const sock = await dial(hand, key, "sandbox", () => {})
+    const send = (x: unknown) => sock.ws!.send(JSON.stringify(x))
+    const wire = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+    const appFrames: Array<any> = []
+    wire.webSocket!.addEventListener("message", (e) => {
+      const f = JSON.parse(e.data as string)
+      if (String(f.t).startsWith("hand-approval")) appFrames.push(f)
+    })
+    wire.webSocket!.accept()
+    wire.webSocket!.send(JSON.stringify({ t: "subscribe" }))
+    await new Promise((r) => setTimeout(r, 100))
+    // An agent's permission prompt: its approval names the session, not a Cloud request.
+    const id = crypto.randomUUID()
+    send({ t: "approve", id, req: "01a1-session", summary: { action: "agent.permission", session: "01a1-session", title: "Bash date" } })
+    let listed: Array<any> = []
+    for (let i = 0; i < 50 && listed.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 20))
+      listed = (await http("GET", `/v1/hands/${hand}/approvals`, token)).json.value
+    }
+    expect(listed[0]).toMatchObject({ id, summary: { action: "agent.permission" } })
+    send({ t: "approval-expired", id })
+    for (let i = 0; i < 50 && listed.length > 0; i++) {
+      await new Promise((r) => setTimeout(r, 20))
+      listed = (await http("GET", `/v1/hands/${hand}/approvals`, token)).json.value
+    }
+    expect(listed).toEqual([])
+    // A late answer is refused: the row is closed, and the app saw it settle as expired.
+    expect((await http("POST", `/v1/hands/${hand}/approvals/${id}`, token, { allow: false })).json.error.code).toBe("hand.approval_answered")
+    for (let i = 0; i < 50 && appFrames.length < 2; i++) await new Promise((r) => setTimeout(r, 20))
+    expect(appFrames.map((f) => [f.t, f.outcome ?? null])).toEqual([["hand-approval-pending", null], ["hand-approval-settled", "expired"]])
   })
 
 })
