@@ -782,6 +782,11 @@ jobs:
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # The DMG around the stapled app is signed after Apple's wait
+          # (notarize-nightly-dmg.sh CMUX_STAPLE_APP_IN_DMG).
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          CMUX_STAPLED_DMG_WAIT_TIMEOUT: 20m
           CMUX_CHANNEL: stable
           # The thin helpers were submitted next to the universal one and have
           # been processing through its wait, so a short wait each keeps the two
@@ -810,6 +815,11 @@ jobs:
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # The DMG around the stapled app is signed after Apple's wait
+          # (notarize-nightly-dmg.sh CMUX_STAPLE_APP_IN_DMG).
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          CMUX_STAPLED_DMG_WAIT_TIMEOUT: 20m
           CMUX_CHANNEL: stable
           # The thin helpers were submitted next to the universal one and have
           # been processing through its wait, so a short wait each keeps the two

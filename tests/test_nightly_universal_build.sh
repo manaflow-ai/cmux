@@ -527,7 +527,7 @@ notarize_timeout = re.search(
     re.MULTILINE | re.DOTALL,
 )
 assert notarize_timeout, "missing notarization step"
-assert "timeout-minutes: 90" in notarize_timeout.group(1)
+assert "timeout-minutes: ${{ needs.decide.outputs.should_publish == 'true' && 90 || 140 }}" in notarize_timeout.group(1)
 assert "timeout-minutes: 50" not in notarize_timeout.group(1)
 assert "CMUX_NOTARY_SUBMIT_ONLY: ${{ needs.decide.outputs.should_publish }}" in notarize_timeout.group(1)
 assert "CMUX_DEFER_GATEKEEPER_ASSESSMENT: ${{ needs.decide.outputs.should_publish }}" in notarize_timeout.group(1)
