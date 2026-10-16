@@ -542,7 +542,11 @@ async fn remote_request_and_notification_cancels_cannot_stop_local_sessions() {
         let (reply, _) = remote
             .call_with_notifications("session/cancel", json!({"sessionId": id}))
             .await;
-        assert_eq!(reply["error"]["data"]["reason"], "remote.session_cancel_ownership", "{origin:?}: {reply}");
+        assert_eq!(
+            reply["error"]["data"]["reason"],
+            "remote.session_cancel_ownership",
+            "{origin:?}: {reply}"
+        );
         assert_no_turn_end(&mut local).await;
         local.notify("session/cancel", json!({"sessionId": id})).await;
         assert_eq!(wait_for_turn_end(&mut local).await["msg"]["stopReason"], "cancelled");
@@ -568,7 +572,10 @@ async fn remote_callers_can_cancel_sessions_they_started() {
     let (reply, notifications) =
         web.call_with_notifications("session/cancel", json!({"sessionId": id})).await;
     assert_eq!(reply["result"], json!({}), "{reply}");
-    assert_eq!(wait_for_turn_end_or_seen(&mut web, &notifications).await["msg"]["stopReason"], "cancelled");
+    assert_eq!(
+        wait_for_turn_end_or_seen(&mut web, &notifications).await["msg"]["stopReason"],
+        "cancelled"
+    );
 
     // A Peer-owned session may be cancelled by the ACP notification form.
     let hub = hub();
