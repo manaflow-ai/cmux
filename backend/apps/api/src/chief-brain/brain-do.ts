@@ -5,8 +5,8 @@ import { createRegistry, GenerationTask, Harness, hook, section, ToolTask } from
 import { PiHarness } from "agents/harness/pi"
 import { Lifecycle, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle"
 import type { Env } from "../env.ts"
-import { ackWake, chiefPrincipal, chiefRecord, postReply, readConversation, runChanged, typing } from "./brain-io.ts"
-import { clip, clipInput, lastTalk, readRun, readRuns, readSteps, type Run, type Step, type StepPatch, upsertStep } from "./brain-runs.ts"
+import { ackWake, chiefPrincipal, chiefRecord, chiefRecordFresh, postReply, readConversation, runChanged, typing } from "./brain-io.ts"
+import { clip, clipInput, flushMarks, lastTalk, markPending, readRun, readRuns, readSteps, type Run, type Step, type StepPatch, upsertStep } from "./brain-runs.ts"
 import { type BrainConfig, patchError, readConfig, SCHEMA, writeConfig } from "./brain-store.ts"
 import { AUTH_FAILED, holderAuth, holderInvalidate, holderTurn, HOLDER } from "./claude-auth.ts"
 import { Compactor, type CallRecord } from "./compactor.ts"
@@ -194,7 +194,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     const cfg = this.config()
     if (!cfg.enabled) return { ok: false, reason: "disabled" }
     if (cfg.agent !== agent || cfg.owner !== owner) return { ok: false, reason: "other_chief" }
-    const record = await chiefRecord(this.env, owner, agent).catch(() => undefined)
+    const record = await chiefRecordFresh(this.env, owner, agent).catch(() => undefined)
     if (record === undefined) return { ok: false, reason: "owner.unreachable" }
     if (!record) return { ok: false, reason: "chief_archived" }
     if (record.brain_place) return { ok: false, reason: "chief_placed" }
@@ -245,7 +245,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
   async wake(w: { agent: string; owner: string; conversation: string; seq: number; reason: string }): Promise<{ queued: number } | { skipped: string }> {
-    await this.lifecycle.start()
+    await (this.lifecycle.start(), markPending(this.sql, "wake"))
     const a = await this.admitted(w.agent, w.owner, false)
     if (!a.ok) return { skipped: a.reason }
     const view = await readConversation(this.env, w.conversation, chiefPrincipal(w.agent, w.owner))
@@ -350,7 +350,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
         if (cfg.agent && cfg.owner && rows.length > 0) await ackWake(this.env, cfg.agent, chiefPrincipal(cfg.agent, cfg.owner), woken.conversation, Math.max(...rows.map((r) => r.seq))).catch(() => undefined)
         continue
       }
-      await this.compactor.settle(AbortSignal.timeout(SETTLE_MS))
+      await (markPending(this.sql, "admitted"), this.compactor.settle(AbortSignal.timeout(SETTLE_MS)).finally(() => markPending(this.sql, "settled")))
       if (rows.length > 0) this.openTurn(woken.conversation, rows)
     }
   }
@@ -373,7 +373,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       )
     })
     this.compactor.pump()
-    this.announce(id, [])
+    this.announce(id, (flushMarks(this.sql, id), []))
   }
 
   private async runTurn(id: string): Promise<void> {
