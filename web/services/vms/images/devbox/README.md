@@ -397,7 +397,9 @@ bake happens once on the ladder floor (`freestyle/ubuntu-sm`, 2 vCPU / 4 GiB /
 16 GB) and `derive-devbox-sizes.ts` turns it into one snapshot per size:
 boot the bake, `vm.resize`, snapshot, delete, then boot the derived snapshot
 once more and check `nproc`, memory, the grown root filesystem and the
-daemon/desktop units. Sizes are Freestyle's own ladder
+daemon/desktop units. For a desktop promotion, `--verify-cua` also runs the
+native Claude Code, Codex, and OpenCode MCP screenshot/click/type/Enter smoke
+against every derived size before its id can become a default. Sizes are Freestyle's own ladder
 (`web/services/vms/images/sizes.ts`, verbatim from freestyle-vms
 `catalog/snapshots.json`), so every cmux machine is a shape Freestyle already
 bills and caps:
@@ -490,8 +492,9 @@ bun run devbox:promote -- freestyle --bake-result /tmp/desktop.json --kinds desk
 A promotion that verified and derived but did not write (a refused write, a
 crash after `derive-devbox-sizes.ts`) is resumed without re-deriving:
 `--bake-result <json> --sizes-result <derive --out json>` re-verifies the
-bake and adopts the derived ids (they already exist on the account, each
-booted and checked by that run).
+bake and adopts the derived ids. Desktop resumes require a sizes receipt
+created with `--verify-cua`, so every adopted desktop size has its own MCP
+proof.
 
 Pin the daemon for both with `CMUX_VM_CMUX_TUI_MANIFEST_URL` (one commit's
 `https://files.cmux.com/cmux-tui/<commit>/manifest.json`) so the two ladders
