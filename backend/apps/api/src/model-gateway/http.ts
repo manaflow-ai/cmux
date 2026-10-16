@@ -27,7 +27,7 @@ const err = (status: number, type: string, message: string) => Response.json({ t
 const safeId = (s: string) => s.replace(/[^A-Za-z0-9._:-]/g, "_").slice(0, 128)
 const run = <A, E>(env: Env, p: Effect.Effect<A, E, Credits>) => Effect.runPromise(p.pipe(Effect.provide(CreditsLive(env))))
 
-export type Who = Omit<RunGrant, "conversation" | "jti" | "cap_usd"> & { readonly conversation?: string; readonly grant?: RunGrant }
+export type Who = Omit<RunGrant, "conversation" | "jti" | "cap_usd" | "agent"> & { readonly conversation?: string; readonly grant?: RunGrant }
 const whoOf = async (env: Env, request: Request): Promise<Who | null> => {
   const auth = request.headers.get("authorization") ?? ""
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : (request.headers.get("x-api-key") ?? "")
@@ -121,7 +121,7 @@ export const gatewayMessages = async (env: Env, who: Who, request: Request, ctx?
   const g = who.grant
   const ledger = g ? (env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${g.chief}/${g.conversation}`)) as unknown as { runToken(run: string, jti: string, cap: number, o: LedgerOp): Promise<LedgerAnswer> }) : null
   if (g && ledger) {
-    const a = await ledger.runToken(g.run, g.jti, g.cap_usd, { op: "hold", usd: maxCost }).catch(() => null)
+    const a = await ledger.runToken(g.run, g.jti, g.cap_usd, { op: "hold", usd: maxCost, agent: g.agent }).catch(() => null)
     if (!a) return err(503, "overloaded_error", "the run could not be checked; retry")
     if (!a.ok) return a.code === "run_ended" ? err(401, "authentication_error", "this run has ended; the token no longer works") : err(429, "rate_limit_error", `this run token's model budget is spent: ${a.used_usd.toFixed(4)} of ${g.cap_usd} USD used, this call holds up to ${maxCost.toFixed(4)} USD`)
   }
