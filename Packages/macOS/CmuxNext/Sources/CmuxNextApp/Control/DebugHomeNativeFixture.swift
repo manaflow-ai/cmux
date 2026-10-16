@@ -165,8 +165,8 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         case "thread", "escape":
             // "thread": a click on the newest "N Replies" or thread preview; "escape": Esc in the field.
             // Both answer with the open thread's root (null: no thread is open).
-            let root = params["action"]?.stringValue == "thread" ? view.debugOpenNewestThread() : { view.debugEscape(); return view.debugOpenThread }()
-            return .object(["ok": .bool(true), "open_thread": root.map { .string($0) } ?? .null])
+            if params["action"]?.stringValue == "thread" { _ = view.debugOpenNewestThread() } else { view.debugEscape() }
+            return DebugHome.treeReply(view, ok: true)
         case "reply", "post_escape", "thread_state":
             // "reply": Reply… in the newest text bubble's menu; "post_escape": a real Esc key press
             // (`outside`: the key focus on the window, not the pane); "thread_state": no input.
