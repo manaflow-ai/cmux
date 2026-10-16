@@ -154,7 +154,8 @@ struct SceneNodeViewRenderingTests {
             .object(["id": .string("w1"), "title": .string("Workspace")]),
         ]))
         let rootId = try #require(runtime.store.rootId)
-        let rowId = try #require(runtime.store.node(rootId)?.children.first)
+        let listId = try #require(runtime.store.node(rootId)?.children.first)
+        let rowId = try #require(runtime.store.node(listId)?.children.first)
         let sink = SceneEventSink { nodeId, event, payload in
             runtime.dispatchEvent(nodeId: nodeId, event: event, payload: payload)
         }
