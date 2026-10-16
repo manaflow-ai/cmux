@@ -26,7 +26,10 @@ final class PaneThread {
     func note(_ a: Action) {
         switch a {
         case .send: sentInView = openThread
-        case .reply, .closeThread, .openThreadPath: sentInView = nil
+        case .reply, .closeThread, .openThreadPath:
+            sentInView = nil
+            // The user moved: a permalink still waiting for its message no longer opens it later.
+            (controller?.intents as? HomeProjection)?.pendingReveal = nil
         default: break
         }
     }
@@ -52,7 +55,7 @@ final class PaneThread {
         guard let controller, let demo = controller.demo else { return false }
         // A tree thread view's own controls first (ThreadHost.swift): "N Replies" under a reply opens its
         // branch, the breadcrumb pops or opens a level. nil in `.messages` mode and outside them.
-        if openThread != nil, let control = demo.hostControl(at: p) {
+        if openThread != nil, demo.threadContentContains(p), let control = demo.hostControl(at: p) {
             if case let .dispatch(action) = control { controller.dispatch(action) }
             return true
         }

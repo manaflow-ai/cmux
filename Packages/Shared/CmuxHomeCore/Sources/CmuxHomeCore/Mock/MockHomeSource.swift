@@ -473,6 +473,11 @@ public actor MockHomeSource: HomeSource {
             if let threadRoot, [threadRoot, parent ?? threadRoot].contains(where: { id in stored[conversation]?.contains { $0.id == id } != true }) {
                 throw HomeRejection.invalid("unknown_reply_target")
             }
+            // The owner's rule (conversation-tree-v1): a parent is the root or a reply in the root's thread.
+            if let threadRoot, let parent, parent != threadRoot,
+               stored[conversation]?.first(where: { $0.id == parent })?.threadRoot != threadRoot {
+                throw HomeRejection.invalid("invalid_thread_root")
+            }
             let rev = try commitMessage(in: conversation, author: me.id, parts: parts, key: intent.key, threadRoot: threadRoot, parent: parent)
             return HomeOpResult(rev: rev, conversation: conversation)
         case .editMessage(let messageID, let conversation, let parts):

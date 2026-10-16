@@ -482,10 +482,19 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// `.some(nil)` for the root (no branch open); nil when that message has no message id yet
     /// (my send still going), so the reply is never moved to another parent.
     private func treeParent(of state: AppState) -> MessageID?? {
-        guard state.ui.threadMode == .tree, state.ui.openThread != nil, let branch = state.ui.threadPath.last else { return .some(nil) }
+        guard state.ui.threadMode == .tree, let open = state.ui.openThread else { return .some(nil) }
+        guard let branch = state.ui.threadPath.last else {
+            // A view opened at a reply whose root is not loaded (MessagesLab takes the reply as the
+            // root): the send answers that reply.
+            let shownRoot = item(open.messageId)
+            guard let shownRoot, let mid = shownRoot.messageID, shownRoot.threadRoot != nil, shownRoot.threadRoot != mid else { return .some(nil) }
+            return .some(mid)
+        }
         let found = item(branch.messageId)
             ?? homeStore.transcript(for: conversation).first { HomeMapping.id($0, aliases: aliases) == branch.messageId }
-        return found?.messageID.map { Optional.some($0) }
+        // A retracted branch message takes no reply (the owner refuses part 0 of it): refused here, never re-parented.
+        guard let found, !found.isRetracted else { return nil }
+        return found.messageID.map { Optional.some($0) }
     }
 
     func pickAttachments() { onPickAttachments() }

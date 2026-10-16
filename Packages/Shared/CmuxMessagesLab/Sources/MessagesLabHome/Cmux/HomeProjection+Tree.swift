@@ -10,22 +10,27 @@ extension HomeProjection {
     /// Opens `message` once the shown window holds it: a thread reply opens its thread at its own
     /// branch (the path from the root down to it), a root with replies opens its thread, any other
     /// message only shows the conversation. It waits while the shown window does not hold it (the
-    /// owner's first page, an older page); a later reveal replaces it.
+    /// owner's first page, an older page the user scrolls to; no page is loaded for it); a later
+    /// reveal, a thread action of the user, or a full history without it ends the wait.
     func reveal(_ message: MessageID) {
         pendingReveal = message
         revealIfLoaded()
     }
 
     func revealIfLoaded() {
-        guard let target = pendingReveal, let store = controller.store,
-              let item = shown.first(where: { $0.messageID == target }) else { return }
+        guard let target = pendingReveal, let store = controller.store else { return }
+        guard let item = shown.first(where: { $0.messageID == target }) else {
+            // The whole history is loaded and the message is not in it (deleted, another conversation): give up.
+            if !shown.isEmpty, !hasOlder { pendingReveal = nil }
+            return
+        }
         pendingReveal = nil
         let id = HomeMapping.id(item, aliases: aliases)
         let messages = store.state.conversation.messages
         guard let m = messages.first(where: { $0.id == id }) else { return }
         let ref = PartRef(messageId: id, partIndex: 0)
         let root = m.replyTo ?? ref
-        guard m.replyTo != nil || messages.contains(where: { $0.replyTo == root && $0.id != id }) else { return }
+        guard m.replyTo != nil || messages.contains(where: { $0.replyTo?.messageId == id && $0.id != id }) else { return }
         controller.dispatch(.openThreadPath([root] + ThreadTree.path(to: ref, root: root, in: messages)))
     }
 
