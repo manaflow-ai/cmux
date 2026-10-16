@@ -1,4 +1,3 @@
-import CmuxCloud
 import Darwin
 import Foundation
 
@@ -1123,7 +1122,7 @@ extension CMUXCLI {
             }
             // The machine's env receiver refuses shell and cmux-owned names. Keep
             // dotenv import lenient: one such line must not reject all valid keys.
-            if CloudSecretInput.isReservedName(key) {
+            if isReservedVMEnvKey(key) {
                 skipped.append(VMSecretsDotenvSkip(line: lineNumber, reason: .reservedName, name: key))
                 continue
             }

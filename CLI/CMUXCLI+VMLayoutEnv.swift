@@ -548,6 +548,18 @@ extension CMUXCLI {
         key.range(of: "^[A-Za-z_][A-Za-z0-9_]*\\z", options: .regularExpression) != nil
     }
 
+    /// Names owned by the machine's shell or cmux. Keep this in the CLI target so
+    /// dotenv import can skip them without pulling the app-only CmuxCloud package.
+    /// The guest shim rejects the same case-insensitive names before writing them.
+    static func isReservedVMEnvKey(_ key: String) -> Bool {
+        let upper = key.uppercased()
+        let names: Set<String> = [
+            "PATH", "HOME", "USER", "LOGNAME", "SHELL", "IFS", "ENV", "BASH_ENV", "PS4", "PROMPT_COMMAND",
+            "PWD", "OLDPWD", "TERM",
+        ]
+        return names.contains(upper) || upper.hasPrefix("LD_") || upper.hasPrefix("DYLD_") || upper.hasPrefix("CMUX_")
+    }
+
     /// One argv `KEY=VALUE`. The value is taken literally (it already went through the
     /// caller's shell); it may be empty, never multi-line. A malformed argument or an
     /// invalid name is not echoed: it may be a pasted value.
