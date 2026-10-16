@@ -91,9 +91,10 @@ export function defaultSelection(rows: readonly ScreenRow[]): number {
 export function inlineCompletion(text: string, rows: readonly ScreenRow[]): string | undefined {
   const query = text.trim();
   const row = rows[0];
-  if (!query || row?.type !== "open" || row.text.length <= query.length) return undefined;
-  if (!row.text.toLocaleLowerCase().startsWith(query.toLocaleLowerCase())) return undefined;
-  return row.text;
+  const completion = row?.type === "open" ? row.text : row?.type === "history" ? canonicalAddress(row.url) : undefined;
+  if (!query || !completion || completion.length <= query.length) return undefined;
+  if (!completion.toLocaleLowerCase().startsWith(query.toLocaleLowerCase())) return undefined;
+  return completion;
 }
 
 /// Whether Return on `text` with no row is an address (it never becomes a prompt).
