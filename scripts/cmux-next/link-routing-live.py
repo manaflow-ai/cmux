@@ -81,16 +81,18 @@ def kinds(rows):
     return [row.get("kind") for row in rows or []]
 
 
-def palette_run(query):
+def palette_run(query, action):
     """Runs a palette action as the person does (Cmd-Shift-P, typing, Return): the link keys are
     the person's own, so a socket or script run is refused (SettingsSchema.agentRefusedKeys)."""
-    print("palette open:", json.dumps(rpc("debug.key", {"key": "p", "modifiers": ["cmd", "shift"]}))[:200], flush=True)
+    ranked = [item.get("id") for item in (rpc("palette.query", {"scope": "root", "query": query, "limit": 8}) or {}).get("items") or []]
+    check("the palette lists %s" % action, any(str(i).endswith(action) for i in ranked), ranked)
+    rpc("debug.key", {"key": "p", "modifiers": ["command", "shift"]})
     time.sleep(1)  # test harness: the palette window appears
     for char in query:
-        rpc("debug.key", {"key": "space" if char == " " else char})
-    time.sleep(1)  # test harness: the ranker answers
-    rpc("debug.palette.capture", {"path": os.path.join(OUT, "palette-%s.png" % query.replace(" ", "-"))}, timeout=60)
-    print("palette return:", json.dumps(rpc("debug.key", {"key": "return"}))[:200], flush=True)
+        rpc("debug.key", {"key": "space" if char == " " else char, "target": "palette"})
+    time.sleep(1.5)  # test harness: the palette ranks and paints its rows
+    rpc("debug.palette.capture", {"path": os.path.join(OUT, "palette-%s.png" % action)}, timeout=60)
+    print("palette return:", json.dumps(rpc("debug.key", {"key": "return", "target": "palette"}))[:200], flush=True)
 
 
 def browser_tabs():
@@ -165,7 +167,7 @@ try:
     # 2. The palette turns links to the default browser.
     refused = rpc("action.run", {"action": "links.openInDefaultBrowser", "origin": "script"})
     check("a script cannot change the link setting", "error" in refused and setting_in_file() is None, refused)
-    palette_run("links default browser")
+    palette_run("links open in default browser", "links.openInDefaultBrowser")
     check("palette wrote %s false" % SETTING, wait(lambda: setting_in_file() is False, 10), setting_in_file())
     check("route is now the system", wait(lambda: links({"route": "https://example.com/b"}).get("route") == "system", 10),
           links({"route": "https://example.com/b"}))
@@ -173,7 +175,7 @@ try:
     got = opened_after(lambda: links({"open": "https://example.com/system-link"}))
     check("terminal link goes to the system (recorded, not opened)", "system:https://example.com/system-link" in got, got)
     check("a non-web scheme always goes to the system", links({"route": "mailto:a@example.com", "other": True}).get("route") == "system")
-    palette_run("links cmux browser")
+    palette_run("links open in cmux browser", "links.openInCmuxBrowser")
     check("palette wrote %s true" % SETTING, wait(lambda: setting_in_file() is True, 10), setting_in_file())
 
     # 3. A link's right-click rows.
