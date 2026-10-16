@@ -4,8 +4,12 @@ import { Effect, Layer } from "effect"
 import type { Env } from "../env.ts"
 import { apiOrigin, handStub, listHands, mintPairCode, resolveHand } from "../hand-api.ts"
 import { createSandbox } from "../hand-sandbox.ts"
+import { payerTeam } from "../credits.ts"
+import { AGENT_TOKEN_TTL_SECONDS, mintRunToken } from "../model-gateway/run-token.ts"
+import type { LedgerOp } from "../model-gateway/run-ledger.ts"
 import { HandsError, type AgentEvent, type HandCaller, type HandReply } from "../hand-wire.ts"
 import { Hands } from "./contract.ts"
+import { CLAUDE } from "./models.ts"
 import type { StepPatch } from "./brain-runs.ts"
 
 /**
@@ -24,11 +28,32 @@ const rpc = <A>(f: () => Promise<HandReply<A>>) =>
   Effect.flatMap(Effect.tryPromise({ try: f, catch: (e) => new HandsError("hand.unreachable", e instanceof Error ? e.message : String(e)) }), unwrap)
 
 /** The live service for one Chief of one owner. */
-export const handsLayer = (env: Env, caller: HandCaller) =>
+/** `turn`: the brain run the call works for and its token ledger (run-ledger.ts in this brain object). */
+export interface HandsTurn {
+  readonly run?: string
+  readonly conversation?: string
+  readonly ledger?: (jti: string, o: LedgerOp) => unknown
+}
+export const handsLayer = (env: Env, caller: HandCaller, turn?: HandsTurn) =>
   Layer.succeed(Hands)(
     Hands.of({
       list: () => rpc(() => listHands(env, caller)),
       pairCode: (name, profile) => rpc(() => mintPairCode(env, caller, name, apiOrigin(env), profile)),
+      runToken: (_label, bind) =>
+        Effect.tryPromise({
+          // The hand reads seconds.
+          try: async () => {
+            if (!caller.agent || !turn?.run || !turn.conversation || !turn.ledger) throw new Error("an agent token is minted in a Chief's running turn")
+            // An agent token: live from mint until its session ends or the Chief cancels it (run-ledger.ts), within its cap.
+            const t = await mintRunToken(env, { team: payerTeam(caller.user), chief: caller.agent, owner: caller.user, run: turn.run, conversation: turn.conversation }, { agent: true, ttlSeconds: AGENT_TOKEN_TTL_SECONDS })
+            turn.ledger(t.jti, { op: "open" })
+            if (bind) turn.ledger(t.jti, { op: "bind", ...bind })
+            return { token: t.token, expires_at: Math.floor(t.expires_at / 1000), jti: t.jti }
+          },
+          catch: (e) => new HandsError("hand.gateway_unavailable", e instanceof Error ? e.message : String(e))
+        }),
+      bindToken: (jti, hand, session) => Effect.sync(() => void turn?.ledger?.(jti, { op: "bind", hand, session })),
+      revokeSession: (hand, session) => Effect.sync(() => void turn?.ledger?.("", { op: "revoke", hand, session })),
       newSandbox: (name) => rpc(() => createSandbox(env, caller, name, apiOrigin(env))),
       resolve: (hand) => rpc(() => resolveHand(env, caller, hand)),
       call: (hand, action, params, timeoutMs) => rpc(() => handStub(env, hand).call(caller, action, params, timeoutMs)),
@@ -133,8 +158,8 @@ const HandsArgs = Type.Object({
 type HandsArgsT = Static<typeof HandsArgs>
 
 const AgentArgs = Type.Object({
-  action: Type.Union([Type.Literal("start"), Type.Literal("send"), Type.Literal("wait"), Type.Literal("cancel"), Type.Literal("deny"), Type.Literal("events")], {
-    description: "start: a new agent session with a first prompt. send: another prompt. wait: follow the running turn. cancel: stop the turn. deny: refuse a permission the agent asked for. events: raw event page."
+  action: Type.Union([Type.Literal("start"), Type.Literal("send"), Type.Literal("wait"), Type.Literal("cancel"), Type.Literal("stop"), Type.Literal("deny"), Type.Literal("events")], {
+    description: "start: a new agent session with a first prompt. send: another prompt. wait: follow the running turn. cancel: stop the turn. stop: end the session (its model access ends with it). deny: refuse a permission the agent asked for. events: raw event page."
   }),
   hand: Type.String({ description: "Hand id (hand_...) or its name; for start, \"new\" makes a new sandbox for it." }),
   name: Type.Optional(Type.String({ description: "start with hand \"new\": the new sandbox's name." })),
@@ -179,7 +204,14 @@ export const agentProgram = (a: AgentArgsT, report: HandsReporter, callId: strin
     const budget = Math.min(Math.max(a.wait_seconds ?? 120, 0), 600) * 1000
     const harness = a.harness ?? "agent"
     if (a.action === "start") {
-      const started = (yield* hands.call(hand, "agent.start", { harness: yield* need(a.harness, "harness"), cwd: yield* need(a.cwd, "cwd"), prompt: yield* need(a.prompt, "prompt"), model: a.model, effort: a.effort }, 60_000)) as { session: string }
+      const harnessName = yield* need(a.harness, "harness")
+      // Claude reaches models through the Cloud gateway with a token for this run only (never a raw key).
+      const run = `${callId}`.replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 128)
+      const minted = harnessName === "claude" ? yield* hands.runToken(run) : undefined
+      const model_route = minted ? { kind: "anthropic", token: minted.token, expires_at: minted.expires_at } : undefined
+      // On the gateway the agent runs a model the gateway serves (the harness's own default may not be one).
+      const started = (yield* hands.call(hand, "agent.start", { harness: harnessName, cwd: yield* need(a.cwd, "cwd"), prompt: yield* need(a.prompt, "prompt"), model: a.model ?? (minted ? CLAUDE : undefined), effort: a.effort, model_route }, 60_000)) as { session: string }
+      if (minted) yield* hands.bindToken(minted.jti, hand, started.session)
       if (budget === 0) return started
       return yield* followTurn(hand, handName, harness, started.session, 0, budget, report, callId)
     }
@@ -187,25 +219,37 @@ export const agentProgram = (a: AgentArgsT, report: HandsReporter, callId: strin
     // Follow from where the session is now, so an earlier turn's end is not read again.
     const head = a.after_seq ?? (yield* hands.events(hand, session, 0, 0)).head_seq
     if (a.action === "send") {
-      const sent = yield* hands.call(hand, "agent.send", { session, prompt: yield* need(a.prompt, "prompt") })
+      // A claude chat on the gateway gets a fresh run token per prompt (the hand renews its route; others ignore it).
+      const minted = a.harness === "claude" ? yield* hands.runToken(`${callId}`.replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 128), { hand, session }) : undefined
+      const model_route = minted ? { kind: "anthropic", token: minted.token, expires_at: minted.expires_at } : undefined
+      const sent = yield* hands.call(hand, "agent.send", { session, prompt: yield* need(a.prompt, "prompt"), model_route })
       if (budget === 0) return sent
       return yield* followTurn(hand, handName, harness, session, head, budget, report, callId)
     }
     if (a.action === "wait") return yield* followTurn(hand, handName, harness, session, head, budget || 120_000, report, callId)
-    if (a.action === "cancel") return yield* hands.call(hand, "agent.cancel", { session })
+    // The Chief cancels the session: its agent tokens stop at once, even if the hand never reports the end.
+    if (a.action === "cancel") {
+      yield* hands.revokeSession(hand, session)
+      return yield* hands.call(hand, "agent.cancel", { session })
+    }
+    // The Chief ends the session: the agent stops, its tokens stop (here and when the hand reports the end).
+    if (a.action === "stop") {
+      yield* hands.revokeSession(hand, session)
+      return yield* hands.call(hand, "agent.stop", { session })
+    }
     if (a.action === "deny") return yield* hands.call(hand, "agent.deny", { session, permission_id: yield* need(a.permission_id, "permission_id") })
     return yield* hands.events(hand, session, a.after_seq ?? 0, 0)
   })
 
 const asText = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v, null, 2))
-const run = <A>(env: Env, caller: HandCaller | null, program: Effect.Effect<A, HandsError, Hands>): Promise<string> =>
+const run = <A>(env: Env, caller: HandCaller | null, program: Effect.Effect<A, HandsError, Hands>, turn?: HandsTurn): Promise<string> =>
   caller === null
     ? Promise.resolve("hands: this brain has no chief yet")
     : Effect.runPromise(
         program.pipe(
           Effect.map(asText),
           Effect.catch((e: HandsError) => Effect.succeed(`hands error ${e.code}: ${e.message}`)),
-          Effect.provide(handsLayer(env, caller))
+          Effect.provide(handsLayer(env, caller, turn))
         )
       )
 
@@ -215,12 +259,12 @@ const run = <A>(env: Env, caller: HandCaller | null, program: Effect.Effect<A, H
  */
 export const handsTools = (
   env: Env,
-  who: () => { agent: string | null; owner: string | null },
+  who: () => { agent: string | null; owner: string | null; run?: string | undefined; conversation?: string | undefined; ledger?: (jti: string, o: LedgerOp) => unknown },
   report: HandsReporter = () => undefined
 ): [ToolRegistration<typeof HandsArgs>, ToolRegistration<typeof AgentArgs>] => {
   const caller = (): HandCaller | null => {
-    const { agent, owner } = who()
-    return agent && owner ? { kind: "chief", user: owner, agent } : null
+    const { agent, owner, conversation } = who()
+    return agent && owner ? { kind: "chief", user: owner, agent, ...(conversation ? { conversation } : {}) } : null
   }
   return [
     {
@@ -237,7 +281,7 @@ export const handsTools = (
         "Coding agents (claude, codex, opencode) on a hand, through acpmux with the hand's own permission policy. start returns when the turn ends or wait_seconds passes, with the agent's last text, its tool calls and any permission it waits for; continue with wait (after_seq = last_seq).",
       parameters: AgentArgs,
       replay: "unsafe",
-      execute: async (args, api) => ({ content: [{ type: "text", text: await run(env, caller(), agentProgram(args as AgentArgsT, report, api.callId)) }] })
+      execute: async (args, api) => ({ content: [{ type: "text", text: await run(env, caller(), agentProgram(args as AgentArgsT, report, api.callId), { run: who().run, conversation: who().conversation, ledger: who().ledger }) }] })
     }
   ]
 }

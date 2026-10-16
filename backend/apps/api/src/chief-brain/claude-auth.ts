@@ -150,5 +150,7 @@ export const signedFetch = (auth: () => Promise<string>, refused: () => Promise<
     if (res.status === 401) await refused().catch(() => undefined)
     // The route answers Bedrock's event stream; the Anthropic client reads Messages events.
     if (!res.ok || !res.body || !(res.headers.get("content-type") ?? "").includes("amazon.eventstream")) return res
-    return new Response(eventStreamToSse(res.body), { status: res.status, headers: { "content-type": "text/event-stream" } })
+    // The route names the Bedrock region that answered (x-bedrock-region): kept for the run's timing.
+    const region = res.headers.get("x-bedrock-region")
+    return new Response(eventStreamToSse(res.body), { status: res.status, headers: { "content-type": "text/event-stream", ...(region ? { "x-bedrock-region": region } : {}) } })
   }) as typeof fetch

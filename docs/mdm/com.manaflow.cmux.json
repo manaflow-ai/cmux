@@ -768,6 +768,34 @@
       "title" : "Sidebar Width",
       "type" : "number"
     },
+    "appearance.metrics.tabMaxWidth" : {
+      "description" : "Widest a tab gets when the strip has room.",
+      "maximum" : 320,
+      "minimum" : 120,
+      "title" : "Maximum Tab Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabMinActiveWidth" : {
+      "description" : "When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide.",
+      "maximum" : 200,
+      "minimum" : 32,
+      "title" : "Minimum Selected Tab Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabMinInactiveWidth" : {
+      "description" : "Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum.",
+      "maximum" : 120,
+      "minimum" : 16,
+      "title" : "Minimum Tab Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabPinnedWidth" : {
+      "description" : "Width of a pinned tab.",
+      "maximum" : 120,
+      "minimum" : 24,
+      "title" : "Pinned Tab Width",
+      "type" : "number"
+    },
     "appearance.metrics.titlebarHeight" : {
       "description" : "appearance.metrics.titlebarHeight",
       "maximum" : 56,

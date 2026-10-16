@@ -59,6 +59,8 @@ export interface Env {
   readonly HANDS_MAC_ENABLED?: string
   /** Base URL of the published acpmux files the hand installer downloads (default https://files.cmux.com/cmux-tui). */
   readonly HAND_RELEASE_BASE?: string
+  /** Secret: the hands-only Freestyle key (hand-sandbox.ts is its only reader). Never logged. */
+  readonly HAND_FREESTYLE_API_KEY?: string
   /** Freestyle snapshot for Chief sandboxes with a hand (hand-sandbox.ts); unset: no sandbox creation. */
   readonly HAND_SANDBOX_SNAPSHOT?: string
   /** The cmux-tui v2 tree key whose published acpmux the installer installs (wins over HAND_RELEASE_COMMIT). */
@@ -235,6 +237,8 @@ export interface Env {
   readonly CHIEF_BRAIN_CLAUDE_AUTH?: string
   readonly CHIEF_BRAIN_CLAUDE_TOKEN?: string
   readonly CHIEF_BRAIN_CLAUDE_SERVICE_KEY?: string
+  /** Spend cap of one per-run gateway token, USD (default 5; model-gateway/run-token.ts). */
+  readonly CHIEF_RUN_TOKEN_CAP_USD?: string
   /** Claude names the route serves, comma separated (default "claude-opus-5-5"). */
   readonly CHIEF_BRAIN_CLAUDE_MODELS?: string
   /** "1": send effort + thinking display in the Claude route's Bedrock body ("0" off; default on only for a bearer route). */

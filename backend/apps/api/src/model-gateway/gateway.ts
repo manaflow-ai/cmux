@@ -45,6 +45,8 @@ export interface GatewayHooks {
   readonly event?: (e: AssistantMessageEvent) => void
   /** A terminal turn message's usage, for its run. */
   readonly usage?: (run: string, u: GatewayUsage) => void
+  /** The upstream region that answered a turn call (the Claude route's x-bedrock-region), for its run. */
+  readonly region?: (run: string, region: string) => void
   /** Post the out-of-credits notice once in the conversation (the team was told only once). */
   readonly notice?: (conversation: string, text: string) => Promise<void>
 }
@@ -106,7 +108,12 @@ export class ModelGatewayLive {
         // Only the Claude route takes the payer team, chief and call id (its service key needs them); no other provider sees them.
         const routed = model.provider === CLAUDE_ROUTE_PROVIDER
         const headers = routed ? { ...(options?.headers ?? {}), "x-cmux-team-id": payerTeam(w.owner ?? ""), ...(w.agent ? { "x-cmux-chief-id": w.agent } : {}), "x-request-id": safeId(`${this.scope}:${key}`) } : options?.headers
-        const src = this.upstream.streamSimple(model, context, { ...options, ...(headers ? { headers } : {}) })
+        const onResponse = (r: { headers?: Record<string, string> }, m: Model<Api>) => {
+          const region = r.headers?.["x-bedrock-region"]
+          if (region && w.run) this.hooks.region?.(w.run, region.slice(0, 32))
+          return (options as { onResponse?: (r: unknown, m: Model<Api>) => unknown } | undefined)?.onResponse?.(r, m)
+        }
+        const src = this.upstream.streamSimple(model, context, { ...options, ...(headers ? { headers } : {}), onResponse } as typeof options)
         sent = true
         // The terminal event goes out after the charge: pi-durable may retry as soon as it sees it.
         let terminal: AssistantMessageEvent | undefined

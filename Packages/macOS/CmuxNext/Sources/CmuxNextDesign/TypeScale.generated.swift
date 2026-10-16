@@ -17,6 +17,9 @@ public nonisolated struct TypeScale: Sendable {
     /// Chrome text: labels, rows, menus, controls, settings.
     public static let body: CGFloat = 13
     public static let bodyLineHeight: CGFloat = 18
+    /// The browser address bar's text.
+    public static let field: CGFloat = 14
+    public static let fieldLineHeight: CGFloat = 18
     /// Card and panel titles, search fields.
     public static let title: CGFloat = 15
     public static let titleLineHeight: CGFloat = 20
@@ -25,7 +28,7 @@ public nonisolated struct TypeScale: Sendable {
     public static let headingLineHeight: CGFloat = 26
 
     /// Every step, small to large.
-    public static let sizes: [CGFloat] = [11, 12, 13, 15, 20]
+    public static let sizes: [CGFloat] = [11, 12, 13, 14, 15, 20]
 
     /// Everything by default.
     public static let regular: NSFont.Weight = .regular

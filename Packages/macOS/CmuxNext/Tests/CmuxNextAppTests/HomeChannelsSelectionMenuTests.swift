@@ -24,7 +24,7 @@ struct HomeChannelsSelectionMenuTests {
         var ran: [String] = []
         let menu = Self.webKitMenu(["WKMenuItemIdentifierLookUp", "WKMenuItemIdentifierTranslate", "WKMenuItemIdentifierSearchWeb",
                                     "WKMenuItemIdentifierCopy", "WKMenuItemIdentifierShareMenu", "WKMenuItemIdentifierSpeechMenu"])
-        PageSelectionMenu.rebuild(menu, actions: .init(quote: { ran.append("quote") }, search: { ran.append("search") }))
+        PageSelectionMenu(quote: { ran.append("quote") }, search: { ran.append("search") }).rebuild(menu)
 
         // WebKit's items by identifier, the page's by title (AppKit names an item's identifier after its action).
         let webKit = { (item: NSMenuItem) in item.identifier?.rawValue.hasPrefix("WKMenuItemIdentifier") == true }
@@ -41,7 +41,7 @@ struct HomeChannelsSelectionMenuTests {
 
     @Test func nothingSelectedLeavesNoMenu() {
         let menu = Self.webKitMenu(["WKMenuItemIdentifierReload", "WKMenuItemIdentifierInspectElement"])
-        PageSelectionMenu.rebuild(menu, actions: .init(quote: {}, search: {}))
+        PageSelectionMenu(quote: {}, search: {}).rebuild(menu)
         #expect(menu.items.isEmpty)
     }
 }

@@ -32,7 +32,8 @@ export const HAND_ACTIONS = [
   "agent.send",
   "agent.cancel",
   "agent.deny",
-  "agent.events"
+  "agent.events",
+  "agent.stop"
 ] as const
 export type HandAction = (typeof HAND_ACTIONS)[number]
 export const isHandAction = (a: unknown): a is HandAction => typeof a === "string" && (HAND_ACTIONS as ReadonlyArray<string>).includes(a)
@@ -66,6 +67,7 @@ export type AgentEvent =
   | { readonly kind: "turn_end"; readonly stop_reason?: string }
   | { readonly kind: "error"; readonly message?: string; readonly code?: number }
   | { readonly kind: "permission"; readonly permission_id?: string; readonly title?: string }
+  | { readonly kind: "session_end"; readonly reason?: string }
 
 export interface StoredEvent {
   readonly seq: number
@@ -90,6 +92,8 @@ export interface HandCaller {
   readonly kind: "owner" | "chief"
   readonly user: string
   readonly agent?: string
+  /** A Chief's conversation of the call: an agent session it starts is revoked there when it ends. */
+  readonly conversation?: string
 }
 
 export const callerLabel = (c: HandCaller) => (c.kind === "owner" ? `session:${c.user}` : `agent:${c.agent}`)

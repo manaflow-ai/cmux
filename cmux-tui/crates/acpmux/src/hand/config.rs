@@ -110,7 +110,7 @@ pub fn save(cfg: &HandConfig) -> Result<PathBuf> {
     Ok(p)
 }
 
-fn write_private(p: &Path, bytes: &[u8]) -> Result<()> {
+pub(super) fn write_private(p: &Path, bytes: &[u8]) -> Result<()> {
     use std::io::Write;
     let mut o = std::fs::OpenOptions::new();
     o.write(true).create(true).truncate(true);
