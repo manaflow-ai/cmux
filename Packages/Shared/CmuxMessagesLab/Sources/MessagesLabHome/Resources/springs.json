@@ -1952,5 +1952,35 @@
     "delta": -752.0
    }
   ]
+ },
+ "bubble.width.fieldShrinkMac2": {
+  "event": "send",
+  "unit": "px@2x",
+  "from": 1052.0,
+  "to": 300.0,
+  "note": "cx-3cb send-width-typed: macOS 27, a 2-line text that shrinks the field. The components are bubble.width.fieldShrink's; travelLaw puts them on a clock k = k0 (travel / refPt)^q times slower and d0 + d1 ln(travel / refPt) s later, travel = field width - balloon width (pt), clamped to [minPt, maxPt] (no extrapolation). Fitted through the motion gate's parity27 measure (frame boxes) on the 5 two-line takes of ref27.json by a laptop replay of the gate's own capture-2line-wide / capture-2line-narrow frames (main a6c9d81, rig job of mg-a9d60be2) with only the unscaled width changed (W' = W x w_new / w_main, right edge, height, scale kept) and the morph2 fit redone: 158.6 pt (2-line wide) k 1.12, -13.5 ms; 472.2 pt (2-line narrow) k 0.87, +12.8 ms. The narrow takes need a later and faster narrowing (Messages: the same curve shape; one spring from rest fits them worse, 5.8 pt L). The wide value is a compromise between the three wide takes: send-typed-take1 and send-typed-media-take1 are measured against the capture of another draft (send-2line-take2's), which alone costs send-typed-take1 3.6 pt L. Between 158 and 472 pt the law is an interpolation with no take (UNVERIFIED). The height keeps bubble.width.fieldShrink.",
+  "components": [
+   {
+    "delay": -0.0021,
+    "duration": 0.4296,
+    "bounce": 0.1272,
+    "delta": -419.9
+   },
+   {
+    "delay": 0.0658,
+    "duration": 0.2336,
+    "bounce": 0.5084,
+    "delta": -332.1
+   }
+  ],
+  "travelLaw": {
+   "refPt": 300.0,
+   "k0": 0.9663,
+   "q": -0.23146,
+   "d0": 0.00187,
+   "d1": 0.0241,
+   "minPt": 158.6,
+   "maxPt": 472.2
+  }
  }
 }

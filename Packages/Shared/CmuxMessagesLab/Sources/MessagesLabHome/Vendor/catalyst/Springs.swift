@@ -142,6 +142,33 @@ struct SpringElement {
         e.components = components.map { var c = $0; c.delay += s; return c }
         return e
     }
+    /// The same element on a clock `k` times slower, `shift` seconds later: progress(t) becomes
+    /// progress((t - shift) / k). Each spring's duration and each curve's duration scale by `k` (a
+    /// spring keeps its bounce: the same shape in time), each delay becomes `shift + k x delay`, an
+    /// initial velocity (distance per second) divides by `k`.
+    func timeScaled(_ k: Double, shift: Double) -> SpringElement {
+        guard k > 0, k.isFinite, shift.isFinite else { return self }
+        var e = self
+        e.components = components.map { c in
+            var n = c
+            n.delay = shift + k * c.delay
+            n.spring = Spring(duration: c.spring.duration * k, bounce: c.spring.bounce, initialVelocity: c.spring.initialVelocity / k)
+            if let cv = c.curve { n.curve = Curve(x1: cv.x1, y1: cv.y1, x2: cv.x2, y2: cv.y2, duration: cv.duration * k) }
+            return n
+        }
+        return e
+    }
+}
+
+/// springs.json `travelLaw` of an element: the element runs on a clock `k = k0 (travel / refPt)^q` times
+/// slower, `d0 + d1 ln(travel / refPt)` s later, with the travel (pt) clamped to [minPt, maxPt] (the
+/// measured range: no extrapolation).
+struct TravelLaw {
+    var refPt, k0, q, d0, d1, minPt, maxPt: Double
+    func apply(_ e: SpringElement, travel: Double) -> SpringElement {
+        let x = log(min(max(travel, minPt), maxPt) / refPt)
+        return e.timeScaled(k0 * exp(q * x), shift: d0 + d1 * x)
+    }
 }
 
 /// springs.json, bundled. Every animated element of the app takes its timing
@@ -164,6 +191,19 @@ enum Springs {
                                                curve: cp.flatMap { $0.count == 4 ? Curve(x1: $0[0], y1: $0[1], x2: $0[2], y2: $0[3], duration: duration) : nil }) // no force unwrap
             }
             out.updateValue(SpringElement(name: name, from: e["from"] as? Double ?? 0, to: e["to"] as? Double ?? 0, components: comps), forKey: name)
+        }
+        return out
+    }()
+    /// The `travelLaw` objects of springs.json, by element name.
+    static let travelLaws: [String: TravelLaw] = {
+        guard let url = Bundle.main.url(forResource: "springs", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] else { return [:] }
+        var out: [String: TravelLaw] = [:]
+        for (name, e) in obj {
+            guard let l = e["travelLaw"] as? [String: Double], let r = l["refPt"], let k0 = l["k0"], let q = l["q"], let d0 = l["d0"],
+                  let d1 = l["d1"], let lo = l["minPt"], let hi = l["maxPt"], r > 0, lo > 0, hi >= lo else { continue }
+            out.updateValue(TravelLaw(refPt: r, k0: k0, q: q, d0: d0, d1: d1, minPt: lo, maxPt: hi), forKey: name)
         }
         return out
     }()
@@ -209,10 +249,12 @@ enum Springs {
     /// macOS 26: the elements above. gpui and rawmath mirror this struct with the macOS 27 fits only (they have no macOS 26 path).
     struct Bubble {
         /// `height`: the body's height (and the tail's place) — the variant's width element; `width` can differ
-        /// (macOS 27 field-shrink drafts of 3+ lines: `bubble.width.fieldShrinkMac<lines>`).
+        /// (macOS 27 field-shrink drafts of 2 lines: `bubble.width.fieldShrinkMac2` on its travel law; 3+ lines:
+        /// `bubble.width.fieldShrinkMac<lines>`).
         var right, width, height, centerY, scale, opacity: SpringElement
         /// `lines`: the sent balloon's text lines (TextLayout.lines.count); 0 = not known (the scale-only callers).
-        init(fieldShrinks: Bool, lines: Int = 0) {
+        /// `travel`: the width change of the send, field width minus balloon width (pt); 0 = not known.
+        init(fieldShrinks: Bool, lines: Int = 0, travel: Double = 0) {
             func e(_ n: String, _ base: SpringElement) -> SpringElement {
                 guard !ComposeMetrics.macOS26 else { return base }
                 // macOS 27, 1-line draft: the `.oneLineMac` fit (four elements, fit7 on the four 1-line
@@ -234,6 +276,14 @@ enum Springs {
             #if os(macOS) || targetEnvironment(macCatalyst)
             if !ComposeMetrics.macOS26, fieldShrinks, lines >= 3, let w = Springs.all["bubble.width.fieldShrinkMac\(min(lines, 4))"] {
                 width = w
+            }
+            // macOS 27, a 2-line text that shrinks the field: `.fieldShrink`'s width curve on a clock set by the
+            // width change (cx-3cb send-width-typed, springs.json bubble.width.fieldShrinkMac2): a 158 pt change
+            // (2-line wide) runs 1.12x slower from 13.5 ms earlier, a 472 pt change (2-line narrow) 0.87x from
+            // 12.8 ms later; between them ln-interpolated, outside clamped. The height keeps `.fieldShrink`.
+            if !ComposeMetrics.macOS26, fieldShrinks, lines == 2, travel > 0,
+               let w = Springs.all["bubble.width.fieldShrinkMac2"], let law = Springs.travelLaws["bubble.width.fieldShrinkMac2"] {
+                width = law.apply(w, travel: travel)
             }
             #endif
         }
