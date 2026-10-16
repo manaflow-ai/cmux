@@ -109,7 +109,25 @@ export const chiefOwnedBy = async (env: Env, agent: string, principal: Principal
 }
 
 /** The chief's record as its owner's UserDO holds it (chief.list, as the owner), or null for an unknown or archived chief. */
-export const chiefRecord = async (env: Env, owner: string, agent: string): Promise<{ display_name: string; brain_place: unknown } | null> => {
+type ChiefRecord = { display_name: string; brain_place: unknown } | null
+const records = new Map<string, { at: number; record: ChiefRecord }>()
+/** How long a turn admission may reuse a chief record it read: an archive or a placement stops new turns within this time. */
+const RECORD_MS = 10_000
+/**
+ * chiefRecord, reused for RECORD_MS inside this object (the wake and the turn of one message both ask;
+ * one UserDO round trip less on the wake path). A failed read is never reused.
+ */
+export const chiefRecordFresh = async (env: Env, owner: string, agent: string, now = Date.now()): Promise<ChiefRecord> => {
+  const key = `${owner}/${agent}`
+  const hit = records.get(key)
+  if (hit && now - hit.at < RECORD_MS) return hit.record
+  const record = await chiefRecord(env, owner, agent)
+  records.set(key, { at: now, record })
+  if (records.size > 64) records.delete(records.keys().next().value!)
+  return record
+}
+
+export const chiefRecord = async (env: Env, owner: string, agent: string): Promise<ChiefRecord> => {
   const stub = env.USER_DO.get(env.USER_DO.idFromName(owner)) as unknown as OwnerStub
   const r = await stub.readOp(owner, { identity: `session:${owner}`, kind: "session", user: owner }, "chief.list", {})
   if (!r.ok) return null

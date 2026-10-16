@@ -1,4 +1,5 @@
 import type { Env } from "../env.ts"
+import { personalTeamIdFor } from "../domains/user.ts"
 import { Effort, ModelName } from "../chief-brain/contract.ts"
 import { Schema } from "effect"
 
@@ -86,9 +87,16 @@ export const offers = (env: Env, name: string): boolean => {
   return Schema.is(ModelName)(name)
 }
 
-/** Owners whose Chiefs may run on a metered model (Claude route or OpenRouter). */
-export const meteredOwner = (env: Env, owner: string | null): boolean =>
-  owner !== null && owner !== "" && `${env.CHIEF_BRAIN_CLAUDE_OWNERS ?? ""},${env.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA ?? ""}`.split(",").map((s) => s.trim()).filter(Boolean).includes(owner)
+/**
+ * Owners whose Chiefs may run on a metered model (Claude route or OpenRouter). An entry is a user id
+ * (`user_…`) or that user's personal team id (`team_…`, personalTeamIdFor), so production can list
+ * people by the team ids the billing view shows.
+ */
+export const meteredOwner = (env: Env, owner: string | null): boolean => {
+  if (owner === null || owner === "") return false
+  const list = `${env.CHIEF_BRAIN_CLAUDE_OWNERS ?? ""},${env.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA ?? ""}`.split(",").map((s) => s.trim()).filter(Boolean)
+  return list.includes(owner) || list.includes(personalTeamIdFor(owner))
+}
 
 export const validModelName = (v: unknown): v is string => Schema.is(ModelName)(v)
 export const validEffort = (v: unknown): boolean => Schema.is(Effort)(v)
@@ -97,10 +105,10 @@ export type Refusal = { readonly ok: false; readonly code: string; readonly mess
 
 /** Why an owner's patch may not use its models here, or null (names are already valid). */
 export const modelRefusal = (env: Env, owner: string, patch: { readonly model?: unknown; readonly compactor_model?: unknown }): Refusal | null => {
-  // The compactor runs in the background with no per-call cap: never on a metered model until the
-  // model gateway with prepaid credits meters it (then Haiku is its default where the route serves it).
+  // The compactor runs in the background: of the paid models only Haiku, where the route serves it and
+  // the owner may use paid models (the gateway charges each compactor call to the team's credits).
   const c = patch.compactor_model
-  if (typeof c === "string" && isMetered(c)) return { ok: false, code: "validation.invalid", message: `the compactor cannot run on ${c} here` }
+  if (typeof c === "string" && isMetered(c) && !(c === HAIKU && offers(env, c) && meteredOwner(env, owner))) return { ok: false, code: "validation.invalid", message: `the compactor cannot run on ${c} here` }
   const m = patch.model
   if (typeof m !== "string" || (!isClaude(m) && !isOpenRouter(m))) return null
   if (!offers(env, m) || !meteredOwner(env, owner))
@@ -111,16 +119,20 @@ export const modelRefusal = (env: Env, owner: string, patch: { readonly model?: 
 /** The compactor's default: CHIEF_BRAIN_COMPACTOR_MODEL (never metered), else the turn model when it is not metered, else the fallback. */
 export const compactorDefault = (env: Env, turnModel: string, fallback: string): string => compactorModel(env, env.CHIEF_BRAIN_COMPACTOR_MODEL || turnModel, fallback) || "fake"
 
-/** The compactor's model at run time: a metered model becomes the fallback (see modelRefusal). */
-export const compactorModel = (_env: Env, set: string, fallback: string): string => (isMetered(set) ? (isMetered(fallback) ? "fake" : fallback) : set)
+/** The compactor's model at run time: Haiku where the route serves it (charged to credits), any other paid model becomes the fallback (see modelRefusal). */
+export const compactorModel = (env: Env, set: string, fallback: string): string => (set === HAIKU && offers(env, HAIKU) ? HAIKU : isMetered(set) ? (isMetered(fallback) && !(fallback === HAIKU && offers(env, HAIKU)) ? "fake" : fallback) : set)
 
 /**
  * The model a turn runs on: `model` when it is not paid or `allowed(model)` (owner allow-list, the
  * route serves it, the deployment's daily cap; claude-auth.ts holderTurn); else the configured
- * fallback, which passes the same gate when it is paid. Null = no model may run (no silent paid spend).
+ * fallback, which passes the same gate when it is paid. `model` null = no model may run (no silent
+ * paid spend). `reason` says why the Chief's model was refused (shown on the run as a note step).
  */
-export const pickTurnModel = async (model: string, fallback: string | undefined, allowed: (m: string) => Promise<boolean>): Promise<string | null> => {
-  if (!isMetered(model) || (await allowed(model))) return model
-  if (!fallback) return null
-  return !isMetered(fallback) || (await allowed(fallback)) ? fallback : null
+export const pickTurnModel = async (model: string, fallback: string | undefined, allowed: (m: string) => Promise<string>): Promise<{ readonly model: string | null; readonly reason?: string }> => {
+  const verdict = isMetered(model) ? await allowed(model) : "ok"
+  if (verdict === "ok") return { model }
+  const reason = `${model}: ${verdict}`
+  if (!fallback) return { model: null, reason }
+  const second = isMetered(fallback) ? await allowed(fallback) : "ok"
+  return second === "ok" ? { model: fallback, reason } : { model: null, reason: `${reason}; ${fallback}: ${second}` }
 }

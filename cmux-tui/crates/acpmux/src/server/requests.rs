@@ -270,6 +270,12 @@ async fn dispatch_request(
                 .map(|p| p.parse::<PermissionPolicy>().map_err(RpcError::invalid_params))
                 .transpose()?;
             let env = crate::session_env::parse(meta)?;
+            let route = pick("route");
+            if let Some(r) = &route
+                && !crate::routes::is_route_id(r)
+            {
+                return Err(RpcError::invalid_params(format!("route {r:?} is not a route id")));
+            }
             let req = crate::hub::NewRequest {
                 harness: pick("harness"),
                 preset: pick("preset"),
@@ -284,6 +290,7 @@ async fn dispatch_request(
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
                 keep_harness_mode: false,
+                route,
             };
             let s = hub.new_session(req).await?;
             if conn.origin.web_class() {

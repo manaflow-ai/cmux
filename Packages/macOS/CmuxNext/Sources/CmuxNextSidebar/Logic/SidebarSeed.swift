@@ -76,27 +76,4 @@ public struct SidebarSeed {
                              rowState: .placeholder)
         }
     }
-
-    /// `sections` with every live row marked `.stale` (the daemon's launch
-    /// snapshot, before the live tree).
-    public static func stale(_ sections: [SidebarSection]) -> [SidebarSection] {
-        sections.map { section in
-            var section = section
-            section.nodes = section.nodes.map { node in
-                switch node {
-                case var .workspace(ws):
-                    ws.rowState = .stale
-                    return .workspace(ws)
-                case var .group(group):
-                    group.workspaces = group.workspaces.map { ws in
-                        var ws = ws
-                        ws.rowState = .stale
-                        return ws
-                    }
-                    return .group(group)
-                }
-            }
-            return section
-        }
-    }
 }

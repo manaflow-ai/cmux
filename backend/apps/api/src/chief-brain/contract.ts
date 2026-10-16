@@ -254,6 +254,16 @@ export interface HandsShape {
   readonly pairCode: (name: string, profile: Profile) => Effect.Effect<Minted, HandsError>
   /** A new Freestyle sandbox with its hand installed and paired (hand-sandbox.ts). */
   readonly newSandbox: (name: string) => Effect.Effect<Sandbox, HandsError>
+  /**
+   * A model gateway agent token (model-gateway/run-token.ts) for an agent session of this Chief: valid
+   * while the session lives, within its cap. `session` given: bound to that session now (send); else
+   * bind it with `bindToken` once agent.start names the session.
+   */
+  readonly runToken: (label: string, bind?: { readonly hand: string; readonly session: string }) => Effect.Effect<{ readonly token: string; readonly expires_at: number; readonly jti: string }, HandsError>
+  /** Names the session an agent token works for (after agent.start). */
+  readonly bindToken: (jti: string, hand: string, session: string) => Effect.Effect<void, HandsError>
+  /** Ends every agent token of a session at once (the Chief cancels it, or the session ended). */
+  readonly revokeSession: (hand: string, session: string) => Effect.Effect<void, HandsError>
   /** A hand id, or the name of one of the owner's hands. */
   readonly resolve: (hand: string) => Effect.Effect<string, HandsError>
   readonly call: (hand: string, action: string, params: unknown, timeoutMs?: number) => Effect.Effect<unknown, HandsError>

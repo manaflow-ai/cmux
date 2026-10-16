@@ -40,7 +40,23 @@ export interface Run {
   readonly usage?: { readonly input: number; readonly output: number; readonly cache_read: number; readonly cache_write: number; readonly calls: number }
   readonly cost_usd?: number
   /** ms epoch: first model request, first token (with started_at: wake path vs. model time). */
-  readonly timing?: { readonly request_at?: number; readonly first_token_at?: number }
+  readonly timing?: { readonly regions?: ReadonlyArray<string>; readonly wake_at?: number; readonly admitted_at?: number; readonly settled_at?: number; readonly request_at?: number; readonly first_token_at?: number }
+}
+
+/**
+ * Wake-path marks (ms epoch): `wake` (the brain got the wake), `admitted` (the turn passed the
+ * settings object and credits), `settled` (the memory view was ready); kept until the next turn
+ * opens, then stored with it (cb_timing2). With started_at, request_at and first_token_at they split
+ * the time from a person's message to the first token.
+ */
+export const markPending = (sql: SqlStorage, mark: "wake" | "admitted" | "settled", at = Date.now()): void =>
+  void sql.exec(`INSERT INTO cb_config (name, value) VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET value = ${mark === "wake" ? "CASE WHEN cb_config.value = '' THEN excluded.value ELSE cb_config.value END" : "excluded.value"}`, `mark.${mark}`, String(at))
+export const flushMarks = (sql: SqlStorage, turn: string): void => {
+  for (const m of ["wake", "admitted", "settled"]) {
+    const v = sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `mark.${m}`).toArray()[0]?.value
+    if (v) sql.exec(`INSERT INTO cb_marks (turn, mark, at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, turn, m, Number(v))
+    sql.exec(`UPDATE cb_config SET value = '' WHERE name = ?`, `mark.${m}`)
+  }
 }
 
 /** Adds one model call's usage to its run. */
@@ -103,6 +119,11 @@ export const readRun = (sql: SqlStorage, agent: string, id: string): Run | null 
   const status = String(t.status)
   const u = sql.exec<{ calls: number; input: number; output: number; cache_read: number; cache_write: number; cost_usd: number }>(`SELECT calls, input, output, cache_read, cache_write, cost_usd FROM cb_usage WHERE turn = ?`, id).toArray()[0]
   const tm = sql.exec<{ request_at: number | null; first_token_at: number | null }>(`SELECT request_at, first_token_at FROM cb_timing WHERE turn = ?`, id).toArray()[0]
+  const markRows = sql.exec<{ mark: string; at: number }>(`SELECT mark, at FROM cb_marks WHERE turn = ? ORDER BY at`, id).toArray()
+  // `region:<name>` marks: the upstream regions that answered the run's model calls, in order.
+  const regions = markRows.filter((r) => String(r.mark).startsWith("region:")).map((r) => String(r.mark).slice(7))
+  const marks: Record<string, unknown> = Object.fromEntries(markRows.filter((r) => !String(r.mark).startsWith("region:")).map((r) => [`${r.mark}_at`, Number(r.at)]))
+  if (regions.length > 0) marks.regions = regions
   const kind = String(t.trigger_kind)
   const threadRoot = kind === "chief" || kind === "dm" ? (t.trigger_thread_root === null ? undefined : String(t.trigger_thread_root)) : String(t.trigger_thread_root ?? t.trigger_message)
   return {
@@ -122,7 +143,7 @@ export const readRun = (sql: SqlStorage, agent: string, id: string): Run | null 
     session: { kind: "pi", id, host: "cloud" },
     ...(status === "failed" && t.reason !== null ? { error: String(t.reason).slice(0, 2000) } : {}),
     ...(t.post === null ? {} : { reply: { state: String(t.post), ...(t.posted_message === null ? {} : { message: String(t.posted_message) }) } }),
-    ...(tm ? { timing: { ...(tm.request_at === null ? {} : { request_at: Number(tm.request_at) }), ...(tm.first_token_at === null ? {} : { first_token_at: Number(tm.first_token_at) }) } } : {}),
+    ...(tm || Object.keys(marks).length > 0 ? { timing: { ...marks, ...(!tm || tm.request_at === null ? {} : { request_at: Number(tm.request_at) }), ...(!tm || tm.first_token_at === null ? {} : { first_token_at: Number(tm.first_token_at) }) } } : {}),
     ...(u ? { usage: { input: Number(u.input), output: Number(u.output), cache_read: Number(u.cache_read), cache_write: Number(u.cache_write), calls: Number(u.calls) }, cost_usd: Number(u.cost_usd) } : {})
   }
 }

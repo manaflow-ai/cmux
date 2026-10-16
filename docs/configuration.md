@@ -734,6 +734,28 @@ Behavior notes:
 - Removing a declaration is safe, and has the same effect: the capture keeps the recorded id, but nothing is re-supplied.
 - Hooks keep working for the wrapped agent. When the prefix replaces the agent executable, cmux puts its per-surface agent shim first on `PATH` for the restored process, so the wrapper's own `claude` lookup still finds the hook-injecting shim. A wrapper that ignores `PATH` (an absolute path to the real binary, for example) needs the global fallback instead: `cmux agent hook install claude`.
 
+## `agents.remoteChains.claudeKeychainLogin`
+
+A remote chain is an agent session that a paired device or a peer starts on this Mac. Its
+Claude Code runs in the remote chain sandbox, which cannot open the macOS keychain. When this
+setting is `true`, acpmux reads this Mac's Claude login (the keychain item
+`Claude Code-credentials`) for each remote chain spawn and gives its access token to that Claude
+Code by env. The default is `false`: a remote party never causes a keychain read. Then a remote
+chain's Claude Code signs in only with a credential in its harness profile env (for example a
+long-lived `claude setup-token` token as `CLAUDE_CODE_OAUTH_TOKEN`) or the login shell; without
+one, it reports that it is not logged in.
+
+```json
+{
+  "agents": {
+    "remoteChains": { "claudeKeychainLogin": true }
+  }
+}
+```
+
+acpmux reads the key at each spawn. Only the value `true` turns it on; a settings file that
+cannot be read keeps it off.
+
 ## `browser.searchEngine`, `browser.customSearchEngine` and `browser.omnibar.*`
 
 The address bar's search engine and suggestions. Settings > Browser > Address Bar
