@@ -51,7 +51,7 @@ public final class BrowserFitFrameView: NSView {
         for button in [choose, off] {
             button.isBordered = false
             button.target = self
-            button.font = .systemFont(ofSize: TypeScale.caption, weight: .medium)
+            button.font = .systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis)
         }
         choose.action = #selector(showChoices)
         choose.imagePosition = .imageTrailing
@@ -107,7 +107,7 @@ public final class BrowserFitFrameView: NSView {
             for button in [choose, off] {
                 button.contentTintColor = Palette.textSecondary
                 button.attributedTitle = NSAttributedString(string: button.title, attributes: [
-                    .foregroundColor: Palette.textSecondary, .font: NSFont.systemFont(ofSize: TypeScale.caption, weight: .medium),
+                    .foregroundColor: Palette.textSecondary, .font: NSFont.systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis),
                 ])
             }
         }
