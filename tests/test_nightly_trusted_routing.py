@@ -98,6 +98,16 @@ class NightlyTrustedRouting(unittest.TestCase):
             with self.subTest(step=name):
                 self.assertFalse(evaluate(parse_expression(steps[name]['if']), context))
 
+    def test_owned_next_and_main_have_independent_pending_slots(self):
+        def group(branch):
+            context = {'github.ref_name': branch, 'github.event_name': 'push'}
+            return re.sub(r'\$\{\{(.*?)\}\}',
+                          lambda match: str(evaluate(parse_expression(match[1]), context)),
+                          DOC['concurrency']['group'])
+        self.assertEqual(group('main'), 'nightly-build-nightly-shared-full')
+        self.assertEqual(group('nightly-next'), 'nightly-build-nightly-next-full')
+        self.assertNotEqual(group('main'), group('nightly-next'))
+
     def test_runner_guard_accepts_only_the_complete_nightly_capability_tuple(self):
         source = (ROOT / 'tests/test_ci_self_hosted_guard.sh').read_text()
         function = re.search(r'^check_no_self_hosted_fleet_runners\(\) \{\n.*?^\}',
