@@ -509,8 +509,7 @@ async fn start_until_cancel(c: &mut Client, id: &str) {
         json!({"sessionId": id, "prompt": [{"type": "text", "text": "until-cancel"}]}),
     )
     .await;
-    c.wait_for("session/update", |p| p["update"]["sessionUpdate"] == "agent_message_chunk")
-        .await;
+    c.wait_for("session/update", |p| p["update"]["sessionUpdate"] == "agent_message_chunk").await;
 }
 
 async fn wait_for_turn_end(c: &mut Client) -> Value {
@@ -528,10 +527,7 @@ async fn assert_no_turn_end(c: &mut Client) {
 
 #[tokio::test]
 async fn remote_request_and_notification_cancels_cannot_stop_local_sessions() {
-    for (n, origin) in [
-        ("web", Origin::Web),
-        ("peer", Origin::Peer),
-    ] {
+    for (n, origin) in [("web", Origin::Web), ("peer", Origin::Peer)] {
         // Request form: a local-origin turn remains active after the remote
         // caller is refused, then the Unix socket can still stop it.
         let hub = hub();
@@ -539,12 +535,10 @@ async fn remote_request_and_notification_cancels_cannot_stop_local_sessions() {
         let id = session(&mut local, &format!("{n}-request")).await;
         start_until_cancel(&mut local, &id).await;
         let mut remote = Client::new(&hub, origin);
-        let (reply, _) = remote
-            .call_with_notifications("session/cancel", json!({"sessionId": id}))
-            .await;
+        let (reply, _) =
+            remote.call_with_notifications("session/cancel", json!({"sessionId": id})).await;
         assert_eq!(
-            reply["error"]["data"]["reason"],
-            "remote.session_cancel_ownership",
+            reply["error"]["data"]["reason"], "remote.session_cancel_ownership",
             "{origin:?}: {reply}"
         );
         assert_no_turn_end(&mut local).await;
@@ -587,9 +581,8 @@ async fn remote_callers_can_cancel_sessions_they_started() {
 }
 
 async fn wait_for_turn_end_or_seen(c: &mut Client, seen: &[Value]) -> Value {
-    if let Some(event) = seen
-        .iter()
-        .find(|v| v["method"] == "_acpmux/event" && v["params"]["kind"] == "turn_end")
+    if let Some(event) =
+        seen.iter().find(|v| v["method"] == "_acpmux/event" && v["params"]["kind"] == "turn_end")
     {
         return event["params"].clone();
     }
