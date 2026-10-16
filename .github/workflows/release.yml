@@ -552,6 +552,9 @@ jobs:
             echo "Release provisioning profile missing WebAuthn browser entitlement" >&2
             exit 1
           fi
+          # Every keychain group the app asks for (its own and the platform
+          # authenticator's ".webauthn" group, passkeys.md K19) must be granted.
+          ./scripts/ci/check-profile-keychain-groups.sh cmux.release.entitlements "$TMP_PLIST"
           PROVISIONS_ALL_DEVICES="$(/usr/libexec/PlistBuddy -c "Print :ProvisionsAllDevices" "$TMP_PLIST")"
           if [ "$PROVISIONS_ALL_DEVICES" != "true" ]; then
             echo "Release provisioning profile is not a Developer ID all-devices profile" >&2

@@ -75,27 +75,68 @@ public final class WebKitPasskeyAuthorization {
 /// Wraps `navigator.credentials.create/get` while authorization is undecided:
 /// the first call with `publicKey` options waits for the app to ask the
 /// person (`cmuxPasskeyAuthorization`, a reply handler), then calls the
-/// original and unwraps both methods. After the first decision new pages get
-/// no script at all.
+/// original. Only a decided answer (authorized or denied) unwraps both
+/// methods: a call the app may not ask for (no recent input, another origin,
+/// for example GitHub's conditional request on page load) leaves them wrapped,
+/// so the person's later click still raises the prompt. After the first
+/// decision new pages get no script at all.
+///
+/// Availability (passkeys.md K19): WebKit answers
+/// `isUserVerifyingPlatformAuthenticatorAvailable()` false until the person
+/// allows passkeys, and sites read it on page load (GitHub shows "This
+/// browser or device is reporting partial passkey support"). When the app
+/// carries the browser passkey entitlement, a ceremony after the person's
+/// input asks once and then runs, so while the answer is undecided the
+/// script reports the platform authenticator as available (also in
+/// `getClientCapabilities()`). Without the entitlement (DEV builds) it
+/// reports WebKit's own answer.
 nonisolated enum WebKitPasskeyScript {
     static let messageHandlerName = "cmuxPasskeyAuthorization"
 
-    static let source = #"""
+    static func source(platformAuthenticatorPending: Bool) -> String {
+        body.replacingOccurrences(of: "__CMUX_PASSKEY_PENDING__", with: platformAuthenticatorPending ? "true" : "false")
+    }
+
+    private static let body = #"""
     (() => {
+      const platformPending = __CMUX_PASSKEY_PENDING__;
       const credentials = navigator.credentials;
       const handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.cmuxPasskeyAuthorization;
       if (!credentials || !handler || credentials.__cmuxPasskeyWrapped) return;
       const original = { create: credentials.create.bind(credentials), get: credentials.get.bind(credentials) };
       let asked = null;
+      let decided = false;
       const unwrap = () => { credentials.create = original.create; credentials.get = original.get; };
       const wrap = (name) => function (options) {
         if (!options || !options.publicKey) return original[name](options);
         if (!asked) asked = handler.postMessage({ kind: name }).catch(() => 'error');
-        return asked.then(() => { unwrap(); return original[name](options); });
+        const pending = asked;
+        return pending.then((answer) => {
+          if (answer === 'authorized' || answer === 'denied') { decided = true; unwrap(); }
+          else if (asked === pending) asked = null;
+          return original[name](options);
+        });
       };
       Object.defineProperty(credentials, '__cmuxPasskeyWrapped', { value: true });
       credentials.create = wrap('create');
       credentials.get = wrap('get');
+      const PKC = window.PublicKeyCredential;
+      if (!platformPending || !PKC || window.top !== window) return;
+      const uvpaa = PKC.isUserVerifyingPlatformAuthenticatorAvailable && PKC.isUserVerifyingPlatformAuthenticatorAvailable.bind(PKC);
+      if (uvpaa) {
+        PKC.isUserVerifyingPlatformAuthenticatorAvailable = function () {
+          return decided ? uvpaa() : Promise.resolve(true);
+        };
+      }
+      const capabilities = PKC.getClientCapabilities && PKC.getClientCapabilities.bind(PKC);
+      if (capabilities) {
+        PKC.getClientCapabilities = function () {
+          return capabilities().then((caps) => {
+            if (decided || !caps || typeof caps !== 'object') return caps;
+            return Object.assign({}, caps, { userVerifyingPlatformAuthenticator: true, passkeyPlatformAuthenticator: true });
+          });
+        };
+      }
     })();
     """#
 }

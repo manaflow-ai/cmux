@@ -93,7 +93,7 @@ done
   "$OUT_DIR/obj/shim/shim_page_scheme.mm.o" "$OUT_DIR/obj/shim/shim_downloads.mm.o" \
   "$OUT_DIR/obj/shim/shim_background.mm.o" "$OUT_DIR/obj/shim/shim_bookmarks.mm.o" \
   "$OUT_DIR/obj/shim/shim_permissions.mm.o" \
-  "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -lobjc
+  "$OUT_DIR/libcef_dll_wrapper.a" -framework AppKit -framework Cocoa -framework IOSurface -framework Security -lobjc
 
 "$CXX" -arch "$ARCH" -isysroot "$SDK" -mmacosx-version-min="$MIN_OS" \
   -o "$OUT_DIR/cmux-cef-helper" \

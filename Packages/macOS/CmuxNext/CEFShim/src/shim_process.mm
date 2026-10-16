@@ -225,6 +225,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(side_panel_press, "cmux_side_panel_press");
   CMUX_BIND(profile_passkeys_list, "cmux_profile_passkeys_list");
   CMUX_BIND(profile_passkey_delete, "cmux_profile_passkey_delete");
+  CMUX_BIND(set_webauthn_keychain_access_group, "cmux_set_webauthn_keychain_access_group");
   CMUX_BIND(password_list, "cmux_password_list");
   CMUX_BIND(password_remove, "cmux_password_remove");
   CMUX_BIND(password_exception_remove, "cmux_password_exception_remove");
@@ -332,6 +333,7 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
   for (const char* const* it = switch_list; it && *it; ++it) {
     switches.emplace_back(*it);
   }
+  ConfigureWebAuthnKeychainAccessGroup();
   CefMainArgs args(0, nullptr);
   return CefInitialize(args, settings, MakeApp(std::move(switches)), nullptr) ? 1 : 0;
 }
