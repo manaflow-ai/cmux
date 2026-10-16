@@ -1,6 +1,7 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { componentEntry } from "../../gallery/format";
 import { session } from "../../gallery/fixtures/acpmux";
+import type { PlayContext } from "../../gallery/play";
 import { ChiefDock } from "./ChiefDock";
 
 const base = [
@@ -32,6 +33,13 @@ const base = [
   }),
   session({ sessionId: "chief-quiet", title: "Draft the onboarding copy", status: "idle", updatedAt: 700 }),
 ];
+
+const toggleStack = async (ctx: PlayContext) => {
+  await ctx.click({ role: "button", name: "Agent Chat" });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-chief-dock[data-expanded="false"]'));
+  await ctx.click({ role: "button", name: "Agent Chat" });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-chief-dock[data-expanded="true"]'));
+};
 
 export default componentEntry({
   id: "agent-pane.chief-dock",
@@ -69,6 +77,17 @@ export default componentEntry({
         onNewChat: () => undefined,
         onMoveToTab: () => undefined,
       },
+    },
+    "toggle-stack": {
+      note: "The mascot rail folds and unfolds the glass stack while preserving its anchor and focus target.",
+      props: {
+        sessions: base,
+        currentId: "chief-input",
+        onSelect: () => undefined,
+        onNewChat: () => undefined,
+        onMoveToTab: () => undefined,
+      },
+      play: toggleStack,
     },
   },
 });

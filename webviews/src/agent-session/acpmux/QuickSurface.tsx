@@ -1,4 +1,4 @@
-import React from "react";
+import type React from "react";
 import { FloatingCompactBar, FloatingHeader, useFloatingKeys, type QuickFloating } from "./FloatingChat";
 import { QuickKeyHints } from "./QuickKeyHints";
 import { ChiefDock, type ChiefDockProps } from "./ChiefDock";

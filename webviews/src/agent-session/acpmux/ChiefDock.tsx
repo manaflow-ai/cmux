@@ -59,6 +59,7 @@ export function ChiefDock({ sessions, currentId, onSelect, onNewChat, onMoveToTa
       className="acpmux-chief-dock"
       data-attached={attached}
       data-expanded={expanded}
+      data-attention={attention > 0 ? "true" : undefined}
       aria-label={t("header.agentChat")}
     >
       <div className="acpmux-chief-dock-rail">
@@ -66,6 +67,7 @@ export function ChiefDock({ sessions, currentId, onSelect, onNewChat, onMoveToTa
           type="button"
           className="acpmux-chief-dock-mascot"
           aria-label={t("header.agentChat")}
+          aria-expanded={expanded}
           title={t("header.agentChat")}
           onClick={() => setExpanded((value) => !value)}
         >
@@ -93,8 +95,7 @@ export function ChiefDock({ sessions, currentId, onSelect, onNewChat, onMoveToTa
           <Icon name="action.pin" size={16} selected={attached} />
         </button>
       </div>
-      {expanded && (
-        <div className="acpmux-chief-dock-cards">
+      <div className="acpmux-chief-dock-cards" aria-hidden={!expanded}>
           <header className="acpmux-chief-dock-header">
             <span className="acpmux-chief-dock-title">
               <Icon name="agent.chief" size={14} /> {t("header.agentChat")}
@@ -110,10 +111,16 @@ export function ChiefDock({ sessions, currentId, onSelect, onNewChat, onMoveToTa
                 <article
                   className="acpmux-chief-card"
                   data-selected={selected}
+                  data-status={status(session)}
                   data-depth={index}
                   key={session.sessionId}
                 >
-                  <button type="button" className="acpmux-chief-card-main" onClick={() => onSelect(session.sessionId)}>
+                  <button
+                    type="button"
+                    className="acpmux-chief-card-main"
+                    disabled={!expanded}
+                    onClick={() => onSelect(session.sessionId)}
+                  >
                     <StatusDot value={status(session)} />
                     <span className="acpmux-chief-card-copy">
                       <strong>{title}</strong>
@@ -125,6 +132,7 @@ export function ChiefDock({ sessions, currentId, onSelect, onNewChat, onMoveToTa
                     className="acpmux-chief-card-open"
                     aria-label={t("floating.moveToTab")}
                     title={t("floating.moveToTab")}
+                    disabled={!expanded}
                     onClick={() => onMoveToTab(session.sessionId)}
                   >
                     <Icon name="link.open.newtab" size={14} />
@@ -133,8 +141,7 @@ export function ChiefDock({ sessions, currentId, onSelect, onNewChat, onMoveToTa
               );
             })}
           </div>
-        </div>
-      )}
+      </div>
     </aside>
   );
 }
