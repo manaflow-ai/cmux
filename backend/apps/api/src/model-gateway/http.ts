@@ -5,7 +5,8 @@ import { claudeModel } from "../chief-brain/models.ts"
 import { Credits, CreditsLive, creditsRequired, maxCallCostUsd, payerTeam, type Reservation } from "../credits.ts"
 import type { Env } from "../env.ts"
 import { claudeRoute, isClaude, meteredOwner, offers } from "./routes.ts"
-import { verifyRunToken, type RunScope } from "./run-token.ts"
+import { verifyRunToken, type RunGrant } from "./run-token.ts"
+import type { LedgerAnswer, LedgerOp } from "./run-ledger.ts"
 
 /**
  * The model gateway over HTTP (PROTOCOL.md `model/stream` for brains and agents outside the Worker:
@@ -26,12 +27,13 @@ const err = (status: number, type: string, message: string) => Response.json({ t
 const safeId = (s: string) => s.replace(/[^A-Za-z0-9._:-]/g, "_").slice(0, 128)
 const run = <A, E>(env: Env, p: Effect.Effect<A, E, Credits>) => Effect.runPromise(p.pipe(Effect.provide(CreditsLive(env))))
 
-const whoOf = async (env: Env, request: Request): Promise<RunScope | null> => {
+type Who = Omit<RunGrant, "conversation" | "jti" | "cap_usd"> & { readonly conversation?: string; readonly grant?: RunGrant }
+const whoOf = async (env: Env, request: Request): Promise<Who | null> => {
   const auth = request.headers.get("authorization") ?? ""
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : (request.headers.get("x-api-key") ?? "")
   if (!token) return null
   const scoped = await verifyRunToken(env, token)
-  if (scoped) return scoped
+  if (scoped) return { ...scoped, grant: scoped }
   const p = await authenticate(env, token).catch(() => undefined)
   return p?.user && p.agent ? { team: payerTeam(p.user), chief: p.agent, owner: p.user, run: "chief" } : null
 }
@@ -104,18 +106,30 @@ export const handleModelGateway = async (request: Request, env: Env): Promise<Re
   const maxTokens = typeof body.max_tokens === "number" && body.max_tokens > 0 ? Math.min(body.max_tokens, 128_000) : model.maxTokens
   const team = who.team
   const request_id = safeId(`gw:${who.run}:${crypto.randomUUID()}`)
+  const maxCost = maxCallCostUsd(model.cost, text.length, maxTokens)
+  // A run token: its run must still run, and this call's maximum price must fit its spend cap.
+  const g = who.grant
+  const ledger = g ? (env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${g.chief}/${g.conversation}`)) as unknown as { runToken(run: string, jti: string, cap: number, o: LedgerOp): Promise<LedgerAnswer> }) : null
+  if (g && ledger) {
+    const a = await ledger.runToken(g.run, g.jti, g.cap_usd, { op: "hold", usd: maxCost }).catch(() => null)
+    if (!a) return err(503, "overloaded_error", "the run could not be checked; retry")
+    if (!a.ok) return a.code === "run_ended" ? err(401, "authentication_error", "this run has ended; the token no longer works") : err(429, "rate_limit_error", `this run's model budget (${g.cap_usd} USD) is spent`)
+  }
+  const unhold = (usd: number) => (g && ledger ? ledger.runToken(g.run, g.jti, g.cap_usd, { op: "settle", held: maxCost, usd }).catch(() => undefined) : Promise.resolve())
   let held: Reservation | null = null
   if (creditsRequired(env, name)) {
-    const r = await run(env, Credits.use((c) => c.reserve({ team, request: request_id, chief: who.chief, conversation: who.conversation ?? null, maxCostUsd: maxCallCostUsd(model.cost, text.length, maxTokens) })).pipe(
+    const r = await run(env, Credits.use((c) => c.reserve({ team, request: request_id, chief: who.chief, conversation: who.conversation ?? null, maxCostUsd: maxCost })).pipe(
       Effect.map((res) => ({ ok: true as const, res })),
       Effect.catch((e: { _tag?: string; available_usd?: number; needed_usd?: number }) => Effect.succeed({ ok: false as const, e }))
     ))
+    if (!r.ok) await unhold(0)
     if (!r.ok) return r.e._tag === "CreditsExhausted" ? err(402, "invalid_request_error", `out of Cloud credits (available ${r.e.available_usd} USD, this call needs up to ${r.e.needed_usd} USD)`) : err(503, "overloaded_error", "credits could not be checked; retry")
     held = r.res
   }
-  const settle = (u: Usage): Promise<void> => {
-    if (!held) return Promise.resolve()
+  const settle = async (u: Usage): Promise<void> => {
     const usd = (u.input * model.cost.input + u.output * model.cost.output + u.cacheRead * model.cost.cacheRead + u.cacheWrite * model.cost.cacheWrite) / 1_000_000
+    await unhold(usd)
+    if (!held) return
     const h = held
     return run(env, Credits.use((c) => c.settle(h, usd))).then(() => undefined, (e: unknown) => console.warn(JSON.stringify({ msg: "model_gateway.settle_failed", request: request_id, error: String(e).slice(0, 200) })))
   }
@@ -127,6 +141,7 @@ export const handleModelGateway = async (request: Request, env: Env): Promise<Re
     res = await fetchRoute(`${route.url}/v1/messages`, { method: "POST", headers: { "content-type": "application/json", "x-cmux-team-id": team, "x-cmux-chief-id": who.chief, "x-request-id": request_id }, body: JSON.stringify({ ...body, model: name }) })
   } catch {
     // Not sent (the route's sign-in failed before the request): nothing to charge.
+    await unhold(0)
     if (held) {
       const h = held
       await run(env, Credits.use((c) => c.release(h))).catch(() => undefined)
