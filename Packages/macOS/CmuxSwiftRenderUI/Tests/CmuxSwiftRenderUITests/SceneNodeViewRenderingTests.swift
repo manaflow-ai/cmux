@@ -10,6 +10,11 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct SceneNodeViewRenderingTests {
+    /// Runtime actions dispatch one main-queue turn after the event.
+    private func pumpActions() async {
+        for _ in 0..<5 { await Task.yield() }
+    }
+
     private func contextMenu(ofRoot runtime: SidebarJSRuntime) throws -> NSMenu {
         let rootId = try #require(runtime.store.rootId)
         let host = NSHostingView(
@@ -98,9 +103,9 @@ struct SceneNodeViewRenderingTests {
         #expect(submenu.items.map(\.title) == ["fun", "Landing"])
     }
 
-    /// A keyed row keeps its native tap after attaching a context menu. This
+    /// A keyed row keeps its tap action after attaching a context menu. This
     /// is the same modifier combination used by the bundled workspace rows.
-    @Test func forEachRowPreservesTapActionWithContextMenu() throws {
+    @Test func forEachRowPreservesTapActionWithContextMenu() async throws {
         let runtime = SidebarJSRuntime()
         var captured: [ActionCommand] = []
         runtime.dispatch = SidebarActionDispatch { action in
@@ -129,9 +134,12 @@ struct SceneNodeViewRenderingTests {
         let listId = try #require(runtime.store.node(rootId)?.children.first)
         let rowId = try #require(runtime.store.node(listId)?.children.first)
         #expect(runtime.store.node(rowId)?.bool("tappable") == true)
-        let menuId = try #require(runtime.store.node(rowId)?.children.first)
+        let menuId = try #require(runtime.store.node(rowId)?.children.first {
+            runtime.store.node($0)?.type == "contextMenu"
+        })
         #expect(runtime.store.node(menuId)?.type == "contextMenu")
         runtime.dispatchEvent(nodeId: rowId, event: "tap")
+        await pumpActions()
         #expect(captured == [
             .cmux(method: "workspace.select", params: ["workspace_id": "w1"]),
         ])
