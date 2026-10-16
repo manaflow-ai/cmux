@@ -89,9 +89,16 @@ import Testing
         }
     }
 
-    private func turns(_ count: Int = 20) async {
-        for _ in 0..<count { await Task { @MainActor in }.value }
+    /// Waits until `condition` holds, or the deadline passes. Returns whether it held.
+    private func waitUntil(seconds: Double = 10, _ condition: () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(seconds)
+        while !condition(), ContinuousClock.now < deadline {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        return condition()
     }
+
+    @MainActor private final class Flag { var isSet = false }
 
     @Test func aReconnectBetweenTheNameAndTheClientListDetachesNothing() async {
         let host = RemoteTmuxHost(destination: "user@leftover-reconnect.test")
@@ -106,10 +113,15 @@ import Testing
         conn.handleMessageForTesting(.commandResult(commandNumber: 0, lines: [], isError: false))
         answerAll(conn, rawLines: [])
 
-        let cleanup = Task { @MainActor in await view.detachLeftoverViewClients(conn) }
-        await turns()
-        #expect(conn.pendingCommandKindsForTesting.first.map { if case .rawQuery = $0 { true } else { false } } == true,
-                "the cleanup asked for its own client name")
+        let done = Flag()
+        let cleanup = Task { @MainActor in
+            await view.detachLeftoverViewClients(conn)
+            done.isSet = true
+        }
+        let asked = await waitUntil {
+            conn.pendingCommandKindsForTesting.first.map { if case .rawQuery = $0 { true } else { false } } == true
+        }
+        #expect(asked, "the cleanup asked for its own client name")
         // tmux names the old stream's client, and the stream drops before the cleanup resumes.
         answerAll(conn, rawLines: ["/dev/pts/1"])
         conn.beginReconnecting()
@@ -118,12 +130,13 @@ import Testing
         conn.handleMessageForTesting(.enter)
         conn.handleMessageForTesting(.commandResult(commandNumber: 0, lines: [], isError: false))
         // On the new stream this install's client is /dev/pts/2; /dev/pts/1 is the old one.
-        for _ in 0..<5 {
-            await turns()
+        // Answer whatever the cleanup asks the new stream until it finishes.
+        let finished = await waitUntil {
             answerAll(conn, rawLines: ["/dev/pts/1 1 \(viewName)", "/dev/pts/2 1 \(viewName)"])
+            return done.isSet
         }
+        #expect(finished, "the cleanup finished")
         await cleanup.value
-        await turns()
         // Everything the new stream wrote before this marker has been read once the marker has.
         #expect(conn.send("display-message -p end-of-test"))
         let deadline = ContinuousClock.now + .seconds(10)

@@ -153,6 +153,16 @@ import Testing
             return entries.filter(\.live).map(\.delay)
         }
 
+        /// Fires every timer ever armed, cancelled ones included: a cancel that lost a race
+        /// with its timer must still do nothing.
+        func fireEvenCancelled() {
+            lock.lock()
+            let actions = entries.map(\.action)
+            entries.indices.forEach { entries[$0].live = false }
+            lock.unlock()
+            actions.forEach { $0() }
+        }
+
         /// Fires every live timer once, as the clock reaching them would.
         func fireArmed() {
             lock.lock()
@@ -164,14 +174,32 @@ import Testing
         }
     }
 
-    /// Counts `onFailure` calls, which arrive on the main actor.
-    private final class FailureCount: @unchecked Sendable {
-        var value = 0
-    }
+    /// Counts `onFailure` calls, which arrive on the main actor, and lets a test await a count
+    /// with a deadline instead of guessing how long the delivery takes.
+    @MainActor
+    private final class FailureSignal {
+        private(set) var value = 0
+        private var waiters: [(count: Int, continuation: CheckedContinuation<Bool, Never>)] = []
 
-    /// Lets main-actor tasks queued by the writer run. Bounded by turns, not time.
-    private func settleMainActor() async {
-        for _ in 0..<20 { await Task { @MainActor in }.value }
+        func record() {
+            value += 1
+            let ready = waiters.filter { $0.count <= value }
+            waiters.removeAll { $0.count <= value }
+            ready.forEach { $0.continuation.resume(returning: true) }
+        }
+
+        /// True once `count` failures have arrived; false if the deadline passes first.
+        func wait(for count: Int, seconds: Double = 10) async -> Bool {
+            if value >= count { return true }
+            return await withCheckedContinuation { continuation in
+                waiters.append((count, continuation))
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                    guard let self, let index = self.waiters.firstIndex(where: { $0.count == count }) else { return }
+                    self.waiters.remove(at: index).continuation.resume(returning: false)
+                }
+            }
+        }
     }
 
     /// A write that blocks with nothing else to send is still reported. The writer's own
@@ -181,19 +209,19 @@ import Testing
         let pipe = Pipe()
         let clock = ManualClock()
         let scheduler = FakeScheduler()
-        let failures = FailureCount()
+        let failures = FailureSignal()
         let writer = RemoteTmuxControlPipeWriter(
             handle: pipe.fileHandleForWriting, label: "remote-tmux-writer-watchdog-test",
             maxPendingBytes: 8 << 20, stallLimit: .seconds(30), now: { clock.now() },
-            stallScheduler: scheduler.schedule, onFailure: { failures.value += 1 }
+            stallScheduler: scheduler.schedule, onFailure: { failures.record() }
         )
 
         #expect(writer.enqueue(Data(count: Self.blockingSize)))
         #expect(scheduler.armed == [.seconds(30)], "bytes started waiting, so the watchdog is armed")
         clock.set(.seconds(30))
         scheduler.fireArmed()
-        await settleMainActor()
-        #expect(failures.value == 1, "30 s with no write returning reports the pipe dead")
+        #expect(await failures.wait(for: 1), "30 s with no write returning reports the pipe dead")
+        #expect(failures.value == 1)
 
         writer.close()
         _ = try pipe.fileHandleForReading.readToEnd()
@@ -204,13 +232,13 @@ import Testing
         let pipe = Pipe()
         let clock = ManualClock()
         let scheduler = FakeScheduler()
-        let failures = FailureCount()
+        let failures = FailureSignal()
         let finished = DispatchSemaphore(value: 0)
         let writer = RemoteTmuxControlPipeWriter(
             handle: pipe.fileHandleForWriting, label: "remote-tmux-writer-watchdog-progress-test",
             maxPendingBytes: 8 << 20, stallLimit: .seconds(30), now: { clock.now() },
             stallScheduler: scheduler.schedule,
-            onWriteFinished: { finished.signal() }, onFailure: { failures.value += 1 }
+            onWriteFinished: { finished.signal() }, onFailure: { failures.record() }
         )
         #expect(writer.enqueue(Data(count: Self.blockingSize)))
         #expect(writer.enqueue(Data(count: Self.blockingSize)))
@@ -230,48 +258,67 @@ import Testing
 
         clock.set(.seconds(50))
         scheduler.fireArmed()
-        await settleMainActor()
-        #expect(failures.value == 0, "the last write returned 25 s ago")
+        // The firing decided synchronously: it re-armed for the time that remains rather than
+        // reporting. Any report it had made would reach the main actor before the next one.
         #expect(scheduler.armed == [.seconds(5)], "the watchdog waits out the 5 s that remain")
 
         clock.set(.seconds(55))
         scheduler.fireArmed()
-        await settleMainActor()
-        #expect(failures.value == 1)
+        #expect(await failures.wait(for: 1), "30 s since the last write returned")
+        #expect(failures.value == 1, "the firing at 50 s, 25 s after the last write, reported nothing")
 
         writer.close()
         _ = try reader.readToEnd()
     }
 
     /// Nothing waiting means nothing to watch: a drained ledger and a closed writer cancel it.
+    /// Both use a zero stall limit, so any firing that got past those checks would report.
     @Test func aDrainedOrClosedWriterCancelsTheWatchdog() async throws {
         let scheduler = FakeScheduler()
-        let failures = FailureCount()
+        let failures = FailureSignal()
         let drained = Pipe()
         drained.fileHandleForReading.readabilityHandler = { _ = $0.availableData }
         let finished = DispatchSemaphore(value: 0)
         let draining = RemoteTmuxControlPipeWriter(
             handle: drained.fileHandleForWriting, label: "remote-tmux-writer-watchdog-drain-test",
-            maxPendingBytes: 8 << 20, stallScheduler: scheduler.schedule,
-            onWriteFinished: { finished.signal() }, onFailure: { failures.value += 1 }
+            maxPendingBytes: 8 << 20, stallLimit: .zero, stallScheduler: scheduler.schedule,
+            onWriteFinished: { finished.signal() }, onFailure: { failures.record() }
         )
         #expect(draining.enqueue(Data("x\n".utf8)))
         #expect(finished.wait(timeout: .now() + 10) == .success)
         #expect(scheduler.armed.isEmpty, "the ledger drained, so the watchdog is cancelled")
-        drained.fileHandleForReading.readabilityHandler = nil
-        draining.close()
 
         let blocked = Pipe()
         let closing = RemoteTmuxControlPipeWriter(
             handle: blocked.fileHandleForWriting, label: "remote-tmux-writer-watchdog-close-test",
-            maxPendingBytes: 8 << 20, stallScheduler: scheduler.schedule, onFailure: { failures.value += 1 }
+            maxPendingBytes: 8 << 20, stallLimit: .zero, stallScheduler: scheduler.schedule,
+            onFailure: { failures.record() }
         )
         #expect(closing.enqueue(Data(count: Self.blockingSize)))
         #expect(scheduler.armed.count == 1)
         closing.close()
         #expect(scheduler.armed.isEmpty, "closing the writer cancels its watchdog")
-        await settleMainActor()
-        #expect(failures.value == 0)
+        // Even if those cancelled timers fire anyway, a drained writer (still open) or a closed
+        // writer reports nothing.
+        scheduler.fireEvenCancelled()
+
+        // A witness that does stall, fired after them: its report reaches the main actor behind
+        // any report the drained or closed writer made, so one failure means they made none.
+        let witnessPipe = Pipe()
+        let witnessScheduler = FakeScheduler()
+        let witness = RemoteTmuxControlPipeWriter(
+            handle: witnessPipe.fileHandleForWriting, label: "remote-tmux-writer-watchdog-witness-test",
+            maxPendingBytes: 8 << 20, stallLimit: .zero, stallScheduler: witnessScheduler.schedule,
+            onFailure: { failures.record() }
+        )
+        #expect(witness.enqueue(Data(count: Self.blockingSize)))
+        witnessScheduler.fireArmed()
+        #expect(await failures.wait(for: 1), "the witness's stall is reported")
+        #expect(failures.value == 1, "the drained and the closed writer reported nothing")
+        witness.close()
+        draining.close()
+        drained.fileHandleForReading.readabilityHandler = nil
+        _ = try witnessPipe.fileHandleForReading.readToEnd()
         _ = try blocked.fileHandleForReading.readToEnd()
     }
 
