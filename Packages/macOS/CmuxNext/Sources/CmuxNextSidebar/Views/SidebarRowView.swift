@@ -14,6 +14,7 @@ class SidebarRowView: NSView {
     var isSelected = false {
         didSet {
             guard isSelected != oldValue else { return }
+            setAccessibilitySelected(isSelected)
             fadesNextFill = false
             needsDisplay = true
             // Rows show controls on the selected row too (the tab chevron, cx-fo2t).
