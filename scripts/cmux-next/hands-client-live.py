@@ -15,6 +15,9 @@ this host and are never printed, logged or written anywhere:
   with `op read`; the app gets the pair in its environment (CMUX_UITEST_STACK_*).
 
 Checks, through the app's `debug.hands` and `debug.notifications` and the owner's own API reads:
+ 0. first launched with no registered Cloud install: a raise and an Allow say the Mac is not set up
+    for Cloud (localized text, no internal error name), the banner comes back with that reason, and
+    the request does not run; then the app is relaunched with the Cloud path on for 1-8;
  1. the app reads the paired hand (level auto, the mac default);
  2. presence key enroll (PUT /v1/hands/presence-key, signed by the install key), or, on a Mac with
     no Secure Enclave, the refusal;
@@ -117,7 +120,9 @@ def owner_credentials():
 
 def http(method, url, headers=None, body=None, timeout=60):
     data = json.dumps(body).encode() if body is not None else None
-    request = urllib.request.Request(url, data=data, method=method, headers={"content-type": "application/json", **(headers or {})})
+    # The API's edge refuses urllib's default User-Agent (HTTP 403, "error code: 1010").
+    request = urllib.request.Request(url, data=data, method=method, headers={
+        "content-type": "application/json", "user-agent": "cmux-hands-proof/1", **(headers or {})})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as r:
             raw = r.read()
@@ -237,7 +242,7 @@ teardown.install()
 try:
     # The hand: a mac hand of the owner, paired from this host, run as this script's child.
     status, minted = api("POST", "/v1/hands/pair-codes", {"name": f"hands-proof-{opts.tag}", "profile": "mac"})
-    if not check(status == 200, f"pair code minted (HTTP {status} {(minted.get('error') or {}).get('code', '')})"):
+    if not check(status == 200, f"pair code minted (HTTP {status} {(minted.get('error') or {}).get('code', '') or minted.get('raw', '')[:120]})"):
         raise SystemExit(1)
     HAND = minted["value"]["hand"]
     report["hand"] = HAND
@@ -254,19 +259,65 @@ try:
     online = wait_for(lambda: (api("GET", f"/v1/hands/{HAND}")[1].get("value") or {}).get("online"), 60)
     check(bool(online), f"hand {HAND} is online")
 
-    # The app: signed in as the same owner from the credentials file, scratch HOME, automation launch.
-    with open(os.path.join(opts.out, "app.log"), "w") as app_log:
-        app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-                                              "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
-                                              **APP_SIGN_IN, "CMUX_DEV_AUTH_ACCOUNT": EMAIL},
-                               stdout=app_log, stderr=subprocess.STDOUT)
-    if not check(bool(wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), 120)), "the app socket answers"):
-        raise SystemExit(1)
+    def launch(cloud_link, log_name):
+        """The app, signed in as the same owner, scratch HOME, automation launch. A --app-from-fleet
+        build has the offline (loopback) backend, where the app registers no Cloud install
+        (CloudService.mayCallCloud); CMUX_NEXT_CLOUD_LINK=app (kept across the launch) turns the
+        Cloud app server path on, so the install key that signs allows and enrolls exists."""
+        if os.path.exists(SOCKET):
+            os.unlink(SOCKET)
+        env = {**BASE_ENV, "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
+               "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG, **APP_SIGN_IN, "CMUX_DEV_AUTH_ACCOUNT": EMAIL}
+        if cloud_link:
+            env["CMUX_NEXT_CLOUD_LINK"] = "app"
+        with open(os.path.join(opts.out, log_name), "w") as app_log:
+            launched = subprocess.Popen([BINARY], env=env, stdout=app_log, stderr=subprocess.STDOUT)
+        if not check(bool(wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), 120)),
+                     f"the app socket answers ({log_name})"):
+            raise SystemExit(1)
+        return launched
 
-    # 1. The app reads the hand after its wire subscribe.
+    def quit_app(running):
+        rpc("action.run", {"action": "quitEndSessions"})
+        try:
+            running.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            running.kill()
+        teardown.end()
+
     def listed():
         hands({"action": "refresh"})
         return next((h for h in hands().get("hands", []) if h.get("hand") == HAND), None)
+
+    # 0. With no registered Cloud install, Allow and a raise say so in the person's words.
+    app = launch(cloud_link=False, log_name="app-not-linked.log")
+    wait_for(listed, 120)
+    hands({"action": "level", "hand": HAND, "level": "full"})
+    refused = logged("raise refused:")
+    report["steps"]["not_linked_raise"] = refused
+    check(bool(refused) and "not set up for Cloud" in refused and "signedOut" not in refused,
+          f"0. a raise with no install says the Mac is not set up for Cloud ({refused})")
+    results = {}
+    thread = call_in_background({"action": "fs.write", "params": {"path": os.path.join(ROOT, "not-linked.txt"), "text": "x"},
+                                 "timeout_ms": 120000}, results, "not-linked")
+    pending = wait_for(lambda: [p for p in hands().get("pending", []) if p.get("hand") == HAND], 60)
+    if check(bool(pending), "0. the request appears as pending"):
+        key = pending[0]["key"]
+        rpc("debug.notifications", {"action": "allow", "id": key})
+        again = wait_for(lambda: [b for b in rpc("debug.notifications").get("banners") or []
+                                  if isinstance(b, dict) and b.get("id") == key and "not set up for Cloud" in (b.get("body") or "")], 30)
+        report["steps"]["not_linked_banner"] = again
+        check(bool(again) and "signedOut" not in again[-1].get("body", ""),
+              "0. Allow with no install posts the banner again with the not-set-up reason first")
+        rpc("debug.notifications", {"action": "deny", "id": key})
+        thread.join(90)
+        check(not os.path.exists(os.path.join(ROOT, "not-linked.txt")), "0. the request did not run")
+    quit_app(app)
+    app = None
+
+    app = launch(cloud_link=True, log_name="app.log")
+
+    # 1. The app reads the hand after its wire subscribe.
     row = wait_for(listed, 120)
     report["steps"]["listed"] = row
     check(bool(row) and row.get("level") == "auto", f"1. the app lists the hand at level auto ({row})")

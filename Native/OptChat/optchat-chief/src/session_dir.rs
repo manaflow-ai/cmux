@@ -15,7 +15,8 @@
 //!
 //! Deviation: acpmux ignores the client's `mcpServers` in `session/new` and
 //! gives every agent chat its own agent tools instead (cmux, cmux-cua,
-//! secrets: acpmux agent_tools.rs, cx-wx93i), so mux/host's way of passing
+//! secrets: acpmux agent_tools.rs, cx-wx93i; a Chief turn keeps only cmux,
+//! `TURN_TOOL_SERVERS`, cx-4a5w2), so mux/host's way of passing
 //! MCP servers reaches no harness. The Chief's own `optchat` server, which
 //! acpmux does not know, goes in the directory's `.mcp.json`, enabled by the
 //! project settings, which Claude Code harnesses read.
@@ -267,6 +268,19 @@ pub const CHIEF_CMUX_TOOLS: [&str; 15] = [
     "app_file_open",
 ];
 
+/// The turn presets' env that keeps only acpmux's `cmux` MCP server
+/// (acpmux `agent_tools::SERVERS_ENV`; its built-in turn presets set the
+/// same, cx-4a5w2). In the app, whose bundle has `cmux-cua`, the computer
+/// use and secret servers' 43 tool names and instructions came after the
+/// turn's cache mark: 1,440 of its 2,905 uncached tokens, every turn.
+pub const TURN_TOOL_SERVERS: (&str, &str) = ("ACPMUX_AGENT_TOOL_SERVERS", "cmux");
+
+/// Deny rules for the other agent tool servers, the second guard for an
+/// acpmux without `TURN_TOOL_SERVERS` (their tools leave the list; their
+/// instructions stay).
+pub const TURN_DENIED_SERVERS: [&str; 3] =
+    ["mcp__cmux-cua", "mcp__cmux-secrets", "mcp__cmux-sessions"];
+
 /// How long `cmux mcp tools` may take before a turn keeps every tool.
 const TOOL_LIST_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
 
@@ -468,6 +482,7 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     let deny: Vec<&str> = TURN_DENIED_TOOLS
         .iter()
         .copied()
+        .chain(TURN_DENIED_SERVERS)
         .chain(denied.iter().map(String::as_str))
         .collect();
     let mut settings = settings_json(setup, paths, &deny);

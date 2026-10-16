@@ -14,9 +14,17 @@ public import Observation
 @MainActor
 @Observable
 public final class HandsService {
-    public enum Failure: Error, Equatable {
+    public enum Failure: Error, Equatable, LocalizedError {
         case unknownHand(String)
         case unknownApproval(String)
+        /// This Mac has no registered Cloud install (signed out, or Cloud is off here): nothing can
+        /// sign an allow or a raise. The text is the localized `texts.notLinked`.
+        case notLinked(String)
+
+        public var errorDescription: String? {
+            if case let .notLinked(text) = self { return text }
+            return nil
+        }
     }
 
     public private(set) var hands: [HandSummary] = []
@@ -34,11 +42,12 @@ public final class HandsService {
     /// A request ended (nil outcome: the app stopped following it): withdraw its banner.
     @ObservationIgnored public var onSettled: (@MainActor (HandApproval, HandApprovalOutcome?) -> Void)?
     /// The presence prompt's reasons (raising hand `name` to `level`; raising the default of new
-    /// `profile` hands; raw level and profile values) and why a Mac without a Secure Enclave refuses
-    /// raises. The App sets CmuxNextAgentPane's localized `AgentApprovalBanners.handTexts`.
+    /// `profile` hands; raw level and profile values) and why a Mac without a Secure Enclave, or with no
+    /// registered Cloud install, refuses raises and allows. The App sets CmuxNextAgentPane's localized `AgentApprovalBanners.handTexts`.
     @ObservationIgnored public var texts: (raiseHand: (_ name: String, _ level: String) -> String, raiseDefault: (_ profile: String, _ level: String) -> String,
-                                             unavailable: String) =
-        ({ "raise the hand \($0) to \($1)" }, { "raise the default level of new \($0) hands to \($1)" }, "This Mac has no Secure Enclave.")
+                                             unavailable: String, notLinked: String) =
+        ({ "raise the hand \($0) to \($1)" }, { "raise the default level of new \($0) hands to \($1)" }, "This Mac has no Secure Enclave.",
+         "This Mac is not set up for Cloud.")
 
     @ObservationIgnored private let api: HandsAPIClient
     @ObservationIgnored private let identity: MacInstallIdentity
@@ -141,7 +150,7 @@ public final class HandsService {
         guard let approval = pending[key] else { throw Failure.unknownApproval(key) }
         do {
             if allow {
-                let context = try await identity.proofContext()
+                let context = try await proofContext()
                 let text = HandProofText.approval(environment: context.environment, hand: approval.hand, id: approval.id)
                 let signature = try await identity.signWithInstallKey(text)
                 try await api.answer(hand: approval.hand, id: approval.id, allow: true, install: context.install, signature: signature)
@@ -151,6 +160,13 @@ public final class HandsService {
         } catch CloudAPIError.http(_, let code, _) where ["hand.approval_answered", "hand.approval_not_found", "hand.not_found"].contains(code ?? "") {
             note("answer \(key): \(code ?? "") already")
             return remove(key, outcome: nil)
+        } catch Failure.notLinked(let text) {
+            // The banner comes back with the reason first, so the person sees why Allow did nothing.
+            note("answer \(key) refused: \(text)")
+            var shown = approval
+            shown.summary = "\(text)\n\(approval.summary)"
+            if pending[key] != nil { onPending?(shown, name(of: approval.hand)) }
+            throw Failure.notLinked(text)
         } catch {
             // The system removed the banner when it was clicked: post it again, so the answer can be retried.
             note("answer \(key) failed: \(error)")
@@ -167,7 +183,7 @@ public final class HandsService {
     /// signs the registration). Answers the install id.
     @discardableResult
     public func enrollPresence() async throws -> String {
-        let context = try await identity.proofContext()
+        let context = try await proofContext()
         var record = try presence.recordOrCreate(for: context.user)
         if record.install == context.install { return context.install }
         let text = HandProofText.presenceRegistration(environment: context.environment, install: context.install, x: record.x, y: record.y)
@@ -215,8 +231,11 @@ public final class HandsService {
         do { install = try await enrollPresence() } catch HandPresenceError.unavailable {
             note("raise refused: \(texts.unavailable)")
             throw HandPresenceError.unavailable
+        } catch Failure.notLinked(let text) {
+            note("raise refused: \(text)")
+            throw Failure.notLinked(text)
         }
-        let context = try await identity.proofContext()
+        let context = try await proofContext()
         guard install == context.install, let record = presence.record(for: context.user) else { throw HandPresenceError.unavailable }
         let nonce = try await api.challenge(target: target)
         let prompt = HandPresencePrompt(reason: reason)
@@ -231,11 +250,16 @@ public final class HandsService {
     /// Proof only (`debug.hands`): a raise whose challenge is signed by the install key, not the
     /// presence key. The server must refuse it (`hand.level_refused`).
     public func raiseWithoutPresence(hand id: String, to level: HandLevel) async throws {
-        let context = try await identity.proofContext()
+        let context = try await proofContext()
         let nonce = try await api.challenge(target: id)
         let text = HandProofText.level(environment: context.environment, target: id, level: level, nonce: nonce)
         let signature = try await identity.signWithInstallKey(text)
         try await api.setLevel(target: id, level: level, proof: (context.install, nonce, signature))
+    }
+
+    /// The install proof context; a Mac with no registered Cloud install throws ``Failure/notLinked(_:)``.
+    private func proofContext() async throws -> (user: String, install: String, environment: String) {
+        do { return try await identity.proofContext() } catch MacInstallIdentity.Failure.signedOut { throw Failure.notLinked(texts.notLinked) }
     }
 
     func note(_ line: String) {
