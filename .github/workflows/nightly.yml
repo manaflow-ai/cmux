@@ -2495,6 +2495,7 @@ jobs:
             --execute
 
       - name: Publish nightly release assets
+        id: publish_assets
         if: needs.decide.outputs.should_publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -2514,6 +2515,7 @@ jobs:
             --alias "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64.dmg" \
             --alias "nightly-out/${CHANNEL_DMG_PREFIX}-universal.dmg" \
             --alias "nightly-out/${CHANNEL_DMG_PREFIX}.dmg" \
+            --github-output "$GITHUB_OUTPUT" \
             --replace-feeds \
             --feed nightly-out/appcast-arm64.xml \
             --feed nightly-out/appcast-x86_64.xml \
@@ -2522,14 +2524,22 @@ jobs:
 
       - name: Publish verified nightly release metadata
         if: needs.decide.outputs.should_publish == 'true'
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
-        with:
-          tag_name: ${{ needs.decide.outputs.release_tag }}
-          name: ${{ needs.decide.outputs.release_name }}
-          prerelease: true
-          make_latest: false
-          draft: false
-          body_path: nightly-notes.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
+          UPLOADED_ASSETS: ${{ steps.publish_assets.outputs.asset_names }}
+          RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.decide.outputs.release_name }}
+        run: |
+          set -euo pipefail
+          expect=()
+          names=()
+          read -ra names <<<"$UPLOADED_ASSETS"
+          for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
+          python3 scripts/ci/finalize-release.py publish \
+            --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" \
+            --name "$RELEASE_NAME" --body-file nightly-notes.md \
+            --prerelease true --make-latest false "${expect[@]}"
 
       - name: Upload nightly appcasts to R2
         if: needs.decide.outputs.should_publish == 'true'
@@ -2562,14 +2572,22 @@ jobs:
       # a complete one.
       - name: Record verified nightly publication
         if: needs.decide.outputs.should_publish == 'true'
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
-        with:
-          tag_name: ${{ needs.decide.outputs.release_tag }}
-          name: ${{ needs.decide.outputs.release_name }}
-          prerelease: true
-          make_latest: false
-          draft: false
-          body_path: nightly-notes.published.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
+          UPLOADED_ASSETS: ${{ steps.publish_assets.outputs.asset_names }}
+          RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.decide.outputs.release_name }}
+        run: |
+          set -euo pipefail
+          expect=()
+          names=()
+          read -ra names <<<"$UPLOADED_ASSETS"
+          for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
+          python3 scripts/ci/finalize-release.py publish \
+            --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" \
+            --name "$RELEASE_NAME" --body-file nightly-notes.published.md \
+            --prerelease true --make-latest false "${expect[@]}"
 
       - name: Mint release tag app token
         id: release-tag-token
