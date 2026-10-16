@@ -2141,6 +2141,10 @@ final class BrowserPanel: Panel, ObservableObject {
     var browserAutomationUserScripts: [WKUserScript] = []
     var browserAutomationInitScriptCount = 0
     var browserAutomationStyleScriptCount = 0
+    /// Geolocation and offline emulation set by `browser.geolocation.set` /
+    /// `browser.offline.set`; follows the tab across web view replacements
+    /// the same way automation init scripts do.
+    let browserEmulation = BrowserWebKitEmulationController()
     var webViewDidRequestClose: (() -> Void)?
     var openAppLinkInBrowserSplit: ((URL) -> Bool)?
     var mobileBrowserStreamSignalHandlers: [UUID: (MobileBrowserPanelNativeSignal) -> Void] = [:]
