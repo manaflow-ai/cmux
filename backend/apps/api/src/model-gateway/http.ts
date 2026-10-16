@@ -145,10 +145,13 @@ export const gatewayMessages = async (env: Env, who: Who, request: Request, ctx?
   }
   const route = claudeRoute(env)
   const holder = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(HOLDER)) as unknown as { claudeAuth(): Promise<string>; claudeInvalidate(): Promise<void> }
-  const fetchRoute = signedFetch(() => holder.claudeAuth(), () => holder.claudeInvalidate(), { auth: route.auth, models: route.models, effortBody: route.effortBody, ...(env.CHIEF_BRAIN_CLAUDE_SERVICE_KEY ? { key: env.CHIEF_BRAIN_CLAUDE_SERVICE_KEY } : {}), ...(env.CHIEF_BRAIN_CACHE_TTL ? { ttl: env.CHIEF_BRAIN_CACHE_TTL } : {}) })
+  const dropped: Array<string> = []
+  const fetchRoute = signedFetch(() => holder.claudeAuth(), () => holder.claudeInvalidate(), { log: (w) => void dropped.push(w), forwardBetas: true, auth: route.auth, models: route.models, effortBody: route.effortBody, ...(env.CHIEF_BRAIN_CLAUDE_SERVICE_KEY ? { key: env.CHIEF_BRAIN_CLAUDE_SERVICE_KEY } : {}), ...(env.CHIEF_BRAIN_CACHE_TTL ? { ttl: env.CHIEF_BRAIN_CACHE_TTL } : {}) })
   let res: Response
   try {
-    const send = (id: string) => fetchRoute(`${route.url}/v1/messages`, { method: "POST", headers: { "content-type": "application/json", "x-cmux-team-id": team, "x-cmux-chief-id": who.chief, "x-request-id": id }, body: JSON.stringify({ ...body, model: name }) })
+    // The caller's betas go on (the Bedrock conversion maps the ones Bedrock takes and logs the rest).
+    const beta = request.headers.get("anthropic-beta")
+    const send = (id: string) => fetchRoute(`${route.url}/v1/messages`, { method: "POST", headers: { "content-type": "application/json", "x-cmux-team-id": team, "x-cmux-chief-id": who.chief, "x-request-id": id, ...(beta ? { "anthropic-beta": beta } : {}) }, body: JSON.stringify({ ...body, model: name }) })
     res = await send(request_id)
     if (RETRY_STATUS.has(res.status)) {
       await res.body?.cancel().catch(() => undefined)
@@ -163,9 +166,21 @@ export const gatewayMessages = async (env: Env, who: Who, request: Request, ctx?
     }
     return err(503, "api_error", "the model route is unavailable")
   }
+  if (dropped.length > 0) console.warn(JSON.stringify({ msg: "model_gateway.dropped", request: request_id, model: name, dropped: [...new Set(dropped)].slice(0, 40) }))
   if (!res.ok || !res.body) {
     await settle({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })
-    return err(res.status >= 400 && res.status < 600 ? res.status : 502, res.status === 429 ? "rate_limit_error" : "api_error", `the model route answered ${res.status}`)
+    // The route's refusal text (a validation message, no secret) goes to the log and to the caller, so the next failure names the field.
+    const why = (await res.text().catch(() => "")).slice(0, 1500)
+    console.warn(JSON.stringify({ msg: "model_gateway.upstream_refused", request: request_id, model: name, status: res.status, body: why, dropped: [...new Set(dropped)].slice(0, 40) }))
+    const detail = ((): string => {
+      try {
+        const j = JSON.parse(why) as { error?: { message?: unknown }; message?: unknown }
+        return String(j.error?.message ?? j.message ?? why)
+      } catch {
+        return why
+      }
+    })().slice(0, 500)
+    return err(res.status >= 400 && res.status < 600 ? res.status : 502, res.status === 429 ? "rate_limit_error" : res.status === 400 ? "invalid_request_error" : "api_error", `the model route answered ${res.status}${detail ? `: ${detail}` : ""}`)
   }
   // The charge outlives a client that goes away mid-stream (waitUntil), so the hold is settled, not left.
   return new Response(res.body.pipeThrough(usageTap((u) => { const p = settle(u); ctx?.waitUntil(p); return p })), { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } })
