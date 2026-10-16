@@ -68,7 +68,9 @@ await requireBrowserLane("composer-html-paste-edit.test.ts", async () => {
         data.setData("text/plain", "<div>\n  Hello\n</div>");
         field.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
       });
-      await page.waitForFunction(() => document.querySelector(".acpmux-composer-prompt [contenteditable='true']")?.textContent?.includes("Hello"));
+      await page.waitForFunction(() =>
+        document.querySelector(".acpmux-composer-prompt [contenteditable='true']")?.textContent?.includes("Hello"),
+      );
       const pasted = await prompt.innerText();
       expect(pasted).toContain("<div>");
       expect(pasted).toContain("Hello");

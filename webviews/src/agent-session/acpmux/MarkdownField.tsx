@@ -284,16 +284,16 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
               },
             },
             handleTextInput: (editorView, _from, _to, text) => beforeInput(editorView, text),
-              handlePaste: (editorView, event, slice) => {
-                const plain = event.clipboardData?.getData("text/plain");
-                if (plain && looksLikeMarkupText(plain)) {
-                  if (beforeInput(editorView, plain)) return true;
-                  const { from, to } = editorView.state.selection;
-                  editorView.dispatch(editorView.state.tr.insertText(plain, from, to));
-                  return true;
-                }
-                return beforeInput(editorView, slice.content.textBetween(0, slice.content.size, "\n", "\n"));
-              },
+            handlePaste: (editorView, event, slice) => {
+              const plain = event.clipboardData?.getData("text/plain");
+              if (plain && looksLikeMarkupText(plain)) {
+                if (beforeInput(editorView, plain)) return true;
+                const { from, to } = editorView.state.selection;
+                editorView.dispatch(editorView.state.tr.insertText(plain, from, to));
+                return true;
+              }
+              return beforeInput(editorView, slice.content.textBetween(0, slice.content.size, "\n", "\n"));
+            },
           },
           // Report every document and caret change; the composer's menu follows the caret.
           view: () => ({
