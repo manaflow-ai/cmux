@@ -14,13 +14,18 @@ public struct TerminalPresentMatch: Equatable, Sendable {
     public var recentRequests: [Int]
     /// The active area's top (the bottom of the scrollback).
     public var activeTop: Int
+    /// The last request was sent after the last report (`TerminalViewportTop`):
+    /// Ghostty's viewport is the request, and the report is older.
+    public var requestIsNewer: Bool
 
-    public init(presentedTop: Int, reportedTop: Int, requestedTop: Int, recentRequests: [Int], activeTop: Int) {
+    public init(presentedTop: Int, reportedTop: Int, requestedTop: Int, recentRequests: [Int], activeTop: Int,
+                requestIsNewer: Bool = false) {
         self.presentedTop = presentedTop
         self.reportedTop = reportedTop
         self.requestedTop = requestedTop
         self.recentRequests = recentRequests
         self.activeTop = activeTop
+        self.requestIsNewer = requestIsNewer
     }
 
     /// Shifts from `presentedTop` to every viewport a frame in flight may
