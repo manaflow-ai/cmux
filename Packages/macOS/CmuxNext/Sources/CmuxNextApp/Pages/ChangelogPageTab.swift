@@ -29,6 +29,16 @@ final class ChangelogPageTab: InternalPageProvider {
         let route = pendingRoute
         pendingRoute = nil
         guard let services, let view = PageFactory(services: services).changelogPage(route: route) else { return NSView() }
+        // Release-note docs and pull requests stay inside cmux's browser workspace. The page
+        // navigation policy cancels external origins unless the host handles them explicitly.
+        view.onOpenExternal = { [weak services] url in
+            guard let services, url.scheme?.lowercased() == "https" else { return }
+            if let pane = services.windows.active?.focusedPane {
+                pane.newBrowserTab(url: url)
+            } else {
+                services.externalOpen.perform(.browserTab(url))
+            }
+        }
         pages[key] = view
         return view
     }

@@ -62,7 +62,7 @@ html[data-cmux-page="changelog"] body {
 .cl-button:hover { background: var(--page-selection); }
 .cl-link { color: var(--page-text-2); text-decoration: none; font-size: var(--text-body); }
 .cl-link:hover { color: var(--page-text); text-decoration: underline; text-underline-offset: 3px; }
-:is(.cl-button, .cl-link, .cl-row-action, .cl-changes summary, .clr-version, .cl-pr, .cl-more):focus-visible {
+:is(.cl-button, .cl-link, .cl-row-action, .cl-row-link, .cl-changes summary, .clr-version, .cl-pr, .cl-more):focus-visible {
   outline: 2px solid var(--cmux-accent, currentColor);
   outline-offset: 2px;
 }
@@ -77,29 +77,36 @@ html[data-cmux-page="changelog"] body {
 }
 .cl-group ul { list-style: none; margin: 0; padding: 0; }
 .cl-group li {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 5px 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px 12px;
+  padding: 8px 0;
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
 }
-.cl-row-title { font-weight: 600; flex: none; max-width: 100%; }
-.cl-row-summary { color: var(--page-text-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cl-row-copy { min-width: 0; }
+.cl-row-title { display: block; font-weight: 600; }
+.cl-row-summary {
+  display: block;
+  margin-top: 2px;
+  color: var(--page-text-2);
+  white-space: normal;
+  text-wrap: pretty;
+}
+.cl-row-actions { display: flex; align-items: baseline; gap: 10px; flex: none; }
 .cl-row-action {
-  margin-left: auto;
-  flex: none;
   border: 0;
   background: transparent;
   padding: 0 2px;
   color: var(--page-text-3);
   font-size: var(--text-detail);
   cursor: default;
-  opacity: 0;
 }
-.cl-group li:hover .cl-row-action,
-.cl-row-action:focus-visible { opacity: 1; }
-.cl-row-action:hover { color: var(--page-text); }
+.cl-row-action:hover,
+.cl-row-link:hover { color: var(--page-text); }
+.cl-row-link { color: var(--page-text-2); font-size: var(--text-detail); text-decoration: none; white-space: nowrap; }
+.cl-row-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 .cl-changes { margin-top: 18px; color: var(--page-text-2); }
 .cl-changes summary {
