@@ -475,6 +475,8 @@ pub struct Brain {
     settle_clock: Option<Instant>,
     /// Where a turn waiting for the compactor says how far it is.
     settle_status: Option<Arc<crate::settle_status::SettleStatus>>,
+    /// A Chief that is not the default: a compactor fault is also its message.
+    compactor_messages: bool,
     turn_clock: Option<Instant>,
     /// The running turn's view with its new messages, what a `spawn` in it
     /// gives its subagents (no wait for the compactor to summarize the
@@ -590,6 +592,7 @@ impl Brain {
             prev_view: None,
             settle_clock: None,
             settle_status: None,
+            compactor_messages: false,
             turn_clock: None,
             turn_view: None,
             turn_engine: None,
@@ -632,6 +635,13 @@ impl Brain {
     /// A turn that waits for the compactor writes how far it is here.
     pub fn with_settle_status(mut self, status: crate::settle_status::SettleStatus) -> Brain {
         self.settle_status = Some(Arc::new(status));
+        self
+    }
+
+    /// A compactor fault is also posted as this Chief's message (a Chief whose
+    /// home the app does not watch for `state/compactor.json`).
+    pub fn with_compactor_messages(mut self, on: bool) -> Brain {
+        self.compactor_messages = on;
         self
     }
 
@@ -828,6 +838,15 @@ impl Brain {
             settle.compactor_fault(status.as_ref().err().map(String::as_str));
         }
         match status {
+            Err(text) if self.compactor_messages && self.state.compactor_notice.is_none() => {
+                let key = format!("notice:optchat:compactor:{}", now_ms());
+                self.state.compactor_notice = Some(crate::state::PostedNotice {
+                    key: key.clone(),
+                    message_id: None,
+                });
+                self.save();
+                self.notice(key, text);
+            }
             Err(text) => (self.log)(&text),
             Ok(()) => {
                 let Some(posted) = self.state.compactor_notice.take() else {

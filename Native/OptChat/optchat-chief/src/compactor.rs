@@ -11,7 +11,18 @@
 //! login); the preset turns off auto-memory, CLAUDE.md files, bundled
 //! skills and Claude Code's own refusal fallback, and the slot's project
 //! settings deny every tool and every hook. The session's cwd is a slot
-//! directory under the system temporary directory, outside any directory
+//! directory under the system temporary directory, outs        let id = self
+            .port
+            .new_session(&spec)
+            .inspect_err(|e| {
+                if e.contains("is taken") {
+                    let listed = self.port.find(name);
+                    self.say(&format!(
+                        "compactor: acpmux says session name {name} is taken; its list finds {listed:?}"
+                    ));
+                }
+            })
+            .and_then(|id| {e any directory
 //! with instruction files. The request maps onto the session's prompts.
 //! On a Claude harness whose acpmux takes a preset `systemPrompt`, the
 //! cached layout: each slot has its own preset, whose system prompt the
@@ -877,8 +888,9 @@ impl AcpmuxCompactor {
         if node == PROBE_NODE {
             // Its own name per host and probe (cx-oqnw3): after a brain restart on
             // the same Chief home the fixed `<name>-probe` was still taken in the
-            // shared acpmux, and the compactor stopped. The session is purged when
-            // the probe ends; a host that stops ends its acpmux sessions.
+            // shared acpmux although `start` ends a session it finds by that name
+            // (cause not known yet; `start` logs the sessions when a name is taken).
+            // The probe's session is purged when the probe ends.
             let n = self.probes.fetch_add(1, Ordering::SeqCst);
             format!("{}-probe-{}-{n}", self.spec.name, std::process::id())
         } else {
@@ -1104,9 +1116,16 @@ impl AcpmuxCompactor {
         // A transcript left by a crash in this slot.
         self.delete_transcript(&cwd);
         self.wipe_codex(slot);
-        // Left by a host that stopped while the node was being built.
-        if let Ok(Some(old)) = self.port.find(name) {
-            let _ = self.port.end_session(&old);
+        // Left by a host that stopped while the node was being built. When the
+        // list does not name it, acpmux ends a session by its exact name too
+        // (`_acpmux/kill` resolves a name; cx-oqnw3: the list missed one).
+        match self.port.find(name) {
+            Ok(Some(old)) => {
+                let _ = self.port.end_session(&old);
+            }
+            _ => {
+                let _ = self.port.end_session(name);
+            }
         }
         let spec = SessionSpec {
             name: name.to_owned(),
@@ -1123,6 +1142,14 @@ impl AcpmuxCompactor {
         let id = self
             .port
             .new_session(&spec)
+            .inspect_err(|e| {
+                if e.contains("is taken") {
+                    let listed = self.port.find(name);
+                    self.say(&format!(
+                        "compactor: acpmux says the session name {name} is taken; its list finds {listed:?}"
+                    ));
+                }
+            })
             .and_then(|id| {
                 // The session's own harness is what answers (a name that is
                 // also a family resolves through acpmux's preference list).

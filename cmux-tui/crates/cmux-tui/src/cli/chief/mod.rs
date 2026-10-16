@@ -140,8 +140,9 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
             "--chief-home" => parsed.chief_home = Some(value()?.into()),
             "--chief" => {
                 let id = value()?;
-                if parsed.control.is_none() {
-                    return Err("--chief goes with `cmux chief engine` or `cmux chief stop`".into());
+                // `--chief --json` is a missing id, not a Chief named `--json`.
+                if inline.is_none() && id.starts_with('-') {
+                    return Err("--chief needs a Chief id (cmux chief list)".into());
                 }
                 parsed.chief = Some(id);
             }
@@ -155,6 +156,9 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
             other => return Err(format!("unknown argument {other}")),
         }
         index += 1;
+    }
+    if parsed.chief.is_some() && parsed.control.is_none() {
+        return Err("--chief goes with `cmux chief engine` or `cmux chief stop`".into());
     }
     Ok(parsed)
 }
