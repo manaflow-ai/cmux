@@ -212,7 +212,13 @@ extension ChiefConversationOwner {
             work.status = status
             if let machine { work.host = machine }
             if let name { work.preview = name }
-            if !ok { work.preview = output }
+            // Keep the human-readable machine name after a later wait fails.
+            // The failure state already tells Home to draw the red result; the
+            // raw command output belongs in the tool log, not in the machine
+            // label users act on.
+            if !ok, work.preview?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
+                work.preview = output
+            }
         }
     }
 

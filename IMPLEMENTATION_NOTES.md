@@ -1,5 +1,7 @@
 ## 2026-10-15 interaction follow-up
 
+- Added a red-before-green cloud regression for a failed `vm wait`: the provisioning row retains its machine name while showing the failure state, so result copy never falls back to a raw VM id.
+
 - Fixed the shared Home sidebar action policy so the required default Chief conversation no longer advertises a Delete action that the host must refuse; ordinary conversations keep Delete through the same swipe/context-menu path.
 - Made the compact Settings memory rows keep their Forget affordance visible and refresh immediately after the single `ChiefMemoryStore.forget` mutation, so the x button reliably removes a note without depending on hover or watcher timing.
 - Re-ran the focused Chief cloud suite (7 tests) and the MessagesLab Chief list/cloud suites (14 tests); both pass. Affected static verification, test wiring, and localization catalog checks pass.
