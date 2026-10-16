@@ -4,7 +4,7 @@
 No running app, real credentials or model request is used.
 """
 import argparse
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 import json
 import os
 from pathlib import Path
@@ -27,15 +27,22 @@ def naming_socket_server(socket_path, workspace, surface, trigger):
     listener.listen()
     listener.settimeout(0.1)
     stopped = threading.Event()
+    connection_lock = threading.Lock()
+    active_connection = None
 
     def serve():
+        nonlocal active_connection
         while not stopped.is_set():
             try:
                 connection, _ = listener.accept()
             except socket.timeout:
                 continue
-            with connection:
-                stream = connection.makefile("rwb")
+            # Closing the buffered stream can repeat a handled broken-pipe write.
+            with connection, suppress(BrokenPipeError), connection.makefile("rwb") as stream:
+                with connection_lock:
+                    if stopped.is_set():
+                        break
+                    active_connection = connection
                 applied_on_connection = False
                 for raw in stream:
                     prefix = b"_cmux_capability_v1 fixture-local-capability "
@@ -71,15 +78,26 @@ def naming_socket_server(socket_path, workspace, surface, trigger):
                         break
                 if applied_on_connection:
                     applied_event.set()
+            with connection_lock:
+                active_connection = None
 
     server = threading.Thread(target=serve)
     server.start()
     try:
         yield requests, applied_event
     finally:
-        stopped.set()
+        # Serialize shutdown with accept registration so no new read can start
+        # after teardown has checked the active connection.
+        with connection_lock:
+            stopped.set()
+            if active_connection is not None:
+                try:
+                    active_connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass  # The peer or server may already have closed it.
         server.join(timeout=2)
         listener.close()
+        assert not server.is_alive(), "Socket fixture thread did not stop"
 
 
 def test_socket_server_closes_stalled_client():
