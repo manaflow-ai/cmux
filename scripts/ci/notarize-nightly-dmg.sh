@@ -133,9 +133,10 @@ fi
 # create-dmg, LZMA, sign. create-keychain makes the signing keychain just
 # before the signature (the DMG around the stapled app, after Apple's wait).
 package_signed_dmg() {
-  local app="$1" out="$2" work="$3" keychain="${4:-}" created format
+  local app="$1" out="$2" work="$3" keychain="${4:-}" created format saved_umask
   # create-dmg copies the app with the process umask. The notary sidecar
   # writers set 077, and an app copied under it is readable only by its owner.
+  saved_umask="$(umask)"
   umask 022
   "$CREATE_DMG_TOOL" --no-code-sign "$app" "$work"
   created="$(find "$work" -maxdepth 1 -name '*.dmg' -print -quit)"
@@ -165,6 +166,7 @@ package_signed_dmg() {
     --sign "$APPLE_SIGNING_IDENTITY" \
     "$out"
   "$CODESIGN_TOOL" --verify --verbose=2 "$out"
+  umask "$saved_umask"
 }
 
 package_signed_dmg "$APP_PATH" "$DMG_RELEASE" "$DMG_TMP_DIR"
