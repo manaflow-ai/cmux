@@ -2818,6 +2818,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var sidebarTitleDidChangePublisher: AnyPublisher<UInt64, Never> {
         sidebarTitleDidChangeSubject.eraseToAnyPublisher()
     }
+
+    /// Performs an automatic title write without invalidating the immediate
+    /// sidebar publisher; the settled process-title model owns that refresh.
+    ///
+    /// The depth counter keeps nested title reconciliation safe if a future
+    /// caller performs another automatic write from inside the mutation.
+    func withAutomaticTitleMutation(_ body: () -> Void) {
+        automaticTitleMutationDepth += 1
+        defer { automaticTitleMutationDepth -= 1 }
+        body()
+    }
     @Published var customTitle: String?
     /// Provenance of `customTitle`: `.user` for manual renames (sidebar,
     /// CLI, command palette), `.auto` for AI auto-naming. `nil` when no
