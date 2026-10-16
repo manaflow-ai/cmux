@@ -123,7 +123,7 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
   // The hand classifier (hand-classify.ts): reply shapes by a marker in the request, as Haiku
   // (bare JSON), Opus (prose, then a fenced object), a thinking model, prose with no verdict, and
   // prose with stray braces before the object.
-  if (system.startsWith("You review one request a coding assistant")) {
+  if (system.startsWith("You are the security reviewer of a permission system")) {
     const req = textOf(firstUser?.content);
     const allow = '{"verdict":"allow","confidence":0.93,"reason":"routine read in the project"}';
     if (req.includes("shape-haiku")) return fauxAssistantMessage(allow);
