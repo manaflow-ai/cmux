@@ -3,7 +3,7 @@ import type { ToolRegistration } from "@earendil-works/pi-durable"
 import type { OwnerFrame } from "@cmux/ownership"
 import type { Env } from "../env.ts"
 import { signInRules } from "../policy-gate.ts"
-import type { BrainConfig } from "./brain-store.ts"
+import { type BrainConfig, patchError } from "./brain-store.ts"
 
 /**
  * The `chiefs` tool of a Cloud Chief (Lawrence 2026-10-14: Chiefs make and edit other Chiefs; the
@@ -93,6 +93,9 @@ export const manageChiefs = async (env: Env, agent: string, owner: string, args:
   }
   if (args.model !== undefined && args.model !== me.model) throw new ChiefsRefused("grant_exceeds_caller", "a Chief gives another Chief only the model it runs itself [model]")
   const profile = { role: args.role, personality: args.personality, instructions: args.instructions }
+  // The limits are checked before any write, so a refused profile never leaves a half-made or half-renamed Chief.
+  const invalid = patchError(profile, () => true) ?? (args.display_name !== undefined && (args.display_name.trim().length === 0 || [...args.display_name].length > 100) ? "display_name must be 1 to 100 characters" : null)
+  if (invalid) throw new ChiefsRefused("validation.invalid", invalid)
   if (args.action === "create") {
     if (!args.display_name) throw new Error("chiefs: create needs display_name")
     // agents.allowedClasses (P17-4): the /v1/ops create checks the session's team; a Chief has none, so every team of the owner must allow chiefs.

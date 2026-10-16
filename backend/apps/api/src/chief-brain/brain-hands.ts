@@ -262,7 +262,7 @@ const run = <A>(env: Env, caller: HandCaller | null, program: Effect.Effect<A, H
  */
 const HandsEntryArgs = Type.Object({
   action: Type.Union([Type.Literal("list"), Type.Literal("pair_code"), Type.Literal("new_sandbox")]),
-  name: Type.Optional(Type.String()),
+  name: Type.Optional(Type.String({ description: "new_sandbox (required) / pair_code: the hand's name." })),
   profile: Type.Optional(Type.Union([Type.Literal("sandbox"), Type.Literal("mac")]))
 })
 
@@ -277,14 +277,15 @@ const callerOf = (who: Who) => (): HandCaller | null => {
  * `hands` + `agent` pair): list, a pairing code for a machine, or a new cloud sandbox. Once a hand exists the
  * brain offers the full tools (from the next model step after new_sandbox, or the next turn after pairing).
  */
-export const handsEntryTool = (env: Env, who: Who, onHand: () => void): ToolRegistration<typeof HandsEntryArgs> => ({
+export const handsEntryTool = (env: Env, who: Who, onHand: () => Promise<void>): ToolRegistration<typeof HandsEntryArgs> => ({
   name: "hands",
   description: "You have no hand yet (a machine for files, programs and coding agents). list: your hands. pair_code: a code + install line for a machine (name, profile). new_sandbox: a cloud sandbox with its hand (name). Then the full hands and agent tools appear.",
   parameters: HandsEntryArgs,
   replay: "unsafe",
   execute: async (args) => {
     const text = await run(env, callerOf(who)(), handsProgram(args as HandsArgsT))
-    if (args.action === "new_sandbox" || args.action === "list") onHand()
+    // Before the result goes back: the next model request sees the full tools when a hand exists now.
+    if ((args.action === "new_sandbox" || args.action === "list") && !text.startsWith("hands error")) await onHand().catch(() => undefined)
     return { content: [{ type: "text", text }] }
   }
 })

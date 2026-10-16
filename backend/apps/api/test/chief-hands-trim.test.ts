@@ -2,7 +2,7 @@ import { env, exports } from "cloudflare:workers"
 import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
-import { fakeCalls } from "../src/chief-brain/fake.ts"
+import { fakeCalls, holdTurns } from "../src/chief-brain/fake.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /**
@@ -59,6 +59,13 @@ const dmAndReply = async (token: string, chief: { id: string; main_conversation:
 const sha = async (s: string) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s))), (b) => b.toString(16).padStart(2, "0")).join("")
 // Turn requests of the Chief's own loop that carried this marker (requests with no tool set, such as a summary
 // pass over the same text, are left out).
+/** The person pairs a machine for their Chiefs (pair code, then the hand's pair call). */
+const pair = async (token: string, name: string) => {
+  const minted = await http("POST", "/v1/hands/pair-codes", token, { name, profile: "sandbox" })
+  expect(minted.status, JSON.stringify(minted.json)).toBe(200)
+  const key = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+  expect((await http("POST", "/v1/hands/pair", "", { code: (minted.json.value as { code: string }).code, key_sha256: await sha(key), name, profile: "sandbox" })).json.ok).toBe(true)
+}
 const turnTools = (marker: string) =>
   fakeCalls.filter((c) => c.kind === "turn" && c.tools.length > 0 && (c.firstUser.join("\n").includes(marker) || c.laterUsers.join("\n").includes(marker))).map((c) => c.tools)
 
@@ -75,23 +82,35 @@ describe("Chief hands tools by hand", { timeout: 120_000 }, () => {
     expect(names).not.toContain("agent")
     const compact = first[0]!.find((t) => t.name === "hands")!.size
 
-    // The person pairs a machine.
-    const minted = await http("POST", "/v1/hands/pair-codes", token, { name: "sb-trim", profile: "sandbox" })
-    expect(minted.status, JSON.stringify(minted.json)).toBe(200)
-    const { code } = minted.json.value as { code: string }
-    const key = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
-    expect((await http("POST", "/v1/hands/pair", "", { code, key_sha256: await sha(key), name: "sb-trim", profile: "sandbox" })).json.ok).toBe(true)
-
-    // The Chief lists its hands with the entry tool; the next request of that turn has the full tools.
-    await dmAndReply(token, chief, 'marker-two tool:hands {"action":"list"}', 2)
+    // A hand appears while the turn's first request runs (held): that request has the compact tool; the Chief
+    // lists its hands with it, and the request after the tool result carries the full hands and agent tools.
+    const release = holdTurns()
+    const key2 = "hands-marker-two"
+    expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: key2, parts: [{ type: "text", text: 'marker-two tool:hands {"action":"list"}' }] }, key2)).ok).toBe(true)
+    const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(chief.main_conversation))
+    for (let i = 0; i < 200 && turnTools("marker-two").length === 0; i++) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 25))]
+    expect(turnTools("marker-two")[0]!.map((t) => t.name)).not.toContain("agent")
+    await pair(token, "sb-trim")
+    release()
+    for (let i = 0; i < 200 && (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id).length < 2; i++) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 25))]
     const second = turnTools("marker-two")
     expect(second.length, "the tool call took no second request").toBeGreaterThanOrEqual(2)
-    const after = second.at(-1)!
+    const after = second[1]!
     expect(after.map((t) => t.name), JSON.stringify(second)).toEqual(expect.arrayContaining(["hands", "agent"]))
     expect(after.find((t) => t.name === "hands")!.size).toBeGreaterThan(compact * 3)
 
-    // Later turns keep them.
+    // Later turns have them from their first request.
     await dmAndReply(token, chief, "marker-three", 3)
     expect(turnTools("marker-three")[0]!.map((t) => t.name)).toEqual(expect.arrayContaining(["hands", "agent"]))
+  })
+
+  it("a Chief whose hand was paired between turns has the full tools on the next turn's first request", async () => {
+    const { token, chief } = await ownerWithChief("hands-trim-next")
+    expect((await http("PUT", `/v1/hands/grants/${chief.id}`, token, { on: true })).status).toBe(200)
+    await dmAndReply(token, chief, "first marker-four", 1)
+    expect(turnTools("marker-four")[0]!.map((t) => t.name)).not.toContain("agent")
+    await pair(token, "sb-next")
+    await dmAndReply(token, chief, "then marker-five", 2)
+    expect(turnTools("marker-five")[0]!.map((t) => t.name)).toEqual(expect.arrayContaining(["hands", "agent"]))
   })
 })

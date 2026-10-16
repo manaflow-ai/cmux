@@ -496,8 +496,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
         }
         await this.harness.session().reset()
         this.sql.exec(`UPDATE cb_turn SET submitted = 1 WHERE id = ?`, id)
-        // Off the turn's path: a hand found now gives the full tools from the next model request.
-        void this.refreshHands().catch(() => undefined)
+        // A hand paired since the last turn gives the full tools on this turn's first request (bounded wait).
+        await Promise.race([this.refreshHands().catch(() => undefined), new Promise((r) => setTimeout(r, 1_500))])
         await this.harness.submit(blocks.map((text) => ({ type: "text" as const, text })), { operationId: id })
       }
       // A child's bound runs from its start, across restarts (its slot frees after SLOT_STALE_MS).
@@ -602,7 +602,6 @@ export class ChiefBrainDO extends DurableObject<Env> {
     return this.child
   }
 
-  /** The hands tools; a child's caller and agent tokens name its own object (`<conversation>:spawn:<n>`), so a hand's session-end revoke reaches it. */
   /**
    * The hands tools as their own extension: the full `hands` + `agent` pair when the Chief has a hand (or is a
    * child, which works on hands), else one compact `hands` entry (list, pair_code, new_sandbox): about 1.8k fewer
@@ -611,7 +610,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
    */
   private installHands(): void {
     const full = this.childOf() !== null || this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = 'hands_full'`).toArray()[0]?.value === "1"
-    this.registry.install({ name: "chief-hands", tools: full ? [...this.hands()] : [handsEntryTool(this.env, () => ({ ...this.config() }), () => void this.refreshHands())] })
+    this.registry.install({ name: "chief-hands", tools: full ? [...this.hands()] : [handsEntryTool(this.env, () => ({ ...this.config() }), () => this.refreshHands())] })
   }
 
   /** Checks for a hand (one list call) and offers the full tools once there is one; it stays on after that. */
@@ -622,6 +621,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     this.installHands()
   }
 
+  /** The hands tools; a child's caller and agent tokens name its own object (`<conversation>:spawn:<n>`), so a hand's session-end revoke reaches it. */
   private hands() {
     const c = this.childOf()
     return handsTools(this.env, () => ({ ...this.config(), run: this.turnId, conversation: c ? childKey(c.conversation, c.n) : this.turnConversation, ledger: (jti: string, o: LedgerOp) => runLedger(this.sql, this.turnId ?? "", jti, 0, o) }), (r) => (r.type === "run.activity" ? liveOf(this.ctx).activity(r.line) : this.turnId && this.announce(this.turnId, [upsertStep(this.sql, this.turnId, r.step, Date.now())])))
