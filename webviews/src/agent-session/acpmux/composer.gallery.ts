@@ -216,8 +216,18 @@ export default agentPaneEntry({
       snapshot: footerChat("default"),
       play: async (ctx) => {
         const model = ctx.find({ selector: ".acpmux-model-name" });
-        if (model.textContent !== "Opus 5.5") throw new Error("the model chip repeats its vendor");
-        if (!model.closest("button")?.title.startsWith("Claude Opus 5.5"))
+        if (model.textContent !== "Claude Opus 5.5") throw new Error("the model chip lost its full name");
+        const view = ctx.document.defaultView!;
+        const button = model.closest("button")!;
+        const drawn = [...button.querySelectorAll(".acpmux-model-short")].flatMap((part) => {
+          if (!part.getClientRects().length || view.getComputedStyle(part).visibility !== "visible") return [];
+          const content = view.getComputedStyle(part, "::before").content;
+          return /^".+"$/.test(content) ? [content.slice(1, -1)] : [];
+        });
+        const form = button.closest<HTMLElement>(".acpmux-composer-bar")?.dataset.fitModel ?? "full";
+        const expected = form === "icon" ? "" : form === "family" ? "Opus" : "Opus 5.5";
+        if (drawn.join(" ") !== expected) throw new Error(`the model form must draw "${expected}"`);
+        if (!button.title.startsWith("Claude Opus 5.5"))
           throw new Error("the model chip lost its full tooltip");
         const access = ctx.find({ selector: ".acpmux-access-trigger" });
         const mode = access.querySelector(".acpmux-mode-text");
@@ -229,13 +239,18 @@ export default agentPaneEntry({
       },
     },
     "footer-full-access": {
-      note: "Full access keeps its name in the bar: a mode that is not the default always says what it is.",
+      note: "Full access keeps its name while the row has room, then its warning shield and full tooltip.",
       snapshot: footerChat("full-access"),
       play: async (ctx) => {
         const access = ctx.find({ selector: ".acpmux-access-trigger" });
         const mode = access.querySelector(".acpmux-mode-text");
         if (mode?.textContent !== "Full access" || mode.classList.contains("sr-only"))
-          throw new Error("Full access must keep its visible mode name");
+          throw new Error("Full access must keep its non-default mode name");
+        const folded = access.closest<HTMLElement>(".acpmux-composer-bar")?.dataset.fitAccess === "icon";
+        const visible = ctx.document.defaultView!.getComputedStyle(mode).visibility === "visible";
+        if (visible === folded) throw new Error("Full access must follow the row's whole-label form");
+        if (!access.getAttribute("title")?.includes("Full access"))
+          throw new Error("Full access lost its full tooltip");
         if (!access.querySelector('[data-shield="alert"]')) throw new Error("Full access lost its warning shield");
       },
     },
