@@ -128,7 +128,7 @@ pub(super) async fn check(
     }
     let web = origin.web_class();
     if m == method::SESSION_CANCEL && web {
-        return check_cancel_ownership(hub, params);
+        check_cancel_ownership(hub, params)?;
     }
     // A per-session env is set over the unix socket only (session_env.rs).
     if matches!(m, method::SESSION_NEW | method::SESSION_FORK)

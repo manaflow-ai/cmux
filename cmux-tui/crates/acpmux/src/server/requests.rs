@@ -50,7 +50,14 @@ pub(super) async fn handle_notification(
                         tracing::debug!(conn = %conn.id, "cancel: {e}");
                     }
                 } else if let Some((peer, id, _)) = hub.resolve_remote(key) {
-                    let _ = peer.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+                    let mut forwarded = json!({"sessionId": id});
+                    super::remote_guard::mark_forwarded(
+                        conn.origin,
+                        conn.auth,
+                        &params,
+                        &mut forwarded,
+                    );
+                    let _ = peer.notify(method::SESSION_CANCEL, forwarded).await;
                 }
             }
         }
