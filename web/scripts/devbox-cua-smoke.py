@@ -83,10 +83,16 @@ class McpClient:
 
 
 def screenshot(client, destination):
-    result = client.call("get_desktop_state", {"max_image_dimension": 0})
-    images = [item for item in result.get("content", []) if item.get("type") == "image"]
-    assert images, "MCP returned no desktop image"
-    data = base64.b64decode(images[0]["data"], validate=True)
+    # Current cua-driver accepts an explicit destination for desktop captures;
+    # older releases returned the PNG inline. Keep both forms so the image
+    # proof remains useful across a rolling snapshot ladder.
+    result = client.call("get_desktop_state", {"screenshot_out_file": str(destination)})
+    if destination.exists():
+        data = destination.read_bytes()
+    else:
+        images = [item for item in result.get("content", []) if item.get("type") == "image"]
+        assert images, "MCP returned no desktop image"
+        data = base64.b64decode(images[0]["data"], validate=True)
     assert data[:8] == b"\x89PNG\r\n\x1a\n", "desktop image is not a PNG"
     width, height = struct.unpack(">II", data[16:24])
     assert width >= 800 and height >= 600, (width, height)
