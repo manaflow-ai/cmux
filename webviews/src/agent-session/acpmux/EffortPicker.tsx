@@ -5,6 +5,7 @@ import { EffortTrack } from "./EffortTrack";
 import { useT } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
 import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
+import type { ReasoningSliderStyle } from "./composerSettings";
 
 /// A switch section in the reasoning menu: Claude Code's Fast Mode (On/Off) or Codex's Service
 /// Tier (Standard/Fast), and Claude Code's Ultracode. `on` is the choice the chip names.
@@ -26,7 +27,8 @@ export type SpeedSection = {
 /// With `slider` (the Debug Settings toggle `agent.reasoningSlider`, off by default) the Reasoning
 /// section is the model picker's stepped slider (EffortTrack) instead of the rows, when the model
 /// offers two or more levels. The slider picks as it moves and keeps the menu open; Escape closes
-/// it back to the chip.
+/// it back to the chip. `sliderStyle` is an opt-in visual comparison choice and defaults to the
+/// current accent treatment.
 export function EffortPicker({
   label,
   efforts,
@@ -37,6 +39,7 @@ export function EffortPicker({
   speed,
   chevron,
   slider = false,
+  sliderStyle: requestedSliderStyle = "accent",
 }: {
   /// The stable name automation opens it by (`openPicker`), whatever the UI language.
   label: string;
@@ -50,6 +53,8 @@ export function EffortPicker({
   chevron?: React.ReactNode;
   /// Draw the Reasoning section as a slider (the person's opt-in); the list is the default.
   slider?: boolean;
+  /// Visual treatment for the opt-in slider; the current accent treatment is the default.
+  sliderStyle?: ReasoningSliderStyle;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -64,6 +69,7 @@ export function EffortPicker({
   const fast = speed !== undefined && speed.current === speed.on;
   // One level is nothing to slide between: the list shows it as a single checked row.
   const sliding = slider && visibleEfforts.length > 1;
+  const sliderStyle = requestedSliderStyle;
   const recommended = visibleEfforts.find((choice) => choice.recommended);
   // The level the thumb shows: the picked one, else (the agent's own default) the recommended one.
   const shown = selectedVisible ?? recommended ?? visibleEfforts[0];
@@ -126,6 +132,7 @@ export function EffortPicker({
               current={selectedVisible?.id}
               shown={shown}
               fallback={recommended?.id}
+              sliderStyle={sliderStyle}
               onPick={onPick}
               onClose={() => setOpen(false)}
             />
@@ -197,6 +204,7 @@ function ReasoningSlider({
   current,
   shown,
   fallback,
+  sliderStyle,
   onPick,
   onClose,
 }: {
@@ -205,6 +213,7 @@ function ReasoningSlider({
   current?: string;
   shown?: Choice;
   fallback?: string;
+  sliderStyle: ReasoningSliderStyle;
   onPick(value: string): void;
   onClose(): void;
 }) {
@@ -263,6 +272,7 @@ function ReasoningSlider({
         efforts={efforts}
         current={current}
         fallback={fallback}
+        sliderStyle={sliderStyle}
         onPick={commit}
         onEscape={onClose}
         onRangeKey={onRangeKey}
