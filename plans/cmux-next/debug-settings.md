@@ -81,3 +81,13 @@ stays the single material choice (blur before macOS 26, opaque under Reduce
 Transparency). Reduce Motion snaps every style. Colors are theme roles; the
 line color tunable offers no blue. Hit testing, `DropTarget` and commits are
 unchanged.
+
+## Settings design prototype
+
+Pages > Settings: Refined Look (`settings.refinedLook`, boolean, default `false`)
+previews the refined Settings navigation, grouped cards and abstract theme illustration.
+It applies live to open Settings pages through `cmux.settings.host.lists` and
+`cmux.settings.host.changed`, which observe the same tunable read. The page sets
+`data-settings-look="refined"` on `<html>` only while enabled. With it off, the
+original Settings layout and theme preview stay in place. The browser preview
+accepts `?look=refined` for the same look.

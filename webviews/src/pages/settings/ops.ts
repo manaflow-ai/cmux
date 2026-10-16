@@ -80,6 +80,8 @@ export type BrowserProfile = {
 
 /** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
 export type HostLists = {
+  /** DEV/NIGHTLY Settings design variant, false when unavailable. */
+  settings_refined_look?: boolean;
   rooms: HostListRow[] | null;
   machines: HostListRow[];
   browser_profiles: BrowserProfile[];

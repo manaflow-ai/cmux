@@ -57,10 +57,16 @@ public nonisolated struct PageTunables {
         "debugSettings.surface", section, "Debug Settings page", help: "Shows Debug Settings as the React page. Reopen Debug Settings to apply.",
         default: .web, code: "PageTunables.debugSettings")
 
+    /// The Settings design prototype; updates every open Settings page live.
+    public static let settingsRefinedLook = Tunable<Bool>.toggle(
+        "settings.refinedLook", section, "Settings: Refined Look",
+        help: "Preview the refined Settings layout and theme illustration. Applies live.",
+        default: false, code: "PageTunables.settingsRefinedLook")
+
     /// The Cloud page's machine list layout (the Cloud lead's prototype variants; rows default).
     public static let cloudMachinesLayout = Tunable<CloudMachinesLayout>.choice(
         "cloud.machines.layout", section, "Cloud machines layout", help: "Machine list of the Cloud page: dense rows or cards. New pages use it.",
         default: .rows, code: "PageTunables.cloudMachinesLayout")
 
-    public static var all: [TunableDescriptor] { [history.descriptor, appStore.descriptor, coderouter.descriptor, debugSettings.descriptor, cloudMachinesLayout.descriptor] }
+    public static var all: [TunableDescriptor] { [history.descriptor, appStore.descriptor, coderouter.descriptor, debugSettings.descriptor, cloudMachinesLayout.descriptor, settingsRefinedLook.descriptor] }
 }
