@@ -16,8 +16,10 @@ Judging (exit 1 on any FAIL):
   cannot have it: userVerifyingPlatformAuthenticator / passkeyPlatformAuthenticator need the
   "<team>.<bundle>.webauthn" keychain group in the signed app (tagged DEV builds have none); a
   key Chrome has and cmux's Chromium does not know at all (version skew) is a NOTE.
-- WebKit: uvpaa must be true when the app has com.apple.developer.web-browser.public-key-credential
-  (and the person has not denied passkeys), else NOTE.
+- WebKit: uvpaa must be true when the app has com.apple.developer.web-browser.public-key-credential,
+  else NOTE (a Mac where the person once denied cmux passkeys fails this row: allow them in
+  System Settings first).
+- hybridTransport also needs the app's own Bluetooth permission: false there is a NOTE.
 - GitHub: the text must not show where uvpaa is expected true. `--virtual-platform` adds a
   DevTools virtual platform authenticator to the CEF tab first (Debug builds), which makes
   Chromium report a platform authenticator, so a DEV build proves the page logic too.
@@ -273,6 +275,8 @@ def judge_against_chrome(engine, page, probe, chrome):
         value = caps.get(key)
         if value is True:
             row(engine, page, f"cap {key}", "PASS", "true, as Chrome")
+        elif key == "hybridTransport":
+            row(engine, page, f"cap {key}", "NOTE", f"{value} (needs this app's Bluetooth permission; Chrome true)")
         elif key in PLATFORM_KEYS and not expected_uvpaa(engine):
             row(engine, page, f"cap {key}", "NOTE", f"{value} (expected: this build has no platform authenticator group/entitlement)")
         elif value is None and engine == "cef":
@@ -349,8 +353,9 @@ def main():
                     devtools("WebAuthn.enable", {"enableUI": False})
                     devtools("WebAuthn.addVirtualAuthenticator", {"options": {"protocol": "ctap2", "transport": "internal",
                              "hasResidentKey": True, "hasUserVerification": True, "isUserVerified": True, "automaticPresenceSimulation": True}})
-                    tab.eval("location.reload()")
-                    time.sleep(2)  # test harness: the reload starts before readyState is read again
+                    # A marker on the old document: gone once the reloaded page is there.
+                    tab.eval("window.__cmuxParityOld = 1; location.reload(); 'reloading'")
+                    wait(lambda: tab.eval("window.__cmuxParityOld === undefined && document.readyState === 'complete'") is True, 45, 0.5)
                 check(tab, name, chrome_probes.get(name))
                 if engine == "cef" and opts.virtual_platform:
                     devtools("WebAuthn.disable")

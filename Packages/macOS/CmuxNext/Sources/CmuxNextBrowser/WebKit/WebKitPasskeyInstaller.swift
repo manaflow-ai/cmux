@@ -57,6 +57,10 @@ final class WeakPasskeyReplyHandler: NSObject, WKScriptMessageHandlerWithReply {
     @MainActor
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) async -> (Any?, String?) {
         guard let tab else { return (WebKitPasskeyAuthorization.State.notDetermined.rawValue, nil) }
+        // An availability read: the current state, never the prompt.
+        if (message.body as? [String: Any])?["kind"] as? String == "state" {
+            return (WebKitPasskeyInstaller.authorization(for: tab).state.rawValue, nil)
+        }
         let answer = await WebKitPasskeyInstaller.answer(tab, frameOrigin: message.frameInfo.securityOrigin, isMainFrame: message.frameInfo.isMainFrame)
         return (answer, nil)
     }

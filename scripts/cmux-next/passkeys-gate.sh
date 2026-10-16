@@ -20,7 +20,7 @@
 #               support" text (with a virtual platform authenticator in CEF; a signed build
 #               runs it again without one: PASSKEYS_GATE_SIGNED=1).
 # Real Touch ID, iCloud Keychain, 1Password, a phone and a YubiKey PIN need a person: see the
-# physical checklist in passkeys.md section 8.
+# physical checklist in passkeys.md section 12.3.
 set -u
 : "${NX_APP:?run under nx-remote --app-from-fleet}" "${NX_APP_SOCKET:?}"
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -38,7 +38,7 @@ step() {
   echo "== passkeys-gate: $name exit $code"
   [[ $code -eq 0 ]] || status=1
 }
-step matrix python3 -I "$HERE/passkeys-matrix-e2e.py" --socket "$NX_APP_SOCKET" --out "$OUT"
+step matrix python3 -I "$HERE/passkeys-matrix-e2e.py" --socket "$NX_APP_SOCKET" --app "$NX_APP" --out "$OUT"
 step roaming python3 -I "$HERE/passkeys-roaming-e2e.py" --socket "$NX_APP_SOCKET" --out "$OUT"
 step parity-virtual python3 -I "$HERE/passkeys-parity-e2e.py" --socket "$NX_APP_SOCKET" --app "$NX_APP" \
   --virtual-platform --engines cef --out "$OUT/virtual"

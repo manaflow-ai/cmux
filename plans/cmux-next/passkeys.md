@@ -338,7 +338,10 @@ Lawrence 2026-10-16: "ensure 'This browser or device is reporting partial passke
 | tagged DEV | per tag | false | false (no profile); the gate uses a virtual platform authenticator | false |
 
 Profile passkeys are stored in the app's own keychain group and listed on the Passwords page
-(fork API 18). Chromium's own sheet still offers iCloud Keychain (with the browser entitlement),
+(fork API 18); deleting a cmux profile counts and deletes them with it (BrowserProfileDeletePrompt).
+Where a new platform passkey goes is Chromium's rule, as in Chrome (`ShouldCreateInICloudKeychain`):
+with the browser entitlement and iCloud Drive on, iCloud Keychain; else the cmux profile (local, no
+sync). RC has no browser entitlement, so its platform passkeys are profile passkeys. Chromium's own sheet still offers iCloud Keychain (with the browser entitlement),
 security keys, phones (hybrid) and third-party providers (1Password, Bitwarden through the macOS
 credential-provider API, which comes with the iCloud Keychain request), the same set as Chrome.
 

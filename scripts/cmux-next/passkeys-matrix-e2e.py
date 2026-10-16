@@ -19,7 +19,7 @@ while the tab's WebContents is VISIBLE, so a partly covered tab must still compl
 Usage: passkeys-matrix-e2e.py --socket SOCK [--engines cef,webkit] [--only a,b] [--no-virtual-authenticator] [--k16]
 Writes passkeys.json to --out. Exit status 0 when every judged scenario passes.
 """
-import argparse, functools, http.server, json, os, socket, sys, threading, time
+import argparse, functools, http.server, json, os, socket, subprocess, sys, threading, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the app's control socket")
@@ -29,6 +29,7 @@ parser.add_argument("--no-virtual-authenticator", action="store_true", help="Rel
 parser.add_argument("--rp", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../tests/passkeys/rp"))
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--k16", action="store_true", help="the partly-covered CEF tab check only")
+parser.add_argument("--app", default="", help="the .app (its signed entitlements decide WebKit's expected rows)")
 opts = parser.parse_args()
 SOCK = opts.socket
 NO_AUTHENTICATOR = ["client-capabilities", "user-id-too-long", "insecure-rp-id", "cross-origin-iframe-denied",
@@ -96,7 +97,28 @@ class Quiet(http.server.SimpleHTTPRequestHandler):
         pass
 
 
+def webkit_has_passkey_entitlement():
+    if not opts.app:
+        return False
+    out = subprocess.run(["codesign", "-d", "--entitlements", ":-", opts.app], capture_output=True)
+    return b"com.apple.developer.web-browser.public-key-credential" in out.stdout
+
+
+def environment_note(engine, name, status, detail):
+    """WebKit rows that fail for the host, not the browser: WebKit refuses WebAuthn while the
+    app is in the background (GUI gate jobs launch it with open -g), and a WebKit ceremony
+    needs the browser passkey entitlement, which DEV builds lack (K18)."""
+    if engine != "webkit" or status != "FAIL":
+        return status, detail
+    if "document is not focused" in str(detail):
+        return "NOTE", f"{detail} (the app is in the background; WebKit needs focus)"
+    if name == "abort-modal" and not webkit_has_passkey_entitlement():
+        return "NOTE", f"{detail} (no browser passkey entitlement in this build, K18)"
+    return status, detail
+
+
 def row(engine, name, status, detail):
+    status, detail = environment_note(engine, name, status, detail)
     ROWS.append({"engine": engine, "scenario": name, "status": status, "detail": detail})
     print(f"{status} | {engine:6} | {name:30} | {str(detail)[:220]}", flush=True)
 

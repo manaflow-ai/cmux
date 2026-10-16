@@ -88,8 +88,9 @@ public final class WebKitPasskeyAuthorization {
 /// carries the browser passkey entitlement, a ceremony after the person's
 /// input asks once and then runs, so while the answer is undecided the
 /// script reports the platform authenticator as available (also in
-/// `getClientCapabilities()`). Without the entitlement (DEV builds) it
-/// reports WebKit's own answer.
+/// `getClientCapabilities()`). It reads the app's state each time
+/// (`{kind: "state"}`, never a prompt), so a decision made in another tab
+/// counts. Without the entitlement (DEV builds) it reports WebKit's own answer.
 nonisolated enum WebKitPasskeyScript {
     static let messageHandlerName = "cmuxPasskeyAuthorization"
 
@@ -122,17 +123,20 @@ nonisolated enum WebKitPasskeyScript {
       credentials.get = wrap('get');
       const PKC = window.PublicKeyCredential;
       if (!platformPending || !PKC || window.top !== window) return;
+      // The app's current answer, read without asking (a decision in another tab counts).
+      const undecided = () => decided ? Promise.resolve(false)
+        : handler.postMessage({ kind: 'state' }).then((state) => state === 'notDetermined', () => false);
       const uvpaa = PKC.isUserVerifyingPlatformAuthenticatorAvailable && PKC.isUserVerifyingPlatformAuthenticatorAvailable.bind(PKC);
       if (uvpaa) {
         PKC.isUserVerifyingPlatformAuthenticatorAvailable = function () {
-          return decided ? uvpaa() : Promise.resolve(true);
+          return undecided().then((pending) => pending ? true : uvpaa());
         };
       }
       const capabilities = PKC.getClientCapabilities && PKC.getClientCapabilities.bind(PKC);
       if (capabilities) {
         PKC.getClientCapabilities = function () {
-          return capabilities().then((caps) => {
-            if (decided || !caps || typeof caps !== 'object') return caps;
+          return Promise.all([capabilities(), undecided()]).then(([caps, pending]) => {
+            if (!pending || !caps || typeof caps !== 'object') return caps;
             return Object.assign({}, caps, { userVerifyingPlatformAuthenticator: true, passkeyPlatformAuthenticator: true });
           });
         };

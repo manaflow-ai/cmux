@@ -231,12 +231,12 @@ void InstallWindowRequestHandler();
 // applies the New Tab page URL and native messaging folders stored before
 // CefInitialize (shim_extensions_ui.mm).
 void InstallExtensionUIHandlers();
-// Sends Chromium's password save and update prompts to the host (API 20),
-// so Chromium's bubble does not show (shim_password_core.mm).
 // Before CefInitialize: hands Chromium the signed app's "<team>.<bundle>.webauthn"
 // keychain group, so its macOS platform authenticator (and with it
 // isUserVerifyingPlatformAuthenticatorAvailable) works (shim_passkeys.mm).
 void ConfigureWebAuthnKeychainAccessGroup();
+// Sends Chromium's password save and update prompts to the host (API 20),
+// so Chromium's bubble does not show (shim_password_core.mm).
 void InstallPasswordPromptHandler();
 void RemovePasswordPromptHandler();
 // The visible entry's virtual URL when it is chrome://newtab (the New Tab
