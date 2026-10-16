@@ -3737,6 +3737,9 @@ mod left_dock_undock;
 mod lone_width;
 #[path = "cli/new_terminal_cwd.rs"]
 mod new_terminal_cwd;
+#[cfg(unix)]
+#[path = "cli/remote_update_need.rs"]
+mod remote_update_need;
 #[path = "cli/settings_owner.rs"]
 mod settings_owner;
 #[path = "cli/state_helpers.rs"]

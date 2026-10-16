@@ -122,6 +122,7 @@ const REMOTE_COMMANDS: &[&str] = &[
     "remote-link",
     "remote-sidecar",
     "remote-stop",
+    "remote-update-need",
     "install-self",
     "wg",
 ];
@@ -139,6 +140,7 @@ pub(super) fn remote_action_command(action: &str) -> Option<&'static str> {
         "enroll" => Some("enroll"),
         "known-daemons" => Some("known-daemons"),
         "stop" => Some("remote-stop"),
+        "update-need" => Some("remote-update-need"),
         _ => None,
     }
 }
