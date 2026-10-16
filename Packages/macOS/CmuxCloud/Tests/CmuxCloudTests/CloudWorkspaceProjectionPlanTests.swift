@@ -111,6 +111,22 @@ struct CloudWorkspaceProjectionPlanTests {
         }
     }
 
+    @Test("Additional local views of an authorized browser tab are retained")
+    func duplicateBrowserViewSurvivesRefresh() {
+        let browser = SurfaceResourceID(machine: machine, kind: .browser, key: "browser-shared")
+        let remoteWorkspace = "workspace"
+        let remoteTab = "tab-browser"
+        let first = SurfaceProjection(resource: browser, workspaceID: UUID(), panelID: UUID(),
+                                      remoteWorkspaceID: remoteWorkspace, remoteTabID: remoteTab)
+        let second = SurfaceProjection(resource: browser, workspaceID: first.workspaceID, panelID: UUID(),
+                                       remoteWorkspaceID: remoteWorkspace, remoteTabID: remoteTab)
+        let desired = SurfaceResourcePlacement(resource: browser,
+            remoteWorkspaceID: remoteWorkspace, remoteTabID: remoteTab)
+        let plan = CloudWorkspaceProjectionPlan(desired: [desired], existing: [first, second])
+        #expect(plan.obsolete.isEmpty)
+        #expect(plan.missing.isEmpty)
+    }
+
     @Test("A browser pane awaiting its remote receipt is not retired")
     func pendingBrowserProjectionSurvivesRefresh() {
         let browser = SurfaceResourceID(machine: machine, kind: .browser, key: "browser-pending")
