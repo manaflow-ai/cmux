@@ -35,7 +35,7 @@ SHA = "a" * 40
 HARNESS = r"""
 const scenario = JSON.parse(process.env.SCENARIO);
 const guard = await import(process.env.GUARD);
-const calls = { runs: 0, jobs: 0, activityPages: 0, moves: 0 };
+const calls = { runs: 0, jobs: 0, activityPages: 0, moves: 0, comparePages: 0 };
 const pullsListCommits = Symbol('listCommits');
 const notices = [];
 const actions = { listWorkflowRuns: async () => ({ data: { workflow_runs: [] } }), listJobsForWorkflowRun: Symbol('jobs') };
@@ -51,15 +51,42 @@ const github = {
       },
     },
     repos: {
-      compareCommitsWithBasehead: async ({ basehead }) => {
+      // A small commit graph: compare(base...head) lists every commit reachable
+      // from head and not from base (all parents), paginated, with the range's
+      // files capped as GitHub caps them.
+      compareCommitsWithBasehead: async ({ basehead, per_page = 250, page = 1 }) => {
         const [base, head] = basehead.split('...');
-        if (base === scenario.current && head === scenario.sha) return { data: { status: 'ahead', files: scenario.rangeFiles } };
-        if (head === scenario.sourceHead) return { data: { status: scenario.onSource[base] || 'diverged' } };
-        throw new Error(`unexpected compare ${basehead}`);
+        if (head === scenario.sourceHead && base !== scenario.current) {
+          return { data: { status: scenario.onSource[base] || 'diverged' } };
+        }
+        if (!(head in commits) && head !== scenario.current) throw new Error(`unexpected compare ${basehead}`);
+        const reach = (from) => {
+          const seen = new Set(); const stack = [from];
+          while (stack.length) {
+            const c = stack.pop();
+            if (!c || seen.has(c)) continue;
+            seen.add(c);
+            for (const parent of (commits[c]?.parents || [])) stack.push(parent.sha);
+          }
+          return seen;
+        };
+        const fromHead = reach(head), fromBase = reach(base);
+        const inRange = scenario.commits.filter((c) => fromHead.has(c.sha) && !fromBase.has(c.sha));
+        let status = base === head ? 'identical' : fromHead.has(base) ? 'ahead' : fromBase.has(head) ? 'behind' : 'diverged';
+        if (base === scenario.current && head === scenario.sha && scenario.rangeStatus) status = scenario.rangeStatus;
+        const files = [];
+        const names = new Set();
+        for (const c of inRange) for (const f of c.files || []) if (!names.has(f.filename)) { names.add(f.filename); files.push(f); }
+        const cap = scenario.compareFileCap ?? 300;
+        const pageCommits = inRange.slice((page - 1) * per_page, page * per_page).map((c) => ({ sha: c.sha }));
+        calls.comparePages += 1;
+        return { data: { status, total_commits: scenario.totalCommitsOverride ?? inRange.length, commits: pageCommits, files: files.slice(0, cap) } };
       },
-      getCommit: async ({ ref }) => {
-        if (!commits[ref]) throw new Error(`unexpected commit ${ref}`);
-        return { data: commits[ref] };
+      getCommit: async ({ ref, per_page = 300, page = 1 }) => {
+        const c = commits[ref];
+        if (!c) throw new Error(`unexpected commit ${ref}`);
+        const all = c.files || [];
+        return { data: { ...c, files: all.slice((page - 1) * per_page, page * per_page) } };
       },
     },
     pulls: { get: async ({ pull_number }) => ({ data: scenario.pulls[pull_number] }), listCommits: pullsListCommits },
@@ -142,6 +169,8 @@ def scenario(**overrides) -> dict:
              "committer": {"login": "web-flow"}, "files": [{"filename": "Sources/App.swift"}]},
             {"sha": MID, "parents": [{"sha": CURRENT}], "author": {"login": "lawrencecchen"},
              "committer": {"login": "lawrencecchen"}, "files": [{"filename": "README.md"}]},
+            {"sha": CURRENT, "parents": [], "author": {"login": "lawrencecchen"},
+             "committer": {"login": "lawrencecchen"}, "files": []},
         ],
         "activity": [
             {"before": MID, "after": SHA, "actor": {"login": "teamleaderleo"}},
@@ -334,6 +363,90 @@ def test_already_promoted_is_a_quiet_no_op_after_approval() -> None:
     out = run(scenario(current=SHA))
     assert out["decision"]["action"] == "skip"
     assert out["ack"]["ok"] and not out["ack"]["move"]
+
+
+def commit(sha, parents, files, who="lawrencecchen"):
+    return {"sha": sha, "parents": [{"sha": p} for p in parents], "author": {"login": who},
+            "committer": {"login": who}, "files": [{"filename": f} for f in files]}
+
+
+def merge_shaped(touch_surface: bool) -> dict:
+    # A lane merged origin/feat-cmux-next (the current nightly-next tip) into
+    # its own branch: the tip is the SECOND parent of M, and M's first-parent
+    # line never reaches it (run 38871179244 refused this as "cannot walk").
+    base0, y, x, m = "0" * 39 + "1", "e" * 40, "f" * 40, "9" * 40
+    changed = [".github/workflows/nightly.yml"] if touch_surface else ["Sources/Lane.swift"]
+    case = scenario(commits=[
+        commit(SHA, [m], ["Sources/App.swift"], "teamleaderleo"),
+        commit(m, [x, CURRENT], changed),
+        commit(x, [y], changed),
+        commit(y, [base0], ["Sources/Old.swift"]),
+        commit(CURRENT, [base0], ["Sources/Tip.swift"]),
+        commit(base0, [], []),
+    ], activity=[{"before": CURRENT, "after": SHA, "actor": {"login": "lawrencecchen"}}],
+        commitPulls={}, surface=SURFACE)
+    return case
+
+
+def test_a_tip_on_the_second_parent_of_a_merge_promotes() -> None:
+    out = run(merge_shaped(touch_surface=False))
+    assert out["decision"]["action"] == "promote", out["decision"]
+
+
+def test_a_tip_on_the_second_parent_of_a_merge_asks_for_an_ack() -> None:
+    out = run(merge_shaped(touch_surface=True))
+    assert out["decision"]["action"] == "needs-ack", out["decision"]
+    assert out["decision"]["surfaceFiles"] == [".github/workflows/nightly.yml"]
+    assert "lawrencecchen" in out["decision"]["landers"]
+
+
+def long_range(count, surface_at=None) -> dict:
+    shas = [f"{i:040x}" for i in range(1, count + 1)]
+    chain = []
+    for i, sha in enumerate(shas):
+        parent = CURRENT if i == 0 else shas[i - 1]
+        files = [".github/workflows/nightly.yml"] if i == surface_at else [f"Sources/F{i}.swift"]
+        chain.append(commit(sha, [parent], files))
+    chain.reverse()
+    head = shas[-1]
+    return scenario(sha=head, sourceHead=head, onSource={head: "identical"},
+                    runs=[gate_run(head_sha=head)], commits=chain + [commit(CURRENT, [], [])],
+                    activity=[{"before": CURRENT, "after": head, "actor": {"login": "teamleaderleo"}}],
+                    commitPulls={}, surface=SURFACE)
+
+
+def test_a_range_over_200_commits_promotes() -> None:
+    out = run(long_range(250))
+    assert out["decision"]["action"] == "promote", out["decision"]
+    assert out["calls"]["comparePages"] >= 3  # the commit list was paged
+
+
+def test_a_range_over_200_commits_with_a_surface_change_asks_for_an_ack() -> None:
+    out = run(long_range(250, surface_at=7))
+    assert out["decision"]["action"] == "needs-ack", out["decision"]
+    assert out["decision"]["landers"] == ["lawrencecchen", "teamleaderleo"]
+
+
+def test_a_diverged_or_behind_range_is_refused() -> None:
+    for status in ("diverged", "behind"):
+        out = run(scenario(rangeStatus=status))
+        assert out["decision"]["action"] == "refuse", (status, out["decision"])
+        assert "is not an ancestor" in out["decision"]["reason"]
+
+
+def test_a_truncated_file_list_is_refused() -> None:
+    big = [f"Sources/G{i}.swift" for i in range(3000)]
+    case = scenario(commits=[commit(SHA, [CURRENT], big), commit(CURRENT, [], [])],
+                    activity=[{"before": CURRENT, "after": SHA, "actor": {"login": "lawrencecchen"}}],
+                    commitPulls={})
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    assert "truncated" in out["decision"]["reason"]
+
+
+def test_a_commit_list_the_api_cannot_cover_is_refused() -> None:
+    out = run(scenario(totalCommitsOverride=5000))
+    assert out["decision"]["action"] == "refuse", out["decision"]
 
 
 def test_workflow_runs_the_guard_from_main_and_gates_the_move() -> None:
