@@ -723,6 +723,9 @@ public final class AuthCoordinator {
     /// the writes when a sign-out raced the fetch, so a signed-out shell does
     /// not get the old account's teams persisted back.
     func refreshTeams(generation: UInt64) async {
+        // A selection made while this read was in flight is newer than the
+        // server's answer to it: the read must not put the old team back.
+        let mutationGeneration = teamMutationGeneration
         activeTeamRefreshCount += 1
         let result: Result<([CMUXAuthTeam], String?), any Error>
         do {
@@ -746,8 +749,9 @@ public final class AuthCoordinator {
             rateLimitTelemetry.succeeded(.sessionCheck)
             authenticatedTeamsSessionGeneration = generation
             availableTeams = teams
+            let selectionChanged = mutationGeneration != teamMutationGeneration
             selectedTeamID = Self.resolveTeamID(
-                selectedTeamID: serverSelectedTeamID ?? selectedTeamID,
+                selectedTeamID: selectionChanged ? selectedTeamID : serverSelectedTeamID ?? selectedTeamID,
                 teams: teams
             )
         case let .failure(error):

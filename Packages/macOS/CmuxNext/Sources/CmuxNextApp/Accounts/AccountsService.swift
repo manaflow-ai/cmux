@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAccounts
+import CmuxNextCloud
 import CmuxNextCodeRouter
 import CmuxNextDaemon
 import Foundation
@@ -105,6 +106,8 @@ final class AccountsService: AccountsServices {
             self?.model.refresh()
         }
     }
+
+    var activeTeam: ActiveTeam? { showcaseMock != nil ? showcaseMock?.activeTeam : services.cloud.isSignedIn ? services.cloud.auth.activeTeam : nil }
 
     func linkedAccounts() async throws -> [LinkedAccount] {
         if let showcaseMock { return try await showcaseMock.linkedAccounts() }

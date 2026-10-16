@@ -67,13 +67,12 @@ extension CloudHandlers {
             run("sign out", context) { await cloud.signOut() }
         }
         bind("openTeamPicker", registry, reason: { cloud.isSignedIn ? nil : CloudStrings.signInFirst }) { _ in
-            let teams = cloud.auth.teams
+            let active = cloud.auth.activeTeam, teams = active.teams
             guard !teams.isEmpty else { throw ActionFailure(message: CloudStrings.noTeams) }
-            CloudPresenter.choose(CloudStrings.teamPickerTitle, teams.map { ($0.displayName, $0.id) }, selected: cloud.auth.teamID,
+            CloudPresenter.choose(CloudStrings.teamPickerTitle, teams.map { ($0.displayName, $0.id) }, selected: active.id,
                                   in: window(context)) { id in
-                guard let id, id != cloud.auth.teamID else { return }
-                cloud.auth.selectTeam(id)
-                run("switch team", context) { await cloud.refresh() }
+                guard let id, id != active.id else { return }
+                run("switch team", context) { try await active.select(id) }
             }
         }
         bind("cloudDiagnostics", registry, reason: { nil }) { _ in

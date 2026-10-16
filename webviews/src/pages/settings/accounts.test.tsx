@@ -50,3 +50,42 @@ test("a pasted key is sent once, cleared, and a refusal shows in the form", asyn
   expect(page.provider.accountRuns.filter((run) => run.secret === "sk-good").length).toBe(1);
   page.unmount();
 });
+
+test("the active team is checked, and choosing another runs selectTeam and moves the check", async () => {
+  const page = await renderPage({ path: "/settings/accounts" });
+  const radio = (id: string) =>
+    page.container.querySelector<HTMLInputElement>(`[data-team="${id}"] input[type="radio"]`)!;
+  expect(page.container.querySelector("[data-accounts-teams]")?.textContent).toContain("Active Team");
+  expect(radio("team-personal").checked).toBe(true);
+  expect(radio("team-acme").checked).toBe(false);
+  await act(async () => radio("team-acme").click());
+  await settle();
+  expect(page.provider.accountRuns.at(-1)).toEqual({ action: "selectTeam", team: "team-acme" });
+  expect(radio("team-acme").checked).toBe(true);
+  expect(radio("team-personal").checked).toBe(false);
+  page.unmount();
+});
+
+test("a managed device shows its note and cannot switch; signed out shows no team list", async () => {
+  const managed = await renderPage({
+    path: "/settings/accounts",
+    setup: (provider) => {
+      provider.accounts = {
+        ...provider.accounts,
+        teams: { ...provider.accounts.teams!, disabled: true, note: "Your organization chose this device's team." },
+      };
+    },
+  });
+  const fieldset = managed.container.querySelector<HTMLFieldSetElement>(".accounts-teams")!;
+  expect(fieldset.disabled).toBe(true);
+  expect(managed.container.textContent).toContain("Your organization chose this device's team.");
+  managed.unmount();
+  const signedOut = await renderPage({
+    path: "/settings/accounts",
+    setup: (provider) => {
+      provider.accounts = { ...provider.accounts, teams: null };
+    },
+  });
+  expect(signedOut.container.querySelector("[data-accounts-teams]")).toBeNull();
+  signedOut.unmount();
+});
