@@ -2787,15 +2787,23 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// real timestamp instead of nothing.
     let createdAt = Date()
     private let sidebarTitleDidChangeSubject: CurrentValueSubject<String, Never>
+    /// Automatic process-title updates have their own settled sidebar stream.
+    /// Keep them out of the immediate committed-title publisher while still
+    /// forwarding direct and custom-title writes synchronously.
+    var suppressImmediateSidebarTitleChange = false
     @Published var title: String {
         didSet {
             // Combine's @Published publisher emits from willSet. The sidebar
             // snapshot reads the workspace after this property changes, so
             // publish a second value from didSet for a committed title.
-            sidebarTitleDidChangeSubject.send(title)
+            if !suppressImmediateSidebarTitleChange {
+                sidebarTitleDidChangeSubject.send(title)
+            }
         }
     }
-    /// Publishes the workspace title after the stored value has been updated.
+    /// Publishes direct and custom workspace-title writes after the stored
+    /// value has been updated. Automatic process-title writes are suppressed
+    /// here and travel through ``sidebarProcessTitleObservation`` instead.
     ///
     /// `@Published` emits from `willSet`; sidebar snapshots must read the
     /// committed title so the first refresh after a rename cannot cache the
