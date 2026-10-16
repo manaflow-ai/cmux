@@ -77,18 +77,21 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
     // A chief run locally (mux.configure brain "local") is its host's alone: no second answer from here.
     if (!item || result?.replayed || !head?.agent || !head.owner_user || head.brain !== "cloud") return
     const wake = { agent: head.agent, owner: head.owner_user, conversation: item.conversation, seq: item.seq, reason: item.reason }
-    pendWake(this.ctx.storage.sql, wake, Date.now())
+    const now = pendWake(this.ctx.storage.sql, wake, Date.now())
     this.scheduleAlarm()
-    this.ctx.waitUntil(this.deliver(wake))
+    // An older wake of this conversation is still undelivered: this one goes after it, from the alarm.
+    if (now) this.ctx.waitUntil(this.deliver(wake))
   }
 
   private opencode(): boolean {
     return this.env.CHIEF_OPENCODE_ENABLED === "1" && this.env.OPENCODE_BRAIN_DO !== undefined && this.brainImpl() === "opencode"
   }
 
-  private async deliver(wake: Wake): Promise<void> {
-    settleWake(this.ctx.storage.sql, wake, await sendWake(this.env, wake, this.opencode()), Date.now())
+  private async deliver(wake: Wake): Promise<boolean> {
+    const ok = await sendWake(this.env, wake, this.opencode())
+    settleWake(this.ctx.storage.sql, wake, ok, Date.now())
     this.scheduleAlarm()
+    return ok
   }
 
   /** The alarm sends the undelivered wakes that are due (mux-wake-delivery.ts). */
@@ -96,10 +99,14 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
     const head = this.boundEngine?.currentState
     const due = dueWakes(this.ctx.storage.sql, now)
     if (!head?.agent || !head.owner_user || head.brain !== "cloud" || this.env.CHIEF_BRAIN_ENABLED !== "1") {
-      for (const d of due) settleWake(this.ctx.storage.sql, d, true, now)
+      for (const rows of due.values()) for (const d of rows) settleWake(this.ctx.storage.sql, d, true, now)
       return
     }
-    for (const d of due) await this.deliver({ agent: head.agent, owner: head.owner_user, ...d })
+    const { agent, owner_user: owner } = head
+    // Conversations in parallel, each in seq order, stopping at its first failure (order kept); every send is time-limited.
+    await Promise.allSettled([...due.values()].map(async (rows) => {
+      for (const d of rows) if (!(await this.deliver({ agent, owner, ...d }))) return
+    }))
   }
 
   /** The next undelivered wake's due time shares the one alarm with the outbox drain. */

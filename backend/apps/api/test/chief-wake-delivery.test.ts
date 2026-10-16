@@ -58,24 +58,30 @@ const dmAndReply = async (token: string, chief: { id: string; main_conversation:
   throw new Error(`no reply ${n} from ${chief.id}`)
 }
 
-// ChiefBrainDO.wake calls by agent; `evictNext` makes the next call evict the object inside the RPC.
+// ChiefBrainDO.wake calls by agent. `evictNext` evicts the object inside the next call's RPC: "before" (nothing
+// taken) or "after" (the brain holds the wake, but the RPC fails: the resend must be a no-op for the brain).
 const wakes: Array<string> = []
-const evictNext = new Set<string>()
+const evictNext = new Map<string, "before" | "after">()
 const realWake = ChiefBrainDO.prototype.wake
 ChiefBrainDO.prototype.wake = async function (this: ChiefBrainDO, w) {
   wakes.push(w.agent)
-  if (evictNext.delete(w.agent)) (this as unknown as { ctx: DurableObjectState }).ctx.abort("test: evicted during the wake RPC")
-  return realWake.call(this, w)
+  const when = evictNext.get(w.agent)
+  evictNext.delete(w.agent)
+  const evict = () => (this as unknown as { ctx: DurableObjectState }).ctx.abort("test: evicted during the wake RPC")
+  if (when === "before") evict()
+  const r = await realWake.call(this, w)
+  if (when === "after") evict()
+  return r
 }
 afterAll(() => void (ChiefBrainDO.prototype.wake = realWake))
 
 describe("Chief wake delivery", { timeout: 120_000 }, () => {
-  it("a wake whose brain is evicted during the wake RPC is sent again and answered exactly once", async () => {
-    const { token, chief } = await ownerWithChief("wake-evict")
+  for (const when of ["before", "after"] as const) it(`a wake whose brain is evicted during the wake RPC (${when} it takes the wake) is sent again and answered exactly once`, async () => {
+    const { token, chief } = await ownerWithChief(`wake-evict-${when}`)
     const mux = testEnv.MUX_DO.get(testEnv.MUX_DO.idFromName(chief.id))
     const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(chief.main_conversation))
-    evictNext.add(chief.id)
-    const key = "wake-evicted"
+    evictNext.set(chief.id, when)
+    const key = `wake-evicted-${when}`
     expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: key, parts: [{ type: "text", text: "lost wake check" }] }, key)).ok).toBe(true)
     let replies: Array<any> = []
     for (let i = 0; i < 200 && replies.length === 0; i++) {
