@@ -19,6 +19,7 @@ import Observation
 final class ChiefHomeView: NSView {
     private static let selectionKey = "chief.home.selectedConversation"
     private static let unreadMarksKey = "chief.home.unreadMarks"
+    private static let hiddenConversationsKey = "chief.home.hiddenConversations"
 
     /// The conversation list the sidebar hosts while Home is selected.
     let list = ChiefConversationListView()
@@ -30,6 +31,10 @@ final class ChiefHomeView: NSView {
     nonisolated(unsafe) private var observers: [any NSObjectProtocol] = []
     /// Conversations the user marked unread (the owner's read cursor only moves forward).
     private var unreadMarks: Set<String>
+    /// Conversations hidden from this device's Home list. Home's source has no
+    /// delete/archive operation yet, so this local projection is durable and
+    /// reversible by starting a new conversation without mutating the owner.
+    private var hiddenConversations: Set<String>
     private let defaults: UserDefaults
     /// The Chief's avatar as the list draws it (``ChiefAvatarArtwork``).
     private var listAvatar: CmuxSidebarEntry.Avatar?
@@ -51,6 +56,7 @@ final class ChiefHomeView: NSView {
         service.start()
         selected = defaults.string(forKey: Self.selectionKey).map { ConversationID($0) } ?? service.defaultConversationID
         unreadMarks = Set(defaults.stringArray(forKey: Self.unreadMarksKey) ?? [])
+        hiddenConversations = Set(defaults.stringArray(forKey: Self.hiddenConversationsKey) ?? [])
         super.init(frame: .zero)
         connectList()
         observeNotifications()
@@ -145,6 +151,7 @@ final class ChiefHomeView: NSView {
         rows.onSetPinned = { [weak self] on, id in self?.setPinned(on, ConversationID(id)) }
         rows.onPlacePinned = { [weak self] id, index in self?.place(ConversationID(id), at: index) }
         rows.onSetRead = { [weak self] read, id in self?.setRead(read, ConversationID(id)) }
+        rows.onDelete = { [weak self] id in self?.hide(ConversationID(id)) }
         rows.menuItems = { [weak self] _ in
             [CmuxSidebarMenuItem(title: ChiefStrings.newConversation) { self?.newConversation() }]
         }
@@ -161,6 +168,8 @@ final class ChiefHomeView: NSView {
     }
 
     private func showEntries(_ rows: [InboxRow], pinnedOrder: [ConversationID]? = nil) {
+        let defaultID = ChiefService.shared.defaultConversationID
+        let rows = rows.filter { Self.shouldShow($0.id, hidden: hiddenConversations, selected: selected, defaultID: defaultID) }
         let me = ChiefService.shared.me
         let avatar = listAvatar
         // A conversation on screen is being read: no dot, even before its read cursor lands.
@@ -318,6 +327,28 @@ final class ChiefHomeView: NSView {
             saveUnreadMarks()
         }
         if let store = ChiefService.shared.storeIfStarted { showEntries(store.rows) }
+    }
+
+    /// Hides a conversation from this device's Home list when the sidebar's
+    /// delete affordance, swipe action, or context-menu item is used. The
+    /// selected conversation moves to the always-available Chief thread first,
+    /// so the transcript never remains pointed at a removed row.
+    private func hide(_ id: ConversationID) {
+        guard id != ChiefService.shared.defaultConversationID else { return }
+        hiddenConversations.insert(id.rawValue)
+        defaults.set(hiddenConversations.sorted(), forKey: Self.hiddenConversationsKey)
+        unreadMarks.remove(id.rawValue)
+        saveUnreadMarks()
+        if selected == id { select(ChiefService.shared.defaultConversationID) }
+        else if let store = ChiefService.shared.storeIfStarted { showEntries(store.rows) }
+    }
+
+    /// Projection rule for the durable local archive. The default Chief thread
+    /// is always available, and a selected row remains visible until selection
+    /// moves so a reload cannot momentarily blank the transcript.
+    static func shouldShow(_ id: ConversationID, hidden: Set<String>, selected: ConversationID,
+                           defaultID: ConversationID) -> Bool {
+        !hidden.contains(id.rawValue) || id == selected || id == defaultID
     }
 
     private func saveUnreadMarks() {

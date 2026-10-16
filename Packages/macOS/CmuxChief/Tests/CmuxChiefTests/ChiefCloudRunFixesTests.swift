@@ -148,9 +148,15 @@ import Testing
             "/home/cmux/work/<slug>", "does not promise a writable current directory", "Never push `/Users/cmux/manaflow/cmuxterm-hq`",
             "cd /home/cmux/work/<slug>",
             "cmux vm pause <machine>", "Stop cloud machine <name> (<machine>)", "--allow-large", "Prefer a clone",
+            "cmux vm open <machine>:desktop", "cua-driver doctor", "cua-driver list-tools", "cua-driver call <tool> [JSON args]",
+            "gently offer the cmux Pro upgrade",
         ] {
             #expect(prompt.contains(rule), "missing \(rule)")
         }
         #expect(!prompt.contains("Not signed in: start it anyway"))
+        #expect(prompt.contains("Use plain `exec codex` or `exec claude`"))
+        #expect(!prompt.contains("exec codex --yolo '<task>'"))
+        let optedIn = ChiefSystemPrompt(context: ChiefPromptContext(dangerouslySkipPermissions: true)).build()
+        #expect(optedIn.contains("add `--yolo` only when it is appropriate"))
     }
 }

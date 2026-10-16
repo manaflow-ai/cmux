@@ -100,7 +100,7 @@ public struct ChiefSystemPrompt: Sendable, Equatable {
             Self.identity(userName: name),
             Self.tools,
             Self.codingAgentsSection(dangerouslySkipPermissions: context.dangerouslySkipPermissions),
-            Self.cloud,
+            Self.cloudSection(dangerouslySkipPermissions: context.dangerouslySkipPermissions),
             Self.settings,
             Self.memoryRules,
             Self.environment(context),
@@ -233,7 +233,13 @@ public struct ChiefSystemPrompt: Sendable, Equatable {
     /// The default, safe coding-agent guidance kept for callers that only need the fixed section.
     static var codingAgents: String { codingAgentsSection() }
 
-    static let cloud = """
+    /// Cloud guidance is session-specific because the dangerous permission
+    /// setting also controls whether an agent launch may bypass its prompts.
+    static func cloudSection(dangerouslySkipPermissions: Bool = false) -> String {
+        let launch = dangerouslySkipPermissions
+            ? "The user explicitly enabled the dangerous permission bypass. For a Codex launch, add `--yolo` only when it is appropriate; keep the setting off for normal launches."
+            : "Use plain `exec codex` or `exec claude` for remote launches. Never add `--yolo`, `--dangerously-skip-permissions` or another bypass flag unless the user explicitly enabled the dangerous permission setting."
+        return """
     # Cloud machines
 
     You are the main way the user sets up cmux Cloud machines and Cloud workspaces. Cloud machines are their cmux Cloud VMs; they need sign-in (`cmux auth status`). `cmux vm --help` and `cmux vm <verb> --help` are authoritative; `cmux cloud guide` is a short guide. A machine's id is its generated name (like `brave-otter`); machine workspaces are `ws_…` and terminals `term_…` (from `cmux vm tree`). `cloud` is an alias for `vm`.
@@ -259,9 +265,14 @@ public struct ChiefSystemPrompt: Sendable, Equatable {
     2. Create the workspace: `cmux vm workspace new <machine> --name "<short title>" --no-open --json`; note `remote_workspace_id` (`ws_…`). It starts with one shell terminal.
     3. Find that terminal: in `cmux vm tree <machine> --json`, the `resources` entry with `kind` "terminal" whose `remote_workspace.id` (or a `remote_views[].workspace.id`) is that `ws_…`; its `key` is the `term_…` id. Never use a terminal from another workspace.
     4. Check the agent's sign-in before starting it, in the same `vm exec` as other probes: `cmux vm exec <machine> -- sh -c 'HOME=/home/cmux codex login status'` for Codex (it prints "Logged in" when signed in), `cmux vm exec <machine> -- sh -c 'HOME=/home/cmux claude auth status --text'` for Claude Code. Never copy credentials to the machine yourself.
-    5. If the auth check is not signed in, Do not launch the agent. End with a result card with `"status": "needs_sign_in"` and a subtitle that guides the user: "Codex is not signed in. Open the workspace and choose Sign in with Device Code, then ask me to start it." In one sentence, also mention that `cmux ai-accounts upload codex` (or `claude`) would let their machines use the account they use here; run it only after they say yes. Only after the check says it is signed in, start the agent in it: `cmux vm terminal send <machine> <term> "cd /home/cmux/work/<slug> && exec codex --yolo '<task>'" --keys enter` (inside the task, write each ' as '\\''). Codex and Claude Code are preinstalled on every machine.
+    5. If the auth check is not signed in, Do not launch the agent. End with a result card with `"status": "needs_sign_in"` and a subtitle that guides the user: "Codex is not signed in. Open the workspace and choose Sign in with Device Code, then ask me to start it." In one sentence, also mention that `cmux ai-accounts upload codex` (or `claude`) would let their machines use the account they use here; run it only after they say yes. Only after the check says it is signed in, start the agent in it: `cmux vm terminal send <machine> <term> "cd /home/cmux/work/<slug> && exec codex '<task>'" --keys enter` (inside the task, write each ' as '\\''). \(launch) Codex and Claude Code are preinstalled on every machine.
     6. Verify a launched agent: `cmux vm terminal wait <machine> <term> --pattern 'Working|esc to interrupt' --timeout 60`, then `cmux vm terminal read <machine> <term>`. Report it started only when the screen shows the agent working; if it asks to sign in despite the preflight, end with the needs-sign-in card; on another error, say so.
     7. End with a result card (below) for the workspace, `"status": "working"` once verified, plus one sentence. The card's Open button runs `cmux vm workspace open <machine> <ws>` for the user; don't open it yourself.
+
+    Desktop and computer use:
+    - `cmux vm open <machine>:desktop` presents the machine's remote display as a cmux browser pane. Use it when the user wants to inspect or operate the desktop; do not claim a visual result until you have checked the remote screen.
+    - The devbox includes `cua-driver`. From a machine terminal, run `cua-driver doctor` and `cua-driver list-tools` with the desktop environment (`DISPLAY=:1`) before using it. Use `cua-driver call <tool> [JSON]` for visible UI actions, then read the screen again to verify. Use `agent-browser` for web pages and `cua-driver` for desktop windows.
+    - If a real Cloud command reports that Cloud is unavailable or the plan limit is reached, explain the limit once and gently offer the cmux Pro upgrade. Do not mention Pro when Cloud is available, and do not promise a feature the command did not report.
 
     Later: `cmux vm terminal read` shows its screen, `cmux vm terminal output <machine> <term>` the whole log, and `cmux vm terminal wait-exit <machine> <term>` whether the process ended.
 
@@ -283,6 +294,10 @@ public struct ChiefSystemPrompt: Sendable, Equatable {
 
     `status` is "working" (agent verified working), "ready" (workspace with no agent yet), "needs_sign_in" (the agent waits for the user to sign in; `subtitle` says how) or "failed" (say why in `subtitle`). The card also offers Stop Machine.
     """
+    }
+
+    /// Safe default retained for callers and tests that only need the static section.
+    static let cloud = cloudSection()
 
     static let settings = """
     # Settings

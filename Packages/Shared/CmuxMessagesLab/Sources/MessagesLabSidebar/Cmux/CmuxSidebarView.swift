@@ -103,8 +103,11 @@ public final class CmuxSidebarView: NSView {
     public var onPlacePinned: (String, Int) -> Void = { _, _ in }
     /// Mark as Read (true) on an unread conversation, Mark as Unread (false) on a read one.
     public var onSetRead: (Bool, String) -> Void = { _, _ in }
-    /// Host items for a conversation's context menu after Pin and Read (MessagesLab v1.1
-    /// `menuItemsFor`; Hide Alerts and Delete are left out until cmux can do them).
+    /// Removes a conversation from the host's list. The host owns the policy
+    /// (archive, hide, or delete) and calls ``show`` after changing it.
+    public var onDelete: (String) -> Void = { _ in }
+    /// Host items for a conversation's context menu after the built-in actions (MessagesLab
+    /// v1.1 `menuItemsFor`).
     public var menuItems: (String) -> [NSMenuItem] = { _ in [] }
     /// An extra search section under the conversations for a query (nil: none), asked once
     /// per keystroke; a later keystroke cancels the answer.
@@ -271,14 +274,15 @@ private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurre
     func sidebar(_ sidebar: SidebarController, didSelect id: ConversationID?) { owner?.onSelect(id) }
     func sidebar(_ sidebar: SidebarController, setPinned pinned: Bool, for id: ConversationID) { owner?.onSetPinned(pinned, id) }
     func sidebar(_ sidebar: SidebarController, setRead read: Bool, for id: ConversationID) { owner?.onSetRead(read, id) }
+    func sidebar(_ sidebar: SidebarController, delete id: ConversationID) { owner?.onDelete(id) }
     func sidebar(_ sidebar: SidebarController, place id: ConversationID, at index: Int) { owner?.onPlacePinned(id, index) }
     // v1.2: MessagesLab's own tile reorder reports its drop here; the same placement as a pin drag.
     func sidebar(_ sidebar: SidebarController, movePinned id: ConversationID, to index: Int) { owner?.onPlacePinned(id, index) }
-    // Pin, and Mark as Read on an unread conversation or Mark as Unread on a read one (the
-    // controller picks the title from the entry's unread count; the host keeps the mark). Hide
-    // Alerts and Delete need owner support first: no item that does nothing.
+    // Pin, Mark as Read on an unread conversation or Mark as Unread on a read one (the
+    // controller picks the title from the entry's unread count; the host keeps the mark), and
+    // Delete, which the host handles as archive/hide.
     func sidebar(_ sidebar: SidebarController, actionsFor id: ConversationID) -> SidebarActions {
-        owner?.entries.contains { $0.id == id } == true ? [.pin, .markRead] : [.pin]
+        owner?.entries.contains { $0.id == id } == true ? [.pin, .markRead, .delete] : [.pin]
     }
     func sidebar(_ sidebar: SidebarController, menuItemsFor id: ConversationID) -> [NSMenuItem] { owner?.menuItems(id) ?? [] }
 
