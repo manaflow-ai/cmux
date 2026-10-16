@@ -143,9 +143,9 @@ class GitHub:
             if error.status != 404:
                 raise
             # The tags endpoint 404s for drafts, so a rerun must find its
-            # staged draft by listing. Adopt the lowest id, the one the
-            # publish action finalizes, so the published assets and the
-            # appcast this run uploads describe the same files.
+            # staged draft by listing. Adopt the lowest id; the workflow
+            # publishes the id this script outputs, so the published assets
+            # and the appcast this run uploads describe the same files.
             drafts = [
                 release["id"]
                 for release in self.request("GET", f"{self.api_url}/repos/{self.repo}/releases?per_page=100")

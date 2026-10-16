@@ -924,7 +924,7 @@ jobs:
             echo "::error::Upload release asset reported no release id; refusing to publish"
             exit 1
           fi
-          names="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" --jq '.[].name')"
+          names="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" --jq '.[] | select(.state == "uploaded") | .name')"
           for required in cmux-macos.dmg cmux-macos-arm64.dmg cmux-macos-x86_64.dmg \
             appcast.xml appcast-arm64.xml appcast-x86_64.xml cmuxd-remote-manifest.json; do
             if ! grep -qxF "$required" <<<"$names"; then
