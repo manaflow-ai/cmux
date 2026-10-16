@@ -135,7 +135,10 @@ extension RemoteTmuxControlConnection {
         return true
     }
 
-    /// Sends the pane-title watcher with tracked acknowledgement semantics.
+    /// Sends the pane-title watcher with the same admission and exactly-once
+    /// acknowledgement contract as ``sendTracked(_:completion:)``.
+    ///
+    /// A `false` return means nothing was queued and `completion` is not called.
     @discardableResult
     func sendPaneTitleSubscription(_ command: String, completion: @escaping (Bool) -> Void) -> Bool {
         let token = UUID()

@@ -2,6 +2,15 @@ import CmuxRemoteSession
 import Testing
 
 struct RemoteTmuxPaneTitleMetadataTests {
+    @Test func paneTitleCommandEscapesFormatsAndQuotes() {
+        #expect(RemoteTmuxPaneTitleCommand.make(paneID: 5, title: "it's #{pane_id}")
+            == "select-pane -t %5 -T 'it'\\''s ##{pane_id}'")
+        #expect(RemoteTmuxPaneTitleCommand.make(paneID: 0, title: "  ")
+            == "select-pane -t %0 -T ''")
+        #expect(RemoteTmuxPaneTitleCommand.make(paneID: -1, title: "x") == nil)
+        #expect(RemoteTmuxPaneTitleCommand.make(paneID: 1, title: "x\ny") == nil)
+    }
+
     @Test func parsesWireValueWithEmptyFieldsPreserved() {
         let metadata = RemoteTmuxPaneTitleMetadata(wireValue: "build\u{1f}host.example\u{1f}host")
 
@@ -76,6 +85,7 @@ struct RemoteTmuxPaneTitleMetadataTests {
             title: "build", host: "host.example", hostShort: "host"
         ))
     }
+
 }
 
 struct RemoteTmuxSubscriptionChangeTests {
