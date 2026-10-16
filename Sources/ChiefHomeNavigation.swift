@@ -65,14 +65,15 @@ struct ChiefHomeNavigation {
             guard let created = makeWorkspace(in: manager, title: ChiefStrings.home, isHome: true) else { return nil }
             home = created
         }
+        if home.customTitle != ChiefStrings.home {
+            manager.setCustomTitle(tabId: home.id, title: ChiefStrings.home, source: .user)
+        }
         let groupID: UUID
         if let group = manager.workspaceGroups.first(where: { $0.externalID == homeGroupExternalID }) {
             groupID = group.id
             if group.anchorWorkspaceId != home.id {
                 manager.addWorkspaceToGroup(workspaceId: home.id, groupId: groupID)
                 manager.setWorkspaceGroupAnchor(groupId: groupID, workspaceId: home.id)
-            } else {
-                return home
             }
         } else {
             guard let created = manager.createWorkspaceGroup(
@@ -84,9 +85,16 @@ struct ChiefHomeNavigation {
             ) else { return home }
             groupID = created
         }
-        manager.setWorkspaceGroupPinned(groupId: groupID, isPinned: true)
-        _ = manager.setWorkspaceGroupIcon(groupId: groupID, symbol: "house")
-        manager.moveWorkspaceGroup(groupId: groupID, toIndex: 0)
+        if let group = manager.workspaceGroups.first(where: { $0.id == groupID }) {
+            if group.name != ChiefStrings.home {
+                manager.renameWorkspaceGroup(groupId: groupID, name: ChiefStrings.home)
+            }
+            if !group.isPinned { manager.setWorkspaceGroupPinned(groupId: groupID, isPinned: true) }
+            if group.iconSymbol != "house" { _ = manager.setWorkspaceGroupIcon(groupId: groupID, symbol: "house") }
+        }
+        if manager.tabs.first?.id != home.id {
+            manager.moveWorkspaceGroup(groupId: groupID, toIndex: 0)
+        }
         return home
     }
 
@@ -105,7 +113,7 @@ struct ChiefHomeNavigation {
                 ($0 as? ChiefPanel)?.conversationID == id
             }
         }) {
-            if !title.isEmpty, existing.customTitle != title {
+            if !title.isEmpty, existing.effectiveCustomTitleSource != .user, existing.customTitle != title {
                 manager.setCustomTitle(tabId: existing.id, title: title, source: .auto)
             }
             if select { manager.selectWorkspace(existing) }

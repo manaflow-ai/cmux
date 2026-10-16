@@ -1,6 +1,5 @@
 import AppKit
 import CmuxFoundation
-import CmuxHomeCore
 import CmuxSettings
 import SwiftUI
 
@@ -13,91 +12,49 @@ import SwiftUI
 /// does and as cmux-next's rail Home item does. It leads with Chief's own
 /// avatar at 16 pt (the header's and the list's face), says "Needs you" or
 /// "Working…" while a Chief waits or runs, and shows an 8 pt accent dot for unread replies only while Home
-/// is not showing. In workspace mode the Open Chief shortcut stays visible beside
-/// the quiet status affordance, so the keyboard route is discoverable without a
-/// hover and remains present in accessibility captures. Selected, a click returns
-/// to the last selected workspace (the row toggles Home, as ⌘⇧C does); it
-/// shows no trailing label because the "‹ Workspaces" back row right under it
-/// already names the way back. Its compose button still starts a new
-/// conversation. A hairline 6 pt under it sets the destination apart from
-/// the list below. It has no hover fill, like workspace rows, and sits in
+/// is not showing. Selected, its trailing button starts a new conversation (the
+/// list's compose button). A hairline under it sets the destination apart
+/// from the list below. It has no hover fill, like workspace rows, and sits in
 /// the band `SidebarWorkspaceListMetrics` reserves below the titlebar.
 struct SidebarChiefHomeRow: View {
     let isSelected: Bool
-    let isExpanded: Bool
     let settings: SidebarTabItemSettingsSnapshot
     let globalFontMagnificationPercent: Int
-    /// The conversation Home currently shows when this row is dragged into a pane.
-    var conversationID: ConversationID?
     let onSelect: () -> Void
     /// Starts a new conversation; shown as the row's compose button while selected.
     var onNewConversation: (() -> Void)?
-    /// Expands or collapses the inline Home conversation stack.
-    var onToggleExpanded: () -> Void
 
+    /// The Chief's name from its profile (renamed in Chief Settings).
+    @State private var chiefName = ChiefProfile.currentName()
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 7) {
-                Button(action: onToggleExpanded) {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(font(9, weight: .semibold))
-                        .foregroundColor(.secondary)
-                        .frame(width: 12, height: 20)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(ChiefStrings.conversationsList)
-                .accessibilityLabel(Text(ChiefStrings.conversationsList))
-                .accessibilityValue(Text(isExpanded ? ChiefStrings.conversationsExpanded : ChiefStrings.conversationsCollapsed))
-                .accessibilityIdentifier("SidebarChiefHomeDisclosure")
-
                 Button(action: onSelect) {
                     HStack(spacing: 7) {
-                        Image(systemName: "house.fill")
-                            .font(font(13, weight: .semibold))
-                            .foregroundColor(.secondary)
-                            .frame(width: (16 * settings.sidebarFontScale).rounded())
-                            .accessibilityHidden(true)
-                        Text(ChiefStrings.home)
+                        SidebarChiefHomeAvatar(diameter: (16 * settings.sidebarFontScale).rounded())
+                        Text(chiefName)
                             .font(font(12.5, weight: .medium))
                             .foregroundColor(.primary)
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        // Selected: no trailing label; the back row under it names the way back.
-                        if !isSelected {
-                            SidebarChiefHomeStatus(
-                                showsUnreadDot: true,
-                                dotColor: dotColor,
-                                font: font(10, weight: .regular)
-                            )
-                            if let keys = SidebarChiefHomeBackRow.shortcutKeys {
-                                Text(verbatim: keys)
-                                    .font(font(12, weight: .regular))
-                                    .foregroundColor(Color(nsColor: .tertiaryLabelColor))
-                                    .lineLimit(1)
-                                    .fixedSize()
-                                    .accessibilityHidden(true)
-                            }
-                        }
+                        SidebarChiefHomeStatus(
+                            showsUnreadDot: !isSelected,
+                            dotColor: dotColor,
+                            font: font(10, weight: .regular)
+                        )
                     }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text(ChiefStrings.home))
-                .accessibilityValue(Text(verbatim: [
-                    SidebarChiefHomeStatus.accessibilityValue(showsUnread: !isSelected),
-                    isSelected ? nil : SidebarChiefHomeBackRow.shortcutKeys,
-                ].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")))
-                .accessibilityHint(isSelected ? Text(ChiefStrings.backToWorkspacesTooltip(keys: nil)) : Text(verbatim: ""))
+                .accessibilityLabel(Text(chiefName))
+                .accessibilityValue(Text(SidebarChiefHomeStatus.accessibilityValue(showsUnread: !isSelected)))
                 .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
                 .accessibilityIdentifier("SidebarChiefHomeRow")
-                .help(isSelected
-                    ? ChiefStrings.backToWorkspacesTooltip(keys: SidebarChiefHomeBackRow.shortcutKeys)
-                    : String(localized: "sidebar.chiefHome.tooltip", defaultValue: "Talk to Chief"))
+                .help(String(localized: "sidebar.chiefHome.tooltip", defaultValue: "Talk to Chief"))
 
                 if isSelected, let onNewConversation {
                     Button(action: onNewConversation) {
@@ -118,33 +75,17 @@ struct SidebarChiefHomeRow: View {
             .background(selectionBackground)
             .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
 
-            // The destination's edge: a separator-color hairline 6 pt under the row.
+            // The destination's edge: separator color at half strength, centered in the gap.
             Rectangle()
-                .fill(Color(nsColor: .separatorColor))
+                .fill(Color(nsColor: .separatorColor).opacity(0.5))
                 .frame(height: 1 / max(1, NSScreen.main?.backingScaleFactor ?? 2))
-                .padding(.top, SidebarWorkspaceListMetrics.homeRowHairlineGap)
+                .padding(.top, SidebarWorkspaceListMetrics.homeRowBottomGap / 2)
                 .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
                     + SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
                 .accessibilityHidden(true)
         }
-        .onDrag {
-            guard let registry = AppDelegate.shared?.tabDragTransferRegistry,
-                  let provider = ChiefPaneDragPayload(conversationID: conversationID)
-                      .provider(with: registry) else {
-                return NSItemProvider()
-            }
-            return provider
-        } preview: {
-            HStack(spacing: 7) {
-                Image(systemName: "house.fill")
-                    .font(font(13, weight: .semibold))
-                Text(ChiefStrings.home)
-                    .font(font(12.5, weight: .medium))
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .onReceive(NotificationCenter.default.publisher(for: ChiefProfile.didChange)) { _ in
+            chiefName = ChiefProfile.currentName()
         }
     }
 
@@ -192,9 +133,8 @@ struct SidebarChiefHomeRow: View {
 /// is spelled out instead of relying on clicking the selected Home row again.
 /// A back row rather than a Chief | Workspaces segmented control: the
 /// sidebar keeps one stack of rows (no new control style), and the Home row
-/// stays where it is in both modes. The Open Chief shortcut, which toggles
-/// Home, sits at its trailing edge in 12 pt tertiary text (as on the
-/// first-run rows) and in its tooltip.
+/// stays where it is in both modes. The tooltip names the Open Chief
+/// shortcut, which toggles Home.
 struct SidebarChiefHomeBackRow: View {
     let workspaceCount: Int
     let settings: SidebarTabItemSettingsSnapshot
@@ -219,15 +159,6 @@ struct SidebarChiefHomeBackRow: View {
                         .foregroundColor(Color(nsColor: .tertiaryLabelColor))
                         .accessibilityHidden(true)
                 }
-                if let keys = Self.shortcutKeys {
-                    // The toggle shortcut, spelled out as on the first-run rows.
-                    Text(verbatim: keys)
-                        .font(font(12, weight: .regular))
-                        .foregroundColor(Color(nsColor: .tertiaryLabelColor))
-                        .lineLimit(1)
-                        .fixedSize()
-                        .accessibilityHidden(true)
-                }
             }
             .padding(.horizontal, SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
             .frame(height: SidebarWorkspaceListMetrics.homeBackRowHeight)
@@ -241,8 +172,8 @@ struct SidebarChiefHomeBackRow: View {
         .accessibilityIdentifier("SidebarChiefHomeBackToWorkspaces")
     }
 
-    /// The Open Chief shortcut (it toggles Home), as configured now; nil when unbound.
-    static var shortcutKeys: String? {
+    /// The Open Chief shortcut (it toggles Home); nil when unbound.
+    private static var shortcutKeys: String? {
         let shortcut = KeyboardShortcutSettings.shortcut(for: .openChief)
         return shortcut.isUnbound ? nil : shortcut.displayString
     }
@@ -305,6 +236,30 @@ private struct SidebarChiefHomeStatus: View {
         if needsYou { return ChiefStrings.homeRowNeedsYou }
         if !service.workingConversations.isEmpty { return ChiefStrings.homeRowWorking }
         return showsUnread && service.unreadCount > 0 ? ChiefStrings.homeRowUnread : ""
+    }
+}
+
+/// Chief's avatar in the Home row (``ChiefAvatarArtwork``), re-read when the
+/// profile changes. Its own view so a profile change re-renders only it.
+private struct SidebarChiefHomeAvatar: View {
+    let diameter: CGFloat
+
+    @Environment(\.colorScheme) private var colorScheme
+    /// Read on appear and on each profile change (not per render).
+    @State private var kind: ChiefAvatarArtwork.Kind?
+
+    var body: some View {
+        Image(nsImage: ChiefAvatarArtwork.image(kind ?? .chief, diameter: diameter, isDark: colorScheme == .dark))
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fill)
+            .frame(width: diameter, height: diameter)
+            .clipShape(Circle())
+            .accessibilityHidden(true)
+            .onAppear { kind = ChiefAvatarArtwork.current() }
+            .onReceive(NotificationCenter.default.publisher(for: ChiefProfile.didChange)) { _ in
+                kind = ChiefAvatarArtwork.current()
+            }
     }
 }
 

@@ -468,7 +468,7 @@ extension VerticalTabsSidebar {
             },
             onTapPlus: { [weak tabManager] in
                 guard let tabManager else { return }
-                if tabManager.workspaceGroupAnchor(for: groupId)?.isChiefHome == true {
+                if tabManager.isChiefHomeGroup(groupId) {
                     ChiefHomeNavigation.newConversation(in: tabManager)
                 } else {
                     _ = tabManager.createWorkspaceInGroup(
