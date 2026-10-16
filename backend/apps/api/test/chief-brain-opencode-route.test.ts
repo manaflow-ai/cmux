@@ -53,7 +53,9 @@ const ownerWithChief = async (sub: string) => {
 
 /** Sends one DM and waits (bounded) for the Chief's n-th reply. */
 const dmAndReply = async (token: string, chief: { id: string; main_conversation: string }, text: string, n: number) => {
-  expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: text, parts: [{ type: "text", text }] }, text)).ok).toBe(true)
+  const key = `route-${text.replace(/[^a-z0-9]+/g, "-")}`
+  const sent = await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: key, parts: [{ type: "text", text }] }, key)
+  expect(sent.ok, JSON.stringify(sent)).toBe(true)
   const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(chief.main_conversation))
   for (let i = 0; i < 200; i++) {
     if ((await history(token, chief.main_conversation)).filter((m) => m.author === chief.id).length >= n) return
