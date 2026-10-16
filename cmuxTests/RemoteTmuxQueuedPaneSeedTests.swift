@@ -142,12 +142,16 @@ import Testing
         fixture.connection.queuedPaneSeedPaneIDs = [2, 3, 4]
 
         var seeded: Set<Int> = []
-        var quietTurns = 0
         var answered: [String] = []
-        while quietTurns < 3, answered.count < 400 {
+        // Done once every pane has been seeded, nothing waits and nothing is left to answer.
+        let deadline = ContinuousClock.now + .seconds(10)
+        func allSeeded() -> Bool {
+            seeded.isSuperset(of: [1, 2, 3, 4]) && fixture.connection.queuedPaneSeedPaneIDs.isEmpty
+                && fixture.connection.pendingCommandKindsForTesting.isEmpty
+        }
+        while !allSeeded(), answered.count < 400, ContinuousClock.now < deadline {
             seeded.formUnion(fixture.connection.pendingPaneSeeds.keys)
             if let kind = fixture.connection.pendingCommandKindsForTesting.first {
-                quietTurns = 0
                 // The holder's capture fills the budget; the queued panes' captures are empty.
                 let lines: [String]
                 if case let .capturePane(paneId, _) = kind {
@@ -161,8 +165,7 @@ import Testing
                 answered.append(String(describing: kind).prefix(while: { $0 != "(" }).description)
             } else {
                 // The budget recovery runs as a main-actor task after the release that frees it.
-                await Task { @MainActor in }.value
-                quietTurns += 1
+                try? await Task.sleep(nanoseconds: 2_000_000)
             }
         }
 
