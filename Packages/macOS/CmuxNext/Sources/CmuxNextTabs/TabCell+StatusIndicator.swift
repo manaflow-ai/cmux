@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import QuartzCore
 
 /// The tab's busy indicator: the shared `StatusIndicatorLayer` in the icon
 /// slot. A busy cell registers with `StatusIndicatorAppearance`, so a
