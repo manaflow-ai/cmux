@@ -9,9 +9,11 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var maxTabWidth: CGFloat
     /// Narrowest an inactive tab gets before the strip starts to scroll.
     public var minInactiveTabWidth: CGFloat
-    /// The selected tab never gets narrower than this, so it keeps room for
-    /// its icon and close button while the others shrink to icons.
+    /// The selected tab never gets narrower than this (nor than the inactive
+    /// minimum), so it keeps room for its icon, title and close button.
     public var minActiveTabWidth: CGFloat
+    /// `tabs.overflow`: with `.scroll` both minimums are `scrollTabMinWidth`.
+    public var overflow: TabOverflow
     public var pinnedTabWidth: CGFloat
     /// Chrome's strip geometry (design-tokens.json `motion.tabStrip`, at the UI scale): open and
     /// close widths, the minimum widths above, the reorder threshold, closing mode.
@@ -121,8 +123,17 @@ public struct TabStripMetrics: Equatable, Sendable {
         // Never narrower than the active tab's icon and close button need (comfortable density), never
         // wider than the max; the inactive minimum never passes the active one.
         let activeFloor = contentLeadingInset + iconSize + titleCloseSpacing + closeButtonSize + contentTrailingInset
-        minActiveTabWidth = min(max(Metrics.tabMinActiveWidth, activeFloor), maxTabWidth)
-        minInactiveTabWidth = min(Metrics.tabMinInactiveWidth, minActiveTabWidth)
+        overflow = DesignSettings.shared.tabOverflow
+        switch overflow {
+        case .shrink:
+            // A larger inactive minimum (a user's) raises the active one, never the other way round.
+            minInactiveTabWidth = min(Metrics.tabMinInactiveWidth, maxTabWidth)
+            minActiveTabWidth = min(max(Metrics.tabMinActiveWidth, activeFloor, minInactiveTabWidth), maxTabWidth)
+        case .scroll:
+            // Scrolling tabs: every unpinned tab stays this wide, then the strip scrolls.
+            minActiveTabWidth = min(max(TabTunables.scrollTabMinWidth.value, activeFloor), maxTabWidth)
+            minInactiveTabWidth = minActiveTabWidth
+        }
         closeMinContentsWidth = TabTunables.closeMinContentsWidth.value
         titleMinVisibleWidth = TabTunables.titleMinVisibleWidth.value
         stripHeight = Metrics.tabStripHeight

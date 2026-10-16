@@ -122,6 +122,10 @@ export const holderAuth = async (env: Env, sql: SqlStorage, now = Date.now()): P
  * (bedrock-stream.ts). `auth` throws ClaudeAuthError on failure.
  */
 export interface SignedRoute {
+  /** Gets each field or beta the Bedrock conversion dropped, and an upstream refusal's text (logged, no secrets). */
+  readonly log?: (what: string) => void
+  /** Map the caller's anthropic-beta header into the Bedrock body (the HTTP gateway: Claude Code). The brain's own calls send none, as proven. */
+  readonly forwardBetas?: boolean
   readonly auth: RouteAuth
   readonly models: ReadonlyArray<string>
   readonly effortBody?: boolean
@@ -132,6 +136,7 @@ export interface SignedRoute {
 export const signedFetch = (auth: () => Promise<string>, refused: () => Promise<void>, route: SignedRoute = { auth: "stack-session", models: [] }): typeof fetch =>
   (async (input: RequestInfo | URL, init?: RequestInit) => {
     const headers = new Headers(init?.headers)
+    const betas = (headers.get("anthropic-beta") ?? "").split(",").map((b) => b.trim()).filter(Boolean)
     for (const h of ["x-api-key", "authorization", "anthropic-beta", "anthropic-version", "content-length"]) headers.delete(h)
     const service = route.auth === "service-key"
     // The payer and call headers are the service-key route's contract; no other route gets them.
@@ -145,7 +150,7 @@ export const signedFetch = (auth: () => Promise<string>, refused: () => Promise<
     headers.set("user-agent", "cmux-cloud-chief/1")
     // The Chatmux session route names Opus in its own Bedrock URL; a service-key or multi-model route reads `model` (the Bedrock id).
     const model = service ? (id: string) => BEDROCK_IDS[id] ?? id : undefined
-    const body = typeof init?.body === "string" ? bedrockBody(init.body, { keepModel: service || route.models.length > 1, ...(model ? { modelId: model } : {}), effort: route.effortBody === true, ...(route.ttl ? { ttl: route.ttl } : {}) }) : init?.body
+    const body = typeof init?.body === "string" ? bedrockBody(init.body, { keepModel: service || route.models.length > 1, ...(model ? { modelId: model } : {}), effort: route.effortBody === true, ...(route.forwardBetas ? { betas } : {}), ...(route.log ? { dropped: route.log } : {}), ...(route.ttl ? { ttl: route.ttl } : {}) }) : init?.body
     const res = await fetch(input, { ...init, headers, ...(body === undefined ? {} : { body }) })
     if (res.status === 401) await refused().catch(() => undefined)
     // The route answers Bedrock's event stream; the Anthropic client reads Messages events.

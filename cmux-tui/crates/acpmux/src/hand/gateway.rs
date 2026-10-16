@@ -114,13 +114,25 @@ pub async fn sweep() {
 pub fn renew(id: &str, route: &ModelRoute) -> Result<(), HandError> {
     let path = token_path(id);
     if !path.exists() {
-        return Err(HandError::new("agent.bad_route", format!("{id} has no token to renew")));
+        // Swept after its token expired: the chat stays bound to the gone route, so it
+        // never falls back to another route; a new session gets a new one.
+        return Err(HandError::new(
+            "agent.route_expired",
+            format!("{id} expired; start a new agent session"),
+        ));
     }
-    super::config::write_private(&path, route.token.as_bytes())
+    // Written beside it and renamed over it: a spawn reading it sees the old or the
+    // new token, never a half-written file.
+    let tmp = dir().join(format!(".{id}.token.tmp"));
+    super::config::write_private(&tmp, route.token.as_bytes())
+        .and_then(|()| std::fs::rename(&tmp, &path).map_err(Into::into))
         .and_then(|()| {
             super::config::write_private(&expiry_path(id), route.expires_at.to_string().as_bytes())
         })
-        .map_err(|e| HandError::new("agent.bad_route", format!("{e:#}")))
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            HandError::new("agent.bad_route", format!("{e:#}"))
+        })
 }
 
 /// Writes the token file and the run's route; returns the route id.
