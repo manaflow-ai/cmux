@@ -233,7 +233,8 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
       if (joined === "timeout" || joined.status !== "done") result = joined
     }
     // The turn made or found the Chief's first hand: one continuation in the same run, with the full tools (the
-    // tools list changes only between pi turns; the finished turn's thinking stays valid). At most one per run.
+    // tools list changes only between pi turns; the finished turn's thinking is dropped from the continuation's
+    // requests by stripStaleThinking, since the route checks every replayed block). At most one per run.
     const cont = b.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `hands_cont:${id}`).toArray()[0]?.value
     const steeredBefore = b.steered.length
     if (!child && result !== "timeout" && result.status === "done" && (cont === "pending" || cont === "submitted")) {

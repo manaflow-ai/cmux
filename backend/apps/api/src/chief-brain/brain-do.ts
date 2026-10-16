@@ -15,7 +15,7 @@ import { prunePiEntries } from "./pi-prune.ts"
 import { type LedgerAnswer, type LedgerOp, runLedger } from "../model-gateway/run-ledger.ts"
 import { capText, type Kind, Memory, RETRY_MS } from "./memory.ts"
 import { brainModels, CLAUDE, compactorDefault, compactorModel, creditsCanStart, creditsNotice, FAKE, turnFailedNotice, gatewayOptions, isClaude, isMetered, liveOf, modelRefusal, pickTurnModel, validModelName } from "./models.ts"
-import { clipReply, formatMessage, isNoReply, replyTarget, systemFirst, textParts } from "./brain-text.ts"
+import { clipReply, formatMessage, isNoReply, replyTarget, systemFirst, textParts, stripStaleThinking } from "./brain-text.ts"
 import { AGENT, systemPrompt } from "./prompts.ts"
 import { handsTools, memoryTools } from "./brain-tools.ts"
 import { handsEntryTool, hasHand } from "./brain-hands.ts"
@@ -101,7 +101,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
             beforeRequest: async ({ messages }, api) => {
               const agent = (liveOf(this.ctx).request(String(api.taskId)), this.config().agent)
               if (this.turnConversation && agent && !this.childOf()) void typing(this.env, this.turnConversation, agent, true)
-              return systemFirst(messages)
+              // Thinking made under another tools list (a run's hands continuation, a hand paired between turns) is dropped.
+              const fresh = stripStaleThinking(messages)
+              if (fresh.stripped > 0) console.log(JSON.stringify({ msg: "chief_brain.thinking_stripped", run: this.turnId ?? null, blocks: fresh.stripped }))
+              if (fresh.openMismatch > 0) console.error(JSON.stringify({ msg: "chief_brain.thinking_open_turn_mismatch", run: this.turnId ?? null, messages: fresh.openMismatch }))
+              return systemFirst(fresh.messages) ?? (fresh.stripped > 0 ? { messages: fresh.messages } : undefined)
             },
             afterResponse: (message, api) => this.onResponse(message, String(api.taskId))
           }),

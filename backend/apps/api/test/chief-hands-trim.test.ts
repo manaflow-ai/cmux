@@ -126,6 +126,17 @@ describe("Chief hands tools by hand", { timeout: 120_000 }, () => {
     await dmAndReply(token, chief, "then marker-six", 3)
     expect(turnTools("marker-six")[0]!.map((t) => t.name)).toEqual(expect.arrayContaining(["hands", "agent"]))
   })
+  it("a hand paired between turns, then two more turns: every turn answers (no replayed thinking under another tools list)", async () => {
+    const { token, chief } = await ownerWithChief("hands-between-signed")
+    expect((await http("PUT", `/v1/hands/grants/${chief.id}`, token, { on: true })).status).toBe(200)
+    await dmAndReply(token, chief, "SIGNED THINK turn one", 1)
+    await pair(token, "sb-between")
+    for (const [n, t] of [[2, "SIGNED THINK turn two"], [3, "SIGNED THINK turn three"], [4, "SIGNED THINK turn four"]] as const) await dmAndReply(token, chief, t, n)
+    const replies = (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)
+    expect(replies.map((m) => m.parts[0].text).filter((t: string) => t.includes("could not reach the model")), JSON.stringify(replies.map((m) => m.parts[0].text))).toHaveLength(0)
+    expect(turnTools("turn four")[0]!.map((t) => t.name)).toEqual(expect.arrayContaining(["hands", "agent"]))
+  })
+
   it("one message makes a sandbox and starts an agent: one run, one reply, no 400 (the run continues once with the full tools)", async () => {
     const { token, chief } = await ownerWithChief("hands-one-msg")
     expect((await http("PUT", `/v1/hands/grants/${chief.id}`, token, { on: true })).status).toBe(200)
