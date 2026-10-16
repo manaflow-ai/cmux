@@ -45,6 +45,8 @@ export interface GatewayHooks {
   readonly event?: (e: AssistantMessageEvent) => void
   /** A terminal turn message's usage, for its run. */
   readonly usage?: (run: string, u: GatewayUsage) => void
+  /** A turn call that ended in an error: the provider's message (no secret), for the run's error. */
+  readonly failed?: (run: string, message: string) => void
   /** The upstream region that answered a turn call (the Claude route's x-bedrock-region), for its run. */
   readonly region?: (run: string, region: string) => void
   /** Post the out-of-credits notice once in the conversation (the team was told only once). */
@@ -125,13 +127,16 @@ export class ModelGatewayLive {
           else out.push(e)
         }
         const final = await src.result()
+        if ((final.stopReason === "error" || terminal?.type === "error") && w.run) this.hooks.failed?.(w.run, String(final.errorMessage ?? "model error").replace(/\s+/g, " ").slice(0, 400))
         if (priced) await this.gate.after(key, final).catch((e: unknown) => console.warn(JSON.stringify({ msg: "model_gateway.settle_failed", call: key, error: String(e).slice(0, 200) })))
         if (w.run) this.hooks.usage?.(w.run, usageOf(final))
         if (terminal) out.push(terminal)
         out.end(final)
       } catch (e) {
         if (priced && !sent) await this.gate.release(key).catch(() => undefined)
-        this.finish(out, failed(model, e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300)))
+        const text = e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300)
+        if (w.run) this.hooks.failed?.(w.run, text)
+        this.finish(out, failed(model, text))
       }
     })()
     return out

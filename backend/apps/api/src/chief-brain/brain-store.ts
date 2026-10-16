@@ -31,6 +31,7 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS oc_logged (key TEXT PRIMARY KEY)`,
   // Model usage per run (the model gateway's terminal messages): tokens, cache, cost; Run.usage / Run.cost_usd.
   `CREATE TABLE IF NOT EXISTS cb_timing (turn TEXT PRIMARY KEY, request_at INTEGER, first_token_at INTEGER)`,
+  `CREATE TABLE IF NOT EXISTS cb_run_error (turn TEXT PRIMARY KEY, text TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS cb_marks (turn TEXT NOT NULL, mark TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (turn, mark))`,
   `CREATE TABLE IF NOT EXISTS cb_usage (turn TEXT PRIMARY KEY, calls INTEGER NOT NULL, input INTEGER NOT NULL, output INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL, cost_usd REAL NOT NULL)`
 ]
