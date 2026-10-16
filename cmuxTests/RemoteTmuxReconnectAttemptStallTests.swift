@@ -81,18 +81,48 @@ import Testing
         #expect(connection.connectionState == .reconnecting)
     }
 
+    /// A clock the test moves by hand, standing in for the connection's transport clock.
+    private final class ManualClock: @unchecked Sendable {
+        private let lock = NSLock()
+        private let start = ContinuousClock.now
+        private var offset: Duration = .zero
+        func advance(_ step: Duration) { lock.lock(); offset += step; lock.unlock() }
+        func now() -> ContinuousClock.Instant { lock.lock(); defer { lock.unlock() }; return start + offset }
+    }
+
     @Test func aReconnectAttemptThatKeepsTalkingIsLeftAlone() async throws {
         // Prints a line every 100 ms: a slow login that is still working.
         let transport = try script("while :; do echo waiting; sleep 0.1; done")
-        let connection = try reconnectingConnection(transport: transport, loggingInLimit: .seconds(2))
+        let clock = ManualClock()
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "quiet-reconnect.test"),
+            sessionName: "work",
+            transportProfile: ScriptTransportProfile(executable: transport.path)
+        )
+        connection.transportClock = { clock.now() }
+        connection.reconnectQuietLimits = .init(loggingIn: .seconds(2), inTmux: .seconds(30))
+        try connection.start()
+        connection.handleMessageForTesting(.enter)
+        connection.beginReconnecting()
         defer { connection.stop() }
 
         let attempted = await waitFor(seconds: 15) { events(connection).contains("reconnect-attempt") }
         #expect(attempted)
-        // Three times the limit with output arriving the whole time.
-        _ = await waitFor(seconds: 6) { false }
+        // Six seconds of transport time, three times the limit, moved in steps shorter than the
+        // limit. After each step the test waits for the transport's next line, which is what
+        // keeps the attempt alive.
+        for _ in 1...4 {
+            clock.advance(.milliseconds(1_500))
+            let spoke = await waitFor(seconds: 10) {
+                connection.attachProgress(now: clock.now())?.quietFor == .zero
+            }
+            #expect(spoke, "the transport printed after the clock moved")
+        }
+        connection.reconnectAttemptDeadlineReached(processGeneration: connection.processGeneration)
+
         #expect(!events(connection).contains { $0.hasPrefix("reconnect-attempt-stalled") },
                 "events: \(events(connection))")
         #expect(events(connection).filter { $0 == "reconnect-attempt" }.count == 1)
+        #expect(connection.reconnectAttemptDeadline != nil, "the attempt is still being watched")
     }
 }
