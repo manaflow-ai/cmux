@@ -756,6 +756,7 @@ export default settingsPageEntry({
     "pages/settings/components/ThemeFiles.tsx",
     "pages/settings/components/ThemePicker.tsx",
     "pages/settings/components/ThemePreview.tsx",
+    "pages/settings/components/AppIllustration.tsx",
     "pages/settings/components/ThemeStudio.tsx",
     "pages/settings/editors/ChoiceOrNumberEditor.tsx",
     "pages/settings/editors/ColorEditor.tsx",

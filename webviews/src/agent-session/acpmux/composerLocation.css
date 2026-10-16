@@ -7,7 +7,8 @@
    with a project or without, while the host's name loads and after, so nothing under it moves.
    Queued prompts stack above it (.acpmux-composer-queue), never over it. A control is a plain text
    button (no bezel, no fill, no weight change); hover and an open menu lay the bar's own wash under
-   it, and keyboard focus draws a ring in the theme's text color. */
+   it, and keyboard focus draws a ring in the theme's text color. The New Tab draws the same strip
+   as text over its card instead (newtab/screen.css, #21133). */
 .acpmux-composer-strip {
   --acpmux-strip-height: 30px;
   position: relative;

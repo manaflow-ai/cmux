@@ -138,7 +138,7 @@
 
 
 
-/* Quiet: one outlined card per group, rows divided by hairlines inset from the card's edge. */
+/* One outlined card per group, rows divided by hairlines inset from the card's edge. */
 .rows {
   border: 1px solid var(--border);
   border-radius: var(--card-radius);
