@@ -29,7 +29,7 @@
       "wait": 1
     },
     {
-      "click": "SidebarChiefHomeRow"
+      "socket": "chief.open"
     },
     {
       "wait": 1.5

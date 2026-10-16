@@ -25,7 +25,7 @@
       "wait": 1
     },
     {
-      "click": "SidebarChiefHomeRow"
+      "socket": "chief.open"
     },
     {
       "wait": 1.5
@@ -237,7 +237,7 @@
       "tree": "chief-pane-in-split"
     },
     {
-      "click": "SidebarChiefHomeRow"
+      "socket": "chief.open"
     },
     {
       "wait": 1

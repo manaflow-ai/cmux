@@ -21,6 +21,10 @@
   Cross-container drags resolve to the existing conversation-copy router, so
   duplicates get fresh identities while the original remains in Home. This
   avoids returning a copied pane's id through an API that promises a move.
+- The light/dark scripted tours now open Home through `chief.open`, so their
+  navigation targets the native workspace instead of the removed overlay row.
+  The canonical tab also enters the workspace's pinned-panel registry so its
+  session snapshot and restored close affordance retain the protection.
 - The dangerous permission bypass remains opt-in and off by default. No new UI
   copy was needed for this change. `localize-changes --base dea8e6e31f8` and
   strict catalog validation pass all 11 catalogs/nine locales. Static affected
