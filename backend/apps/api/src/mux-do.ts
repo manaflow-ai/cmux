@@ -25,6 +25,30 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
     return head && head.agent === agent ? (head.owner_user ?? null) : null
   }
 
+  /**
+   * The Chief's brain implementation, the one source of truth for routing (wakes here, the runs read and
+   * GET/PUT /v1/chiefs/<agent>/brain-impl in the Worker). PUT writes it here first, then tells the opencode
+   * brain; a failure between the two is safe both ways (an opencode wake the brain still calls pi answers
+   * `impl_pi` and falls back to P; a pi Chief never reaches the opencode brain). RPC, owner-checked by the route.
+   */
+  async setBrainImpl(impl: "pi" | "opencode"): Promise<void> {
+    this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS mux_brain_impl (k INTEGER PRIMARY KEY CHECK (k = 1), impl TEXT NOT NULL)`)
+    this.ctx.storage.sql.exec(`INSERT INTO mux_brain_impl (k, impl) VALUES (1, ?) ON CONFLICT (k) DO UPDATE SET impl = excluded.impl`, impl)
+    this.impl = impl
+  }
+  async brainImplOf(): Promise<string> {
+    return this.brainImpl()
+  }
+  private impl: string | undefined
+
+  /** The brain_impl ("pi" when never set): local, read once per object life. */
+  private brainImpl(): string {
+    if (this.impl !== undefined) return this.impl
+    const sql = this.ctx.storage.sql
+    this.impl = sql.exec(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'mux_brain_impl'`).toArray().length === 0 ? "pi" : (sql.exec<{ impl: string }>(`SELECT impl FROM mux_brain_impl WHERE k = 1`).toArray()[0]?.impl ?? "pi")
+    return this.impl
+  }
+
   /** The chief itself (agent token) or its owner. */
   private allowed(head: mux.MuxHead, p: Principal): boolean {
     if (p.kind === "agent") return p.agent !== undefined && p.agent === head.agent
@@ -53,11 +77,14 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
     const brain = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(brainName(head.agent, item.conversation)))
     const wake = { agent: head.agent, owner: head.owner_user, conversation: item.conversation, seq: item.seq, reason: item.reason }
     const failed = (e: unknown) => console.warn(JSON.stringify({ msg: "chief_brain.wake_failed", agent: head.agent, error: String(e).slice(0, 200) }))
-    // A Chief whose owner picked the opencode brain (chief-brain-opencode/) is answered there; any other, or one on a
-    // deployment without the brain container, goes to the P brain.
-    const opencode = this.env.CHIEF_OPENCODE_ENABLED === "1" && this.env.OPENCODE_BRAIN_DO ? this.env.OPENCODE_BRAIN_DO.get(this.env.OPENCODE_BRAIN_DO.idFromName(head.agent)) : undefined
-    const first = opencode ? opencode.wake(wake) : Promise.resolve({ skipped: "impl_pi" as string })
-    this.ctx.waitUntil(first.then((r) => ("skipped" in r && (r.skipped === "impl_pi" || r.skipped === "no_container") ? brain.wake(wake).then(() => undefined) : undefined)).then(() => undefined, failed))
+    // Each wake goes only to the Chief's own brain (brain_impl, cached here by PUT .../brain-impl): a pi Chief's wake
+    // never waits on the opencode brain object, whose first call can take seconds (it lives near container capacity).
+    // An opencode Chief on a deployment without the container falls back to P.
+    const opencode = this.env.CHIEF_OPENCODE_ENABLED === "1" && this.env.OPENCODE_BRAIN_DO && this.brainImpl() === "opencode" ? this.env.OPENCODE_BRAIN_DO.get(this.env.OPENCODE_BRAIN_DO.idFromName(head.agent)) : undefined
+    const sent = opencode
+      ? opencode.wake(wake).then((r) => ("skipped" in r && (r.skipped === "impl_pi" || r.skipped === "no_container") ? brain.wake(wake) : r))
+      : brain.wake(wake)
+    this.ctx.waitUntil(sent.then(() => undefined, failed))
   }
 
   /** mux.queue: the head (cursors and pending counts); wake rows come with the snapshot. */

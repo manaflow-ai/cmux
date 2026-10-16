@@ -93,6 +93,8 @@ export default defineConfig({
           STRIPE_USAGE_KEY: "sk_test_fake-usage-sync-key",
           // Chief brains (chief-brain/brain-do.ts): wakes reach the brain; the fake model (no AI binding in tests).
           CHIEF_BRAIN_ENABLED: "1",
+          // The opencode brain (O) is selectable; no container binds here, so an O Chief falls back to P (chief-brain-opencode-route.test.ts).
+          CHIEF_OPENCODE_ENABLED: "1",
           // The metered Claude route and its sign-in refresh, faked at their HTTP boundary in
           // test/chief-brain-claude.test.ts. Test-only values: an expired fake access token and a fake refresh token.
           CHIEF_BRAIN_CLAUDE_URL: "https://claude.test/api/claude-david",
@@ -102,6 +104,8 @@ export default defineConfig({
           // The second allowed owner comes from the no-deploy list (a secret on staging).
           CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA: testUser("brain-claude-fail"),
           CHIEF_BRAIN_FALLBACK_MODEL: "fake",
+          // Old pi entries are pruned at each turn start (chief-brain/pi-prune.ts), as on staging.
+          CHIEF_BRAIN_PRUNE_PI: "1",
           // Team VMs use the in-object fake provider (team-vm-driver.ts).
           TEAM_VM_DRIVER: "fake",
           // The team VM bind runs against the fake guest (team-vm-fake-guest.ts).
