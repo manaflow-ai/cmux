@@ -6,34 +6,64 @@ import Foundation
 /// before printing anything (a proxy wrapper that never starts the real client was seen
 /// sitting like that for eight and a half minutes), nothing else ever ends the attempt and the
 /// mirror stays frozen. The first attach already judges a quiet login against
-/// ``RemoteTmuxAttachProgress/QuietLimits``; a reconnect attempt uses the same verdict, so any
-/// output from the transport moves the limit out, and only a transport that says nothing for
-/// the whole limit is killed and replaced by a fresh attempt.
+/// ``RemoteTmuxAttachProgress/QuietLimits``; a reconnect attempt uses the same verdict.
+///
+/// One owner: ``reconnectAttemptDeadline`` is the attempt's single deadline. The spawn arms it,
+/// every piece of transport output re-arms it for a full quiet limit, `%enter` or a teardown
+/// (``teardownProcessHandles()``, which ``stop()`` runs too) cancels it, and only a deadline
+/// that fires with no output since kills the attempt and schedules a fresh one.
 @MainActor
 extension RemoteTmuxControlConnection {
-    func watchReconnectAttempt(processGeneration generation: UInt64) {
-        Task { @MainActor [weak self] in
-            while let milliseconds = self?.reconnectAttemptWatchStep(processGeneration: generation) {
-                await RemoteTmuxRetryDelay.wait(milliseconds: milliseconds)
-            }
-        }
+    func armReconnectAttemptDeadline() {
+        scheduleReconnectAttemptDeadline(processGeneration: processGeneration)
     }
 
-    /// Checks the attempt once. Returns how long to wait before checking again, or nil when
-    /// there is nothing left to watch: the attempt reached tmux, ended, was replaced, or was
-    /// just abandoned here.
-    private func reconnectAttemptWatchStep(processGeneration generation: UInt64) -> Int? {
+    func cancelReconnectAttemptDeadline() {
+        reconnectAttemptDeadline?.cancel()
+        reconnectAttemptDeadline = nil
+    }
+
+    /// Output from the transport is the progress edge: it moves an armed deadline out.
+    func reconnectAttemptOutputArrived() {
+        guard reconnectAttemptDeadline != nil else { return }
+        guard connectionState == .reconnecting, !enterReceived else {
+            cancelReconnectAttemptDeadline()
+            return
+        }
+        scheduleReconnectAttemptDeadline(processGeneration: processGeneration)
+    }
+
+    /// The deadline fired. Judges the attempt once on ``transportClock``: stalled kills it and
+    /// schedules a fresh attempt, otherwise the deadline is set for the time that remains.
+    func reconnectAttemptDeadlineReached(processGeneration generation: UInt64) {
+        reconnectAttemptDeadline = nil
         guard connectionState == .reconnecting, processGeneration == generation, !enterReceived,
-              let progress = attachProgress(), progress.phase == .loggingIn else { return nil }
+              let progress = attachProgress(now: transportClock()), progress.phase == .loggingIn else { return }
         switch progress.verdict(limits: reconnectQuietLimits) {
         case .stalled:
             record("reconnect-attempt-stalled quiet=\(progress.quietFor)")
             teardownProcessHandles()
             scheduleReconnectAttempt()
-            return nil
-        case let .wait(recheckIn):
-            let (seconds, attoseconds) = recheckIn.components
-            return max(1, Int(seconds) * 1_000 + Int(attoseconds / 1_000_000_000_000_000))
+        case .wait:
+            scheduleReconnectAttemptDeadline(processGeneration: generation)
+        }
+    }
+
+    private func scheduleReconnectAttemptDeadline(processGeneration generation: UInt64) {
+        reconnectAttemptDeadline?.cancel()
+        reconnectAttemptDeadline = nil
+        guard let progress = attachProgress(now: transportClock()), progress.phase == .loggingIn else { return }
+        let remaining: Duration
+        switch progress.verdict(limits: reconnectQuietLimits) {
+        case .stalled: remaining = .zero
+        case let .wait(recheckIn): remaining = recheckIn
+        }
+        let (seconds, attoseconds) = remaining.components
+        let milliseconds = max(1, Int(seconds) * 1_000 + Int(attoseconds / 1_000_000_000_000_000))
+        reconnectAttemptDeadline = Task { @MainActor [weak self] in
+            await RemoteTmuxRetryDelay.wait(milliseconds: milliseconds)
+            guard !Task.isCancelled else { return }
+            self?.reconnectAttemptDeadlineReached(processGeneration: generation)
         }
     }
 }
