@@ -3,7 +3,9 @@
 - Read every unique compiler diagnostic from the fleet logs: corrected the
   argument order in both detached Dock transfers and Chief Dock creation.
   Extracted the Home overlay from the sidebar's large SwiftUI body so its
-  generic type is checked independently. The permission bypass remains exposed
+  generic type is checked independently, and replaced its unsupported combined
+  maximum-width/fixed-height frame calls with valid bounded-height frames.
+  The permission bypass remains exposed
   in Chief Settings and Automation settings, off by default, and feeds both
   harnesses when a new turn starts.
 

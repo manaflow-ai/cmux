@@ -12189,7 +12189,7 @@ struct VerticalTabsSidebar: View, Equatable {
                         .padding(.top, SidebarWorkspaceListMetrics.homeRowTopOffset
                             + SidebarWorkspaceListMetrics.homeRowHeight
                             + SidebarWorkspaceListMetrics.homeRowBottomGap)
-                        .frame(maxWidth: .infinity, height: 292, alignment: .top)
+                        .frame(maxWidth: .infinity, minHeight: 292, maxHeight: 292, alignment: .top)
                         .background(.regularMaterial)
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .shadow(color: .black.opacity(0.18), radius: 14, y: 5)
@@ -12204,7 +12204,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     .padding(.top, SidebarWorkspaceListMetrics.homeRowTopOffset
                         + SidebarWorkspaceListMetrics.homeRowHeight
                         + SidebarWorkspaceListMetrics.homeRowBottomGap)
-                    .frame(maxWidth: .infinity, height: 238, alignment: .top)
+                    .frame(maxWidth: .infinity, minHeight: 238, maxHeight: 238, alignment: .top)
                     .background(.regularMaterial)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .shadow(color: .black.opacity(0.16), radius: 12, y: 4)
