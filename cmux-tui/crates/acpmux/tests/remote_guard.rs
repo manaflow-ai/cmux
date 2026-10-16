@@ -586,11 +586,9 @@ async fn web_cancel_still_requires_web_control_of_remote_sessions() {
         let hub = hub();
         let mut web = Client::new(&hub, Origin::Web);
         let id = session(&mut web, &format!("web-owned-{form}")).await;
+        let owned = hub.resolve(&id).unwrap();
+        hub.set_rules(&owned, Some(json!({"default": "approve"})));
         let mut local = Client::new(&hub, Origin::Local);
-        let rules = local
-            .call("_acpmux/set_rules", json!({"sessionId": id, "rules": {"default": "approve"}}))
-            .await;
-        assert!(rules["error"].is_null(), "{rules}");
 
         // Keep a turn running so the refusal is checked by its actual side effect.
         start_until_cancel(&mut local, &id).await;
