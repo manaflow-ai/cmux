@@ -47,7 +47,7 @@ extension DockSplitStore {
                         panelIds: terminalPanelIds
                     )
         }
-        let panelSnapshots = orderedPanelIds
+        let builtPanelSnapshots = orderedPanelIds
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { panelId in
                 // A Dock's owner UUID can change when its window/workspace is restored or
@@ -66,7 +66,7 @@ extension DockSplitStore {
                         processPresenceProvider: agentProcessPresence,
                         revalidateProcessEvidence: false
                     ),
-                    observationIsAuthoritative: restorableAgentIndex?.isComplete(
+                    observationIsAuthoritative: restorableAgentIndex?.observesEveryLiveSession(
                         forPanelId: panelId,
                         kind: surfaceResumeBindingsByPanelId[panelId]?.kind
                     ) ?? true,
@@ -85,6 +85,9 @@ extension DockSplitStore {
                     agentProcessPresence: agentProcessPresence
                 )
             }
+        let panelSnapshots = restorableAgentIndex?.removingTranscriptlessClaudeResume(
+            from: builtPanelSnapshots
+        ) ?? builtPanelSnapshots
         let persistedPanelIds = Set(panelSnapshots.map(\.id))
         let sourceWorkspaceIdsByPanelId: [UUID: UUID] = Dictionary(
             uniqueKeysWithValues: panelSnapshots.compactMap { panel -> (UUID, UUID)? in
@@ -161,7 +164,7 @@ extension DockSplitStore {
             terminalFontSizeSnapshotProjection = nil
         }
 
-        return sessionPanelSnapshot(
+        let snapshot = sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
             observation: restorableAgentIndex?.entryForStablePanel(
@@ -197,6 +200,8 @@ extension DockSplitStore {
                 return PIDPresence.current(pid: pid_t($0))
             }
         )
+        guard let snapshot, let restorableAgentIndex else { return snapshot }
+        return restorableAgentIndex.removingTranscriptlessClaudeResume(from: [snapshot]).first
     }
 
     private func orderedSessionPanelIds() -> [UUID] {

@@ -42,6 +42,9 @@ export const CMUX_TUI_STATE_MAX_BYTES = 8 * 1024 * 1024 * 1024;
 export const DEVBOX_TEMPLATE_FILES = [
   "Dockerfile",
   "agent-config.sh",
+  "agent-auth.sh",
+  "cmux-claude",
+  "cmux-codex",
   "cmux-opencode",
   "chrome-managed-policy.json",
   "cmux-bashrc",

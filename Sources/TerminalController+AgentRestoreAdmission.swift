@@ -170,10 +170,22 @@ extension TerminalController {
                 let kind = RestorableAgentKind(rawValue: inputs.kind)
                 let hookPath = kind?.hookStoreFileURL(homeDirectory: NSHomeDirectory())
                 let lockDirectory = writer.map { URL(fileURLWithPath: $0.lockPath).deletingLastPathComponent().path }
-                await AgentRestoreEvidenceObservation().wait(
-                    process: liveOwner?.processIdentity,
-                    paths: [hookPath?.deletingLastPathComponent().path, lockDirectory, writer?.lockPath].compactMap { $0 }
-                )
+                let paths = [hookPath?.deletingLastPathComponent().path, lockDirectory, writer?.lockPath].compactMap { $0 }
+                guard writer?.state == .changing else {
+                    await AgentRestoreEvidenceObservation().wait(process: liveOwner?.processIdentity, paths: paths)
+                    break
+                }
+                // Codex releasing its coordination lock raises no file event.
+                // Re-probe on the settle bounds within this one request, so a
+                // relaunch burst resolves quickly without extra RPC rounds.
+                for delay in CodexWriterLockSettle.delays {
+                    await AgentRestoreEvidenceObservation().wait(
+                        process: liveOwner?.processIdentity, paths: paths, timeout: delay
+                    )
+                    guard !Task.isCancelled, AgentRestoreCodexEvidence().inspect(
+                        record: record, sessionID: inputs.sessionID, effectiveHome: inputs.codexHome
+                    )?.state == .changing else { break }
+                }
             case .admitted, .targetChanged, .liveOwner, .concurrentLaunch:
                 break
             }

@@ -35,6 +35,9 @@ struct AccountSignInView: View {
             case let .failed(failure):
                 AccountSignInFailureView(
                     failure: failure,
+                    detail: model.failureDetail,
+                    detailCopyState: model.failureDetailCopyState,
+                    onCopyDetail: model.copyFailureDetail,
                     hasFallbackLink: model.hasFallbackLink,
                     linkCopyState: model.linkCopyState,
                     browserOpenState: model.browserOpenState,
@@ -113,6 +116,9 @@ private struct AccountSignInLoadingView: View {
 
 private struct AccountSignInFailureView: View {
     let failure: AccountSignInModel.Failure
+    let detail: String?
+    let detailCopyState: AccountSignInModel.LinkCopyState
+    let onCopyDetail: () -> Void
     let hasFallbackLink: Bool
     let linkCopyState: AccountSignInModel.LinkCopyState
     let browserOpenState: AccountSignInModel.BrowserOpenState
@@ -131,6 +137,13 @@ private struct AccountSignInFailureView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+            if let detail {
+                AccountSignInFailureDetail(
+                    detail: detail,
+                    copyState: detailCopyState,
+                    onCopy: onCopyDetail
+                )
+            }
             Button(String(localized: "account.signIn.tryAgain", defaultValue: "Try Again"), action: onTryAgain)
                 .cloudProminentButtonStyle()
                 .accessibilityIdentifier("AccountSignInRetryButton")
@@ -145,6 +158,34 @@ private struct AccountSignInFailureView: View {
         }
         .frame(maxWidth: 440)
         .accessibilityIdentifier("AccountSignInFailureState")
+    }
+}
+
+/// The failure's error code, HTTP status and request ID, selectable and
+/// copyable so a user can report exactly what failed.
+private struct AccountSignInFailureDetail: View {
+    let detail: String
+    let copyState: AccountSignInModel.LinkCopyState
+    let onCopy: () -> Void
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Text(verbatim: detail)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("AccountSignInFailureDetail")
+            Button(
+                copyState == .copied
+                    ? String(localized: "account.signIn.errorDetailsCopied", defaultValue: "Error Details Copied")
+                    : String(localized: "account.signIn.copyErrorDetails", defaultValue: "Copy Error Details"),
+                action: onCopy
+            )
+            .controlSize(.small)
+            .accessibilityIdentifier("AccountSignInCopyErrorDetailsButton")
+        }
     }
 }
 

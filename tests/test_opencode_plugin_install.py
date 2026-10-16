@@ -177,13 +177,12 @@ printf '\\n---\\n' >> "$FAKE_CMUX_STDIN_LOG"
         check_env["FAKE_CMUX_STDIN_LOG"] = str(fake_stdin_log)
         check_env["FAKE_CMUX_ENV_LOG"] = str(fake_env_log)
         check_env["CMUX_OPENCODE_HOOKS_DISABLED"] = ""
-        for launch_key in (
-            "CMUX_AGENT_LAUNCH_KIND",
-            "CMUX_AGENT_LAUNCH_EXECUTABLE",
-            "CMUX_AGENT_LAUNCH_ARGV_B64",
-            "CMUX_AGENT_LAUNCH_CWD",
-        ):
-            check_env.pop(launch_key, None)
+        # OpenCode started from a shell inside another agent inherits that
+        # agent's launch capture; the plugin must record OpenCode's own.
+        check_env["CMUX_AGENT_LAUNCH_KIND"] = "claude"
+        check_env["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/opt/homebrew/bin/claude"
+        check_env["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64.b64encode(b"/opt/homebrew/bin/claude\0").decode()
+        check_env["CMUX_AGENT_LAUNCH_CWD"] = "/tmp/claude-project"
         check_source = """
 const pluginPath = process.env.CMUX_TEST_OPENCODE_PLUGIN_PATH;
 const pluginCopyPath = process.env.CMUX_TEST_OPENCODE_PLUGIN_COPY_PATH;
@@ -235,6 +234,8 @@ process.argv.splice(
   0,
   process.argv.length,
   "/Users/example/.bun/bin/opencode",
+  // OpenCode 1.x reports src/index.js; V2 reports the TUI worker.
+  "/$bunfs/root/src/index.js",
   "/$bunfs/root/src/cli/cmd/tui/worker.js",
   "--model",
   "anthropic/claude-sonnet-4-6"
@@ -250,6 +251,71 @@ await v1Hooks.event({
     }
   }
 });
+await v1Hooks.event({
+  event: {
+    type: "session.updated",
+    properties: {
+      info: { id: "opencode-session-test", time: { archived: false } }
+    }
+  }
+});
+await v1Hooks.event({
+  event: {
+    type: "session.error",
+    properties: {
+      sessionID: "opencode-session-test",
+      error: { name: "UnknownError", data: { message: "provider failed" } }
+    }
+  }
+});
+await v1Hooks.event({
+  event: {
+    type: "session.status",
+    properties: { sessionID: "opencode-session-test", status: { type: "idle" } }
+  }
+});
+await v1Hooks.event({
+  event: {
+    type: "session.idle",
+    properties: { sessionID: "opencode-session-test" }
+  }
+});
+// One terminal stop per turn, opened only by a run signal. Turn 2 starts on
+// busy; a repeated user-message update after its stop must not reopen it, and
+// a failure after the published idle stop is dropped, not reclassified.
+// Turn 3 queues prompt 4 while running: the queued prompt's user message and
+// admission arrive mid-turn, yet turn 4 still publishes its own stop.
+const sid = "opencode-session-test";
+const userMessage = (id) => ({
+  event: { type: "message.updated", properties: { info: { id, sessionID: sid, role: "user" } } }
+});
+const busy = { event: { type: "session.status", properties: { sessionID: sid, status: { type: "busy" } } } };
+const idle = { event: { type: "session.idle", properties: { sessionID: sid } } };
+const failure = {
+  event: {
+    type: "session.error",
+    properties: { sessionID: sid, error: { name: "UnknownError", data: { message: "late failure" } } }
+  }
+};
+await v1Hooks.event(userMessage("msg-turn-2"));
+await v1Hooks.event(busy);
+await v1Hooks.event(idle);
+await v1Hooks.event(userMessage("msg-turn-2"));
+await v1Hooks.event(idle);
+await v1Hooks.event(failure);
+await v1Hooks.event(userMessage("msg-turn-3"));
+await v1Hooks.event(busy);
+await v1Hooks.event(userMessage("msg-turn-4"));
+await v1Hooks.event({ event: { type: "session.next.prompt.admitted", properties: { sessionID: sid, messageID: "msg-turn-4" } } });
+await v1Hooks.event(idle);
+await v1Hooks.event({ event: { type: "session.next.prompted", properties: { sessionID: sid, messageID: "msg-turn-4" } } });
+await v1Hooks.event({ event: { type: "session.execution.succeeded", properties: { sessionID: sid } } });
+// Shutdown keeps the execution for resumption; it is not a completed turn.
+await v1Hooks.event(busy);
+await v1Hooks.event({ event: { type: "session.execution.interrupted", properties: { sessionID: sid, reason: "shutdown" } } });
+// Sentinel: hook processes are spawned in event order, so once session-end
+// has run every earlier stop hook has been spawned too.
+await v1Hooks.event({ event: { type: "session.deleted", properties: { info: { id: sid } } } });
 """
         check = subprocess.run(
             [bun, "--eval", check_source],
@@ -267,14 +333,35 @@ await v1Hooks.event({
             print(f"stderr={check.stderr.strip()}")
             return 1
 
+        # Wait for the session-end sentinel and for every hook process to finish
+        # writing, so a late extra stop cannot land after the counts below.
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            args_text = fake_args_log.read_text(encoding="utf-8") if fake_args_log.exists() else ""
+            stdin_text = fake_stdin_log.read_text(encoding="utf-8") if fake_stdin_log.exists() else ""
+            if "opencode session-end" in args_text and stdin_text.count("\n---\n") >= args_text.count("\n"):
+                break
+            time.sleep(0.01)
         args_log = wait_for_log(fake_args_log, "hooks enqueue opencode session-start")
-        stdin_log = wait_for_log(fake_stdin_log, '"session_id":"opencode-session-test"')
+        stdin_log = wait_for_log(fake_stdin_log, '"hook_event_name":"StopFailure"')
         env_log = wait_for_log(fake_env_log, "kind=opencode")
         if "hooks enqueue opencode session-start" not in args_log:
             print(f"FAIL: plugin did not invoke hooks opencode session-start, got {args_log!r}")
             return 1
         if args_log.count("hooks enqueue opencode session-start") != 1:
             print(f"FAIL: plugin invoked duplicate session-start hooks, got {args_log!r}")
+            return 1
+        if args_log.count("hooks enqueue opencode stop") != 4:
+            print(f"FAIL: plugin did not publish exactly one stop per turn, got {args_log!r}")
+            return 1
+        if stdin_log.count('"hook_event_name":"Stop"') != 3 or stdin_log.count('"hook_event_name":"StopFailure"') != 1:
+            print(f"FAIL: plugin did not settle one terminal outcome per turn, got {stdin_log!r}")
+            return 1
+        if "late failure" in stdin_log:
+            print(f"FAIL: plugin reclassified a turn after its stop was published, got {stdin_log!r}")
+            return 1
+        if '"hook_event_name":"StopFailure"' not in stdin_log or '"error":"provider failed"' not in stdin_log:
+            print(f"FAIL: plugin did not preserve the OpenCode nested error message, got {stdin_log!r}")
             return 1
         if '"session_id":"opencode-session-test"' not in stdin_log or '"/tmp/opencode-project"' not in stdin_log:
             print(f"FAIL: plugin did not pass expected session payload, got {stdin_log!r}")

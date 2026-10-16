@@ -134,6 +134,7 @@ extension TerminalController {
             "vm.rename",
             "vm.pause",
             "vm.resume",
+            "vm.restart",
             "vm.snapshot",
             "vm.snapshot_list",
             "vm.snapshot_delete",
