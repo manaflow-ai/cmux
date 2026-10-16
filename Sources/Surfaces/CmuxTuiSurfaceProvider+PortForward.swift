@@ -216,6 +216,7 @@ extension CmuxTuiSurfaceProvider {
             browser.configureCloudBrowser(model: model, url: logicalURL, resourceID: resourceID, request: request)
         }
         materializedPanels.insert(browser.id)
+        catalog.cloudBrowserDocumentDidChange(browser)
         return true
     }
 

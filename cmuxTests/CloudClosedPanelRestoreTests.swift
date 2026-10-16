@@ -354,6 +354,8 @@ struct CloudClosedPanelRestoreTests {
             #expect(row.url == document.absoluteString)
             #expect(CloudTreeResourceName(resource: row, remoteView: row.remoteViews?.first).browserName
                 == document.absoluteString)
+            catalog.endProjections(panelID: browser.id, reason: .replaced)
+            #expect(catalog.snapshot.resources.first { $0.id == resource.id }?.url == resource.url)
         }
     }
 

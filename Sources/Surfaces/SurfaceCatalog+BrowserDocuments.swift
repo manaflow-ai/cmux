@@ -15,13 +15,15 @@ extension SurfaceCatalog {
         guard let resourceID = browser.cloudAccess.resourceID,
               resourceID.machine.cloudMachineID != nil, resourceID.kind == .browser,
               !resourceID.isForwardedPort,
-              let projection = projection(forPanel: browser.id), projection.resource == resourceID,
+              let projection = projectionIncludingPendingRestore(forPanel: browser.id), projection.resource == resourceID,
               projection.workspaceID == browser.workspaceId,
               let resource = resources[projection.resource],
               resource.machine.cloudMachineID != nil, resource.kind == .browser,
               !resource.id.isForwardedPort,
-              let tabID = projection.remoteTabID,
-              resource.remoteViews?.contains(where: { $0.tabID == tabID }) == true,
+              let views = resource.remoteViews,
+              let view = projection.remoteTabID.flatMap({ tabID in views.first { $0.tabID == tabID } })
+                  ?? (projection.remoteTabID == nil && views.count == 1 ? views.first : nil),
+              projection.remoteWorkspaceID == nil || projection.remoteWorkspaceID == view.workspace.id,
               let provider = provider(for: resource.machine) as? CmuxTuiSurfaceProvider,
               provider.isRegisteredInCatalog(), !provider.hasLostAccess,
               let url = browser.currentURL,
@@ -30,10 +32,10 @@ extension SurfaceCatalog {
         let title = url == SurfacePaneFactory.blankURL || browser.pageTitle.isEmpty
             ? url.absoluteString : browser.pageTitle
         let previous = cloudBrowserDocuments[resource.id]?[browser.id]
-        guard previous?.url != url || previous?.title != title else { return }
+        guard previous?.url != url || previous?.title != title || previous?.remoteTabID != view.tabID else { return }
         cloudBrowserDocumentRevision &+= 1
         cloudBrowserDocuments[resource.id, default: [:]][browser.id] = CloudBrowserDocument(
-            url: url, title: title, remoteTabID: tabID, revision: cloudBrowserDocumentRevision
+            url: url, title: title, remoteTabID: view.tabID, revision: cloudBrowserDocumentRevision
         )
         notifyChange(for: resource.machine)
     }
@@ -48,6 +50,15 @@ extension SurfaceCatalog {
         result.url = document.url.absoluteString
         result.detail = result.url
         result.title = document.title
+        // The daemon names a newly created browser after its blank document.
+        // That placeholder must not hide the native title; explicit names still win.
+        result.remoteViews = resource.remoteViews?.map { view in
+            var view = view
+            if view.name?.trimmingCharacters(in: .whitespacesAndNewlines) == SurfacePaneFactory.blankURL.absoluteString {
+                view.name = nil
+            }
+            return view
+        }
         return result
     }
 }

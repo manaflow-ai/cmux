@@ -1215,7 +1215,15 @@ final class SurfaceCatalog {
     /// mirrored workspace also closes its machine tab (`CloudPlacementCoordinator`).
     func endProjections(panelID: UUID, reason: SurfaceProjectionEndReason = .paneClosed) {
         cloudWorkspaceCreationCoordinator.projectionDidEnd(panelID: panelID)
-        let pendingMachine = pendingRestoredProjections.machineOwningPanel(panelID); let removedPending = pendingRestoredProjections.remove(panelID: panelID)
+        let pending = pendingRestoredProjections.projection(forPanel: panelID)
+        let pendingMachine = pending?.resource.machine
+        let removedPending = pendingRestoredProjections.remove(panelID: panelID)
+        if let pending {
+            cloudBrowserDocuments[pending.resource]?[panelID] = nil
+            if cloudBrowserDocuments[pending.resource]?.isEmpty == true {
+                cloudBrowserDocuments[pending.resource] = nil
+            }
+        }
         let ended = projections.filter { $0.panelID == panelID }
         guard !ended.isEmpty || removedPending else { return }
         projections.subtract(ended)
