@@ -169,6 +169,20 @@ on:
   push:
     branches: [main, feat-cmux-next]
     paths:
+      # A nightly repair must earn this exact commit's Release compile before
+      # promotion can carry it to nightly-next. Otherwise a workflow-only fix
+      # (such as #21144) waits for an unrelated app change to become eligible.
+      - .github/workflows/nightly.yml
+      - scripts/ci/*nightly*
+      - scripts/ci/publish-release-assets.py
+      - scripts/ci/finalize-release.py
+      - scripts/ci/upload-r2-object.py
+      - scripts/ci/update-release-tag.py
+      - scripts/ci/signing-keychain.sh
+      - scripts/ci/download-run-artifact.py
+      - scripts/import-apple-developer-id-intermediates.sh
+      - scripts/apple-developer-id-certs/**
+      - scripts/prune_nightly_release_assets.py
       - App/**
       - cmux.xcodeproj/**
       # Base pushes still run the full side workflow for every package input;
