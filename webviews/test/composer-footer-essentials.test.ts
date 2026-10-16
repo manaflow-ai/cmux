@@ -65,7 +65,14 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
       // innerText counts screen-reader-only text (it is laid out, only clipped): set it aside.
       const quiet = [...element.querySelectorAll<HTMLElement>(".sr-only")];
       for (const span of quiet) span.style.display = "none";
-      const visible = element.innerText.replace(/\s+/g, " ").trim();
+      // Responsive short names are drawn by ::before; read what the control draws, too.
+      const drawn = [...element.querySelectorAll<HTMLElement>(".acpmux-fit-label")].flatMap((span) => {
+        const style = getComputedStyle(span);
+        if (!span.getClientRects().length || style.visibility === "hidden") return [];
+        const content = getComputedStyle(span, "::before").content;
+        return /^".+"$/.test(content) ? [content.slice(1, -1)] : [];
+      });
+      const visible = [element.innerText, ...drawn].join(" ").replace(/\s+/g, " ").trim();
       for (const span of quiet) span.style.display = "";
       return {
         visible,

@@ -75,6 +75,7 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
         plus: control(".acpmux-composer-plus .acpmux-picker-button"),
         model: control(".acpmux-model .acpmux-picker-button"),
         effort: control(".acpmux-effort .acpmux-picker-button"),
+        speed: control(".acpmux-fast"),
         access: control(".acpmux-access-trigger"),
         mic: control(".acpmux-mic"),
         send: control(".acpmux-send"),
@@ -86,15 +87,15 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
   /** What each pane width shows (the composer is the pane less 36 px): the model chip's labels,
    *  effort's, the access label, the mic. */
   const EXPECTED: Record<number, { model: string; effort: string; access: string; mic: boolean }> = {
-    760: { model: "Opus 5.5", effort: "Medium Fast", access: "Auto", mic: true },
-    520: { model: "Opus 5.5", effort: "Medium Fast", access: "Auto", mic: true },
-    500: { model: "Opus 5.5", effort: "Med Fast", access: "Auto", mic: true },
-    460: { model: "Opus", effort: "Med Fast", access: "Auto", mic: true },
-    440: { model: "Opus", effort: "Med Fast", access: "", mic: true },
-    400: { model: "", effort: "Med Fast", access: "", mic: true },
-    360: { model: "", effort: "Med Fast", access: "", mic: false },
-    300: { model: "", effort: "Med Fast", access: "", mic: false },
-    280: { model: "", effort: "Med Fast", access: "", mic: false },
+    760: { model: "Opus 5.5", effort: "Medium", access: "Auto", mic: true },
+    520: { model: "Opus 5.5", effort: "Medium", access: "Auto", mic: true },
+    500: { model: "Opus 5.5", effort: "Med", access: "Auto", mic: true },
+    460: { model: "Opus", effort: "Med", access: "Auto", mic: true },
+    440: { model: "Opus", effort: "Med", access: "", mic: true },
+    400: { model: "", effort: "Med", access: "", mic: true },
+    360: { model: "", effort: "Med", access: "", mic: false },
+    300: { model: "", effort: "Med", access: "", mic: false },
+    280: { model: "", effort: "Med", access: "", mic: false },
   };
 
   setDefaultTimeout(180_000);
@@ -166,6 +167,10 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
       }
       for (const name of ["plus", "model", "effort", "access", "send"])
         if (!controls[name]) problems.push(`no ${name} in the row`);
+      if (Boolean(controls.speed) !== (width >= 370))
+        problems.push(width >= 370 ? "no speed toggle" : "the speed toggle is still in the narrow row");
+      if (controls.speed && controls.mic && controls.speed.rect.right > controls.mic.rect.left + 0.5)
+        problems.push("the speed toggle must stay before the mic");
       const effort = controls.effort?.labels.join(" ") ?? "";
       if (effort !== expected.effort) problems.push(`the effort chip reads "${effort}", not "${expected.effort}"`);
       const model = controls.model?.labels.join(" ") ?? "";

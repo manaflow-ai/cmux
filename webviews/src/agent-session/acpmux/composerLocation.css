@@ -518,7 +518,9 @@
 .acpmux-composer-bar .acpmux-picker-button { position: relative; overflow: clip; }
 .acpmux-composer-bar .acpmux-picker-button [data-fit-part] { display: block; white-space: nowrap; }
 .acpmux-composer-bar .acpmux-picker-button > span { overflow: visible; text-overflow: clip; }
-.acpmux-composer-bar .acpmux-model-name[data-short] { display: none; }
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-model-name[data-short] { display: none; }
+/* New Tab draws the same vendorless model form; the full name stays in its text and tooltip. */
+.nt-pickers .acpmux-model-short[data-fit-forms~="full"] { display: block; white-space: nowrap; }
 .acpmux-composer-bar .acpmux-model-short { color: var(--agent-text); }
 .acpmux-fit-label::before { content: attr(data-label); }
 .acpmux-composer-bar .acpmux-composer-actions { position: relative; }

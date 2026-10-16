@@ -800,8 +800,7 @@ function AccessMenu({
               with the row's fit, leaving their shield and chevron visible. */}
           <span
             className={`acpmux-mode-text${quiet ? " sr-only" : ""}`}
-            data-fit-part="access"
-            data-fit-forms="full"
+            {...(!quiet ? { "data-fit-part": "access", "data-fit-forms": "full" } : {})}
           >
             {modeName}
           </span>
