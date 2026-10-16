@@ -282,6 +282,54 @@ impl OptChat {
         serde_json::to_string(&parts).unwrap_or_else(|_| "[]".into())
     }
 
+    /// The turn input of spec 5a as JSON `{frozen: {parts: [[l, i]], front}, rerendered, view: [piece],
+    /// delta: [block]}`: the frozen view cut into its 4-line blocks (`block_pieces`), then the delta
+    /// blocks. `frozen` is the JSON this returned last turn, or "" for none; `new` is how many of the
+    /// log's last messages are this turn's new ones (never shown in a re-rendered view).
+    #[wasm_bindgen(js_name = turnInput)]
+    pub fn turn_input(&self, store: &JsStore, frozen: &str, new: f64) -> Result<String, JsError> {
+        #[derive(Serialize, serde::Deserialize)]
+        struct FrozenJson {
+            parts: Vec<(u32, u64)>,
+            front: u64,
+            #[serde(default)]
+            unbuilt: Vec<(u32, u64)>,
+        }
+        #[derive(Serialize)]
+        struct Out<'a> {
+            frozen: FrozenJson,
+            rerendered: bool,
+            view: Vec<&'a str>,
+            delta: Vec<String>,
+        }
+        let prior = if frozen.is_empty() {
+            None
+        } else {
+            let f: FrozenJson = serde_json::from_str(frozen).map_err(|e| JsError::new(&format!("frozen view is not JSON: {e}")))?;
+            for (l, _) in f.parts.iter().chain(f.unbuilt.iter()) {
+                level(*l)?;
+            }
+            let ids = |v: &[(u32, u64)]| v.iter().map(|(l, i)| core::NodeId::new(*l, *i)).collect::<Vec<_>>();
+            // A stored view that does not end at its front (a reset log) is ignored: the core renders again.
+            let parts = ids(&f.parts);
+            if parts.last().map_or(0, |p| p.end()) != f.front {
+                None
+            } else {
+                Some(core::Frozen { parts, front: f.front, unbuilt: ids(&f.unbuilt) })
+            }
+        };
+        let host = Host::new(store);
+        let t = core::turn_input(&self.memory, &host, prior.as_ref(), new.max(0.0) as u64);
+        host.check()?;
+        let out = Out {
+            frozen: FrozenJson { parts: t.frozen.parts.iter().map(|p| (p.l, p.i)).collect(), front: t.frozen.front, unbuilt: t.frozen.unbuilt.iter().map(|p| (p.l, p.i)).collect() },
+            rerendered: t.rerendered,
+            view: core::block_pieces(&t.view),
+            delta: t.delta.clone(),
+        };
+        Ok(serde_json::to_string(&out).unwrap_or_default())
+    }
+
     /// The rendered view as JSON `{text, marks}` (marks are indices into the JS string `text`, UTF-16 code units).
     #[wasm_bindgen(js_name = renderView)]
     pub fn render_view(&self, store: &JsStore) -> Result<String, JsError> {
