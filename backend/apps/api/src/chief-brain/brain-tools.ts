@@ -10,6 +10,8 @@ const ZoomArgs = Type.Object({
 })
 const DateArgs = Type.Object({ id: Type.Integer({ description: "A message id." }) })
 
+export { handsTools } from "./brain-hands.ts"
+
 export const memoryTools = (memory: () => Memory): [ToolRegistration<typeof ZoomArgs>, ToolRegistration<typeof DateArgs>] => [
   { name: "zoom", description: ZOOM_DESCRIPTION, parameters: ZoomArgs, replay: "safe", execute: async ({ id, n }) => ({ content: [{ type: "text", text: memory().zoom(id, n) }] }) },
   { name: "date", description: DATE_DESCRIPTION, parameters: DateArgs, replay: "safe", execute: async ({ id }) => ({ content: [{ type: "text", text: memory().date(id, "UTC") }] }) }

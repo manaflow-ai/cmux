@@ -319,16 +319,23 @@ check_signing_intermediate_imports() {
 
   for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
     if ! awk '
-      /- name: Import signing cert/ { in_step=1; next }
+      /- name: Import signing cert$/ { in_step=1; next }
       in_step && /^[[:space:]]*- name:/ { in_step=0 }
-      in_step && /security import \/tmp\/cert\.p12/ { saw_cert_import=1 }
-      in_step && /\.\/scripts\/import-apple-developer-id-intermediates\.sh build\.keychain/ { saw_intermediates=1 }
-      END { exit !(saw_cert_import && saw_intermediates) }
+      in_step && /\.\/scripts\/ci\/signing-keychain\.sh create/ { saw_create=1 }
+      END { exit !saw_create }
     ' "$file"; then
-      echo "FAIL: $(basename "$file") must import Apple Developer ID intermediates into build.keychain after the signing certificate"
+      echo "FAIL: $(basename "$file") must import the signing certificate through scripts/ci/signing-keychain.sh create"
       exit 1
     fi
   done
+  if ! awk '
+    /"\$SECURITY_TOOL" import "\$certificate"/ { saw_cert_import=NR }
+    /import-apple-developer-id-intermediates\.sh" "\$name"/ { saw_intermediates=NR }
+    END { exit !(saw_cert_import && saw_intermediates && saw_cert_import < saw_intermediates) }
+  ' "$ROOT_DIR/scripts/ci/signing-keychain.sh"; then
+    echo "FAIL: scripts/ci/signing-keychain.sh must import Apple Developer ID intermediates after the signing certificate"
+    exit 1
+  fi
 
   echo "PASS: nightly and release signing import Apple Developer ID intermediates"
 }

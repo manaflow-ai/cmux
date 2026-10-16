@@ -296,3 +296,117 @@ def test_a_windows_daemon_with_another_digest_under_the_key_fails_the_publicatio
         manifest_file=manifest, source_file=source,
         windows_manifest_file=windows_manifest, windows_source_commit="c" * 40)
     assert (existing.parent / "completion-windows.json").exists()
+
+
+ACPMUX_TREE_NAMES = (
+    "cmux-tui-acpmux-x86_64-unknown-linux-musl",
+    "cmux-tui-acpmux-aarch64-unknown-linux-musl",
+    "cmux-tui-acpmux-aarch64-apple-darwin",
+    "cmux-tui-acpmux-x86_64-apple-darwin",
+)
+
+
+def _acpmux_fixture(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
+    """The fixture with acpmux for every Unix target in the assets and the commit manifest."""
+    assets, manifest, source, uploader = _fixture(tmp_path)
+    data = json.loads(manifest.read_text())
+    for name in ACPMUX_TREE_NAMES:
+        path = assets / name
+        path.write_bytes(f"acpmux {name}".encode() * 9)
+        data["binaries"][name] = hashlib.sha256(path.read_bytes()).hexdigest()
+    manifest.write_text(json.dumps(data))
+    _contents_uploader(uploader)
+    return assets, manifest, source, uploader
+
+
+def _uploaded(tmp_path: Path) -> dict[str, str]:
+    uploads = [json.loads(line) for line in (tmp_path / "contents.jsonl").read_text().splitlines()]
+    return {item["key"].rsplit("/", 1)[-1]: item["text"] for item in uploads}
+
+
+def test_list_acpmux_companions_names_the_four_unix_targets() -> None:
+    assert publisher.ACPMUX_NAMES == ACPMUX_TREE_NAMES
+    result = subprocess.run([sys.executable, str(SCRIPT), "--list-acpmux-companions"],
+                            text=True, capture_output=True, check=True)
+    assert tuple(result.stdout.split()) == ACPMUX_TREE_NAMES
+
+
+def test_a_new_tree_lists_each_attested_acpmux_in_completion_json(tmp_path: Path) -> None:
+    assets, manifest, source, uploader = _acpmux_fixture(tmp_path)
+    digests = publisher.publish_tree(key="b" * 40, source_commit="a" * 40, assets_dir=assets, uploader=uploader,
+                                     endpoint_url="https://r2.example", bucket="cmux-binaries",
+                                     manifest_file=manifest, source_file=source)
+    by_key = _uploaded(tmp_path)
+    gate = json.loads(by_key["completion.json"])["binaries"]
+    for name in ACPMUX_TREE_NAMES:
+        digest = hashlib.sha256((assets / name).read_bytes()).hexdigest()
+        assert gate[name] == digest == digests[name]
+        assert by_key[name] == (assets / name).read_bytes().decode("latin-1")
+        assert by_key[f"{name}.sha256"] == f"{digest}  {name}\n"
+    assert sorted(gate) == sorted(publisher.COMPANION_NAMES[:3] + ACPMUX_TREE_NAMES)
+    # completion-linux.json keeps its names; acpmux is in completion.json only.
+    assert sorted(json.loads(by_key["completion-linux.json"])["binaries"]) == sorted(LINUX_TREE_NAMES)
+
+
+def test_an_acpmux_with_another_digest_fails_the_publication(tmp_path: Path) -> None:
+    assets, manifest, source, uploader = _acpmux_fixture(tmp_path)
+    (assets / ACPMUX_TREE_NAMES[2]).write_bytes(b"tampered")
+    try:
+        publisher.publish_tree(key="b" * 40, source_commit="a" * 40, assets_dir=assets, uploader=uploader,
+                               endpoint_url="https://r2.example", bucket="cmux-binaries",
+                               manifest_file=manifest, source_file=source)
+    except publisher.PublicationError as error:
+        assert ACPMUX_TREE_NAMES[2] in str(error) and "does not match commit manifest" in str(error)
+    else:
+        raise AssertionError("a tampered acpmux was accepted")
+    assert not (tmp_path / "contents.jsonl").exists()
+
+
+def test_a_tree_published_before_acpmux_keeps_its_completion_bytes(tmp_path: Path) -> None:
+    # The first publication had no acpmux (an older publisher). A republication
+    # by this publisher writes the same completion.json and no acpmux object.
+    first = tmp_path / "first"
+    first.mkdir()
+    assets, manifest, source, uploader = _fixture(first)
+    _contents_uploader(uploader)
+    publisher.publish_tree(key="b" * 40, source_commit="a" * 40, assets_dir=assets, uploader=uploader,
+                           endpoint_url="https://r2.example", bucket="cmux-binaries",
+                           manifest_file=manifest, source_file=source)
+    earlier = _uploaded(first)["completion.json"]
+    existing = tmp_path / "existing-completion.json"
+    existing.write_text(earlier)
+    again = tmp_path / "again"
+    again.mkdir()
+    assets, manifest, source, uploader = _acpmux_fixture(again)
+    digests = publisher.publish_tree(key="b" * 40, source_commit="a" * 40, assets_dir=assets, uploader=uploader,
+                                     endpoint_url="https://r2.example", bucket="cmux-binaries",
+                                     manifest_file=manifest, source_file=source,
+                                     existing_completion_file=existing)
+    by_key = _uploaded(again)
+    assert by_key["completion.json"] == earlier
+    assert not set(ACPMUX_TREE_NAMES) & set(digests)
+    assert not any(name.startswith("cmux-tui-acpmux-") for name in by_key)
+
+
+def test_a_tree_published_with_acpmux_republishes_the_same_completion(tmp_path: Path) -> None:
+    assets, manifest, source, uploader = _acpmux_fixture(tmp_path)
+    kwargs = dict(key="b" * 40, source_commit="a" * 40, assets_dir=assets, uploader=uploader,
+                  endpoint_url="https://r2.example", bucket="cmux-binaries",
+                  manifest_file=manifest, source_file=source)
+    publisher.publish_tree(**kwargs)
+    earlier = _uploaded(tmp_path)["completion.json"]
+    existing = tmp_path / "existing-completion.json"
+    existing.write_text(earlier)
+    (tmp_path / "contents.jsonl").unlink()
+    publisher.publish_tree(**kwargs, existing_completion_file=existing)
+    assert _uploaded(tmp_path)["completion.json"] == earlier
+    # A published completion.json that lists an acpmux the manifest lacks fails.
+    data = json.loads(manifest.read_text())
+    del data["binaries"][ACPMUX_TREE_NAMES[0]]
+    manifest.write_text(json.dumps(data))
+    try:
+        publisher.publish_tree(**kwargs, existing_completion_file=existing)
+    except publisher.PublicationError as error:
+        assert ACPMUX_TREE_NAMES[0] in str(error)
+    else:
+        raise AssertionError("a completion.json acpmux without a manifest entry was accepted")

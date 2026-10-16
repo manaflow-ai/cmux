@@ -17,6 +17,44 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     /// before the name; nil draws the name alone.
     public var icon: WorkspaceIcon?
     public var workspaces: [SidebarWorkspace]
+    /// The group's url, tab and app members (sidebar-v2), each placed after
+    /// the workspace member it follows in the document (`members`).
+    public var items: [SidebarGroupItem] = []
+
+    /// Every member in document order: the workspaces, with each item after
+    /// the workspace it follows (first when it follows none; last when that
+    /// workspace is not in `workspaces`, e.g. closed or in another room).
+    public var members: [SidebarGroupMember] {
+        guard !items.isEmpty else { return workspaces.map(SidebarGroupMember.workspace) }
+        var after: [WorkspaceID: [SidebarListItem]] = [:]
+        var first: [SidebarListItem] = [], last: [SidebarListItem] = []
+        let present = Set(workspaces.map(\.id))
+        for entry in items {
+            if let anchor = entry.after {
+                if present.contains(anchor) { after[anchor, default: []].append(entry.item) } else { last.append(entry.item) }
+            } else {
+                first.append(entry.item)
+            }
+        }
+        var members = first.map(SidebarGroupMember.item)
+        for workspace in workspaces {
+            members.append(.workspace(workspace))
+            members += (after[workspace.id] ?? []).map(SidebarGroupMember.item)
+        }
+        return members + last.map(SidebarGroupMember.item)
+    }
+
+    /// Sets `workspaces` and `items` so `members` reads `members` back.
+    public mutating func setMembers(_ members: [SidebarGroupMember]) {
+        var workspaces: [SidebarWorkspace] = [], items: [SidebarGroupItem] = []
+        for member in members {
+            switch member {
+            case let .workspace(ws): workspaces.append(ws)
+            case let .item(item): items.append(SidebarGroupItem(item: item, after: workspaces.last?.id))
+            }
+        }
+        (self.workspaces, self.items) = (workspaces, items)
+    }
 
     /// `name`, or the localized default for a group made without one (an
     /// onto-drop, "group selected"): the home daemon refuses an empty name.
@@ -71,20 +109,43 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     }
 }
 
+/// A url, tab or app item inside a group (sidebar-v2): what its member row
+/// draws and the workspace member it follows (nil: first in the group).
+public nonisolated struct SidebarGroupItem: Hashable, Sendable {
+    public var item: SidebarListItem
+    public var after: WorkspaceID?
+
+    public init(item: SidebarListItem, after: WorkspaceID? = nil) {
+        self.item = item
+        self.after = after
+    }
+}
+
+/// One member row of a group, in document order (`SidebarGroup.members`).
+public nonisolated enum SidebarGroupMember: Hashable, Sendable {
+    case workspace(SidebarWorkspace)
+    case item(SidebarListItem)
+}
+
 /// A child of a section: a loose workspace or a group.
 public nonisolated enum SidebarNode: Identifiable, Hashable, Sendable {
     case workspace(SidebarWorkspace)
     case group(SidebarGroup)
+    /// A sidebar document item that is not a workspace or group (a link, a
+    /// tab, an app), drawn as a row with the workspace row's look.
+    case item(SidebarListItem)
 
     public nonisolated enum ID: Hashable, Sendable {
         case workspace(WorkspaceID)
         case group(GroupID)
+        case item(String)
     }
 
     public var id: ID {
         switch self {
         case let .workspace(ws): .workspace(ws.id)
         case let .group(group): .group(group.id)
+        case let .item(item): .item(item.id)
         }
     }
 
@@ -93,6 +154,34 @@ public nonisolated enum SidebarNode: Identifiable, Hashable, Sendable {
         switch self {
         case let .workspace(ws): [ws]
         case let .group(group): group.workspaces
+        case .item: []
         }
+    }
+
+    /// Every url, tab and app row of this node: a listed item, or a group's member items.
+    public var listedItems: [SidebarListItem] {
+        switch self {
+        case .workspace: []
+        case let .group(group): group.items.map(\.item)
+        case let .item(item): [item]
+        }
+    }
+}
+
+/// A url, tab or app item of the sidebar document listed as a row
+/// (sidebar-v2): its document item id, what a click runs, and what it draws
+/// (the favicon at `iconAddress` when known, regular-weight title, no kind glyph).
+public nonisolated struct SidebarListItem: Hashable, Sendable {
+    public var id: String
+    public var ref: LayoutItemRef
+    public var title: String
+    /// The page icon address of a link (stored on the item, else the site's own).
+    public var iconAddress: String?
+
+    public init(id: String, ref: LayoutItemRef, title: String, iconAddress: String? = nil) {
+        self.id = id
+        self.ref = ref
+        self.title = title
+        self.iconAddress = iconAddress
     }
 }

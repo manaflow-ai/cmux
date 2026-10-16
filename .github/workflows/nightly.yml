@@ -68,26 +68,47 @@ on:
           - github
           - warp
           - r2
-      diagnostic:
-        description: "nightly-next diagnostic mode: off, one notary probe, or continue the newest accepted build. Use cookies, safe-storage, history or registry for the corresponding import bisect."
+      notary_test_without_password_import:
+        description: nightly-next only. One diagnostic notary submission (cx-f58x) of a build with the browser password-import readers compiled out (CMUX_NO_PASSWORD_IMPORT). Notarizes even with NIGHTLY_NEXT_NOTARY_PAUSED=1 and publishes nothing.
         required: false
-        default: off
+        default: false
+        type: boolean
+      notary_test_without_browser_data_import:
+        description: nightly-next only. Like notary_test_without_password_import, and also compiles out every read of another browser's files or Keychain items (CMUX_NO_BROWSER_DATA_IMPORT) and ships an empty browser-sources.json. One app notary submission (plus the Computer Use helper's), nothing published.
+        required: false
+        default: false
+        type: boolean
+      notary_test_import_part:
+        description: nightly-next only. cx-f58x notary bisect. One diagnostic notary submission of a build with exactly this one browser-import part compiled out (cookies = CMUX_NO_COOKIE_IMPORT, safe-storage = CMUX_NO_SAFE_STORAGE_READ, history = CMUX_NO_HISTORY_IMPORT, registry = empty browser-sources.json). Every other import part stays in. Nothing is published.
+        required: false
+        default: none
         type: choice
         options:
-          - off
-          - passwords
-          - browser-data
+          - none
           - cookies
           - safe-storage
           - history
           - registry
-          - production-identity
-          - continue
-      promote_nightly_next:
-        description: Main only. Move nightly-next to this green feat-cmux-next SHA (40 lowercase hex). Append :debounce to skip promotion when a recent nightly-next build started.
+      notary_probe_production_identity:
+        description: nightly-next only. One app notary submission (plus the Computer Use helper's) of this build as the production identity (com.cmuxterm.app, cmux.release.entitlements, release profile) with the browser-data import compiled out. There is no Sparkle key or feed, no DMG or app artifact, and no recovery artifact. Only text receipts are uploaded and nothing is published.
+        required: false
+        default: false
+        type: boolean
+      nightly_next_continue_only:
+        description: nightly-next only. Build nothing and submit nothing to Apple. Continue the newest earlier nightly-next build whose notarization Apple has since Accepted, and publish it through the normal guarded publication.
+        required: false
+        default: false
+        type: boolean
+      promote_nightly_next_sha:
+        description: Main only. Move branch nightly-next to this green feat-cmux-next commit (40 hex) and build nothing in this run; the push run on nightly-next publishes it.
         required: false
         default: ''
         type: string
+      promote_nightly_next_debounce:
+        description: Skip the promotion when a nightly-next build started within NIGHTLY_NEXT_MIN_INTERVAL_HOURS (set by the automatic request).
+        required: false
+        default: false
+        type: boolean
       probe_target_sha:
         description: Full SHA that directly changes a workflow file for the scratch-tag probe.
         required: false
@@ -119,7 +140,7 @@ concurrency:
   # Keep scheduled and manually requested cache seeds in different groups. A
   # scheduled tick may replace an older scheduled tick, but must never cancel
   # an explicit manual refresh that happens to be running at the same time.
-  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'continue' && format('continue-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.diagnostic == 'passwords' || inputs.diagnostic == 'browser-data' || inputs.diagnostic == 'production-identity' || contains(fromJSON('["cookies","safe-storage","history","registry"]'), inputs.diagnostic)) && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && format('continue-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import || inputs.notary_probe_production_identity || (inputs.notary_test_import_part || 'none') != 'none') && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   cancel-in-progress: false
 
 permissions: {}
@@ -163,7 +184,7 @@ jobs:
       contents: write
       attestations: write
       id-token: write
-    if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next == '')
+    if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
     # This gate only resolves the fixed revision and publication decision.
     # Keep its default on the hosted runner so a busy paid Linux pool cannot
     # delay every nightly before the macOS work is admitted; retain the normal
@@ -258,11 +279,11 @@ jobs:
           # run still publishes an earlier build Apple accepted, because it
           # submits nothing.
           NIGHTLY_NEXT_SUBMISSIONS_PAUSED: ${{ vars.NIGHTLY_NEXT_SUBMISSIONS_PAUSED || '' }}
-          NOTARY_TEST_PASSWORDS: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'passwords' && 'true' || 'false' }}
-          NOTARY_TEST_BROWSER_DATA: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'browser-data' && 'true' || 'false' }}
-          NOTARY_IMPORT_PART: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["cookies","safe-storage","history","registry"]'), inputs.diagnostic) && inputs.diagnostic || 'none' }}
-          NOTARY_PROBE: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'production-identity' && 'true' || 'false' }}
-          CONTINUE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'continue' && 'true' || 'false' }}
+          NOTARY_TEST_PASSWORDS: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_without_password_import && 'true' || 'false' }}
+          NOTARY_TEST_BROWSER_DATA: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_without_browser_data_import && 'true' || 'false' }}
+          NOTARY_IMPORT_PART: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_import_part || 'none' }}
+          NOTARY_PROBE: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_probe_production_identity && 'true' || 'false' }}
+          CONTINUE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && 'true' || 'false' }}
         with:
           script: |
             const forceBuild = process.env.FORCE_BUILD === 'true';
@@ -712,7 +733,7 @@ jobs:
   # a cmux-next.yml push run on feat-cmux-next for that exact SHA whose
   # "cmux-next Release compile (Xcode 26)" job passed.
   promote-nightly-next:
-    if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
+    if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
@@ -737,8 +758,8 @@ jobs:
       - name: Move nightly-next
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          PROMOTION_REQUEST: ${{ inputs.promote_nightly_next }}
-          DEBOUNCE: ${{ contains(inputs.promote_nightly_next, ':debounce') && 'true' || 'false' }}
+          REQUESTED_SHA: ${{ inputs.promote_nightly_next_sha }}
+          DEBOUNCE: ${{ inputs.promote_nightly_next_debounce && 'true' || 'false' }}
           MIN_INTERVAL_HOURS: ${{ vars.NIGHTLY_NEXT_MIN_INTERVAL_HOURS || '2' }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
         with:
@@ -747,8 +768,7 @@ jobs:
             const source = 'feat-cmux-next';
             const target = 'nightly-next';
             const requiredJob = 'cmux-next Release compile (Xcode 26)';
-            const request = (process.env.PROMOTION_REQUEST || '').trim();
-            const sha = request.split(':', 1)[0];
+            const sha = (process.env.REQUESTED_SHA || '').trim();
             if (!/^[0-9a-f]{40}$/.test(sha)) {
               core.setFailed(`promote_nightly_next_sha must be 40 lowercase hex characters, got ${sha}`);
               return;
@@ -1581,6 +1601,8 @@ jobs:
           CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="$archs" scripts/cmux-next/build-optchat-chief.sh --output "$chief_bin"
           echo "CMUX_NEXT_OPTCHAT_CHIEF_BIN=$chief_bin" >> "$GITHUB_ENV"
           echo "CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1" >> "$GITHUB_ENV"
+          # The built-in full uBlock Origin must be in every nightly-next build (bundle-ublock.sh).
+          echo "CMUX_NEXT_REQUIRE_UBLOCK=1" >> "$GITHUB_ENV"
 
       # A fast branch dogfood build only needs the arm64 client that is bundled
       # in this macOS app. Building it here avoids waiting for the full
@@ -2564,29 +2586,14 @@ jobs:
             --bundle-id com.cmuxterm.app.next --name "cmux NEXT" --profile-name "cmux NEXT Developer ID" \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
+      # The signing keychain exists only while this job signs. It is deleted
+      # before any step runs code from the bundle, and created again for the
+      # DMG signature. scripts/ci/signing-keychain.sh owns its lifetime.
       - name: Import signing cert
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          if [ -z "$APPLE_CERTIFICATE_BASE64" ]; then
-            echo "Missing APPLE_CERTIFICATE_BASE64 secret" >&2
-            exit 1
-          fi
-          if [ -z "$APPLE_CERTIFICATE_PASSWORD" ]; then
-            echo "Missing APPLE_CERTIFICATE_PASSWORD secret" >&2
-            exit 1
-          fi
-          KEYCHAIN_PASSWORD="$(uuidgen)"
-          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > /tmp/cert.p12
-          security delete-keychain build.keychain >/dev/null 2>&1 || true
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -lut 21600 build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-          ./scripts/import-apple-developer-id-intermediates.sh build.keychain
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-          security list-keychains -d user -s build.keychain
+        run: ./scripts/ci/signing-keychain.sh create
 
       # Each channel has its own Developer ID profile:
       # APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 / APPLE_RC_PROVISIONING_PROFILE_BASE64.
@@ -2691,6 +2698,10 @@ jobs:
       - name: Verify the Computer Use helper signature
         run: ./scripts/ci/verify-computer-use-helper.sh signed "$CHANNEL_APP_PATH"
 
+      - name: Delete signing keychain before runtime checks
+        if: always()
+        run: ./scripts/ci/signing-keychain.sh delete
+
       - name: Verify bundled Mach-O load commands
         run: ./scripts/verify-bundle-load-commands.sh "$CHANNEL_APP_PATH"
 
@@ -2718,6 +2729,16 @@ jobs:
             --manifest "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
             --assets-dir remote-daemon-assets \
             --app "$CHANNEL_APP_PATH" "${bundle_args[@]}"
+
+      # sign-cmux-bundle.sh ran only the static sidecar checks while the
+      # keychain existed. Run the full check, with the handshake, now.
+      - name: Verify signed diff sidecar runtime contract
+        run: |
+          set -euo pipefail
+          ./scripts/verify-diff-sidecar-artifact.sh \
+            "$CHANNEL_APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
+            --archs "$(lipo -archs "$CHANNEL_APP_PATH/Contents/MacOS/cmux")" \
+            --require-signed
 
       - name: Smoke launch signed app before notarization
         run: |
@@ -2788,6 +2809,15 @@ jobs:
           echo "::notice title=nightly-next notarization paused::NIGHTLY_NEXT_NOTARY_PAUSED=1: the signed app was built, no notary submission was made and nothing is published."
           echo "### nightly-next notarization paused (NIGHTLY_NEXT_NOTARY_PAUSED=1): no notary submission, nothing published" >> "$GITHUB_STEP_SUMMARY"
 
+      # The helper re-seal and the DMG need the identity again. Both run no
+      # bundle code; notarize-nightly-dmg.sh deletes the keychain right after
+      # the DMG signature, before any later launch smoke.
+      - name: Import signing cert for the DMG signature
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: ./scripts/ci/signing-keychain.sh create
+
       - name: Notarize app ticket through final DMG
         id: notarize-nightly
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true'
@@ -2822,6 +2852,22 @@ jobs:
             "$CHANNEL_APP_PATH" \
             "$NIGHTLY_DMG_RELEASE" \
             "$NIGHTLY_DMG_IMMUTABLE"
+
+      - name: Package signed fast dogfood DMG
+        if: needs.decide.outputs.fast_build == 'true'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          CMUX_CHANNEL: ${{ needs.decide.outputs.channel }}
+          CMUX_SKIP_NOTARIZATION: "true"
+        run: |
+          ./scripts/ci/notarize-nightly-dmg.sh \
+            "$CHANNEL_APP_PATH" \
+            "$NIGHTLY_DMG_RELEASE" \
+            "$NIGHTLY_DMG_IMMUTABLE"
+
+      - name: Delete signing keychain after the DMG signature
+        if: always()
+        run: ./scripts/ci/signing-keychain.sh delete
 
       - name: Prepare pending notarization recovery artifact
         id: prepare-notarization-recovery
@@ -2954,18 +3000,6 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Package signed fast dogfood DMG
-        if: needs.decide.outputs.fast_build == 'true'
-        env:
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          CMUX_CHANNEL: ${{ needs.decide.outputs.channel }}
-          CMUX_SKIP_NOTARIZATION: "true"
-        run: |
-          ./scripts/ci/notarize-nightly-dmg.sh \
-            "$CHANNEL_APP_PATH" \
-            "$NIGHTLY_DMG_RELEASE" \
-            "$NIGHTLY_DMG_IMMUTABLE"
-
       - name: Gate distribution with syspolicy_check
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true'
         run: syspolicy_check distribution "$CHANNEL_APP_PATH"
@@ -3082,7 +3116,8 @@ jobs:
       - name: Cleanup keychain
         if: always()
         run: |
-          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
+            || security delete-keychain build.keychain >/dev/null 2>&1 || true
           rm -f /tmp/cert.p12
 
   # nightly-next continuation. A build whose notarization wait ran out left a
@@ -3161,6 +3196,14 @@ jobs:
         with:
           persist-credentials: false
 
+      # notarize-nightly-dmg.sh runs the bundle notice check after Apple
+      # accepts, and that check reads ghostty-next/build.zig.zon. Without the
+      # submodule, run 38669958906 skipped five accepted builds.
+      - name: Initialize cmux-next notices submodule
+        if: github.ref_name == 'nightly-next'
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
@@ -3204,7 +3247,15 @@ jobs:
             : > "$pending"
             if ! CMUX_CHANNEL="$SIGN_CHANNEL" CMUX_NOTARY_CONTINUE_STATE="$dir/$STATE_NAME" GITHUB_OUTPUT="$pending" \
                 ./scripts/ci/notarize-nightly-dmg.sh "$dir/$APP_NAME" "$dir/$DMG_NAME" "recovered/$IMMUTABLE_NAME"; then
-              echo "::notice::run $run_id: Apple did not accept submission $SUBMISSION_ID; skipping"
+              # notarize-nightly-dmg.sh reports Apple's verdict once it has one.
+              notary_status="$(sed -n 's/^notary_status=//p' "$pending" | tail -n 1)"
+              if [ "$notary_status" = Accepted ]; then
+                echo "::error::run $run_id: Apple accepted submission $SUBMISSION_ID, but a check after acceptance failed (see the log above); skipping"
+              elif [ -n "$notary_status" ]; then
+                echo "::notice::run $run_id: Apple did not accept submission $SUBMISSION_ID (status $notary_status); skipping"
+              else
+                echo "::notice::run $run_id: Apple's verdict on submission $SUBMISSION_ID is unknown (see the log above); skipping"
+              fi
               echo "::endgroup::"; continue
             fi
             if grep -Fxq "submission_pending=true" "$pending"; then
@@ -3286,6 +3337,8 @@ jobs:
       source: ${{ steps.source.outputs.source }}
       # The published build, for publish-nightly-identity-legacy (cx-x7hwx).
       build: ${{ steps.source.outputs.build }}
+      # Another run already published the recovered build; this one published nothing.
+      already_published: ${{ steps.recheck.outputs.already_published }}
     if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true') || needs.recover-nightly-next-notarization.outputs.accepted == 'true')"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
@@ -3299,6 +3352,8 @@ jobs:
       CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
       CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
       CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
+      # Publication tooling from this workflow's own commit (see the step below).
+      PUBLISH_TOOLING: ${{ github.workspace }}/.publish-tooling/scripts
     steps:
       # This run's build when Apple accepted it, else an earlier nightly-next
       # build that recover-nightly-next-notarization continued; every later
@@ -3352,6 +3407,22 @@ jobs:
           persist-credentials: false
           ref: ${{ steps.source.outputs.build_sha }}
 
+      # The steps below pass this workflow's arguments, so the publication
+      # tooling must come from the workflow's own commit, not from the
+      # published build's checkout. A recovered build can be days older: run
+      # 38855116561 recovered 0664bd9847b5, whose nightly_version.py predates
+      # --already-published-ok (#20986), and the recheck failed. Scripts that
+      # read the build's own source tree still run from the publish ref:
+      # verify_remote_daemon_release.py, fetch-release-notes-span.sh,
+      # release-notes.py, check_ghostty_vt_notices.py, ghostty_source_archive.py.
+      - name: Checkout publication tooling at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .publish-tooling
+          sparse-checkout: scripts
+
       - name: Download nightly variant artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -3368,7 +3439,11 @@ jobs:
 
       # Inside the publication lock: a run that published meanwhile may have
       # moved a feed above the recovered build.
+      # Two runs can take the same recovered build; the later one finds it
+      # already on the feed and publishes nothing (run 38689026338). A build
+      # below any feed still fails.
       - name: Recheck the recovered build against both feeds
+        id: recheck
         if: steps.source.outputs.source == 'recovered'
         run: |
           set -euo pipefail
@@ -3376,15 +3451,22 @@ jobs:
           for appcast in appcast.xml appcast-arm64.xml appcast-x86_64.xml; do
             feeds+=(--feed-if-present "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
           done
-          python3 scripts/ci/nightly_version.py check-build --build "$NIGHTLY_BUILD" "${feeds[@]}"
+          result="$(python3 "$PUBLISH_TOOLING/ci/nightly_version.py" check-build --already-published-ok --build "$NIGHTLY_BUILD" "${feeds[@]}")"
+          printf '%s\n' "$result"
+          if [ "$(tail -n 1 <<< "$result")" = already_published=true ]; then
+            echo "::notice title=Nothing to publish::build $NIGHTLY_BUILD is already published; nothing to do"
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Verify SSH daemon assets survived artifact transfer
+        if: steps.recheck.outputs.already_published != 'true'
         run: |
           python3 scripts/verify_remote_daemon_release.py \
             --manifest "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
             --assets-dir nightly-out
 
       - name: Assemble legacy nightly names
+        if: steps.recheck.outputs.already_published != 'true'
         run: |
           set -euo pipefail
           cd nightly-out
@@ -3413,7 +3495,7 @@ jobs:
 
       - name: Prepare nightly release notes and appcast summaries
         id: notes
-        if: needs.decide.outputs.should_publish == 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
         # The notes take seconds. Bounded here, a slow notes run fails before
         # any asset upload instead of using up the job's 30 minutes and being
         # cancelled mid-upload (run 37611677848 left partial assets that way).
@@ -3464,7 +3546,7 @@ jobs:
           # rather than the decide job's baseline from before the build started.
           # nightly_release_notes.py preserves the cmux-published-sha: marker
           # used for the next exact range and its repair/recovery path.
-          python3 scripts/ci/nightly_release_notes.py \
+          python3 "$PUBLISH_TOOLING/ci/nightly_release_notes.py" \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             --head "$NOTES_HEAD" --branch "$NOTES_BRANCH" \
             --details nightly-downloads.md --out nightly-notes.md \
@@ -3480,7 +3562,7 @@ jobs:
           fi
 
       - name: Upload branch nightly artifacts
-        if: needs.decide.outputs.should_publish != 'true'
+        if: needs.decide.outputs.should_publish != 'true' && steps.recheck.outputs.already_published != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-${{ steps.source.outputs.build_short_sha }}
@@ -3494,20 +3576,20 @@ jobs:
       # Before anything is published: every cmux-next appcast names only
       # nightly-next downloads and the cmux-next Sparkle channel.
       - name: Guard nightly-next publication
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next'
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true'
         run: |
           set -euo pipefail
           for appcast in $NIGHTLY_FEEDS; do
-            python3 scripts/ci/nightly-next-guard.py appcast "nightly-out/$appcast"
+            python3 "$PUBLISH_TOOLING/ci/nightly-next-guard.py" appcast "nightly-out/$appcast"
           done
 
       - name: Prune old nightly release assets
-        if: needs.decide.outputs.should_publish == 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python3 ./scripts/prune_nightly_release_assets.py \
+          python3 "$PUBLISH_TOOLING/prune_nightly_release_assets.py" \
             --repo manaflow-ai/cmux \
             --release-tag "$CHANNEL_RELEASE_TAG" \
             --name-prefix "${CHANNEL_DMG_PREFIX}-" \
@@ -3517,7 +3599,8 @@ jobs:
             --execute
 
       - name: Publish nightly release assets
-        if: needs.decide.outputs.should_publish == 'true'
+        id: publish_assets
+        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -3546,12 +3629,13 @@ jobs:
           for feed in $NIGHTLY_FEEDS; do
             args+=(--feed "nightly-out/$feed")
           done
-          python3 scripts/ci/publish-release-assets.py \
+          python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
+            --github-output "$GITHUB_OUTPUT" \
             --replace-feeds "${args[@]}"
 
       - name: Download the cmux-next source archive
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && steps.source.outputs.source == 'own'
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && steps.source.outputs.source == 'own' && steps.recheck.outputs.already_published != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-next-source-archive
@@ -3564,11 +3648,11 @@ jobs:
       # source offer names it (prune_nightly_release_assets.py), never by age.
       # A recovered build carries its source archive in the recovered variant.
       - name: Take the recovered build's source archive
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && steps.source.outputs.source == 'recovered'
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && steps.source.outputs.source == 'recovered' && steps.recheck.outputs.already_published != 'true'
         run: mv nightly-out/source-archive source-archive
 
       - name: Publish the cmux-next source archive
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1'
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' && steps.recheck.outputs.already_published != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ steps.source.outputs.build_sha }}
@@ -3593,13 +3677,13 @@ jobs:
           else
             gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/cmux-next-src-$short" -f "sha=$HEAD_SHA" >/dev/null
           fi
-          python3 scripts/ci/publish-release-assets.py \
+          python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             --immutable "source-out/cmux-next-source-${NIGHTLY_BUILD}.tar.gz"
 
       - name: Mint release tag app token
         id: release-tag-token
-        if: needs.decide.outputs.should_publish == 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -3618,24 +3702,41 @@ jobs:
       # such a commit. nightly-next therefore publishes its release metadata
       # with the release App token; other channels keep the Actions token.
       - name: Publish verified nightly release metadata
-        if: needs.decide.outputs.should_publish == 'true'
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
-        with:
-          token: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
-          tag_name: ${{ needs.decide.outputs.release_tag }}
-          target_commitish: ${{ steps.source.outputs.build_sha }}
-          name: ${{ needs.decide.outputs.release_name }}
-          prerelease: true
-          make_latest: false
-          draft: false
-          body: |
-            Automated ${{ needs.decide.outputs.channel }} build for `${{ steps.source.outputs.build_short_sha }}` from `${{ github.ref_name }}`.
-            Published commit: `${{ steps.source.outputs.build_sha }}`.
-            Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip `${{ steps.source.outputs.tip_sha }}`, ${{ steps.source.outputs.behind }} commits and ${{ steps.source.outputs.behind_hours }} h behind it.
-            ${{ steps.notes.outputs.downloads }}
+        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
+        env:
+          GH_TOKEN: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
+          RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
+          UPLOADED_ASSETS: ${{ steps.publish_assets.outputs.asset_names }}
+          RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.decide.outputs.release_name }}
+          BUILD_SHA: ${{ steps.source.outputs.build_sha }}
+          BUILD_SHORT_SHA: ${{ steps.source.outputs.build_short_sha }}
+          CHANNEL: ${{ needs.decide.outputs.channel }}
+          REF_NAME: ${{ github.ref_name }}
+          TIP_SHA: ${{ steps.source.outputs.tip_sha }}
+          BEHIND: ${{ steps.source.outputs.behind }}
+          BEHIND_HOURS: ${{ steps.source.outputs.behind_hours }}
+          DOWNLOADS: ${{ steps.notes.outputs.downloads }}
+        run: |
+          set -euo pipefail
+          {
+            printf "Automated %s build for \`%s\` from \`%s\`.\n" "$CHANNEL" "$BUILD_SHORT_SHA" "$REF_NAME"
+            printf "Published commit: \`%s\`.\n" "$BUILD_SHA"
+            printf "Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip \`%s\`, %s commits and %s h behind it.\n" "$TIP_SHA" "$BEHIND" "$BEHIND_HOURS"
+            printf '%s\n' "$DOWNLOADS"
+          } > "$RUNNER_TEMP/nightly-release-body.md"
+          expect=()
+          names=()
+          read -ra names <<<"$UPLOADED_ASSETS"
+          for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
+          python3 "$PUBLISH_TOOLING/ci/finalize-release.py" publish \
+            --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" \
+            --name "$RELEASE_NAME" --target-commitish "$BUILD_SHA" \
+            --body-file "$RUNNER_TEMP/nightly-release-body.md" \
+            --prerelease true --make-latest false "${expect[@]}"
 
       - name: Upload nightly appcasts to R2
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track != 'nightly-next'
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track != 'nightly-next' && steps.recheck.outputs.already_published != 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
@@ -3649,7 +3750,7 @@ jobs:
           # first: the app rewrites the legacy feed URL to a thin feed, so those
           # must already be current when the legacy feed changes.
           for appcast in $NIGHTLY_FEEDS; do
-            python3 scripts/ci/upload-r2-object.py \
+            python3 "$PUBLISH_TOOLING/ci/upload-r2-object.py" \
               --file "nightly-out/$appcast" \
               --endpoint-url "$R2_ENDPOINT" \
               --bucket cmux-binaries \
@@ -3663,7 +3764,7 @@ jobs:
       # scoped token (release-next secrets), after the guard has checked every
       # appcast enclosure and object key. It never receives CF_R2_* .
       - name: Upload nightly-next appcasts to R2
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next'
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
@@ -3673,9 +3774,9 @@ jobs:
           set -euo pipefail
           for appcast in $NIGHTLY_FEEDS; do
             key="${NIGHTLY_NEXT_R2_PREFIX}${appcast}"
-            python3 scripts/ci/nightly-next-guard.py appcast "nightly-out/$appcast"
-            python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
-            python3 scripts/ci/upload-r2-object.py \
+            python3 "$PUBLISH_TOOLING/ci/nightly-next-guard.py" appcast "nightly-out/$appcast"
+            python3 "$PUBLISH_TOOLING/ci/nightly-next-guard.py" r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
+            python3 "$PUBLISH_TOOLING/ci/upload-r2-object.py" \
               --file "nightly-out/$appcast" \
               --endpoint-url "$R2_ENDPOINT" \
               --bucket "$NIGHTLY_NEXT_R2_BUCKET" \
@@ -3690,22 +3791,39 @@ jobs:
       # it as an idempotency record without mistaking a partial publication for
       # a complete one.
       - name: Record verified nightly publication
-        if: needs.decide.outputs.should_publish == 'true'
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
-        with:
-          token: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
-          tag_name: ${{ needs.decide.outputs.release_tag }}
-          target_commitish: ${{ steps.source.outputs.build_sha }}
-          name: ${{ needs.decide.outputs.release_name }}
-          prerelease: true
-          make_latest: false
-          draft: false
-          body: |
-            <!-- cmux-published-sha: ${{ steps.source.outputs.build_sha }} -->
-            Automated ${{ needs.decide.outputs.channel }} build for `${{ steps.source.outputs.build_short_sha }}` from `${{ github.ref_name }}`.
-            Published commit: `${{ steps.source.outputs.build_sha }}`.
-            Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip `${{ steps.source.outputs.tip_sha }}`, ${{ steps.source.outputs.behind }} commits and ${{ steps.source.outputs.behind_hours }} h behind it.
-            ${{ steps.notes.outputs.downloads }}
+        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
+        env:
+          GH_TOKEN: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
+          RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
+          UPLOADED_ASSETS: ${{ steps.publish_assets.outputs.asset_names }}
+          RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.decide.outputs.release_name }}
+          BUILD_SHA: ${{ steps.source.outputs.build_sha }}
+          BUILD_SHORT_SHA: ${{ steps.source.outputs.build_short_sha }}
+          CHANNEL: ${{ needs.decide.outputs.channel }}
+          REF_NAME: ${{ github.ref_name }}
+          TIP_SHA: ${{ steps.source.outputs.tip_sha }}
+          BEHIND: ${{ steps.source.outputs.behind }}
+          BEHIND_HOURS: ${{ steps.source.outputs.behind_hours }}
+          DOWNLOADS: ${{ steps.notes.outputs.downloads }}
+        run: |
+          set -euo pipefail
+          {
+            printf '<!-- cmux-published-sha: %s -->\n' "$BUILD_SHA"
+            printf "Automated %s build for \`%s\` from \`%s\`.\n" "$CHANNEL" "$BUILD_SHORT_SHA" "$REF_NAME"
+            printf "Published commit: \`%s\`.\n" "$BUILD_SHA"
+            printf "Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip \`%s\`, %s commits and %s h behind it.\n" "$TIP_SHA" "$BEHIND" "$BEHIND_HOURS"
+            printf '%s\n' "$DOWNLOADS"
+          } > "$RUNNER_TEMP/nightly-release-body.md"
+          expect=()
+          names=()
+          read -ra names <<<"$UPLOADED_ASSETS"
+          for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
+          python3 "$PUBLISH_TOOLING/ci/finalize-release.py" publish \
+            --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" \
+            --name "$RELEASE_NAME" --target-commitish "$BUILD_SHA" \
+            --body-file "$RUNNER_TEMP/nightly-release-body.md" \
+            --prerelease true --make-latest false "${expect[@]}"
 
       # The channel's release tag is the fast completion marker used by the
       # decide job. Move it to the fixed candidate selected at dispatch only
@@ -3716,7 +3834,7 @@ jobs:
       # remain the publication record if this marker is stale.
       - name: Move channel release tag to built commit
         id: move-channel-release-tag
-        if: needs.decide.outputs.should_publish == 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
@@ -3728,7 +3846,7 @@ jobs:
           # move from a baseline build (see promote-nightly-next on main). The helper retries
           # only transient API/network failures and reads the ref back before
           # declaring the marker updated. Permission failures are terminal.
-          python3 scripts/ci/update-release-tag.py \
+          python3 "$PUBLISH_TOOLING/ci/update-release-tag.py" \
             --repo "$GITHUB_REPOSITORY" \
             --tag "$CHANNEL_RELEASE_TAG" \
             --sha "${{ steps.source.outputs.build_sha }}" \
@@ -3736,7 +3854,7 @@ jobs:
 
       - name: Record nightly publication marker outcome
         id: tag-outcome
-        if: always() && needs.decide.outputs.should_publish == 'true'
+        if: always() && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
         env:
           TAG_MOVE_OUTCOME: ${{ steps.move-channel-release-tag.outcome }}
           CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
@@ -3773,12 +3891,15 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      issues: read
-      actions: read
+      # Record a refused build on the failure issue ("not counted").
+      issues: write
+      # Delete the pending artifacts of a refused build.
+      actions: write
     outputs:
       action: ${{ steps.target.outputs.action }}
       build: ${{ steps.target.outputs.build }}
       pending_run: ${{ steps.target.outputs.pending_run }}
+      bundle_run: ${{ steps.target.outputs.bundle_run }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -3791,6 +3912,10 @@ jobs:
           LEGACY_APPCAST: appcast-arm64.xml
           DMG_PREFIX: cmux-nightly-next-macos-arm64-
           GH_TOKEN: ${{ github.token }}
+          # Full commit SHAs every copied build must contain (space-separated);
+          # unset means no requirement, and then the kill switch
+          # NIGHTLY_NEXT_LEGACY_IDENTITY is the only protection.
+          REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
         run: |
           set -euo pipefail
           curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o next.xml "${NIGHTLY_NEXT_FEED_BASE}/${LEGACY_APPCAST}"
@@ -3802,41 +3927,98 @@ jobs:
           # fork's) is continued (never resubmitted): under 6 hours always, up to
           # 48 hours while the cmux NEXT feed has no newer build.
           pending_args=()
-          # A failed artifact lookup must stop this target job. Starting a new
-          # submission after an API error could discard a valid submission that
-          # Apple is still processing. The helper prints empty outputs only
-          # after a successful search proves that no pending artifact exists.
-          if ! pending_info="$(./scripts/ci/nightly-next-legacy-pending.sh "$GITHUB_REPOSITORY" pending)"; then
-            echo "::warning::could not safely inspect pending cmux NIGHTLY-identity submissions; deferring this run"
-            { echo "action=none"; echo "pending_run="; echo "build="; } >> "$GITHUB_OUTPUT"
-            echo "### cmux NIGHTLY-identity: pending lookup failed; no new submission started (cx-x7hwx)" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          pending_meta="$(sed -n 's/^pending_meta=//p' <<<"$pending_info")"
-          pending_run="$(sed -n 's/^pending_run=//p' <<<"$pending_info")"
-          if [ -n "$pending_meta" ]; then
-            pending_args=(--pending-meta "$pending_meta" --pending-run "$pending_run" --now "$(date +%s)")
-          fi
-          decision="$(python3 scripts/ci/nightly-next-legacy-target.py next.xml old.xml "$DMG_PREFIX" --max-pending-hours 6 --max-same-build-hours 48 ${pending_args[@]+"${pending_args[@]}"})"
-          action="$(sed -n 's/^action=//p' <<<"$decision")"
-          build="$(sed -n 's/^build=//p' <<<"$decision")"
-          pending_run="$(sed -n 's/^pending_run=//p' <<<"$decision")"
-          # Only real failures count (Apple rejected the copy, or a check or
-          # smoke failed: comments "Build N failed:"); a submission still in
-          # Apple's queue is never a failure. A build that failed twice is
-          # not tried again by every later run; a newer build is.
-          if [ "$action" = new ]; then
-            title="cmux NIGHTLY-identity publication failed (nightly.yml publish-nightly-identity-legacy)"
-            number="$(gh api "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" --jq ".[] | select(.title == \"$title\") | .number" | head -1)"
-            if [ -n "$number" ]; then
-              failures="$( { gh api "repos/$GITHUB_REPOSITORY/issues/$number" --jq .body; gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$number/comments" --jq '.[].body'; } | grep -c "^Build $build failed:" || true)"
-              if [ "${failures:-0}" -ge 2 ]; then
-                echo "::warning title=cmux NIGHTLY-identity build $build skipped (cx-x7hwx)::it failed $failures times (issue #$number); a newer cmux NEXT build is tried again"
-                action=none build=""
+          # Newest first; the first candidate whose run is this repository's
+          # nightly.yml run on nightly-next wins, so a foreign or unreadable
+          # artifact never hides a valid pending submission.
+          candidates="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=cmux-nightly-identity-pending-meta&per_page=20" \
+            --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "nightly-next" and .workflow_run.head_repository_id == .workflow_run.repository_id)] | sort_by(.created_at) | reverse | .[] | "\(.id) \(.workflow_run.id)"' || true)"
+          for candidate in $(tr ' ' ':' <<<"$candidates"); do
+            meta_id="${candidate%%:*}" meta_run="${candidate##*:}"
+            origin="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$meta_run" --jq '"\(.path) \(.event)"' 2>/dev/null || true)"
+            case "$origin" in
+              ".github/workflows/nightly.yml push"|".github/workflows/nightly.yml workflow_dispatch") ;;
+              *) echo "::warning::skipping pending artifact $meta_id of run $meta_run ($origin)"; continue ;;
+            esac
+            rm -rf pending && mkdir -p pending
+            if gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$meta_id/zip" > pending/meta.zip && unzip -o -q pending/meta.zip -d pending && [ -f pending/pending.json ]; then
+              # An accepted submission's metadata is re-stored by later runs and
+              # names the original bundle run. A meta whose bundle is confirmed
+              # gone (expired or deleted) is skipped; an API error keeps it.
+              bundle_run="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1])).get("bundle_run") or sys.argv[2])' pending/pending.json "$meta_run")"
+              if bundles="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$bundle_run/artifacts?name=cmux-nightly-identity-pending-bundle" --jq '[.artifacts[] | select(.expired == false)] | length')" \
+                 && [ "$bundles" = 0 ]; then
+                echo "::warning::skipping pending artifact $meta_id of run $meta_run: the bundle of run $bundle_run is gone"
+                continue
               fi
+              pending_args=(--pending-meta pending/pending.json --pending-run "$meta_run" --now "$(date +%s)")
+              break
+            fi
+            echo "::warning::could not read pending artifact $meta_id of run $meta_run; trying an older one"
+          done
+          # Only real failures count (comments "Build N failed:" on the failure
+          # issue): Apple refused the copy, or a check, the smoke or the
+          # publication failed. A submission still in Apple's queue never counts.
+          # Two counted failures stop a build (the script); a newer build is tried.
+          : > failures.txt
+          number="$(./scripts/ci/nightly-next-legacy-failure-issue.sh "$GITHUB_REPOSITORY" || echo "::warning::could not search for the failure issue; counting no failures" >&2)"
+          if [ -n "$number" ]; then
+            { gh api "repos/$GITHUB_REPOSITORY/issues/$number" --jq .body; gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$number/comments" --jq '.[].body'; } > failures.txt \
+              || echo "::warning::could not read the failure issue #$number; counting no failures"
+          fi
+          # Every commit in NIGHTLY_LEGACY_REQUIRED_COMMITS must be in the
+          # build's commit (scripts/ci/nightly-next-legacy-requirement.sh). A
+          # refused build is neither continued nor submitted, and the next
+          # newer one is checked; a refused pending submission is deleted. An
+          # error fails closed. Refusals are recorded, not counted.
+          echo "cmux NIGHTLY-identity requirement in use: required: ${REQUIRED:-none}"
+          echo "### cmux NIGHTLY-identity requirement in use: required: ${REQUIRED:-none}" >> "$GITHUB_STEP_SUMMARY"
+          refuse_args=()
+          notes=""
+          action=none build="" pending_run="" bundle_run=""
+          for _ in 1 2 3; do
+            decision="$(python3 scripts/ci/nightly-next-legacy-target.py next.xml old.xml "$DMG_PREFIX" --max-pending-hours 6 --max-same-build-hours 48 \
+              --failure-log failures.txt --max-failures 2 ${pending_args[@]+"${pending_args[@]}"} ${refuse_args[@]+"${refuse_args[@]}"})"
+            action="$(sed -n 's/^action=//p' <<<"$decision")"
+            build="$(sed -n 's/^build=//p' <<<"$decision")"
+            pending_run="$(sed -n 's/^pending_run=//p' <<<"$decision")"
+            bundle_run="$(sed -n 's/^bundle_run=//p' <<<"$decision")"
+            [ "$action" != none ] || break
+            # shellcheck disable=SC2086 # REQUIRED is a space-separated SHA list
+            if check="$(NOTES_BASE="${NIGHTLY_NEXT_FEED_BASE}/notes" ./scripts/ci/nightly-next-legacy-requirement.sh "$GITHUB_REPOSITORY" "$build" $REQUIRED)"; then
+              echo "build $build meets the requirement ($check)"
+              break
+            fi
+            echo "::warning title=cmux NIGHTLY-identity build $build refused (cx-x7hwx)::$check"
+            refuse_args+=(--refuse-build "$build")
+            note="Build $build skipped (not counted): $check."
+            if [ "$action" = continue ] && [[ "$check" == missing* ]]; then
+              for run in "$pending_run" "$bundle_run"; do
+                for name in cmux-nightly-identity-pending-meta cmux-nightly-identity-pending-bundle; do
+                  gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?name=$name" --jq '.artifacts[].id' \
+                    | while IFS= read -r id; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" || true; done
+                done
+              done
+              note="$note Its pending submission (runs $pending_run/$bundle_run) was deleted; it is never published."
+            fi
+            # Recorded on the issue once per build; every run's summary has it.
+            if ! grep -q "^Build $build skipped" failures.txt; then notes="$notes$note"$'\n'; fi
+            echo "- $note" >> "$GITHUB_STEP_SUMMARY"
+            action=none build="" pending_run="" bundle_run=""
+          done
+          if [ -n "$notes" ]; then
+            body="$notes"$'\n'"Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID (requirement: NIGHTLY_LEGACY_REQUIRED_COMMITS=${REQUIRED:-none})"
+            if issue="$(./scripts/ci/nightly-next-legacy-failure-issue.sh "$GITHUB_REPOSITORY")"; then
+              if [ -n "$issue" ]; then
+                gh api "repos/$GITHUB_REPOSITORY/issues/$issue/comments" -f body="$body" >/dev/null || echo "::warning::could not record the refusal on issue #$issue"
+              else
+                gh api "repos/$GITHUB_REPOSITORY/issues" -f title="cmux NIGHTLY-identity publication failed (nightly.yml publish-nightly-identity-legacy)" -f body="$body" >/dev/null \
+                  || echo "::warning::could not open the failure issue for the refusal"
+              fi
+            else
+              echo "::warning::could not search for the failure issue; the refusal is in this run's summary only"
             fi
           fi
-          { echo "action=$action"; echo "pending_run=$pending_run"; echo "build=$build"; } >> "$GITHUB_OUTPUT"
+          { echo "action=$action"; echo "pending_run=$pending_run"; echo "bundle_run=$bundle_run"; echo "build=$build"; } >> "$GITHUB_OUTPUT"
           if [ -n "$build" ]; then
             echo "### cmux NIGHTLY-identity: $action build $build for the old feed (cx-x7hwx)" >> "$GITHUB_STEP_SUMMARY"
           else
@@ -3895,6 +4077,12 @@ jobs:
       # submission of run PENDING_RUN (the same signed DMG, no new upload).
       LEGACY_ACTION: ${{ needs.legacy-identity-target.outputs.action }}
       PENDING_RUN: ${{ needs.legacy-identity-target.outputs.pending_run }}
+      # The run that holds the continued submission's bundle (the metadata of
+      # an accepted submission is re-stored by a later run).
+      BUNDLE_RUN: ${{ needs.legacy-identity-target.outputs.bundle_run }}
+      # Checked again on the app's own commit before anything is submitted to
+      # Apple (legacy-identity-target checks the build first).
+      REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
       CHANNEL_RELEASE_TAG: nightly-next
       CHANNEL_DMG_PREFIX: cmux-nightly-next-macos
       # Release asset names of the cmux NIGHTLY-identity copies. They start with
@@ -3918,12 +4106,21 @@ jobs:
           current="$(curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}" \
             | sed -n 's#.*<sparkle:version>\([0-9][0-9]*\)</sparkle:version>.*#\1#p' | sort -n | tail -1)"
           echo "old feed build: ${current:-none}; requested: $NIGHTLY_BUILD"
+          echo "### cmux NIGHTLY-identity requirement in use: required: ${REQUIRED:-none}" >> "$GITHUB_STEP_SUMMARY"
           if [ -n "$current" ] && [ "$NIGHTLY_BUILD" -le "$current" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "### Old feed already at $current; build $NIGHTLY_BUILD skipped" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # The DMG notarization below runs the bundle notice check, which reads
+      # ghostty-next/build.zig.zon. Without it, run 38669958906 retired an
+      # accepted submission.
+      - name: Initialize cmux-next notices submodule
+        if: steps.order.outputs.skip != 'true'
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Select Xcode
         if: steps.order.outputs.skip != 'true'
@@ -3967,20 +4164,7 @@ jobs:
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          set -euo pipefail
-          if [ -z "$APPLE_CERTIFICATE_BASE64" ] || [ -z "$APPLE_CERTIFICATE_PASSWORD" ]; then echo "Missing signing certificate secrets" >&2; exit 1; fi
-          KEYCHAIN_PASSWORD="$(uuidgen)"
-          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
-          security delete-keychain build.keychain >/dev/null 2>&1 || true
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -lut 21600 build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security import "$RUNNER_TEMP/cert.p12" -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-          rm -f "$RUNNER_TEMP/cert.p12"
-          ./scripts/import-apple-developer-id-intermediates.sh build.keychain
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-          security list-keychains -d user -s build.keychain
+        run: ./scripts/ci/signing-keychain.sh create
 
       - name: Sign the build as cmux NIGHTLY
         if: steps.order.outputs.skip != 'true' && env.LEGACY_ACTION == 'new'
@@ -4006,19 +4190,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          [[ "$PENDING_RUN" =~ ^[0-9]+$ ]] || { echo "invalid pending run '$PENDING_RUN'" >&2; exit 1; }
-          # Only this repository's own nightly.yml run on nightly-next made it.
-          origin="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PENDING_RUN" --jq '"\(.path) \(.event) \(.head_branch) \(.head_repository.full_name)"')"
-          case "$origin" in
-            ".github/workflows/nightly.yml push nightly-next $GITHUB_REPOSITORY"|".github/workflows/nightly.yml workflow_dispatch nightly-next $GITHUB_REPOSITORY") ;;
-            *) echo "pending run $PENDING_RUN is not this repository's nightly.yml run on nightly-next: $origin" >&2; exit 1 ;;
-          esac
-          if ! gh run download "$PENDING_RUN" --repo "$GITHUB_REPOSITORY" -n cmux-nightly-identity-pending-bundle -D pending; then
-            # A meta artifact whose bundle is confirmed gone can never continue:
-            # retire it so the next run submits anew instead of waiting out the
-            # 6-hour limit. Any API error keeps it.
-            ./scripts/ci/nightly-next-legacy-orphan-meta.sh "$GITHUB_REPOSITORY" "$PENDING_RUN" >&2
-            echo "could not download the bundle of pending run $PENDING_RUN" >&2
+          for run in "$PENDING_RUN" "$BUNDLE_RUN"; do
+            [[ "$run" =~ ^[0-9]+$ ]] || { echo "invalid pending run '$run'" >&2; exit 1; }
+            # Only this repository's own nightly.yml runs on nightly-next made it.
+            origin="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" --jq '"\(.path) \(.event) \(.head_branch) \(.head_repository.full_name)"')"
+            case "$origin" in
+              ".github/workflows/nightly.yml push nightly-next $GITHUB_REPOSITORY"|".github/workflows/nightly.yml workflow_dispatch nightly-next $GITHUB_REPOSITORY") ;;
+              *) echo "pending run $run is not this repository's nightly.yml run on nightly-next: $origin" >&2; exit 1 ;;
+            esac
+          done
+          if ! gh run download "$BUNDLE_RUN" --repo "$GITHUB_REPOSITORY" -n cmux-nightly-identity-pending-bundle -D pending; then
+            # Metadata whose bundle is confirmed gone can never continue: retire
+            # it so the next run submits anew instead of waiting out the limit.
+            # Any API error keeps it.
+            ./scripts/ci/nightly-next-legacy-orphan-meta.sh "$GITHUB_REPOSITORY" "$BUNDLE_RUN" >&2
+            if [ "$PENDING_RUN" != "$BUNDLE_RUN" ]; then
+              ./scripts/ci/nightly-next-legacy-orphan-meta.sh "$GITHUB_REPOSITORY" "$PENDING_RUN" "$BUNDLE_RUN" >&2
+            fi
+            echo "could not download the bundle of pending run $BUNDLE_RUN" >&2
             exit 1
           fi
           python3 -I -c 'import json, sys; m = json.load(open(sys.argv[1])); assert str(m["build"]) == sys.argv[2], (m["build"], sys.argv[2]); print("pending submission", m["submission_id"], "of build", m["build"])' pending/pending.json "$NIGHTLY_BUILD"
@@ -4026,6 +4215,35 @@ jobs:
           tar -C legacy-app -xzf pending/app.tar.gz
           cp pending/release.dmg legacy-out/release.dmg
           cp pending/legacy.notarization.state "$RUNNER_TEMP/legacy.notarization.state"
+
+      # The bundle notice check compares the app with ITS OWN source tree (the
+      # LICENSE, the toolchain pins, the ghostty/ghostty-next gitlinks and
+      # license trees). The copied cmux NEXT build can be older than this run's
+      # commit, so the check runs from a checkout of the build's commit
+      # (CMUXCommit), with the notices submodule initialized there.
+      - name: Check out the build's own source for the bundle checks
+        if: steps.order.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          short="$(/usr/libexec/PlistBuddy -c 'Print :CMUXCommit' "legacy-app/cmux NIGHTLY.app/Contents/Info.plist")"
+          [[ "$short" =~ ^[0-9a-f]{7,40}$ ]] || { echo "invalid CMUXCommit '$short'" >&2; exit 1; }
+          sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$short" --jq .sha)"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "could not resolve CMUXCommit $short" >&2; exit 1; }
+          for required in $REQUIRED; do
+            status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$required...$sha" --jq .status)"
+            case "$status" in
+              ahead|identical) ;;
+              *) echo "build commit $sha lacks required commit $required ($status); refusing before any Apple submission" >&2
+                 : > "$RUNNER_TEMP/legacy-requirement-refused"; exit 1 ;;
+            esac
+          done
+          git fetch --no-tags --depth=1 origin "$sha"
+          git worktree add --detach "$RUNNER_TEMP/build-src" "$sha"
+          (cd "$RUNNER_TEMP/build-src" && bash scripts/ci/init-submodule.sh ghostty-next)
+          echo "CMUX_VERIFY_LICENSES_TOOL=$RUNNER_TEMP/build-src/scripts/verify-app-bundle-licenses.sh" >> "$GITHUB_ENV"
+          echo "bundle checks run from $sha (CMUXCommit $short)"
 
       # Same packaging, notarization, stapling, spctl, smoke launch and
       # metadata checks as every NIGHTLY DMG. The Computer Use helper keeps
@@ -4214,33 +4432,68 @@ jobs:
           PUBLISHED: ${{ steps.publish.outcome == 'success' }}
         run: |
           set -euo pipefail
-          answered=false
-          if grep -Eq '"status" *: *"(Invalid|Rejected|Accepted)"' "$RUNNER_TEMP/legacy.notarization.log" 2>/dev/null \
+          apple=unknown
+          if grep -Eq '"status" *: *"(Invalid|Rejected)"' "$RUNNER_TEMP/legacy.notarization.log" 2>/dev/null; then
+            apple=refused
+          elif grep -Eq '"status" *: *"Accepted"' "$RUNNER_TEMP/legacy.notarization.log" 2>/dev/null \
              || { [ -d "legacy-app/cmux NIGHTLY.app" ] && xcrun stapler validate "legacy-app/cmux NIGHTLY.app" >/dev/null 2>&1; }; then
-            answered=true
+            apple=accepted
           fi
+          refused=false
+          if [ -e "$RUNNER_TEMP/legacy-requirement-refused" ]; then refused=true; fi
           decision="$(python3 scripts/ci/nightly-next-legacy-resolve.py --action "$LEGACY_ACTION" --pending "$PENDING" \
-            --notarize "$NOTARIZE" --published "$PUBLISHED" --answered "$answered")"
+            --notarize "$NOTARIZE" --published "$PUBLISHED" --apple "$apple" --requirement-refused "$refused")"
           echo "$decision" >> "$GITHUB_OUTPUT"
-          echo "attempt: action=$LEGACY_ACTION pending=$PENDING notarize=$NOTARIZE published=$PUBLISHED answered=$answered -> $(tr '\n' ' ' <<<"$decision")"
+          echo "attempt: action=$LEGACY_ACTION pending=$PENDING notarize=$NOTARIZE published=$PUBLISHED apple=$apple -> $(tr '\n' ' ' <<<"$decision")"
           if [ "$LEGACY_ACTION" = continue ] && grep -Fxq retire=true <<<"$decision"; then
-            for name in cmux-nightly-identity-pending-meta cmux-nightly-identity-pending-bundle; do
-              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PENDING_RUN/artifacts?name=$name" --jq '.artifacts[].id' \
-                | while IFS= read -r id; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" || true; done
+            for run in "$PENDING_RUN" "$BUNDLE_RUN"; do
+              for name in cmux-nightly-identity-pending-meta cmux-nightly-identity-pending-bundle; do
+                gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?name=$name" --jq '.artifacts[].id' \
+                  | while IFS= read -r id; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" || true; done
+              done
             done
-            echo "retired the pending submission of run $PENDING_RUN"
+            echo "retired the pending submission of runs $PENDING_RUN/$BUNDLE_RUN"
           elif [ "$LEGACY_ACTION" = continue ]; then
-            echo "kept the pending submission of run $PENDING_RUN"
+            echo "kept the pending submission of run $BUNDLE_RUN"
           fi
-          if grep -Fxq real=false <<<"$decision" && [ "$NOTARIZE" = failure ]; then
-            echo "::warning title=cmux NIGHTLY-identity attempt not counted (cx-x7hwx)::Apple did not answer about the pending submission of run $PENDING_RUN, or it is still in Apple's queue; it is kept for the next run"
+          # Apple accepted it but a later step failed: store metadata that marks
+          # the bundle accepted, so later runs continue it with no time limit
+          # and never submit the build again (newest metadata wins).
+          if [ "$LEGACY_ACTION" = continue ] && grep -Fxq mark_accepted=true <<<"$decision"; then
+            mkdir -p accepted-meta
+            python3 -I -c 'import json, sys; m = json.load(open(sys.argv[1])); m["accepted"] = True; m["bundle_run"] = sys.argv[2]; json.dump(m, open(sys.argv[3], "w"))' \
+              pending/pending.json "$BUNDLE_RUN" accepted-meta/pending.json
+            cat accepted-meta/pending.json
           fi
+
+      - name: Store the accepted submission's metadata
+        if: always() && steps.resolve.outputs.mark_accepted == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-identity-pending-meta
+          path: accepted-meta/pending.json
+          if-no-files-found: error
+          retention-days: 3
+
+      # Search, not a one-page listing: the issue may be past the first 100 open
+      # issues and pull requests (scripts/ci/nightly-next-legacy-failure-issue.sh).
+      - name: Find the failure issue
+        id: failure-issue
+        if: failure() && steps.resolve.outputs.real != 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          number="$(./scripts/ci/nightly-next-legacy-failure-issue.sh "$GITHUB_REPOSITORY")"
+          echo "number=$number" >> "$GITHUB_OUTPUT"
 
       - name: Report a failed publication
         if: failure() && steps.resolve.outputs.real != 'false'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           BUILD: ${{ needs.legacy-identity-target.outputs.build }}
+          ISSUE_NUMBER: ${{ steps.failure-issue.outputs.number }}
+          ISSUE_SEARCH: ${{ steps.failure-issue.outcome }}
         with:
           script: |
             const title = 'cmux NIGHTLY-identity publication failed (nightly.yml publish-nightly-identity-legacy)';
@@ -4249,10 +4502,12 @@ jobs:
             // failures of one build stop its retries); a submission still in
             // Apple's queue never reaches this step.
             const body = `Build ${process.env.BUILD} failed: it was not published to the cmux NIGHTLY-identity installs (cx-x7hwx). cmux NEXT is not affected; the old feed keeps its previous build.\n\nRun: ${run}\n\nStop it with repository variable NIGHTLY_NEXT_LEGACY_IDENTITY=off.`;
-            const { data: open } = await github.rest.issues.listForRepo({ ...context.repo, state: 'open', per_page: 100, labels: '' });
-            const existing = open.find((issue) => issue.title === title);
-            if (existing) {
-              await github.rest.issues.createComment({ ...context.repo, issue_number: existing.number, body });
+            const number = Number(process.env.ISSUE_NUMBER || 0);
+            if (number > 0) {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: number, body });
+            } else if (process.env.ISSUE_SEARCH !== 'success') {
+              // Without a working search a new issue could duplicate the open one.
+              core.warning(`could not search for the failure issue; not opening another one. ${body}`);
             } else {
               await github.rest.issues.create({ ...context.repo, title, body });
             }
@@ -4260,7 +4515,9 @@ jobs:
 
       - name: Cleanup keychain
         if: always()
-        run: security delete-keychain build.keychain >/dev/null 2>&1 || true
+        run: |
+          ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
+            || security delete-keychain build.keychain >/dev/null 2>&1 || true
 
   generate-nightly-deltas:
     # Delta work is deliberately downstream of the first publication. A slow
@@ -4384,7 +4641,7 @@ jobs:
     # a newer run may publish its full feed immediately, and the tag guard below
     # prevents an older delta from overwriting it.
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, generate-nightly-deltas]
-    if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success'
+    if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true'
     environment: ${{ needs.decide.outputs.environment }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:

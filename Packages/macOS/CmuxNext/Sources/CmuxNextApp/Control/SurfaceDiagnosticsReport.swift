@@ -1,5 +1,6 @@
 import CmuxNextPages
 import AppKit
+import CmuxNextBrowser
 import CmuxNextSettings
 import CmuxNextTerminal
 
@@ -37,6 +38,14 @@ enum SurfaceDiagnosticsReport {
                    let page = view.content as? PageWebView {
                     object["phase"] = .string(page.hasPainted ? "painted" : "loading")
                 }
+                #if DEBUG
+                // A web page tab's current address (the live engine's, else the tab record's), so a script can tell
+                // which page a pane shows.
+                if case .browser(let entry)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
+                    let address = entry.tab.state.url?.absoluteString ?? row.pane.selectedTab?.url
+                    object["url"] = address.map(JSONValue.string) ?? .null
+                }
+                #endif
                 if case .terminal(let entry)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
                     object["attach"] = .string(entry.io.attachPhase.journalName)
                     object["link"] = .string(Self.linkName(entry.session.model.connection))
@@ -49,6 +58,9 @@ enum SurfaceDiagnosticsReport {
                     if includeText { object["text"] = entry.session.surfaceView.viewportText().map(JSONValue.string) ?? .null }
                     #if DEBUG
                     if let grid = Self.grid(entry.session.surfaceView, window: row.window) { object["grid"] = grid }
+                    // The font zoom the terminal draws at, as a scale of the configured
+                    // `font-size` (1 at that size); its tab record saves it (cx-mzuqi).
+                    object["font_scale"] = .number(TerminalFontScale(entry.session.surfaceView).current ?? 1)
                     #endif
                 }
                 if case .placeholder(let view)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {

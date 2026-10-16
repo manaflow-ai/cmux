@@ -30,6 +30,7 @@ on:
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
+      - scripts/cmux-next/fetch-ublock.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
       - scripts/cmux-next/state-roots-baseline.tsv
@@ -175,6 +176,7 @@ on:
       - scripts/cmux-next/bundle-*.sh
       - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
+      - scripts/cmux-next/fetch-ublock.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
       # Local packages CmuxNext depends on and files its tests read
@@ -512,6 +514,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           DEV_DAILY: ${{ inputs.dev_daily || false }}
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha }}
+          SAME_TREE_SHA: ${{ inputs.same_tree_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -537,10 +540,17 @@ jobs:
               echo "error: dev_daily runs on refs/heads/feat-cmux-next, got $GITHUB_REF" >&2
               exit 1
             }
-            [[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]] || {
-              echo "error: dev_daily asked for $DEV_DAILY_SHA but feat-cmux-next moved to $GITHUB_SHA; the next dispatcher tick takes the new tip" >&2
-              exit 1
-            }
+            if [[ -n "$SAME_TREE_SHA" ]]; then
+              [[ "$DEV_DAILY_SHA" == "$SAME_TREE_SHA" ]] || {
+                echo "error: deferred dev_daily asked for $DEV_DAILY_SHA but same-tree mode is $SAME_TREE_SHA" >&2
+                exit 1
+              }
+            else
+              [[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]] || {
+                echo "error: dev_daily asked for $DEV_DAILY_SHA but feat-cmux-next moved to $GITHUB_SHA; the next dispatcher tick takes the new tip" >&2
+                exit 1
+              }
+            fi
             {
               echo 'native=false'
               echo 'swift_canary=false'
@@ -1015,6 +1025,15 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-motion.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      # The one type scale (schemas/type-scale/type-scale.json): its CSS and Swift copies, and no new raw
+      # font sizes or off-scale weights in the app's Swift (fails the checks; the webviews ratchet runs in react-apps-check).
+      - name: Type scale
+        id: type-scale
+        continue-on-error: true
+        run: |
+          python3 -I scripts/cmux-next/gen-type-scale.py --check
+          python3 -I scripts/cmux-next/check-swift-type-scale.py
+
       # LAUNCH-NO-TCC-PROMPTS: the Swift and TypeScript copies of the one
       # protected-folder list (cmux-tui/crates/acpmux/data/protected-folders.json).
       - name: Protected-folder copies
@@ -1047,6 +1066,7 @@ jobs:
           python3 tests/test_ci_launch_budget_gate.py
           python3 tests/test_strings_output_encoding.py
           bash tests/test_strip_release_bundle.sh
+          python3 tests/test_app_symbol_map.py
           bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
           bash scripts/cmux-next/tests/bundle-cmux-tui-screen-detection.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh
@@ -1067,6 +1087,7 @@ jobs:
           bash scripts/cmux-next/tests/tree-key-embeds.test.sh
           bash scripts/cmux-next/tests/tree-publish-v2.test.sh
           bash scripts/cmux-next/tests/embed-cef.test.sh
+          bash scripts/cmux-next/tests/ublock-pin.test.sh
           bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
           bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
           bash scripts/cmux-next/tests/stamp-app-ffi-mtimes.test.sh
@@ -1250,6 +1271,7 @@ jobs:
             ${{ steps.module-resources.outcome }}|Module resource bundles
             ${{ steps.scrollbars.outcome }}|Scrollbars thin, one style
             ${{ steps.motion.outcome }}|Motion tokens
+            ${{ steps.type-scale.outcome }}|Type scale
             ${{ steps.protected-folders.outcome }}|Protected-folder copies
             ${{ steps.settings-sources.outcome }}|Settings source copies
             ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup
@@ -2444,11 +2466,19 @@ jobs:
         if: inputs.dev_daily == true
         env:
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha }}
+          SAME_TREE_SHA: ${{ inputs.same_tree_sha }}
         run: |
-          [[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]] || {
-            echo "error: dev_daily asked for $DEV_DAILY_SHA but this run checked out $GITHUB_SHA; the next dispatcher tick takes the new tip" >&2
-            exit 1
-          }
+          if [[ -n "$SAME_TREE_SHA" ]]; then
+            [[ "$DEV_DAILY_SHA" == "$SAME_TREE_SHA" ]] || {
+              echo "error: deferred dev_daily asked for $DEV_DAILY_SHA but same-tree mode is $SAME_TREE_SHA" >&2
+              exit 1
+            }
+          else
+            [[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]] || {
+              echo "error: dev_daily asked for $DEV_DAILY_SHA but this run checked out $GITHUB_SHA; the next dispatcher tick takes the new tip" >&2
+              exit 1
+            }
+          fi
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -2578,7 +2608,7 @@ jobs:
       # replace the existing PR artifact.
       - name: Compile the cmux NEXT DEV Release app
         id: compile-cmux-next-dev-release
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true') || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && inputs.dev_daily_sha == github.sha && (needs.push-head-preflight.outputs.current == 'true' || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')))
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true') || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready')))
         env:
           CMUX_NEXT_CONFIGURATION: Release
           CMUX_NEXT_PRODUCT_NAME: cmux NEXT DEV
@@ -2586,7 +2616,7 @@ jobs:
           CMUX_NEXT_CODE_SIGN_ENTITLEMENTS: cmux.next-dev.entitlements
           CMUX_NEXT_AUTH_CALLBACK_SCHEME: cmux-next-dev
           CMUX_NEXT_TUI_MODE: tree
-          DEV_DAILY_SHA: ${{ github.sha }}
+          DEV_DAILY_SHA: ${{ inputs.dev_daily_sha || github.sha }}
         run: |
           set -euo pipefail
           release_derived_data="$RUNNER_TEMP/cmux-next-dev-daily-release"

@@ -2337,7 +2337,12 @@ def test_cmux_next_daemon_tests_take_the_owned_side_lane_like_the_build_legs() -
     # of a feat-cmux-next push takes the reserved promote runners, after the
     # fork gate; otherwise the build legs' route.
     fork_gate = "github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+    # 2026-10-15: the daemon tests' own pool, when set, comes first in that
+    # slot; one mini serves the promote pool and the Release compile.
     promote = (
+        "vars.CI_NEXT_DAEMON_POOL != '' && github.repository_owner == 'manaflow-ai' && "
+        "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && "
+        "github.run_attempt == 1 && vars.CI_NEXT_DAEMON_POOL || "
         "vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && "
         "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && "
         "github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || "

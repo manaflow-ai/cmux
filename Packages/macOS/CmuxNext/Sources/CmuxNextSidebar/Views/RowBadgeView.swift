@@ -40,7 +40,7 @@ final class RowBadgeView: NSView {
         didSet { chips.forEach { $0.backgroundColor = chipColor } }
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override init(frame: NSRect) {
         super.init(frame: frame)

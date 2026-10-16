@@ -1,14 +1,18 @@
-//! Tokens, the spring integrator, timed fades and the speed / Reduce Motion
-//! policy. Pure and synchronous: the caller passes time, nothing here reads
-//! a clock or a global. Every type is a plain `Copy` value with a C layout
-//! (`repr(C)` structs, `repr(u8)` enums) so a C ABI can wrap it later.
+//! Springs: tuning (`SpringParameters`), the closed-form damped harmonic
+//! oscillator (`SpringValue`) and the token-driven `Spring` with direct
+//! manipulation. Pure and synchronous: the caller passes time, nothing here
+//! reads a clock or a global. Every type is a plain `Copy` value with a C
+//! layout (`repr(C)` structs, `repr(u8)` enums) so a C ABI can wrap it.
 
 use std::f64::consts::PI;
 
-/// Fixed substep of the spring integrator (s). Same as cmux-next.
+use crate::tokens::{SETTLE_GEOMETRY, SETTLE_UNIT, SETTLE_VELOCITY_FACTOR};
+use crate::{MotionPolicy, MotionSpring};
+
+/// Sampling step of the duration probes (`visible_end`) (s).
 const SUBSTEP: f64 = 1. / 480.;
-/// A stalled frame never moves a spring more than this much time (s).
-const MAX_FRAME: f64 = 0.1;
+/// A stalled frame never moves a spring or a fade more than this much time (s).
+pub(crate) const MAX_FRAME: f64 = 0.1;
 
 // ---------------------------------------------------------------------------
 // Springs
@@ -44,9 +48,49 @@ impl SpringParameters {
         2. * self.damping_fraction * self.omega()
     }
 
+    /// This tuning with a non-finite or non-positive response, or a
+    /// non-finite or non-positive damping fraction, replaced by
+    /// `fallback`'s. A damping of 0 or less (or NaN) is an undamped spring
+    /// that never settles, so the clock would never idle.
+    pub fn finite_or(self, fallback: SpringParameters) -> Self {
+        let response = if self.response.is_finite() && self.response > 0. {
+            self.response
+        } else {
+            fallback.response
+        };
+        let damping_fraction = if self.damping_fraction.is_finite() && self.damping_fraction > 0. {
+            self.damping_fraction
+        } else {
+            fallback.damping_fraction
+        };
+        Self::new(response, damping_fraction)
+    }
+
     /// The same spring with every time constant multiplied by `scale`.
     pub fn scaled(&self, scale: f64) -> Self {
         Self::new(self.response * scale, self.damping_fraction)
+    }
+
+    /// SwiftUI `Spring(duration:bounce:)`: `duration` is the perceptual
+    /// duration (the response); `bounce` 0 is critically damped, above 0
+    /// overshoots (0.15 is a subtle bounce), below 0 is over-damped.
+    pub fn from_duration_bounce(duration: f64, bounce: f64) -> Self {
+        let damping_fraction = if bounce >= 0. { 1. - bounce } else { 1. / (1. + bounce) };
+        Self::new(duration, damping_fraction)
+    }
+
+    /// SwiftUI's bounce for this damping fraction (0 critically damped).
+    pub fn bounce(&self) -> f64 {
+        if self.damping_fraction <= 1. {
+            1. - self.damping_fraction
+        } else {
+            1. / self.damping_fraction - 1.
+        }
+    }
+
+    /// The same response with `bounce` (SwiftUI semantics).
+    pub fn with_bounce(&self, bounce: f64) -> Self {
+        Self::from_duration_bounce(self.response, bounce)
     }
 
     /// Closed-form position of a unit step (0 -> 1, from rest) after `t`
@@ -131,9 +175,10 @@ impl SpringParameters {
 
 /// Settle distance for geometry (pt): 0.25 pt is invisible after pixel
 /// snapping at 2x. Velocity must also be under 8x this (2 pt/s).
-pub const GEOMETRY_EPSILON: f32 = 0.25;
+/// (design-tokens.json `motion.settle`.)
+pub const GEOMETRY_EPSILON: f32 = SETTLE_GEOMETRY;
 /// Settle distance for opacity and other 0..1 values.
-pub const UNIT_EPSILON: f32 = 0.001;
+pub const UNIT_EPSILON: f32 = SETTLE_UNIT;
 
 /// One scalar driven by a damped spring toward `target`. Retargeting keeps
 /// `value` and `velocity` (units per second), so an interrupted animation
@@ -151,25 +196,58 @@ impl SpringValue {
         Self { value, velocity: 0., target: value }
     }
 
-    /// Advances `dt` seconds with fixed 1/480 s substeps (semi-implicit
-    /// Euler): stable at any frame rate. `dt` is capped at 0.1 s so a
-    /// stalled frame never teleports.
+    /// Advances `dt` seconds with the closed-form solution of the damped
+    /// harmonic oscillator (under-, critically or over-damped) from the
+    /// current displacement and velocity, so the path is exact and the same
+    /// at every frame rate: two 60 Hz frames land where four 120 Hz frames
+    /// do. `dt` is capped at 0.1 s so a stalled frame never teleports.
     pub fn step(&mut self, dt: f64, p: SpringParameters) {
-        let (k, c) = (p.stiffness(), p.damping());
-        let mut remaining = dt.clamp(0., MAX_FRAME);
-        let (mut x, mut v, t) = (self.value as f64, self.velocity as f64, self.target as f64);
-        while remaining > 0. {
-            let h = remaining.min(SUBSTEP);
-            v += (-k * (x - t) - c * v) * h;
-            x += v * h;
-            remaining -= h;
+        let t = dt.clamp(0., MAX_FRAME);
+        // A NaN dt stays NaN through clamp: refuse it too.
+        if t.is_nan() || t <= 0. {
+            return;
         }
-        self.value = x as f32;
+        let target = f64::from(self.target);
+        let (x, v) = Self::solve(f64::from(self.value) - target, f64::from(self.velocity), t, p);
+        self.value = (target + x) as f32;
         self.velocity = v as f32;
     }
 
+    /// Displacement from the target and velocity `time` seconds after a
+    /// state with displacement `x0` and velocity `v0`, for `p` (mass 1).
+    /// The one spring solution every port uses (macOS calls it through
+    /// cmux-app-ffi).
+    pub fn solve(x0: f64, v0: f64, time: f64, p: SpringParameters) -> (f64, f64) {
+        let p = p.finite_or(MotionSpring::Move.base());
+        let w0 = p.omega();
+        let zeta = p.damping_fraction.max(0.);
+        let t = time;
+        if (zeta - 1.).abs() < 1e-4 {
+            let decay = (-w0 * t).exp();
+            let b = v0 + w0 * x0;
+            return ((x0 + b * t) * decay, (v0 - w0 * b * t) * decay);
+        }
+        if zeta < 1. {
+            let wd = w0 * (1. - zeta * zeta).sqrt();
+            let decay = (-zeta * w0 * t).exp();
+            let (s, c) = (wd * t).sin_cos();
+            let b = (v0 + zeta * w0 * x0) / wd;
+            return (
+                decay * (x0 * c + b * s),
+                decay * (v0 * c - (w0 * w0 * x0 + zeta * w0 * v0) / wd * s),
+            );
+        }
+        let root = (zeta * zeta - 1.).sqrt();
+        let (r1, r2) = (-w0 * (zeta - root), -w0 * (zeta + root));
+        let c2 = (v0 - r1 * x0) / (r2 - r1);
+        let c1 = x0 - c2;
+        let (e1, e2) = ((r1 * t).exp(), (r2 * t).exp());
+        (c1 * e1 + c2 * e2, c1 * r1 * e1 + c2 * r2 * e2)
+    }
+
     pub fn is_settled(&self, epsilon: f32) -> bool {
-        (self.value - self.target).abs() < epsilon && self.velocity.abs() < epsilon * 8.
+        (self.value - self.target).abs() < epsilon
+            && self.velocity.abs() < epsilon * SETTLE_VELOCITY_FACTOR
     }
 
     pub fn is_moving(&self) -> bool {
@@ -199,6 +277,35 @@ impl SpringValue {
         }
         true
     }
+}
+
+/// `SpringValue::advance` on f64 state, for hosts whose geometry is f64
+/// (macOS `CGFloat`, through cmux-app-ffi): steps `dt` seconds in closed
+/// form and snaps to `target` once within `epsilon` and moving slower than
+/// `epsilon` times the settle velocity factor. True while still moving.
+pub fn advance_spring(
+    value: &mut f64,
+    velocity: &mut f64,
+    target: f64,
+    dt: f64,
+    p: SpringParameters,
+    epsilon: f64,
+) -> bool {
+    if *value == target && *velocity == 0. {
+        return false;
+    }
+    let t = dt.clamp(0., MAX_FRAME);
+    if t > 0. {
+        let (x, v) = SpringValue::solve(*value - target, *velocity, t, p);
+        (*value, *velocity) = (target + x, v);
+    }
+    if (*value - target).abs() < epsilon
+        && velocity.abs() < epsilon * f64::from(SETTLE_VELOCITY_FACTOR)
+    {
+        (*value, *velocity) = (target, 0.);
+        return false;
+    }
+    true
 }
 
 /// What a `Spring` animates. It decides whether a move toward 0 is a
@@ -363,479 +470,5 @@ impl Spring {
         if self.token == MotionSpring::Settle {
             self.token = MotionSpring::Move;
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Timed fades
-
-/// Control points of Core Animation's `easeOut`
-/// (`CAMediaTimingFunction(name: .easeOut)`, the curve of cmux-next's
-/// `Motion.fadeCurve`): a cubic Bezier from (0, 0) to (1, 1) through
-/// (0, 0) and (0.58, 1).
-pub const EASE_OUT_CONTROL_POINTS: [f64; 4] = [0., 0., 0.58, 1.];
-
-/// Core Animation's `easeOut`, used by every timed fade: the progress at
-/// time fraction `t` (0..=1). Solves the curve's x for `t` (Newton, then
-/// bisection), then evaluates its y; within 1e-5 of `CAMediaTimingFunction`
-/// (whose own solver stops at a coarser tolerance: 7e-6 at most here).
-pub fn ease_out(t: f32) -> f32 {
-    let [x1, y1, x2, y2] = EASE_OUT_CONTROL_POINTS;
-    cubic_bezier(f64::from(t.clamp(0., 1.)), x1, y1, x2, y2) as f32
-}
-
-/// Control points of Core Animation's `easeInEaseOut`
-/// (`CAMediaTimingFunction(name: .easeInEaseOut)`): a cubic Bezier from
-/// (0, 0) to (1, 1) through (0.42, 0) and (0.58, 1). cmux-next uses it for
-/// the hover marquee's scroll (`Motion.marqueeAnimation`).
-pub const EASE_IN_EASE_OUT_CONTROL_POINTS: [f64; 4] = [0.42, 0., 0.58, 1.];
-
-/// Core Animation's `easeInEaseOut` at time fraction `t` (0..=1), solved
-/// like `ease_out`; within 1e-5 of `CAMediaTimingFunction`.
-pub fn ease_in_ease_out(t: f32) -> f32 {
-    let [x1, y1, x2, y2] = EASE_IN_EASE_OUT_CONTROL_POINTS;
-    cubic_bezier(f64::from(t.clamp(0., 1.)), x1, y1, x2, y2) as f32
-}
-
-/// A CSS / Core Animation timing curve through (0, 0), (x1, y1), (x2, y2),
-/// (1, 1) at time fraction `t` (0..=1; x1 and x2 within 0..=1).
-fn cubic_bezier(t: f64, x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
-    if t <= 0. {
-        return 0.;
-    }
-    if t >= 1. {
-        return 1.;
-    }
-    // B(s) = 3(1-s)^2 s p1 + 3(1-s) s^2 p2 + s^3, as a polynomial in s.
-    let coefficients = |p1: f64, p2: f64| {
-        let c = 3. * p1;
-        let b = 3. * (p2 - p1) - c;
-        (1. - c - b, b, c)
-    };
-    let (ax, bx, cx) = coefficients(x1, x2);
-    let (ay, by, cy) = coefficients(y1, y2);
-    let x = |s: f64| ((ax * s + bx) * s + cx) * s;
-    let dx = |s: f64| (3. * ax * s + 2. * bx) * s + cx;
-    let y = |s: f64| ((ay * s + by) * s + cy) * s;
-    const EPSILON: f64 = 1e-9;
-    let mut s = t;
-    for _ in 0..8 {
-        let error = x(s) - t;
-        if error.abs() < EPSILON {
-            return y(s);
-        }
-        let slope = dx(s);
-        if slope.abs() < 1e-12 {
-            break;
-        }
-        s -= error / slope;
-    }
-    // x is monotonic in s on 0..=1: bisection always converges.
-    let (mut lo, mut hi) = (0., 1.);
-    s = t;
-    for _ in 0..64 {
-        let v = x(s);
-        if (v - t).abs() < EPSILON {
-            break;
-        }
-        if v < t {
-            lo = s;
-        } else {
-            hi = s;
-        }
-        s = (lo + hi) / 2.;
-    }
-    y(s)
-}
-
-/// A timed opacity or color change with ease-out. Retargeting restarts the
-/// curve from the value on screen (as AppKit does for timed animators), so
-/// a fade never jumps and never queues.
-#[derive(Clone, Copy, Debug, PartialEq)]
-#[repr(C)]
-pub struct Fade {
-    pub token: MotionFade,
-    from: f32,
-    target: f32,
-    value: f32,
-    elapsed: f64,
-    duration: f64,
-}
-
-impl Fade {
-    pub fn new(value: f32, token: MotionFade) -> Self {
-        Self { token, from: value, target: value, value, elapsed: 0., duration: 0. }
-    }
-
-    pub fn value(&self) -> f32 {
-        self.value
-    }
-
-    pub fn target(&self) -> f32 {
-        self.target
-    }
-
-    pub fn is_moving(&self) -> bool {
-        self.value != self.target
-    }
-
-    /// Starts toward `target` from the current value with this token's
-    /// duration under `policy` (0 applies at once).
-    pub fn set_target(&mut self, target: f32, policy: &MotionPolicy) {
-        self.set_target_with(target, self.token, policy);
-    }
-
-    /// As `set_target`, with another token (e.g. `fadeIn` vs `fadeOut`).
-    pub fn set_target_with(&mut self, target: f32, token: MotionFade, policy: &MotionPolicy) {
-        if target == self.target && self.is_moving() {
-            return;
-        }
-        self.token = token;
-        self.from = self.value;
-        self.target = target;
-        self.elapsed = 0.;
-        self.duration = policy.fade(token);
-        if self.duration <= 0. {
-            self.value = target;
-        }
-    }
-
-    pub fn snap_to(&mut self, target: f32) {
-        self.from = target;
-        self.target = target;
-        self.value = target;
-    }
-
-    /// Advances `dt` seconds. True while still moving.
-    pub fn step(&mut self, dt: f64) -> bool {
-        if !self.is_moving() {
-            return false;
-        }
-        self.elapsed += dt.clamp(0., MAX_FRAME);
-        if self.duration <= 0. || self.elapsed >= self.duration {
-            self.value = self.target;
-            return false;
-        }
-        let t = self.token.curve().progress((self.elapsed / self.duration) as f32);
-        self.value = self.from + (self.target - self.from) * t;
-        true
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Tokens
-
-/// `ui.animationSpeed`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-#[repr(u8)]
-pub enum MotionSpeed {
-    /// Default: short springs tuned for a pro tool.
-    #[default]
-    Fast,
-    /// About Apple's system pacing: every time constant x1.5.
-    Normal,
-    /// No animation: every change applies in one frame, no crossfade.
-    Off,
-}
-
-impl MotionSpeed {
-    /// Multiplier on every spring response and fade duration.
-    pub fn time_scale(self) -> f64 {
-        match self {
-            Self::Fast => 1.,
-            Self::Normal => 1.5,
-            Self::Off => 0.,
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<Self> {
-        match s.trim().to_ascii_lowercase().as_str() {
-            "fast" => Some(Self::Fast),
-            "normal" => Some(Self::Normal),
-            "off" | "none" | "0" => Some(Self::Off),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Fast => "fast",
-            Self::Normal => "normal",
-            Self::Off => "off",
-        }
-    }
-}
-
-/// Spring tokens (values at speed `fast`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum MotionSpring {
-    /// An existing item moves or resizes: tab reflow and reorder, sidebar
-    /// rows, pane and divider frames, pane zoom, sidebar drag gap.
-    Move,
-    /// Something appears or expands: tab grow-in, group expand, row insert,
-    /// palette scale-in.
-    Appear,
-    /// Something disappears or collapses. Faster than `Appear`.
-    Disappear,
-    /// Release after direct manipulation; carries pointer velocity and
-    /// overshoots slightly (0.8 pt on 200 pt).
-    Settle,
-    /// Programmatic scroll: tab strip reveal, column reveal, wheel, fling.
-    Scroll,
-    /// Screen switch slide.
-    Screen,
-    /// An overlay tracking the pointer between targets: drop zones, ghost.
-    Track,
-    /// Selection indicator glide (sidebar pill).
-    Selection,
-    /// Floating panel slide (hover card).
-    Panel,
-    /// Home list pin drag: the tiles making room, the rows below the grid
-    /// and a dropped tile landing (MessagesLab `SidebarPinDragging.spring`:
-    /// `CASpringAnimation` mass 1, stiffness 320, damping 30). Overshoots
-    /// about 1.6 pt on 200 pt.
-    PinDrag,
-}
-
-impl MotionSpring {
-    pub const ALL: [Self; 10] = [
-        Self::Move,
-        Self::Appear,
-        Self::Disappear,
-        Self::Settle,
-        Self::Scroll,
-        Self::Screen,
-        Self::Track,
-        Self::Selection,
-        Self::Panel,
-        Self::PinDrag,
-    ];
-
-    pub const fn base(self) -> SpringParameters {
-        match self {
-            Self::Move => SpringParameters::new(0.20, 0.90),
-            Self::Appear => SpringParameters::new(0.18, 0.90),
-            Self::Disappear => SpringParameters::new(0.15, 0.90),
-            Self::Settle => SpringParameters::new(0.22, 0.85),
-            Self::Scroll => SpringParameters::new(0.22, 0.90),
-            Self::Screen => SpringParameters::new(0.22, 0.90),
-            Self::Track => SpringParameters::new(0.12, 0.90),
-            Self::Selection => SpringParameters::new(0.15, 0.90),
-            Self::Panel => SpringParameters::new(0.18, 0.85),
-            // SidebarPinDragging.swift `spring`: mass 1, stiffness 320,
-            // damping 30, so response 2 pi / sqrt(320) and damping fraction
-            // 30 / (2 sqrt(320)).
-            Self::PinDrag => {
-                SpringParameters::new(0.351_240_736_552_036_3, 0.838_525_491_562_421_1)
-            }
-        }
-    }
-}
-
-/// Timed opacity and color changes (ease-out), seconds at speed `fast`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum MotionFade {
-    /// Hover fills and hover-revealed buttons.
-    Hover,
-    /// Focus ring and inactive-pane dim.
-    Focus,
-    /// A view or panel fades in.
-    FadeIn,
-    /// A view or panel fades out. Faster than `FadeIn`.
-    FadeOut,
-    /// Content swap in place; also the Reduce Motion ceiling.
-    Crossfade,
-    /// Drag lift shadow.
-    Lift,
-    /// Theme switch recoloring in place.
-    Theme,
-    /// A highlighted row fading out after a jump to it (cmux-next: the
-    /// Settings row after a search jump or deep link).
-    Highlight,
-    /// The launch mark resolving on a window still connecting (cmux-next
-    /// `LaunchMarkView`, `Motion.revealLaunchMark`).
-    Launch,
-    /// Home list pin drag: the tile lifting to `SidebarPinDragState.lift`
-    /// (MessagesLab `beginPinDrag`, `transform.scale` over 0.15 s).
-    PinLift,
-    /// Home list pin drag: a dropped tile scaling back from the lift
-    /// (`landPinDrag`, `transform.scale` over 0.25 s).
-    PinSettle,
-    /// Home list pin drag: a ghost that is not a tile now shrinking onto
-    /// its row's avatar and fading out (`landPinDrag`, a 0.22 s transaction).
-    PinShrink,
-}
-
-impl MotionFade {
-    pub const ALL: [Self; 12] = [
-        Self::Hover,
-        Self::Focus,
-        Self::FadeIn,
-        Self::FadeOut,
-        Self::Crossfade,
-        Self::Lift,
-        Self::Theme,
-        Self::Highlight,
-        Self::Launch,
-        Self::PinLift,
-        Self::PinSettle,
-        Self::PinShrink,
-    ];
-
-    pub const fn base(self) -> f64 {
-        match self {
-            Self::Hover => 0.08,
-            Self::Focus => 0.10,
-            Self::FadeIn => 0.12,
-            Self::FadeOut => 0.08,
-            Self::Crossfade => 0.10,
-            Self::Lift => 0.12,
-            Self::Theme => 0.16,
-            // MotionTunables.swift:38-39 (fadeDefaults .highlight, .launch).
-            Self::Highlight => 1.2,
-            Self::Launch => 0.24,
-            // SidebarPinDragging.swift: lift.duration, settle.duration,
-            // setAnimationDuration (beginPinDrag, landPinDrag); the curves
-            // are `curve`.
-            Self::PinLift => 0.15,
-            Self::PinSettle => 0.25,
-            Self::PinShrink => 0.22,
-        }
-    }
-}
-
-impl MotionFade {
-    /// The token's timing curve. Every fade eases out (cmux-next
-    /// `Motion.fadeCurve`) but MessagesLab's pin drag scales, which run
-    /// linear: `beginPinDrag`'s lift and `landPinDrag`'s settle are
-    /// `CABasicAnimation`s with no timing function (Core Animation paces
-    /// those linearly). `pinShrink` keeps ease-out: it is an implicit
-    /// animation in a `CATransaction` with no timing function set.
-    pub const fn curve(self) -> MotionCurve {
-        match self {
-            Self::PinLift | Self::PinSettle => MotionCurve::Linear,
-            _ => MotionCurve::EaseOut,
-        }
-    }
-}
-
-/// A timed fade's curve (`MotionFade::curve`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum MotionCurve {
-    /// Core Animation's `easeOut` (`ease_out`).
-    EaseOut,
-    /// Core Animation's `linear` (a `CABasicAnimation` without a timing function).
-    Linear,
-}
-
-impl MotionCurve {
-    /// The progress at time fraction `t` (0..=1).
-    pub fn progress(self, t: f32) -> f32 {
-        match self {
-            Self::EaseOut => ease_out(t),
-            Self::Linear => t.clamp(0., 1.),
-        }
-    }
-}
-
-/// Repeating indicators. Speed does not scale them; `off` and Reduce Motion
-/// stop them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum MotionLoop {
-    Spinner,
-    Pulse,
-    Flash,
-}
-
-impl MotionLoop {
-    pub const fn period(self) -> f64 {
-        match self {
-            Self::Spinner => 0.9,
-            Self::Pulse => 1.8,
-            Self::Flash => 0.6,
-        }
-    }
-}
-
-/// Resolves tokens for one speed setting and Reduce Motion state.
-///
-/// - `off`: nothing animates. Wins over Reduce Motion.
-/// - Reduce Motion: movement (position, size, scale, scroll) is instant;
-///   fades stay, capped at one crossfade (0.1 s); loops stop.
-/// - `normal`: every time constant is 1.5x `fast`; damping is unchanged.
-#[derive(Clone, Copy, Debug, PartialEq)]
-#[repr(C)]
-pub struct MotionPolicy {
-    pub speed: MotionSpeed,
-    pub reduce_motion: bool,
-    /// Extra time multiplier for screen recordings (`CMUX2_ANIM_SCALE`); 1
-    /// normally. Not part of the cmux-next contract.
-    pub debug_scale: f64,
-}
-
-impl Default for MotionPolicy {
-    fn default() -> Self {
-        Self::new(MotionSpeed::Fast, false)
-    }
-}
-
-impl MotionPolicy {
-    pub fn new(speed: MotionSpeed, reduce_motion: bool) -> Self {
-        Self { speed, reduce_motion, debug_scale: 1. }
-    }
-
-    pub(crate) fn scale(&self) -> f64 {
-        self.speed.time_scale() * self.debug_scale.max(1.)
-    }
-
-    /// Position, size, scale and scroll animate. When false, snap.
-    pub fn animates_movement(&self) -> bool {
-        self.speed != MotionSpeed::Off && !self.reduce_motion
-    }
-
-    /// Opacity and color changes animate. When false, apply at once.
-    pub fn animates_fades(&self) -> bool {
-        self.speed != MotionSpeed::Off
-    }
-
-    /// Spinners and pulses run.
-    pub fn animates_loops(&self) -> bool {
-        self.speed != MotionSpeed::Off && !self.reduce_motion
-    }
-
-    /// The spring for `token`. `off` returns the `fast` spring so a caller
-    /// that steps anyway never divides by zero; callers snap when
-    /// `animates_movement` is false (`Spring::step` does).
-    pub fn spring(&self, token: MotionSpring) -> SpringParameters {
-        if self.speed == MotionSpeed::Off {
-            token.base()
-        } else {
-            token.base().scaled(self.scale())
-        }
-    }
-
-    /// Seconds for a fade; 0 applies at once. Reduce Motion caps it at one
-    /// crossfade.
-    pub fn fade(&self, token: MotionFade) -> f64 {
-        if !self.animates_fades() {
-            return 0.;
-        }
-        let scaled = token.base() * self.scale();
-        if self.reduce_motion { scaled.min(MotionFade::Crossfade.base()) } else { scaled }
-    }
-
-    /// Seconds that stand in for a spring when only a timed API exists:
-    /// the spring's visible end. 0 when movement does not animate.
-    pub fn spring_duration(&self, token: MotionSpring) -> f64 {
-        if self.animates_movement() { self.spring(token).visible_end() } else { 0. }
-    }
-
-    /// Period of a loop, or `None` when loops are stopped.
-    pub fn period(&self, token: MotionLoop) -> Option<f64> {
-        self.animates_loops().then(|| token.period())
     }
 }

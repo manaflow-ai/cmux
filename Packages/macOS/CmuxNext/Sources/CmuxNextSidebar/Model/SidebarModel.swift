@@ -1,6 +1,6 @@
 public import CoreGraphics
 public import CmuxNextDesign
-import Foundation
+public import Foundation
 public import Observation
 
 /// Input and UI state for one window's sidebar.
@@ -69,14 +69,9 @@ public final class SidebarModel {
     /// Client-only items above the top band's sections (the What's New item
     /// after an update). Never in `layout`: they cannot be moved, edited or
     /// hidden, and activate like any item (`SidebarIntent.activateItem`).
+    /// An item with an anchor (`SidebarTransientItem.after`) draws right after it instead
+    /// (`placingTransientItems`): the Channels entry after Home.
     public var transientTopItems: [SidebarTransientItem] = []
-
-    /// The section that draws `transientTopItems` first in the top band, or
-    /// nil without any (built-in look, no title, one row per item).
-    var transientTopSection: LayoutSection? {
-        transientTopItems.isEmpty ? nil : LayoutSection(id: LayoutSectionID(LayoutItemID.transientPrefix + "top"), showsTitle: false,
-                                                        region: .top, look: .builtIn, items: transientTopItems.map(\.item))
-    }
     /// The current profile's avatar: the account item draws it as the
     /// profile control (`resolvedItemInfo`; SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2).
     public var profileAvatar: SidebarAvatar?
@@ -182,8 +177,17 @@ public final class SidebarModel {
     public var isFiltering: Bool { filterMatches != nil }
 
     /// Drag and keyboard reorder are off while the drawn order is not the
-    /// model's: filtering, or grouping by folder.
-    public var locksReorder: Bool { isFiltering || groupsByFolder }
+    /// model's: filtering, or grouping by folder. On the sidebar document a
+    /// drag moves next to the row it is dropped by (an anchor), so it also
+    /// works while filtering.
+    public var locksReorder: Bool { (isFiltering && docDrag == nil) || groupsByFolder }
+    /// The sidebar document's drag half (sidebar-v2 S5), set by the App
+    /// while the document is active.
+    @ObservationIgnored public var docDrag: SidebarDocDrag?
+    /// The favicon at a page icon address, when the App has it (it fetches a missing one); link rows draw it.
+    public static var itemFavicon: ((String) -> SidebarFavicon?)?
+    /// Posted when favicons arrived: every list draws its link rows again.
+    public static let itemFaviconsChanged = Notification.Name("cmux.sidebar.itemFaviconsChanged")
 
     /// Every workspace in visual order.
     public var allWorkspaces: [SidebarWorkspace] { sections.flatMap(\.workspaces) }
@@ -257,7 +261,8 @@ public final class SidebarModel {
     /// Shows `new` (the App's mapping of daemon state) with this window's
     /// collapsed sections applied; assigns only when something changed.
     public func setSections(_ new: [SidebarSection]) {
-        var shown = new
+        // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
+        var shown = docDrag.flatMap { drag in SidebarDocStore.current?.shown.map { $0.arrange(new, drag: drag) } } ?? new
         for index in shown.indices {
             let collapsed = collapsedSections.contains(shown[index].id)
             if shown[index].isCollapsed != collapsed { shown[index].isCollapsed = collapsed }
@@ -375,6 +380,7 @@ public final class SidebarModel {
     public func moveSelection(_ direction: KeyboardReorder.Direction) -> Bool {
         guard !locksReorder else { return false }
         let ids = orderedSelection
+        if isFiltering, let docDrag { return docDrag.keyboardMove(ids, up: direction == .up, model: self) }
         guard let position = KeyboardReorder.target(moving: ids, direction: direction, in: sections) else { return false }
         send(.reorder(ids, to: position))
         return true
@@ -433,17 +439,5 @@ public final class SidebarModel {
     /// Toggle Sidebar: fully shown at `width`, or fully hidden.
     public func toggle() {
         presentation = presentation == .hidden ? .shown : .hidden
-    }
-}
-
-/// A client-only top item and its look (`SidebarModel.transientTopItems`).
-public nonisolated struct SidebarTransientItem: Hashable, Sendable {
-    public var item: LayoutItem
-    public var info: SidebarItemInfo
-
-    /// `id` must carry the `client.` prefix (`LayoutItemID.isTransient`).
-    public init(id: LayoutItemID, info: SidebarItemInfo) {
-        item = LayoutItem(id: id, ref: LayoutItemRef(kind: "client", value: id.rawValue))
-        self.info = info
     }
 }

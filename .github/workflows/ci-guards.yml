@@ -787,6 +787,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_signing_secrets_need_release_environment.py
 
+      - name: Validate the signing keychain is deleted before bundle code runs
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py
+
       - name: Validate Release check architectures
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_release_build_archs.sh
@@ -1081,6 +1085,11 @@ jobs:
           python3 tests/test_nightly_republish_delta_guard.py
           python3 tests/test_nightly_resume_tracks.py
           python3 tests/test_nightly_signed_unnotarized_artifact.py
+          python3 tests/test_nightly_notices_submodule.py
+
+      - name: Validate the cmux NEXT DEV daily dispatcher
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_next_dev_daily_dispatch.py
 
       - name: Validate nightly tag permission probe
         if: ${{ matrix.group == 'release-notary' }}

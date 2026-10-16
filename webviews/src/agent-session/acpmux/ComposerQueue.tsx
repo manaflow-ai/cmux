@@ -1,6 +1,6 @@
 // Prompts waiting for the running turn, as compact rows attached to the composer's top edge. The
-// list is laid over the transcript's foot, not in the layout, so a prompt being queued, sent or
-// removed never moves the composer or the transcript.
+// list sits in space reserved above the composer, keeping every preceding status and permission
+// row clear while the composer remains anchored at the bottom of the pane.
 //
 // Keyboard first: ↑ on an empty prompt goes to the last row; on a row, ↑/↓ move between rows (↓
 // past the last goes back to the prompt), Return edits it in place, ⌥↑/⌥↓ move it in the queue,
@@ -12,6 +12,8 @@ import { Icon } from "./icons/Icon";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import { experimentArm } from "../../experiments/experiment";
+import { hoverActions } from "../../ui/hoverActions.experiment";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
@@ -93,6 +95,7 @@ export function ComposerQueue({
   };
   const remove = onRemove && ((entry: QueuedEntry) => act(entry.id, () => onRemove(entry.id)));
   const sendNow = onChange && ((entry: QueuedEntry) => act(entry.id, () => onChange(entry.id, { op: "send_now" })));
+  const allActions = experimentArm(hoverActions) === "all";
   // A move to the place of the row shown at `index` (acpmux counts rows still leaving too); the
   // moved row keeps focus once acpmux's new order draws.
   const move =
@@ -208,7 +211,9 @@ export function ComposerQueue({
           {entry.prompt}
         </span>
       )}
-      {editing !== entry.id && (sendNow || onChange || remove) && (
+      {/* Send now is the row's one hover action; Edit and Remove are on its menu and keys (Leo dogfood
+          2026-10-13). The `hover-actions` experiment's "all" arm shows them too. */}
+      {editing !== entry.id && (sendNow || (allActions && (onChange || remove))) && (
         <span className="acpmux-queued-actions">
           {sendNow && (
             <button
@@ -221,7 +226,7 @@ export function ComposerQueue({
               <Icon name="composer.send" size={14} />
             </button>
           )}
-          {onChange && (
+          {onChange && allActions && (
             <button
               type="button"
               className="acpmux-queued-action"
@@ -232,7 +237,7 @@ export function ComposerQueue({
               <Icon name="action.edit" size={14} />
             </button>
           )}
-          {remove && (
+          {remove && allActions && (
             <button
               type="button"
               className="acpmux-queued-action"

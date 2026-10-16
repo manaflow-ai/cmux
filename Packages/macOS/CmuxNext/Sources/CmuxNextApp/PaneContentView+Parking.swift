@@ -1,7 +1,7 @@
 import AppKit
-import CmuxNextAgentPane
+public import CmuxNextAgentPane
 import CmuxNextBrowser
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// Content a pane keeps in place, hidden, while another tab shows (browser
 /// perf phase 2, cx-asb1). Taking a browser's chrome out of the window and
@@ -16,7 +16,7 @@ protocol PaneParkableContent: NSView {}
 extension BrowserChromeView: PaneParkableContent {}
 /// An agent page (a chat or New Tab page) too: putting a WKWebView back into a window waits
 /// synchronously for its web process (170-215 ms on Cmd-W back to a New Tab page, #20516).
-extension AgentPaneView: PaneParkableContent {}
+extension AgentPaneView: PaneParkableContent, PaneTabRowSharing {}
 
 /// One parked view, weak: the content cache owns it.
 struct ParkedContent {

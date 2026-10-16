@@ -195,6 +195,12 @@ public struct DaemonCapabilities: Sendable {
     /// `conversation-draft` events on `subscribe`: the Chief's running reply,
     /// which Home grows in the Chief's bubble until the reply is posted.
     public let conversationDraftEvents = "conversation-draft-events-v1"
+    /// A Chief's live run (Conversations/ChiefLiveEvents.swift): `conversation-live` / `cloud-conversation-live`
+    /// frames and snapshots, and the run-changed events whose end and reply key end its live text.
+    public let chiefLive = "chief-live-v1"
+    public let cloudChiefLive = "cloud-chief-live-v1"
+    public let conversationRuns = "conversation-runs-v1"
+    public let cloudConversationRuns = "cloud-conversation-runs-v1"
     /// `workspace.ensure_home` and the home workspace (`kind: home`; home.md 7).
     public let workspaceKind = "workspace-kind-v1"
     /// `workspace.agent_folder.set` and `extra.agent_folder` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
@@ -236,16 +242,17 @@ public struct DaemonCapabilities: Sendable {
     public let appScreens = "app-screens-v1"
     /// `conversation-search` on the local conversation owner.
     public let conversationSearch = "conversation-search-v1"
-    /// `thread_root` on conversation messages, and a send that moves the
-    /// sender's own read cursor (cmux-tui/spec/commands.md `conversation-op`).
+    /// `thread_root` on messages, and a send that moves the sender's own read cursor (spec `conversation-op`).
     public let conversationThreads = "conversation-threads-v1"
-    /// `conversation-thread` (and `cloud-conversation-thread` with the cloud
-    /// transport) and the owner's `threads` stats on snapshot and history pages.
+    /// `conversation-thread` (`cloud-conversation-thread` too) and the owner's `threads` stats on snapshot and history pages.
     public let conversationThread = "conversation-thread-v1"
-    /// Cloud conversations through the daemon (plans/cmux-next/home-cloud-proxy.md):
-    /// the `cloud-session-*`, `cloud-inbox-*` and `cloud-conversation-*`
-    /// commands and their `cloud-*` events. Advertised only when the daemon
-    /// has the cloud transport installed.
+    /// `conversation-inbox-op` (the caller's own pins and marks), `home-inbox` (the Home list rows), `chief-changed` events.
+    public let conversationInboxState = "conversation-inbox-state-v1"
+    public let homeInbox = "home-inbox-v1"
+    public let chiefEvents = "chief-events-v1"
+    /// Cloud conversations through the daemon (plans/cmux-next/home-cloud-proxy.md): the `cloud-session-*`,
+    /// `cloud-inbox-*` and `cloud-conversation-*` commands and their `cloud-*` events. Advertised only when
+    /// the daemon has the cloud transport installed.
     public let cloudConversations = "cloud-conversations-v1"
     /// `page-credential`: the verified app gets a credential for its own page, which then gets
     /// the person's Cloud lease (`ws-cloud-conversations-v1`, cx-hnmbt.4).
@@ -254,8 +261,7 @@ public struct DaemonCapabilities: Sendable {
     /// to one page (its Origin only, never the Cloud lease); the Chief home's owner, whose app
     /// connection is not the verified app, hands the Channels page one.
     public let scopedPageCredential = "page-credential-scoped-v1"
-    /// `ws-listen`: a running owner opens its loopback page listener on
-    /// request (cx-hnmbt.5); an older owner is handed off to the bundled build.
+    /// `ws-listen`: a running owner opens its loopback page listener on request (cx-hnmbt.5); an older owner is handed off to the bundled build.
     public let wsListen = "ws-listen-v1"
     /// `ws-listen {allow_origins}`: the listener admits every first-party page origin
     /// (cx-hnmbt.10); an owner without it gets the Channels origin only.
@@ -304,12 +310,34 @@ public struct DaemonCapabilities: Sendable {
     /// `sidebar_layout.get|update` (plans/cmux-next/sidebar-sections.md 5;
     /// cmux-tui PR #16842).
     public let sidebarLayout = "sidebar-layout-v1"
+    /// The one sidebar document (`sidebar.get|move|pin|unpin|apply|adopt`,
+    /// `sidebar_item`/`sidebar_section` on `session.events`;
+    /// .cmux-scratch/sidebar-rewrite/CONTRACT.md). Without it the sidebar
+    /// keeps the personal order and `sidebar-layout-v1` path.
+    public let sidebarDoc = "sidebar-doc-v1"
+    /// The client orders rows from the sidebar document only, so the daemon
+    /// sends no `workspace_placement` restatement (cmux-tui
+    /// state/placement_shift.rs). Echoed only when this build orders rows
+    /// from the document (`echoesPlacementShift`), never advertised alone.
+    public let placementShift = "placement-shift-v1"
+    /// Set once at launch, before the first connection, by the App when this
+    /// build has the sidebar document mirror (its rows come from the document,
+    /// never from `workspace_placement`).
+    public static var echoesPlacementShift: Bool {
+        get { placementShiftEcho.withLock { $0 } }
+        set { placementShiftEcho.withLock { $0 = newValue } }
+    }
+    private static let placementShiftEcho = OSAllocatedUnfairLock(initialState: false)
     /// `palette_usage.get|record|import`: the user's palette usage history
     /// and learned picks, owned by the daemon (plans/cmux-next/palette-ranking.md 5.3).
     public let paletteUsage = "palette-usage-v1"
     /// `browser.devices.*` and `browser.tab.emulate*`: Chrome's device toolbar
     /// list and each browser tab's emulation (`extra.emulation`), owned by the daemon (cx-ocbf3).
     public let browserDevices = "browser-devices-v1"
+    /// `browser.tab.emulate {fit}`: Fit as 16:9 Desktop (cx-va1wd).
+    public let browserFit = "browser-fit-v1"
+    /// `browser.tab.emulate {fit: "1280"}`: Fit as Desktop (1280) (cx-2ftlq).
+    public let browserFitWidth = "browser-fit-width-v1"
     /// keybindings.json owned by the daemon (`keybindings.*`, cx-9ce.17).
     public let keybindings = "keybindings-v1"
     /// `put-blob`/`get-blob`: the owner's icon asset store, and `image:`/`svg:`
@@ -368,11 +396,11 @@ public struct DaemonCapabilities: Sendable {
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, notificationMarkUnread,
                                             terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
-                                            sessionIdentity, localConversations, conversationDraftEvents, tabSplitRespawn, tabSplitKeepFocus, frontendBrowserHistory, frontendBrowserTabProfile,
+                                            sessionIdentity, localConversations, conversationDraftEvents, chiefLive, cloudChiefLive, conversationRuns, cloudConversationRuns, tabSplitRespawn, tabSplitKeepFocus, frontendBrowserHistory, frontendBrowserTabProfile,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, cloudConversations, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, conversationInboxState, homeInbox, chiefEvents, cloudConversations, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
-                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, browserDevices, projectList, splitClientKeys, terminalInputWhileCreating,
+                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, placementShift, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
                                             originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview] }
 
@@ -394,11 +422,14 @@ public struct DaemonCapabilities: Sendable {
     /// `terminalFrontendShellIntegration` is not in it: only a connection
     /// that resolves the integration echoes it (`handshakeCapabilities`).
     public var advertised: [String] {
-        (required + optional + unservedByBundledDaemon).filter { $0 != terminalFrontendShellIntegration }
+        // `placementShift` only with the sidebar document (`handshakeCapabilities`).
+        (required + optional + unservedByBundledDaemon).filter { $0 != terminalFrontendShellIntegration && $0 != placementShift }
     }
 
     /// What a connection echoes in `set-client-info`.
     public func handshakeCapabilities(_ advertised: [String], resolvesShellIntegration: Bool) -> [String] {
-        resolvesShellIntegration ? advertised + [terminalFrontendShellIntegration] : advertised
+        // The document path echoes `placement-shift-v1` together with `sidebar-doc-v1`.
+        let document = Self.echoesPlacementShift && advertised.contains(sidebarDoc) ? [placementShift] : []
+        return (resolvesShellIntegration ? advertised + [terminalFrontendShellIntegration] : advertised) + document
     }
 }

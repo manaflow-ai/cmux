@@ -22,6 +22,9 @@ export type AcpmuxBackgroundTask = {
   reason?: string;
 };
 
+/// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
+export type PromptImage = { id: string; mimeType: string; name?: string };
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -38,12 +41,17 @@ export type AcpmuxRow = {
   plan?: AcpmuxPlanEntry[];
   /// A background task row's shell, which ended where the row sits (cx-ncc.84).
   backgroundTask?: AcpmuxBackgroundTask;
-  /// A session offer's chip (offer/OfferChip.tsx).
-  offer?: AcpmuxSessionOffer;
+  /// A suggested tasks card's offers (offer/SuggestedTasks.tsx): the offers of one group, in the
+  /// order the agent made them, or one offer made without a group.
+  offers?: AcpmuxSessionOffer[];
+  /// A prompt acpmux sent this chat with a suggested task's result (offer/SuggestedTasks.tsx).
+  received?: AcpmuxOfferResult;
   toolCount?: number;
   durationMs?: number;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
   checkpoint?: SummaryCheckpoint;
+  /// A sent prompt's images, as acpmux names them in its user_message (hub/prompt_images.rs).
+  images?: PromptImage[];
   /// The originating prompt row, so Retry can restore image/PDF attachments.
   retryRowId?: string;
   retryAttachments?: ComposerAttachment[];
@@ -56,6 +64,11 @@ export type AcpmuxRow = {
   /// Work shown inside an open "Worked for": its turn has ended, so each run of tool calls
   /// folds under one summary line (conversation/toolRunSummary.ts).
   settled?: boolean;
+  /// A running turn's run of tool calls still in flight, drawn as its newest call alone (Debug toggle,
+  /// conversation/turns.ts `codexRuns`).
+  inFlight?: boolean;
+  /// The live turn's latest row, whose last thought may still stream (conversation/turns.ts).
+  live?: boolean;
   /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
   previous?: number;
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
@@ -117,20 +130,41 @@ export type AcpmuxSessionOffer = {
   worktree: boolean;
   harness?: string;
   model?: string;
-  outcome?: "accepted" | "dismissed";
+  /// The offers an agent suggested together (`suggest_tasks`) share one; they draw as one card.
+  groupId?: string;
+  /// `here`: the person had this chat do it; its prompt went to this chat.
+  outcome?: "accepted" | "dismissed" | "here";
   childSessionId?: string;
+  /// A started offer's chat, while the page watches it: its status (acpmux's session list) and
+  /// its latest tool call's title.
+  childStatus?: string;
+  activity?: string;
 };
+
+/// The `_meta.provenance` acpmux puts on the prompt that brings a started offer's result back to
+/// the chat that offered it (cx-lo9yf).
+export type AcpmuxOfferResult = { offerId: string; childSessionId: string; title: string };
 
 export type AcpmuxPermission = {
   permissionId: string;
   groupId?: string;
   turnId?: string;
   title?: string;
+  command?: string;
+  description?: string;
+  rule?: string;
   kind?: string;
   /// The tool call it asks about: a subagent's own call when a subagent asks (summary/SubagentStatusList.tsx).
   toolCallId?: string;
   pending: boolean;
-  options: { id: string; name: string; allow: boolean; kind?: string }[];
+  options: {
+    id: string;
+    name: string;
+    allow: boolean;
+    kind?: string;
+    description?: string;
+    rule?: string;
+  }[];
   /// The question this permission asks (AskUserQuestion, Codex user input, an interactive ACP
   /// ask, the Chief), mapped from the request by question/model.ts; unset for a tool permission.
   question?: AgentQuestion;
@@ -199,6 +233,9 @@ export type AcpmuxSnapshot = {
     steering?: boolean;
     /// A turn failed: the queued prompts wait until the user resumes the queue (acpmux `queuePaused`).
     queuePaused?: boolean;
+    /// The MCP servers the harness says it loaded (acpmux `mcpServers`, from Claude Code's
+    /// system/init); unset when it reports none (every ACP harness).
+    mcpServers?: { name: string; status: "connected" | "failed" | "pending" }[];
     status?: string;
     enforcement?: Enforcement;
     modes?: {
@@ -326,14 +363,16 @@ const SCROLLBAR_HEIGHT = 15;
 /// Where text can't be measured (no canvas), a generous character width.
 const FALLBACK_CHAR_WIDTH = 8;
 /// The chat's one column (`--cv-column` and `--cv-inset` in conversation/conversation.css): 720px,
-/// 62.5% of a wider pane up to 800px, centered, at least the page edge from each side.
+/// 62.5% of a wider pane up to 800px (or the cap Debug Settings' `agent.chatWidth` picks, chatWidth.ts),
+/// centered, at least the page edge from each side.
 const PAGE_EDGE = 18;
-export function transcriptColumn(paneWidth: number) {
-  const column = Math.min(800, Math.max(720, paneWidth * 0.625));
+export function transcriptColumn(paneWidth: number, { min, max, share }: ChatColumn = chatColumn()) {
+  const column = Math.min(max, Math.max(min, paneWidth * share));
   const inset = Math.max(PAGE_EDGE, (paneWidth - column) / 2);
   return { inset, width: paneWidth - 2 * inset };
 }
-export const transcriptRowWidth = (paneWidth: number) => Math.max(120, transcriptColumn(paneWidth).width);
+export const transcriptRowWidth = (paneWidth: number, column?: ChatColumn) =>
+  Math.max(120, transcriptColumn(paneWidth, column).width);
 
 /// A message's markdown blocks. Blank lines between blocks are only spacing, never blocks of their own.
 export function markdownBlocks(source: string): Token[] {
@@ -416,6 +455,13 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   if (row.kind === RENDER) return 36 + RENDER_FRAME_MIN_HEIGHT + 6;
   // Card padding and border, title, button row.
   if (row.kind === "permission") return 87;
+  // A suggested tasks card (offer/SuggestedTasks.tsx): its 28px heading, about 84px per open task
+  // and 30px per started one, in 8px of margins.
+  if (row.kind === "sessionOffer" && row.offers) {
+    const open = row.offers.filter((offer) => !offer.outcome).length;
+    const started = row.offers.filter((offer) => offer.outcome === "accepted").length;
+    return 8 + 8 + 28 + open * 84 + started * 30;
+  }
   // The plan's 20px progress line over its 22px items, inside 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return 24 + 20 + row.plan.length * 22;
   if (
@@ -489,12 +535,13 @@ function listHeight(list: Tokens.List, width: number, prepared: Map<string, Prep
 
 function blockHeight(block: Token, width: number, prepared: Map<string, PreparedText | null>): number {
   switch (block.type) {
+    // Prose (lists, quotes, paragraphs, headings) keeps its measure in a wide column (chatWidth.ts).
     case "list":
-      return listHeight(block as Tokens.List, width, prepared);
+      return listHeight(block as Tokens.List, Math.min(width, chatColumn().prose), prepared);
     case "blockquote":
       return textHeight(
         measuredText((block as Tokens.Blockquote).tokens, (block as Tokens.Blockquote).text),
-        width - QUOTE_INDENT,
+        Math.min(width, chatColumn().prose) - QUOTE_INDENT,
         prepared,
       );
     case "hr":
@@ -511,7 +558,7 @@ function blockHeight(block: Token, width: number, prepared: Map<string, Prepared
     case "heading":
       return textHeight(
         measuredText("tokens" in block ? block.tokens : undefined, (block as Tokens.Text).text),
-        width,
+        Math.min(width, chatColumn().prose),
         prepared,
       );
     // Anything else is estimated as its source; the drawn height replaces it once mounted.
@@ -541,6 +588,8 @@ function lexIncrementally(entry: PreparedRow, text: string): void {
 }
 
 function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>): number {
+  // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
+  if (row.received) return 26 + 16;
   if (!row.text) return fallbackRowHeight(row, width);
   let entry = cache.get(row.id);
   if (!entry) {
@@ -698,6 +747,7 @@ import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
+import { chatColumn, type ChatColumn } from "./chatWidth";
 
 /// The pane's fallback accessible name and problem-only header status.
 export function paneHeader(

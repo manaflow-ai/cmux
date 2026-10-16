@@ -90,6 +90,7 @@ export class Memory {
     sql.exec(
       `CREATE TABLE IF NOT EXISTS oc_message (i INTEGER PRIMARY KEY, kind TEXT NOT NULL, text TEXT NOT NULL, size INTEGER NOT NULL, date TEXT NOT NULL)`,
     );
+    sql.exec(`CREATE TABLE IF NOT EXISTS oc_frozen (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL)`);
     sql.exec(
       `CREATE TABLE IF NOT EXISTS oc_node (l INTEGER NOT NULL, i INTEGER NOT NULL, text TEXT NOT NULL, size INTEGER NOT NULL, PRIMARY KEY (l, i))`,
     );
@@ -185,6 +186,26 @@ export class Memory {
   /** The rendered `<chat>` view and its cache marks (UTF-8 byte offsets). */
   render(): { text: string; marks: number[] } {
     return JSON.parse(this.core.renderView(this.store)) as { text: string; marks: number[] };
+  }
+
+  /**
+   * The turn's cache-stable input (OptChat 5a, optchat-core `turn_input`): the frozen view's 4-line
+   * blocks, then the delta blocks (every message after the view's front, the new ones included). The
+   * frozen view is kept here and given back next turn; the core decides when to render it again.
+   */
+  turnInput(newMessages: number): string[] {
+    const prior = this.sql.exec<{ json: string }>(`SELECT json FROM oc_frozen WHERE id = 1`).toArray()[0]?.json ?? "";
+    let out: { frozen: unknown; rerendered: boolean; view: string[]; delta: string[] };
+    try {
+      out = JSON.parse(this.core.turnInput(this.store, prior, newMessages)) as typeof out;
+    } catch (e) {
+      // The caller's transaction rolls back the messages this turn appended; the core holds them
+      // already, so it re-folds from storage once the rollback is done (a later append would refuse).
+      queueMicrotask(() => this.reload());
+      throw e;
+    }
+    this.sql.exec(`INSERT INTO oc_frozen (id, json) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET json = excluded.json`, JSON.stringify(out.frozen));
+    return [...out.view, ...out.delta];
   }
 
   viewParts(): Array<{ l: number; i: number; name: string }> {

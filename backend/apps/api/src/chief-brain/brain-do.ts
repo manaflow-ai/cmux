@@ -5,16 +5,18 @@ import { createRegistry, GenerationTask, Harness, hook, section, ToolTask } from
 import { PiHarness } from "agents/harness/pi"
 import { Lifecycle, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle"
 import type { Env } from "../env.ts"
-import { ackWake, chiefPrincipal, chiefRecord, postReply, readConversation, runChanged, typing } from "./brain-io.ts"
-import { clip, clipInput, lastTalk, readRun, readRuns, readSteps, type Run, type Step, type StepPatch, upsertStep } from "./brain-runs.ts"
+import { ackWake, chiefPrincipal, chiefRecord, chiefRecordFresh, postReply, readConversation, runChanged, typing } from "./brain-io.ts"
+import { clip, clipInput, flushMarks, lastTalk, markPending, readRun, readRuns, readSteps, type Run, type Step, type StepPatch, upsertStep } from "./brain-runs.ts"
 import { type BrainConfig, patchError, readConfig, SCHEMA, writeConfig } from "./brain-store.ts"
-import { AUTH_FAILED, claudeAllowed, holderAuth, holderInvalidate, holderTurn, HOLDER } from "./claude-auth.ts"
+import { AUTH_FAILED, holderAuth, holderInvalidate, holderTurn, HOLDER } from "./claude-auth.ts"
 import { Compactor, type CallRecord } from "./compactor.ts"
-import { capText, cutAtMarks, type Kind, Memory, RETRY_MS } from "./memory.ts"
-import { brainModels, CLAUDE, FAKE, validModelName } from "./models.ts"
+import { type LedgerAnswer, type LedgerOp, runLedger } from "../model-gateway/run-ledger.ts"
+import { capText, type Kind, Memory, RETRY_MS } from "./memory.ts"
+import { brainModels, compactorDefault, compactorModel, creditsCanStart, creditsNotice, FAKE, gatewayOptions, isClaude, liveOf, modelRefusal, pickTurnModel, validModelName } from "./models.ts"
 import { clipReply, formatMessage, isNoReply, replyTarget, systemFirst, textParts } from "./brain-text.ts"
 import { AGENT, systemPrompt } from "./prompts.ts"
-import { memoryTools } from "./brain-tools.ts"
+import { handsTools, memoryTools } from "./brain-tools.ts"
+import { chiefsTools } from "./brain-chiefs.ts"
 
 /**
  * ChiefBrainDO, one per chief (name = the chief's agent id): a Chief that answers in Cloud
@@ -49,11 +51,11 @@ const DEFAULT_DAILY_TURNS = 300
 export const brainName = (agent: string, conversation: string) => `${agent}/${conversation}`
 export type Admission = { readonly ok: true; readonly config: BrainConfig } | { readonly ok: false; readonly reason: string }
 
-export type ConfigPatch = Partial<Pick<BrainConfig, "enabled" | "model" | "compactor_model" | "role" | "personality" | "instructions">>
+export type ConfigPatch = Partial<Pick<BrainConfig, "enabled" | "model" | "effort" | "compactor_model" | "role" | "personality" | "instructions" | "chiefs">>
 
 export class ChiefBrainDO extends DurableObject<Env> {
   private readonly sql = this.ctx.storage.sql
-  readonly models = brainModels(this.env.AI, this.ctx.id.toString(), { auth: () => this.holder().claudeAuth(), refused: () => this.holder().claudeInvalidate() }, this.env.CHIEF_BRAIN_CLAUDE_URL || undefined)
+  readonly models = brainModels(this.env, this.ctx.id.toString(), { claude: { auth: () => this.holder().claudeAuth(), refused: () => this.holder().claudeInvalidate() }, effort: () => this.config().effort, ...gatewayOptions(this.ctx, this.env, () => ({ run: this.turnId, conversation: this.turnConversation, config: this.config() })) })
   readonly registry = createRegistry()
   memory: Memory
   compactor: Compactor
@@ -68,11 +70,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
       this.registry.install({
         name: "chief",
         sections: [section("chief", () => systemPrompt(this.config()), { tag: false })],
-        tools: memoryTools(() => this.memory),
+        tools: [...memoryTools(() => this.memory), ...chiefsTools(this.env, () => this.config()), ...handsTools(this.env, () => ({ ...this.config(), run: this.turnId, conversation: this.turnConversation, ledger: (jti: string, o: LedgerOp) => runLedger(this.sql, this.turnId ?? "", jti, 0, o) }), (r) => (r.type === "run.activity" ? liveOf(this.ctx).activity(r.line) : this.turnId && this.announce(this.turnId, [upsertStep(this.sql, this.turnId, r.step, Date.now())])))],
         hooks: [
           hook(GenerationTask, {
-            beforeRequest: async ({ messages }) => {
-              const agent = this.config().agent
+            beforeRequest: async ({ messages }, api) => {
+              const agent = (liveOf(this.ctx).request(String(api.taskId)), this.config().agent)
               if (this.turnConversation && agent) void typing(this.env, this.turnConversation, agent, true)
               return systemFirst(messages)
             },
@@ -113,7 +115,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       memory: this.memory,
       deps: () => {
         const set = this.config().compactor_model
-        const name = set === CLAUDE ? this.env.CHIEF_BRAIN_FALLBACK_MODEL || FAKE : set
+        const name = compactorModel(this.env, set, this.env.CHIEF_BRAIN_FALLBACK_MODEL || FAKE)
         return { memory: this.memory, models: this.models.models, model: this.models.model(name), thinking: name === FAKE ? "off" : "medium", prompt: "cmux", agent: AGENT, record: (_c: CallRecord) => undefined }
       },
       onBuilt: () => undefined,
@@ -133,7 +135,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   private defaults() {
     const fallback = this.env.CHIEF_BRAIN_FALLBACK_MODEL || FAKE
-    return { model: this.env.CHIEF_BRAIN_MODEL || FAKE, compactor_model: this.env.CHIEF_BRAIN_COMPACTOR_MODEL || (this.env.CHIEF_BRAIN_MODEL === CLAUDE ? fallback : this.env.CHIEF_BRAIN_MODEL) || FAKE }
+    return { model: this.env.CHIEF_BRAIN_MODEL || FAKE, compactor_model: compactorDefault(this.env, this.env.CHIEF_BRAIN_MODEL || FAKE, fallback) }
   }
   config(): BrainConfig {
     return readConfig(this.sql, this.defaults())
@@ -148,9 +150,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
     return this.authing
   }
   /** Holder only: one Claude turn of `owner` (allow-list, daily cap for the whole deployment). */
-  async claudeTurn(owner: string): Promise<boolean> { return holderTurn(this.env, this.sql, owner) }
+  async claudeTurn(owner: string, model?: string): Promise<string> { return holderTurn(this.env, this.sql, owner, model) }
   /** Holder only: the route answered 401, so the stored access token goes. */
   async claudeInvalidate(): Promise<void> { holderInvalidate(this.sql) }
+  /** Conversation brain: a per-run gateway token's revoke check and spend cap (model-gateway/run-ledger.ts). */
+  async runToken(run: string, jti: string, cap: number, o: LedgerOp): Promise<LedgerAnswer> { return runLedger(this.sql, run, jti, cap, o) }
   private holder = () => this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(HOLDER))
 
   /** The owner's settings (the Worker checked the caller owns `agent`). Turning it on needs a live chief that no server runs. */
@@ -161,23 +165,15 @@ export class ChiefBrainDO extends DurableObject<Env> {
     const invalid = patchError(patch, validModelName)
     if (invalid) return { ok: false, code: "validation.invalid", message: invalid }
     // Claude bills one person's metered account: allowed owners only, and never for background compaction.
-    if (patch.compactor_model === CLAUDE) return { ok: false, code: "validation.invalid", message: "the compactor cannot run on Claude" }
-    if (patch.model === CLAUDE && !claudeAllowed(this.env, owner)) return { ok: false, code: "chief_claude_unavailable", message: "Claude is not available for this account here" }
+    const refused = modelRefusal(this.env, owner, patch)
+    if (refused) return refused
     if (patch.enabled === true) {
       const record = await chiefRecord(this.env, owner, agent)
       if (!record) return { ok: false, code: "chief_archived", message: "the chief is archived or unknown" }
       if (record.brain_place) return { ok: false, code: "chief_placed", message: "a paired server runs this chief; remove its brain place first" }
     }
-    writeConfig(this.sql, {
-      agent,
-      owner,
-      ...(patch.enabled === undefined ? {} : { enabled: patch.enabled ? "1" : "0" }),
-      model: patch.model,
-      compactor_model: patch.compactor_model,
-      role: patch.role,
-      personality: patch.personality,
-      instructions: patch.instructions
-    })
+    writeConfig(this.sql, { agent, owner, ...(patch.enabled === undefined ? {} : { enabled: patch.enabled ? "1" : "0" }), ...(patch.chiefs === undefined ? {} : { chiefs: patch.chiefs ? "1" : "0" }) })
+    writeConfig(this.sql, { model: patch.model, effort: patch.effort, compactor_model: patch.compactor_model, role: patch.role, personality: patch.personality, instructions: patch.instructions })
     return { ok: true, config: this.config() }
   }
 
@@ -193,11 +189,13 @@ export class ChiefBrainDO extends DurableObject<Env> {
     const cfg = this.config()
     if (!cfg.enabled) return { ok: false, reason: "disabled" }
     if (cfg.agent !== agent || cfg.owner !== owner) return { ok: false, reason: "other_chief" }
-    const record = await chiefRecord(this.env, owner, agent).catch(() => undefined)
+    const record = await chiefRecordFresh(this.env, owner, agent).catch(() => undefined)
     if (record === undefined) return { ok: false, reason: "owner.unreachable" }
     if (!record) return { ok: false, reason: "chief_archived" }
     if (record.brain_place) return { ok: false, reason: "chief_placed" }
     if (record.display_name !== cfg.display_name) writeConfig(this.sql, { display_name: record.display_name })
+    const credits = turn ? await creditsCanStart(this.env, cfg) : "ok"
+    if (credits !== "ok") return { ok: false, reason: credits === "exhausted" ? "credits_exhausted" : "owner.unreachable" }
     if (turn) {
       const key = `turns:${new Date().toISOString().slice(0, 10)}`
       const used = Number(this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, key).toArray()[0]?.value ?? 0)
@@ -217,8 +215,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
   private async admitted(agent: string, owner: string, turn: boolean): Promise<Admission> {
     const a = (await this.settingsOf(agent).admit(agent, owner, turn)) as Admission
     if (a.ok) {
-      const { agent: ag, owner: ow, enabled, ...rest } = a.config
-      writeConfig(this.sql, { agent: ag ?? undefined, owner: ow ?? undefined, enabled: enabled ? "1" : "0", ...rest })
+      const { agent: ag, owner: ow, enabled, chiefs, ...rest } = a.config
+      writeConfig(this.sql, { agent: ag ?? undefined, owner: ow ?? undefined, enabled: enabled ? "1" : "0", chiefs: chiefs ? "1" : "0", ...rest })
     }
     return a
   }
@@ -242,7 +240,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
   async wake(w: { agent: string; owner: string; conversation: string; seq: number; reason: string }): Promise<{ queued: number } | { skipped: string }> {
-    await this.lifecycle.start()
+    await (this.lifecycle.start(), markPending(this.sql, "wake"))
     const a = await this.admitted(w.agent, w.owner, false)
     if (!a.ok) return { skipped: a.reason }
     const view = await readConversation(this.env, w.conversation, chiefPrincipal(w.agent, w.owner))
@@ -292,7 +290,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
   private announce(turn: string, steps: ReadonlyArray<Step>): void {
     const agent = this.config().agent
     const run = agent ? readRun(this.sql, agent, turn) : null
-    if (agent && run) this.ctx.waitUntil(runChanged(this.env, run.conversation, agent, run, steps))
+    if (agent && run) this.ctx.waitUntil(liveOf(this.ctx).after(() => runChanged(this.env, run.conversation, agent, run, steps))) // behind the live frames
   }
 
   private onResponse(message: AssistantMessage, taskId: string): void {
@@ -343,19 +341,19 @@ export class ChiefBrainDO extends DurableObject<Env> {
         // Not answered (off, archived, placed, over the limit): the wakes are acked so the queue stays bounded.
         this.sql.exec(`UPDATE cb_inbox SET state = 'skipped' WHERE state = 'queued' AND conversation = ?`, woken.conversation)
         console.warn(JSON.stringify({ msg: "chief_brain.turn_refused", reason: a.reason }))
+        if (a.reason === "credits_exhausted") await creditsNotice(this.env, cfg, woken.conversation)
         if (cfg.agent && cfg.owner && rows.length > 0) await ackWake(this.env, cfg.agent, chiefPrincipal(cfg.agent, cfg.owner), woken.conversation, Math.max(...rows.map((r) => r.seq))).catch(() => undefined)
         continue
       }
-      await this.compactor.settle(AbortSignal.timeout(SETTLE_MS))
+      await (markPending(this.sql, "admitted"), this.compactor.settle(AbortSignal.timeout(SETTLE_MS)).finally(() => markPending(this.sql, "settled")))
       if (rows.length > 0) this.openTurn(woken.conversation, rows)
     }
   }
 
-  /** Renders the view BEFORE logging the new messages, then logs them with the turn row in one transaction (a restart resubmits the same bytes). */
+  /** Logs the new messages, then builds the cache-stable input (frozen view + delta, OptChat 5a) with the turn row in one transaction (a restart resubmits the same bytes). */
   private openTurn(conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>): void {
     const id = `run_${rows[0]!.n}`
-    const view = this.memory.render()
-    const input = JSON.stringify([...cutAtMarks(view.text, view.marks), rows.map((r) => r.text).join("\n\n")])
+    let input = "[]"
     const trigger = [...rows].reverse().find((r) => r.woke === 1) ?? rows[rows.length - 1]!
     this.ctx.storage.transactionSync(() => {
       for (const r of rows) {
@@ -363,13 +361,14 @@ export class ChiefBrainDO extends DurableObject<Env> {
         this.memory.append("user", r.text)
         this.sql.exec(`UPDATE cb_inbox SET state = 'running', turn = ? WHERE n = ?`, id, r.n)
       }
+      input = JSON.stringify(this.memory.turnInput(rows.length))
       this.sql.exec(
         `INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, trigger_thread_root, last_seq, status, model, started, input) VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
         id, conversation, trigger.message, trigger.kind, trigger.thread_root, Math.max(...rows.map((r) => r.seq)), this.config().model, Date.now(), input
       )
     })
     this.compactor.pump()
-    this.announce(id, [])
+    this.announce(id, (flushMarks(this.sql, id), []))
   }
 
   private async runTurn(id: string): Promise<void> {
@@ -385,14 +384,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
     try {
       if (!row.submitted) {
         const blocks = JSON.parse(row.input ?? "[]") as Array<string>
-        // Claude: an allowed owner, under the deployment's cap, with the route's sign-in; else the fallback model, or no turn.
+        // A paid model: an allowed owner, the route serves it, under the deployment's cap, with the route's sign-in; else the fallback, which passes the same gate when it is paid; else no turn.
         const owner = this.config().owner ?? ""
-        if (row.model === CLAUDE && !(await this.holder().claudeTurn(owner).then((ok) => ok && this.holder().claudeAuth().then(() => true), () => false).catch(() => false))) {
-          console.warn(AUTH_FAILED)
-          if (!this.env.CHIEF_BRAIN_FALLBACK_MODEL) throw new Error(AUTH_FAILED)
-          row.model = this.env.CHIEF_BRAIN_FALLBACK_MODEL
-          this.sql.exec(`UPDATE cb_turn SET model = ? WHERE id = ?`, row.model, id)
-        }
+        const picked = await pickTurnModel(row.model, this.env.CHIEF_BRAIN_FALLBACK_MODEL, (m) => this.holder().claudeTurn(owner, m).then((v) => (v !== "ok" || !isClaude(m) ? v : this.holder().claudeAuth().then(() => "ok", () => "auth_failed"))).catch(() => "holder_unreachable"))
+        if (picked.reason) console.warn(picked.reason.includes("auth_failed") ? AUTH_FAILED : JSON.stringify({ msg: "chief_brain.paid_model_refused", reason: picked.reason }))
+        if (picked.model === null || picked.model !== row.model) [this.announce(id, [upsertStep(this.sql, id, { id: "note:model", kind: "note", text: picked.model === null ? `No model ran: ${picked.reason}` : `${picked.reason}; this turn runs on ${picked.model}` }, Date.now())]), picked.model === null ? (() => { throw new Error(`paid model refused (${picked.reason})`) })() : [(row.model = picked.model), this.sql.exec(`UPDATE cb_turn SET model = ? WHERE id = ?`, row.model, id)]]
         const model = this.models.model(row.model)
         const root = await (await this.harness.pi()).root(BACKGROUND_CONTEXT)
         await root.configure({ model: { provider: model.provider, modelId: model.id }, thinkingLevel: this.models.thinking(row.model) }, BACKGROUND_CONTEXT)
@@ -429,7 +425,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   private async postAndSchedule(id: string): Promise<void> {
-    const next = await this.post(id)
+    const next = await liveOf(this.ctx).after(async () => undefined).then(() => this.post(id)) // the final delta and the run end reach members before the reply
     if (next !== null) await this.schedule(`post:${id}`, "post", next)
   }
 

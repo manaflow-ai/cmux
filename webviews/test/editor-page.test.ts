@@ -13,6 +13,9 @@
 // The engines come from `playwright install chromium webkit`. Where they are not installed (the
 // Linux CI image), the browser cases are skipped and say so. EDITOR_SCREENSHOTS=<dir> saves
 // screenshots there (editor-*.png).
+//
+// 24 browser tests in two engines take about 115 s on the CI runner (run-webviews-tests.sh):
+// cmux-web-test-timeout: 240
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
@@ -20,7 +23,9 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { stopDevServer } from "./support/devServer";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("editor-page.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -88,10 +93,11 @@ await requireBrowserLane("editor-page.test.ts", async () => {
       server!.stderr!.on("data", onData);
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
-  }, 60_000);
+    await warmDevServer(base, "/editor");
+  }, 240_000);
 
   afterAll(() => {
-    server?.kill();
+    stopDevServer(server);
     fs.rmSync(root, { recursive: true, force: true });
   });
 

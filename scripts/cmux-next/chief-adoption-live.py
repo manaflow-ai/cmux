@@ -16,6 +16,7 @@ The test never resolves the host's real Chief, acpmux or daemon names; it
 stops only what it started and removes its temp folders.
 Both steps always run. Exit 0 on PASS, else the first failed step's number.
 Usage: chief-adoption-live.py --tag TAG --app APP [--out DIR]
+Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPMUX_AGENT_LAUNCH=deny (cx-tgf4h).
 """
 import argparse, glob, json, os, shutil, socket, stat, subprocess, sys, tempfile, time
 
@@ -24,6 +25,11 @@ ap.add_argument("--tag", required=True)
 ap.add_argument("--app", required=True)
 ap.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
 opts = ap.parse_args()
+# cx-tgf4h: nx-remote gui and input jobs run with ACPMUX_AGENT_LAUNCH=deny
+# (HQ #2130), so no Chief turn can start; fail at once, not after a reply wait.
+if os.environ.get("ACPMUX_AGENT_LAUNCH", "").strip().lower() == "deny" or os.environ.get("CMUX_AGENTS_DISABLED", "").strip() == "1":
+    sys.exit("chief-adoption-live.py: this Chief proof needs agents; submit the job with `nx-remote --allow-agents` "
+             "(ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1 is set)")
 os.makedirs(opts.out, exist_ok=True)
 
 TAG = opts.tag
@@ -98,7 +104,7 @@ def quit_app(proc, home):
     if home:
         # The Chief of `home`: its acpmux daemon and router, then brain and owner (documented stop).
         acpmux_home = os.path.join(home, "acpmux")
-        subprocess.run([ACPMUX, "daemon", "shutdown"], env={**CLEAN_ENV, "ACPMUX_HOME": acpmux_home},
+        subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env={**CLEAN_ENV, "ACPMUX_HOME": acpmux_home},
                        capture_output=True, timeout=30)
         try:
             conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

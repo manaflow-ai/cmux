@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // Find in Chat on the real agent pane (src/agent-session/acpmux, `?mock`: the in-page mock daemon
 // and its seeded worked turn), driven the way the app drives it: the `chat.find` page action that
 // Find (Cmd-F) sends to an agent pane, then the bar's own keys.
@@ -13,7 +14,9 @@ import { spawn, type ChildProcess } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { stopDevServer } from "./support/devServer";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("chat-find.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -50,12 +53,13 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       server!.stderr!.on("data", onData);
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
+    await warmDevServer(base, "/?mock");
     browser = await chromium.launch({ headless: true });
-  }, 60_000);
+  }, 240_000);
 
   afterAll(async () => {
     await browser?.close();
-    server?.kill();
+    stopDevServer(server);
   });
 
   /** The bar's count, the highlights drawn and the current match's text. */

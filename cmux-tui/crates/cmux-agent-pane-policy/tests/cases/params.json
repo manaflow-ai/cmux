@@ -395,7 +395,15 @@
    "method": "session/new",
    "params": {
     "cwd": 1,
-    "mcpServers": 1
+    "mcpServers": 1,
+    "_meta": {
+     "acpmux": {
+      "harness": 1,
+      "adopt": 1,
+      "peer": 1,
+      "noProject": 1
+     }
+    }
    }
   },
   "mode_fields": null,
@@ -409,7 +417,15 @@
    "method": "session/prompt",
    "params": {
     "sessionId": 1,
-    "prompt": 1
+    "prompt": 1,
+    "_meta": {
+     "acpmux": {
+      "promptId": 1,
+      "steer": 1,
+      "interrupt": 1,
+      "context": 1
+     }
+    }
    }
   },
   "mode_fields": null,
@@ -482,11 +498,41 @@
    "id": 1,
    "method": "_acpmux/watch",
    "params": {
-    "enabled": 1
+    "enabled": 1,
+    "limit": 1
    }
   },
   "mode_fields": null,
   "breaks": false
+ },
+ {
+  "name": "_acpmux/sessions every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/sessions",
+   "params": {
+    "limit": 1,
+    "cursor": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/sessions unknown param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/sessions",
+   "params": {
+    "limit": 1,
+    "cursor": "k1.2",
+    "query": "x"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
  },
  {
   "name": "_acpmux/events every known param",
@@ -580,6 +626,50 @@
   "breaks": false
  },
  {
+  "name": "_acpmux/start_mode every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/start_mode",
+   "params": {
+    "harness": 1,
+    "cwd": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/start_mode never takes a preset",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/start_mode",
+   "params": {
+    "harness": "claude",
+    "preset": "p"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/start_mode never takes _meta",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/start_mode",
+   "params": {
+    "harness": "claude",
+    "_meta": {
+     "acpmux": {}
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
   "name": "_acpmux/harnesses every known param",
   "frame": {
    "jsonrpc": "2.0",
@@ -596,7 +686,9 @@
    "jsonrpc": "2.0",
    "id": 1,
    "method": "_acpmux/models",
-   "params": {}
+   "params": {
+    "refresh": 1
+   }
   },
   "mode_fields": null,
   "breaks": false
@@ -622,7 +714,10 @@
     "sessionId": 1,
     "permissionId": 1,
     "optionId": 1,
-    "answers": 1
+    "answers": 1,
+    "_meta": {
+     "cmuxGesture": "t"
+    }
    }
   },
   "mode_fields": null,
@@ -1017,5 +1112,105 @@
   },
   "mode_fields": null,
   "breaks": true
+ },
+ {
+  "name": "subagent_stop known params pass",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/subagent_stop",
+   "params": {
+    "sessionId": "a",
+    "subagentSessionId": "t"
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "subagent_stop unknown param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/subagent_stop",
+   "params": {
+    "sessionId": "a",
+    "subagentSessionId": "t",
+    "command": "ls"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/permission_respond _meta with more than the ticket",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/permission_respond",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "optionId": "allow_once",
+    "_meta": {
+     "cmuxGesture": "t",
+     "acpmux": {}
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/permission_respond _meta without the ticket",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/permission_respond",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "optionId": "allow_once",
+    "_meta": {
+     "acpmux": {}
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/permission_respond with an empty _meta",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/permission_respond",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "optionId": "allow_once",
+    "_meta": {}
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/permission_respond with a non-string ticket",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/permission_respond",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "optionId": "allow_once",
+    "_meta": {
+     "cmuxGesture": 7
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
  }
 ]

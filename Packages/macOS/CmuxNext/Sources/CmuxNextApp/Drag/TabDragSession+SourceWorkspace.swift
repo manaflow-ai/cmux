@@ -59,7 +59,7 @@ extension TabDragSession {
             switch sidebar?.lastDrop {
             case .newWorkspace(let section, let group, let index)?:
                 let raw = DropPosition(section: section, group: group, index: index)
-                bridge.accept(ids, at: WorkspaceMovePlan.excluding([id], from: raw, in: bridge.model.sections))
+                bridge.accept(ids, at: WorkspaceMovePlan(window: bridge.model.sections).excluding([id], from: raw))
             case .intoGroup(let group)?:
                 bridge.accept(ids, intoGroup: group)
             case .intoWorkspace?, .beforeTab?, nil:

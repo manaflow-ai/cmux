@@ -83,9 +83,16 @@ const fakeRoute = (refresh: "ok" | "fail") => {
 }
 afterEach(() => vi.restoreAllMocks())
 
+/** Prepaid credits for the owner's personal team (Claude turns hold and charge credits; model-gateway/gateway.ts). */
+const grant = async (team: string, usd: number) => {
+  const meters = (env as unknown as { USAGE_METER_DO: DurableObjectNamespace }).USAGE_METER_DO
+  await (meters.get(meters.idFromName(team)) as unknown as { creditAdd(e: string, k: string, kind: string, m: number, a: string, r: string | null): Promise<unknown> }).creditAdd(team, `grant-${team}`, "grant", Math.round(usd * 1e6), "test", "claude test")
+}
 const ownerWithClaudeChief = async (sub: string) => {
   const token = await sessionToken(sub)
-  const user = (await op(token, "user.ensure", {})).value.id as string
+  const ensured = (await op(token, "user.ensure", {})).value
+  const user = ensured.id as string
+  await grant(ensured.personal_team as string, 5)
   const chief = (await op(token, "chief.create", { display_name: "Opus Chief" }, `chief-${sub}`)).value as { id: string; main_conversation: string }
   const userDO = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
   let on = { status: 0, json: {} as any, text: "" }
@@ -137,6 +144,21 @@ describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }
       expect(s.beta).toBeNull()
       expect(JSON.stringify(s.body)).not.toContain(REFRESH)
     }
+    // Cache-stable input (OptChat 5a): the second turn's prompt starts with every block of the first
+    // turn's, byte for byte (frozen view, then the delta only grows at the end); the frozen view's
+    // "</chat>" block carries a 1 h cache mark, and the new message is a delta line, not in the view.
+    const blocksOf = (s: Seen) => (s.body.messages.find((m: { role: string }) => m.role === "user").content as Array<{ text: string; cache_control?: { ttl?: string } }>)
+    const [b1, b2] = [blocksOf(route.seen[0]!), blocksOf(route.seen[1]!)]
+    expect(b2.length).toBeGreaterThan(b1.length)
+    expect(b2.slice(0, b1.length - 1).map((b) => b.text)).toEqual(b1.slice(0, b1.length - 1).map((b) => b.text))
+    expect(b2[b1.length - 1]!.text).toBe(b1[b1.length - 1]!.text)
+    const viewEnd = b2.find((b) => b.text.endsWith("</chat>"))!
+    // Turn 1 marks the view's end; turn 2 marks where turn 1 ended (its user block), so it reads all of turn 1's input.
+    expect(b1.find((b) => b.text.endsWith("</chat>"))!.cache_control).toMatchObject({ type: "ephemeral", ttl: "1h" })
+    const turn1End = b2.find((b) => b.text === b1.at(-1)!.text)!
+    expect(turn1End.cache_control).toMatchObject({ type: "ephemeral", ttl: "1h" })
+    expect(viewEnd.text).not.toContain("second question")
+    expect(b2.at(-1)!.text).toMatch(/\|user: .*second question/)
     // The expired configured token was refreshed once; the second turn used the stored one.
     expect(route.refreshes()).toBe(1)
     expect(route.refreshHeaders).toEqual([REFRESH])
@@ -176,6 +198,8 @@ describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }
     expect(route.refreshes()).toBeGreaterThanOrEqual(1)
     const run = await http("GET", `/v1/chiefs/${chief.id}/runs/${reply.parts[1].session}?conversation=${chief.main_conversation}`, token)
     expect(run.json.value.run.model).toBe("fake")
+    // The fallback's reason is on the run (a note step), not only in the Worker log.
+    expect(run.json.value.steps.find((s: { id: string }) => s.id === "note:model")?.text).toContain("claude-opus-5-5: auth_failed")
     expect(logs).toContain("claude-david auth failed")
     for (const body of [...logs, run.text, JSON.stringify(reply)]) expect(body).not.toContain(REFRESH)
   })
