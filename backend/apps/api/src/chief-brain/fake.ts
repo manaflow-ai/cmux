@@ -85,6 +85,17 @@ function systemOf(context: TranscriptContext | Context): string {
     .join("\n");
 }
 
+/** The tools in force for a request: the transcript's system messages replayed (toolsAdded / toolsRemoved). */
+const offeredTools = (context: unknown): Array<{ name: string; size: number }> => {
+  const tools = new Map<string, number>()
+  for (const m of (context as { messages: Array<{ role: string; toolsAdded?: Array<{ name: string; parameters?: unknown }>; toolsRemoved?: Array<{ name: string }> }> }).messages) {
+    if (m.role !== "system") continue
+    for (const t of m.toolsRemoved ?? []) tools.delete(t.name)
+    for (const t of m.toolsAdded ?? []) tools.set(t.name, JSON.stringify(t.parameters ?? {}).length)
+  }
+  return [...tools].map(([name, size]) => ({ name, size }))
+}
+
 const respond: FauxResponseFactory = async (context, options, _state, model) => {
   const messages = (context as { messages: Array<{ role: string; content: unknown }> }).messages.filter(
     (m) => m.role !== "system",
@@ -101,7 +112,7 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
     laterUsers: messages.filter((m) => m.role === "user" && m !== firstUser).map((m) => textOf(m.content)),
     reasoning: (options as { reasoning?: string } | undefined)?.reasoning,
     maxTokens: options?.maxTokens,
-    tools: ((context as { tools?: Array<{ name: string; parameters?: unknown }> }).tools ?? []).map((t) => ({ name: t.name, size: JSON.stringify(t.parameters ?? {}).length })),
+    tools: offeredTools(context),
   });
   // A step containing "HANG_COMPACT" answers only after 45 s (a rate-limited or slow compactor).
   if (compact && (blocksOf(firstUser?.content).at(-1) ?? "").includes("HANG_COMPACT")) await new Promise((r) => setTimeout(r, 45_000));
