@@ -36,6 +36,30 @@ import Testing
         paging.scroll(.ended, deltaX: 0, time: 1.04)
     }
 
+    @Test func theRequestedProfileCompletesTheSwipeWithoutASecondSlide() throws {
+        let (view, window) = Self.sidebar()
+        defer { window.close() }
+        let paging = view.spacePaging
+        Self.leavePendingSwipe(paging)
+        #expect(paging.pendingTarget == Self.keys[1])
+
+        let oldSections = view.model.sections
+        view.model.activeProfileID = Self.keys[1]
+        view.switchSpace(from: Self.keys[0], to: Self.keys[1], profiles: view.model.profiles, oldSections: oldSections)
+
+        // The real list replaces the swipe's preview directly. A second
+        // dot-style slide would retain a snapshot and clip the live list.
+        #expect(paging.pendingTarget == nil)
+        #expect(paging.neighbor == nil)
+        #expect(paging.snapshotView == nil)
+        #expect(!view.clipsToBounds)
+
+        var intents: [SidebarIntent] = []
+        view.model.onIntent = { intents.append($0) }
+        paging.page(by: 1)
+        #expect(intents == [.switchProfile(Self.keys[2])])
+    }
+
     @Test func aDifferentProfileSelectionClearsThePendingSwipeBeforeWheelPaging() throws {
         let (view, window) = Self.sidebar()
         defer { window.close() }
