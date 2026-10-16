@@ -235,6 +235,8 @@ export interface Env {
   readonly CHIEF_BRAIN_CLAUDE_AUTH?: string
   readonly CHIEF_BRAIN_CLAUDE_TOKEN?: string
   readonly CHIEF_BRAIN_CLAUDE_SERVICE_KEY?: string
+  /** Spend cap of one per-run gateway token, USD (default 5; model-gateway/run-token.ts). */
+  readonly CHIEF_RUN_TOKEN_CAP_USD?: string
   /** Claude names the route serves, comma separated (default "claude-opus-5-5"). */
   readonly CHIEF_BRAIN_CLAUDE_MODELS?: string
   /** "1": send effort + thinking display in the Claude route's Bedrock body ("0" off; default on only for a bearer route). */

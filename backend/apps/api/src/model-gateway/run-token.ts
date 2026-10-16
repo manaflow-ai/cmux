@@ -8,6 +8,9 @@ import type { Env } from "../env.ts"
  * accepted only by the gateway's HTTP route (audience `model-gateway`, type `cmux-gw+jwt`), so it can
  * never act as an API token. Spend through it goes through the team's prepaid credits like any call.
  *
+ * It works only while its run runs (the run's end or a cancel revokes it: every later call is
+ * refused; a stream already open finishes, bounded by that call's held maximum) and within its spend
+ * cap (claim `cap`, USD, never above CHIEF_RUN_TOKEN_CAP_USD; run-ledger.ts in the run's brain object).
  * The hand passes it to the agent as ANTHROPIC_AUTH_TOKEN with ANTHROPIC_BASE_URL = gatewayBaseUrl().
  */
 export const RUN_TOKEN_AUDIENCE = "model-gateway"
@@ -21,15 +24,29 @@ export interface RunScope {
   readonly chief: string
   readonly owner: string
   readonly run: string
-  readonly conversation?: string
+  /** The run's conversation: names the brain object that holds the run (its status and the token's ledger). */
+  readonly conversation: string
+}
+/** A verified run token: its scope, its id and its spend cap (USD). */
+export interface RunGrant extends RunScope {
+  readonly jti: string
+  readonly cap_usd: number
+}
+/** Default spend cap of one run token (USD); CHIEF_RUN_TOKEN_CAP_USD overrides. */
+export const runTokenCap = (env: Env): number => {
+  const n = Number(env.CHIEF_RUN_TOKEN_CAP_USD ?? "5")
+  return Number.isFinite(n) && n > 0 && n <= 500 ? n : 5
 }
 
-export const mintRunToken = async (env: Env, s: RunScope, ttlSeconds = RUN_TOKEN_TTL_SECONDS): Promise<{ token: string; expires_at: number }> => {
-  for (const v of [s.team, s.chief, s.owner, s.run]) if (!ID.test(v)) throw new Error("run token: invalid scope id")
+export const mintRunToken = async (env: Env, s: RunScope, opts: { readonly ttlSeconds?: number; readonly capUsd?: number } = {}): Promise<{ token: string; expires_at: number; cap_usd: number }> => {
+  for (const v of [s.team, s.chief, s.owner, s.run, s.conversation]) if (!ID.test(v)) throw new Error("run token: invalid scope id")
+  const ttlSeconds = opts.ttlSeconds ?? RUN_TOKEN_TTL_SECONDS
+  const cap = Math.min(opts.capUsd ?? runTokenCap(env), runTokenCap(env))
   const { key, kid } = await signer(env)
   const now = Math.floor(Date.now() / 1000)
   const exp = now + Math.max(60, Math.min(ttlSeconds, 12 * 3600))
-  const token = await new SignJWT({ team: s.team, chf: s.chief, run: s.run, ...(s.conversation ? { conv: s.conversation } : {}) })
+  const token = await new SignJWT({ team: s.team, chf: s.chief, run: s.run, conv: s.conversation, cap })
+    .setJti(crypto.randomUUID())
     .setProtectedHeader({ alg: "ES256", kid, typ: TYP })
     .setIssuer(issuer(env))
     .setAudience(RUN_TOKEN_AUDIENCE)
@@ -37,16 +54,17 @@ export const mintRunToken = async (env: Env, s: RunScope, ttlSeconds = RUN_TOKEN
     .setIssuedAt(now)
     .setExpirationTime(exp)
     .sign(key)
-  return { token, expires_at: exp * 1000 }
+  return { token, expires_at: exp * 1000, cap_usd: cap }
 }
 
 /** The run scope of a valid run token, or null (wrong audience or type, expired, bad signature). */
-export const verifyRunToken = async (env: Env, token: string): Promise<RunScope | null> => {
+export const verifyRunToken = async (env: Env, token: string): Promise<RunGrant | null> => {
   try {
     const { payload, protectedHeader } = await jwtVerify(token, createLocalJWKSet(publicJwks(env) as { keys: Array<JWK> }), { algorithms: ["ES256"], issuer: issuer(env), audience: RUN_TOKEN_AUDIENCE, typ: TYP, clockTolerance: 30 })
-    const p = payload as { team?: unknown; chf?: unknown; run?: unknown; conv?: unknown; sub?: unknown }
-    if (protectedHeader.typ !== TYP || typeof p.team !== "string" || typeof p.chf !== "string" || typeof p.run !== "string" || typeof p.sub !== "string") return null
-    return { team: p.team, chief: p.chf, owner: p.sub, run: p.run, ...(typeof p.conv === "string" ? { conversation: p.conv } : {}) }
+    const p = payload as { team?: unknown; chf?: unknown; run?: unknown; conv?: unknown; sub?: unknown; jti?: unknown; cap?: unknown }
+    if (protectedHeader.typ !== TYP || typeof p.team !== "string" || typeof p.chf !== "string" || typeof p.run !== "string" || typeof p.sub !== "string" || typeof p.conv !== "string" || typeof p.jti !== "string" || typeof p.cap !== "number" || !(p.cap > 0)) return null
+    // A lower deployment cap applies to tokens already out, too.
+    return { team: p.team, chief: p.chf, owner: p.sub, run: p.run, conversation: p.conv, jti: p.jti, cap_usd: Math.min(p.cap, runTokenCap(env)) }
   } catch {
     return null
   }

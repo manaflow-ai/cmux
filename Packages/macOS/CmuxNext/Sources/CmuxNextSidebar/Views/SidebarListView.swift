@@ -181,11 +181,10 @@ final class SidebarListView: NSView {
     private func windowOcclusionChanged() {
         setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
     }
-    /// Pauses (or resumes) every row's activity animation.
+    /// Pauses (or resumes) every row's activity animation, down to a row badge's glyphs (cx-m8buz).
     func setWindowVisible(_ visible: Bool) {
-        for row in subviews {
-            for case let indicator as StatusIndicatorView in row.subviews { indicator.isWindowVisible = visible }
-        }
+        func reach(_ view: NSView) { view.subviews.forEach { ($0 as? StatusIndicatorView)?.isWindowVisible = visible; if !($0 is StatusIndicatorView) { reach($0) } } }
+        subviews.forEach(reach)
     }
     nonisolated override var isFlipped: Bool { true }
     /// The list draws nothing itself (rows, group lines and decorations are subviews). A drawing

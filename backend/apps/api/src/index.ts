@@ -184,7 +184,7 @@ export default {
     // Chief hands (hand-routes.ts): the installer, pairing, the hand socket, and the person's hand management.
     if (HAND_PATH.test(url.pathname)) return handleHands(request, env, url.pathname)
     // The model gateway over HTTP (model-gateway/http.ts): run tokens and chief tokens, Anthropic Messages in, events out.
-    if (GATEWAY_PATH.test(url.pathname)) return handleModelGateway(request, env)
+    if (GATEWAY_PATH.test(url.pathname)) return handleModelGateway(request, env, ctx)
     // A chief's Durable Object brain (chief-brain/routes.ts): its owner's settings, and runs for conversation members.
     const chiefBrain = url.pathname.match(CHIEF_BRAIN_PATH)
     // A Chief that runs the opencode brain (chief-brain-opencode/) keeps its runs there.
