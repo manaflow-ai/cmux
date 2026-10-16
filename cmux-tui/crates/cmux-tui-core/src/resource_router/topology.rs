@@ -304,8 +304,7 @@ fn dispatch_exact_topology_mutation(
 ) -> Result<Value, ResourceError> {
     let mutation = mutation(&request)?;
     let expected_revision = expected_revision(&request.fields)?;
-    let report_closed_ids =
-        request.fields.get("report_closed_ids").and_then(Value::as_bool).unwrap_or(false);
+    let report = super::close_value::reports_closed_ids(&request.fields);
     let commit = mux
         .resource_topology_operation(
             operation,
@@ -337,22 +336,10 @@ fn dispatch_exact_topology_mutation(
         ResourceOperation::TabRename | ResourceOperation::TabMove | ResourceOperation::TabFocus => {
             snapshot_mutation_result(mux, commit, &super::operation_name(operation), "tab")
         }
-        // `report_closed_ids`: the closed groups the close stored (absent on
-        // a replay of a close committed before they were recorded). Without
-        // it the value stays empty: older SDKs decode `workspace.close` as an
-        // empty object.
-        ResourceOperation::WorkspaceClose => {
-            let value = match commit.result.get("closed_ids") {
-                Some(ids) if report_closed_ids => json!({"closed_ids": ids}),
-                _ => json!({}),
-            };
-            mutation_result(mux, value, commit.revision, commit.replayed)
-        }
-        ResourceOperation::ScreenClose
+        ResourceOperation::WorkspaceClose
+        | ResourceOperation::ScreenClose
         | ResourceOperation::PaneClose
-        | ResourceOperation::TabClose => {
-            mutation_result(mux, json!({}), commit.revision, commit.replayed)
-        }
+        | ResourceOperation::TabClose => super::close_value::of(mux, operation, commit, report),
         ResourceOperation::WorkspaceCreate
         | ResourceOperation::WorkspaceRun
         | ResourceOperation::ScreenCreate

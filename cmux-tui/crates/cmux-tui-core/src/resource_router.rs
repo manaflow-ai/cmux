@@ -5,6 +5,7 @@
 
 mod auxiliary;
 mod browser_engine;
+mod close_value;
 mod config;
 mod content;
 mod credential;

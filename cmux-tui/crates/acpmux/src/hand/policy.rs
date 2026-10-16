@@ -184,6 +184,16 @@ fn holds_protected(root: &Path, own: &[PathBuf]) -> bool {
         || Path::new("/Library/LaunchDaemons").starts_with(root)
 }
 
+/// Whether a command line names one of the hand's own folders: the hand home
+/// and the agent daemon home, as their resolvers name them (config::home(),
+/// crate::config::home()), by full path or by folder name.
+fn names_own_files(line: &str) -> bool {
+    [super::config::home(), crate::config::home()].iter().any(|own| {
+        line.contains(own.to_string_lossy().as_ref())
+            || own.file_name().is_some_and(|n| line.contains(n.to_string_lossy().as_ref()))
+    })
+}
+
 /// An exec whose words name a sensitive or protected path (best effort: a
 /// command can always build a path the hand cannot see).
 fn sensitive_exec(argv: &[String]) -> bool {
@@ -195,8 +205,6 @@ fn sensitive_exec(argv: &[String]) -> bool {
         ".gnupg",
         "Keychains",
         "LaunchAgents",
-        ".cmux-hand",
-        ".acpmux",
         "security ",
         "sudo ",
         "defaults write",
@@ -206,6 +214,7 @@ fn sensitive_exec(argv: &[String]) -> bool {
     .iter()
     .any(|w| line.contains(w))
         || (!home.is_empty() && (line.contains(&format!("{home}/.")) || line.contains("~/.")))
+        || names_own_files(&line)
 }
 
 /// `path` made absolute against `cwd` and resolved the way the OS will open
@@ -320,7 +329,7 @@ pub fn decide(
     if paths.iter().any(|p| own.iter().any(|o| p.starts_with(o))) {
         return Decision::Deny("the hand's own files".into());
     }
-    if argv.is_some_and(|a| a.join(" ").contains(".cmux-hand")) {
+    if argv.is_some_and(|a| names_own_files(&a.join(" "))) {
         return Decision::Deny("the command touches the hand's own files".into());
     }
     let level = Level::of(level, cfg.profile);
