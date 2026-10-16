@@ -46,6 +46,7 @@ extension Workspace {
         let chiefPanel = ChiefPanel(conversationID: conversationID, isHome: isHome)
         panels[chiefPanel.id] = chiefPanel
         panelTitles[chiefPanel.id] = chiefPanel.displayTitle
+        if isHome { pinnedPanelIds.insert(chiefPanel.id) }
 
         guard let newTabId = bonsplitController.createTab(
             title: chiefPanel.displayTitle,
@@ -61,6 +62,7 @@ extension Workspace {
         ) else {
             panels.removeValue(forKey: chiefPanel.id)
             panelTitles.removeValue(forKey: chiefPanel.id)
+            pinnedPanelIds.remove(chiefPanel.id)
             return nil
         }
 
