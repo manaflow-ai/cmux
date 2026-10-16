@@ -1,6 +1,10 @@
 public import CmuxNextCompat
 public import Foundation
 
+/// The drain type lives in CmuxNextCompat (CmuxNextAgentPane batches too); clients of the
+/// connection keep naming it from here.
+public typealias MainActorLineDrain<Value: Sendable> = CmuxNextCompat.MainActorLineDrain<Value>
+
 extension AgentActivityLineConnection {
     /// Starts the connection and delivers its lines to the main actor in
     /// batches (``MainActorLineBatch``): `decode` runs on the connection's

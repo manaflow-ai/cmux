@@ -1,6 +1,5 @@
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
-import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 import os
