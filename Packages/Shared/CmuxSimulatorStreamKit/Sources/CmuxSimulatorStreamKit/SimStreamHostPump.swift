@@ -162,7 +162,7 @@ public actor SimStreamHostPump {
 
     public func sendState(_ update: SimStreamStateUpdate) async {
         guard !shutDown else { return }
-        try? await sink.send(SimStreamWireCodec.encodeFramed(.state(update)))
+        try? await sink.send(SimStreamWireCodec().encodeFramed(.state(update)))
     }
 
     /// True when the stream should be making progress but has not sent a
@@ -235,7 +235,7 @@ public actor SimStreamHostPump {
                     parameterSets: encoded.parameterSets,
                     nalUnitHeaderLength: encoded.nalUnitHeaderLength
                 )
-                try await sink.send(SimStreamWireCodec.encodeFramed(.config(config)))
+                try await sink.send(SimStreamWireCodec().encodeFramed(.config(config)))
                 needsConfig = false
             }
             let wireSequence = gate.consumeCredit()
@@ -247,7 +247,7 @@ public actor SimStreamHostPump {
                 payload: encoded.data
             )
             do {
-                try await sink.send(SimStreamWireCodec.encodeFramed(.frame(message)))
+                try await sink.send(SimStreamWireCodec().encodeFramed(.frame(message)))
             } catch {
                 // The frame never reached the viewer, so its credit must not
                 // stay consumed (the viewer can never ack it). Self-settling

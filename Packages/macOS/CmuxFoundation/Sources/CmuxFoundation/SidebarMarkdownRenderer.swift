@@ -15,6 +15,11 @@ public struct SidebarMarkdownRenderer {
         self.markdown = markdown
     }
 
+    /// Inline Markdown as plain text, preserving whitespace and falling back to the source on parse failure.
+    public var plainText: String {
+        workspaceDescription.map { String($0.characters) } ?? markdown
+    }
+
     /// The markdown rendered into an `AttributedString`, interpreting only
     /// inline syntax and preserving whitespace. `nil` when it cannot be parsed.
     public var workspaceDescription: AttributedString? {

@@ -35,11 +35,46 @@ extension MobileShellComposite {
         guard let violation = macCompatPolicy.violation(
             iosVersion: versionGateIOSAppVersion,
             channel: channel,
-            macAppVersion: macAppVersion
+            macAppVersion: macAppVersion,
+            buildType: versionGateBuildType
         ) else {
             return .allowed
         }
         return .macAppVersionTooOld(violation)
+    }
+
+    /// Rechecks the live foreground Mac after a background policy refresh.
+    /// Startup remains non-blocking, but a newly stricter remote policy cannot
+    /// leave an already-connected older Mac admitted indefinitely.
+    public func revalidateActiveMacCompatibilityPolicy() {
+        guard connectionState == .connected else {
+            pendingMacCompatibilityPolicyRevalidation = true
+            return
+        }
+        pendingMacCompatibilityPolicyRevalidation = false
+        guard let channel = versionGateChannel(
+                  instanceTag: activeMacInstanceTag,
+                  macAppVersion: authenticatedMacAppVersion
+              ),
+              let violation = macCompatPolicy.violation(
+                  iosVersion: versionGateIOSAppVersion,
+                  channel: channel,
+                  macAppVersion: authenticatedMacAppVersion,
+                  buildType: versionGateBuildType
+              ) else {
+            return
+        }
+        let macDeviceID = connectedMacDeviceID ?? activeTicket?.macDeviceID
+        noteMacVersionUpdateRequired(for: macDeviceID ?? "", instanceTag: activeMacInstanceTag)
+        disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
+        applyPairingFailure(
+            .macAppVersionTooOld(
+                macVersion: violation.macAppVersion,
+                requiredVersion: violation.requiredVersionDisplay,
+                isNightlyChannel: violation.channel == .nightly
+            ),
+            phase: "policy-refresh"
+        )
     }
 
     /// The release lane the version gate holds this Mac to, or `nil` when
@@ -57,7 +92,7 @@ extension MobileShellComposite {
             return MobileMacCompatPolicy.Channel(instanceTag: instanceTag)
         case .development?:
             #if DEBUG
-            guard mobileMacCompatDebugOverrideForcesEvaluation() else { return nil }
+            guard MobileMacBuildCompatibilityPolicy.forcesDebugEvaluation() else { return nil }
             return macAppVersion?.contains("-nightly.") == true ? .nightly : .stable
             #else
             return nil

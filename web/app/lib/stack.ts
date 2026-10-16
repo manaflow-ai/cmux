@@ -1,9 +1,12 @@
-import { StackServerApp } from "@stackframe/stack";
+import { trace } from "@opentelemetry/api";
+import { cache } from "react";
+import { StackServerApp } from "@hexclave/next";
 import { env } from "../env";
 import { stackApiBaseURL } from "../../services/auth/stackApiBaseURL";
 import { cloudDb } from "../../db/client";
 import { withFreshAccountMetadataUser } from "../../services/account/metadataMutation";
 import { canonicalizeEmailForMatching } from "../../services/billing/emailMatching";
+import { withStackAuthSpan } from "../../services/auth/stackTelemetry";
 
 // env.ts trims every runtimeEnv source, so consumers receive sanitized values
 // regardless of whether zod validation is skipped.
@@ -13,6 +16,37 @@ const secretServerKey = env.STACK_SECRET_SERVER_KEY;
 
 let stackServerAppCache: StackServerApp<true> | null = null;
 let nonRedirectingStackServerAppCache: StackServerApp<true> | null = null;
+
+type RequestStackUser = Awaited<ReturnType<StackServerApp<true>["getUser"]>>;
+
+// React creates one value per server render. This map deduplicates repeated
+// read-only user lookups without sharing auth state between users or requests.
+const requestStackUserCache = cache(
+  () => new Map<string, Promise<RequestStackUser>>(),
+);
+
+/** Resolve the current browser user once per server render. */
+export function getRequestScopedStackUser(flow: string): Promise<RequestStackUser> {
+  const cache = requestStackUserCache();
+  const key = "current-user";
+  const existing = cache.get(key);
+  if (existing) {
+    trace.getActiveSpan()?.setAttribute("cmux.auth.request_cache", "hit");
+    return existing;
+  }
+
+  trace.getActiveSpan()?.setAttribute("cmux.auth.request_cache", "miss");
+  const pending = withStackAuthSpan(
+    "get_user",
+    () => getStackServerApp().getUser({ or: "return-null" }),
+    { "cmux.auth.flow": flow },
+  );
+  cache.set(key, pending);
+  void pending.catch(() => {
+    if (cache.get(key) === pending) cache.delete(key);
+  });
+  return pending;
+}
 
 export function isStackConfigured(): boolean {
   return Boolean(projectId && publishableClientKey && secretServerKey);
@@ -31,10 +65,31 @@ export function getStackServerApp(): StackServerApp<true> {
     urls: {
       afterSignIn: "/handler/after-sign-in",
       afterSignUp: "/handler/after-sign-in",
-      accountSettings: "/dashboard/team",
+      accountSettings: "/dashboard/settings",
     },
   });
   return stackServerAppCache;
+}
+
+/**
+ * A new app with nothing cached, for checking a saved session. The shared
+ * apps keep each session's access token, so a session revoked elsewhere
+ * still looks signed in until that token expires; a fresh app has to refresh
+ * first, and a revoked session fails right there. Session mutations never
+ * redirect.
+ */
+export function createUncachedStackServerApp(): StackServerApp<true> {
+  if (!projectId || !publishableClientKey || !secretServerKey) {
+    throw new Error("Stack Auth is not configured");
+  }
+  return new StackServerApp({
+    projectId,
+    publishableClientKey,
+    secretServerKey,
+    // Never used: every call passes the session it checks.
+    tokenStore: "memory",
+    redirectMethod: "none",
+  });
 }
 
 // Native clients need a JSON response after revoking their exact token pair.
@@ -54,7 +109,7 @@ export function getNonRedirectingStackServerApp(): StackServerApp<true> {
     urls: {
       afterSignIn: "/handler/after-sign-in",
       afterSignUp: "/handler/after-sign-in",
-      accountSettings: "/dashboard/team",
+      accountSettings: "/dashboard/settings",
     },
   });
   return nonRedirectingStackServerAppCache;
@@ -165,28 +220,35 @@ async function updateStackUserViaApi(
   const baseURL = /\/api\/v1$/u.test(normalizedBaseURL)
     ? normalizedBaseURL
     : `${normalizedBaseURL}/api/v1`;
-  const response = await fetch(
-    `${baseURL.replace(/\/+$/, "")}/users/${encodeURIComponent(userId)}`,
-    {
-      method: "PATCH",
-      headers: {
-        "content-type": "application/json",
-        // Stack's current SDK uses the Hexclave-prefixed names; retain the
-        // Stack aliases for older project API versions during the migration.
-        "x-hexclave-access-type": "server",
-        "x-hexclave-project-id": projectId,
-        "x-hexclave-secret-server-key": secretServerKey,
-        "x-hexclave-override-error-status": "true",
-        "x-stack-access-type": "server",
-        "x-stack-project-id": projectId,
-        "x-stack-secret-server-key": secretServerKey,
-        "x-stack-override-error-status": "true",
-      },
-      body: JSON.stringify(patch),
-      signal: AbortSignal.timeout(10_000),
+  const response = await withStackAuthSpan(
+    "user_update",
+    async (span) => {
+      const response = await fetch(
+        `${baseURL.replace(/\/+$/, "")}/users/${encodeURIComponent(userId)}`,
+        {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            // Hexclave names only: Stack answers 429 to a request that also
+            // carries the legacy x-stack-* secret headers (2026-10-13).
+            "x-hexclave-access-type": "server",
+            "x-hexclave-project-id": projectId,
+            "x-hexclave-secret-server-key": secretServerKey,
+            "x-hexclave-override-error-status": "true",
+          },
+          body: JSON.stringify(patch),
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+      span.setAttribute("http.response.status_code", stackActualStatus(response));
+      span.setAttribute("cmux.external.success", stackActualStatus(response) < 400);
+      return response;
     },
+    { "cmux.auth.flow": "server_user_update" },
   );
-  if (!response.ok) {
+  const status = stackActualStatus(response);
+  if (status >= 400) {
+    await response.body?.cancel().catch(() => undefined);
     // Do not include response bodies: Stack can echo account data or provider
     // details, and this helper is called from webhook/recovery code paths.
     const error = new Error(failureMessage) as Error & {
@@ -197,9 +259,20 @@ async function updateStackUserViaApi(
       response.headers.get("x-hexclave-known-error") ??
       response.headers.get("x-stack-known-error");
     if (knownError) error.code = knownError;
-    error.status = response.status;
+    error.status = status;
     throw error;
   }
+}
+
+/**
+ * The request sets override-error-status, so Stack answers a failure with
+ * HTTP 200 and names the real status in a header.
+ */
+function stackActualStatus(response: Response): number {
+  const header = response.headers.get("x-hexclave-actual-status") ??
+    response.headers.get("x-stack-actual-status");
+  const status = header === null || header.trim() === "" ? Number.NaN : Number(header);
+  return Number.isInteger(status) && status >= 100 && status <= 599 ? status : response.status;
 }
 
 export const stackServerApp = isStackConfigured() ? getStackServerApp() : null;

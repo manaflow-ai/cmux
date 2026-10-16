@@ -3,19 +3,13 @@ import AppKit
 extension GhosttyConfig {
     /// Resolves the terminal color-scheme preference for an appearance-sync pass.
     ///
-    /// `passedAppearance` comes from AppKit's live appearance cascade (a view's
-    /// `effectiveAppearance`, or an explicit app-level override). On scripted
-    /// OS appearance changes (e.g. Shortcuts' "Set Appearance"), that cascade
-    /// stays fresh, while this process's CFPreferences view of
-    /// `AppleInterfaceStyle` (what the defaults-based resolution below reads)
-    /// can remain stale on exactly that path. So when the app is following
-    /// the system (`AppearanceMode.system`) and a non-nil appearance was
-    /// passed in, it is the more trustworthy source and wins over the
-    /// defaults-based read. Explicit light/dark modes always win over both. A
-    /// `nil` appearance still resolves through the live app effectiveAppearance
-    /// after launch so later reloads cannot flip back to a stale
-    /// AppleInterfaceStyle value; before launch, it falls back to the existing
-    /// defaults-based resolution to avoid touching NSApp.effectiveAppearance.
+    /// Explicit app modes win. In system mode after launch, the application is
+    /// authoritative: a pane can retain an old or overridden effectiveAppearance
+    /// during reparenting and must not reverse a system appearance transition.
+    /// Use the same live app appearance as chrome, rather than the possibly stale
+    /// AppleInterfaceStyle defaults. If the application appearance is unavailable,
+    /// use the passed appearance and then defaults. The launch guard avoids
+    /// touching NSApp.effectiveAppearance before didFinishLaunching on Tahoe.
     static func appearanceSyncColorSchemePreference(
         passedAppearance: NSAppearance?,
         defaults: UserDefaults = .standard,
@@ -28,16 +22,16 @@ extension GhosttyConfig {
         let isSystemMode = AppearanceSettings.mode(
             for: defaults.string(forKey: AppearanceSettings.appearanceModeKey)
         ) == .system
-        if isSystemMode, let passedAppearance {
-            return (
-                preference: passedAppearance.cmuxPrefersDark ? .dark : .light,
-                source: "passedAppearance"
-            )
-        }
         if isSystemMode, isApplicationFinishedLaunching(), let liveEffectiveAppearance = liveEffectiveAppearance() {
             return (
                 preference: liveEffectiveAppearance.cmuxPrefersDark ? .dark : .light,
                 source: "liveEffectiveAppearance"
+            )
+        }
+        if isSystemMode, let passedAppearance {
+            return (
+                preference: passedAppearance.cmuxPrefersDark ? .dark : .light,
+                source: "passedAppearance"
             )
         }
         return (

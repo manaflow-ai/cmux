@@ -31,6 +31,7 @@ use crate::resource::{
 use crate::terminal_host_runtime::TerminalHostLiveness;
 
 mod effect_store;
+mod idle_policy_store;
 mod journal_extensions;
 mod public_projection_store;
 mod resource_store;
@@ -58,6 +59,7 @@ pub(crate) use journal_extensions::{
     JournalSegmentSealCommit, JournalSegmentSealStart,
 };
 pub use public_projection_store::RegistryPublicProjections;
+pub(crate) use public_projection_store::agent_projection_extra;
 #[cfg(test)]
 pub use public_projection_store::{RegistryAgentProjection, RegistryNotificationProjection};
 #[cfg(test)]
@@ -76,9 +78,10 @@ pub use resource_store::{
     ResourceWorkspaceLedger,
 };
 use resource_store::{
-    apply_resource_patch, create_resource_schema, initialize_resource_mutation_retention,
-    migrate_resource_agent_projections, migrate_resource_browser_metadata,
-    migrate_resource_mutations_to_session_scope, migrate_resource_tabs_to_multiview,
+    apply_resource_patch, complete_terminal_close_patch, create_resource_schema,
+    initialize_resource_mutation_retention, migrate_resource_agent_projections,
+    migrate_resource_browser_metadata, migrate_resource_mutations_to_session_scope,
+    migrate_resource_tabs_to_multiview, repair_dangling_terminal_resources,
     resource_tabs_needs_multiview_normalization, validate_resource_invariants,
 };
 pub use session_journal::{
@@ -124,6 +127,8 @@ const RESOURCE_EFFECT_PEPPER_FILE: &str = "resource-effect-pepper";
 const RESOURCE_EFFECT_PEPPER_LOCK_FILE: &str = "resource-effect-pepper.lock";
 const RESOURCE_EFFECT_PEPPER_META_KEY: &str = "resource_effect_pepper_id";
 const RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY: &str = "resource_effect_pepper_cleanup_pending";
+const JOURNAL_PLUGIN_GENERATION_META_KEY: &str = "journal_plugin_generation";
+const JOURNAL_AUTO_VACUUM_META_KEY: &str = "journal_auto_vacuum_migrated";
 const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id.v1";
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
@@ -446,7 +451,7 @@ pub struct PersistentSessionStateResetter {
 impl PersistentSessionStateResetter {
     /// Creates a reset owner for one durable workspace state root.
     pub fn new(state_root: impl Into<PathBuf>) -> Self {
-        Self { state_root: state_root.into() }
+        Self { state_root: platform::normalize_filesystem_path(state_root.into()) }
     }
 
     /// Returns the workspace state root this reset owner can mutate.
@@ -536,7 +541,9 @@ impl PersistentSessionStateResetter {
             return Ok(reset);
         }
         let lease = if lock_session_dir_exists {
-            Some(SessionLease::acquire(&session_dir.join(SESSION_WRITER_LOCK_FILE))?)
+            let lock_path =
+                platform::normalize_filesystem_path(session_dir.join(SESSION_WRITER_LOCK_FILE));
+            Some(SessionLease::acquire(&lock_path)?)
         } else {
             None
         };
@@ -692,7 +699,7 @@ pub struct WorkspaceRegistry {
 }
 
 fn persistent_session_state_dir(root: &Path, session_name: &str) -> PathBuf {
-    root.join(session_storage_component(session_name))
+    platform::normalize_filesystem_path(root.join(session_storage_component(session_name)))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -773,7 +780,7 @@ fn pending_session_reset_dirs(
         let Some(kind) = pending_session_reset_kind(rest) else {
             continue;
         };
-        let path = entry.path();
+        let path = platform::normalize_filesystem_path(entry.path());
         let metadata = fs::symlink_metadata(&path)
             .with_context(|| format!("inspect private reset path {}", path.display()))?;
         if !metadata.file_type().is_dir() {
@@ -868,8 +875,9 @@ fn rename_reset_dir_for_deletion(
 ) -> anyhow::Result<PathBuf> {
     let storage_component = session_storage_component(session_name);
     for _ in 0..16 {
-        let candidate =
-            root.join(format!(".reset-{storage_component}-{kind}-{}.deleting", try_new_uuid_v4()?));
+        let candidate = platform::normalize_filesystem_path(
+            root.join(format!(".reset-{storage_component}-{kind}-{}.deleting", try_new_uuid_v4()?)),
+        );
         ensure_reset_dir_fingerprint(source, kind, expected_fingerprint)?;
         match fs::rename(source, &candidate) {
             Ok(()) => {
@@ -2304,16 +2312,24 @@ impl WorkspaceRegistry {
     }
 
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
-        let session_dir = root.join(session_storage_component(session_name));
-        let db_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
+        let root = platform::normalize_filesystem_path(root.to_path_buf());
+        // Keep short roots in their existing spelling while giving all
+        // root-level files the same long-path handling as their descendants.
+        let session_dir =
+            platform::normalize_filesystem_path(root.join(session_storage_component(session_name)));
+        // Normalize the complete database path. The state root can be below
+        // the legacy MAX_PATH threshold while its session and database
+        // descendants exceed it.
+        let db_path =
+            platform::normalize_filesystem_path(session_dir.join(WORKSPACE_REGISTRY_FILE));
         if db_path.is_file()
             && let Some(error) = preflight_unsupported_schema(&db_path)
         {
             return Err(error.into());
         }
-        let session_guard = acquire_session_guard(root, session_name)?;
-        let machine_id = load_or_create_machine_id(root)?;
-        let resource_effect_pepper = load_or_create_resource_effect_pepper(root)?;
+        let session_guard = acquire_session_guard(&root, session_name)?;
+        let machine_id = load_or_create_machine_id(&root)?;
+        let resource_effect_pepper = load_or_create_resource_effect_pepper(&root)?;
         fs::create_dir_all(&session_dir).with_context(|| {
             format!("create workspace state directory {}", session_dir.display())
         })?;
@@ -2323,7 +2339,9 @@ impl WorkspaceRegistry {
         {
             return Err(error.into());
         }
-        let lease = SessionLease::acquire(&session_dir.join(SESSION_WRITER_LOCK_FILE))?;
+        let session_lock =
+            platform::normalize_filesystem_path(session_dir.join(SESSION_WRITER_LOCK_FILE));
+        let lease = SessionLease::acquire(&session_lock)?;
         let connection = open_registry_database(&db_path)
             .with_context(|| format!("open workspace registry {}", db_path.display()))?;
         platform::restrict_file(&db_path)?;
@@ -2348,6 +2366,14 @@ impl WorkspaceRegistry {
         database_path: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        let fresh_database = connection.query_row(
+            "SELECT COUNT(*) = 0 FROM sqlite_master WHERE type = 'table'",
+            [],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if fresh_database {
+            connection.execute_batch("PRAGMA auto_vacuum=INCREMENTAL;")?;
+        }
         connection.execute_batch(
             "PRAGMA foreign_keys=ON;
              PRAGMA journal_mode=WAL;
@@ -2607,6 +2633,11 @@ impl WorkspaceRegistry {
             migrate_resource_tabs_to_multiview(&tx)?;
             tx.commit()?;
         }
+        {
+            let tx = connection.unchecked_transaction()?;
+            resource_store::migrate_tab_name_authority(&tx)?;
+            tx.commit()?;
+        }
         if terminal_hosts_has_workspace_foreign_key(&connection)? {
             let tx = connection.unchecked_transaction()?;
             migrate_terminal_hosts_to_session_ownership(&tx)?;
@@ -2656,13 +2687,23 @@ impl WorkspaceRegistry {
             )?;
             tx.commit()?;
         }
+        // Existing registries are migrated by the background journal
+        // maintenance worker. VACUUM can rewrite a large cloud registry, so
+        // startup only stamps fresh databases that already use incremental
+        // auto-vacuum and leaves legacy conversion for availability work after
+        // the mux is serving.
+        if fresh_database {
+            mark_journal_auto_vacuum_migrated(&connection)?;
+        }
         {
             let tx = connection.unchecked_transaction()?;
+            create_session_journal_schema(&tx)?;
             create_resource_effect_schema(&tx)?;
             create_journal_extensions_schema(&tx)?;
             recover_resource_effects(&tx)?;
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
+            repair_dangling_terminal_resources(&tx)?;
             tx.commit()?;
         }
         let stored_name = required_meta(&connection, "session_name")?;
@@ -2674,11 +2715,7 @@ impl WorkspaceRegistry {
         let registry_id = required_meta(&connection, "registry_id")?;
         validate_identifier("registry id", &registry_id)?;
         let session_id = SessionPublicId::parse(required_meta(&connection, "session_public_id")?)?;
-        let quick_check: String =
-            connection.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
-        if quick_check != "ok" {
-            anyhow::bail!("workspace registry integrity check failed: {quick_check}");
-        }
+        check_registry_integrity(&connection)?;
         {
             let tx = connection.unchecked_transaction()?;
             initialize_compatibility_active_workspace(&tx)?;
@@ -2843,6 +2880,13 @@ impl WorkspaceRegistry {
 
     pub fn machine_id(&self) -> &MachinePublicId {
         &self.machine_id
+    }
+
+    /// The current terminal registry revision alone. Lookups that only need to
+    /// stamp their answer read this instead of materializing every terminal
+    /// row while holding the registry lock.
+    pub fn terminal_revision(&self) -> anyhow::Result<u64> {
+        current_terminal_revision(&self.connection)
     }
 
     /// Returns the canonical, non-tombstoned terminal placement projection.
@@ -3086,6 +3130,9 @@ impl WorkspaceRegistry {
         let fingerprint = terminal_close_fingerprint(mutation, terminal_id, expected_incarnation)?;
         let resource_result_json = canonical_json(resource_result)?;
         let tx = self.connection.transaction()?;
+        let terminal_batch = [(terminal_id.to_string(), expected_incarnation.map(str::to_string))];
+        let (patch, resource_deltas) =
+            complete_terminal_close_patch(&tx, &terminal_batch, patch, resource_deltas)?;
         if let Some(terminal) = terminal_replay(&tx, mutation, &fingerprint)? {
             tx.commit()?;
             return Ok(TerminalResourceCloseCommit::TerminalReplay(terminal));
@@ -3133,7 +3180,7 @@ impl WorkspaceRegistry {
             .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
         let sqlite_revision =
             i64::try_from(revision).context("resource revision exceeds SQLite range")?;
-        apply_resource_patch(&tx, patch, sqlite_revision)?;
+        apply_resource_patch(&tx, &patch, sqlite_revision)?;
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
@@ -3159,9 +3206,9 @@ impl WorkspaceRegistry {
             &mutation.origin,
             &mutation.id,
             OPERATION,
-            Some(patch),
+            Some(&patch),
             resource_result,
-            resource_deltas,
+            &resource_deltas,
         )?;
         resource_store::prune_resource_mutations(&tx)?;
         let resource =
@@ -3754,6 +3801,31 @@ impl WorkspaceRegistry {
     }
 }
 
+fn mark_journal_auto_vacuum_migrated(connection: &Connection) -> anyhow::Result<()> {
+    connection.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, '1')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [JOURNAL_AUTO_VACUUM_META_KEY],
+    )?;
+    Ok(())
+}
+
+/// Convert registries created before journal maintenance to incremental
+/// auto-vacuum once. SQLite applies the auto-vacuum mode change during VACUUM;
+/// the marker keeps reopening an existing registry from repeating that work.
+fn migrate_journal_auto_vacuum(connection: &Connection) -> anyhow::Result<bool> {
+    if meta_value(connection, JOURNAL_AUTO_VACUUM_META_KEY)?.is_some() {
+        return Ok(false);
+    }
+    let auto_vacuum = connection.query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))?;
+    if auto_vacuum != 2 {
+        eprintln!("cmux-tui: migrating session journal to incremental auto-vacuum");
+        connection.execute_batch("PRAGMA auto_vacuum=INCREMENTAL; VACUUM;")?;
+    }
+    mark_journal_auto_vacuum_migrated(connection)?;
+    Ok(auto_vacuum != 2)
+}
+
 fn require_resource_effect_pepper_id(
     transaction: &Transaction<'_>,
     expected: &str,
@@ -3884,6 +3956,57 @@ fn migrate_resource_api_frontend_projection_envelopes(
     Ok(())
 }
 
+/// Tables that hold journal history rather than registry state. They grow
+/// with every terminal output chunk (millions of rows, gigabytes on a
+/// long-lived machine) and are append-only or sealed archives whose records
+/// are validated when they are read, so the open-time check skips them.
+const JOURNAL_HISTORY_TABLES: [&str; 7] = [
+    "session_journal",
+    "journal_subject_index",
+    "journal_event_index",
+    "journal_segments",
+    "journal_checkpoints",
+    "journal_content_blobs",
+    "journal_segment_kinds",
+];
+
+/// Structural check of the registry state on open. An unscoped quick_check
+/// reads every page of the file, so its cost tracked total journal history;
+/// checking each state table and its indexes keeps startup proportional to
+/// the registry, not to how much output its terminals ever printed.
+fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
+    let tables = {
+        let mut statement = connection.prepare(
+            "SELECT name FROM sqlite_master
+             WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+             ORDER BY name",
+        )?;
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
+    };
+    for table in tables.iter().filter(|table| !JOURNAL_HISTORY_TABLES.contains(&table.as_str())) {
+        let pragma = format!("PRAGMA quick_check('{}')", table.replace('\'', "''"));
+        let result: String = connection.query_row(&pragma, [], |row| row.get(0))?;
+        if result != "ok" {
+            anyhow::bail!("workspace registry integrity check failed: {result}");
+        }
+    }
+    // History is validated incrementally when replayed. Touch only each
+    // table's newest indexed row during open so a corrupt tail page is caught
+    // without turning startup back into a full-journal scan.
+    for (table, order) in [
+        ("session_journal", "sequence"),
+        ("journal_subject_index", "sequence"),
+        ("journal_event_index", "sequence"),
+        ("journal_segments", "end_sequence"),
+        ("journal_checkpoints", "source_sequence"),
+        ("journal_content_blobs", "created_at_ms"),
+    ] {
+        let query = format!("SELECT 1 FROM {table} ORDER BY {order} DESC LIMIT 1");
+        let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
+    }
+    Ok(())
+}
+
 fn checkpoint_and_truncate_wal(connection: &Connection) -> anyhow::Result<()> {
     let (busy, _, _): (i64, i64, i64) =
         connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
@@ -4008,6 +4131,7 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
          CREATE INDEX IF NOT EXISTS terminal_events_by_terminal
            ON terminal_events(terminal_id, revision);",
     )?;
+    idle_policy_store::create_terminal_idle_policy_schema(transaction)?;
     Ok(())
 }
 
@@ -5083,7 +5207,7 @@ fn acquire_session_guard_from_private_dir(
 }
 
 fn prepare_session_guard_dir(root: &Path) -> anyhow::Result<PathBuf> {
-    let lock_dir = root.join(SESSION_GUARD_DIR);
+    let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
     match fs::symlink_metadata(&lock_dir) {
         Ok(metadata) if metadata.file_type().is_dir() => {}
         Ok(_) => anyhow::bail!("session lock directory is not a directory: {}", lock_dir.display()),
@@ -5109,11 +5233,13 @@ fn prepare_session_guard_dir(root: &Path) -> anyhow::Result<PathBuf> {
 }
 
 fn session_guard_lock_path(lock_dir: &Path, session_name: &str) -> PathBuf {
-    lock_dir.join(format!("{}.lock", session_storage_component(session_name)))
+    platform::normalize_filesystem_path(
+        lock_dir.join(format!("{}.lock", session_storage_component(session_name))),
+    )
 }
 
 fn session_guard_coordinator_path(lock_dir: &Path) -> PathBuf {
-    lock_dir.join(SESSION_GUARD_COORDINATOR_FILE)
+    platform::normalize_filesystem_path(lock_dir.join(SESSION_GUARD_COORDINATOR_FILE))
 }
 
 #[cfg(unix)]
@@ -5271,9 +5397,11 @@ fn prepare_terminal_host_root_for_reset(
 }
 
 fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<ResourceEffectPepper> {
-    fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
-    platform::restrict_directory(root)?;
-    let lock_path = root.join(RESOURCE_EFFECT_PEPPER_LOCK_FILE);
+    let root = platform::normalize_filesystem_path(root.to_path_buf());
+    fs::create_dir_all(&root).with_context(|| format!("create state root {}", root.display()))?;
+    platform::restrict_directory(&root)?;
+    let lock_path =
+        platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_LOCK_FILE));
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -5285,7 +5413,7 @@ fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<Resource
     FileExt::lock(&lock)
         .with_context(|| format!("lock resource receipt pepper {}", lock_path.display()))?;
 
-    let path = root.join(RESOURCE_EFFECT_PEPPER_FILE);
+    let path = platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_FILE));
     let result = match fs::symlink_metadata(&path) {
         Ok(metadata) => {
             anyhow::ensure!(
@@ -5299,7 +5427,7 @@ fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<Resource
             ResourceEffectPepper::from_bytes(bytes, &path)
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            ensure_missing_pepper_can_migrate(root, &path)?;
+            ensure_missing_pepper_can_migrate(&root, &path)?;
             let pepper = ResourceEffectPepper::random()?;
             let mut options = OpenOptions::new();
             options.create_new(true).write(true);
@@ -5316,7 +5444,7 @@ fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<Resource
                 .with_context(|| format!("write resource receipt pepper {}", path.display()))?;
             file.sync_all()
                 .with_context(|| format!("sync resource receipt pepper {}", path.display()))?;
-            platform::sync_directory(root)
+            platform::sync_directory(&root)
                 .with_context(|| format!("sync state root {}", root.display()))?;
             Ok(pepper)
         }
@@ -5336,7 +5464,8 @@ fn ensure_missing_pepper_can_migrate(root: &Path, pepper_path: &Path) -> anyhow:
         if !entry.file_type()?.is_dir() {
             continue;
         }
-        let database = entry.path().join(WORKSPACE_REGISTRY_FILE);
+        let database =
+            platform::normalize_filesystem_path(entry.path().join(WORKSPACE_REGISTRY_FILE));
         if !database.try_exists()? {
             continue;
         }
@@ -5358,9 +5487,10 @@ fn ensure_missing_pepper_can_migrate(root: &Path, pepper_path: &Path) -> anyhow:
 }
 
 fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
-    fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
-    platform::restrict_directory(root)?;
-    let lock_path = root.join(MACHINE_ID_LOCK_FILE);
+    let root = platform::normalize_filesystem_path(root.to_path_buf());
+    fs::create_dir_all(&root).with_context(|| format!("create state root {}", root.display()))?;
+    platform::restrict_directory(&root)?;
+    let lock_path = platform::normalize_filesystem_path(root.join(MACHINE_ID_LOCK_FILE));
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -5372,7 +5502,7 @@ fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
     FileExt::lock(&lock)
         .with_context(|| format!("lock machine identity {}", lock_path.display()))?;
 
-    let path = root.join(MACHINE_ID_FILE);
+    let path = platform::normalize_filesystem_path(root.join(MACHINE_ID_FILE));
     let result = match fs::read(&path) {
         Ok(bytes) => {
             platform::restrict_file(&path)?;
@@ -5395,7 +5525,7 @@ fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
                 .and_then(|()| file.write_all(b"\n"))
                 .with_context(|| format!("write machine identity {}", path.display()))?;
             file.sync_all().with_context(|| format!("sync machine identity {}", path.display()))?;
-            platform::sync_directory(root)
+            platform::sync_directory(&root)
                 .with_context(|| format!("sync state root {}", root.display()))?;
             Ok(id)
         }
@@ -5618,8 +5748,10 @@ impl SessionCoordinatorWaiter {
                 let sequence =
                     SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
                 let token = format!("{:x}-{sequence:x}", std::process::id());
-                let registration_path = waiter_dir.join(format!("{token}.waiter"));
-                let temporary_path = waiter_dir.join(format!(".{token}.tmp"));
+                let registration_path =
+                    platform::normalize_filesystem_path(waiter_dir.join(format!("{token}.waiter")));
+                let temporary_path =
+                    platform::normalize_filesystem_path(waiter_dir.join(format!(".{token}.tmp")));
                 let fifo_path = std::ffi::CString::new(temporary_path.as_os_str().as_bytes())?;
                 // SAFETY: fifo_path is a valid NUL-terminated path and mode
                 // only grants access to the current user.
@@ -5678,8 +5810,10 @@ impl SessionCoordinatorWaiter {
                 let sequence =
                     SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
                 let token = format!("{:x}-{:x}-{:x}", std::process::id(), address.port(), sequence);
-                let registration_path = waiter_dir.join(format!("{token}.waiter"));
-                let temporary_path = waiter_dir.join(format!(".{token}.tmp"));
+                let registration_path =
+                    platform::normalize_filesystem_path(waiter_dir.join(format!("{token}.waiter")));
+                let temporary_path =
+                    platform::normalize_filesystem_path(waiter_dir.join(format!(".{token}.tmp")));
                 let mut options = OpenOptions::new();
                 options.create_new(true).write(true);
                 #[cfg(unix)]
@@ -5798,7 +5932,9 @@ impl Drop for SessionCoordinatorWaiter {
 }
 
 fn session_guard_coordinator_waiter_dir(coordinator_path: &Path) -> PathBuf {
-    coordinator_path.with_file_name(SESSION_GUARD_COORDINATOR_WAITER_DIR)
+    platform::normalize_filesystem_path(
+        coordinator_path.with_file_name(SESSION_GUARD_COORDINATOR_WAITER_DIR),
+    )
 }
 
 fn prepare_session_coordinator_waiter_dir(waiter_dir: &Path) -> anyhow::Result<()> {

@@ -119,9 +119,10 @@ struct AccessibilityWindowCacheTests {
     @Test("non-.windows attributes stay passthrough")
     func nonWindowsAttributesStayPassthrough() {
         let cache = AccessibilityWindowCache()
+        let application = NSApplication.shared
 
         for attribute: NSAccessibility.Attribute in [.children, .visibleChildren, .mainWindow, .focusedWindow] {
-            switch cache.resolve(attribute: attribute, application: NSApp) {
+            switch cache.resolve(attribute: attribute, application: application) {
             case .passthrough:
                 break
             case .handled:

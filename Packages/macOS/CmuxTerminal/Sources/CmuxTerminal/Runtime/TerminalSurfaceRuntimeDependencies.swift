@@ -65,6 +65,9 @@ public struct TerminalSurfaceRuntimeDependencies {
     /// Provides the app's current global font magnification percent.
     public let globalFontMagnificationPercent: @Sendable () -> Int
 
+    /// Optional app-owned geometry diagnostics, independent of renderer state.
+    public let terminalWork: TerminalSurfaceWorkDiagnostics
+
     /// Creates the dependency bundle.
     public init(
         registry: any TerminalSurfaceRegistering,
@@ -82,7 +85,8 @@ public struct TerminalSurfaceRuntimeDependencies {
         sessionPortBase: Int,
         sessionPortRangeSize: Int,
         scrollbackReplayEnvironmentKey: String,
-        globalFontMagnificationPercent: @escaping @Sendable () -> Int = { 100 }
+        globalFontMagnificationPercent: @escaping @Sendable () -> Int = { 100 },
+        terminalWork: TerminalSurfaceWorkDiagnostics = .init()
     ) {
         self.registry = registry
         self.engine = engine
@@ -100,5 +104,6 @@ public struct TerminalSurfaceRuntimeDependencies {
         self.sessionPortRangeSize = sessionPortRangeSize
         self.scrollbackReplayEnvironmentKey = scrollbackReplayEnvironmentKey
         self.globalFontMagnificationPercent = globalFontMagnificationPercent
+        self.terminalWork = terminalWork
     }
 }

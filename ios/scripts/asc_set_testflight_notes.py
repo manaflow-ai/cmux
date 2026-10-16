@@ -45,6 +45,7 @@ import urllib.error
 import urllib.request
 
 API_BASE = "https://api.appstoreconnect.apple.com"
+DEFAULT_PROCESSING_TIMEOUT_SECONDS = 1800
 
 # App Store Connect caps What to Test at 4000 characters. Truncate defensively so
 # a long changelog block never makes the PATCH/POST fail with a validation error.
@@ -232,7 +233,7 @@ def main():
     parser.add_argument("--build-number", required=True, help="CFBundleVersion of the uploaded build")
     parser.add_argument("--notes-file", required=True, help="file containing the What to Test text")
     parser.add_argument("--locale", default="en-US")
-    parser.add_argument("--timeout-seconds", type=int, default=900,
+    parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_PROCESSING_TIMEOUT_SECONDS,
                         help="how long to wait for App Store Connect to ingest the build")
     parser.add_argument("--poll-seconds", type=int, default=20)
     args = parser.parse_args()

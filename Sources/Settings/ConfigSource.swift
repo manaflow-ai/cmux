@@ -114,6 +114,18 @@ struct ConfigSourceEnvironment {
         )
     }
 
+    /// Writes one `key = value` line per value, replacing every existing
+    /// assignment to `key`. See `CmuxGhosttyConfigSettingEditor.updatedContents(_:setting:values:)`.
+    func writeCmuxConfigSetting(key: String, values: [String]) throws {
+        let url = try materializeCmuxConfigFileIfNeeded()
+        try CmuxGhosttyConfigSettingEditor().writeSetting(
+            key: key,
+            values: values,
+            to: url,
+            fileManager: fileManager
+        )
+    }
+
     private func writeCmuxConfigContents(_ contents: String, to url: URL) throws {
         let writeURL = configWriteURL(for: url)
         try fileManager.createDirectory(

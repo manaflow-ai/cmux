@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -144,8 +145,9 @@ extension AgentHibernationController {
             snapshot = value
         case .nothingToProtect:
             snapshot = nil
-        case .unableToProtect:
-            // Forfeit hibernation rather than risk issue #6565 transcript loss.
+        case .unableToProtect, .backgroundWorkPending:
+            // Forfeit hibernation rather than risk issue #6565 transcript loss,
+            // or killing background work the agent is still waiting on.
             unableToProtectByPanel[record.key] = UnableToProtectMarker(
                 fingerprint: request.confirmationFingerprint,
                 lastActivityAt: request.effectiveLastActivityAt,
@@ -276,7 +278,12 @@ extension AgentHibernationController {
             terminalPanel?.beginAgentHibernationTerminationRecovery()
         }
         let handleRecoveryFailure: @MainActor () async -> Void = {
-            [weak self, weak terminalPanel = record.terminalPanel] in
+            [weak self, weak terminalPanel = record.terminalPanel,
+             processExitCompletion] in
+            // Resolve the fence even if the panel was closed during recovery;
+            // there is no live surface left that could safely receive reset
+            // bytes in that case.
+            await processExitCompletion.finish(false)
             guard let self, let terminalPanel else { return }
             terminalPanel.failAgentHibernationTermination()
             terminalPanel.onRequestAgentHibernationTerminationRetry = {
@@ -289,6 +296,10 @@ extension AgentHibernationController {
             [weak terminalPanel = record.terminalPanel] in
             terminalPanel?.beginAgentHibernationTerminationRecovery()
         }
+        let sessionEndIntent = AgentHibernationSessionEndIntent(
+            sessionID: agent.sessionId,
+            processIdentities: Set(scopedProcessTerminations.map(\.processIdentity))
+        )
         let finalCommitIsSafe: @MainActor @Sendable () -> Bool = {
             [weak self, weak terminalPanel = record.terminalPanel] in
             guard let self, let terminalPanel,
@@ -302,7 +313,14 @@ extension AgentHibernationController {
                   } ?? true) else {
                 return false
             }
-            return terminalPanel.surface.reserveAgentHibernationRuntimeTeardown()
+            guard terminalPanel.surface.reserveAgentHibernationRuntimeTeardown() else {
+                return false
+            }
+            self.armSessionEndPreservation(
+                panelKey: record.key,
+                intent: sessionEndIntent
+            )
+            return true
         }
         let processGroupLeaders = Self.processGroupLeaders(
             in: scopedProcessTerminations
@@ -350,12 +368,16 @@ extension AgentHibernationController {
                 )
                 terminalPanel?.beginAgentHibernationTermination(
                     agent: agent,
-                    lastActivityAt: lastActivityAt
+                    lastActivityAt: lastActivityAt,
+                    processExitFence: {
+                        await processExitCompletion.wait()
+                    }
                 )
             }
         )
         switch terminationResult {
         case .rejected:
+            disarmSessionEndPreservation(panelKey: record.key)
             record.terminalPanel.surface
                 .cancelAgentHibernationRuntimeTeardownReservation()
             if let snapshot {

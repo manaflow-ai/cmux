@@ -33,6 +33,11 @@ extension Workspace {
         targetPane paneId: PaneID,
         zone: DropZone
     ) -> Bool {
+        let transfer = PaneDragTransfer(
+            tabId: tabId, sourcePaneId: sourcePaneId,
+            sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
+        )
+        guard canPerformPortalSurfaceDrop(transfer) else { return false }
         let sourcePane = PaneID(id: sourcePaneId)
         if zone == .center, sourcePane == paneId {
             return true

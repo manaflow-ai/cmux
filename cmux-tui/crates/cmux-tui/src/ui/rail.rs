@@ -1,4 +1,9 @@
 //! Shared visual primitives for the machine and workspace rails.
+//!
+//! The agent-row geometry used by the agents rail follows herdr's panel
+//! layout in `src/app/agent_view.rs` at commit
+//! `7b675f42af35508eab66ac42fe1598628597a893` (Apache-2.0), modified by
+//! manaflow for cmux's shared rail metrics and narrow terminals.
 
 use cmux_tui_core::Rect;
 use ratatui::Frame;

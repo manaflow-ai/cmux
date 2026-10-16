@@ -21,7 +21,7 @@ Every feature belongs to one ownership class:
 | Terminal host | Durable PTY process and renderer data plane | [`terminal-host.md`](terminal-host.md) |
 | Machine provider | Machine discovery, lifecycle, scopes, and transport tickets | [`machine-provider.md`](machine-provider.md) |
 | Provider management | Root-owned authority installation and rotation | [`provider-management.md`](provider-management.md) |
-| Plugin host | Installed executable, manifest, permissions, contributions, and lifecycle | [`plugins.md`](plugins.md) |
+| Plugin host | Installed executable, manifest, permissions, contributions, and lifecycle for sidebar and userland agent plugins | [`plugins.md`](plugins.md) |
 
 An action that combines a frontend choice with a mux mutation has two steps. For example, `browser-edit-url` opens a local prompt, then calls `browser-navigate`. The local prompt is not copied into mux state.
 

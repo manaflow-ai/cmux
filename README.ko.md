@@ -152,7 +152,9 @@ cmux 설정 방법에 대한 자세한 내용은 [문서를 확인해주세요](
 
 | 단축키 | 동작 |
 |----------|--------|
-| ⌘ N | 새 워크스페이스 |
+| ⌘ N | 새 로컬 워크스페이스 |
+| ⌘ Y | 가장 최근에 사용할 수 있었던 Cloud 컨텍스트에 새 Cloud 워크스페이스를 만들고, 없으면 New Cloud Machine을 엽니다 |
+| ⌘ ⇧ Y | 새 Cloud 머신 |
 | ⌘ 1–8 | 워크스페이스 1–8로 이동 |
 | ⌘ 9 | 마지막 워크스페이스로 이동 |
 | ⌃ ⌘ ] | 다음 워크스페이스 |
@@ -367,7 +369,7 @@ cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요. 개발�
 
 ### 기능 요청이 있거나 버그를 발견했어요?
 
-꼭 듣고 싶어요. GitHub에서 [issue](https://github.com/manaflow-ai/cmux/issues)나 [pull request](https://github.com/manaflow-ai/cmux/pulls)를 열거나, [이메일을 보내주세요](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+꼭 듣고 싶어요. GitHub에서 [issue](https://github.com/manaflow-ai/cmux/issues)나 [pull request](https://github.com/manaflow-ai/cmux/pulls)를 열거나, [이메일을 보내주세요](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## Star History
 
@@ -418,6 +420,6 @@ cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요. 개발�
 
 ## 라이선스
 
-cmux는 [GPL-3.0-or-later](LICENSE) 하에 오픈 소스예요.
+cmux는 [GPL-3.0-or-later](LICENSE) 하에 오픈 소스예요. cmux 서버 소프트웨어(`web/`, Cloudflare 워커, [LICENSE](LICENSE)에 나열된 릴레이 서비스)는 대신 [Business Source License 1.1](web/LICENSE)을 따라요. 비프로덕션 용도로 읽고, 수정하고, 실행할 수 있지만 프로덕션 사용이나 셀프 호스팅에는 상용 라이선스가 필요해요.
 
-GPL을 준수할 수 없는 조직을 위해 상용 라이선스도 제공돼요. 자세한 내용은 [founders@manaflow.com](mailto:founders@manaflow.com)으로 문의해주세요.
+GPL을 준수할 수 없는 조직을 위해 상용 라이선스도 제공돼요. 자세한 내용은 [founders@cmux.com](mailto:founders@cmux.com)으로 문의해주세요.

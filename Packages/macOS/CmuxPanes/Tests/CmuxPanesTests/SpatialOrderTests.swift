@@ -39,6 +39,34 @@ import Bonsplit
         #expect(result == [p1, p2, p3, orphan])
     }
 
+    /// A render path passes `BonsplitController.allPaneIds` instead of building a
+    /// tree snapshot, because the snapshot reads the live container frame. Both
+    /// walks are depth-first first/second, so the panel order must not differ.
+    @Test func spatialPanelOrderMatchesTreeDerivedOrder() {
+        let p1 = UUID(), p2 = UUID(), p3 = UUID(), orphan = UUID()
+        let tree = ExternalTreeNode.split(ExternalSplitNode(
+            id: "s1", orientation: "horizontal", dividerPosition: 0.5,
+            first: pane("a"),
+            second: .split(ExternalSplitNode(
+                id: "s2", orientation: "vertical", dividerPosition: 0.5,
+                first: pane("b"), second: pane("c")
+            ))
+        ))
+        let paneTabs: [String: [UUID]] = ["a": [p1, p2], "b": [p3, p1], "c": []]
+        let fallbackPanelIds = [orphan, p2]
+
+        let fromPaneOrder = SpatialPanelOrder(orderedPaneIds: ["a", "b", "c"])
+            .panelIds(paneTabs: paneTabs, fallbackPanelIds: fallbackPanelIds)
+
+        #expect(fromPaneOrder == [p1, p2, p3, orphan])
+        #expect(
+            fromPaneOrder == tree.orderedPanelIds(
+                paneTabs: paneTabs,
+                fallbackPanelIds: fallbackPanelIds
+            )
+        )
+    }
+
     @Test func paneCycleNavigatorWrapsForwardAndBackward() {
         let panes = [paneId(1), paneId(2), paneId(3)]
         let navigator = PaneCycleNavigator()

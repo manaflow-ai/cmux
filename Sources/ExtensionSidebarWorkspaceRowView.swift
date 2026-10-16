@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxBrowser
 import AppKit
 import CmuxSidebarProviderKit
 import SwiftUI
@@ -283,7 +284,7 @@ struct CmuxExtensionWorkspaceInspectorBrowserView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = ExtensionSidebarWebView(frame: .zero, configuration: configuration)
         webView.setValue(false, forKey: "drawsBackground")
         return webView
     }
@@ -338,5 +339,13 @@ final class CmuxExtensionSidebarInspectorWindowController {
         }
         controller.showWindow(nil)
         window.makeKeyAndOrderFront(nil)
+    }
+}
+
+/// Extension sidebar row web view: completes routed undo/redo chords with the
+/// app's keyboard-layout-aware check.
+private final class ExtensionSidebarWebView: CmuxUndoableWebView {
+    override func isWebContentUndoRedoCommandEquivalent(_ event: NSEvent) -> Bool {
+        event.cmuxIsUndoRedoCommandEquivalent
     }
 }

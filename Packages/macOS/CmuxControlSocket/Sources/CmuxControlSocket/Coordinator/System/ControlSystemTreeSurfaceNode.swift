@@ -36,6 +36,8 @@ public struct ControlSystemTreeSurfaceNode: Sendable, Equatable {
     /// For browser surfaces, the current URL string (`nil` encodes as the
     /// legacy empty string).
     public let url: String?
+    /// Renderer health for terminal surfaces, or `nil` for other panel types.
+    public let renderHealthRawValue: String?
     /// The Dock container scope for Dock-hosted surfaces, else `nil`.
     public let dockScopeRawValue: String?
 
@@ -68,6 +70,7 @@ public struct ControlSystemTreeSurfaceNode: Sendable, Equatable {
         tty: String?,
         isBrowser: Bool,
         url: String?,
+        renderHealthRawValue: String? = nil,
         dockScopeRawValue: String? = nil
     ) {
         self.surfaceID = surfaceID
@@ -82,6 +85,7 @@ public struct ControlSystemTreeSurfaceNode: Sendable, Equatable {
         self.tty = tty
         self.isBrowser = isBrowser
         self.url = url
+        self.renderHealthRawValue = renderHealthRawValue
         self.dockScopeRawValue = dockScopeRawValue
     }
 }

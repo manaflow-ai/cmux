@@ -3,7 +3,7 @@ import { JsonLd } from "../../components/json-ld";
 import { legalMetadata } from "../legal-metadata";
 
 const legalName = "Manaflow, Inc.";
-const contactEmail = "founders@manaflow.com";
+const contactEmail = "founders@cmux.com";
 const streetAddress = "18428 Vantage Pointe Dr";
 const locality = "Rowland Heights";
 const region = "CA";

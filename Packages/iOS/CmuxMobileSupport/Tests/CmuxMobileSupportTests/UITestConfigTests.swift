@@ -61,6 +61,47 @@ import Testing
         #expect(UITestConfig.value(for: "CMUX_UITEST_ADD_DEVICE_HOST", env: env) == nil)
     }
 
+    @Test func whatsNewLaunchSuppressionUsesEnvironmentOrArgument() {
+        #if DEBUG
+        #expect(
+            UITestConfig.suppressWhatsNewLaunch(
+                from: ["CMUX_UITEST_SUPPRESS_WHATS_NEW": "1"]
+            )
+        )
+        #expect(
+            UITestConfig.suppressWhatsNewLaunch(
+                from: [:],
+                arguments: ["CMUX_UITEST_SUPPRESS_WHATS_NEW=1"]
+            )
+        )
+        #expect(
+            UITestConfig.suppressWhatsNewLaunch(
+                from: ["CMUX_UITEST_SUPPRESS_WHATS_NEW": "0"],
+                arguments: ["CMUX_UITEST_SUPPRESS_WHATS_NEW=1"]
+            )
+        )
+        #else
+        #expect(
+            UITestConfig.suppressWhatsNewLaunch(
+                from: ["CMUX_UITEST_SUPPRESS_WHATS_NEW": "1"]
+            ) == false
+        )
+        #endif
+        #expect(UITestConfig.suppressWhatsNewLaunch(from: [:]) == false)
+        #expect(
+            UITestConfig.suppressWhatsNewLaunch(
+                from: ["CMUX_UITEST_SUPPRESS_WHATS_NEW": "0"],
+                arguments: ["CMUX_UITEST_SUPPRESS_WHATS_NEW=0"]
+            ) == false
+        )
+        #expect(
+            UITestConfig.suppressWhatsNewLaunch(
+                from: ["CMUX_UITEST_SUPPRESS_WHATS_NEW": "true"],
+                arguments: ["CMUX_UITEST_SUPPRESS_WHATS_NEW=10"]
+            ) == false
+        )
+    }
+
     #if DEBUG
     @Test(arguments: ["eligible", "ineligible"])
     func autoConnectMigrationFixtureRequiresMockDataAndParsesEligibility(_ raw: String) {
@@ -315,6 +356,25 @@ import Testing
         #endif
     }
 
+    @Test func screenshotCaptureCanHideWorkspaceChangesHint() {
+        #if DEBUG
+        #expect(UITestConfig.hideWorkspaceChangesHintForScreenshots(
+            from: ["CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT": "1"]
+        ))
+        #expect(UITestConfig.hideWorkspaceChangesHintForScreenshots(
+            from: [:],
+            arguments: ["CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT=1"]
+        ))
+        #else
+        #expect(!UITestConfig.hideWorkspaceChangesHintForScreenshots(
+            from: ["CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT": "1"]
+        ))
+        #endif
+        #expect(!UITestConfig.hideWorkspaceChangesHintForScreenshots(
+            from: ["CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT": "0"]
+        ))
+    }
+
     @Test func pushReadinessPreviewUsesExplicitInputsWithEnvironmentPrecedence() {
         #if DEBUG
         #expect(UITestConfig.pushReadinessPreviewState(
@@ -346,6 +406,25 @@ import Testing
         #expect(UITestConfig.notificationFeedPreviewEnabled(
             from: ["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "0"]
         ) == false)
+    }
+
+    @Test func agentFeedDecisionPreviewCountIsDebugOnlyAndClamped() {
+        let env = ["CMUX_UITEST_FEED_DECISION_PREVIEW_COUNT": "999"]
+        #if DEBUG
+        #expect(UITestConfig.agentFeedDecisionPreviewItemCount(from: env) == 400)
+        #else
+        #expect(UITestConfig.agentFeedDecisionPreviewItemCount(from: env) == nil)
+        #endif
+        #expect(UITestConfig.agentFeedDecisionPreviewItemCount(from: [:]) == nil)
+        #if DEBUG
+        #expect(UITestConfig.agentFeedDecisionPreviewItemCount(from: [
+            "CMUX_UITEST_FEED_DECISION_PREVIEW_COUNT": "0",
+        ]) == 1)
+        #else
+        #expect(UITestConfig.agentFeedDecisionPreviewItemCount(from: [
+            "CMUX_UITEST_FEED_DECISION_PREVIEW_COUNT": "0",
+        ]) == nil)
+        #endif
     }
 
     @Test func taskComposerPreviewFlagIsDebugOnly() {

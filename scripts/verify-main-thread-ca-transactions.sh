@@ -37,6 +37,16 @@ if [ ! -x "$BINARY" ]; then
   exit 2
 fi
 
+# A Debug app relocated from another host's DerivedData keeps that host's
+# absolute PackageFrameworks rpath first; on a CI host with its own DerivedData
+# at that path dyld binds the wrong frameworks. Prefer the app's own siblings.
+# Set on the exec line: /usr/bin/env (this script's shebang) strips DYLD_*.
+APP_FRAMEWORKS=""
+PRODUCTS_DIR="$(dirname "$APP_PATH")"
+if [ -d "$PRODUCTS_DIR/PackageFrameworks" ]; then
+  APP_FRAMEWORKS="$PRODUCTS_DIR:$PRODUCTS_DIR/PackageFrameworks"
+fi
+
 APP_PID=""
 
 kill_recorded_app() {
@@ -73,6 +83,7 @@ trap cleanup EXIT
 kill_recorded_app
 rm -f "$SOCKET_PATH" "$LOG_PATH"
 
+DYLD_FRAMEWORK_PATH="$APP_FRAMEWORKS" \
 CA_ASSERT_MAIN_THREAD_TRANSACTIONS=1 \
 CA_DEBUG_TRANSACTIONS=1 \
 CMUX_UI_TEST_MODE=1 \

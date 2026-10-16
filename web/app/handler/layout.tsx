@@ -1,4 +1,4 @@
-import { StackProvider, StackTheme } from "@stackframe/stack";
+import { StackProvider, StackTheme } from "@hexclave/next";
 import { getStackServerApp, isStackConfigured } from "../lib/stack";
 
 export const instant = false;

@@ -1011,6 +1011,11 @@ extension ReconnectRouteSelectionTests {
     @Test func switchingToIrohCapableMacUsesPinnedIrohRoute() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
+        // The stored row is untagged, so the host must be the same untagged
+        // build. A switch succeeds only when the live foreground matches the
+        // stored pairing's build identity (#10179), and the scripted host
+        // otherwise authenticates as tag "default".
+        await router.setHostIdentity(deviceID: "test-mac", instanceTag: nil)
         let box = TransportBox()
         let factory = KindRecordingTransportFactory(router: router, box: box)
         let store = try await makeReconnectStore(

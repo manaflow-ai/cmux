@@ -370,10 +370,12 @@ public struct MobileWorkspaceMovePolicy {
             return groupClamp
         }
         let pinnedCount = leadingGlobalPinnedRowCount(in: order)
-        if workspace.isPinned {
+        // Mirrors the macOS clamp: tier by the rendered pin, and never past
+        // the last index of the array the moved row is removed from (#13417).
+        if isGlobalPinnedRow(workspace) {
             return min(clamped, max(0, pinnedCount - 1))
         }
-        return max(clamped, pinnedCount)
+        return min(max(clamped, pinnedCount), max(0, order.count - 1))
     }
 
     private func clampedGroupedMemberIndex(

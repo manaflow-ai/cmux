@@ -47,6 +47,11 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
     public let id: UUID
     /// The display title (custom title falling back to the live title).
     public let title: String
+    /// The leading emoji in ``title``, when the title starts with one
+    /// (`workspaces[i].emoji`). This is omitted when the title has no leading
+    /// emoji so a sidebar can choose its own fallback without parsing title
+    /// text.
+    public let emoji: String?
     /// Whether this workspace is the selected one (`workspaces[i].selected`).
     public let isSelected: Bool
     /// Whether the workspace is pinned (`workspaces[i].pinned`).
@@ -59,6 +64,12 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
     public let listeningPorts: [Int]
     /// The workspace's unread count (`workspaces[i].unread`).
     public let unreadCount: Int
+    /// The workspace's resolved task-status lane (`workspaces[i].status`):
+    /// the raw wire value of `WorkspaceTaskStatus` — `todo`, `working`,
+    /// `needs-attention`, `review` or `done`. Carried as a string so this
+    /// package does not depend on the app-side enum, the same way
+    /// `ControlWorkspaceTodoStatusSnapshot` crosses its seam.
+    public let taskStatus: String
     /// Surfaces in pane order (`workspaces[i].tabs`).
     public let surfaces: [CustomSidebarSurfaceSnapshot]
     /// Total surface count across panes (`workspaces[i].tabCount`).
@@ -114,11 +125,15 @@ public struct CustomSidebarWorkspaceSnapshot: Sendable, Equatable {
         latestSubmittedAt: Date?,
         remote: Remote?,
         agents: [CustomSidebarAgentSnapshot] = [],
-        groupId: UUID? = nil
+        groupId: UUID? = nil,
+        taskStatus: String,
+        emoji: String? = nil
     ) {
+        self.taskStatus = taskStatus
         self.groupId = groupId
         self.id = id
         self.title = title
+        self.emoji = emoji
         self.isSelected = isSelected
         self.isPinned = isPinned
         self.index = index

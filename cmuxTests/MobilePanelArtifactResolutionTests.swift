@@ -42,6 +42,9 @@ struct MobilePanelArtifactResolutionTests {
         )
         #expect(resolved?.surfaceId == panel.id)
 
+        let inventory = TerminalController.shared.mobileSurfaceDescriptors(in: workspace)
+        #expect(inventory.contains { $0.surfaceID == panel.id.uuidString && $0.filePath == fileURL.path })
+
         let result = await TerminalController.shared.v2MobilePanelArtifactStat(params: [
             "workspace_id": workspace.id.uuidString,
             "surface_id": panel.id.uuidString,

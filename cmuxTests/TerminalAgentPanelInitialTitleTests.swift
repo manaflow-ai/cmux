@@ -13,7 +13,7 @@ struct TerminalAgentPanelInitialTitleTests {
     @Test
     func versionedClaudeTeammateNameIsTheInitialPanelTitle() {
         let command = """
-        cd /tmp/work && env CLAUDECODE=1 /Users/austin/.local/share/claude/versions/2.1.233 \
+        cd /tmp/work && env CLAUDECODE=1 /Users/dev/.local/share/claude/versions/2.1.233 \
           --agent-id PathScout2@session-87b88f27 \
           --agent-name PathScout2 \
           --team-name session-87b88f27 \
@@ -26,7 +26,7 @@ struct TerminalAgentPanelInitialTitleTests {
             initialCommand: command,
             runtimeSpawnPolicy: .heldForStartupRestoreAdmission
         )
-        defer { panel.surface.teardownSurface() }
+        defer { panel.surface.teardownHostedSurfaceForTesting() }
 
         #expect(panel.displayTitle == "PathScout2")
     }

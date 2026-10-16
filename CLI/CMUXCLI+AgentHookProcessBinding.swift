@@ -1,7 +1,59 @@
+import CmuxControlSocket
 import Darwin
 import Foundation
 
 extension CMUXCLI {
+    /// Resolves feed delivery from a live surface first, then the hook's
+    /// authoritative PID/TTY binding. Ambient surface IDs are never promoted.
+    func resolvedFeedDeliveryTarget(
+        workspaceId: String?,
+        surfaceId: String?,
+        agentPid: Int,
+        relayOrigin: Bool,
+        client: SocketClient,
+        deadline: Date
+    ) -> (workspaceId: String, surfaceId: String)? {
+        let isRemoteHook = relayOrigin || client.isRelayBacked
+        if isRemoteHook,
+           let workspaceRaw = workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let surfaceRaw = surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           UUID(uuidString: workspaceRaw) != nil,
+           UUID(uuidString: surfaceRaw) != nil,
+           let listed = try? client.sendV2(
+               method: "surface.list",
+               params: ["workspace_id": workspaceRaw],
+               responseTimeout: min(
+                   max(deadline.timeIntervalSinceNow - Self.feedAttentionSendReserveSeconds, 0.05),
+                   Self.feedAttentionProbeTimeoutCapSeconds
+               )
+           ),
+           let surfaces = listed["surfaces"] as? [[String: Any]],
+           let surface = surfaces.first(where: {
+               ($0["id"] as? String) == surfaceRaw || ($0["ref"] as? String) == surfaceRaw
+           }),
+           let liveSurface = (surface["id"] as? String).flatMap(UUID.init(uuidString:))
+        {
+            return (workspaceId: workspaceRaw, surfaceId: liveSurface.uuidString)
+        }
+        if let target = resolvedAttentionDeliveryTarget(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            client: client,
+            deadline: deadline
+        ) {
+            return target
+        }
+        // A relay hook's PID and TTY belong to the remote host. Never ask the
+        // local process table or ambient local TTY to choose its destination.
+        guard !isRemoteHook else { return nil }
+        guard let binding = resolveAgentHookProcessBinding(
+            pid: agentPid > 0 ? agentPid : nil,
+            resolution: .controllingTTY,
+            client: client
+        ).binding else { return nil }
+        return (workspaceId: binding.workspaceId, surfaceId: binding.surfaceId)
+    }
+
     func liveAgentControllingTTYBinding(
         pid: Int?,
         client: SocketClient
@@ -203,7 +255,16 @@ extension CMUXCLI {
                 clearedRecords.append(record)
                 continue
             }
-            let pidKey = "\(statusKey).\(record.sessionId)"
+            guard let pidKey = SocketCommandLine.agentHookPIDKeyArgument(
+                statusKey: statusKey,
+                sessionId: record.sessionId
+            ) else {
+                // A persisted session id that cannot be embedded as one socket
+                // argument is never dispatched; drain the record so cleanup
+                // does not retry it forever.
+                clearedRecords.append(record)
+                continue
+            }
             do {
                 _ = try sendV1Command(
                     "clear_agent_pid \(pidKey) --tab=\(record.workspaceId)\(socketPanelOption(record.surfaceId)) --clear-status --require-owned-key",

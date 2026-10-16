@@ -58,11 +58,15 @@ extension Workspace {
     }
 
     /// Canvas-mode directional focus: nearest pane spatially, then reveal it.
-    func moveCanvasFocus(direction: NavigationDirection) {
-        guard let from = focusedPanelId ?? orderedPanelIds.first else { return }
-        guard let target = canvasModel.pane(direction.canvasDirection, from: from) else { return }
+    @discardableResult
+    func moveCanvasFocus(direction: NavigationDirection) -> Bool {
+        guard let from = focusedPanelId ?? orderedPanelIds.first else { return false }
+        guard let target = canvasModel.pane(direction.canvasDirection, from: from) else {
+            return false
+        }
         focusPanel(target)
         canvasModel.viewport?.revealPane(target, animated: true)
+        return target != from
     }
 
     /// The bonsplit pane currently containing the panel's tab, used by
@@ -228,12 +232,14 @@ extension Workspace {
     /// as a tab of an existing pane), the automation counterpart to the
     /// canvas "new pane" gesture. Returns the new surface/panel UUID, or `nil`
     /// when creation fails (e.g. no focused bonsplit pane, or the browser is
-    /// disabled). Must be called in canvas mode.
+    /// disabled). Must be called in canvas mode. `animated` controls the
+    /// reveal pan; socket callers pass `false`.
     @discardableResult
     func openNewCanvasPane(
         type: CanvasNewPaneType,
         focus: Bool = true,
-        direction: CanvasDirection? = nil
+        direction: CanvasDirection? = nil,
+        animated: Bool = true
     ) -> UUID? {
         guard layoutMode == .canvas else { return nil }
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
@@ -269,7 +275,7 @@ extension Workspace {
         )
         focusPanel(newPanelId)
         canvasModel.viewport?.modelDidChangeExternally(animated: false)
-        canvasModel.viewport?.revealPane(newPanelId, animated: true)
+        canvasModel.viewport?.revealPane(newPanelId, animated: animated)
         return newPanelId
     }
 

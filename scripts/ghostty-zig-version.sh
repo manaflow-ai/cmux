@@ -47,6 +47,32 @@ ghostty_zig_version_is_compatible() {
      10#$actual_patch >= 10#$required_patch ))
 }
 
+ghostty_require_compatible_zig() {
+  local repo_root="${1:-}"
+  if [[ -z "$repo_root" ]]; then
+    repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  fi
+
+  if ! command -v zig >/dev/null 2>&1; then
+    echo "Error: zig is not installed." >&2
+    echo "Install via: brew install zig" >&2
+    return 1
+  fi
+
+  local required actual zig_path
+  required="$(ghostty_minimum_zig_version "$repo_root")"
+  actual="$(zig version 2>/dev/null || true)"
+  zig_path="$(command -v zig)"
+
+  if ! ghostty_zig_version_is_compatible "$actual" "$required"; then
+    echo "Error: Ghostty requires zig ${required} or a newer patch release in the same major/minor series, but ${zig_path} reports ${actual:-no version}." >&2
+    echo "Install or upgrade via: brew install zig" >&2
+    return 1
+  fi
+
+  echo "zig ${actual} found at ${zig_path}"
+}
+
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   ghostty_minimum_zig_version "${1:-}"
 fi

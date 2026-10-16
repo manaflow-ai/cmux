@@ -21,6 +21,8 @@ public struct ControlSurfaceSplitInputs: Sendable, Equatable {
     public let workingDirectory: String?
     /// The trimmed-non-empty `initial_command`, or `nil`.
     public let initialCommand: String?
+    /// The nonblank raw `initial_input`, preserving surrounding whitespace.
+    public let initialInput: String?
     /// The trimmed-non-empty `tmux_start_command`, or `nil`.
     public let tmuxStartCommand: String?
     /// The trimmed-non-empty `remote_pty_session_id`, or `nil`.
@@ -44,6 +46,7 @@ public struct ControlSurfaceSplitInputs: Sendable, Equatable {
         requestedSourceSurfaceID: UUID?,
         workingDirectory: String?,
         initialCommand: String?,
+        initialInput: String? = nil,
         tmuxStartCommand: String?,
         remotePTYSessionID: String?,
         remoteContextRaw: String?,
@@ -58,6 +61,7 @@ public struct ControlSurfaceSplitInputs: Sendable, Equatable {
         self.requestedSourceSurfaceID = requestedSourceSurfaceID
         self.workingDirectory = workingDirectory
         self.initialCommand = initialCommand
+        self.initialInput = initialInput
         self.tmuxStartCommand = tmuxStartCommand
         self.remotePTYSessionID = remotePTYSessionID
         self.remoteContextRaw = remoteContextRaw

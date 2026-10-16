@@ -1,19 +1,22 @@
 import Darwin
 import Foundation
 
-// `cmux coderouter <status|machines|claude>`: the team-level settings of the
+// `cmux coderouter <status|machines|claude|agent>`: the team-level settings and
+// routed-agent entrypoint for the
 // cmux coderouter model plane that Cloud machines route their agents through.
 // The CLI is presentation only; each verb maps to one `coderouter.*` socket
 // method handled by the app's `CoderouterClient`, which holds the Stack
 // session. Every other `cmux coderouter ...` verb, and all of `cmux cr ...`,
-// is exec'd into the installed CodeRouter CLI before any socket is opened.
+// runs the CodeRouter CLI through the shared launch path, including native
+// handoff for routed providers and installation when missing.
 extension CMUXCLI {
     static let coderouterUsage = """
-        Usage: cmux coderouter <status|machines|claude> [options]
+        Usage: cmux coderouter <status|machines|claude|agent> [options]
 
         Team settings for the cmux coderouter model plane that Cloud machines
         route codex, claude, pi, and opencode through. Any other verb, and every
-        `cmux cr ...`, runs the installed CodeRouter CLI unchanged.
+        `cmux cr ...`, runs the CodeRouter CLI unchanged, offering to install it
+        first when this machine has none.
 
           cmux coderouter status [--team <id>] [--json]
               Sign-in state, selected team, and the team's Claude upstream accounts.
@@ -21,15 +24,21 @@ extension CMUXCLI {
           cmux coderouter machines [--team <id>] [--json]
               30-day coderouter usage per Cloud machine (tokens, API-equivalent USD).
 
+          cmux coderouter agent <claude|codex|opencode|pi> [vm-agent-options] -- <prompt or args...>
+              Start an agent on a routed Cloud machine. This is the same path as
+              `cmux vm agent`; the `agent` form keeps CodeRouter and compute in
+              one command family.
+
           cmux coderouter claude list [--team <id>] [--json]
               Every Claude upstream account of the team: id, kind, masked
               identifier, label, health. Secrets are never printed. Alias: show.
 
           cmux coderouter claude add oauth-token [--label <s>] [--stdin] [--team <id>] [--json]
               Add a Claude Code OAuth token (sk-ant-oat01-...). Run
-              `claude setup-token` first, then paste the token at the hidden
-              prompt, or provide it in CLAUDE_CODE_OAUTH_TOKEN, or pipe it in
-              with --stdin. Never pass a token as an argument. Alias: set.
+              `claude setup-token` to mint one automatically, or provide it in
+              CLAUDE_CODE_OAUTH_TOKEN, or pipe it in with --stdin. Never pass
+              a token as an argument. Without --label, a terminal offers your
+              Claude Code login's email as the label. Alias: set.
 
           cmux coderouter claude add api-key [--label <s>] [--stdin] [--team <id>] [--json]
               Add an Anthropic API key (sk-ant-...) from ANTHROPIC_API_KEY,
@@ -55,7 +64,6 @@ extension CMUXCLI {
         Requires `cmux auth login` and a team where you can manage coderouter.
 
         Examples:
-          claude setup-token
           cmux coderouter claude add oauth-token --label work
           cmux coderouter claude list
           cmux coderouter machines --json
@@ -65,7 +73,7 @@ extension CMUXCLI {
     /// else keeps the pre-existing passthrough into the installed CodeRouter CLI,
     /// so `cmux coderouter accounts`, `cmux coderouter login`, and a bare
     /// `cmux coderouter` behave exactly as before.
-    static let cmuxOwnedCoderouterVerbs: Set<String> = ["status", "machines", "claude", "help", "--help", "-h"]
+    static let cmuxOwnedCoderouterVerbs: Set<String> = ["status", "machines", "claude", "agent", "help", "--help", "-h"]
 
     static func isCmuxOwnedCoderouterInvocation(_ args: [String]) -> Bool {
         guard let first = args.first?.lowercased() else { return false }
@@ -136,6 +144,9 @@ extension CMUXCLI {
         case "claude":
             try runCoderouterClaudeCommand(commandArgs: rest, client: client, jsonOutput: jsonOutput)
 
+        case "agent":
+            try runCoderouterAgentCommand(commandArgs: rest, client: client, jsonOutput: jsonOutput)
+
         default:
             throw CLIError(message: """
                 Unknown coderouter subcommand: \(sub)
@@ -143,6 +154,17 @@ extension CMUXCLI {
                 \(Self.coderouterUsage)
                 """)
         }
+    }
+
+    /// Routes the CodeRouter agent spelling through the existing VM-agent
+    /// implementation so machine selection, sync, detached terminals, and
+    /// reattach output have one owner.
+    private func runCoderouterAgentCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
+        if CmuxTuiRemoteRouting.vmAgentRequestsHelp(commandArgs) {
+            print(Self.vmAgentUsage.replacingOccurrences(of: "cmux vm agent", with: "cmux coderouter agent"))
+            return
+        }
+        try runVMAgentCommand(rest: Self.vmAgentAliasArgs(commandArgs), client: client, jsonOutput: jsonOutput)
     }
 
     private func runCoderouterClaudeCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
@@ -233,6 +255,10 @@ extension CMUXCLI {
         let (teamOpt, rem0) = parseOption(rest, name: "--team")
         let (labelOpt, rem1) = parseOption(rem0, name: "--label")
         var params: [String: Any] = teamParams(teamOpt)
+        // cmux-owned Claude accounts back Cloud machine routing and must be
+        // shared with the selected team, including in a personal scope where the
+        // API would otherwise keep a new import private.
+        params["visibility"] = "team"
         if let label = Self.nonEmpty(labelOpt) {
             params["label"] = label
         }
@@ -252,6 +278,16 @@ extension CMUXCLI {
             }
             params["kind"] = "anthropic_oauth"
             params["token"] = token
+            // A setup token cannot read its account's email, so offer the Claude
+            // Code login's email as the label and let the user confirm it: the
+            // browser step may have signed in to a different account.
+            if params["label"] == nil, !forceStdin, isatty(STDIN_FILENO) == 1,
+               let email = Self.claudeCodeLoginEmail() {
+                cliWriteStderr("Label (Enter for \(Self.sanitizeForTerminal(email))): ")
+                if let line = readLine(strippingNewline: true) {
+                    params["label"] = Self.nonEmpty(line.trimmingCharacters(in: .whitespaces)) ?? email
+                }
+            }
 
         case "api-key", "apikey", "anthropic-key":
             let forceStdin = rem1.contains("--stdin")
@@ -333,9 +369,10 @@ extension CMUXCLI {
     }
 
     /// Secret intake order: `--stdin` (or a non-TTY stdin) reads one line from
-    /// stdin; otherwise the named environment variable; otherwise a hidden
-    /// terminal prompt. Argv is deliberately not an option: it leaks into shell
-    /// history and process listings.
+    /// stdin; otherwise the named environment variable; for Claude Code OAuth,
+    /// a terminal runs `claude setup-token` and parses its output; otherwise a
+    /// hidden terminal prompt. Argv is deliberately not an option: it leaks
+    /// into shell history and process listings.
     private func readCoderouterSecret(label: String, envVar: String, forceStdin: Bool, hint: String) throws -> String {
         let stdinIsTerminal = isatty(STDIN_FILENO) == 1
         if forceStdin || !stdinIsTerminal {
@@ -352,11 +389,69 @@ extension CMUXCLI {
         if let fromEnv = Self.nonEmpty(ProcessInfo.processInfo.environment[envVar]) {
             return fromEnv
         }
+        if envVar == "CLAUDE_CODE_OAUTH_TOKEN",
+           let setupToken = try runClaudeSetupToken() {
+            return setupToken
+        }
         return try readHiddenTerminalLine(prompt: "\(label) (input hidden; \(hint.lowercased().hasSuffix(".") ? String(hint.dropLast()) : hint)): ")
     }
 
+    private func runClaudeSetupToken() throws -> String? {
+        let scriptPath = "/usr/bin/script"
+        guard FileManager.default.isExecutableFile(atPath: scriptPath) else {
+            return nil
+        }
+        cliWriteStderr("Running `claude setup-token`; finish the sign-in in your browser.\n")
+
+        let outputPipe = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: scriptPath)
+        process.arguments = ["-q", "/dev/null", "/usr/bin/env", "claude", "setup-token"]
+        process.standardInput = FileHandle.standardInput
+        process.standardOutput = outputPipe
+        process.standardError = FileHandle.standardError
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        let output = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            return nil
+        }
+
+        let text = String(decoding: output, as: UTF8.self)
+        Self.printRedactedClaudeSetupOutput(text)
+        return Self.firstClaudeSetupToken(in: text)
+    }
+
+    private static let claudeSetupTokenRegex = try! NSRegularExpression(
+        pattern: #"sk-ant-oat01-[A-Za-z0-9_-]{20,1000}"#
+    )
+
+    private static func firstClaudeSetupToken(in text: String) -> String? {
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = claudeSetupTokenRegex.firstMatch(in: text, range: range),
+              let tokenRange = Range(match.range, in: text) else {
+            return nil
+        }
+        return String(text[tokenRange])
+    }
+
+    private static func printRedactedClaudeSetupOutput(_ text: String) {
+        guard !text.isEmpty else { return }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        let redacted = claudeSetupTokenRegex.stringByReplacingMatches(
+            in: text,
+            range: range,
+            withTemplate: "[REDACTED]"
+        )
+        print(redacted, terminator: "")
+    }
+
     private func readHiddenTerminalLine(prompt: String) throws -> String {
-        FileHandle.standardError.write(Data(prompt.utf8))
+        cliWriteStderr(prompt)
         var original = termios()
         let hasTerminal = tcgetattr(STDIN_FILENO, &original) == 0
         if hasTerminal {
@@ -368,7 +463,7 @@ extension CMUXCLI {
             if hasTerminal {
                 _ = tcsetattr(STDIN_FILENO, TCSANOW, &original)
             }
-            FileHandle.standardError.write(Data("\n".utf8))
+            cliWriteStderr("\n")
         }
         guard let line = readLine(strippingNewline: true) else {
             throw CLIError(message: "No input received.")
@@ -528,6 +623,18 @@ extension CMUXCLI {
 
     private static func isCoderouterFlagToken(_ value: String) -> Bool {
         value.hasPrefix("-") && value != "-"
+    }
+
+    /// The email of the account Claude Code is logged in to, from the
+    /// `oauthAccount` that `/login` writes to `.claude.json`.
+    private static func claudeCodeLoginEmail() -> String? {
+        let env = ProcessInfo.processInfo.environment
+        let directory = nonEmpty(env["CLAUDE_CONFIG_DIR"]) ?? nonEmpty(env["HOME"]) ?? NSHomeDirectory()
+        let file = URL(fileURLWithPath: directory).appendingPathComponent(".claude.json")
+        guard let data = try? Data(contentsOf: file),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let account = root["oauthAccount"] as? [String: Any] else { return nil }
+        return nonEmpty((account["emailAddress"] as? String)?.trimmingCharacters(in: .whitespaces))
     }
 
     private static func nonEmpty(_ value: String?) -> String? {

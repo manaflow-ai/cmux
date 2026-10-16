@@ -1,17 +1,19 @@
+import CmuxAgentSessionStore
+
 /// Explicit executor boundary for the Vault's initial filesystem snapshot.
 struct SessionIndexSnapshotLoader: Sendable {
-    typealias LoadOperation = @Sendable () async -> [SessionEntry]
+    typealias LoadOperation = @Sendable (any AmpHookSessionReading) async -> [SessionEntry]
 
     private let loadOperation: LoadOperation
 
     init() {
-        self.loadOperation = {
-            await SessionIndexStore.loadInitialEntries()
+        self.loadOperation = { repository in
+            await SessionIndexStore.loadInitialEntries(ampSessionRepository: repository)
         }
     }
 
-    init(loadOperation: @escaping LoadOperation) {
-        self.loadOperation = loadOperation
+    init(loadOperation: @escaping @Sendable () async -> [SessionEntry]) {
+        self.loadOperation = { _ in await loadOperation() }
     }
 
 #if compiler(>=6.2)
@@ -19,7 +21,9 @@ struct SessionIndexSnapshotLoader: Sendable {
 #else
     @Sendable
 #endif
-    nonisolated func load() async -> [SessionEntry] {
-        await loadOperation()
+    nonisolated func load(
+        ampSessionRepository: any AmpHookSessionReading
+    ) async -> [SessionEntry] {
+        await loadOperation(ampSessionRepository)
     }
 }

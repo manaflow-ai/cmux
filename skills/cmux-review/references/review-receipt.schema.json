@@ -1,0 +1,553 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.dev/schemas/review-receipt.schema.json",
+  "title": "cmux review receipt",
+  "description": "Local, machine-readable record of one adversarial code review run.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_version",
+    "repository_root",
+    "source",
+    "ruleset_sha256",
+    "brief",
+    "summary",
+    "findings",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "policy_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repository_root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    },
+    "brief": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intent",
+        "requirements",
+        "out_of_scope_changes",
+        "behavior_changed",
+        "risk_areas",
+        "file_groups",
+        "reading_order",
+        "safeguards",
+        "coverage_gaps"
+      ],
+      "properties": {
+        "intent": {
+          "type": "string"
+        },
+        "behavior_changed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "risk_areas": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "level",
+              "area"
+            ],
+            "properties": {
+              "level": {
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ]
+              },
+              "area": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "file_groups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "label",
+              "paths"
+            ],
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "reading_order": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "safeguards": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "coverage_gaps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "requirement",
+              "status",
+              "evidence"
+            ],
+            "properties": {
+              "requirement": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "enum": [
+                  "satisfied",
+                  "missing",
+                  "uncertain"
+                ]
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "out_of_scope_changes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hypotheses_investigated",
+        "suppressed",
+        "refuted",
+        "verified",
+        "human_judgment"
+      ],
+      "properties": {
+        "hypotheses_investigated": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "suppressed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "refuted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "verified": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "human_judgment": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ruleset_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "severity",
+        "claims",
+        "failure_mode",
+        "paths",
+        "discovery_sources",
+        "challenge",
+        "verification",
+        "disposition"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "severity": {
+          "enum": [
+            "P0",
+            "P1",
+            "P2",
+            "P3"
+          ]
+        },
+        "failure_mode": {
+          "type": "string",
+          "minLength": 1
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "discovery_sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "challenge": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "disposition",
+            "evidence"
+          ],
+          "properties": {
+            "disposition": {
+              "enum": [
+                "refuted",
+                "survives_challenge",
+                "uncertain"
+              ]
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/evidence"
+              }
+            }
+          }
+        },
+        "verification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "result",
+            "evidence"
+          ],
+          "properties": {
+            "result": {
+              "enum": [
+                "reproduced",
+                "supported_static",
+                "not_reproduced",
+                "blocked",
+                "human_judgment"
+              ]
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/evidence"
+              }
+            }
+          }
+        },
+        "repair": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "attempted",
+            "result"
+          ],
+          "properties": {
+            "attempted": {
+              "type": "boolean"
+            },
+            "result": {
+              "enum": [
+                "fixed",
+                "failed",
+                "deferred",
+                "not_attempted"
+              ]
+            },
+            "notes": {
+              "type": "string"
+            },
+            "after_source": {
+              "$ref": "#/$defs/source"
+            },
+            "verification": {
+              "$ref": "#/$defs/post_repair_verification"
+            }
+          }
+        },
+        "disposition": {
+          "enum": [
+            "repaired",
+            "refuted",
+            "accepted_risk",
+            "superseded",
+            "human_required",
+            "unresolved",
+            "suppressed"
+          ]
+        },
+        "claims": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/claim"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "disposition"
+            ],
+            "properties": {
+              "disposition": {
+                "const": "repaired"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "repair"
+            ],
+            "properties": {
+              "repair": {
+                "type": "object",
+                "required": [
+                  "attempted",
+                  "result",
+                  "after_source",
+                  "verification"
+                ],
+                "properties": {
+                  "attempted": {
+                    "const": true
+                  },
+                  "result": {
+                    "const": "fixed"
+                  },
+                  "after_source": {
+                    "$ref": "#/$defs/source"
+                  },
+                  "verification": {
+                    "allOf": [
+                      {
+                        "$ref": "#/$defs/post_repair_verification"
+                      },
+                      {
+                        "properties": {
+                          "result": {
+                            "const": "passed"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "summary"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "code_path",
+            "guard",
+            "test",
+            "build",
+            "static_analysis",
+            "reproduction",
+            "runtime_trace",
+            "ui_automation",
+            "counterexample",
+            "human"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "command": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "message",
+        "evidence"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "proven",
+            "derived",
+            "observed",
+            "inferred",
+            "unknown"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository_id",
+        "base_sha",
+        "head_sha",
+        "tree_sha",
+        "working_tree_dirty",
+        "patch_sha256"
+      ],
+      "properties": {
+        "base_sha": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "head_sha": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "working_tree_dirty": {
+          "type": "boolean"
+        },
+        "tree_sha": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "patch_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "repository_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        }
+      }
+    },
+    "post_repair_verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result",
+        "evidence"
+      ],
+      "properties": {
+        "result": {
+          "enum": [
+            "passed",
+            "failed",
+            "blocked"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "minItems": 1
+        }
+      }
+    }
+  }
+}

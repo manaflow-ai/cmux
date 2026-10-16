@@ -18,6 +18,7 @@ import {
 } from "./repository";
 import {
   VmPublicationProvider,
+  VmPublicationProviderError,
   VmPublicationProviderLive,
   isFreestylePlatformHostname,
   publicationRoutingDnsInstruction,
@@ -26,8 +27,8 @@ import {
   type PublicationDomainVerification,
   type VmPublicationProviderShape,
 } from "./provider";
-import { friendlyPublicationLabel } from "./friendlyNames";
 import { normalizePublicationHostname } from "./security";
+import { CMUX_TUI_PORT } from "../vms/drivers/cmuxTuiDaemon";
 
 const FORWARD_AUTH_LEASE_MS = 30_000;
 // Publication routes have a 120-second execution budget. Keep the durable VM
@@ -39,6 +40,7 @@ export type PublicationPrincipal = {
   readonly teamIds: readonly string[];
   /** The account scope VM lookups follow (selected team or `X-Cmux-Team-Id`). */
   readonly billingTeamId?: string | null;
+  readonly organizationName?: string;
 };
 
 export type PublicationForwardAuthConfig = {
@@ -93,6 +95,9 @@ export type PublicationDto = {
   readonly domainKind: CloudVmDomainRow["kind"];
   readonly vmId: string;
   readonly port: number;
+  readonly publicPort: 443;
+  readonly targetPort: number;
+  readonly protocol: "https";
   readonly accessMode: CloudVmPublicationAccessMode;
   readonly teamId: string | null;
   readonly state: CloudVmPublicationRow["state"];
@@ -101,8 +106,12 @@ export type PublicationDto = {
 };
 
 export type PublicationInvalidReason =
+  | "invalid_email"
+  | "invalid_expiry"
+  | "public_confirmation_required"
   | "invalid_hostname"
   | "invalid_port"
+  | "reserved_port"
   | "invalid_access_mode"
   | "team_required"
   | "team_not_allowed"
@@ -113,7 +122,7 @@ export class PublicationInputError extends Data.TaggedError(
   "PublicationInputError",
 )<{
   readonly reason: PublicationInvalidReason;
-  readonly field: "hostname" | "port" | "accessMode" | "teamId";
+  readonly field: "hostname" | "port" | "accessMode" | "teamId" | "email" | "expiresAt";
 }> {}
 
 export class PublicationConfigurationError extends Data.TaggedError(
@@ -167,7 +176,7 @@ export function listPublications(input: {
   return Effect.gen(function* () {
     const repository = yield* CloudVmPublicationRepository;
     const targets = yield* repository.listOwnedPublications(input.principal.userId);
-    return targets.map(publicationDto);
+    return targets.filter((target) => publicationInCurrentAccount(target, input.principal)).map(publicationDto);
   });
 }
 
@@ -180,6 +189,8 @@ export function listCustomDomains(input: {
     const targets = yield* repository.listOwnedPublications(input.principal.userId);
     const byDomain = new Map<string, CloudVmPublicationTarget[]>();
     for (const target of targets) {
+      if (!publicationInCurrentAccount(target, input.principal)) continue;
+      if (!target.domain) continue;
       const bucket = byDomain.get(target.domain.id) ?? [];
       bucket.push(target);
       byDomain.set(target.domain.id, bucket);
@@ -266,7 +277,7 @@ export function verifyCustomDomain(input: {
         now,
       });
     }
-    if (domain.kind !== "custom") {
+    if (!domain || domain.kind !== "custom") {
       return yield* new PublicationNotFoundError({ resource: "domain" });
     }
 
@@ -323,6 +334,7 @@ export function verifyCustomDomain(input: {
         provider,
         domain,
         ownerUserId,
+        teamIds: input.principal.teamIds,
         forwardAuth: input.forwardAuth,
         now,
       });
@@ -332,7 +344,7 @@ export function verifyCustomDomain(input: {
       ownerUserId,
       domainId: domain.id,
     });
-    return customDomainDto(domain, targets);
+    return customDomainDto(domain, targets.filter((target) => publicationInCurrentAccount(target, input.principal)));
   });
 }
 
@@ -369,6 +381,7 @@ function provisionPublicationsWaitingOnZone(input: {
   readonly provider: VmPublicationProviderShape;
   readonly domain: CloudVmDomainRow;
   readonly ownerUserId: string;
+  readonly teamIds: readonly string[];
   readonly forwardAuth?: PublicationForwardAuthConfig;
   readonly now: Date;
 }) {
@@ -378,7 +391,10 @@ function provisionPublicationsWaitingOnZone(input: {
       domainId: input.domain.id,
     });
     for (const target of targets) {
-      if (target.publication.state !== "provisioning") continue;
+      if (!publicationInCurrentAccount(target, { userId: input.ownerUserId, teamIds: input.teamIds })) continue;
+      // An `unavailable` row failed at the provider; a zone verification is
+      // the automatic retry for both, so a transient error never strands it.
+      if (target.publication.state !== "provisioning" && target.publication.state !== "unavailable") continue;
       const attempt = yield* Effect.either(provisionReservedPublication({
         repository: input.repository,
         provider: input.provider,
@@ -438,7 +454,8 @@ export function createPublication(input: {
   readonly providerVmId: string;
   readonly port: number;
   readonly hostname?: string;
-  readonly accessMode: CloudVmPublicationAccessMode;
+  readonly accessMode?: CloudVmPublicationAccessMode;
+  readonly organizationSlug?: string;
   readonly teamId?: string | null;
   readonly forwardAuth?: PublicationForwardAuthConfig;
   readonly now?: Date;
@@ -451,13 +468,21 @@ export function createPublication(input: {
     const repository = yield* CloudVmPublicationRepository;
     const provider = yield* VmPublicationProvider;
     const now = input.now ?? new Date();
+    const owningTeamId = input.principal.billingTeamId && input.principal.billingTeamId !== input.principal.userId
+      ? input.principal.billingTeamId : null;
+    const accessMode = input.accessMode ?? (owningTeamId ? "team" : "personal");
     const access = yield* validateAccessPolicy(
-      input.accessMode,
-      input.teamId,
+      accessMode,
+      input.teamId ?? (accessMode === "team" ? owningTeamId : null),
       input.principal.teamIds,
     );
     if (!Number.isInteger(input.port) || input.port < 1 || input.port > 65_535) {
       return yield* new PublicationInputError({ reason: "invalid_port", field: "port" });
+    }
+    // The cmux-tui daemon trusts every carrier link: it is reachable only over
+    // the VM's private VPC, never through a publication.
+    if (input.port === CMUX_TUI_PORT) {
+      return yield* new PublicationInputError({ reason: "reserved_port", field: "port" });
     }
 
     // Publication ingress is a Freestyle TLS capability. Keeping this literal
@@ -468,7 +493,20 @@ export function createPublication(input: {
       input.generatedDomain,
     );
     const isCustom = input.hostname !== undefined;
-    let target = yield* reservePublicationTarget({
+    let target = !isCustom && input.generatedHostname === undefined
+      ? yield* repository.reserveManagedPublication({
+        ownerUserId: input.principal.userId,
+        billingTeamId: input.principal.billingTeamId,
+        teamIds: input.principal.teamIds,
+        providerVmId: input.providerVmId,
+        organizationName: input.principal.organizationName,
+        organizationSlug: input.organizationSlug,
+        generatedDomain,
+        port: input.port,
+        ...access,
+        now,
+      })
+      : yield* reservePublicationTarget({
       repository,
       principal: input.principal,
       providerId,
@@ -480,22 +518,27 @@ export function createPublication(input: {
       generatedDomain,
       now,
     });
+    // Reopening an existing publication never changes its access policy or target.
+    if (target.publication.state === "active") return publicationDto(target);
     let domain = target.domain;
 
     // Customer DNS must be installed before CMUX creates the ingress rule.
     // Reserve the owned/running Freestyle VM first, so an invalid VM id can
     // never leave an external verification orphan. The verify operation can
     // resume this durable provisioning record after any provider failure.
-    if (isCustom) {
+    if (isCustom && domain) {
       if (domain.verificationState !== "verified") {
-        domain = yield* ensureCustomDomainVerification({
+        // A provider failure here strands the reserved row just like one in
+        // provisioning: mark it unavailable, which verify and every zone
+        // verification still retry.
+        domain = yield* markUnavailableOnProviderFailure({ repository, target, now }, ensureCustomDomainVerification({
           repository,
           provider,
           domain,
           publicationHostname: target.publication.hostname,
           ownerUserId: input.principal.userId,
           now,
-        });
+        }));
         target = { ...target, domain };
       }
       if (domain.verificationState !== "verified") return publicationDto(target);
@@ -505,7 +548,7 @@ export function createPublication(input: {
       repository,
       provider,
       target,
-      ownerUserId: input.principal.userId,
+      ownerUserId: target.publication.ownerUserId,
       forwardAuth: input.forwardAuth,
       now,
     });
@@ -528,13 +571,14 @@ export function verifyPublication(input: {
       repository,
       input.publicationId,
       input.principal.userId,
+      input.principal.teamIds,
     );
 
     if (target.publication.state === "disabled" || target.publication.state === "disabling") {
       return yield* new PublicationConflictError({ reason: "publication_not_active" });
     }
 
-    if (target.domain.kind === "custom" && target.domain.verificationState !== "verified") {
+    if (target.domain?.kind === "custom" && target.domain.verificationState !== "verified") {
       let domain = yield* ensureCustomDomainVerification({
         repository,
         provider,
@@ -574,15 +618,15 @@ export function verifyPublication(input: {
     }
 
     if (target.publication.state === "active") {
-      const certificate = target.domain.kind === "custom"
+      const certificate = target.domain?.kind === "custom"
         ? yield* provider.getWildcardCertificateStatus(target.domain.hostname)
         : yield* provider.getCertificateStatus(target.publication.hostname);
-      const domain = yield* repository.updateDomainState({
+      const domain = target.domain ? yield* repository.updateDomainState({
         id: target.domain.id,
         ownerUserId: input.principal.userId,
         certificateState: certificate.state,
         now,
-      });
+      }) : null;
       return publicationDto({ ...target, domain });
     }
 
@@ -620,8 +664,15 @@ export function updatePublicationAccess(input: {
       repository,
       input.publicationId,
       input.principal.userId,
+      input.principal.teamIds,
     );
     const publication = target.publication;
+    if (access.accessMode === "team" && target.vm.billingTeamId && access.teamId !== target.vm.billingTeamId) {
+      return yield* new PublicationConflictError({ reason: "invalid_access_policy" });
+    }
+    if (publication.state === "unavailable") {
+      return yield* new PublicationConflictError({ reason: "publication_failed" });
+    }
     if (publication.state !== "active") {
       return yield* new PublicationProvisioningBusyError({
         retryAt: new Date(now.getTime() + 5_000),
@@ -759,6 +810,7 @@ export function deletePublication(input: {
       repository,
       input.publicationId,
       input.principal.userId,
+      input.principal.teamIds,
     );
     if (target.publication.state === "disabled") {
       return { deleted: true as const, id: target.publication.id };
@@ -784,10 +836,18 @@ export function deletePublication(input: {
         publicationId: disabling.id,
         now,
       });
-      // Sweep by exact hostname, not just the persisted id. Reconcile may have
-      // created a rule immediately before a process died, and retries can leave
-      // duplicate exact-host rules that no local row names yet.
-      yield* provider.deleteTlsRulesForHostname(target.publication.hostname);
+      // The persisted id, plus (for a claimed hostname) crash-window
+      // duplicates on this publication's own VM that no local row names yet.
+      // Never every rule for the hostname: an unclaimed row shares it with
+      // the claimed owner's live rule.
+      // Ownership comes from the row locked by beginDisable, not the pre-lease
+      // read: a provision that finished in between recorded its rule there.
+      yield* provider.deletePublicationTlsRules([{
+        hostname: disabling.hostname,
+        providerVmId: target.vm.providerVmId,
+        providerTlsRuleId: disabling.providerTlsRuleId,
+        hostnameClaimed: disabling.hostnameClaimedAt !== null,
+      }]);
       yield* repository.finishDisablePublication({ id: disabling.id, now });
       return { deleted: true as const, id: disabling.id };
     }));
@@ -879,27 +939,6 @@ export function isWithinGeneratedPublicationZone(
   return hostname === generatedDomain || hostname.endsWith(`.${generatedDomain}`);
 }
 
-const GENERATED_HOSTNAME_ATTEMPTS = 6;
-const GENERATED_HOSTNAME_PLAIN_ATTEMPTS = 3;
-
-/**
- * Friendly names such as `laughing-green-elephants.cmux.sh`. After a few
- * collisions a short random suffix keeps a busy zone minting quickly instead
- * of exhausting the vocabulary.
- */
-function generatedPublicationHostname(generatedDomain: string, attempt: number): string {
-  const suffix = attempt < GENERATED_HOSTNAME_PLAIN_ATTEMPTS
-    ? ""
-    : `-${randomUUID().replaceAll("-", "").slice(0, 4)}`;
-  return `${friendlyPublicationLabel()}${suffix}.${generatedDomain}`;
-}
-
-/**
- * Reserve the publication hostname. A generated name is minted here and, when
- * another account already holds it, minted again: the database's global
- * hostname claim is the arbiter, and a customer never sees another tenant's
- * random collision. Customer-chosen hostnames surface their conflicts as-is.
- */
 function reservePublicationTarget(input: {
   readonly repository: CloudVmPublicationRepositoryShape;
   readonly principal: PublicationPrincipal;
@@ -914,50 +953,17 @@ function reservePublicationTarget(input: {
 }) {
   return Effect.gen(function* () {
     const isCustom = input.hostname !== undefined;
-    const retryGeneratedName = !isCustom && input.generatedHostname === undefined;
-    const ownedDomains = isCustom
-      ? yield* input.repository.listOwnedDomains(input.principal.userId)
-      : [];
-    for (let attempt = 0; ; attempt++) {
-      const hostname = yield* normalizedRequestedHostname(
-        input.hostname ??
-          input.generatedHostname ??
-          generatedPublicationHostname(input.generatedDomain, attempt),
-        isCustom,
-        input.generatedDomain,
-      );
-      const coveringDomain = isCustom
-        ? longestCoveringDomain(ownedDomains, input.providerId, hostname)
-        : null;
-      const shared = {
-        ownerUserId: input.principal.userId,
-        billingTeamId: input.principal.billingTeamId,
-        teamIds: input.principal.teamIds,
-        provider: input.providerId,
-        providerVmId: input.providerVmId,
-        hostname,
-        port: input.port,
-        accessMode: input.access.accessMode,
-        teamId: input.access.teamId,
-        now: input.now,
-      } as const;
-      const reservation = yield* Effect.either(
-        coveringDomain
-          ? input.repository.reservePublication({ ...shared, domainId: coveringDomain.id })
-          : input.repository.reservePublicationWithNewDomain({
-            ...shared,
-            domainHostname: hostname,
-            kind: isCustom ? "custom" : "generated",
-          }),
-      );
-      if (reservation._tag === "Right") return reservation.right;
-      const collided =
-        reservation.left._tag === "PublicationConflictError" &&
-        reservation.left.reason === "hostname_taken";
-      if (!retryGeneratedName || !collided || attempt + 1 >= GENERATED_HOSTNAME_ATTEMPTS) {
-        return yield* Effect.fail(reservation.left);
-      }
-    }
+    const hostname = yield* normalizedRequestedHostname(input.hostname ?? input.generatedHostname ?? "", isCustom, input.generatedDomain);
+    const ownedDomains = isCustom ? yield* input.repository.listOwnedDomains(input.principal.userId) : [];
+    const coveringDomain = isCustom ? longestCoveringDomain(ownedDomains, input.providerId, hostname) : null;
+    const shared = {
+      ownerUserId: input.principal.userId, billingTeamId: input.principal.billingTeamId,
+      teamIds: input.principal.teamIds, provider: input.providerId, providerVmId: input.providerVmId,
+      hostname, port: input.port, accessMode: input.access.accessMode, teamId: input.access.teamId, now: input.now,
+    } as const;
+    return yield* coveringDomain
+      ? input.repository.reservePublication({ ...shared, domainId: coveringDomain.id })
+      : input.repository.reservePublicationWithNewDomain({ ...shared, domainHostname: hostname, kind: isCustom ? "custom" : "generated" });
   });
 }
 
@@ -1033,6 +1039,40 @@ function ensureCustomDomainVerification(input: {
   });
 }
 
+/**
+ * Report a provider failure to the state machine (PUBLICATION_PROVISIONING_STATES
+ * in repository.ts). The repository decides: a row with no recorded rule moves
+ * to `unavailable`, which PATCH refuses with `publication_failed` and verify
+ * and zone verification retry; a row whose rule is recorded stays
+ * `provisioning`. Left `provisioning`, it read as "already being configured" and
+ * every PATCH answered a retryable 503 forever. Marking is best-effort and
+ * never replaces the provider's error.
+ */
+function markUnavailableOnProviderFailure<A, E, R>(
+  input: {
+    readonly repository: CloudVmPublicationRepositoryShape;
+    readonly target: CloudVmPublicationTarget;
+    readonly now: Date;
+  },
+  operation: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> {
+  return operation.pipe(Effect.tapError((error) => {
+    if (!(error instanceof VmPublicationProviderError)) return Effect.void;
+    // Suspended so a repository that throws while building its effect is
+    // caught below like any other marking failure.
+    return Effect.suspend(() => input.repository.markPublicationUnavailable({
+      id: input.target.publication.id,
+      expectedRoutingRevision: input.target.publication.routingRevision,
+      now: input.now,
+    })).pipe(
+      Effect.asVoid,
+      Effect.catchAllCause((cause) => Effect.sync(() => {
+        console.error("[vm-publications] could not mark a failed publication unavailable", input.target.publication.id, cause);
+      })),
+    );
+  }));
+}
+
 function provisionReservedPublication(input: {
   readonly repository: CloudVmPublicationRepositoryShape;
   readonly provider: VmPublicationProviderShape;
@@ -1048,9 +1088,9 @@ function provisionReservedPublication(input: {
       publicationId: input.target.publication.id,
       ownerUserId: input.ownerUserId,
       now: input.now,
-    }, Effect.gen(function* () {
+    }, markUnavailableOnProviderFailure(input, Effect.gen(function* () {
       let domain = input.target.domain;
-      if (domain.kind === "custom") {
+      if (domain?.kind === "custom") {
         if (domain.verificationState !== "verified") {
           return yield* new PublicationConflictError({
             reason: "publication_not_active",
@@ -1099,7 +1139,7 @@ function provisionReservedPublication(input: {
       const certificate = yield* input.provider.getCertificateStatus(
         input.target.publication.hostname,
       );
-      if (domain.kind === "generated") {
+      if (domain?.kind === "generated") {
         domain = yield* input.repository.updateDomainState({
           id: domain.id,
           ownerUserId: input.ownerUserId,
@@ -1119,7 +1159,7 @@ function provisionReservedPublication(input: {
         now: input.now,
       });
       return { ...input.target, publication: active, domain };
-    }));
+    })));
   });
 }
 
@@ -1238,10 +1278,11 @@ const UUID_PATTERN =
  * Every mutation addresses a publication by its live hostname or by its id.
  * An id never parses as a hostname (it has no dots), so the two cannot collide.
  */
-function requireOwnedPublication(
+export function requireOwnedPublication(
   repository: CloudVmPublicationRepositoryShape,
   reference: string,
   ownerUserId: string,
+  teamIds: readonly string[],
 ) {
   return Effect.gen(function* () {
     const trimmed = reference.trim();
@@ -1249,11 +1290,18 @@ function requireOwnedPublication(
     const target = hostname
       ? yield* repository.findOwnedPublicationByHostname({ hostname, ownerUserId })
       : yield* repository.findOwnedPublication({ id: trimmed, ownerUserId });
-    if (!target) {
+    if (!target || !publicationInCurrentAccount(target, { userId: ownerUserId, teamIds })) {
       return yield* new PublicationNotFoundError({ resource: "publication" });
     }
     return target;
   });
+}
+
+/** Creation is not a durable team permission: every management path rechecks membership. */
+function publicationInCurrentAccount(target: CloudVmPublicationTarget, principal: PublicationPrincipal): boolean {
+  const scope = target.vm.billingTeamId;
+  return target.publication.ownerUserId === principal.userId &&
+    (!scope || scope === principal.userId || principal.teamIds.includes(scope));
 }
 
 function requireProviderVmId(target: CloudVmPublicationTarget) {
@@ -1294,9 +1342,12 @@ function publicationDto(target: CloudVmPublicationTarget): PublicationDto {
     id: target.publication.id,
     hostname: target.publication.hostname,
     url: `https://${target.publication.hostname}`,
-    domainKind: target.domain.kind,
+    domainKind: target.domain?.kind ?? "generated",
     vmId: target.vm.providerVmId ?? target.vm.id,
     port: target.publication.port,
+    targetPort: target.publication.port,
+    publicPort: 443,
+    protocol: "https",
     accessMode: target.publication.accessMode,
     teamId: target.publication.teamId,
     state: target.publication.state,
@@ -1309,10 +1360,10 @@ function publicationDto(target: CloudVmPublicationTarget): PublicationDto {
 }
 
 function publicationVerificationDto(
-  domain: CloudVmDomainRow,
+  domain: CloudVmDomainRow | null,
   publicationHostname: string,
 ): PublicationVerificationDto | null {
-  if (domain.kind !== "custom" || !domain.providerVerificationId) return null;
+  if (!domain || domain.kind !== "custom" || !domain.providerVerificationId) return null;
   const verification = domain.verificationRecords.find(
     (record) => record.purpose === "verification",
   );

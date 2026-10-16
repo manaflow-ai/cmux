@@ -352,6 +352,56 @@ struct GitHubPullRequestRequestTests {
         #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 1)
     }
 
+    @Test func secondaryRateLimitAcceptsHTTPDateRetryAfter() async {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let retryDate = now.addingTimeInterval(120)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss 'GMT'"
+        GitHubPullRequestStubURLProtocol.reset(stubs: [
+            .init(
+                statusCode: 429,
+                headers: ["Retry-After": formatter.string(from: retryDate)]
+            ),
+        ])
+        let coordinator = GitHubPullRequestRequestCoordinator(
+            session: makeSession(),
+            now: { now }
+        )
+
+        _ = await coordinator.response(
+            endpoint: endpoint,
+            authHeader: "Bearer test-token"
+        )
+
+        #expect(
+            await coordinator.retryDate(authHeader: "Bearer test-token")
+                == retryDate
+        )
+    }
+
+    @Test func bareRateLimitUsesConservativeRetryFloor() async {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        GitHubPullRequestStubURLProtocol.reset(stubs: [
+            .init(statusCode: 429),
+        ])
+        let coordinator = GitHubPullRequestRequestCoordinator(
+            session: makeSession(),
+            now: { now }
+        )
+
+        _ = await coordinator.response(
+            endpoint: endpoint,
+            authHeader: "Bearer test-token"
+        )
+
+        #expect(
+            await coordinator.retryDate(authHeader: "Bearer test-token")
+                == now.addingTimeInterval(60)
+        )
+    }
+
     @Test func duplicateEndpointRequestsShareOneInFlightTransport() async {
         let body = Data("[]".utf8)
         let requestsStarted = GitHubPullRequestStubURLProtocol.reset(stubs: [

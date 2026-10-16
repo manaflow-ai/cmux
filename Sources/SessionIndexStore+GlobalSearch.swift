@@ -1,4 +1,5 @@
 import Foundation
+import CmuxAgentSessionStore
 
 // MARK: - Global (cross-agent) session search for the recency "All" view and
 // the `cmux vault search` socket surface.
@@ -18,7 +19,42 @@ extension SessionIndexStore {
         await Self.searchAllSessions(
             rawQuery: rawQuery,
             entries: entries,
-            scopedDirectory: scopeToCurrentDirectory ? currentDirectory : nil
+            scopedDirectory: scopeToCurrentDirectory ? currentDirectory : nil,
+            ampSessionRepository: ampSessionRepository
+        )
+    }
+
+    /// Loads a larger bounded recent-session slice for callers that have
+    /// exhausted the initial Vault preview. This deliberately reuses the same
+    /// per-agent readers, registry, caps, and error policy as Vault instead of
+    /// introducing a second history index.
+    func loadRecentSessions(
+        limitPerAgent: Int,
+        offsetPerAgent: Int = 0
+    ) async -> SearchOutcome {
+        let safeLimit = min(max(limitPerAgent, 1), Self.searchMaxFiles)
+        let safeOffset = min(max(offsetPerAgent, 0), Self.searchMaxFiles)
+        let bag = ErrorBag()
+        let order = await Self.defaultAgentOrder(workingDirectory: nil)
+        let combined = await Self.loadAgents(
+            order.agents,
+            registry: order.registry,
+            ampSessionRepository: ampSessionRepository,
+            needle: "",
+            cwdFilter: nil,
+            offset: safeOffset,
+            limit: safeLimit,
+            errorBag: bag
+        )
+        guard !Task.isCancelled else {
+            return SearchOutcome(entries: [], errors: [])
+        }
+        return SearchOutcome(
+            entries: combined.sorted { lhs, rhs in
+                if lhs.modified != rhs.modified { return lhs.modified > rhs.modified }
+                return lhs.id < rhs.id
+            },
+            errors: bag.snapshot()
         )
     }
 
@@ -34,7 +70,8 @@ extension SessionIndexStore {
     nonisolated static func searchAllSessions(
         rawQuery: String,
         entries: [SessionEntry],
-        scopedDirectory: String?
+        scopedDirectory: String?,
+        ampSessionRepository: any AmpHookSessionReading
     ) async -> SearchOutcome {
         let query = VaultSessionSearchQuery.parse(rawQuery)
         guard !query.isEmpty else {
@@ -86,7 +123,8 @@ extension SessionIndexStore {
                                 offset: 0,
                                 limit: Self.globalSearchPerAgentLimit,
                                 errorBag: bag,
-                                registry: registry
+                                registry: registry,
+                                ampSessionRepository: ampSessionRepository
                             )
                         }
                     }

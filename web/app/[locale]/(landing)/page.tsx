@@ -464,7 +464,7 @@ function HomeContent() {
                   ),
                   mailLink: (chunks) => (
                     <a
-                      href="mailto:founders@manaflow.com?subject=%5Bcmux%20feature%20request%20landing%5D&body=Hi%20cmux%20team%2C%20"
+                      href="mailto:founders@cmux.com?subject=%5Bcmux%20feature%20request%20landing%5D&body=Hi%20cmux%20team%2C%20"
                       className={linkClass}
                     >
                       {chunks}

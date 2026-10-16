@@ -34,6 +34,17 @@ let moreAccounts: ClaudeUpstream[] = [];
 let cooldowns: { accountId: string; durationMs: number; failureCode: string }[] = [];
 let touched: string[] = [];
 let events: { event: string; teamId?: string; properties?: Record<string, unknown> }[] = [];
+/** Logical clock for capacity holds; `holdSleep` advances it instead of waiting. */
+let clock = 0;
+let sleeps: number[] = [];
+const holdRuntime = {
+  now: () => clock,
+  sleep: async (ms: number) => {
+    sleeps.push(ms);
+    clock += ms;
+  },
+  random: () => 0,
+};
 
 function ok(vmId: string | null = "vm-1"): RouteTokenAuthResult {
   return {
@@ -49,7 +60,9 @@ const dependencies: ClaudeProxyDependencies = {
     if (all.length === 0) return { kind: "none" };
     const excluded = new Set(input.excludedAccountIds ?? []);
     const healthy = all.filter((candidate) => !excluded.has(candidate.accountId));
-    if (healthy.length === 0) return { kind: "exhausted", total: all.length, retryAfterSeconds: 7 };
+    if (healthy.length === 0) {
+      return { kind: "exhausted", total: all.length, retryAfterSeconds: 7, capacityRetryAfterSeconds: 7 };
+    }
     return { kind: "selected", upstream: healthy[0]!, total: all.length, healthy: healthy.length };
   },
   cooldown: async (accountId, durationMs, failureCode) => {
@@ -72,7 +85,7 @@ const dependencies: ClaudeProxyDependencies = {
   },
 };
 
-const messages = createClaudeMessagesProxy(dependencies);
+const messages = createClaudeMessagesProxy(dependencies, holdRuntime);
 
 /**
  * Runs one messages call inside a coderouter request context and returns the
@@ -180,6 +193,8 @@ function requestHeaders(call: FetchCall): Headers {
 }
 
 beforeEach(() => {
+  clock = 0;
+  sleeps = [];
   fetchCalls = [];
   moreAccounts = [];
   cooldowns = [];
@@ -228,21 +243,31 @@ describe("claude proxy auth", () => {
     expect((await response.json()).error.message).toContain("different Cloud VM");
   });
 
-  test("returns 503 when the team has no Claude upstream", async () => {
+  test("answers a team with no Claude upstream with a terminal 403", async () => {
     upstream = null;
+    authResult = ok(null);
     const { response, outcome } = await routed(messagesRequest());
-    expect(response.status).toBe(503);
+    // Claude Code retries 408/409/429/5xx; a 403 permission_error surfaces once.
+    expect(response.status).toBe(403);
+    expect(response.headers.get("retry-after")).toBeNull();
     expect(await response.json()).toEqual({
       type: "error",
       error: {
-        type: "api_error",
-        message: "No Claude upstream account is configured for this team. Add one with `cmux coderouter claude add` or at coderouter.dev.",
+        type: "permission_error",
+        message: "No Claude upstream account is configured for this team or shared with this caller. Add one with `cmux coderouter claude add` or at coderouter.dev.",
       },
     });
     expect(outcome).toMatchObject({
       outcome: "no_usable_account",
       failureStage: "provider_config",
     });
+  });
+
+  test("tells a Cloud machine that private Claude accounts must be shared with its team", async () => {
+    upstream = null;
+    const { response } = await routed(messagesRequest());
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.message).toBe("No Claude upstream account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, or add one here with `cr add claude` (accounts added on a Cloud machine are shared with its team). Or use your own Claude account on this machine: run `cr use own claude` (on older machines, `unset ANTHROPIC_API_KEY ANTHROPIC_BASE_URL` in the terminal instead), then restart claude and sign in with /login.");
   });
 });
 
@@ -279,39 +304,14 @@ describe("claude proxy direct Anthropic upstreams", () => {
   test("captures usage from the pass-through stream without buffering it", async () => {
     const response = await messages(messagesRequest());
     await response.text();
-    const usage = events.find((event) => event.event === "coderouter_model_request_completed");
-    const { duration_ms: usageDurationMs, request_id: usageRequestId, ...usageProperties } = usage?.properties ?? {};
-    expect(typeof usageDurationMs).toBe("number");
-    expect(usageRequestId).toBe("unscoped");
-    expect({ ...usage, properties: usageProperties }).toEqual({
-      event: "coderouter_model_request_completed",
-      teamId: "team-1",
-      properties: {
-        provider: "claude",
-        upstream_account_id: "acct-api-1",
-        upstream_kind: "anthropic_api_key",
-        model: "claude-sonnet-4-5-20250929",
-        input_tokens: 115,
-        cached_input_tokens: 100,
-        output_tokens: 42,
-        total_tokens: 157,
-        vm_id: "vm-1",
-        // Trace linkage for the PostHog `$ai_generation`: the ledger request
-        // id shared with the ClickHouse route row, latency to stream end, the
-        // upstream status and whether the body streamed.
-        status: 200,
-        response_streamed: true,
-      },
-    });
-    expect(usageRequestId).toBe("unscoped");
+    expect(events.find((event) => event.event === "coderouter_model_request_completed")).toBeUndefined();
   });
 
   test("omits vm_id for an unbound CLI token", async () => {
     authResult = ok(null);
     const response = await messages(messagesRequest());
     await response.text();
-    const usage = events.find((event) => event.event === "coderouter_model_request_completed");
-    expect(usage?.properties).not.toHaveProperty("vm_id");
+    expect(events.find((event) => event.event === "coderouter_model_request_completed")).toBeUndefined();
   });
 
   test("uses a bearer OAuth token and adds the oauth beta flag", async () => {
@@ -411,13 +411,7 @@ describe("claude proxy Bedrock upstream", () => {
     const json = await response.json();
     expect(json.model).toBe("claude-sonnet-4-5");
     expect(response.headers.get("request-id")).toBe("aws-req-1");
-    const usage = events.find((event) => event.event === "coderouter_model_request_completed");
-    expect(usage?.properties).toMatchObject({
-      upstream_kind: "bedrock",
-      model: "claude-sonnet-4-5",
-      input_tokens: 3,
-      output_tokens: 4,
-    });
+    expect(events.find((event) => event.event === "coderouter_model_request_completed")).toBeUndefined();
   });
 
   test("converts the AWS event stream into Anthropic SSE", async () => {
@@ -475,14 +469,7 @@ describe("claude proxy Bedrock upstream", () => {
       'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}',
     );
     expect(blocks[3]).toBe('event: message_stop\ndata: {"type":"message_stop"}');
-    const usage = events.find((event) => event.event === "coderouter_model_request_completed");
-    expect(usage?.properties).toMatchObject({
-      upstream_kind: "bedrock",
-      model: "claude-sonnet-4-5",
-      input_tokens: 20,
-      output_tokens: 7,
-      total_tokens: 27,
-    });
+    expect(events.find((event) => event.event === "coderouter_model_request_completed")).toBeUndefined();
   });
 
   test("surfaces stream exceptions as Anthropic error events", async () => {
@@ -579,6 +566,63 @@ describe("claude proxy failover across accounts", () => {
     secret: { kind: "anthropic_api_key", apiKey: "sk-ant-api03-second-key-value-5678" },
   };
 
+  test("keeps probing through metadata before an overloaded SSE event", async () => {
+    upstream = apiKeyUpstream;
+    moreAccounts = [secondApiKey];
+    const responses = [
+      () => new Response([
+        sseStream([{ type: "message_start", data: { message: { id: "msg-metadata" } } }]),
+        'event: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}\n\n',
+      ].join(""), { status: 200, headers: { "content-type": "text/event-stream" } }),
+      () => Response.json({ id: "msg-after-metadata", model: "claude-sonnet-4-5", usage: { input_tokens: 1, output_tokens: 1 } }),
+    ];
+    upstreamResponse = () => responses.shift()!();
+    const { response } = await routed(messagesRequest({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "hi" }] }));
+    expect(response.status).toBe(200);
+    expect(fetchCalls).toHaveLength(2);
+    expect(cooldowns).toEqual([{ accountId: "acct-api-1", durationMs: 20_000, failureCode: "upstream_unavailable" }]);
+    expect((await response.json()).id).toBe("msg-after-metadata");
+  });
+
+  test("aborts an idle Claude probe when the request is cancelled", async () => {
+    let resolveFetch: (() => void) | undefined;
+    const fetchStarted = new Promise<void>((resolve) => { resolveFetch = resolve; });
+    let cancelled = false;
+    upstreamResponse = () => {
+      resolveFetch?.();
+      return new Response(new ReadableStream<Uint8Array>({
+        cancel() {
+          cancelled = true;
+        },
+      }), { status: 200, headers: { "content-type": "text/event-stream" } });
+    };
+    const controller = new AbortController();
+    const request = new Request(messagesRequest(), { signal: controller.signal });
+    const pending = messages(request);
+    await fetchStarted;
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(cancelled).toBe(true);
+  });
+
+  test("fails over an overloaded error embedded in a 200 SSE stream", async () => {
+    upstream = apiKeyUpstream;
+    moreAccounts = [secondApiKey];
+    const responses = [
+      () => new Response(
+        'event: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}\n\n',
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      ),
+      () => Response.json({ id: "msg-stream-2", model: "claude-sonnet-4-5", usage: { input_tokens: 1, output_tokens: 1 } }),
+    ];
+    upstreamResponse = () => responses.shift()!();
+    const { response } = await routed(messagesRequest({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "hi" }] }));
+    expect(response.status).toBe(200);
+    expect(fetchCalls).toHaveLength(2);
+    expect(cooldowns).toEqual([{ accountId: "acct-api-1", durationMs: 20_000, failureCode: "upstream_unavailable" }]);
+    expect((await response.json()).id).toBe("msg-stream-2");
+  });
+
   test("a 429 cools the account down for retry-after and replays the body on the next account", async () => {
     upstream = apiKeyUpstream;
     moreAccounts = [secondApiKey];
@@ -599,6 +643,30 @@ describe("claude proxy failover across accounts", () => {
     expect(outcome).toMatchObject({ outcome: "success", attempts: 2, upstreamAccountId: "acct-api-2" });
   });
 
+  test("fails over retryable Claude 408 and 409 responses", async () => {
+    upstream = apiKeyUpstream;
+    moreAccounts = [secondApiKey];
+
+    for (const status of [408, 409]) {
+      fetchCalls = [];
+      cooldowns = [];
+      touched = [];
+      const responses = [
+        () => new Response("{}", { status }),
+        () => Response.json({ id: `msg-${status}`, model: "claude-sonnet-4-5", usage: { input_tokens: 1, output_tokens: 1 } }),
+      ];
+      upstreamResponse = () => responses.shift()!();
+
+      const { response } = await routed(messagesRequest({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "hi" }] }));
+      expect(response.status).toBe(200);
+      expect(fetchCalls).toHaveLength(2);
+      expect(requestHeaders(fetchCalls[0]!).get("x-api-key")).toBe("sk-ant-api03-real-secret-key-value-1234");
+      expect(requestHeaders(fetchCalls[1]!).get("x-api-key")).toBe("sk-ant-api03-second-key-value-5678");
+      expect(cooldowns).toEqual([{ accountId: "acct-api-1", durationMs: 20_000, failureCode: "upstream_unavailable" }]);
+      expect((await response.json()).id).toBe(`msg-${status}`);
+    }
+  });
+
   test("a rejected credential cools the account down for fifteen minutes", async () => {
     upstream = apiKeyUpstream;
     moreAccounts = [secondApiKey];
@@ -611,22 +679,115 @@ describe("claude proxy failover across accounts", () => {
     expect(cooldowns).toEqual([{ accountId: "acct-api-1", durationMs: 15 * 60_000, failureCode: "invalid_credential" }]);
   });
 
-  test("returns the last upstream error when every account has been tried", async () => {
+  test("holds a capacity storm on the same model until the upstream answers", async () => {
+    upstream = apiKeyUpstream;
+    const overloaded = () => Response.json({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } }, { status: 529 });
+    const responses = [
+      overloaded,
+      () => new Response("{}", { status: 429, headers: { "retry-after": "3" } }),
+      () => { throw new TypeError("fetch failed"); },
+      overloaded,
+      () => Response.json({ id: "msg-held", model: "claude-sonnet-4-5", usage: { input_tokens: 1, output_tokens: 1 } }),
+    ];
+    upstreamResponse = () => responses.shift()!();
+    const body = { model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "hi" }] };
+    const { response, outcome } = await routed(messagesRequest(body));
+    expect(response.status).toBe(200);
+    expect((await response.json()).id).toBe("msg-held");
+    expect(fetchCalls).toHaveLength(5);
+    for (const call of fetchCalls) {
+      expect(JSON.parse(await requestBodyText(call)).model).toBe("claude-sonnet-4-5");
+    }
+    expect(sleeps).toHaveLength(4);
+    expect(outcome).toMatchObject({
+      outcome: "success",
+      attempts: 5,
+      holdCount: 4,
+      heldMs: sleeps.reduce((total, ms) => total + ms, 0),
+    });
+  });
+
+  test("returns the last upstream error once the capacity hold budget is spent", async () => {
     upstream = apiKeyUpstream;
     moreAccounts = [secondApiKey];
     upstreamResponse = () => Response.json({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } }, { status: 529 });
-    const { response, outcome } = await routed(messagesRequest());
+    const bounded = createClaudeMessagesProxy(dependencies, { ...holdRuntime, capacityHoldBudgetMs: 60_000 });
+    const { response, outcome } = await routedWith(bounded, messagesRequest());
     expect(response.status).toBe(529);
-    expect(fetchCalls).toHaveLength(2);
-    expect(cooldowns.map((entry) => entry.failureCode)).toEqual(["upstream_unavailable", "upstream_unavailable"]);
-    expect(outcome).toMatchObject({ outcome: "upstream_error", failureStage: "upstream_response", attempts: 2 });
+    expect(fetchCalls.length).toBeGreaterThan(2);
+    expect(cooldowns.every((entry) => entry.failureCode === "upstream_unavailable")).toBe(true);
+    expect(clock).toBeLessThanOrEqual(60_000);
+    expect(outcome).toMatchObject({ outcome: "upstream_error", failureStage: "upstream_response" });
+    expect(outcome?.holdCount).toBeGreaterThan(0);
+  });
+
+  test("does not hold when every account holds a revoked credential", async () => {
+    upstream = apiKeyUpstream;
+    upstreamResponse = () => Response.json({ type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } }, { status: 401 });
+    const { response, outcome } = await routed(messagesRequest());
+    expect(response.status).toBe(401);
+    expect(fetchCalls).toHaveLength(1);
+    expect(sleeps).toEqual([]);
+    expect(outcome).toMatchObject({ holdCount: 0, heldMs: 0 });
+  });
+
+  test("never replays a stream once output has reached the client", async () => {
+    upstream = apiKeyUpstream;
+    moreAccounts = [secondApiKey];
+    upstreamResponse = () => new Response([
+      sseStream([
+        { type: "message_start", data: { message: { id: "msg-partial" } } },
+        { type: "content_block_delta", data: { index: 0, delta: { type: "text_delta", text: "hi" } } },
+      ]),
+      'event: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}\n\n',
+    ].join(""), { status: 200, headers: { "content-type": "text/event-stream" } });
+    const { response } = await routed(messagesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("overloaded_error");
+    expect(fetchCalls).toHaveLength(1);
+    expect(sleeps).toEqual([]);
+  });
+
+  test("waits out the soonest capacity cooldown when every account is cooling", async () => {
+    upstream = apiKeyUpstream;
+    const original = dependencies.select;
+    let exhausted = 1;
+    (dependencies as { select: ClaudeProxyDependencies["select"] }).select = async () =>
+      exhausted-- > 0
+        ? { kind: "exhausted", total: 1, retryAfterSeconds: 42, capacityRetryAfterSeconds: 42 }
+        : { kind: "selected", upstream: apiKeyUpstream, total: 1, healthy: 1 };
+    upstreamResponse = () => Response.json({ id: "msg-after-cooldown", model: "claude-sonnet-4-5", usage: { input_tokens: 1, output_tokens: 1 } });
+    try {
+      const { response, outcome } = await routed(messagesRequest());
+      expect(response.status).toBe(200);
+      expect(sleeps).toHaveLength(1);
+      expect(sleeps[0]).toBeGreaterThanOrEqual(42_000);
+      expect(outcome).toMatchObject({ outcome: "success", attempts: 1, holdCount: 1 });
+    } finally {
+      (dependencies as { select: ClaudeProxyDependencies["select"] }).select = original;
+    }
+  });
+
+  test("answers 503 at once when a cooldown outlasts the capacity hold budget", async () => {
+    upstream = apiKeyUpstream;
+    const original = dependencies.select;
+    (dependencies as { select: ClaudeProxyDependencies["select"] }).select = async () =>
+      ({ kind: "exhausted", total: 2, retryAfterSeconds: 3_600, capacityRetryAfterSeconds: 3_600 });
+    try {
+      const { response } = await routed(messagesRequest());
+      expect(response.status).toBe(503);
+      expect(response.headers.get("retry-after")).toBe("3600");
+      expect(sleeps).toEqual([]);
+    } finally {
+      (dependencies as { select: ClaudeProxyDependencies["select"] }).select = original;
+    }
   });
 
   test("answers 503 with retry-after when every account is cooling down", async () => {
     upstream = apiKeyUpstream;
     const original = dependencies.select;
     (dependencies as { select: ClaudeProxyDependencies["select"] }).select = async () =>
-      ({ kind: "exhausted", total: 2, retryAfterSeconds: 42 });
+      ({ kind: "exhausted", total: 2, retryAfterSeconds: 42, capacityRetryAfterSeconds: null });
     try {
       const { response, outcome } = await routed(messagesRequest());
       expect(response.status).toBe(503);
@@ -677,7 +838,7 @@ describe("claude proxy failover across accounts", () => {
       select: async (_teamId, input) => {
         const excluded = new Set(input.excludedAccountIds ?? []);
         const candidate = candidates.find((entry) => !excluded.has(entry.accountId));
-        if (!candidate) return { kind: "exhausted", total: candidates.length, retryAfterSeconds: 1 };
+        if (!candidate) return { kind: "exhausted", total: candidates.length, retryAfterSeconds: 1, capacityRetryAfterSeconds: 1 };
         selected.push(candidate.accountId);
         return { kind: "selected", upstream: candidate, total: candidates.length, healthy: 1 };
       },
@@ -750,8 +911,7 @@ describe("claude proxy failover across accounts", () => {
     upstreamResponse = () => Response.json({ id: "msg_5", model: "claude-sonnet-4-5", usage: { input_tokens: 5, output_tokens: 6 } });
     const response = await messages(messagesRequest());
     await response.text();
-    const usage = events.find((event) => event.event === "coderouter_model_request_completed");
-    expect(usage?.properties).toMatchObject({ upstream_kind: "anthropic_api_key", upstream_account_id: "acct-api-1" });
+    expect(events.find((event) => event.event === "coderouter_model_request_completed")).toBeUndefined();
   });
 });
 

@@ -154,6 +154,9 @@ struct VaultQueuedRestoreIdentityTests {
         let terminal = try #require(persisted.panels.first?.terminal)
 
         #expect(terminal.agent?.sessionId == queuedAgent.sessionId)
+        // The shell callback moved the queued restore into its command phase;
+        // cmux's own restore for this session is still in flight, so it stays
+        // running intent even without process evidence (#17475).
         #expect(terminal.wasAgentRunning == true)
     }
 
@@ -189,6 +192,21 @@ struct VaultQueuedRestoreIdentityTests {
             at: hookStateDirectory,
             withIntermediateDirectories: true
         )
+        let codexHome = hookStateDirectory.deletingLastPathComponent().appendingPathComponent(".codex", isDirectory: true)
+        let rollout = codexHome.appendingPathComponent("sessions/rollout-\(sessionID).jsonl")
+        try fileManager.createDirectory(at: rollout.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let metadata: [String: Any] = [
+            "type": "session_meta",
+            "payload": [
+                "id": sessionID,
+                "cwd": "/tmp/vault-queued-identity",
+                "source": "cli",
+                "originator": "codex_cli_rs",
+            ],
+        ]
+        var rolloutData = try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys])
+        rolloutData.append(0x0a)
+        try rolloutData.write(to: rollout, options: .atomic)
         let storeURL = RestorableAgentKind.codex.hookStoreFileURL(
             environment: ["CMUX_AGENT_HOOK_STATE_DIR": hookStateDirectory.path]
         )

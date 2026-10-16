@@ -77,4 +77,32 @@ describe("Browser download card action", () => {
     expect(action.props.href).toBeUndefined();
     expect(action.props.onClick).toBeUndefined();
   });
+
+  test("wraps long labels inside fixed-width landing-page cards", () => {
+    const action = BrowserDownloadCardAction({
+      platform: "linux",
+      artifact: "run-installer",
+      href: "/api/download/browser-nightly/linux-x64/run",
+      available: true,
+      children: "Download auto-updating installer (.run)",
+    });
+
+    if (action.type !== PlatformDownloadLink) {
+      throw new Error("enabled download did not render a tracked link");
+    }
+
+    const label = action.props.children as {
+      type: (props: { children: string }) => {
+        type: string;
+        props: { className: string; children: string };
+      };
+      props: { children: string };
+    };
+    const labelElement = label.type(label.props);
+    expect(labelElement.type).toBe("span");
+    expect(labelElement.props.className).toContain("min-w-0");
+    expect(labelElement.props.className).toContain("whitespace-normal");
+    expect(labelElement.props.className).toContain("text-center");
+    expect(labelElement.props.children).toBe("Download auto-updating installer (.run)");
+  });
 });

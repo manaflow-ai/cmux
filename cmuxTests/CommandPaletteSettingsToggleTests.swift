@@ -248,6 +248,28 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testAgentAutoResumeCommandTogglesDefaultAndReportsState() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.agentAutoResume"
+                )
+            )
+
+            XCTAssertEqual(descriptor.settingsKey, "automation.agentAutoResume")
+            XCTAssertTrue(descriptor.isOn(defaults))
+
+            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+            XCTAssertEqual(
+                defaults.object(forKey: AutomationCatalogSection().agentAutoResume.userDefaultsKey) as? Bool,
+                false
+            )
+            XCTAssertFalse(descriptor.isOn(defaults))
+            XCTAssertFalse(AutomationCatalogSection().agentAutoResume.value(in: defaults))
+        }
+    }
+
     func testOpenSidebarPortLinksCommandIsUnavailableWhenPortsAreHidden() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
@@ -294,6 +316,44 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
                 defaults.object(forKey: BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowserKey) as? Bool,
                 false
             )
+        }
+    }
+
+    /// Verifies palette metadata and writes are projected from the same catalog descriptors.
+    func testCanonicalUserFacingAppTogglesDrivePaletteMetadataAndStorage() throws {
+        try withTemporaryDefaults { defaults in
+            let catalog = SettingCatalog()
+            let keys = [
+                catalog.app.warnBeforeClosingTab,
+                catalog.app.warnBeforeClosingWorkspace,
+                catalog.app.warnBeforeClosingWindow,
+                catalog.app.hideTabCloseButton,
+                catalog.app.renameSelectsExistingName,
+            ]
+
+            for key in keys {
+                let metadata = try XCTUnwrap(key.userFacing)
+                guard case .toggle(let toggle) = metadata.control else {
+                    XCTFail("Expected ordinary toggle metadata for \(key.id)")
+                    continue
+                }
+                let paletteToggle = try XCTUnwrap(toggle.commandPalette)
+                let descriptor = try XCTUnwrap(
+                    CommandPaletteSettingsToggleCommands.descriptor(
+                        commandId: "palette.toggleSetting.\(paletteToggle.id)"
+                    )
+                )
+
+                XCTAssertEqual(descriptor.settingsKey, key.id)
+                XCTAssertEqual(descriptor.title(), metadata.title)
+                XCTAssertEqual(descriptor.keywords, [key.id] + paletteToggle.keywords)
+                XCTAssertEqual(descriptor.isOn(defaults), key.defaultValue)
+
+                descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+                XCTAssertEqual(defaults.object(forKey: key.userDefaultsKey) as? Bool, !key.defaultValue)
+                XCTAssertEqual(descriptor.isOn(defaults), !key.defaultValue)
+            }
         }
     }
 

@@ -152,7 +152,9 @@ Więcej informacji o konfiguracji cmux znajdziesz w [naszej dokumentacji](https:
 
 | Skrót | Akcja |
 |----------|--------|
-| ⌘ N | Nowa przestrzeń robocza |
+| ⌘ N | Nowy lokalny obszar roboczy |
+| ⌘ Y | Nowy obszar roboczy Cloud w ostatnim dostępnym kontekście Cloud; otwiera New Cloud Machine, gdy żaden nie jest dostępny |
+| ⌘ ⇧ Y | Nowa maszyna Cloud |
 | ⌘ 1–8 | Przejdź do przestrzeni roboczej 1–8 |
 | ⌘ 9 | Przejdź do ostatniej przestrzeni roboczej |
 | ⌃ ⌘ ] | Następna przestrzeń robocza |
@@ -367,7 +369,7 @@ cmux jest darmowy i open source, i zawsze taki będzie. Jeśli chcesz wesprzeć 
 
 ### Mam prośbę o funkcję lub znalazłem błąd?
 
-Chcemy o tym usłyszeć. Otwórz [issue](https://github.com/manaflow-ai/cmux/issues) lub [pull request](https://github.com/manaflow-ai/cmux/pulls) na GitHub, albo [napisz do nas](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+Chcemy o tym usłyszeć. Otwórz [issue](https://github.com/manaflow-ai/cmux/issues) lub [pull request](https://github.com/manaflow-ai/cmux/pulls) na GitHub, albo [napisz do nas](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## Historia Gwiazdek
 
@@ -418,6 +420,6 @@ cmux jest darmowy, open source i zawsze taki będzie. Jeśli chcesz wesprzeć ro
 
 ## Licencja
 
-cmux jest oprogramowaniem open source na licencji [GPL-3.0-or-later](LICENSE).
+cmux jest oprogramowaniem open source na licencji [GPL-3.0-or-later](LICENSE). Oprogramowanie serwerowe cmux (`web/`, workery Cloudflare i usługi przekaźnikowe wymienione w [LICENSE](LICENSE)) korzysta zamiast tego z [Business Source License 1.1](web/LICENSE): możesz je czytać, modyfikować i uruchamiać do użytku nieprodukcyjnego, a użycie produkcyjne lub samodzielny hosting wymagają licencji komercyjnej.
 
-Jeśli Twoja organizacja nie może spełnić wymogów GPL, dostępna jest licencja komercyjna. Skontaktuj się pod adresem [founders@manaflow.com](mailto:founders@manaflow.com), aby uzyskać szczegóły.
+Jeśli Twoja organizacja nie może spełnić wymogów GPL, dostępna jest licencja komercyjna. Skontaktuj się pod adresem [founders@cmux.com](mailto:founders@cmux.com), aby uzyskać szczegóły.

@@ -10,6 +10,7 @@ This gate enforces two principles:
 Report a failure when the changed test code introduces or materially expands any of these:
 
 - A fixed `sleep`/`usleep`/`Task.sleep`/`setTimeout`/`Thread.sleep`/`time.sleep` used to wait for async readiness before an assertion (the `sleep(0.3); assert` shape that fails on correct code under load).
+- A poll of a condition bounded by an iteration count of `Task.yield()` (or any other reschedule) instead of a deadline, such as `for _ in 0..<100 { if ready { break }; await Task.yield() }`. A yield waits for nothing, so N yields shrinks to microseconds on an idle machine and gives no fixed budget under load: a busy runner turns a slow pass into a failure. Bound the poll by a clock deadline, or await the real signal.
 - An assertion on a measured wall-clock duration, or a hard absolute latency ceiling on shared CI.
 - Reading `Date()` / `Date.now` / `CACurrentMediaTime()` / `perf_counter` / `performance.now()` in an assertion.
 - Binding a fixed non-zero port, or hitting a live network host instead of a local fake or ephemeral server.

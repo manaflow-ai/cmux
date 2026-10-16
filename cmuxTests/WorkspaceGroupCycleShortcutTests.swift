@@ -11,7 +11,7 @@ import Testing
 
 #if DEBUG
 @MainActor
-@Suite("Workspace group cycle shortcuts", .serialized)
+@Suite("Workspace group cycle shortcuts", .serialized, .exclusiveAppContext)
 struct WorkspaceGroupCycleShortcutTests {
     @Test func actionsAreVisibleAndUnboundByDefault() throws {
         let actions: [KeyboardShortcutSettings.Action] = [
@@ -29,7 +29,7 @@ struct WorkspaceGroupCycleShortcutTests {
         }
     }
 
-    @Test func configuredActionsCycleMembersWithoutSelectingAnchor() throws {
+    @Test func configuredActionsCycleMembersWithoutSelectingAnchor() async throws {
         let appDelegate = try #require(AppDelegate.shared)
         let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
             prefix: "cmux-workspace-group-cycle"
@@ -63,12 +63,11 @@ struct WorkspaceGroupCycleShortcutTests {
         let window = try #require(context.window)
         let manager = context.tabManager
         let ungroupedWorkspace = try #require(manager.selectedWorkspace)
-        let firstMember = try #require(manager.addTab(select: false))
-        let secondMember = try #require(manager.addTab(select: false))
-        let groupId = try #require(manager.createWorkspaceGroup(
-            name: "Grouped",
-            childWorkspaceIds: [firstMember.id, secondMember.id]
-        ))
+        let firstMember = try #require(manager.addWorkspaceIfActive(select: false, placementOverride: .end))
+        let secondMember = try #require(manager.addWorkspaceIfActive(select: false, placementOverride: .end))
+        let groupId = try #require(manager.createWorkspaceGroup(name: "Grouped"))
+        manager.addWorkspaceToGroup(workspaceId: firstMember.id, groupId: groupId)
+        manager.addWorkspaceToGroup(workspaceId: secondMember.id, groupId: groupId)
         let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
         let anchor = try #require(manager.tabs.first { $0.id == group.anchorWorkspaceId })
 
@@ -86,6 +85,7 @@ struct WorkspaceGroupCycleShortcutTests {
         ))
 
         manager.selectWorkspace(firstMember)
+        await AppKitTestEventPump().drain()
         #expect(appDelegate.debugHandleCustomShortcut(event: nextEvent))
         #expect(manager.selectedTabId == secondMember.id)
         #expect(appDelegate.debugHandleCustomShortcut(event: nextEvent))
@@ -94,13 +94,16 @@ struct WorkspaceGroupCycleShortcutTests {
         #expect(manager.selectedTabId == secondMember.id)
 
         manager.selectWorkspace(anchor)
+        await AppKitTestEventPump().drain()
         #expect(appDelegate.debugHandleCustomShortcut(event: nextEvent))
         #expect(manager.selectedTabId == firstMember.id)
         manager.selectWorkspace(anchor)
+        await AppKitTestEventPump().drain()
         #expect(appDelegate.debugHandleCustomShortcut(event: previousEvent))
         #expect(manager.selectedTabId == secondMember.id)
 
         manager.selectWorkspace(ungroupedWorkspace)
+        await AppKitTestEventPump().drain()
         #expect(appDelegate.debugHandleCustomShortcut(event: nextEvent))
         #expect(manager.selectedTabId == group.anchorWorkspaceId)
     }

@@ -14,14 +14,14 @@ struct TerminalRendererWindowVisibilityTests {
         activeSpace: Bool = true,
         key: Bool = false
     ) -> Bool {
-        TerminalRendererWindowVisibility.isVisible(
+        TerminalRendererWindowVisibility(
             occlusionVisible: occlusion,
             windowHasReportedVisible: reported,
             isWindowVisible: onScreen,
             isMiniaturized: miniaturized,
             isOnActiveSpace: activeSpace,
             isKeyWindow: key
-        )
+        ).isVisible
     }
 
     @Test func onScreenWindowThatNeverReportedVisiblePresents() {

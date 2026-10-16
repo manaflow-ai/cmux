@@ -69,6 +69,9 @@ public enum ControlPaneCreateResolution: Sendable, Equatable {
     /// The split creation failed (legacy `internal_error` / "Failed to create
     /// pane", `data: nil`).
     case createFailed
+    /// The split was refused because a resulting pane would fall below the
+    /// minimum pane size (`no_space` / "No space for new pane").
+    case noSpace
     /// The request carried options the routed remote tmux `split-window`
     /// cannot honor; rejected BEFORE the remote session was mutated (an error
     /// after the mutation invites retries that duplicate remote panes).

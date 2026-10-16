@@ -1,4 +1,5 @@
 import Foundation
+import CmuxAgentSessionStore
 
 /// Socket v2 surface for the Vault session index, so terminal agents can
 /// browse, search, checkpoint, and fork sessions exactly like the UI
@@ -19,7 +20,10 @@ extension TerminalController {
         let requestedLimit = v2Int(params, "limit") ?? Self.vaultSessionsDefaultLimit
         let limit = max(1, min(requestedLimit, Self.vaultSessionsMaxLimit))
 
-        var entries = await SessionIndexStore.loadInitialEntries()
+        let ampSessionRepository = AmpHookSessionRepository()
+        var entries = await SessionIndexStore.loadInitialEntries(
+            ampSessionRepository: ampSessionRepository
+        )
         if let agentFilter {
             entries = entries.filter { $0.agent.rawValue == agentFilter }
         }
@@ -48,11 +52,15 @@ extension TerminalController {
         }
         let requestedLimit = v2Int(params, "limit") ?? Self.vaultSessionsDefaultLimit
         let limit = max(1, min(requestedLimit, Self.vaultSessionsMaxLimit))
-        let entries = await SessionIndexStore.loadInitialEntries()
+        let ampSessionRepository = AmpHookSessionRepository()
+        let entries = await SessionIndexStore.loadInitialEntries(
+            ampSessionRepository: ampSessionRepository
+        )
         let outcome = await SessionIndexStore.searchAllSessions(
             rawQuery: query,
             entries: entries,
-            scopedDirectory: nil
+            scopedDirectory: nil,
+            ampSessionRepository: ampSessionRepository
         )
         let liveKeys = await Self.vaultLiveSessionKeys()
         let now = Date()
@@ -152,6 +160,18 @@ extension TerminalController {
     // MARK: vault.fork
 
     nonisolated func v2VaultFork(params: [String: Any]) async -> V2CallResult {
+        // Selector presence is decided before either value is trimmed or
+        // parsed, so a blank checkpoint cannot fall through to turn. A JSON
+        // null counts as absent.
+        func isSupplied(_ value: Any?) -> Bool { value != nil && !(value is NSNull) }
+        if isSupplied(params["checkpoint"]), isSupplied(params["turn"]) {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.vault.conflictingForkSelectors",
+                                defaultValue: "Pass checkpoint or turn, not both."),
+                data: nil
+            )
+        }
         switch await Self.vaultResolveEntry(params: params) {
         case .failure(let error):
             return error
@@ -229,7 +249,7 @@ extension TerminalController {
 
     // MARK: Shared helpers
 
-    private nonisolated enum VaultEntryResolution {
+    private enum VaultEntryResolution {
         case success(SessionEntry)
         case failure(V2CallResult)
     }
@@ -248,7 +268,10 @@ extension TerminalController {
                 data: nil
             ))
         }
-        let quick = await SessionIndexStore.loadInitialEntries()
+        let ampSessionRepository = AmpHookSessionRepository()
+        let quick = await SessionIndexStore.loadInitialEntries(
+            ampSessionRepository: ampSessionRepository
+        )
         if let entry = quick.first(where: { $0.agent.rawValue == agentID && $0.sessionId == sessionID }) {
             return .success(entry)
         }
@@ -268,7 +291,8 @@ extension TerminalController {
             offset: 0,
             limit: vaultDeepListLimit,
             errorBag: SessionIndexStore.ErrorBag(),
-            registry: registry
+            registry: registry,
+            ampSessionRepository: ampSessionRepository
         )
         if let entry = deep.first(where: { $0.sessionId == sessionID }) {
             return .success(entry)

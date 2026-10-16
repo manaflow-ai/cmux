@@ -7,7 +7,7 @@ import Foundation
 /// stay confined to the markdown file's directory and remote images go
 /// through the consent-gated HTTPS-only loader. Both the macOS panel and the
 /// iOS renderer register handlers for the same scheme strings.
-public enum MarkdownWebViewerScheme {
-    public static let localImage = "cmux-local-image"
-    public static let remoteImage = "cmux-remote-image"
+public enum MarkdownWebViewerScheme: String, Sendable {
+    case localImage = "cmux-local-image"
+    case remoteImage = "cmux-remote-image"
 }

@@ -84,7 +84,7 @@ final class MobileLatencyTraceWriter: Sendable {
             while let batch = state.withLock({
                 $0.drain(maximumCount: Self.batchSize)
             }) {
-                await MobileDebugLog.shared.sink.appendBatch(batch)
+                MobileDebugLog.shared.appendBatch(batch)
             }
         }
     }

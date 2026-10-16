@@ -21,7 +21,17 @@ extension RemoteSessionCoordinator {
         )
     }
 
-    func sshCommonArguments(batchMode: Bool, dropControlPath: Bool = false) -> [String] {
+    /// - Parameter batchForwarding: The forwarding batch runs turn off.
+    ///   Batch execs only run helper commands and never become a master
+    ///   (`ControlMaster=no`), so by default they forward no agent, X11
+    ///   display or port. A run that sets up its own `-R` passes
+    ///   `SSHBackgroundForwarding.agentAndX11Off`, because
+    ///   `ClearAllForwardings` would drop that forward too.
+    func sshCommonArguments(
+        batchMode: Bool,
+        dropControlPath: Bool = false,
+        batchForwarding: SSHBackgroundForwarding = .allOff
+    ) -> [String] {
         let effectiveSSHOptions: [String] = {
             if batchMode {
                 return backgroundSSHOptions(configuration.sshOptions, dropControlPath: dropControlPath)
@@ -47,6 +57,7 @@ extension RemoteSessionCoordinator {
             // option, so these also win over caller-supplied conflicts.
             args += SSHHostConfiguredRemoteCommand().overrideArguments
             args += ["-o", "RequestTTY=no"]
+            args += batchForwarding.optionArguments
         }
         if let port = configuration.port {
             args += ["-p", String(port)]

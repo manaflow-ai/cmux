@@ -24,9 +24,10 @@ extension PresenceClient {
     /// subscribes to the same presence service stable Macs heartbeat to.
     public static let productionServiceURL = "https://presence.cmux.dev"
 
-    /// The presence service base URL for this process. Override precedence: env,
-    /// then UserDefaults, then the baked Info.plist value, then the build default
-    /// (dev worker on Debug, production worker on Release). Never `nil` now — the
+    /// The presence service base URL for this process. Release builds and the
+    /// production auth channel always use the production worker. Otherwise the
+    /// override precedence is env, then UserDefaults, then the baked Info.plist
+    /// value, then the build default (the dev worker). Never `nil` now — the
     /// phone always has a presence service to subscribe to; whether a given Mac
     /// shows up depends on that Mac heartbeating (mobile enabled) to the same one.
     ///

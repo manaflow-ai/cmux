@@ -21,4 +21,48 @@ extension cmuxApp {
             }
         }
     }
+
+    @ViewBuilder
+    func paneSizingCommandButtons() -> some View {
+            splitCommandButton(
+                title: KeyboardShortcutSettings.Action.newPaneAutoLayout.label,
+                shortcut: menuShortcut(for: .newPaneAutoLayout)
+            ) {
+                guard let appDelegate = AppDelegate.shared else { return }
+                if appDelegate.routeSplitToFocusedDock(
+                    kind: .terminal,
+                    direction: .right,
+                    action: .newPaneAutoLayout,
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                ) {
+                    return
+                }
+                _ = appDelegate.performAutoLayoutPaneShortcut()
+            }
+            equalizeSplitsCommandButton()
+            splitCommandButton(
+                title: KeyboardShortcutSettings.Action.resizePaneLeft.label,
+                shortcut: menuShortcut(for: .resizePaneLeft)
+            ) {
+                _ = AppDelegate.shared?.performResizePaneShortcut(direction: .left)
+            }
+            splitCommandButton(
+                title: KeyboardShortcutSettings.Action.resizePaneRight.label,
+                shortcut: menuShortcut(for: .resizePaneRight)
+            ) {
+                _ = AppDelegate.shared?.performResizePaneShortcut(direction: .right)
+            }
+            splitCommandButton(
+                title: KeyboardShortcutSettings.Action.resizePaneUp.label,
+                shortcut: menuShortcut(for: .resizePaneUp)
+            ) {
+                _ = AppDelegate.shared?.performResizePaneShortcut(direction: .up)
+            }
+            splitCommandButton(
+                title: KeyboardShortcutSettings.Action.resizePaneDown.label,
+                shortcut: menuShortcut(for: .resizePaneDown)
+            ) {
+                _ = AppDelegate.shared?.performResizePaneShortcut(direction: .down)
+            }
+    }
 }

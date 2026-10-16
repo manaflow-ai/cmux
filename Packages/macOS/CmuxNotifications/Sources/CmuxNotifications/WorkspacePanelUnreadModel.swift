@@ -8,6 +8,12 @@ public final class WorkspacePanelUnreadModel {
     /// Panel identifiers carrying a manual unread indicator.
     public private(set) var panelIds: Set<UUID>
 
+    /// Restored indicators keyed by panel, including their workspace-badge provenance.
+    public var restoredIndicators: [UUID: RestoredPanelUnreadIndicator] = [:]
+
+    /// Panels with a restored indicator, tracked independently of manual unread state.
+    public var restoredPanelIds: Set<UUID> { Set(restoredIndicators.keys) }
+
     /// Creates keyed panel unread state.
     ///
     /// - Parameter panelIds: The initial unread panel identifiers.

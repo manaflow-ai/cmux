@@ -30,6 +30,49 @@ struct BrowserAutomationDocumentReadinessTests {
 
         #expect(await wait.value == .committed)
         #expect(readiness.hasCommittedDocument(for: instanceID))
+        #expect(readiness.snapshot.signal == .nativeCommit)
+    }
+
+    @Test("The isolated document-ready bridge can release a delegate ordering gap")
+    func bridgeSignalReleasesWaiter() async {
+        let readiness = BrowserAutomationDocumentReadiness()
+        let instanceID = UUID()
+        readiness.bind(to: instanceID, hasCommittedDocument: false)
+
+        let wait = Task { @MainActor in
+            await readiness.waitForCommit(instanceID: instanceID)
+        }
+        readiness.didSignalDocumentReady(instanceID: instanceID)
+
+        #expect(await wait.value == .committed)
+        #expect(readiness.hasCommittedDocument(for: instanceID))
+        #expect(readiness.snapshot.signal == .documentReadyBridge)
+    }
+
+    @Test("A stale document-ready bridge signal cannot ready a replacement instance")
+    func staleBridgeSignalIsIgnored() {
+        let readiness = BrowserAutomationDocumentReadiness()
+        let firstInstanceID = UUID()
+        let secondInstanceID = UUID()
+        readiness.bind(to: firstInstanceID, hasCommittedDocument: false)
+        readiness.bind(to: secondInstanceID, hasCommittedDocument: false)
+
+        readiness.didSignalDocumentReady(instanceID: firstInstanceID)
+
+        #expect(!readiness.hasCommittedDocument(for: secondInstanceID))
+        #expect(readiness.snapshot.signal == nil)
+    }
+
+    @Test("A native commit remains the diagnostic source after the bridge reports")
+    func nativeCommitRemainsAuthoritativeInSnapshot() {
+        let readiness = BrowserAutomationDocumentReadiness()
+        let instanceID = UUID()
+        readiness.bind(to: instanceID, hasCommittedDocument: false)
+
+        readiness.didCommit(instanceID: instanceID)
+        readiness.didSignalDocumentReady(instanceID: instanceID)
+
+        #expect(readiness.snapshot.signal == .nativeCommit)
     }
 
     @Test("Replacing a browser instance supersedes its pending automation wait")

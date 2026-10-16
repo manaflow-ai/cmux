@@ -83,7 +83,7 @@ extension GhosttySurfaceView {
         )
         let workQueue = outputQueue
         let gate = viewportRestoreGate
-        workQueue.async { [weak self] in
+        workQueue.asyncPriority { [weak self] in
             let scale = max(Double(displayScale), 1)
             let size = ghostty_surface_size(operation.surface)
             let cellWidthPt = max(Double(size.cell_width_px) / scale, 1)
@@ -148,7 +148,7 @@ extension GhosttySurfaceView {
 }
 
 /// One generation-bound pointer used only on its serial Ghostty surface queue.
-private nonisolated struct LocalScrollbackSurfaceOperation: @unchecked Sendable {
+private struct LocalScrollbackSurfaceOperation: @unchecked Sendable {
     // Safety: the surface stays owned by GhosttySurfaceView, and every C call
     // using this pointer is enqueued on that generation's serial output queue.
     let surface: ghostty_surface_t

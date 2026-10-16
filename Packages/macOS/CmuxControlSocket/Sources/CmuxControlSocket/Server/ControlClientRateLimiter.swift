@@ -10,6 +10,8 @@ public actor ControlClientRateLimiter {
     /// Token-bucket tuning values.
     public struct Configuration: Sendable, Equatable {
         /// Number of polling requests admitted immediately for a new client.
+        /// The default covers the current tmux compatibility read fan-out;
+        /// refill still bounds sustained polling.
         public let burst: Int
         /// Nanoseconds required to refill one token.
         public let refillIntervalNanoseconds: UInt64
@@ -19,7 +21,7 @@ public actor ControlClientRateLimiter {
         /// Values are clamped to a positive burst and a non-zero interval so
         /// the limiter cannot accidentally become an unbounded admission path.
         public init(
-            burst: Int = 4,
+            burst: Int = 9,
             refillIntervalNanoseconds: UInt64 = 100_000_000
         ) {
             self.burst = max(1, burst)

@@ -44,6 +44,27 @@ import Testing
         #expect(Set(snapshots.macPickerMachines.map(\.name)) == ["Desk Mac"])
     }
 
+    @Test func workspaceTagsProvidePickerLabelsBeforePairedMacsLoad() {
+        let workspaces = [
+            workspace(
+                "nightly-workspace",
+                macDeviceID: "mac-a",
+                macDisplayName: "Desk Mac",
+                instanceTag: "nightly"
+            ),
+        ]
+
+        let labels = WorkspaceMacBuildLabelResolver().labels(
+            workspaces: workspaces,
+            existing: [:]
+        )
+
+        #expect(labels[MobilePairedMac.pairingID(
+            macDeviceID: "mac-a",
+            instanceTag: "nightly"
+        )] == "Nightly")
+    }
+
     @Test func macPickerTitleAppendsBuildLabelOnlyForSiblingBuilds() {
         let nightly = pairedMac(
             deviceID: "mac-a",
@@ -285,8 +306,11 @@ import Testing
         #expect(orderedIndex.representativeID(for: "mac-a") == nightly.id)
         #expect(activeIndex.representativeID(for: nightly.id) == nightly.id)
         #expect(activeIndex.representativeID(for: stable.id) == stable.id)
-        #expect(activeIndex.filterMachineIDs(for: nightly.id) == ["mac-a"])
-        #expect(activeIndex.filterMachineIDs(for: stable.id) == ["mac-a"])
+        // Tagged pairings filter to their own build's rows; the bare device
+        // id stays device-level.
+        #expect(activeIndex.filterMachineIDs(for: nightly.id) == ["mac-a\u{1F}nightly"])
+        #expect(activeIndex.filterMachineIDs(for: stable.id) == ["mac-a\u{1F}stable"])
+        #expect(activeIndex.filterMachineIDs(for: "mac-a") == ["mac-a"])
     }
 
     @Test func composerMenuSelectsExactlyOnePairing() {
@@ -375,9 +399,10 @@ import Testing
         _ id: String,
         macDeviceID: String,
         macDisplayName: String,
-        hasUnread: Bool = false
+        hasUnread: Bool = false,
+        instanceTag: String? = nil
     ) -> MobileWorkspacePreview {
-        MobileWorkspacePreview(
+        var workspace = MobileWorkspacePreview(
             id: .init(rawValue: id),
             macDeviceID: macDeviceID,
             macDisplayName: macDisplayName,
@@ -385,6 +410,8 @@ import Testing
             hasUnread: hasUnread,
             terminals: []
         )
+        workspace.macInstanceTag = instanceTag
+        return workspace
     }
 
     private func pairedMac(

@@ -11,7 +11,7 @@ const SENSITIVE_TEXT = [
   /(?:https?|postgres(?:ql)?:)\/\/[^\s/@]+:[^\s/@]+@[^\s]+/gi,
   /https?:\/\/[^\s]*(?:hooks\.slack\.com|api\.sentry\.io|posthog)[^\s]*/gi,
   /\b(?:Bearer|Basic)\s+[^\s]+/gi,
-  /\b(?:srt|sk|crt|xox[baprs]|gh[pousr])[_-][A-Za-z0-9_-]{8,}\b/gi,
+  /\b(?:srt|sk|crt|crk|xox[baprs]|gh[pousr])[_-][A-Za-z0-9_-]{8,}\b/gi,
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*\b/g,
   /\b[A-Z0-9]{20,}\b/g,
   /\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b/g,
@@ -85,6 +85,13 @@ export function stackFrames(error: unknown): StackFrame[] {
 
 export type CoderouterExceptionInput = {
   readonly type: string;
+  /**
+   * `type` was produced by `safeErrorCause`, which only accepts a code-defined
+   * class identifier, so it may bypass the built-in allow-list.
+   */
+  readonly typeIsSafeClass?: boolean;
+  /** Value-free suffix for a thrown error, e.g. ` (PostgresError, sqlstate 42883)`. */
+  readonly detail?: string;
   readonly value: string;
   readonly fingerprint: string;
   readonly level: "error" | "warning";
@@ -97,10 +104,12 @@ export type CoderouterExceptionInput = {
 
 export function exceptionEvent(input: CoderouterExceptionInput): CoderouterRawEvent {
   const frames = stackFrames(input.error);
-  const errorName = safeErrorName(input.type);
+  const errorName = input.typeIsSafeClass && /^[A-Z][A-Za-z0-9]{0,63}$/.test(input.type)
+    ? input.type
+    : safeErrorName(input.type);
   const value = input.error === undefined
     ? scrubTelemetryText(input.value).slice(0, 500)
-    : `${errorName}: message redacted`;
+    : `${errorName}: message redacted${scrubTelemetryText(input.detail ?? "").slice(0, 200)}`;
   return {
     event: "$exception",
     userId: input.userId,

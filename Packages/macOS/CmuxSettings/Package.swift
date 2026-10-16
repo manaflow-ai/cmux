@@ -23,6 +23,9 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxCore", package: "CmuxCore"),
+            ],
+            resources: [
+                .copy("Resources/CustomSidebarTemplates"),
             ]
         ),
         .testTarget(

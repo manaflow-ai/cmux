@@ -62,6 +62,42 @@ struct TmuxPaneOverlayGeometryTests {
         #expect(rect == CGRect(x: 50, y: 93 + 28, width: 120, height: 240 - 28))
     }
 
+    @Test("zoomed container ignores stale split geometry and trims tab chrome")
+    func zoomedContainerUsesFullFrame() {
+        let paneId = UUID()
+        let snap = snapshot(
+            container: PixelRect(x: 50, y: 90, width: 640, height: 400),
+            panes: [(paneId, PixelRect(x: 50, y: 90, width: 300, height: 200))]
+        )
+        let geometry = TmuxPaneOverlayGeometry(topChromeHeight: 28)
+        #expect(geometry.zoomedWindowOverlayRect(layoutSnapshot: snap) ==
+            CGRect(x: 50, y: 28, width: 640, height: 372))
+        #expect(geometry.zoomedWindowOverlayRect(layoutSnapshot: nil) == nil)
+    }
+
+    @Test("zoom uses visible container even when a hosted view is unavailable")
+    func preferredRectZoomAndSplit() {
+        let geometry = TmuxPaneOverlayGeometry(topChromeHeight: 28)
+        let split = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let hosted = CGRect(x: 10, y: 20, width: 620, height: 360)
+        let zoomed = CGRect(x: 10, y: 20, width: 640, height: 360)
+        #expect(geometry.preferredWindowOverlayRect(
+            exactRect: hosted, paneRect: split, isSplitZoomed: true,
+            zoomedContainerRect: zoomed
+        ) == zoomed)
+        #expect(geometry.preferredWindowOverlayRect(
+            exactRect: nil, paneRect: split, isSplitZoomed: true,
+            zoomedContainerRect: zoomed
+        ) == zoomed)
+        #expect(geometry.preferredWindowOverlayRect(
+            exactRect: hosted, paneRect: split, isSplitZoomed: true
+        ) == nil)
+        #expect(geometry.preferredWindowOverlayRect(exactRect: hosted, paneRect: split) == split)
+        #expect(geometry.preferredWindowOverlayRect(
+            exactRect: CGRect(x: 20, y: 30, width: 200, height: 100), paneRect: split
+        ) == CGRect(x: 20, y: 30, width: 200, height: 100))
+    }
+
     @Test("missing snapshot or pane yields nil")
     func missingYieldsNil() {
         let geometry = TmuxPaneOverlayGeometry(topChromeHeight: 28)

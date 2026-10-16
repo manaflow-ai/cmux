@@ -2,7 +2,7 @@ import Dispatch
 import Foundation
 
 /// Mutable state for one synchronous, bounded config traversal.
-nonisolated struct GitConfigTraversalState: Sendable {
+struct GitConfigTraversalState: Sendable {
     private static let maximumDeferredPathCount = 256
 
     var budget: GitConfigTraversalBudget

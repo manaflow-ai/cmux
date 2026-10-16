@@ -137,3 +137,30 @@ fn detached_child_rejects_a_newline_free_request_id_before_reading_payload() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("detached request id is missing newline delimiter"), "{stderr}");
 }
+
+/// Hosts that receive only the cmux-tui binary (SSH bootstrap) run the helper
+/// as `cmux-tui __agent-hook`; its detached child must re-enter that mode.
+#[test]
+fn embedded_hook_mode_delivers_through_the_detached_child() {
+    let socket = socket_path("embedded");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        .args(["__agent-hook", "claude", "Stop"])
+        .env("CMUX_TUI_SOCKET", &socket)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"{\"session_id\":\"embedded-test\"}\n").unwrap();
+    let (stream, _) = listener.accept().unwrap();
+    let request = read_request(&stream);
+    let value: serde_json::Value = serde_json::from_str(&request).unwrap();
+    assert_eq!(value["operation"], "session.journal.append", "{request}");
+    assert_eq!(value["params"]["event"]["payload"]["native_event"], "Stop", "{request}");
+    let output = wait_with_output(child, Duration::from_secs(3))
+        .expect("embedded hook must exit before the journal receipt arrives");
+    assert!(output.status.success(), "{output:?}");
+    reply(&stream, &request);
+    let _ = std::fs::remove_file(&socket);
+}

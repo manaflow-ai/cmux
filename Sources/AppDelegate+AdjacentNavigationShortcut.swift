@@ -64,14 +64,23 @@ extension AppDelegate {
             return true
         }
         if matchConfiguredShortcut(event: event, action: .moveWorkspaceUp) {
+            if moveFocusedCloudMachine(by: -1, event: event) { return true }
             routedTabs?.moveSelectedWorkspace(by: -1)
             return true
         }
         if matchConfiguredShortcut(event: event, action: .moveWorkspaceDown) {
+            if moveFocusedCloudMachine(by: 1, event: event) { return true }
             routedTabs?.moveSelectedWorkspace(by: 1)
             return true
         }
         return false
+    }
+
+    /// Reuses the configured workspace reorder keys when a Cloud machine
+    /// header owns keyboard focus. Text fields keep their existing key routing.
+    func moveFocusedCloudMachine(by offset: Int, event: NSEvent) -> Bool {
+        guard let outline = (event.window ?? NSApp.keyWindow)?.firstResponder as? CloudTreeNSOutlineView else { return false }
+        return outline.onMoveMachine?(offset) == true
     }
 
     /// Applies the shared Dock-focus gate used by shortcuts, the command

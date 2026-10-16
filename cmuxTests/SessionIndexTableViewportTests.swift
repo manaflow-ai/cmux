@@ -53,6 +53,85 @@ struct SessionIndexTableViewportTests {
 
     @MainActor
     @Test
+    func tableHeightTracksDefaultAndCompactDetailVisibility() {
+        let entry = Self.makeEntry(index: 0)
+        let accessories = VaultRecencySections.accessories(
+            for: [entry],
+            liveKeys: [],
+            now: entry.modified
+        )
+        let detailedSection = IndexSection(
+            key: .directory("/tmp/vault-scale"),
+            title: "vault-scale",
+            icon: .folder,
+            entries: [entry],
+            accessories: accessories
+        )
+        let compactSection = IndexSection(
+            key: detailedSection.key,
+            title: detailedSection.title,
+            icon: detailedSection.icon,
+            entries: detailedSection.entries,
+            accessories: accessories.mapValues { $0.withDetailVisibility(false) }
+        )
+        let calculator = SessionIndexTableRowHeightCalculator()
+        let environment = SessionIndexTableEnvironmentSnapshot(
+            colorScheme: .light,
+            globalFontMagnificationPercent: 100
+        )
+
+        let detailedHeight = calculator.height(
+            for: Self.makeSectionRow(section: detailedSection),
+            environment: environment
+        )
+        let compactHeight = calculator.height(
+            for: Self.makeSectionRow(section: compactSection),
+            environment: environment
+        )
+
+        #expect(detailedHeight > compactHeight)
+    }
+
+    @MainActor
+    @Test
+    func sessionRowsReserveNoIconTileTallerThanTheirTextLine() {
+        let entries = [Self.makeEntry(index: 0), Self.makeEntry(index: 1)]
+        let calculator = SessionIndexTableRowHeightCalculator()
+        let environment = SessionIndexTableEnvironmentSnapshot(
+            colorScheme: .light,
+            globalFontMagnificationPercent: 100
+        )
+        func compactSectionHeight(_ entries: [SessionEntry]) -> CGFloat {
+            let accessories = VaultRecencySections.accessories(
+                for: entries,
+                liveKeys: [],
+                now: entries[0].modified
+            ).mapValues { $0.withDetailVisibility(false) }
+            let section = IndexSection(
+                key: .directory("/tmp/vault-scale"),
+                title: "vault-scale",
+                icon: .folder,
+                entries: entries,
+                accessories: accessories
+            )
+            return calculator.height(
+                for: Self.makeSectionRow(section: section),
+                environment: environment
+            )
+        }
+
+        // Two compact rows minus one isolates a single row's height.
+        let rowHeight = compactSectionHeight(entries) - compactSectionHeight([entries[0]])
+        // A compact row is its 13-point title line plus four points of
+        // vertical padding on each side. The 12-point agent glyph draws bare
+        // and must never reserve a taller tile behind it
+        // (https://github.com/manaflow-ai/cmux/issues/12133).
+        let titleLineHeight = NSFont.systemFont(ofSize: 13).boundingRectForFont.height
+        #expect(rowHeight == ceil(titleLineHeight + 8))
+    }
+
+    @MainActor
+    @Test
     func tableApplyDefersAndCoalescesUntilAfterTheCurrentCallback() async {
         let controller = SessionIndexTableController()
         let container = controller.makeContainerView()
@@ -521,6 +600,7 @@ private struct SessionIndexDefaultsSnapshot {
         "sessionIndex.agentOrder",
         "sessionIndex.directoryOrder",
         "sessionIndex.grouping",
+        "sessionIndex.compactView",
     ]
 }
 

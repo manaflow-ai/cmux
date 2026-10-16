@@ -55,7 +55,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     id: id,
                     ok: true,
                     result: [
-                        "host": "127.0.0.1",
+                        "host": "127.0.0.1", "daemon_version": BundledCLITestSupport.appVersion,
                         "port": bridge.port,
                         "token": "bridge-token-\(bridgeCount)",
                         "session_id": sessionId,
@@ -184,7 +184,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "workspace.remote.pty_bridge":
                 return self.v2Response(id: id, ok: true, result: [
-                    "host": "127.0.0.1",
+                    "host": "127.0.0.1", "daemon_version": BundledCLITestSupport.appVersion,
                     "port": bridge.port,
                     "token": "bridge-token",
                     "session_id": sessionId,
@@ -257,7 +257,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self.malformedRequestResponse(raw: line)
             }
             let params = payload["params"] as? [String: Any] ?? [:]
-            if method != "workspace.remote.pty_attach_end" {
+            if method == "workspace.remote.pty_bridge" || method == "workspace.remote.pty_sessions" {
                 XCTAssertEqual(params["lifecycle_id"] as? String, lifecycleId)
             }
             switch method {
@@ -348,7 +348,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self.malformedRequestResponse(raw: line)
             }
             let params = payload["params"] as? [String: Any] ?? [:]
-            if method != "workspace.remote.pty_attach_end" {
+            if method == "workspace.remote.pty_bridge" || method == "workspace.remote.pty_sessions" {
                 XCTAssertEqual(params["lifecycle_id"] as? String, lifecycleId)
             }
             switch method {
@@ -356,11 +356,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 let count = bridgeCounter.next()
                 let bridge = count == 1 ? firstBridge : secondBridge
                 return self.v2Response(id: id, ok: true, result: [
-                    "host": "127.0.0.1", "port": bridge.port,
+                    "host": "127.0.0.1", "daemon_version": BundledCLITestSupport.appVersion, "port": bridge.port,
                     "token": "bridge-token-\(count)", "session_id": sessionId,
                     "lifecycle_id": lifecycleId, "attachment_id": surfaceId,
                 ])
             case "workspace.remote.pty_resize":
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                XCTAssertEqual(params["attachment_id"] as? String, surfaceId)
+                XCTAssertEqual(params["attachment_token"] as? String, "attach-token")
                 return self.v2Response(id: id, ok: true, result: ["resized": true])
             case "workspace.remote.pty_sessions":
                 return self.v2Response(id: id, ok: true, result: ["sessions": []])

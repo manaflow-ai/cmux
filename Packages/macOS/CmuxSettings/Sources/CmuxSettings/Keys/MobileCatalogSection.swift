@@ -30,23 +30,24 @@ public struct MobileCatalogSection: SettingCatalogSection {
         userDefaultsKey: "mobile.artifactFolderAccess"
     )
 
-    /// Mac-side iOS pairing host. Release defaults OFF so macOS never asks for
-    /// Local Network permission until the user opts in from Settings. DEBUG
-    /// (dev) builds default ON so a dev Mac advertises its attach route without a
-    /// manual Settings toggle — this is what lets a fresh dev iOS build discover
-    /// the Mac automatically (see MacPairedMacBackupPublisher). An explicit user
-    /// toggle still wins on either build.
-    public let iOSPairingHost = DefaultsKey<Bool>(
-        id: "mobile.iOSPairingHost.enabled",
-        defaultValue: Self.iOSPairingHostDefault,
-        userDefaultsKey: "mobile.iOSPairingHost.enabled"
+    /// Whether the "On iPhone" browser may reach hosts other than this Mac's
+    /// own loopback through this Mac (LAN, VPN, and internet hosts, resolved
+    /// on this Mac). Off by default: the tunnel reaches only `localhost`, and
+    /// the phone loads other sites over its own network. Link-local and cloud
+    /// metadata addresses are refused either way (the phone loads those itself).
+    public let browserTunnelAllowOtherHosts = DefaultsKey<Bool>(
+        id: "mobile.browserTunnel.allowOtherHosts",
+        defaultValue: false,
+        userDefaultsKey: "mobile.browserTunnel.allowOtherHosts"
     )
 
-    #if DEBUG
-    private static let iOSPairingHostDefault = true
-    #else
-    private static let iOSPairingHostDefault = false
-    #endif
+    /// Mac-side iOS pairing and Iroh networking. Every build defaults OFF until
+    /// the user explicitly enables this setting.
+    public let iOSPairingHost = DefaultsKey<Bool>(
+        id: "mobile.iOSPairingHost.enabled",
+        defaultValue: false,
+        userDefaultsKey: "mobile.iOSPairingHost.enabled"
+    )
 
     /// Port both Mac-side iOS listeners prefer to bind: the legacy TCP
     /// pairing listener and the Iroh endpoint's UDP socket (the port Direct

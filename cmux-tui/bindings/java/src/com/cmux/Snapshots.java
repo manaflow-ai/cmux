@@ -315,7 +315,7 @@ public final class Snapshots {
             Objects.requireNonNull(sessionId, "sessionId");
             Objects.requireNonNull(terminalId, "terminalId");
             oneOf(state, "state", "working", "blocked", "idle", "done", "unknown");
-            oneOf(source, "source", "hook", "socket", "detected");
+            oneOf(source, "source", "hook", "socket", "detected", "plugin");
             Objects.requireNonNull(updatedAtMS, "updatedAtMS");
             sourceSession = opt(sourceSession);
             extra = copy(extra);

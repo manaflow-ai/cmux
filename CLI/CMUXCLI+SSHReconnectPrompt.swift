@@ -3,17 +3,11 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
-    func sshAutoReconnectNoteFormat(discardsInput: Bool = false) -> String {
+    func sshAutoReconnectNoteFormat() -> String {
         let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
         let status = String(localized: "cli.ssh.autoReconnect.status", defaultValue: "[cmux] ssh exited with status %s; reconnecting (attempt %s/%s).", bundle: bundle)
         let stopHint = String(localized: "cli.ssh.autoReconnect.stopHint", defaultValue: "[cmux] close this pane or press Ctrl-C to stop reconnecting.", bundle: bundle)
-        let inputNotice = String(
-            localized: "cli.ssh.autoReconnect.inputDiscard",
-            defaultValue: "[cmux] input typed while disconnected is discarded.",
-            bundle: bundle
-        )
-        let inputLine = discardsInput ? "\\033[2m\(inputNotice)\\033[0m\\n" : ""
-        return "\\n\\033[33m\(status)\\033[0m\\n\(inputLine)\\033[2m\(stopHint)\\033[0m\\n"
+        return "\\n\\033[33m\(status)\\033[0m\\n\\033[2m\(stopHint)\\033[0m\\n"
     }
 
     /// Returns the localized success note printed after a transient SSH
@@ -47,20 +41,15 @@ extension CMUXCLI {
 
     /// Waits for a post-failure Enter without accepting queued terminal reports.
     func runSSHTerminalExitPrompt(commandArgs _: [String]) {
-        var original = termios()
-        guard tcgetattr(STDIN_FILENO, &original) == 0 else {
+        guard let terminalInputMode = SSHPTYTerminalInputMode(fileDescriptor: STDIN_FILENO),
+              terminalInputMode.beginDisconnected() else {
             parkSSHTerminalExitPromptAfterEOF()
         }
-
-        var promptMode = original
-        cfmakeraw(&promptMode)
-        promptMode.c_lflag |= tcflag_t(ISIG)
-        // Changing mode and flushing are one terminal operation: no byte queued
-        // before this prompt boundary can later be mistaken for a fresh Enter.
-        guard tcsetattr(STDIN_FILENO, TCSAFLUSH, &promptMode) == 0 else {
-            parkSSHTerminalExitPromptAfterEOF()
-        }
-        defer { _ = tcsetattr(STDIN_FILENO, TCSANOW, &original) }
+        // Keep output draining independently from the input boundary. TCSAFLUSH
+        // waits for terminal output and can stall this prompt behind a slow PTY
+        // reader; the shared mode owner switches immediately, then drops only
+        // input that arrived before the prompt became ready.
+        defer { _ = terminalInputMode.restore() }
 
         var inputFilter = SSHTerminalExitPromptInputFilter()
         var buffer = [UInt8](repeating: 0, count: 256)

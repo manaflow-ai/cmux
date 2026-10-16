@@ -59,6 +59,15 @@ extension TerminalNotificationStore {
         }
     }
 
+    /// Origin-agnostic convenience for tests that only care about the text fields.
+    func configureNotificationCommandRunnerForTesting(
+        _ runner: @escaping @Sendable (String, String, String) -> Void
+    ) {
+        configureNotificationCommandRunnerForTesting { title, subtitle, body, _ in
+            runner(title, subtitle, body)
+        }
+    }
+
     func resetNotificationCommandRunnerForTesting() {
         configureNativeNotificationDeliveryHooksForTesting {
             $0.commandRunner = NativeNotificationDeliveryHooks.defaultCommandRunner

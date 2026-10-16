@@ -137,7 +137,7 @@ def _create_git_repo(root: Path) -> Path:
         stderr=subprocess.DEVNULL,
     )
     subprocess.run(
-        ["git", "-c", "commit.gpgsign=false", "commit", "-m", "init"],
+        ["git", "-c", "commit.gpgsign=false", "-c", "maintenance.auto=false", "commit", "-m", "init"],
         cwd=repo,
         check=True,
         stdout=subprocess.DEVNULL,

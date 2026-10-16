@@ -86,7 +86,7 @@ final class PaneMemoryGuardrail {
         let includeCMUXScope = consumeScopedScanIfDue(now: Date())
         isScanning = true
         let sampleTask = Task.detached(priority: .utility) {
-            Self.computeCachedSamples(
+            await Self.computeCachedSamples(
                 descriptors: descriptors,
                 thresholdBytes: thresholdBytes,
                 includeCMUXScope: includeCMUXScope
@@ -102,11 +102,16 @@ final class PaneMemoryGuardrail {
         }
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated static func computeCachedSamples(
         descriptors: [PaneMemoryDescriptor],
         thresholdBytes: Int64,
         includeCMUXScope: Bool = false
-    ) -> PaneMemoryGuardrailSampleBatch {
+    ) async -> PaneMemoryGuardrailSampleBatch {
         // The unscoped maximumAge must stay below pollInterval (4s): serving the
         // guardrail its own previous tick's snapshot would silently halve its
         // effective sampling cadence. 3s only allows reuse of a snapshot another
@@ -114,8 +119,8 @@ final class PaneMemoryGuardrail {
         // guardrail is the sole sampler it still captures fresh each tick, which
         // is the cheap no-details tier and the intended freshness floor.
         let snapshot = includeCMUXScope
-            ? CmuxTopProcessSnapshot.captureCached(includeCMUXScope: true, maximumAge: 5)
-            : CmuxTopProcessSnapshot.captureCached(includeCMUXScope: false, maximumAge: 3)
+            ? await CmuxTopProcessSnapshot.captureCached(includeCMUXScope: true, maximumAge: 5)
+            : await CmuxTopProcessSnapshot.captureCached(includeCMUXScope: false, maximumAge: 3)
         let samples = computeSamples(
             descriptors: descriptors,
             thresholdBytes: thresholdBytes,

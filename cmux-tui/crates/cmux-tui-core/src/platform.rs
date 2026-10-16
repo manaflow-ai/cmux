@@ -32,6 +32,20 @@ pub mod transport {
         imp::connect(path)
     }
 
+    /// Connect and refuse a listener that runs as another user before the
+    /// caller writes anything. Windows sockets report no peer credentials, so
+    /// there this is a plain connect.
+    pub fn connect_same_user(path: &Path) -> io::Result<Box<dyn Stream>> {
+        imp::connect_same_user(path)
+    }
+
+    /// A listener serves its owner and root. Root can already open any
+    /// socket file, so refusing it would only get in the way of an admin.
+    #[cfg(unix)]
+    pub(crate) fn peer_may_connect(peer_uid: u32, owner_uid: u32) -> bool {
+        peer_uid == owner_uid || peer_uid == 0
+    }
+
     impl Listener {
         pub fn accept(&self) -> io::Result<Box<dyn Stream>> {
             self.inner.accept()
@@ -59,9 +73,22 @@ pub mod transport {
             Ok(Box::new(UnixStream::connect(path)?))
         }
 
+        pub(super) fn connect_same_user(path: &Path) -> io::Result<Box<dyn Stream>> {
+            let stream = UnixStream::connect(path)?;
+            crate::platform::require_unix_peer_uid(&stream, crate::platform::effective_uid())?;
+            Ok(Box::new(stream))
+        }
+
         impl Listener {
             pub(super) fn accept(&self) -> io::Result<Box<dyn Stream>> {
                 let (stream, _) = self.inner.accept()?;
+                let peer_uid = crate::platform::unix_peer_uid(&stream)?;
+                if !super::peer_may_connect(peer_uid, crate::platform::effective_uid()) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        format!("refused a socket client running as uid {peer_uid}"),
+                    ));
+                }
                 Ok(Box::new(stream))
             }
         }
@@ -106,6 +133,10 @@ pub mod transport {
             Ok(Box::new(UnixStream::connect(path)?))
         }
 
+        pub(super) fn connect_same_user(path: &Path) -> io::Result<Box<dyn Stream>> {
+            connect(path)
+        }
+
         impl Listener {
             pub(super) fn accept(&self) -> io::Result<Box<dyn Stream>> {
                 let (stream, _) = self.inner.accept()?;
@@ -131,6 +162,99 @@ pub mod transport {
             }
         }
     }
+}
+
+/// The effective uid that owns this process's private sockets.
+#[cfg(unix)]
+pub fn effective_uid() -> u32 {
+    // SAFETY: geteuid has no preconditions and does not dereference pointers.
+    unsafe { libc::geteuid() }
+}
+
+/// The uid the kernel reports for the process on the other end of a
+/// connected Unix socket.
+#[cfg(unix)]
+pub fn unix_peer_uid(socket: &impl std::os::fd::AsRawFd) -> io::Result<u32> {
+    peer_uid_of(socket.as_raw_fd())
+}
+
+/// Refuses a connected Unix socket whose peer is not `expected_uid`. Call it
+/// before writing anything to a socket found at a path the caller derived.
+#[cfg(unix)]
+pub fn require_unix_peer_uid(
+    socket: &impl std::os::fd::AsRawFd,
+    expected_uid: u32,
+) -> io::Result<()> {
+    let peer_uid = unix_peer_uid(socket)?;
+    if peer_uid != expected_uid {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("socket peer uid {peer_uid} does not match the expected uid {expected_uid}"),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn peer_uid_of(fd: std::os::fd::RawFd) -> io::Result<u32> {
+    use std::mem::{size_of, zeroed};
+
+    // SAFETY: ucred is plain data and all-zero is a valid value.
+    let mut credentials = unsafe { zeroed::<libc::ucred>() };
+    let mut length = size_of::<libc::ucred>() as libc::socklen_t;
+    // SAFETY: both out-pointers are valid for writes of the lengths passed.
+    let result = unsafe {
+        libc::getsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            (&raw mut credentials).cast(),
+            &raw mut length,
+        )
+    };
+    if result != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if length as usize != size_of::<libc::ucred>() {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid peer credentials"));
+    }
+    Ok(credentials.uid)
+}
+
+#[cfg(any(
+    target_vendor = "apple",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+fn peer_uid_of(fd: std::os::fd::RawFd) -> io::Result<u32> {
+    let mut uid: libc::uid_t = 0;
+    let mut gid: libc::gid_t = 0;
+    // SAFETY: both out-pointers are valid for writes of one id each.
+    if unsafe { libc::getpeereid(fd, &raw mut uid, &raw mut gid) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(uid)
+}
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))
+))]
+fn peer_uid_of(_fd: std::os::fd::RawFd) -> io::Result<u32> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "socket peer credentials are not available on this platform",
+    ))
 }
 
 /// The path to exec THIS running build again (terminal hosts, headless
@@ -229,6 +353,252 @@ pub fn workspace_state_dir() -> Option<PathBuf> {
             },
         )
     }
+}
+
+/// Return a path that every state-file owner can use without hitting the
+/// legacy Windows MAX_PATH boundary. Windows' verbatim namespace is applied
+/// only to long, absolute drive or UNC paths. Short paths keep their existing
+/// spelling so callers and persisted diagnostics remain compatible. Long paths
+/// with names that Win32 would reinterpret also keep their original spelling.
+pub fn normalize_filesystem_path(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        use std::ffi::OsString;
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+        const WINDOWS_PATH_HEADROOM: usize = 240;
+        let original = path;
+        let has_path_prefix = original
+            .components()
+            .next()
+            .is_some_and(|component| matches!(component, std::path::Component::Prefix(_)));
+        if matches!(original.components().next(), Some(std::path::Component::RootDir)) {
+            return original;
+        }
+        let candidate = if original.is_absolute() || has_path_prefix {
+            original.clone()
+        } else {
+            match std::env::current_dir() {
+                Ok(current) => {
+                    let resolved = current.join(&original);
+                    if resolved.as_os_str().encode_wide().count() < WINDOWS_PATH_HEADROOM {
+                        return original;
+                    }
+                    resolved
+                }
+                Err(_) => return original,
+            }
+        };
+        let mut wide = candidate.as_os_str().encode_wide().collect::<Vec<_>>();
+        if wide.len() < WINDOWS_PATH_HEADROOM {
+            return original;
+        }
+        for unit in &mut wide {
+            if *unit == b'/' as u16 {
+                *unit = b'\\' as u16;
+            }
+        }
+        if has_windows_device_prefix(&wide) {
+            return original;
+        }
+        // A verbatim path disables Win32's component parsing. Removing a
+        // parent component here would therefore change the meaning of a path
+        // that traverses a junction or symbolic link. Keep the original path
+        // spelling until a handle-aware canonicalization path is available.
+        // This is a deliberate fail-closed choice for the uncommon long path
+        // case, and preserves the pre-upgrade filesystem target.
+        if has_windows_parent_component(&wide) {
+            return original;
+        }
+        let Some(normalized) = normalize_windows_absolute_path(&wide) else {
+            return original;
+        };
+        // `\\?\` disables Win32 string parsing. Prefix only components that
+        // already have ordinary Win32 file-name semantics, or the same input
+        // could select a different filesystem object after normalization.
+        if !windows_absolute_path_is_verbatim_safe(&normalized) {
+            return original;
+        }
+        let is_unc = normalized.starts_with(&[b'\\' as u16, b'\\' as u16]);
+        let mut prefixed = if is_unc {
+            // `\\server\\share` becomes `\\?\\UNC\\server\\share`.
+            vec![
+                b'\\' as u16,
+                b'\\' as u16,
+                b'?' as u16,
+                b'\\' as u16,
+                b'U' as u16,
+                b'N' as u16,
+                b'C' as u16,
+                b'\\' as u16,
+            ]
+        } else {
+            vec![b'\\' as u16, b'\\' as u16, b'?' as u16, b'\\' as u16]
+        };
+        prefixed.extend_from_slice(if is_unc { &normalized[2..] } else { &normalized });
+        PathBuf::from(OsString::from_wide(&prefixed))
+    }
+    #[cfg(not(windows))]
+    {
+        path
+    }
+}
+
+#[cfg(windows)]
+fn has_windows_device_prefix(path: &[u16]) -> bool {
+    path.starts_with(&[b'\\' as u16, b'\\' as u16, b'?' as u16, b'\\' as u16])
+        || path.starts_with(&[b'\\' as u16, b'\\' as u16, b'.' as u16, b'\\' as u16])
+        || path.starts_with(&[b'\\' as u16, b'?' as u16, b'?' as u16, b'\\' as u16])
+}
+
+#[cfg(windows)]
+fn has_windows_parent_component(path: &[u16]) -> bool {
+    path.split(|unit| *unit == b'\\' as u16).any(|segment| segment == [b'.' as u16, b'.' as u16])
+}
+
+#[cfg(any(windows, test))]
+fn windows_absolute_path_is_verbatim_safe(path: &[u16]) -> bool {
+    let components = if path.len() >= 3
+        && path[0] <= 0x7f
+        && (path[0] as u8).is_ascii_alphabetic()
+        && path[1] == b':' as u16
+        && path[2] == b'\\' as u16
+    {
+        &path[3..]
+    } else if path.starts_with(&[b'\\' as u16, b'\\' as u16]) {
+        // Include the server and share. Keeping their spelling in the same
+        // conservative component contract avoids changing UNC lookup rules.
+        &path[2..]
+    } else {
+        return false;
+    };
+
+    components
+        .split(|unit| *unit == b'\\' as u16)
+        .filter(|component| !component.is_empty())
+        .all(windows_component_is_verbatim_safe)
+}
+
+#[cfg(any(windows, test))]
+fn windows_component_is_verbatim_safe(component: &[u16]) -> bool {
+    if component.is_empty()
+        || component.last().is_some_and(|unit| *unit == b'.' as u16 || *unit == b' ' as u16)
+    {
+        return false;
+    }
+    if component.iter().any(|unit| {
+        *unit < 32
+            || *unit == b'<' as u16
+            || *unit == b'>' as u16
+            || *unit == b':' as u16
+            || *unit == b'"' as u16
+            || *unit == b'/' as u16
+            || *unit == b'|' as u16
+            || *unit == b'?' as u16
+            || *unit == b'*' as u16
+    }) {
+        return false;
+    }
+
+    let stem_end =
+        component.iter().position(|unit| *unit == b'.' as u16).unwrap_or(component.len());
+    let mut stem = &component[..stem_end];
+    while stem.last().is_some_and(|unit| *unit == b'.' as u16 || *unit == b' ' as u16) {
+        stem = &stem[..stem.len() - 1];
+    }
+    !windows_component_is_reserved_device_name(stem)
+}
+
+#[cfg(any(windows, test))]
+fn windows_component_is_reserved_device_name(stem: &[u16]) -> bool {
+    fn ascii_eq_ignore_case(actual: &[u16], expected: &[u8]) -> bool {
+        actual.len() == expected.len()
+            && actual.iter().zip(expected).all(|(actual, expected)| {
+                *actual <= 0x7f && (*actual as u8).eq_ignore_ascii_case(expected)
+            })
+    }
+
+    if [b"CON".as_slice(), b"PRN", b"AUX", b"NUL", b"CONIN$", b"CONOUT$"]
+        .iter()
+        .any(|name| ascii_eq_ignore_case(stem, name))
+    {
+        return true;
+    }
+    if stem.len() != 4
+        || !(ascii_eq_ignore_case(&stem[..3], b"COM") || ascii_eq_ignore_case(&stem[..3], b"LPT"))
+    {
+        return false;
+    }
+    matches!(stem[3], unit if (b'1' as u16..=b'9' as u16).contains(&unit))
+        || matches!(stem[3], 0x00b9 | 0x00b2 | 0x00b3)
+}
+
+#[cfg(windows)]
+fn normalize_windows_absolute_path(path: &[u16]) -> Option<Vec<u16>> {
+    let had_trailing_separator = path.last() == Some(&(b'\\' as u16));
+    let is_drive = path.len() >= 3
+        && path[0] <= 0x7f
+        && (path[0] as u8).is_ascii_alphabetic()
+        && path[1] == b':' as u16
+        && path[2] == b'\\' as u16;
+    let (root, rest, root_has_separator) = if is_drive {
+        (&path[..3], &path[3..], true)
+    } else if path.starts_with(&[b'\\' as u16, b'\\' as u16]) {
+        let mut index = 2;
+        let server_start = index;
+        while index < path.len() && path[index] != b'\\' as u16 {
+            index += 1;
+        }
+        if index == server_start {
+            return None;
+        }
+        while index < path.len() && path[index] == b'\\' as u16 {
+            index += 1;
+        }
+        let share_start = index;
+        while index < path.len() && path[index] != b'\\' as u16 {
+            index += 1;
+        }
+        if index == share_start {
+            return None;
+        }
+        let root_end = index;
+        let rest_start = (index < path.len()).then_some(index + 1).unwrap_or(index);
+        (&path[..root_end], &path[rest_start..], false)
+    } else {
+        return None;
+    };
+
+    let mut segments = Vec::<Vec<u16>>::new();
+    let mut segment_start = 0;
+    for index in 0..=rest.len() {
+        if index != rest.len() && rest[index] != b'\\' as u16 {
+            continue;
+        }
+        let segment = &rest[segment_start..index];
+        if segment.is_empty() || segment == [b'.' as u16] {
+            // Repeated separators and current-directory components do not
+            // change the path and must not survive the verbatim prefix.
+        } else if segment == [b'.' as u16, b'.' as u16] {
+            // An absolute path cannot walk above its root.
+            let _ = segments.pop();
+        } else {
+            segments.push(segment.to_vec());
+        }
+        segment_start = index.saturating_add(1);
+    }
+
+    let mut output = root.to_vec();
+    for segment in segments {
+        if !root_has_separator || output.last() != Some(&(b'\\' as u16)) {
+            output.push(b'\\' as u16);
+        }
+        output.extend_from_slice(&segment);
+    }
+    if had_trailing_separator && output.last() != Some(&(b'\\' as u16)) {
+        output.push(b'\\' as u16);
+    }
+    Some(output)
 }
 
 /// Path of the client's bounded rolling log file: the `cmux-tui` state root
@@ -742,6 +1112,51 @@ pub fn foreground_cwd(pid: u32) -> Option<String> {
     process_cwd(foreground_process_group(pid)?)
 }
 
+/// Executable path or name of a terminal's live foreground process-group
+/// leader (see [`foreground_cwd`] for the leader resolution contract). Exposed
+/// as generic terminal metadata so userland plugins can identify their own
+/// foreground applications.
+/// Returns `None` when the leader is gone, the child has no controlling
+/// terminal, or the platform denies the lookup.
+pub fn foreground_process_name(pid: u32) -> Option<String> {
+    process_name(foreground_process_group(pid)?)
+}
+
+#[cfg(target_os = "linux")]
+fn process_name(pid: u32) -> Option<String> {
+    // argv[0]'s basename beats /proc/<pid>/comm: comm truncates to 15
+    // bytes and wrapper launchers exec with a meaningful argv[0].
+    let argv0 = std::fs::read(format!("/proc/{pid}/cmdline")).ok().and_then(|cmdline| {
+        let argv0 = cmdline.split(|byte| *byte == 0).next()?;
+        let argv0 = std::str::from_utf8(argv0).ok()?.trim();
+        (!argv0.is_empty()).then(|| argv0.to_string())
+    });
+    argv0.or_else(|| {
+        let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+        let comm = comm.trim();
+        (!comm.is_empty()).then(|| comm.to_string())
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn process_name(pid: u32) -> Option<String> {
+    let pid = libc::c_int::try_from(pid).ok()?;
+    let mut path = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    // SAFETY: proc_pidpath writes at most `path.len()` bytes and returns
+    // the written byte count (0 on failure).
+    let written = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path.len() as u32) };
+    if written <= 0 {
+        return None;
+    }
+    let path = std::str::from_utf8(&path[..written as usize]).ok()?;
+    (!path.is_empty()).then(|| path.to_string())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn process_name(_pid: u32) -> Option<String> {
+    None
+}
+
 #[cfg(target_os = "linux")]
 fn foreground_process_group(pid: u32) -> Option<u32> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
@@ -877,17 +1292,30 @@ fn default_terminal_cwd_from(launch: Option<&Path>) -> Option<String> {
 /// name a safe local spawn directory, so callers should fall back to the
 /// surface's original working directory when this returns `None`.
 pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
+    if let Some(path) = kitty_shell_cwd_to_local_path(value) {
+        return Some(path);
+    }
     // Hosted surfaces never trust hostless OSC 7 values. Their authenticated
     // spawn CWD is the only safe fallback when no local host is identified.
     let mut url = url::Url::parse(value).ok()?;
     if url.scheme() != "file" {
         return None;
     }
-    let host = url.host_str()?;
+    // `url` normalizes an explicit `localhost` authority to no host. Preserve
+    // that trusted spelling without accepting a genuinely hostless URL.
+    const LOCALHOST_AUTHORITY: &str = "file://localhost";
+    let explicit_localhost = value
+        .get(..LOCALHOST_AUTHORITY.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(LOCALHOST_AUTHORITY))
+        && value.as_bytes().get(LOCALHOST_AUTHORITY.len()).is_none_or(|byte| *byte == b'/');
+    let parsed_host = url.host_str();
+    let host = parsed_host.or_else(|| explicit_localhost.then_some("localhost"))?;
     if !terminal_pwd_host_is_local(host) {
         return None;
     }
-    url.set_host(Some("localhost")).ok()?;
+    if parsed_host.is_some() {
+        url.set_host(Some("localhost")).ok()?;
+    }
     url.to_file_path().ok().filter(|path| terminal_pwd_path_is_safe(path))
 }
 
@@ -898,6 +1326,9 @@ pub fn local_terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
     let plain = Path::new(value);
     if terminal_pwd_path_is_safe(plain) {
         return Some(plain.to_owned());
+    }
+    if let Some(path) = kitty_shell_cwd_to_local_path(value) {
+        return Some(path);
     }
 
     let mut url = url::Url::parse(value).ok()?;
@@ -922,11 +1353,11 @@ pub fn spawn_cwd_to_local_path(value: &str) -> Option<PathBuf> {
     if value.is_empty() || value.contains('\0') {
         return None;
     }
-    if !value.get(..5).is_some_and(|prefix| prefix.eq_ignore_ascii_case("file:")) {
-        return Some(PathBuf::from(value));
-    }
     if value.starts_with("cmux-tui:spawn-cwd:") {
         return None;
+    }
+    if !value.get(..5).is_some_and(|prefix| prefix.eq_ignore_ascii_case("file:")) {
+        return Some(PathBuf::from(value));
     }
     // Legacy daemons serialized the authenticated spawn path directly.
     // Snapshot data is received over the owner-token authenticated host
@@ -962,6 +1393,31 @@ fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
     difference == 0
 }
 
+/// Ghostty's shell integration follows a prompt's `file://` report with
+/// `kitty-shell-cwd://HOST/PATH`, so that is the value a terminal keeps. Its
+/// path is raw bytes, not percent-encoded, and it needs the same local-host
+/// check as a `file://` report.
+fn kitty_shell_cwd_to_local_path(value: &str) -> Option<PathBuf> {
+    const SCHEME: &str = "kitty-shell-cwd://";
+    let rest = value
+        .get(..SCHEME.len())
+        .filter(|scheme| scheme.eq_ignore_ascii_case(SCHEME))
+        .map(|_| &value[SCHEME.len()..])?;
+    let (host, path) = rest.split_at(rest.find('/')?);
+    if host.is_empty() || !terminal_pwd_host_is_local(host) || path.contains('\0') {
+        return None;
+    }
+    // `kitty-shell-cwd://host/C:/Users/me` keeps the URI's slash before a
+    // Windows drive, which a rooted Windows path does not have.
+    #[cfg(windows)]
+    let path = path
+        .strip_prefix('/')
+        .filter(|rest| windows_path_is_rooted_local_drive(rest))
+        .unwrap_or(path);
+    let path = PathBuf::from(path);
+    terminal_pwd_path_is_safe(&path).then_some(path)
+}
+
 fn terminal_pwd_path_is_safe(path: &Path) -> bool {
     if !path.is_absolute() {
         return false;
@@ -994,7 +1450,7 @@ fn terminal_pwd_host_is_local(host: &str) -> bool {
 }
 
 #[cfg(unix)]
-fn local_hostname() -> Option<String> {
+pub(crate) fn local_hostname() -> Option<String> {
     let mut hostname = [0_u8; 256];
     if unsafe { libc::gethostname(hostname.as_mut_ptr().cast(), hostname.len()) } != 0 {
         return None;
@@ -1010,7 +1466,7 @@ fn decode_local_hostname(bytes: &[u8]) -> Option<String> {
 }
 
 #[cfg(windows)]
-fn local_hostname() -> Option<String> {
+pub(crate) fn local_hostname() -> Option<String> {
     std::env::var("COMPUTERNAME").ok().filter(|value| !value.is_empty())
 }
 
@@ -1093,6 +1549,30 @@ mod tests {
         let paths = ghostty_config_paths_from(Some(xdg.clone()), Some(home));
 
         assert_eq!(paths, vec![xdg.join("ghostty/config"), xdg.join("ghostty/config.ghostty")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_socket_peer_uid_must_match_the_expected_user() {
+        let (client, server) = std::os::unix::net::UnixStream::pair().unwrap();
+        let owner = effective_uid();
+
+        assert_eq!(unix_peer_uid(&client).unwrap(), owner);
+        assert_eq!(unix_peer_uid(&server).unwrap(), owner);
+        require_unix_peer_uid(&client, owner).unwrap();
+        let error = require_unix_peer_uid(&client, owner.wrapping_add(1))
+            .expect_err("a peer running as another user must be refused");
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_socket_listener_admits_only_the_owner_and_root() {
+        assert!(transport::peer_may_connect(501, 501));
+        assert!(transport::peer_may_connect(0, 501));
+        assert!(transport::peer_may_connect(0, 0));
+        assert!(!transport::peer_may_connect(502, 501));
+        assert!(!transport::peer_may_connect(501, 0));
     }
 
     #[test]
@@ -1245,6 +1725,158 @@ mod tests {
         sync_directory(&root).unwrap();
 
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_parent_paths_preserve_component_semantics() {
+        let path = PathBuf::from(format!(r"C:\{}\..\state", "segment".repeat(42)));
+        let normalized = normalize_filesystem_path(path.clone());
+        let text = normalized.to_string_lossy();
+        assert_eq!(normalized, path, "{text}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_relative_failures_preserve_original_spelling() {
+        let parent = vec!["segment"; 36].join(r"\");
+        for path in [
+            PathBuf::from(format!(r"{parent}\..\state")),
+            PathBuf::from(format!(r"{parent}\state.")),
+        ] {
+            let normalized = normalize_filesystem_path(path.clone());
+            assert_eq!(normalized, path, "{}", normalized.display());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_root_relative_paths_preserve_current_drive_semantics() {
+        let path = PathBuf::from(format!(r"\{}\state", "segment".repeat(42)));
+        let normalized = normalize_filesystem_path(path.clone());
+        assert_eq!(normalized, path, "{}", normalized.display());
+    }
+
+    #[test]
+    fn normalize_windows_paths_preserves_drive_relative_and_rooted_controls() {
+        let drive_relative = PathBuf::from(r"C:state");
+        assert_eq!(normalize_filesystem_path(drive_relative.clone()), drive_relative);
+
+        let relative = PathBuf::from("state");
+        assert_eq!(normalize_filesystem_path(relative.clone()), relative);
+
+        for rooted in [PathBuf::from(r"C:\state"), PathBuf::from(r"\\server\share\state")] {
+            assert_eq!(normalize_filesystem_path(rooted.clone()), rooted);
+        }
+    }
+
+    #[test]
+    fn windows_verbatim_component_guard_rejects_win32_semantic_changes() {
+        for component in [
+            "state.",
+            "state ",
+            "CON",
+            "nul.txt",
+            "Com9.log",
+            "LPT¹",
+            "CONIN$",
+            "CONOUT$",
+            "conin$.log",
+            "ConOut$.log",
+        ] {
+            let wide = component.encode_utf16().collect::<Vec<_>>();
+            assert!(!windows_component_is_verbatim_safe(&wide), "{component}");
+        }
+    }
+
+    #[test]
+    fn windows_verbatim_component_guard_accepts_ordinary_names() {
+        for component in ["state", "state data.v1", ".state", "COM10", "日本語"] {
+            let wide = component.encode_utf16().collect::<Vec<_>>();
+            assert!(windows_component_is_verbatim_safe(&wide), "{component}");
+        }
+    }
+
+    #[test]
+    fn windows_verbatim_path_guard_requires_drive_or_unc_root() {
+        for path in [r"C:\state", r"\\server\share\state"] {
+            let wide = path.encode_utf16().collect::<Vec<_>>();
+            assert!(windows_absolute_path_is_verbatim_safe(&wide), "{path}");
+        }
+        for path in [r"C:state", r"\state", "state"] {
+            let wide = path.encode_utf16().collect::<Vec<_>>();
+            assert!(!windows_absolute_path_is_verbatim_safe(&wide), "{path}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_trailing_dot_or_space_paths_preserve_component_semantics() {
+        let parent = vec!["segment"; 36].join(r"\");
+        for child in ["state.", "state "] {
+            let path = PathBuf::from(format!(r"C:\{parent}\{child}"));
+            let normalized = normalize_filesystem_path(path.clone());
+            assert_eq!(normalized, path, "{}", normalized.display());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_reserved_device_paths_preserve_component_semantics() {
+        let parent = vec!["segment"; 36].join(r"\");
+        for child in ["CON", "nul.txt", "Com9.log", "LPT¹"] {
+            let path = PathBuf::from(format!(r"C:\{parent}\{child}"));
+            let normalized = normalize_filesystem_path(path.clone());
+            assert_eq!(normalized, path, "{}", normalized.display());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_valid_components_use_the_verbatim_namespace() {
+        let parent = vec!["segment"; 36].join(r"\");
+        let path = PathBuf::from(format!(r"C:\{parent}\state data.v1"));
+        let normalized = normalize_filesystem_path(path);
+        let text = normalized.to_string_lossy();
+        assert!(text.starts_with(r"\\?\C:\"), "{text}");
+        assert!(text.ends_with(r"\state data.v1"), "{text}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_file_with_trailing_separator_keeps_directory_requirement() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-path-separator-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let deep_parent = root.join(vec!["segment"; 30].join(r"\"));
+        let normalized_parent = normalize_filesystem_path(deep_parent.clone());
+        std::fs::create_dir_all(&normalized_parent).unwrap();
+
+        let file = deep_parent.join("state.bin");
+        let normalized_file = normalize_filesystem_path(file.clone());
+        std::fs::write(&normalized_file, b"state").unwrap();
+
+        let with_separator = PathBuf::from(format!(r"{}\", file.display()));
+        let normalized_with_separator = normalize_filesystem_path(with_separator);
+        let text = normalized_with_separator.to_string_lossy().into_owned();
+        let metadata = std::fs::metadata(&normalized_with_separator);
+
+        let _ = std::fs::remove_file(normalized_file);
+        let _ = std::fs::remove_dir_all(normalize_filesystem_path(root));
+
+        assert!(text.ends_with(r"\"), "{text}");
+        assert!(metadata.is_err(), "a trailing separator opened a regular file: {text}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_unc_paths_preserves_the_share_boundary() {
+        let path = PathBuf::from(format!(r"\\server\share\{}", "segment".repeat(42)));
+        let normalized = normalize_filesystem_path(path);
+        let text = normalized.to_string_lossy();
+        assert!(text.starts_with(r"\\?\UNC\server\share\"), "{text}");
     }
 
     #[test]
@@ -1481,6 +2113,43 @@ mod tests {
         // remote shell can emit one and otherwise redirect a local spawn.
         assert_eq!(terminal_pwd_to_local_path("/tmp/plain"), None);
         assert_eq!(terminal_pwd_to_local_path("file://remote.invalid/tmp/nope"), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn terminal_pwd_accepts_windows_drive_kitty_shell_cwd_reports() {
+        assert_eq!(
+            terminal_pwd_to_local_path("kitty-shell-cwd://localhost/C:/Users/me"),
+            Some(PathBuf::from("C:/Users/me"))
+        );
+        assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd://localhost/Users/me"), None);
+    }
+
+    /// Ghostty's bash integration reports `kitty-shell-cwd://$HOSTNAME$PWD`
+    /// after the Cloud prompt's `file://` report on a shell's first prompt and
+    /// after every `cd`, so that report is the one a hosted terminal keeps.
+    #[cfg(unix)]
+    #[test]
+    fn terminal_pwd_accepts_local_kitty_shell_cwd_reports() {
+        let hostname = local_hostname().expect("hostname");
+
+        assert_eq!(
+            terminal_pwd_to_local_path(&format!("kitty-shell-cwd://{hostname}/home/cmux")),
+            Some(PathBuf::from("/home/cmux"))
+        );
+        // kitty-shell-cwd carries the raw path; `%20` is three literal bytes.
+        assert_eq!(
+            terminal_pwd_to_local_path("kitty-shell-cwd://localhost/tmp/a b%20c"),
+            Some(PathBuf::from("/tmp/a b%20c"))
+        );
+        assert_eq!(
+            local_terminal_pwd_to_local_path(&format!("kitty-shell-cwd://{hostname}/srv")),
+            Some(PathBuf::from("/srv"))
+        );
+        assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd://remote.invalid/tmp/nope"), None);
+        assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd:///tmp/hostless"), None);
+        assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd://localhost"), None);
+        assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd://localhost/tmp/\0nul"), None);
     }
 
     #[cfg(unix)]

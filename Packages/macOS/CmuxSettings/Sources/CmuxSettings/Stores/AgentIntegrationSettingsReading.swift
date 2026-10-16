@@ -1,7 +1,7 @@
 import Foundation
 
-/// Read access to the agent-integration settings (Claude Code, Cursor,
-/// Gemini, Kiro, Amp hooks and subagent notification suppression).
+/// Read access to the agent-integration settings (Claude Code, Codex, Pi,
+/// Cursor, Gemini, Kiro, Amp hooks and subagent notification suppression).
 ///
 /// Consumer domains (terminal environment setup, agent launch) depend on
 /// this seam instead of the concrete ``AgentIntegrationSettingsStore``.
@@ -11,6 +11,9 @@ public protocol AgentIntegrationSettingsReading: Sendable {
 
     /// Whether the Codex hooks integration (the `codex` wrapper) is enabled.
     var codexHooksEnabled: Bool { get }
+
+    /// Whether the Pi hooks integration (the `pi` wrapper) is enabled.
+    var piHooksEnabled: Bool { get }
 
     /// The user-configured `claude` executable path, or `nil` to resolve
     /// `claude` from `PATH`. Whitespace-only values read as `nil`.

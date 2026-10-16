@@ -8,6 +8,7 @@ extension GhosttyConfig {
             return color
         }
 
+        guard GhosttyRuntimeCInterop.initialize() == GHOSTTY_SUCCESS else { return nil }
         guard let config = ghostty_config_new() else { return nil }
         defer { ghostty_config_free(config) }
 

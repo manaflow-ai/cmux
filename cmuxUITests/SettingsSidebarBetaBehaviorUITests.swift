@@ -3,7 +3,7 @@ import XCTest
 /// Behavioral UI tests for the Settings **Sidebar** + **Beta Features**
 /// section, scoped to the controls called out for this section:
 /// the *Sidebar Branch Layout* picker (vertical vs inline), the active-tab
-/// *indicator style*, and the *beta Feed* / *beta Dock* toggles.
+/// *indicator style* and the *beta Feed* toggle.
 ///
 /// What is actually assertable through XCUITest here, and why:
 ///
@@ -19,16 +19,13 @@ import XCTest
 /// the mode bar) are NOT reachable without modifying the harness or adding
 /// a launch-time setup seam, which this task forbids.
 ///
-/// What *is* reachable and genuinely behavioral: each of these controls is
-/// wired through a live `@AppStorage` / `@Setting` binding whose value
-/// drives a *derived, reactive subtitle* in the same Settings window. The
-/// subtitle text is computed from the current setting value
-/// (`sidebarBranchVerticalLayout ? "Vertical: …" : "Inline: …"`,
-/// `dockEnabled ? "Shows Dock …" : "Hides Dock …"`). Asserting that the
-/// subtitle label flips when the control changes verifies the full
-/// binding → store → dependent-view path, not merely that the control's
-/// own state toggled. These subtitle strings are surfaced as `staticText`
-/// in the Settings window and are unique, so they are stable to query.
+/// What *is* reachable: each of these controls is wired through a live
+/// `@AppStorage` / `@Setting` binding, and the control reads its value
+/// back from that binding. Each row shows one fixed subtitle, so the tests
+/// assert the control value round-trips through the store and the fixed
+/// subtitle stays in every state. The subtitle strings are surfaced as
+/// `staticText` in the Settings window and are unique, so they are stable
+/// to query.
 ///
 /// Tiering for this section is recorded in the structured output. The
 /// downstream consumer effects are documented in the TIER 2 block below.
@@ -39,28 +36,16 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
     //  - sidebarBranchVerticalLayout: SidebarCatalogSection.branchVerticalLayout (default true / "Vertical")
     //  - sidebarActiveTabIndicatorStyle: indicator style key (default "leftRail")
     //  - rightSidebar.beta.feed.enabled: BetaFeaturesCatalogSection.rightSidebarFeed (default false)
-    //  - rightSidebar.beta.dock.enabled: BetaFeaturesCatalogSection.rightSidebarDock (default false)
     private let inScopeDefaultsKeys = [
         "sidebarBranchVerticalLayout",
         "sidebarActiveTabIndicatorStyle",
         "rightSidebar.beta.feed.enabled",
-        "rightSidebar.beta.dock.enabled",
     ]
 
-    // Branch-layout subtitle strings (exact defaultValue copy from
-    // SettingsPickerRow at cmuxApp.swift / SidebarSection.swift).
-    private let branchVerticalSubtitle = "Vertical: each branch appears on its own line."
-    private let branchInlineSubtitle = "Inline: all branches share one line."
-
-    // Beta Feed subtitle strings (exact defaultValue copy from
-    // BetaFeaturesSection.feedRow).
-    private let feedOffSubtitle = "Hides Feed from the right sidebar until you enable it here."
-    private let feedOnSubtitle = "Shows Feed in the right sidebar mode switcher for inline agent decisions."
-
-    // Beta Dock subtitle strings (exact defaultValue copy from
-    // BetaFeaturesSection.dockRow).
-    private let dockOffSubtitle = "Hides Dock from the right sidebar until you enable it here."
-    private let dockOnSubtitle = "Shows Dock in the right sidebar mode switcher for custom terminal controls."
+    // Fixed subtitle strings (exact defaultValue copy from SidebarSection
+    // and BetaFeaturesSection).
+    private let branchLayoutSubtitle = "Choose whether branches share one line or each get their own line."
+    private let feedSubtitle = "Adds Feed to the right sidebar for answering agent requests."
 
     override func setUp() {
         super.setUp()
@@ -75,29 +60,23 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
     // MARK: - TIER 1: Sidebar Branch Layout picker
 
     /// Changing the **Sidebar Branch Layout** picker from Vertical to Inline
-    /// flips the row's derived subtitle. The subtitle is computed from the
-    /// `sidebarBranchVerticalLayout` binding, so a change in the rendered
-    /// subtitle proves the picker selection propagated through the live
-    /// settings store into a dependent view (not just that the popUpButton
-    /// value changed).
-    func testBranchLayoutPickerDrivesDerivedSubtitle() {
+    /// updates the picker value read back from the
+    /// `sidebarBranchVerticalLayout` binding, and the row keeps its fixed
+    /// subtitle.
+    func testBranchLayoutPickerKeepsFixedSubtitle() {
         let app = makeLaunchedApp()
         let window = openSettings(app)
         defer { closeSettings(app, window) }
 
         navigate(window, to: "Sidebar")
 
-        // Default is Vertical → the Vertical subtitle must be present and the
-        // Inline subtitle absent.
-        let verticalSubtitle = window.staticTexts[branchVerticalSubtitle]
-        let inlineSubtitle = window.staticTexts[branchInlineSubtitle]
+        let subtitle = window.staticTexts[branchLayoutSubtitle]
         XCTAssertTrue(
-            poll(timeout: 5.0) { verticalSubtitle.exists },
-            "Expected the default Vertical branch-layout subtitle to be shown"
+            poll(timeout: 5.0) { subtitle.exists },
+            "Expected the branch-layout subtitle to be shown"
         )
-        XCTAssertFalse(inlineSubtitle.exists, "Inline subtitle should not be shown while Vertical is selected")
 
-        // The branch-layout picker renders as a .menu Picker → a popUpButton
+        // The branch-layout picker renders as a .menu Picker, a popUpButton
         // whose displayed value is the selected tag title ("Vertical").
         let layoutPopUp = requireElement(
             candidates: [
@@ -112,110 +91,80 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
         // Select "Inline" from the opened menu.
         let inlineItem = requireElement(
             candidates: [
-                app.menuItems["Inline"],
-                window.menuItems["Inline"],
+                app.menuItems["Inline"].firstMatch,
+                window.menuItems["Inline"].firstMatch,
             ],
             timeout: 4.0,
             description: "Inline menu item"
         )
         inlineItem.click()
 
-        // Effect: derived subtitle flips to the Inline string and the Vertical
-        // string disappears.
+        let inlineByTitle = window.popUpButtons["Inline"]
+        let inlineByValue = window.popUpButtons.matching(NSPredicate(format: "value == %@", "Inline")).firstMatch
         XCTAssertTrue(
-            poll(timeout: 5.0) { inlineSubtitle.exists },
-            "Expected the Inline branch-layout subtitle after selecting Inline"
+            poll(timeout: 5.0) { inlineByTitle.exists || inlineByValue.exists },
+            "Expected the branch-layout picker to show Inline after selecting it"
         )
-        XCTAssertFalse(
-            verticalSubtitle.exists,
-            "Vertical subtitle should be gone once Inline is selected"
-        )
+        XCTAssertTrue(subtitle.exists, "The same subtitle should be shown once Inline is selected")
     }
 
     // MARK: - TIER 1: Beta Feed toggle
 
-    /// Toggling the **Beta Features → Feed** switch flips the row's derived
-    /// subtitle between the "Hides Feed …" (off) and "Shows Feed …" (on)
-    /// copy. The subtitle is computed from the `rightSidebarFeed` binding,
-    /// so the label change verifies the toggle drove the live settings store
-    /// and the dependent view re-rendered.
-    func testBetaFeedToggleDrivesDerivedSubtitle() {
-        let app = makeLaunchedApp()
-        let window = openSettings(app)
-        defer { closeSettings(app, window) }
-
-        navigate(window, to: "Beta Features")
-
-        let offSubtitle = window.staticTexts[feedOffSubtitle]
-        let onSubtitle = window.staticTexts[feedOnSubtitle]
-
-        // Default is off → "Hides Feed …" present, "Shows Feed …" absent.
-        XCTAssertTrue(
-            poll(timeout: 5.0) { offSubtitle.exists },
-            "Expected the default (off) Feed subtitle"
-        )
-        XCTAssertFalse(onSubtitle.exists, "On subtitle should not be shown while Feed is disabled")
-
-        let feedToggle = toggle(window, id: "SettingsBetaFeedToggle")
-        feedToggle.click()
-
-        // Effect: subtitle flips to the "on" copy.
-        XCTAssertTrue(
-            poll(timeout: 5.0) { onSubtitle.exists },
-            "Expected the (on) Feed subtitle after enabling Feed"
-        )
-        XCTAssertFalse(offSubtitle.exists, "Off subtitle should be gone once Feed is enabled")
-
-        // Toggle back off to prove the binding is reversible (full round-trip).
-        feedToggle.click()
-        XCTAssertTrue(
-            poll(timeout: 5.0) { offSubtitle.exists },
-            "Expected the (off) Feed subtitle after disabling Feed again"
-        )
-        XCTAssertFalse(onSubtitle.exists, "On subtitle should be gone once Feed is disabled again")
+    /// The **Beta Features > Feed** switch reads its value back from the
+    /// `rightSidebarFeed` binding and keeps its fixed subtitle.
+    func testBetaFeedToggleKeepsFixedSubtitle() {
+        assertBetaToggleRoundTrips(id: "SettingsBetaFeedToggle", subtitle: feedSubtitle)
     }
 
-    // MARK: - TIER 1: Beta Dock toggle
+    // MARK: - Dock graduation
 
-    /// Toggling the **Beta Features → Dock** switch flips the row's derived
-    /// subtitle between the "Hides Dock …" (off) and "Shows Dock …" (on)
-    /// copy. The subtitle is computed from the `rightSidebarDockEnabled`
-    /// binding, so the label change verifies the toggle drove the live
-    /// settings store and the dependent view re-rendered.
-    func testBetaDockToggleDrivesDerivedSubtitle() {
+    /// Dock is a standard feature, so Beta Features no longer offers a Dock
+    /// switch. Visibility remains available under Sidebar > Right Sidebar Tabs.
+    func testBetaFeaturesOmitsDockToggle() {
+        let app = makeLaunchedApp()
+        let window = openSettings(app)
+        defer { closeSettings(app, window) }
+
+        navigate(window, to: "Beta Features")
+        let dockToggle = window.descendants(matching: .any)["SettingsBetaDockToggle"].firstMatch
+        XCTAssertFalse(
+            dockToggle.waitForExistence(timeout: 2),
+            "Dock must not appear as a beta toggle"
+        )
+    }
+
+    /// Shared driver: the toggle starts off, turns on after one click, turns
+    /// off after a second click, and the row shows the same subtitle in
+    /// every state.
+    private func assertBetaToggleRoundTrips(id: String, subtitle text: String) {
         let app = makeLaunchedApp()
         let window = openSettings(app)
         defer { closeSettings(app, window) }
 
         navigate(window, to: "Beta Features")
 
-        let offSubtitle = window.staticTexts[dockOffSubtitle]
-        let onSubtitle = window.staticTexts[dockOnSubtitle]
-
-        // Default is off → "Hides Dock …" present, "Shows Dock …" absent.
+        let subtitle = window.staticTexts[text]
         XCTAssertTrue(
-            poll(timeout: 5.0) { offSubtitle.exists },
-            "Expected the default (off) Dock subtitle"
+            poll(timeout: 5.0) { subtitle.exists },
+            "\(id): expected the subtitle at the default (off) value"
         )
-        XCTAssertFalse(onSubtitle.exists, "On subtitle should not be shown while Dock is disabled")
+        let control = toggle(window, id: id)
+        let initialValue = isOn(control)
 
-        let dockToggle = toggle(window, id: "SettingsBetaDockToggle")
-        dockToggle.click()
-
-        // Effect: subtitle flips to the "on" copy.
+        control.click()
         XCTAssertTrue(
-            poll(timeout: 5.0) { onSubtitle.exists },
-            "Expected the (on) Dock subtitle after enabling Dock"
+            poll(timeout: 5.0) { self.isOn(control) != initialValue },
+            "\(id): toggle should change after one click"
         )
-        XCTAssertFalse(offSubtitle.exists, "Off subtitle should be gone once Dock is enabled")
+        XCTAssertTrue(subtitle.exists, "\(id): the same subtitle should be shown after the first click")
 
-        // Toggle back off to prove the binding is reversible (full round-trip).
-        dockToggle.click()
+        // Toggle back to the observed initial value to prove the binding is reversible.
+        control.click()
         XCTAssertTrue(
-            poll(timeout: 5.0) { offSubtitle.exists },
-            "Expected the (off) Dock subtitle after disabling Dock again"
+            poll(timeout: 5.0) { self.isOn(control) == initialValue },
+            "\(id): toggle should return to its initial value after a second click"
         )
-        XCTAssertFalse(onSubtitle.exists, "On subtitle should be gone once Dock is disabled again")
+        XCTAssertTrue(subtitle.exists, "\(id): the same subtitle should be shown after the round-trip")
     }
 
     // MARK: - Tiering documentation for this section
@@ -241,13 +190,4 @@ final class SettingsSidebarBetaBehaviorUITests: SettingsUITestCase {
     //   This would need a workspace-setup launch seam plus screenshot
     //   sampling (cf. RightSidebarChromeHeightUITests) to verify.
     //
-    // TIER 2 (needs runtime seam): Beta Dock downstream effect — enabling the
-    //   Dock toggle adds the `RightSidebarModeButton.dock` button to the
-    //   right-sidebar mode bar (RightSidebarPanelView `availableModes`). That
-    //   button only exists when the right sidebar is open over a workspace,
-    //   which requires CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR=1 plus the
-    //   bonsplit workspace setup at launch — env the shared harness does not
-    //   set. The reactive binding is covered above; the mode-bar button would
-    //   need the right-sidebar setup launch env (cf.
-    //   RightSidebarChromeHeightUITests) to assert directly.
 }

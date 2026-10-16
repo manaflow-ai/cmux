@@ -2,6 +2,11 @@
 //! external plugin PTY. Owns its full column including the status-bar row
 //! (the status bar starts after the sidebar) and rebuilds the click hit map
 //! as it draws.
+//!
+//! The agents-view two-line row and attention presentation are adapted from
+//! herdr's agent panel design in `src/app/agent_view.rs` at commit
+//! `7b675f42af35508eab66ac42fe1598628597a893` (Apache-2.0), modified by
+//! manaflow for cmux localization and configurable sidebar resources.
 
 use cmux_tui_core::Rect;
 use ratatui::Frame;

@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import CmuxCore
 import CmuxFoundation
+import CmuxRemoteWorkspace
 @testable import CmuxRemoteSession
 
 @Suite("Reverse relay SSH transport selection")
@@ -10,9 +11,12 @@ struct RemoteSessionReverseRelayTransportTests {
     func sharedControlMasterIsPreferred() async throws {
         let runner = RecordingProcessRunner()
         let launcher = RecordingReverseRelayLauncher()
+        let identity = ResolvedControlPathFixture.uniqueIdentity()
         let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
             runner: runner,
-            reverseRelayLauncher: launcher
+            reverseRelayLauncher: launcher,
+            sshOptions: ["ControlPath=\(identity.controlPath)"],
+            identity: identity
         )
         let coordinator = fixture.coordinator
         defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
@@ -30,8 +34,7 @@ struct RemoteSessionReverseRelayTransportTests {
         #expect(forwardRequest.arguments.contains("BatchMode=yes"))
         #expect(
             forwardRequest.arguments.contains {
-                $0.hasPrefix("ControlPath=/tmp/cmux-ssh-") &&
-                    $0.hasSuffix("-%C")
+                $0 == "ControlPath=\(fixture.identity.controlPath)"
             }
         )
         #expect(launcher.launchCount == 0)
@@ -45,8 +48,7 @@ struct RemoteSessionReverseRelayTransportTests {
         }))
         #expect(
             cancelRequest.arguments.contains {
-                $0.hasPrefix("ControlPath=/tmp/cmux-ssh-") &&
-                    $0.hasSuffix("-%C")
+                $0 == "ControlPath=\(fixture.identity.controlPath)"
             }
         )
         #expect(
@@ -68,7 +70,7 @@ struct RemoteSessionReverseRelayTransportTests {
             coordinator.daemonReady = true
             coordinator.daemonRemotePath = "/tmp/cmuxd-remote"
             coordinator.reverseRelayControlMasterForwardSpec =
-                "127.0.0.1:64044:127.0.0.1:55001"
+                "127.0.0.1:\(fixture.identity.relayPort):127.0.0.1:55001"
             coordinator.reverseRelayReady = true
             coordinator.startReverseRelayLocked(remotePath: "/tmp/cmuxd-remote")
         }
@@ -94,7 +96,7 @@ struct RemoteSessionReverseRelayTransportTests {
                 "StrictHostKeyChecking=accept-new",
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=\(ResolvedControlPathFixture.path)",
+                "ControlPath=\(fixture.identity.controlPath)",
             ]
         }
         #expect(registry.retainedControlPaths.isEmpty)
@@ -107,11 +109,11 @@ struct RemoteSessionReverseRelayTransportTests {
         }
 
         #expect(options?.contains(
-            "ControlPath=\(ResolvedControlPathFixture.path)"
+            "ControlPath=\(fixture.identity.controlPath)"
         ) == true)
         #expect(
             registry.retainedControlPaths ==
-                [ResolvedControlPathFixture.path]
+                [fixture.identity.controlPath]
         )
         #expect(runner.requests.isEmpty)
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
@@ -141,8 +143,8 @@ struct RemoteSessionReverseRelayTransportTests {
 
         let outcome = coordinator.queue.sync {
             coordinator.startReverseRelayViaControlMasterLocked(
-                forwardSpec: "127.0.0.1:64044:127.0.0.1:55001",
-                relayPort: 64_044
+                forwardSpec: "127.0.0.1:\(fixture.identity.relayPort):127.0.0.1:55001",
+                relayPort: fixture.identity.relayPort
             )
         }
 
@@ -154,6 +156,37 @@ struct RemoteSessionReverseRelayTransportTests {
         #expect(runner.requests.contains(where: {
             Self.isControlCommand("forward", in: $0.arguments)
         }))
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
+    @Test("A standalone SSH launch inherits caller identity and agent environment")
+    func standaloneFallbackPropagatesCallerEnvironment() async throws {
+        let runner = RecordingProcessRunner()
+        let launcher = RecordingReverseRelayLauncher()
+        let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
+            runner: runner,
+            reverseRelayLauncher: launcher,
+            sshOptions: [
+                "StrictHostKeyChecking=accept-new",
+                "ControlMaster=no",
+            ],
+            agentSocketPath: "/tmp/caller-agent.sock"
+        )
+        let coordinator = fixture.coordinator
+        defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
+
+        var launches = launcher.launches.makeAsyncIterator()
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.daemonRemotePath = "/tmp/cmuxd-remote"
+            coordinator.startReverseRelayLocked(remotePath: "/tmp/cmuxd-remote")
+        }
+
+        let launch = try #require(await launches.next())
+        let environment = try #require(launch.environment)
+        #expect(environment["SSH_AUTH_SOCK"] == "/tmp/caller-agent.sock")
+        #expect(environment["HOME"] == ProcessInfo.processInfo.environment["HOME"])
+        #expect(environment["USER"] == ProcessInfo.processInfo.environment["USER"])
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
@@ -222,22 +255,25 @@ struct RemoteSessionReverseRelayTransportTests {
     @Test("Repeated shared-master relays do not repeat ControlPath resolution")
     func repeatedSharedMasterRelaysDoNotRepeatControlPathResolution() async throws {
         let baseRunner = RecordingProcessRunner()
+        let identity = ResolvedControlPathFixture.uniqueIdentity()
         let runner = FlakyResolvedControlPathProcessRunner(
             base: baseRunner,
-            failureCount: 1
+            failureCount: 1,
+            controlPath: identity.controlPath
         )
         let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
             runner: runner,
+            identity: identity,
             providesResolvedControlPath: false
         )
         let coordinator = fixture.coordinator
         defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
-        let forwardSpec = "127.0.0.1:64044:127.0.0.1:55001"
+        let forwardSpec = "127.0.0.1:\(fixture.identity.relayPort):127.0.0.1:55001"
 
         let first = coordinator.queue.sync {
             coordinator.startReverseRelayViaControlMasterLocked(
                 forwardSpec: forwardSpec,
-                relayPort: 64_044
+                relayPort: fixture.identity.relayPort
             )
         }
         guard case .started = first else {
@@ -250,7 +286,7 @@ struct RemoteSessionReverseRelayTransportTests {
         let second = coordinator.queue.sync {
             coordinator.startReverseRelayViaControlMasterLocked(
                 forwardSpec: forwardSpec,
-                relayPort: 64_044
+                relayPort: fixture.identity.relayPort
             )
         }
 
@@ -287,8 +323,8 @@ struct RemoteSessionReverseRelayTransportTests {
 
         let first = coordinator.queue.sync {
             coordinator.startReverseRelayViaControlMasterLocked(
-                forwardSpec: "127.0.0.1:64044:127.0.0.1:55001",
-                relayPort: 64_044
+                forwardSpec: "127.0.0.1:\(fixture.identity.relayPort):127.0.0.1:55001",
+                relayPort: fixture.identity.relayPort
             )
         }
         coordinator.queue.sync {
@@ -296,8 +332,8 @@ struct RemoteSessionReverseRelayTransportTests {
         }
         let second = coordinator.queue.sync {
             coordinator.startReverseRelayViaControlMasterLocked(
-                forwardSpec: "127.0.0.1:64044:127.0.0.1:55002",
-                relayPort: 64_044
+                forwardSpec: "127.0.0.1:\(fixture.identity.relayPort):127.0.0.1:55002",
+                relayPort: fixture.identity.relayPort
             )
         }
 
@@ -354,6 +390,122 @@ struct RemoteSessionReverseRelayTransportTests {
         #expect(status.state == .bootstrapping)
         #expect(status.detail == nil)
         #expect(await clock.nextRequestedDelay() == 2_000)
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
+    @Test("A mixed auth and forwarding diagnostic remains retryable")
+    func mixedAuthenticationAndForwardingFailureRemainsRetryable() async throws {
+        let host = ReverseRelayRecoveryHost()
+        let clock = ManualBrokerClock()
+        let runner = RecordingProcessRunner { request in
+            if Self.isControlCommand("forward", in: request.arguments) {
+                return RemoteCommandResult(
+                    status: 255,
+                    stdout: "",
+                    stderr: "Control socket connect: No such file or directory"
+                )
+            }
+            return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+        }
+        let launcher = RecordingReverseRelayLauncher()
+        let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
+            host: host,
+            runner: runner,
+            reverseRelayLauncher: launcher,
+            clock: clock
+        )
+        let coordinator = fixture.coordinator
+        defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
+
+        var launches = launcher.launches.makeAsyncIterator()
+        var statuses = host.daemonStatuses.makeAsyncIterator()
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.daemonRemotePath = "/tmp/cmuxd-remote"
+            coordinator.startReverseRelayLocked(remotePath: "/tmp/cmuxd-remote")
+        }
+        _ = try #require(await launches.next())
+        launcher.emitTermination(
+            detail: "Permission denied (publickey).\n" +
+                "Error: remote port forwarding failed for listen port 64044"
+        )
+
+        let status = try #require(await statuses.next())
+        #expect(status.state == .bootstrapping)
+        #expect(status.detail == nil)
+        #expect(await clock.nextRequestedDelay() == 2_000)
+        #expect(coordinator.queue.sync {
+            coordinator.parkedState == nil &&
+                coordinator.reverseRelayRestartToken != nil
+        })
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
+    @Test("A standalone SSH authentication failure is surfaced immediately", arguments: [
+        "private-user@example.test: Permission denied (publickey).",
+        "Received disconnect from 192.0.2.1 port 22:2: Too many authentication failures",
+    ])
+    func standaloneAuthenticationFailureDoesNotBecomeRelayTimeout(diagnostic: String) async throws {
+        let host = ReverseRelayRecoveryHost()
+        let runner = RecordingProcessRunner { request in
+            if Self.isControlCommand("forward", in: request.arguments) {
+                return RemoteCommandResult(
+                    status: 255,
+                    stdout: "",
+                    stderr: "Control socket connect: No such file or directory"
+                )
+            }
+            return RemoteCommandResult(status: 0, stdout: "", stderr: "")
+        }
+        let launcher = RecordingReverseRelayLauncher()
+        let fixture = try await RemoteSessionReverseRelayStartupTests.makeCoordinator(
+            host: host,
+            runner: runner,
+            reverseRelayLauncher: launcher,
+            clock: ManualBrokerClock()
+        )
+        let coordinator = fixture.coordinator
+        defer { try? FileManager.default.removeItem(at: fixture.scratchDirectory) }
+
+        var launches = launcher.launches.makeAsyncIterator()
+        var statuses = host.daemonStatuses.makeAsyncIterator()
+        let waitingAttach = LockedResult<RemotePTYBridgeServer.Endpoint>()
+        coordinator.queue.sync {
+            coordinator.pendingPTYBridgeStarts[UUID()] = PendingPTYBridgeStart(
+                sessionID: "waiting-session",
+                lifecycleID: "lifecycle",
+                attachmentID: "surface",
+                command: nil,
+                requireExisting: false,
+                isCancelled: { waitingAttach.hasValue },
+                completion: { _ = waitingAttach.setIfEmpty($0) }
+            )
+            coordinator.proxyConnectionDesired = true
+            coordinator.armReadinessDeadlineLocked()
+            coordinator.daemonReady = true
+            coordinator.daemonRemotePath = "/tmp/cmuxd-remote"
+            coordinator.startReverseRelayLocked(remotePath: "/tmp/cmuxd-remote")
+        }
+        _ = try #require(await launches.next())
+        launcher.emitTermination(detail: diagnostic)
+
+        let status = try #require(await statuses.next())
+        #expect(status.state == .error)
+        #expect(status.detail?.contains("SSH authentication") == true)
+        #expect(status.detail?.contains("publickey") == false)
+        #expect(status.detail?.contains("too many authentication failures") == false)
+        #expect(status.detail?.contains("private-user") == false)
+        coordinator.queue.sync {}
+        let released = try #require(waitingAttach.current)
+        #expect(RemoteSessionReadinessParkingTests.failureDescription(of: released) == status.detail)
+        #expect(coordinator.queue.sync {
+            coordinator.parkedState?.cause == .sshAuthenticationFailed &&
+                coordinator.reverseRelayRestartToken == nil &&
+                coordinator.readinessDeadlineToken == nil &&
+                coordinator.pendingPTYBridgeStarts.isEmpty &&
+                coordinator.cliRelayServer == nil &&
+                !coordinator.daemonReady
+        })
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 

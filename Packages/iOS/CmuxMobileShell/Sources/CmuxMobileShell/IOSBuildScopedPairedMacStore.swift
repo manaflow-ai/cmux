@@ -214,6 +214,38 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    @discardableResult
+    public func removeRouteIfAuthorized(
+        macDeviceID: String,
+        route: CmxAttachRoute,
+        condition: MobilePairedMacRouteWriteCondition,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool {
+        try await mutationGate.withLock {
+            let selectedTeam = normalizedTeamID(teamID)
+            let instanceTag = condition.instanceTag
+            let selected = try await scopedRows(stackUserID: stackUserID, teamID: teamID)
+                .first { matches($0, macDeviceID: macDeviceID, instanceTag: instanceTag) }
+            let fallback = selectedTeam == nil
+                ? nil
+                : try await scopedRows(stackUserID: stackUserID, teamID: nil)
+                    .first { matches($0, macDeviceID: macDeviceID, instanceTag: instanceTag) }
+            let targetsFallback = fallback.map {
+                selected == nil || (selected?.lastSeenAt ?? .distantPast) < $0.lastSeenAt
+            } ?? false
+            return try await inner.removeRouteIfAuthorized(
+                macDeviceID: macDeviceID,
+                route: route,
+                condition: condition,
+                stackUserID: stackUserID,
+                teamID: scopedTeamID(targetsFallback ? nil : teamID),
+                now: now
+            )
+        }
+    }
+
     public func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
         var byID: [String: MobilePairedMac] = [:]
         for mac in try await scopedRows(stackUserID: stackUserID, teamID: teamID) {

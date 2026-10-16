@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxAuthRuntime
 import CmuxIrohTransport
 import Foundation
@@ -21,35 +22,37 @@ final class ConnectivityInvalidationSubscriberCoordinator {
     private var authObservationTask: Task<Void, Never>?
     private var defaultsObserver: NSObjectProtocol?
     private var activeScopeKey: String?
+    private var authObservationArmed = false
 
     func configure(auth: AuthCoordinator) {
         self.auth = auth
         if defaultsObserver == nil {
-            defaultsObserver = NotificationCenter.default.addObserver(
-                forName: UserDefaults.didChangeNotification,
-                object: UserDefaults.standard,
-                queue: .main
-            ) { [weak self] _ in
+            defaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: UserDefaults.standard) { [weak self] in
                 MainActor.assumeIsolated {
                     self?.evaluate()
                 }
             }
         }
-        armAuthScopeObservation()
         evaluate()
     }
 
     private func armAuthScopeObservation() {
-        guard let auth else { return }
+        guard !authObservationArmed,
+              MobileHostService.isListeningEnabled,
+              let auth else { return }
+        authObservationArmed = true
         withObservationTracking {
             _ = auth.isAuthenticated
             _ = auth.currentUser?.id
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                self.authObservationArmed = false
                 self.authObservationTask?.cancel()
                 self.authObservationTask = Task { @MainActor [weak self] in
-                    guard !Task.isCancelled, let self else { return }
+                    guard !Task.isCancelled,
+                          MobileHostService.isListeningEnabled,
+                          let self else { return }
                     self.evaluate()
                     self.armAuthScopeObservation()
                 }
@@ -58,7 +61,8 @@ final class ConnectivityInvalidationSubscriberCoordinator {
     }
 
     private func desiredScope() -> Scope? {
-        guard let auth,
+        guard MobileHostService.isListeningEnabled,
+              let auth,
               auth.isAuthenticated,
               let userID = auth.currentUser?.id,
               let baseURL = PresenceHeartbeatClient.resolvedServiceURL()
@@ -70,6 +74,13 @@ final class ConnectivityInvalidationSubscriberCoordinator {
     }
 
     private func evaluate() {
+        if MobileHostService.isListeningEnabled {
+            armAuthScopeObservation()
+        } else {
+            authObservationArmed = false
+            authObservationTask?.cancel()
+            authObservationTask = nil
+        }
         let scope = desiredScope()
         guard scope?.key != activeScopeKey else { return }
         activeScopeKey = scope?.key
@@ -79,7 +90,10 @@ final class ConnectivityInvalidationSubscriberCoordinator {
         let auth = auth
         reconfigureTask = Task { @MainActor [weak self] in
             await previous?.stop()
-            guard !Task.isCancelled, let self, let scope else { return }
+            guard !Task.isCancelled,
+                  MobileHostService.isListeningEnabled,
+                  let self,
+                  let scope else { return }
             let next = CmxConnectivityInvalidationSubscriber(
                 serviceBaseURL: scope.baseURL,
                 accessToken: { [weak auth] in
@@ -87,6 +101,7 @@ final class ConnectivityInvalidationSubscriberCoordinator {
                 },
                 onStreamEvent: { event in
                     await MainActor.run {
+                        guard MobileHostService.isListeningEnabled else { return }
                         #if DEBUG
                         cmuxDebugLog("connectivity.stream \(event)")
                         #endif
@@ -102,16 +117,13 @@ final class ConnectivityInvalidationSubscriberCoordinator {
                 },
                 handler: { invalidation in
                     await MainActor.run {
+                        guard MobileHostService.isListeningEnabled else { return }
                         #if DEBUG
                         cmuxDebugLog("connectivity.frame revision=\(invalidation.revision)")
                         #endif
-                        mobileHostIrohLog.info(
+                        MobileHostDiagnostics.logger.info(
                             "Connectivity revision invalidated; reconciling authoritative routes"
                         )
-                        MobileHostIrohRuntime.shared
-                            .reconcileConnectivityFromServerSignal(
-                                revision: invalidation.revision
-                            )
                         // The phone reply inbox rides this channel: enqueue
                         // re-broadcasts the invalidation frame (revision 1) as
                         // its nudge, so every frame arrival — whatever the
@@ -132,6 +144,7 @@ final class ConnectivityInvalidationSubscriberCoordinator {
     }
 
     func appWillTerminate() {
+        authObservationArmed = false
         authObservationTask?.cancel()
         authObservationTask = nil
         reconfigureTask?.cancel()

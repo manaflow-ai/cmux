@@ -6,7 +6,10 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let customDescription: String?
         let isPinned: Bool
         let isMuted: Bool
+        let cloudWorkspaceLabel: String?
+        let deviceWorkspaceLabel: String?
         let customColorHex: String?
+        let hasManualCustomColor: Bool
         let finderDirectoryPath: String?
         let mediaActivity: BrowserMediaActivity
         let taskStatus: WorkspaceTaskStatus?
@@ -17,6 +20,9 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let checklistTotalCount: Int
         let checklistFirstUncheckedText: String?
         let activeCodingAgentCount: Int
+        let compactStatusGlyph: SidebarCompactStatusGlyph?
+        let taskStatusInput: SidebarWorkspaceTaskStatusSnapshot
+        let hostTitleSuffix: String?
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -25,7 +31,10 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             customDescription: customDescription,
             isPinned: isPinned,
             isMuted: isMuted,
+            cloudWorkspaceLabel: cloudWorkspaceLabel,
+            deviceWorkspaceLabel: deviceWorkspaceLabel,
             customColorHex: customColorHex,
+            hasManualCustomColor: hasManualCustomColor,
             finderDirectoryPath: finderDirectoryPath,
             mediaActivity: mediaActivity,
             taskStatus: taskStatus,
@@ -35,7 +44,10 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             checklistCompletedCount: checklistCompletedCount,
             checklistTotalCount: checklistTotalCount,
             checklistFirstUncheckedText: checklistFirstUncheckedText,
-            activeCodingAgentCount: activeCodingAgentCount
+            activeCodingAgentCount: activeCodingAgentCount,
+            compactStatusGlyph: compactStatusGlyph,
+            taskStatusInput: taskStatusInput,
+            hostTitleSuffix: hostTitleSuffix
         )
     }
 
@@ -48,6 +60,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             isPinned: snapshot.isPinned,
             isMuted: snapshot.isMuted,
             customColorHex: snapshot.customColorHex,
+            hasManualCustomColor: snapshot.hasManualCustomColor,
+            cloudWorkspaceLabel: snapshot.cloudWorkspaceLabel,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
@@ -81,7 +95,14 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             checklistItems: snapshot.checklistItems,
             checklistCompletedCount: snapshot.checklistCompletedCount,
             checklistTotalCount: snapshot.checklistTotalCount,
-            checklistFirstUncheckedText: snapshot.checklistFirstUncheckedText
+            checklistFirstUncheckedText: snapshot.checklistFirstUncheckedText,
+            taskStatusInput: snapshot.taskStatusInput,
+            deviceWorkspaceLabel: snapshot.deviceWorkspaceLabel,
+            // The status glyph is resolved against the spinner state, so it
+            // updates with the spinner while the menu is open.
+            compactStatusGlyph: snapshot.compactStatusGlyph,
+            // The host after a colliding title is part of the title the row shows, so it updates with it.
+            hostTitleSuffix: snapshot.hostTitleSuffix
         )
     }
 }

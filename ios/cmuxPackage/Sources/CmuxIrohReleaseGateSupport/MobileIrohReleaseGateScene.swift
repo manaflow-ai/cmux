@@ -8,15 +8,21 @@ public import cmuxFeature
 /// preserving the production root scene and environment for ordinary launches.
 @MainActor
 public struct MobileIrohReleaseGateScene: View {
+    private let uiProbe: MobileReleaseGateUIProbe
     private let root: CMUXMobileRootScene
-    private let iroh: MobileIrohRuntimeComposition
+    private let irx: MobileIrxRuntimeComposition
+    private let settingsController: any CmxIrohSettingsControlling
 
     public init(
+        uiProbe: MobileReleaseGateUIProbe,
         root: CMUXMobileRootScene,
-        iroh: MobileIrohRuntimeComposition
+        irx: MobileIrxRuntimeComposition,
+        settingsController: any CmxIrohSettingsControlling
     ) {
+        self.uiProbe = uiProbe
         self.root = root
-        self.iroh = iroh
+        self.irx = irx
+        self.settingsController = settingsController
     }
 
     @ViewBuilder
@@ -24,14 +30,15 @@ public struct MobileIrohReleaseGateScene: View {
         if let configuration = MobileIrohReleaseGateRunner.Configuration.current() {
             root.applyingRootEnvironment(
                 to: MobileIrohReleaseGateHostView(
+                    uiProbe: uiProbe,
                     store: root.makeStore(),
                     configuration: configuration,
                     onboardingStore: root.onboardingStore,
                     signOutHook: root.signOutHook,
-                    settingsController: iroh,
-                    endpointIdentity: { await iroh.releaseGateEndpointIdentity() },
+                    settingsController: settingsController,
+                    endpointIdentity: { await irx.releaseGateEndpointIdentity() },
                     relayCredentialExpiry: {
-                        await iroh.releaseGateRelayCredentialExpiry()
+                        await irx.releaseGateRelayCredentialExpiry()
                     }
                 )
             )

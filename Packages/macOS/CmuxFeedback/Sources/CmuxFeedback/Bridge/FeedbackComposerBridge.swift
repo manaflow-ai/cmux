@@ -89,7 +89,7 @@ public struct FeedbackComposerBridge {
 
         switch submissionError {
         case .invalidEndpoint:
-            return "Feedback is unavailable right now. Email founders@manaflow.com instead."
+            return "Feedback is unavailable right now. Email founders@cmux.com instead."
         case .invalidResponse:
             return "Couldn't send feedback. Please try again."
         case .attachmentReadFailed:
@@ -108,7 +108,7 @@ public struct FeedbackComposerBridge {
             case 429:
                 return "Too many feedback attempts. Please try again later."
             case 500...599:
-                return "Feedback is unavailable right now. Email founders@manaflow.com instead."
+                return "Feedback is unavailable right now. Email founders@cmux.com instead."
             default:
                 return "Couldn't send feedback. Please try again."
             }

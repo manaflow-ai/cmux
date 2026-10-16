@@ -1,5 +1,7 @@
 import AppKit
+import Bonsplit
 import CmuxTerminal
+import GhosttyKit
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -9,6 +11,43 @@ import XCTest
 #endif
 
 extension AppDelegateShortcutRoutingTests {
+    /// Gives split-admission fixtures enough geometry even when an earlier host test left a narrow window.
+    func newTerminalSplitForSplitAdmissionTesting(
+        window: NSWindow,
+        workspace: Workspace,
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        focus: Bool = true
+    ) -> TerminalPanel? {
+        window.setContentSize(NSSize(width: 1_000, height: 700))
+        window.contentView?.layoutSubtreeIfNeeded()
+        workspace.bonsplitController.setContainerFrame(
+            CGRect(x: 0, y: 0, width: 1_000, height: 1_000)
+        )
+        return workspace.newTerminalSplit(
+            from: panelId, orientation: orientation, focus: focus
+        )
+    }
+
+    func coldCloudTerminalPanel(workspace: Workspace) -> TerminalPanel {
+        let base = GhosttyApp.terminalSurfaceRuntimeDependencies
+        let dependencies = TerminalSurfaceRuntimeDependencies(
+            registry: base.registry, engine: ColdCloudTerminalEngine(),
+            viewProvider: base.viewProvider, spawnPolicy: base.spawnPolicy,
+            byteTee: base.byteTee, rendererRealization: base.rendererRealization,
+            hibernationRecorder: base.hibernationRecorder, runtimeTeardown: base.runtimeTeardown,
+            restoreSpawnScheduler: base.restoreSpawnScheduler, runtimeFilesystem: base.runtimeFilesystem,
+            sessionPortBase: base.sessionPortBase, sessionPortRangeSize: base.sessionPortRangeSize,
+            scrollbackReplayEnvironmentKey: base.scrollbackReplayEnvironmentKey,
+            globalFontMagnificationPercent: base.globalFontMagnificationPercent
+        )
+        let surface = TerminalSurface(
+            tabId: workspace.id, context: GHOSTTY_SURFACE_CONTEXT_SPLIT, configTemplate: nil,
+            ioMode: .manualMirror, manualInputHandler: { _ in }, dependencies: dependencies
+        )
+        return TerminalPanel(workspaceId: workspace.id, surface: surface)
+    }
+
     func focusHostedTerminalForRepairTesting(
         window: NSWindow,
         hostedView: GhosttySurfaceScrollView
@@ -137,4 +176,17 @@ extension AppDelegateShortcutRoutingTests {
         }
         return false
     }
+}
+
+/// The cold-input fixture owns an uninitialized engine explicitly. It must
+/// not depend on renderer startup being delayed by an unrelated disk task.
+@MainActor
+private final class ColdCloudTerminalEngine: TerminalEngineHosting {
+    var runtimeApp: ghostty_app_t? { nil }
+    var runtimeConfig: ghostty_config_t? { nil }
+    var userGhosttyShellIntegrationMode: String { "none" }
+    var hasUserGhosttyCommand: Bool { false }
+    var resolvedUserShell: String? { nil }
+    var terminalFontConfigurationGeneration: UInt64 { 0 }
+    var terminalFontConfigurationRuntimePoints: Float32 { 14 }
 }

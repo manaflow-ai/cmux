@@ -25,6 +25,7 @@ public actor ReachabilityService: ReachabilityProviding {
     private var lastInterfaceType: NWInterface.InterfaceType?
     private var nextSubscriptionID = 0
     private var subscribers: [Int: AsyncStream<Void>.Continuation] = [:]
+    private var rawSubscribers: [Int: AsyncStream<Void>.Continuation] = [:]
     /// Whether `NWPathMonitor` has delivered its first path since `start`.
     /// Until then the cached `online` value is just the optimistic initial
     /// constant, so ``isOnline`` must not answer from it (a cold-launch offline
@@ -103,6 +104,37 @@ public actor ReachabilityService: ReachabilityProviding {
         }
     }
 
+    /// A stream that yields on every system path update, unfiltered.
+    ///
+    /// ``pathChanges()`` deliberately skips updates that keep the same
+    /// interface type, because each yield there drives an app-level recovery.
+    /// Transport notifications are the opposite case: iroh asks to be told
+    /// about any potential network change (a Wi-Fi-to-Wi-Fi roam or a VPN
+    /// route change keeps the interface type but kills direct paths), and
+    /// extra notifications are harmless.
+    public nonisolated func allPathUpdates() -> AsyncStream<Void> {
+        AsyncStream { continuation in
+            let registration = Task { await self.registerRaw(continuation) }
+            continuation.onTermination = { _ in
+                registration.cancel()
+                Task { await self.unregisterRaw(awaiting: registration) }
+            }
+        }
+    }
+
+    private func registerRaw(_ continuation: AsyncStream<Void>.Continuation) -> Int {
+        startIfNeeded()
+        let id = nextSubscriptionID
+        nextSubscriptionID += 1
+        rawSubscribers[id] = continuation
+        return id
+    }
+
+    private func unregisterRaw(awaiting registration: Task<Int, Never>) async {
+        let id = await registration.value
+        rawSubscribers.removeValue(forKey: id)
+    }
+
     private func register(_ continuation: AsyncStream<Void>.Continuation) -> Int {
         startIfNeeded()
         let id = nextSubscriptionID
@@ -133,6 +165,7 @@ public actor ReachabilityService: ReachabilityProviding {
         let previousType = lastInterfaceType
         self.online = online
         if online { lastInterfaceType = primaryType }
+        let receivedFirstPathBefore = receivedFirstPath
         if !receivedFirstPath {
             receivedFirstPath = true
             for waiter in firstPathWaiters.values {
@@ -140,6 +173,11 @@ public actor ReachabilityService: ReachabilityProviding {
             }
             firstPathWaiters.removeAll()
             cancelledFirstPathWaiterIDs.removeAll()
+        }
+        if receivedFirstPathBefore {
+            for continuation in rawSubscribers.values {
+                continuation.yield(())
+            }
         }
         let regainedOnline = online && !wasOnline
         let interfaceChanged = online && previousType != nil && primaryType != previousType

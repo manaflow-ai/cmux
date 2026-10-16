@@ -24,6 +24,12 @@ public protocol BrowserStreamEventReceiving: AnyObject {
     /// Applies shell connection status to active panels.
     /// - Parameter status: The current shell connection status.
     func setBrowserStreamConnectionStatus(_ status: BrowserStreamSurfaceState.ConnectionStatus)
+    /// Applies a connection status to one panel whose stream does not ride
+    /// the shell's Mac connection (for example an SSH computer's browser).
+    /// - Parameters:
+    ///   - status: The panel's own transport status.
+    ///   - panelID: The browser panel identifier.
+    func setBrowserStreamConnectionStatus(_ status: BrowserStreamSurfaceState.ConnectionStatus, panelID: String)
     /// Marks active streams paused after background stop requests.
     func pauseBrowserStreams()
     /// Routes a raw `browser.frame` payload into the frame pipeline.

@@ -205,13 +205,19 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         )
     }
 
-    func testRemappedCommandPalettePreviousShortcutDoesNotConsumeControlP() {
+    func testRemappedCommandPalettePreviousShortcutDoesNotConsumeControlP() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
 
         withCommandPaletteFieldEditor(appDelegate: appDelegate) { window, _ in
+            // The synthetic field editor is mounted directly into the test
+            // window. Mark the palette visible in the same per-window store
+            // used by shortcut routing so the event path observes a complete
+            // palette context rather than relying on the overlay marker alone.
+            appDelegate.setCommandPaletteVisible(true, for: window)
             withTemporaryCommandPalettePreviousShortcut {
                 let remappedPrevious = StoredShortcut(key: "u", command: false, shift: false, option: false, control: true)
                 KeyboardShortcutSettings.setShortcut(remappedPrevious, for: .commandPalettePrevious)
@@ -282,6 +288,7 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
                 XCTAssertEqual(observedDelta, -1)
             }
         }
+        }
     }
 
     func testUnboundCommandPalettePreviousShortcutLetsControlPPassThrough() {
@@ -339,6 +346,7 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
         }
 
         withCommandPaletteFieldEditor(appDelegate: appDelegate) { window, _ in
+            appDelegate.setCommandPaletteVisible(true, for: window)
             withTemporaryCommandPaletteShortcut(.commandPaletteNext) {
                 KeyboardShortcutSettings.setShortcut(
                     StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "n"),
@@ -508,6 +516,25 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
             XCTFail("Expected test window")
             return
         }
+
+        // Main-window creation commits its AppKit hosting view asynchronously.
+        // Realize the window before mounting the synthetic palette field editor
+        // so shortcut routing resolves a finite, key window context.
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+
+        // `createMainWindow` commits its context on the main queue.  Synthetic
+        // key events must be sent only after that registration is visible;
+        // otherwise `setCommandPaletteVisible` silently has no window id and
+        // the router quite correctly treats the event as ordinary field-editor
+        // input.
+        let registrationDeadline = Date(timeIntervalSinceNow: 1)
+        while appDelegate.contextForMainWindow(window) == nil,
+              Date() < registrationDeadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
+        XCTAssertNotNil(appDelegate.contextForMainWindow(window), "Expected test window registration")
 
         let overlayContainer = NSView(frame: contentView.bounds)
         overlayContainer.identifier = commandPaletteOverlayContainerIdentifier

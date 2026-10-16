@@ -72,8 +72,9 @@ import Testing
 
         #expect(snapshot.resolvedColorScheme == expectedScheme)
         #expect(snapshot.chromeColorScheme == expectedScheme)
-        #expect(snapshot.sidebarContentColorScheme == expectedScheme)
-        #expect(snapshot.sidebarSettings.colorScheme == expectedScheme)
+        // A separate sidebar follows the ambient scheme (makeSettings: .dark).
+        #expect(snapshot.sidebarContentColorScheme == .dark)
+        #expect(snapshot.sidebarSettings.colorScheme == .dark)
     }
 
     @Test(arguments: [
@@ -115,8 +116,45 @@ import Testing
 
         #expect(snapshot.resolvedColorScheme == expectedScheme)
         #expect(snapshot.chromeColorScheme == expectedScheme)
-        #expect(snapshot.sidebarContentColorScheme == expectedScheme)
-        #expect(snapshot.sidebarSettings.colorScheme == expectedScheme)
+        #expect(snapshot.sidebarContentColorScheme == ambientScheme)
+        #expect(snapshot.sidebarSettings.colorScheme == ambientScheme)
+    }
+
+    /// A separate sidebar draws a material that resolves against the app
+    /// appearance, so its content must follow that appearance even when an
+    /// opaque terminal theme disagrees. A sidebar sharing the terminal
+    /// backdrop keeps following the terminal.
+    @Test(arguments: [
+        (false, ColorScheme.dark, ColorScheme.light, ColorScheme.light),
+        (false, ColorScheme.light, ColorScheme.dark, ColorScheme.dark),
+        (true, ColorScheme.dark, ColorScheme.light, ColorScheme.dark),
+        (true, ColorScheme.light, ColorScheme.dark, ColorScheme.light),
+    ])
+    func sidebarSchemeFollowsTheSurfaceItIsDrawnOn(
+        unifySurfaceBackdrops: Bool,
+        terminalScheme: ColorScheme,
+        ambientScheme: ColorScheme,
+        expectedSidebarScheme: ColorScheme
+    ) {
+        let resolver = WindowAppearanceResolver(
+            terminalAppearance: WindowTerminalAppearanceSnapshot(
+                backgroundColor: NSColor(hex: terminalScheme == .dark ? "#262427" : "#F8F8F2") ?? .black,
+                backgroundOpacity: 1,
+                backgroundBlur: .disabled,
+                usesHostLayerBackground: true,
+                resolvedColorScheme: terminalScheme
+            )
+        )
+        let snapshot = resolver.current(settings: makeSettings(
+            unifySurfaceBackdrops: unifySurfaceBackdrops,
+            sidebarBlendMode: "withinWindow",
+            bgGlassEnabled: false,
+            colorScheme: ambientScheme
+        ))
+
+        #expect(snapshot.resolvedColorScheme == terminalScheme)
+        #expect(snapshot.sidebarContentColorScheme == expectedSidebarScheme)
+        #expect(snapshot.sidebarSettings.colorScheme == expectedSidebarScheme)
     }
 
     /// Callers that omit the ambient scheme must not have translucent chrome
@@ -142,6 +180,28 @@ import Testing
         let snapshot = resolver.currentFromUserDefaults(defaults: UserDefaults(suiteName: "cmux.tests.omitted-ambient")!)
 
         #expect(snapshot.resolvedColorScheme == terminalScheme)
+    }
+
+    /// A user who never chose keeps the sidebar and titlebar on the terminal
+    /// background, so a light terminal theme never sits beside dark chrome.
+    @Test func sidebarMatchesTerminalBackgroundUntilTheUserOptsOut() throws {
+        let suiteName = "cmux.tests.match-terminal-default"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let resolver = WindowAppearanceResolver(
+            terminalAppearance: WindowTerminalAppearanceSnapshot(
+                backgroundColor: NSColor(hex: "#FFFFFF") ?? .white,
+                backgroundOpacity: 1,
+                backgroundBlur: .disabled,
+                usesHostLayerBackground: true
+            )
+        )
+
+        #expect(resolver.currentFromUserDefaults(defaults: defaults).unifySurfaceBackdrops)
+
+        defaults.set(false, forKey: "sidebarMatchTerminalBackground")
+        #expect(!resolver.currentFromUserDefaults(defaults: defaults).unifySurfaceBackdrops)
     }
 
     @Test func ghosttyMacOSGlassStyleForcesClearRootAndTerminalTintedGlass() {

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Immutable selection context shared by every selectable panel kind.
-public nonisolated struct SurfaceSelectionSnapshot: Equatable, Sendable {
+public struct SurfaceSelectionSnapshot: Equatable, Sendable {
     /// Maximum UTF-8 bytes exposed by one selection snapshot.
     public static let maximumTextBytes = 1_048_576
 

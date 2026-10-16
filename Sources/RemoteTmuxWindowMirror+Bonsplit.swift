@@ -1,7 +1,9 @@
 import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
 import CmuxRemoteSession
 import Foundation
+import SwiftUI
 
 @MainActor
 extension RemoteTmuxWindowMirror {
@@ -16,6 +18,9 @@ extension RemoteTmuxWindowMirror {
     func configureBonsplitController() {
         bonsplitController.delegate = self
         bonsplitController.tabShortcutHintsEnabled = false
+        bonsplitController.tabMiddleClickCapture = { onMiddleClick in
+            AnyView(MiddleClickCapture(onMiddleClick: onMiddleClick))
+        }
         bonsplitController.onExternalTabDrop = { _ in false }
     }
 
@@ -538,7 +543,11 @@ extension RemoteTmuxWindowMirror {
 
     func title(forPane paneId: Int) -> String {
         let index = paneIndexByPaneId[paneId] ?? 0
-        return Self.windowPaneTitle(windowTitle, paneIndex: index)
+        return Self.surfaceTitle(
+            windowTitle: windowTitle,
+            paneIndex: index,
+            paneTitleMetadata: paneTitleMetadataByPane[paneId]
+        )
     }
 
     func combined(children: [RemoteTmuxLayoutNode], orientation: SplitOrientation) -> RemoteTmuxLayoutNode {
@@ -604,7 +613,7 @@ extension RemoteTmuxWindowMirror: BonsplitDelegate {
     func splitTabBarDividerDragDidBegin(_ controller: BonsplitController) {
         TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
             owner: controller,
-            in: NSApp.currentEvent?.window ?? visibleHostingContext()?.window
+            in: TerminalWindowPortalRegistry.pointerEventWindow() ?? visibleHostingContext()?.window
         )
         dividerResizeSentSinceDragBegan = false
         // An imposition that moved a divider parks its baseline at nil,

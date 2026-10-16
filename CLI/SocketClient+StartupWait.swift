@@ -2,6 +2,14 @@ import CmuxControlSocket
 import Foundation
 
 extension SocketClient {
+    /// Budget the launch-capable commands give a starting app to bind its
+    /// control socket. ``SocketStartupWaiter`` owns both the default window and
+    /// the environment override that narrows it.
+    static let appStartupWaitTimeoutSeconds: TimeInterval =
+        SocketStartupWaiter.appStartupTimeoutSeconds(
+            environment: ProcessInfo.processInfo.environment
+        )
+
     static func waitForConnectableSocket(path: String, timeout: TimeInterval) throws -> SocketClient {
         try waitForConnectableSocket(resolvePath: { path }, timeout: timeout)
     }

@@ -35,6 +35,12 @@ import Testing
         return (connection, writer, pipe)
     }
 
+    /// Feeds one scripted command result to the FIFO head. Incidental setup
+    /// commands (the `pane-border-status` subscription a window's first staging
+    /// queues ahead of its rects fetch) are acknowledged by `replyToNextPaneRects`,
+    /// which walks the FIFO to the fetch the scripted lines are written for; this
+    /// helper must answer exactly one slot, or a caller's rects reply lands on the
+    /// wrong command.
     private func reply(
         _ connection: RemoteTmuxControlConnection, lines: [String], isError: Bool = false
     ) {
@@ -108,6 +114,17 @@ import Testing
         }.count
     }
 
+    /// The window id of the first queued rects fetch. Each window's first
+    /// staging queues its border-status subscription ahead of its rects fetch,
+    /// so the next fetch to answer is the first `.paneRects` entry, not
+    /// necessarily the FIFO head.
+    private func firstPaneRectsWindow(in kinds: [RemoteTmuxControlCommandKind]) -> Int? {
+        for kind in kinds {
+            if case let .paneRects(windowId, _) = kind { return windowId }
+        }
+        return nil
+    }
+
     @Test func layoutChangeNotifiesOnlyOnItsRectsReply() {
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
@@ -137,7 +154,12 @@ import Testing
             ] }
         ) != nil else { return }
         #expect(notifies == 1)
-        #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 2)! == (61, 0, 59, 40))
+        if let layout = connection.windowsByID[1]?.layout,
+           let rect = paneRect(in: layout, id: 2) {
+            #expect(rect == (61, 0, 59, 40))
+        } else {
+            Issue.record("no rect for pane %2 in window @1")
+        }
         #expect(connection.paneHeaderLabels[0] == "0 \"left pane\"")
         #expect(connection.paneHeaderLabels[2] == "1 \"right\"")
         #expect(connection.windowTitleRowPlacements[1] == nil)
@@ -355,7 +377,12 @@ import Testing
             ] }
         ) != nil else { return }
         #expect(notifies == 1)
-        #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 2)! == (61, 0, 59, 40))
+        if let layout = connection.windowsByID[1]?.layout,
+           let rect = paneRect(in: layout, id: 2) {
+            #expect(rect == (61, 0, 59, 40))
+        } else {
+            Issue.record("no rect for pane %2 in window @1")
+        }
         #expect(paneRectsFIFOCount(connection) == 1)
 
         guard replyToNextPaneRects(
@@ -367,7 +394,12 @@ import Testing
             ] }
         ) != nil else { return }
         #expect(notifies == 2)
-        #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 2)! == (81, 0, 39, 40))
+        if let layout = connection.windowsByID[1]?.layout,
+           let rect = paneRect(in: layout, id: 2) {
+            #expect(rect == (81, 0, 39, 40))
+        } else {
+            Issue.record("no rect for pane %2 in window @1")
+        }
         #expect(connection.hasPendingLayout(windowId: 1) == false)
     }
 
@@ -403,12 +435,14 @@ import Testing
         ) != nil else { return }
         // The fetch's #{pane_active} seeds the initial active pane…
         #expect(connection.activePaneByWindow[1] == 2)
-        #expect(observed! == (1, 2))
+        #expect(observed?.0 == 1)
+        #expect(observed?.1 == 2)
 
         // …and live %window-pane-changed remains the authority afterwards.
         connection.handleMessageForTesting(.windowPaneChanged(windowId: 1, paneId: 0))
         #expect(connection.activePaneByWindow[1] == 0)
-        #expect(observed! == (1, 0))
+        #expect(observed?.0 == 1)
+        #expect(observed?.1 == 0)
     }
 
     @Test func mirrorAdoptsRemoteActivePaneAndCopiesLabelsOnReconcile() {
@@ -424,7 +458,10 @@ import Testing
             ] }
         ) != nil else { return }
 
-        let published = connection.windowsByID[1]!.layout
+        guard let published = connection.windowsByID[1]?.layout else {
+            Issue.record("window @1 published no layout")
+            return
+        }
         let mirror = RemoteTmuxWindowMirror(
             windowId: 1,
             panelId: UUID(),
@@ -611,7 +648,8 @@ import Testing
             ] }
         ) != nil else { return }
         #expect(connection.activePaneByWindow[1] == 2)
-        #expect(observed! == (1, 2))
+        #expect(observed?.0 == 1)
+        #expect(observed?.1 == 2)
     }
 
     @Test func rectsVerifiedPublishPrunesRemovedPaneDiagnosticState() {
@@ -653,6 +691,84 @@ import Testing
         #expect(connection.paneForegroundStates[5] == nil)
     }
 
+    /// A verified rects reply can arrive while another window is still
+    /// quarantined or a close is waiting for its authoritative window list.
+    /// Those transition panes must keep their title metadata until the
+    /// topology settles; unrelated historical panes must still be removed.
+    @Test func rectsPublicationKeepsPendingAndRetainedPaneTitleState() {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+
+        let liveNode = RemoteTmuxLayoutNode(
+            width: 80, height: 24, x: 0, y: 0, content: .pane(1)
+        )
+        let pendingNode = RemoteTmuxLayoutNode(
+            width: 80, height: 24, x: 0, y: 0, content: .pane(2)
+        )
+        connection.windowsByID = [
+            1: RemoteTmuxWindow(id: 1, name: "live", width: 80, height: 24, layout: liveNode)
+        ]
+        connection.pendingLayouts[1] = RemoteTmuxPendingLayout(
+            node: liveNode,
+            visibleNode: nil,
+            zoomed: false,
+            name: "live",
+            generation: 1,
+            inFlight: true
+        )
+        connection.pendingLayouts[2] = RemoteTmuxPendingLayout(
+            node: pendingNode,
+            visibleNode: nil,
+            zoomed: false,
+            name: "pending",
+            generation: 1,
+            inFlight: true
+        )
+        connection.paneIDsRetainedUntilWindowList = [3]
+        let metadata = RemoteTmuxPaneTitleMetadata(
+            title: "deliberate", host: "host.example", hostShort: "host"
+        )
+        connection.paneTitleMetadataByPane = [
+            1: metadata, 2: metadata, 3: metadata, 4: metadata
+        ]
+        connection.paneTitleMetadataLiveRevisionByPane = [1: 1, 2: 2, 3: 3, 4: 4]
+
+        connection.handlePaneRectsReply(
+            windowId: 1,
+            generation: 1,
+            lines: ["%1 0 0 80 24 1 off :shell"]
+        )
+
+        #expect(Set(connection.paneTitleMetadataByPane.keys) == [1, 2, 3])
+        #expect(Set(connection.paneTitleMetadataLiveRevisionByPane.keys) == [1, 2, 3])
+    }
+
+    /// A window-close event retains pane identity while tmux resolves whether
+    /// the pane moved to another window. Its title and revision must survive
+    /// that gap instead of being cleared before the destination is published.
+    @Test func windowCloseKeepsRetainedPaneTitleStateUntilWindowSnapshot() {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+
+        let node = RemoteTmuxLayoutNode(
+            width: 80, height: 24, x: 0, y: 0, content: .pane(7)
+        )
+        connection.windowsByID = [
+            1: RemoteTmuxWindow(id: 1, name: "source", width: 80, height: 24, layout: node)
+        ]
+        let metadata = RemoteTmuxPaneTitleMetadata(
+            title: "run: build", host: "host.example", hostShort: "host"
+        )
+        connection.paneTitleMetadataByPane = [7: metadata]
+        connection.paneTitleMetadataLiveRevisionByPane = [7: 9]
+
+        connection.handleMessageForTesting(.windowClose(windowId: 1))
+
+        #expect(connection.paneIDsRetainedUntilWindowList == [7])
+        #expect(connection.paneTitleMetadataByPane[7] == metadata)
+        #expect(connection.paneTitleMetadataLiveRevisionByPane[7] == 9)
+    }
+
     /// Layout events that arrive faster than one round trip must not starve
     /// publication. Discarding every generation-stale rects reply livelocks:
     /// under continuous churn each reply is one generation behind by the time
@@ -690,7 +806,12 @@ import Testing
         ) != nil else { return }
         #expect(notifies == 1)
         #expect(connection.windowsByID[1]?.width == 100)
-        #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 0)! == (0, 0, 90, 24))
+        if let layout = connection.windowsByID[1]?.layout,
+           let rect = paneRect(in: layout, id: 0) {
+            #expect(rect == (0, 0, 90, 24))
+        } else {
+            Issue.record("no rect for pane %0 in window @1")
+        }
         #expect(paneRectsFIFOCount(connection) == 1)
 
         // The owed follow-up lands with exact rects: quarantine drains.
@@ -700,7 +821,12 @@ import Testing
             lines: { _ in ["%0 0 0 100 24 1 off :zsh"] }
         ) != nil else { return }
         #expect(notifies == 2)
-        #expect(paneRect(in: connection.windowsByID[1]!.layout, id: 0)! == (0, 0, 100, 24))
+        if let layout = connection.windowsByID[1]?.layout,
+           let rect = paneRect(in: layout, id: 0) {
+            #expect(rect == (0, 0, 100, 24))
+        } else {
+            Issue.record("no rect for pane %0 in window @1")
+        }
         #expect(connection.hasPendingLayout(windowId: 1) == false)
         #expect(paneRectsFIFOCount(connection) == 0)
     }

@@ -13,11 +13,22 @@ import {
   twitterSummary,
 } from "@/i18n/seo";
 
-export type JobRoleNamespace = "jobs" | "jobs.foundingDesigner";
+export type JobRoleNamespace =
+  | "jobs"
+  | "jobs.foundingDesigner"
+  | "jobs.foundingChromiumEngineer";
 
 const focusRingClass =
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-foreground";
 const applicationEmail = "founders@cmux.com";
+const ycJobUrls = {
+  foundingEngineer:
+    "https://www.ycombinator.com/companies/cmux/jobs/RcX3bDA-founding-engineer",
+  foundingDesigner:
+    "https://www.ycombinator.com/companies/cmux/jobs/p21OZLR-founding-designer",
+  foundingChromiumEngineer:
+    "https://www.ycombinator.com/companies/cmux/jobs/T4rJNKX-founding-chromium-engineer",
+} as const;
 
 export async function jobsMetadata({
   params,
@@ -35,7 +46,7 @@ export async function jobsMetadata({
   return buildJobMetadata({
     contentLocale,
     path,
-    title: `${t("title")} / ${t("foundingDesigner.title")} — ${t("section")}`,
+    title: `${t("title")} / ${t("foundingDesigner.title")} / ${t("foundingChromiumEngineer.title")} — ${t("section")}`,
     description: `${t("tagline")} ${t("intro")}`,
   });
 }
@@ -121,10 +132,20 @@ export function JobsPageContent() {
         </header>
 
         <div className="mt-20 space-y-28 sm:mt-28 sm:space-y-36">
-          <JobRoleSection namespace="jobs" roleId="founding-engineer" />
+          <JobRoleSection
+            namespace="jobs"
+            roleId="founding-engineer"
+            ycUrl={ycJobUrls.foundingEngineer}
+          />
           <JobRoleSection
             namespace="jobs.foundingDesigner"
             roleId="founding-designer"
+            ycUrl={ycJobUrls.foundingDesigner}
+          />
+          <JobRoleSection
+            namespace="jobs.foundingChromiumEngineer"
+            roleId="founding-chromium-engineer"
+            ycUrl={ycJobUrls.foundingChromiumEngineer}
           />
         </div>
       </main>
@@ -135,9 +156,11 @@ export function JobsPageContent() {
 function JobRoleSection({
   namespace,
   roleId,
+  ycUrl,
 }: {
   namespace: JobRoleNamespace;
   roleId: string;
+  ycUrl: string;
 }) {
   const t = useTranslations(namespace);
   const whatYoullDo = t.raw("whatYoullDoItems") as string[];
@@ -218,6 +241,17 @@ function JobRoleSection({
               style={{ color: "var(--background)", textDecoration: "none" }}
             >
               {t("applyCta")}
+              <ArrowIcon />
+            </a>
+
+            <a
+              href={ycUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 border border-foreground/15 px-4 py-3 text-sm font-medium transition-colors hover:bg-foreground/5 ${focusRingClass}`}
+              style={{ textDecoration: "none" }}
+            >
+              YC Work at a Startup
               <ArrowIcon />
             </a>
           </div>

@@ -1,4 +1,6 @@
 import AppKit
+import CmuxAppKitSupportUI
+import CmuxCommandPalette
 import CmuxFoundation
 import CmuxNotifications
 import SwiftUI
@@ -9,6 +11,7 @@ extension VerticalTabsSidebar {
     func sidebarWorkspaceGroupTableConfiguration(
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
+        memberStatusGlyphs: [UUID: SidebarCompactStatusGlyph.GroupMember],
         renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceTableRowConfiguration {
         let settings = renderContext.tabItemSettings
@@ -34,7 +37,18 @@ extension VerticalTabsSidebar {
             isMultiSelected: true,
             customColorHex: effectiveColor,
             colorScheme: renderContext.environment.colorScheme,
-            sidebarSelectionColorHex: settings.selectionColorHex
+            sidebarSelectionColorHex: settings.selectionColorHex,
+            subtleSelection: settings.subtleSelection,
+            brightenInDarkMode: settings.brightenInDarkMode,
+            increaseContrast: renderContext.environment.displayAccessibility.increaseContrast,
+            accent: settings.accentColor
+        )
+        let anchorActiveEdgeColor = sidebarGroupHeaderAnchorActiveEdgeNSColor(
+            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
+            subtleSelection: settings.subtleSelection,
+            sidebarSelectionColorHex: settings.selectionColorHex,
+            colorScheme: renderContext.environment.colorScheme,
+            increaseContrast: renderContext.environment.displayAccessibility.increaseContrast
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
@@ -49,6 +63,15 @@ extension VerticalTabsSidebar {
             }
             return liveAnchorId.map { unreadSnapshot.unreadCount(forWorkspaceId: $0) } ?? 0
         }()
+        // The tooltip leads with the notification text only where rows show it.
+        let showsNotificationMessage = settings.showsNotificationMessage
+        let statusGlyph = SidebarCompactStatusGlyph.groupHeader(
+            isCollapsed: group.isCollapsed,
+            anchorId: liveAnchorId,
+            memberIds: memberWorkspaceIds,
+            members: memberStatusGlyphs,
+            unread: { (unreadSnapshot.unreadCount(forWorkspaceId: $0), showsNotificationMessage ? unreadSnapshot.summary(forWorkspaceId: $0).latestNotificationText : nil) }
+        )
         let anchorIds = liveAnchorId.map { [$0] } ?? []
         let canMarkAnchorRead = unreadSnapshot.canMarkWorkspaceRead(forWorkspaceIds: anchorIds)
         let canMarkAnchorUnread = unreadSnapshot.canMarkWorkspaceUnread(forWorkspaceIds: anchorIds)
@@ -91,6 +114,7 @@ extension VerticalTabsSidebar {
             isAnchorActive: isAnchorActive,
             isMultiSelected: isMultiSelected,
             multiSelectionBackgroundStyle: multiSelectionBackgroundStyle,
+            anchorActiveEdgeColor: anchorActiveEdgeColor,
             memberCount: memberWorkspaceIds.count,
             anchorUnreadCount: anchorUnreadCount,
             canMarkRead: canMarkAnchorRead,
@@ -98,6 +122,8 @@ extension VerticalTabsSidebar {
             hasLatestNotifications: anchorHasLatestNotification,
             canMarkAllRead: canMarkAllRead,
             canMarkAllUnread: canMarkAllUnread,
+            statusGlyph: statusGlyph,
+            compactsAgentStatus: settings.compactsAgentStatus,
             shortcutHintText: nil,
             shortcutHintXOffset: settings.sidebarShortcutHintXOffset,
             shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
@@ -109,7 +135,9 @@ extension VerticalTabsSidebar {
             isBeingDragged: dragState.draggedTabId == dragIdentity,
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
-            colorSchemeIsDark: renderContext.environment.colorScheme == .dark
+            colorSchemeIsDark: renderContext.environment.colorScheme == .dark,
+            notificationBadgeColorHex: settings.notificationBadgeColorHex,
+            accentColor: settings.accentColor
         )
         let actions = makeWorkspaceGroupHeaderActions(
             groupId: group.id,
@@ -128,7 +156,7 @@ extension VerticalTabsSidebar {
             unreadRebuild: {
                 [model, liveAnchorId,
                  isCollapsed = group.isCollapsed, memberWorkspaceIds,
-                 nonAnchorMemberIds] snapshot in
+                 nonAnchorMemberIds, memberStatusGlyphs, showsNotificationMessage] snapshot in
                 // Membership and collapse are structural row inputs, so their
                 // changes rebuild this configuration. Reuse the render context's
                 // indexed members instead of rescanning every tab per unread row.
@@ -153,6 +181,13 @@ extension VerticalTabsSidebar {
                 fresh.canMarkAllUnread = snapshot.canMarkWorkspaceUnread(
                     forWorkspaceIds: nonAnchorMemberIds
                 )
+                fresh.statusGlyph = SidebarCompactStatusGlyph.groupHeader(
+                    isCollapsed: isCollapsed,
+                    anchorId: liveAnchorId,
+                    memberIds: memberWorkspaceIds,
+                    members: memberStatusGlyphs,
+                    unread: { (snapshot.unreadCount(forWorkspaceId: $0), showsNotificationMessage ? snapshot.summary(forWorkspaceId: $0).latestNotificationText : nil) }
+                )
                 return fresh
             }
         )
@@ -162,6 +197,7 @@ extension VerticalTabsSidebar {
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
         renderContext: WorkspaceListRenderContext,
+        memberStatusGlyphs: [UUID: SidebarCompactStatusGlyph.GroupMember],
         unreadSnapshot: SidebarUnreadSnapshot,
         notificationIndex: SidebarWorkspaceNotificationIndex,
         shouldCollectWorkspaceDropTargets: Bool
@@ -187,7 +223,18 @@ extension VerticalTabsSidebar {
             isMultiSelected: true,
             customColorHex: effectiveColor,
             colorScheme: renderContext.environment.colorScheme,
-            sidebarSelectionColorHex: settings.selectionColorHex
+            sidebarSelectionColorHex: settings.selectionColorHex,
+            subtleSelection: settings.subtleSelection,
+            brightenInDarkMode: settings.brightenInDarkMode,
+            increaseContrast: renderContext.environment.displayAccessibility.increaseContrast,
+            accent: settings.accentColor
+        )
+        let anchorActiveEdgeColor = sidebarGroupHeaderAnchorActiveEdgeNSColor(
+            activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
+            subtleSelection: settings.subtleSelection,
+            sidebarSelectionColorHex: settings.selectionColorHex,
+            colorScheme: renderContext.environment.colorScheme,
+            increaseContrast: renderContext.environment.displayAccessibility.increaseContrast
         )
         let cwdContextMenuItems = resolvedConfig?.contextMenuItems ?? []
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
@@ -199,6 +246,16 @@ extension VerticalTabsSidebar {
             }
             return liveAnchorId.flatMap { unreadSummariesByWorkspaceId[$0]?.unreadCount } ?? 0
         }()
+        let statusGlyph = SidebarCompactStatusGlyph.groupHeader(
+            isCollapsed: group.isCollapsed,
+            anchorId: liveAnchorId,
+            memberIds: memberWorkspaceIds,
+            members: memberStatusGlyphs,
+            unread: {
+                let summary = unreadSummariesByWorkspaceId[$0]
+                return (summary?.unreadCount ?? 0, settings.showsNotificationMessage ? summary?.latestNotificationText : nil)
+            }
+        )
         let canMarkAnchorRead = unreadSnapshot.canMarkWorkspaceRead(
             forWorkspaceIds: liveAnchorId.map { [$0] } ?? []
         )
@@ -246,6 +303,7 @@ extension VerticalTabsSidebar {
             isAnchorActive: isAnchorActive,
             isMultiSelected: isMultiSelected,
             multiSelectionBackgroundStyle: multiSelectionBackgroundStyle,
+            anchorActiveEdgeColor: anchorActiveEdgeColor,
             memberCount: memberWorkspaceIds.count,
             anchorUnreadCount: anchorUnreadCount,
             canMarkRead: canMarkAnchorRead,
@@ -253,6 +311,8 @@ extension VerticalTabsSidebar {
             hasLatestNotifications: anchorHasLatestNotification,
             canMarkAllRead: canMarkAllRead,
             canMarkAllUnread: canMarkAllUnread,
+            statusGlyph: statusGlyph,
+            compactsAgentStatus: settings.compactsAgentStatus,
             shortcutDigit: nil,
             shortcutModifierSymbol: nil,
             showsShortcutHint: false,
@@ -267,7 +327,8 @@ extension VerticalTabsSidebar {
             isBeingDragged: dragState.draggedTabId == dragIdentity,
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
-            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
+            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets,
+            notificationBadgeColorHex: settings.notificationBadgeColorHex
         )
     }
 
@@ -297,6 +358,7 @@ extension VerticalTabsSidebar {
             isAnchorActive: snapshot.isAnchorActive,
             isMultiSelected: snapshot.isMultiSelected,
             multiSelectionBackgroundStyle: snapshot.multiSelectionBackgroundStyle,
+            anchorActiveEdgeColor: snapshot.anchorActiveEdgeColor,
             memberCount: snapshot.memberCount,
             anchorUnreadCount: snapshot.anchorUnreadCount,
             canMarkRead: snapshot.canMarkRead,
@@ -304,6 +366,8 @@ extension VerticalTabsSidebar {
             hasLatestNotifications: snapshot.hasLatestNotifications,
             canMarkAllRead: snapshot.canMarkAllRead,
             canMarkAllUnread: snapshot.canMarkAllUnread,
+            statusGlyph: snapshot.statusGlyph,
+            compactsAgentStatus: snapshot.compactsAgentStatus,
             shortcutDigit: snapshot.shortcutDigit,
             shortcutModifierSymbol: snapshot.shortcutModifierSymbol,
             showsShortcutHint: snapshot.showsShortcutHint,
@@ -318,6 +382,7 @@ extension VerticalTabsSidebar {
             isBeingDragged: snapshot.isBeingDragged,
             topDropIndicatorVisible: snapshot.topDropIndicatorVisible,
             bottomDropIndicatorVisible: snapshot.bottomDropIndicatorVisible,
+            notificationBadgeColorHex: snapshot.notificationBadgeColorHex,
             actions: actions,
             onContextMenuAppear: {},
             onContextMenuDisappear: {}
@@ -416,14 +481,21 @@ extension VerticalTabsSidebar {
                     groupId: groupId
                 )
             },
-            onRename: { [weak tabManager] in
+            onRename: { [weak tabManager, resolveLiveAnchor] in
+                // Group headers have no inline title editor; rename in the
+                // palette editor, which already owns group renames.
                 guard let tabManager else { return }
                 let currentName = tabManager.workspaceGroups
                     .first(where: { $0.id == groupId })?.name ?? fallbackGroupName
-                presentSidebarWorkspaceGroupRenamePrompt(
-                    tabManager: tabManager,
-                    groupId: groupId,
-                    currentName: currentName
+                AppDelegate.shared?.requestCommandPaletteRename(
+                    CommandPaletteRenameTarget(
+                        kind: .workspaceGroup(groupId: groupId),
+                        currentName: currentName
+                    ),
+                    preferredWindow: resolveLiveAnchor().flatMap {
+                        AppDelegate.shared?.mainWindowContainingWorkspace($0.1)
+                    },
+                    source: "groupContextMenu.rename"
                 )
             },
             onTogglePinned: { [weak tabManager] in
@@ -517,20 +589,30 @@ extension VerticalTabsSidebar {
         selectedTabIds: Binding<Set<UUID>>,
         lastSidebarSelectionIndex: Binding<Int?>
     ) {
+        guard let group = tabManager.workspaceGroups.first(where: { $0.id == groupId }),
+              let anchor = tabManager.workspaceGroupAnchor(for: groupId),
+              let target = tabManager.workspaceGroupHeaderTarget(for: groupId) else { return }
+        let hasRealMember = tabManager.tabs.contains { $0.groupId == groupId && $0.id != anchor.id }
+        if group.anchorWorkspaceProvenance == .generated,
+           !hasRealMember,
+           tabManager.workspaceGroupGeneratedAnchorIsUntouched(anchor) {
+            tabManager.toggleWorkspaceGroupCollapsed(groupId: groupId)
+            return
+        }
+
         let anchorId: UUID
         if modifiers.contains(.command) || modifiers.contains(.shift) {
-            guard let anchor = tabManager.workspaceGroupAnchor(for: groupId) else { return }
             let selection = SidebarSelectionKindPolicy().anchorCmdClickSelection(
                 current: selectedTabIds.wrappedValue,
                 clickedAnchorId: anchor.id,
                 anchorIds: Set(tabManager.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
             )
             selectedTabIds.wrappedValue = selection
-            guard let selectedAnchor = tabManager.selectWorkspaceGroupAnchor(for: groupId) else { return }
-            anchorId = selectedAnchor.id
+            tabManager.selectWorkspace(target)
+            anchorId = anchor.id
         } else {
-            guard let selectedAnchor = tabManager.selectWorkspaceGroupAnchor(for: groupId) else { return }
-            anchorId = selectedAnchor.id
+            tabManager.selectWorkspace(target)
+            anchorId = target.id
             if selectedTabIds.wrappedValue != [anchorId] {
                 selectedTabIds.wrappedValue = [anchorId]
             }

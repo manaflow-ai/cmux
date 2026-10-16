@@ -1,16 +1,6 @@
 import Foundation
 
 extension SurfaceResumeBindingSnapshot {
-    /// Assigns trusted persistent-SSH ownership only to a legacy decoded binding.
-    func migratingLegacyPersistentSSH(_ context: SurfaceResumeRemoteContext) -> SurfaceResumeBindingSnapshot {
-        guard wasDecodedWithoutLaunchFlavor else { return self }
-        return registeredForPersistentSSH(context)
-    }
-
-    func registeredForPersistentSSH(_ context: SurfaceResumeRemoteContext) -> SurfaceResumeBindingSnapshot {
-        replacingLaunchFlavor(.persistentSSH(context))
-    }
-
     func retargetingRemoteOwner(
         expectedWorkspaceID: UUID,
         expectedSurfaceID: UUID,

@@ -6,12 +6,37 @@ import {
   isVmFreeProvisioningAllowed,
   isVmProGateBlocked,
   isVmProGateEnforced,
+  maxActiveVmsForPlan,
+  resolveVmEntitlements,
 } from "../services/vms/entitlements";
+import { PRO_PLAN_ID } from "../services/billing/pro";
 import { vmRequiresProResponse } from "../services/vms/routeHelpers";
 
 const ent = (planId: string) => ({ planId });
 
 describe("Cloud VM Pro gate", () => {
+  test("local development Stack accounts resolve to the paid plan", () => {
+    const entitlements = resolveVmEntitlements({
+      id: "local-dev-user",
+      displayName: null,
+      primaryEmail: "dev@example.com",
+      billingCustomerType: "user",
+      billingTeamId: "local-dev-user",
+      selectedTeamId: null,
+      teams: [],
+      teamIds: [],
+      userBillingPlanId: null,
+      billingPlanId: null,
+      billingSeats: null,
+    }, {
+      NODE_ENV: "development",
+      CMUX_LOCAL_DEV_PRO: "1",
+      NEXT_PUBLIC_STACK_PROJECT_ID: "454ecd03-1db2-4050-845e-4ce5b0cd9895",
+    });
+    expect(entitlements.planId).toBe(PRO_PLAN_ID);
+    expect(entitlements.maxActiveVms).toBeGreaterThan(0);
+  });
+
   test("isPaidVmPlan recognizes pro, team, and founders, not free", () => {
     expect(isPaidVmPlan("pro")).toBe(true);
     expect(isPaidVmPlan("team")).toBe(true);
@@ -46,6 +71,21 @@ describe("Cloud VM Pro gate", () => {
       CMUX_VM_ALLOW_FREE_PROVISIONING: "0",
       CMUX_VM_REQUIRE_PRO: "0",
     })).toBe(false);
+  });
+
+  test("production never provisions free machines, whatever the env says", () => {
+    for (const env of [
+      { CMUX_VM_ALLOW_FREE_PROVISIONING: "1" },
+      { CMUX_VM_REQUIRE_PRO: "0" },
+      { CMUX_VM_ALLOW_FREE_PROVISIONING: "1", CMUX_VM_FREE_MAX_ACTIVE_VMS: "3", CMUX_VM_DEFAULT_PLAN: "pro" },
+    ]) {
+      const production = { ...env, VERCEL_ENV: "production" };
+      expect(isVmFreeProvisioningAllowed(production)).toBe(false);
+      expect(isVmProGateBlocked(ent("free"), production)).toBe(true);
+      expect(maxActiveVmsForPlan("free", production)).toBe(0);
+      // The same env still opens a preview or dev-backend stack.
+      expect(isVmFreeProvisioningAllowed({ ...env, VERCEL_ENV: "preview" })).toBe(true);
+    }
   });
 
   test("the explicit free-provisioning switch never blocks any plan", () => {

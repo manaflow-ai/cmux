@@ -84,8 +84,10 @@ struct SimulatorLengthPrefixedMessageChannelTests {
             await Task.yield()
         }
 
-        #expect(kill(processIdentifier, 0) == -1)
-        #expect(errno == ESRCH)
+        let probeResult = kill(processIdentifier, 0)
+        let probeErrno = errno
+        #expect(probeResult == -1)
+        #expect(probeErrno == ESRCH)
         #expect(throws: SimulatorChannelError.writeFailed) {
             try connection.send(Data("must not reach the terminated worker".utf8))
         }

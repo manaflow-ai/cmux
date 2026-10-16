@@ -3,7 +3,7 @@ import Testing
 
 @Suite("Simulator localization catalog")
 struct SimulatorLocalizationCatalogTests {
-    @Test("Worker request routing failures have English and Japanese copy")
+    @Test("Worker request routing failures have all supported macOS locale copy")
     func workerRequestRoutingFailuresAreLocalized() throws {
         var repositoryRoot = URL(fileURLWithPath: #filePath)
         for _ in 0..<6 {
@@ -25,7 +25,7 @@ struct SimulatorLocalizationCatalogTests {
             let entry = strings[key] as? [String: Any]
             #expect(entry != nil)
             let localizations = entry?["localizations"] as? [String: Any]
-            for language in ["en", "ja"] {
+            for language in ["en", "de", "fr", "ar", "es", "zh-Hant", "zh-Hans", "ko", "ja"] {
                 let localization = localizations?[language] as? [String: Any]
                 let stringUnit = localization?["stringUnit"] as? [String: Any]
                 let value = stringUnit?["value"] as? String

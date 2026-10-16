@@ -41,7 +41,7 @@ public struct SocketPasswordAuthorization: Sendable {
             return true
         }
         guard let currentPassword else { return false }
-        return credentialFingerprint == fingerprint(currentPassword)
+        return constantTimeEqual(credentialFingerprint, fingerprint(currentPassword))
     }
 
     private func fingerprint(_ password: String) -> Data {

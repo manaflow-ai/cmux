@@ -1,0 +1,27 @@
+diff --git a/dist/rate-limit.d.ts b/dist/rate-limit.d.ts
+index 4a3a83cc9653f78b42bf9489a30440f05ed6e62c..ce3eb05ea788162a97ca835613508cd1e6c5353b 100644
+--- a/dist/rate-limit.d.ts
++++ b/dist/rate-limit.d.ts
+@@ -35,6 +35,8 @@ export declare function checkRateLimit(rateLimitId: string, options?: {
+     headers?: Headers | Record<string, string> | Record<string, string | string[]>;
+     /** The current request object. Optional. */
+     request?: Request;
++    /** Optional cancellation for the Firewall transport request. */
++    signal?: AbortSignal;
+ }): Promise<{
+     rateLimited: boolean;
+     error?: 'not-found' | 'blocked';
+diff --git a/dist/rate-limit.js b/dist/rate-limit.js
+index 90ace132c2319d2e721bf2214a628e5b416ced27..2625b613f20a121109fbc4b76353443043c7d642 100644
+--- a/dist/rate-limit.js
++++ b/dist/rate-limit.js
+@@ -83,7 +83,8 @@ async function checkRateLimit(rateLimitId, options) {
+   const response = await fetch(url, {
+     method: "GET",
+     headers: rateLimitHeaders,
+-    redirect: "manual"
++    redirect: "manual",
++    signal: options?.signal
+   });
+   if (response.status === 204) {
+     return {

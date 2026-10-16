@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// What one cmux-tui workspace on a cloud machine holds, in the order the
@@ -33,9 +35,23 @@ enum CloudTreeRemoteWorkspaceLookup: Equatable {
 }
 
 extension CloudTreeNodeBuilder {
+    static func hasCloudDisplayMembershipProjection(
+        _ projection: SurfaceProjection,
+        snapshot: SurfaceCatalogSnapshot,
+        workspaceID: String
+    ) -> Bool {
+        projection.resource.kind == .display && projection.remoteTabID == nil
+            && snapshot.cloudDisplayMemberships.contains {
+                $0.machine == projection.resource.machine
+                    && $0.displayID == projection.resource.key
+                    && $0.workspaceID == workspaceID
+            }
+    }
+
     /// Every cmux-tui workspace on a machine, in the daemon's order: the ones the
-    /// machine itself reports (so an empty workspace still gets a row) plus any
-    /// that a resource's views name before the machine list has caught up.
+    /// machine itself reports (including empty workspaces needed by lookup and
+    /// persistence) plus any that a resource's views name before the machine list
+    /// has caught up. The sidebar applies its terminal-membership filter separately.
     static func remoteWorkspaces(info: SurfaceMachineInfo?, resources: [SurfaceResource]) -> [SurfaceRemoteWorkspace] {
         var byID: [String: SurfaceRemoteWorkspace] = [:]
         for workspace in info?.remoteWorkspaces ?? [] {
@@ -55,13 +71,46 @@ extension CloudTreeNodeBuilder {
         remoteWorkspaces(info: snapshot.machines.first { $0.id == machine }, resources: snapshot.resources(on: machine))
     }
 
+    /// The name the machine's daemon will give its next unnamed workspace,
+    /// mirroring cmux-tui's `default_workspace_name`: one past the highest
+    /// `workspace-N`, never below the workspace count. `pendingCreations`
+    /// counts this client's other unnamed creates whose receipts have not
+    /// arrived. Nil when the machine has not reported its workspaces yet.
+    /// The daemon's receipt stays authoritative; this only spares the pane a
+    /// generic placeholder title that is renamed a moment later.
+    static func predictedDefaultWorkspaceName(
+        on machine: SurfaceMachineID,
+        snapshot: SurfaceCatalogSnapshot,
+        pendingCreations: Int = 0
+    ) -> String? {
+        let info = snapshot.machines.first { $0.id == machine }
+        guard info?.remoteWorkspaces != nil else { return nil }
+        return predictedDefaultWorkspaceName(
+            existingNames: remoteWorkspaces(info: info, resources: snapshot.resources(on: machine)).map(\.name),
+            pendingCreations: pendingCreations
+        )
+    }
+
+    static func predictedDefaultWorkspaceName(existingNames: [String], pendingCreations: Int = 0) -> String {
+        // Names come from any client of the machine, so the arithmetic
+        // saturates like the daemon's instead of trapping on a huge suffix.
+        let highest = existingNames.compactMap { name -> Int? in
+            guard name.hasPrefix("workspace-"),
+                  let number = Int(name.dropFirst("workspace-".count)), number >= 0 else { return nil }
+            return number
+        }.max() ?? 0
+        let (afterBase, baseOverflow) = max(highest, existingNames.count).addingReportingOverflow(1)
+        let (next, pendingOverflow) = afterBase.addingReportingOverflow(max(pendingCreations, 0))
+        return "workspace-\(baseOverflow || pendingOverflow ? Int.max : next)"
+    }
+
     /// Every workspace's members in ONE pass over the catalog: a resource is
     /// appended to each workspace that views it, so the per-kind lists keep
     /// catalog order. The workspace rows (children and drag group) and the
     /// socket's `vm.workspace_open` both read this, so a click and the CLI open
     /// the same set, and a tree rebuild stays O(resources × views) whatever the
     /// workspace count.
-    static func remoteWorkspaceMembersByWorkspace(resources: [SurfaceResource]) -> [String: CloudTreeRemoteWorkspaceMembers] {
+    static func remoteWorkspaceMembersByWorkspace(resources: [SurfaceResource], projections: [SurfaceProjection] = []) -> [String: CloudTreeRemoteWorkspaceMembers] {
         var byWorkspace: [String: CloudTreeRemoteWorkspaceMembers] = [:]
         for resource in resources {
             for workspace in resource.remoteWorkspaces {
@@ -74,12 +123,18 @@ extension CloudTreeNodeBuilder {
                 byWorkspace[workspace.id] = members
             }
         }
+        for member in SurfaceProjection.localWorkspaceMembers(resources: resources, projections: projections) {
+            var members = byWorkspace[member.workspaceID] ?? .none
+            if member.resource.kind == .browser { members.browsers.append(member.resource) }
+            else { members.displays.append(member.resource) }
+            byWorkspace[member.workspaceID] = members
+        }
         return byWorkspace
     }
 
     /// The members of one workspace (an existing workspace nothing views has none).
-    static func remoteWorkspaceMembers(workspaceID: String, resources: [SurfaceResource]) -> CloudTreeRemoteWorkspaceMembers {
-        remoteWorkspaceMembersByWorkspace(resources: resources)[workspaceID] ?? .none
+    static func remoteWorkspaceMembers(workspaceID: String, resources: [SurfaceResource], projections: [SurfaceProjection] = []) -> CloudTreeRemoteWorkspaceMembers {
+        remoteWorkspaceMembersByWorkspace(resources: resources, projections: projections)[workspaceID] ?? .none
     }
 
     /// How many panes of each local workspace show each resource, built once per
@@ -109,17 +164,17 @@ extension CloudTreeNodeBuilder {
     static func lookupRemoteWorkspace(_ selector: String, on machine: SurfaceMachineID, snapshot: SurfaceCatalogSnapshot) -> CloudTreeRemoteWorkspaceLookup {
         let trimmed = selector.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .notFound }
-        let resources = snapshot.resources(on: machine)
+        let resources = snapshot.cloudWorkspaceResources(on: machine)
         let workspaces = remoteWorkspaces(info: snapshot.machines.first { $0.id == machine }, resources: resources)
         if let byID = workspaces.first(where: { $0.id == trimmed }) {
-            return .found(byID, remoteWorkspaceMembers(workspaceID: byID.id, resources: resources))
+            return .found(byID, remoteWorkspaceMembers(workspaceID: byID.id, resources: resources, projections: snapshot.projections))
         }
         let byName = workspaces.filter { $0.name == trimmed }
         switch byName.count {
         case 0:
             return .notFound
         case 1:
-            return .found(byName[0], remoteWorkspaceMembers(workspaceID: byName[0].id, resources: resources))
+            return .found(byName[0], remoteWorkspaceMembers(workspaceID: byName[0].id, resources: resources, projections: snapshot.projections))
         default:
             return .ambiguous(byName)
         }

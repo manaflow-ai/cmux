@@ -56,7 +56,7 @@ public struct SSHRetryBackoffScriptBuilder: Sendable {
     /// ``cmux_ssh_attach_cli`` before executing these branches; it must point to
     /// a CLI that supports the internal ``__ssh-pty-flush-input`` command.
     public var signalHandlerBranches: String {
-        "elif [ -n \"${\(backoffPIDVariable):-}\" ]; then /bin/kill -TERM \"$\(backoffPIDVariable)\" >/dev/null 2>&1 || true; wait \"$\(backoffPIDVariable)\" 2>/dev/null || true; \(backoffPIDVariable)=; \(terminalInputRestoreLine) elif [ \"${\(backoffLaunchingVariable):-0}\" = 1 ]; then \(pendingSignalVariable)=\"$\(signalStatusVariable)\"; \(pendingSignalNameVariable)=\"$\(signalNameVariable)\"; return;"
+        "elif [ -n \"${\(backoffPIDVariable):-}\" ]; then kill -TERM \"$\(backoffPIDVariable)\" >/dev/null 2>&1 || true; wait \"$\(backoffPIDVariable)\" 2>/dev/null || true; \(backoffPIDVariable)=; \(terminalInputRestoreLine) elif [ \"${\(backoffLaunchingVariable):-0}\" = 1 ]; then \(pendingSignalVariable)=\"$\(signalStatusVariable)\"; \(pendingSignalNameVariable)=\"$\(signalNameVariable)\"; return;"
     }
 
     /// Shell line that restores traditional terminal input before a retry prompt.

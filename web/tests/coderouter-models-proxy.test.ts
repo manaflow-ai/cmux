@@ -1,10 +1,11 @@
+import { vmToken } from "./vm-authorization-fixture";
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { VM_PLACEHOLDER_API_KEY } from "../services/coderouter/routeTokenAuth";
 
 let selectedAccounts = ["account-1"];
 let unusableAccounts = new Set<string>();
 let authenticatedTokens: string[] = [];
-const BOUND_TOKEN = "crt_bound-to-vm-1";
+const BOUND_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
 
 const originalFetch = globalThis.fetch;
 let upstreamUrl = "";
@@ -32,7 +33,7 @@ const proxyCodexModels = createCodexModelsProxy({
   select: async () => {
     const id = selectedAccounts.shift();
     return id
-      ? { id, vaultRevision: 1, credentialExpiresAt: new Date() }
+      ? { id, provider: "codex" as const, vaultRevision: 1, credentialExpiresAt: new Date() }
       : null;
   },
   credential: async ({ accountId }) => {
@@ -99,13 +100,13 @@ describe("coderouter models proxy", () => {
     expect(response.status).toBe(200);
   });
 
-  test("a bound token needs the matching x-cmux-vm-id header", async () => {
+  test("a signed VM token needs no separate VM header", async () => {
     const models = (headers: Record<string, string>) =>
       proxyCodexModels(
         new Request("https://coderouter.dev/v1/models", {
           headers: {
             authorization: `Bearer ${VM_PLACEHOLDER_API_KEY}`,
-            "x-coderouter-route-token": BOUND_TOKEN,
+            "x-cmux-authorization": `Bearer ${BOUND_TOKEN}`,
             ...headers,
           },
         }),
@@ -114,17 +115,11 @@ describe("coderouter models proxy", () => {
     expect(matched.status).toBe(200);
 
     selectedAccounts = ["account-1"];
-    const missing = await models({});
-    expect(missing.status).toBe(401);
-    await expect(missing.json()).resolves.toMatchObject({
-      error: "unauthorized",
-      message:
-        "This machine's coderouter credential does not match the machine it was issued to.",
-    });
-
+    expect((await models({})).status).toBe(200);
     selectedAccounts = ["account-1"];
-    const wrong = await models({ "x-cmux-vm-id": "vm-2" });
-    expect(wrong.status).toBe(401);
+    expect((await models({ "x-cmux-vm-id": "vm-2" })).status).toBe(200);
+    selectedAccounts = ["account-1"];
+    expect((await models({ "x-cmux-authorization": "Bearer invalid" })).status).toBe(401);
   });
 
   test("the placeholder API key alone is rejected without a lookup", async () => {
@@ -138,5 +133,59 @@ describe("coderouter models proxy", () => {
     );
     expect(response.status).toBe(401);
     expect(authenticatedTokens).toEqual([]);
+  });
+});
+
+describe("coderouter models proxy with no account configured", () => {
+  function noAccountModelsProxy(configured: boolean, vmId: string | null = null) {
+    const checks: string[] = [];
+    const proxy = createCodexModelsProxy({
+      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId, poolId: vmId ? "pool-1" : null }),
+      select: async () => null,
+      credential: async () => {
+        throw new Error("no account should be read");
+      },
+      cooldown: async () => {},
+      providerRead: async (request) => await request(),
+      hasConfiguredAccount: async (input) => {
+        checks.push(input.teamId);
+        return configured;
+      },
+    });
+    return { proxy, checks };
+  }
+
+  const request = () => new Request("https://coderouter.dev/v1/models?client_version=0.146.0", {
+    headers: { authorization: "Bearer crt_route" },
+  });
+
+  test("answers a caller that can see no Codex account with the terminal 403", async () => {
+    const run = noAccountModelsProxy(false);
+    const response = await run.proxy(request());
+    expect(response.status).toBe(403);
+    expect(response.headers.get("retry-after")).toBeNull();
+    expect(await response.json()).toEqual({
+      error: {
+        message: "No Codex account is configured for this team or shared with this caller. Add one with `cr add codex` or at coderouter.dev.",
+        type: "invalid_request_error",
+        code: "no_account_configured",
+      },
+    });
+    expect(run.checks).toEqual(["team-1"]);
+  });
+
+  test("tells a Cloud machine that private accounts must be shared with its team", async () => {
+    const vmRequest = request();
+    vmRequest.headers.set("x-cmux-vm-id", "vm-1");
+    const response = await noAccountModelsProxy(false, "vm-1").proxy(vmRequest);
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.message).toBe("No Codex account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, or add one here with `cr add codex` (accounts added on a Cloud machine are shared with its team). Or use your own Codex sign-in on this machine: run `cr use own codex`, then `codex login` (on older machines, start Codex with `codex -c model_provider=openai` after `codex login`).");
+  });
+
+  test("a caller whose accounts are all unavailable still gets a retryable 503", async () => {
+    const run = noAccountModelsProxy(true);
+    const response = await run.proxy(request());
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("15");
   });
 });

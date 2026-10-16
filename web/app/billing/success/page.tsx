@@ -28,6 +28,9 @@ type BillingSuccessMessages = {
   metaTitle: string;
   title: string;
   body: string;
+  purchaseComplete: string;
+  proLabel: string;
+  dashboardLink: string;
   emailLabel: string;
   whatUnlockedTitle: string;
   openCmux: string;
@@ -111,112 +114,105 @@ export default async function BillingSuccessPage({
     nativeCallbackHrefForScheme(scheme),
     sessionId,
   );
+  const dashboardBillingHref = localizedDashboardPath(locale, "/dashboard/billing");
+  const dashboardHref = localizedDashboardPath(locale, "/dashboard");
   const featureCards: readonly {
     key: BillingSuccessFeatureKey;
     href: string;
   }[] = [
     { key: "cloudAgents", href: openCmuxHref.toString() },
-    { key: "modelGateway", href: "/dashboard/coderouter" },
-    { key: "aiAccounts", href: "/dashboard/ai-accounts" },
-    { key: "iosApp", href: "/dashboard/testflight" },
+    { key: "modelGateway", href: localizedDashboardPath(locale, "/dashboard/coderouter") },
+    { key: "aiAccounts", href: localizedDashboardPath(locale, "/dashboard/ai-accounts") },
+    { key: "iosApp", href: localizedDashboardPath(locale, "/dashboard/testflight") },
   ];
 
   return (
-    <main className="min-h-screen bg-[#f4f0e7] px-4 py-8 text-[#241f1a] sm:px-6 sm:py-14">
-      <div className="mx-auto max-w-4xl" lang={locale}>
-        <section className="border border-[#d6ccbc] bg-[#fffdf8]">
-          <div className="grid border-b border-[#d6ccbc] sm:grid-cols-[1fr_auto]">
-            <div className="p-6 sm:p-10">
-              <div className="mb-8 flex items-center gap-3 text-sm font-medium text-[#7b5839]">
-                <span className="grid size-7 place-items-center bg-[#e8a15b] text-base text-[#241f1a]">
-                  ✓
-                </span>
-                <span>{messages.emailLabel}</span>
-              </div>
-              <h1 className="max-w-2xl text-3xl font-medium tracking-[-0.035em] sm:text-4xl">
-                {messages.title}
-              </h1>
-              <p className="mt-4 max-w-2xl text-base leading-7 text-[#655c52]">
-                {messages.body.replace("{email}", email)}
-              </p>
-              <a
-                className="mt-8 inline-flex min-h-11 items-center bg-[#241f1a] px-5 py-2 text-sm font-medium text-[#fffaf1] transition-colors hover:bg-[#47382b]"
-                href={openCmuxHref.toString()}
-              >
-                {messages.openCmux}
-                <span aria-hidden="true" className="ml-3">
-                  →
-                </span>
-              </a>
-            </div>
-            <div className="border-t border-[#d6ccbc] bg-[#f9e9d2] p-6 sm:w-64 sm:border-l sm:border-t-0 sm:p-8">
-              <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#8b6848]">
-                {messages.emailLabel}
-              </p>
-              <p className="mt-3 break-words text-sm leading-6">{email}</p>
-              <div className="mt-8 h-1 w-12 bg-[#e2813f]" />
-            </div>
-          </div>
-
-          <div className="p-6 sm:p-10">
-            <div className="flex items-end justify-between gap-6">
-              <h2 className="text-xl font-medium tracking-tight">
-                {messages.whatUnlockedTitle}
-              </h2>
-              <span className="hidden text-xs uppercase tracking-[0.14em] text-[#8b8176] sm:block">
-                Pro
+    <main className="min-h-[calc(100vh-2.75rem)] bg-background px-3 py-6 text-foreground sm:px-6 sm:py-10" lang={locale}>
+      <div className="mx-auto w-full max-w-5xl">
+        <section className="border-b border-border pb-8">
+          <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted">
+            <div className="flex items-center gap-2">
+              <span className="grid size-5 place-items-center border border-foreground text-[11px]" aria-hidden="true">
+                ✓
               </span>
+              <span>{messages.purchaseComplete}</span>
             </div>
-            <div className="mt-6 grid border-l border-t border-[#d6ccbc] md:grid-cols-2">
-              {featureCards.map((card) => {
-                const feature = messages.features[card.key];
-                return (
-                  <article
-                    key={card.key}
-                    className="group flex min-h-44 flex-col justify-between border-b border-r border-[#d6ccbc] bg-[#fffdf8] p-5 transition-colors hover:bg-[#fbf3e7]"
-                  >
-                    <div>
-                      <h3 className="text-base font-medium">{feature.title}</h3>
-                      <p className="mt-3 text-sm leading-6 text-[#655c52]">
-                        {feature.body}
-                      </p>
-                    </div>
-                    <a
-                      className="mt-5 inline-flex w-fit items-center border-b border-[#8b6848] pb-1 text-sm font-medium text-[#6e4a2d]"
-                      href={card.href}
-                    >
-                      {feature.action}
-                      <span
-                        aria-hidden="true"
-                        className="ml-2 transition-transform group-hover:translate-x-0.5"
-                      >
-                        →
-                      </span>
-                    </a>
-                  </article>
-                );
-              })}
-            </div>
+            <span className="font-mono tabular-nums">{messages.proLabel}</span>
+          </div>
+          <h1 className="mt-5 max-w-2xl text-2xl font-medium tracking-[-0.03em] sm:text-4xl">
+            {messages.title}
+          </h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted sm:text-base">
+            {messages.body.replace("{email}", email)}
+          </p>
+          <div className="mt-6 flex flex-wrap items-center gap-2">
+            <a
+              className="inline-flex min-h-10 items-center border border-foreground bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-background hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
+              href={openCmuxHref.toString()}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {messages.openCmux}
+              <span aria-hidden="true" className="ml-3">→</span>
+            </a>
+            <a
+              className="inline-flex min-h-10 items-center border border-border px-4 py-2 text-sm font-medium hover:border-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
+              href={dashboardBillingHref}
+            >
+              {messages.manageBilling}
+            </a>
           </div>
         </section>
 
-        <div className="flex flex-wrap gap-x-6 gap-y-3 border-x border-b border-[#d6ccbc] bg-[#ebe4d8] px-6 py-4 sm:px-10">
-          <a
-            className="inline-flex py-1 text-sm font-medium text-[#655c52] underline decoration-[#b7a895] underline-offset-4 hover:text-[#241f1a]"
-            href="/api/billing/portal"
-          >
-            {messages.manageBilling}
-          </a>
-          <a
-            className="inline-flex py-1 text-sm font-medium text-[#655c52] underline decoration-[#b7a895] underline-offset-4 hover:text-[#241f1a]"
-            href="/handler/account-settings"
-          >
+        <section className="border-b border-border py-8">
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-medium tracking-[-0.02em]">{messages.whatUnlockedTitle}</h2>
+              <p className="mt-2 text-sm text-muted">{messages.emailLabel}: {email}</p>
+            </div>
+            <a className="text-sm text-muted underline decoration-border underline-offset-4 hover:text-foreground" href={dashboardHref}>
+              {messages.dashboardLink}
+            </a>
+          </div>
+          <div className="mt-6 grid border border-border md:grid-cols-2">
+            {featureCards.map((card, index) => {
+              const feature = messages.features[card.key];
+              return (
+                <article
+                  key={card.key}
+                  className={`group flex min-h-40 flex-col justify-between p-5 hover:bg-code-bg ${index < featureCards.length - 1 ? "border-b border-border md:border-b-0" : ""} ${index % 2 === 0 ? "md:border-r md:border-border" : ""}`}
+                >
+                  <div>
+                    <h3 className="text-sm font-medium sm:text-base">{feature.title}</h3>
+                    <p className="mt-3 max-w-md text-sm leading-6 text-muted">{feature.body}</p>
+                  </div>
+                  <a className="mt-5 inline-flex w-fit items-center text-sm font-medium underline decoration-border underline-offset-4 hover:decoration-foreground" href={card.href} target={card.key === "cloudAgents" ? "_blank" : undefined} rel={card.key === "cloudAgents" ? "noreferrer" : undefined}>
+                    {feature.action}
+                    <span aria-hidden="true" className="ml-2">→</span>
+                  </a>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+
+        <footer className="flex flex-wrap gap-x-6 gap-y-2 pt-5 text-sm text-muted">
+          {/* The handler owns a full-document auth-settings transition. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+          <a className="underline decoration-border underline-offset-4 hover:text-foreground" href="/handler/account-settings">
             {messages.manageSignInMethods}
           </a>
-        </div>
+          <a className="underline decoration-border underline-offset-4 hover:text-foreground" href={dashboardBillingHref}>
+            {messages.manageBilling}
+          </a>
+        </footer>
       </div>
     </main>
   );
+}
+
+function localizedDashboardPath(locale: Locale, path: string): string {
+  return locale === routing.defaultLocale ? path : `/${locale}${path}`;
 }
 
 async function billingSuccessMessages(

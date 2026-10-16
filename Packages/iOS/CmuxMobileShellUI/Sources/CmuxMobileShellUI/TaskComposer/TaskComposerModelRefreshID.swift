@@ -6,5 +6,6 @@ struct TaskComposerModelRefreshID: Hashable {
     let provider: MobileTaskAgentProvider?
     let macPairingID: String
     let connectionIdentity: String?
+    let connectionState: MobileConnectionState
 }
 #endif

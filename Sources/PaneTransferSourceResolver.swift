@@ -10,6 +10,9 @@ struct PaneTransferSourceResolver {
         /// A Cloud tree row: catalog resources (terminals, screens, browsers) on this Mac or a
         /// machine — one, or a whole workspace's worth.
         case surfaceResources(SurfaceResourceGroup)
+        /// A sidebar workspace row: dropping it on a pane merges its tabs there.
+        case workspaceMerge(UUID)
+        case rightSidebarTool(RightSidebarMode)
         case surface
     }
 
@@ -18,12 +21,14 @@ struct PaneTransferSourceResolver {
     typealias FilePreviewLookup = @MainActor (UUID) -> FilePreviewDragEntry?
     typealias SurfaceResourceLookup = @MainActor (UUID) -> SurfaceResourceGroup?
     typealias LivenessLookup = @MainActor (UUID) -> Bool
+    typealias WorkspaceMergeLookup = @MainActor (UUID) -> UUID?
 
     private let vaultSessionRegistry: VaultSessionRegistry
     private let tabTransferRegistry: TabTransferRegistry
     private let filePreview: FilePreviewLookup
     private let surfaceResource: SurfaceResourceLookup
     private let surfaceIsLive: LivenessLookup
+    private let workspaceMerge: WorkspaceMergeLookup
 
     init(
         vaultSessionRegistry: @escaping VaultSessionRegistry = {
@@ -40,6 +45,9 @@ struct PaneTransferSourceResolver {
         },
         surfaceIsLive: @escaping LivenessLookup = { id in
             AppDelegate.shared?.locateContainerSurface(tabId: id) != nil
+        },
+        workspaceMerge: @escaping WorkspaceMergeLookup = { id in
+            WorkspaceMergeDragRegistry.shared.workspaceId(id: id)
         }
     ) {
         self.vaultSessionRegistry = vaultSessionRegistry
@@ -47,6 +55,7 @@ struct PaneTransferSourceResolver {
         self.filePreview = filePreview
         self.surfaceResource = surfaceResource
         self.surfaceIsLive = surfaceIsLive
+        self.workspaceMerge = workspaceMerge
     }
 
     /// Resolves only an opaque live Bonsplit capability into one transfer model.
@@ -76,6 +85,7 @@ struct PaneTransferSourceResolver {
     @MainActor
     func source(for transfer: PaneDragTransfer) -> Source? {
         guard transfer.isFromCurrentProcess else { return nil }
+        if let mode = transfer.rightSidebarToolMode { return .rightSidebarTool(mode) }
         if let source = registeredSource(id: transfer.tabId) {
             return source
         }
@@ -85,12 +95,15 @@ struct PaneTransferSourceResolver {
 
     /// Resolves a synthetic source registered outside Bonsplit's live tab model.
     @MainActor
-    func registeredSource(id: UUID) -> Source? {
+    func registeredSource(id: UUID, pasteboard: NSPasteboard = NSPasteboard(name: .drag)) -> Source? {
+        if let transfer = transfer(from: pasteboard), transfer.tabId == id,
+           let mode = transfer.rightSidebarToolMode { return .rightSidebarTool(mode) }
         if let entry = vaultSessionRegistry()?.entry(id: id) {
             return .vaultSession(entry)
         }
         if let entry = filePreview(id) { return .filePreview(entry) }
         if let group = surfaceResource(id) { return .surfaceResources(group) }
+        if let workspaceId = workspaceMerge(id) { return .workspaceMerge(workspaceId) }
         return nil
     }
 
@@ -104,7 +117,9 @@ struct PaneTransferSourceResolver {
             FilePreviewDragRegistry.shared.discard(id: id)
         case .surfaceResources:
             SurfaceResourceDragRegistry.shared.discard(id: id)
-        case .surface:
+        case .workspaceMerge:
+            WorkspaceMergeDragRegistry.shared.discard(id: id)
+        case .surface, .rightSidebarTool:
             break
         }
     }
@@ -120,9 +135,9 @@ struct PaneTransferSourceResolver {
         pasteboard: NSPasteboard
     ) {
         switch source {
-        case .surface:
+        case .surface, .rightSidebarTool:
             tabTransferRegistry()?.finish(from: pasteboard)
-        case .vaultSession, .filePreview, .surfaceResources:
+        case .vaultSession, .filePreview, .surfaceResources, .workspaceMerge:
             finish(source, id: id)
         }
     }

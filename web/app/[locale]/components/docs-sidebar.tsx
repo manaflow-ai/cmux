@@ -7,7 +7,7 @@ import {
   isSection,
   type NavLink,
 } from "./docs-nav-items";
-import { DocsSearch } from "./docs-search";
+import { DocsSearchTrigger } from "./docs-search-dialog";
 import { ContentLocaleLink } from "./content-locale-link";
 import { DocsVersionPicker } from "./docs-version-picker";
 import { docsChannelUrl, type DocsChannel } from "@/app/lib/docs-channel";
@@ -18,7 +18,6 @@ function SidebarLink({
   channel,
   pathname,
   onNavigate,
-  indent,
   t,
 }: {
   item: NavLink;
@@ -26,7 +25,6 @@ function SidebarLink({
   channel: DocsChannel;
   pathname: string;
   onNavigate?: () => void;
-  indent?: boolean;
   t: (key: string) => string;
 }) {
   const active = docsChannelUrl("release", pathname) === item.href;
@@ -36,12 +34,11 @@ function SidebarLink({
       currentLocale={locale}
       contentLocales={item.contentLocales}
       onClick={onNavigate}
-      className={`block py-1.5 text-[14px] rounded-md transition-colors ${
-        indent ? "px-5" : "px-3"
-      } ${
+      aria-current={active ? "page" : undefined}
+      className={`mb-px block rounded-xl py-1.5 pl-4 pr-3 text-[14px] leading-5 transition-colors ${
         active
-          ? "text-foreground font-medium bg-code-bg"
-          : "text-muted hover:text-foreground"
+          ? "bg-foreground/[0.06] font-medium text-foreground dark:bg-foreground/[0.09]"
+          : "text-foreground/70 hover:bg-foreground/[0.03] hover:text-foreground"
       }`}
     >
       {t(item.titleKey)}
@@ -51,9 +48,11 @@ function SidebarLink({
 
 export function DocsSidebar({
   onNavigate,
+  onOpenSearch,
   channel,
 }: {
   onNavigate?: () => void;
+  onOpenSearch: () => void;
   channel: "release" | "nightly";
 }) {
   const pathname = usePathname();
@@ -65,13 +64,15 @@ export function DocsSidebar({
 
   return (
     <>
-      <DocsSearch onNavigate={onNavigate} />
-      <nav className="space-y-0.5" data-pagefind-ignore="all">
+      <div className="pb-6">
+        <DocsSearchTrigger onOpen={onOpenSearch} />
+      </div>
+      <nav data-pagefind-ignore="all">
         {navItems.map((entry) => {
           if (isSection(entry)) {
             return (
-              <div key={entry.sectionKey} className="pt-5 pb-2 first:pt-0">
-                <div className="px-3 pb-1 text-[12px] font-medium text-muted tracking-wider">
+              <div key={entry.sectionKey} className="pt-8 first:pt-0">
+                <div className="pb-2.5 pl-4 text-[12px] font-semibold leading-4 text-foreground">
                   {t(entry.sectionKey)}
                 </div>
                 {entry.children.map((child) => (
@@ -82,7 +83,6 @@ export function DocsSidebar({
                     channel={channel}
                     pathname={pathname}
                     onNavigate={onNavigate}
-                    indent
                     t={t}
                   />
                 ))}

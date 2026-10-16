@@ -15,7 +15,7 @@ public import Foundation
     ) -> CandidateLookupCancellation?
 
     /// Registers a callback that dismisses any in-flight certificate picker.
-    public typealias PromptCancellationRegistration = (@escaping () -> Void) -> Void
+    public typealias PromptCancellationRegistration = @MainActor (@escaping @MainActor () -> Void) -> Void
 
     /// Presents candidates and returns the selected candidate, or `nil` on cancellation.
     public typealias CandidatePicker = (
@@ -69,11 +69,7 @@ public import Foundation
             )
         }
         if let cancelLookup {
-            registerCancelPrompt {
-                MainActor.assumeIsolated {
-                    cancelLookup()
-                }
-            }
+            registerCancelPrompt(cancelLookup)
         }
         return true
     }

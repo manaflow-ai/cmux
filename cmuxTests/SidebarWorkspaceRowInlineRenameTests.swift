@@ -18,9 +18,12 @@ struct SidebarWorkspaceRowInlineRenameTests {
     private final class Harness {
         let window: NSWindow
         let cell: SidebarWorkspaceRowTableCellView
+        /// Row commands hold the manager weakly; the harness keeps it alive.
+        let tabManager: TabManager?
         private(set) var committedTitles: [String] = []
 
-        init() {
+        init(tabManager: TabManager? = nil) {
+            self.tabManager = tabManager
             let model = SidebarWorkspaceRowSuspensionTests.makeModel()
             cell = SidebarWorkspaceRowTableCellView(
                 frame: NSRect(x: 0, y: 0, width: 320, height: 80)
@@ -37,6 +40,7 @@ struct SidebarWorkspaceRowInlineRenameTests {
                 model: model,
                 actions: SidebarWorkspaceRowSuspensionTests.makeActions(
                     model: model,
+                    tabManager: tabManager,
                     onCommitRename: { [weak self] title in
                         self?.committedTitles.append(title)
                     }
@@ -152,5 +156,37 @@ struct SidebarWorkspaceRowInlineRenameTests {
             "Focus loss commits the typed draft, exactly once"
         )
         #expect(!harness.cell.isEditing)
+    }
+
+    @Test
+    func contextMenuRenameStartsInlineEditInsteadOfDialog() throws {
+        let harness = Harness(tabManager: TabManager())
+        defer { harness.tearDown() }
+        let event = try #require(NSEvent.mouseEvent(
+            with: .rightMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: harness.window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ))
+        let menu = try #require(harness.cell.menu(for: event))
+        let renameIndex = try #require(
+            menu.items.firstIndex { $0.title.hasPrefix("Rename Workspace") },
+            "The workspace row menu must offer Rename Workspace"
+        )
+
+        menu.performActionForItem(at: renameIndex)
+
+        #expect(
+            harness.cell.isEditing,
+            "Rename from the row's context menu edits the visible row in place"
+        )
+        let editor = try harness.renameFieldEditor()
+        #expect(editor.string == "Workspace")
+        #expect(harness.committedTitles.isEmpty)
     }
 }

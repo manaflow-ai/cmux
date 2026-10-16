@@ -4,6 +4,24 @@ import Testing
 
 @Suite("Mobile viewport fit geometry")
 struct MobileViewportFitGeometryTests {
+    @Test func identicalLogicalViewportSkipsAnotherApply() {
+        #expect(TerminalSurface.mobileViewportLimitMatches(
+            current: (columns: 72, rows: 60),
+            requestedColumns: 72,
+            requestedRows: 60
+        ))
+        #expect(!TerminalSurface.mobileViewportLimitMatches(
+            current: (columns: 72, rows: 60),
+            requestedColumns: 71,
+            requestedRows: 60
+        ))
+        #expect(!TerminalSurface.mobileViewportLimitMatches(
+            current: nil,
+            requestedColumns: 72,
+            requestedRows: 60
+        ))
+    }
+
     @Test func fitNotNeededKeepsBaseFontAndGrantBox() {
         let geometry = geometry(paneWidthPx: 1000, paneHeightPx: 600, cellWidthPx: 10, cellHeightPx: 20)
         let font = geometry.targetFontPointSize(

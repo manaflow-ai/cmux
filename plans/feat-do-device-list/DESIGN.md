@@ -1,5 +1,7 @@
 # Local-first sync for cmux (and the iOS device list as its first consumer)
 
+> Provider update (2026-09-16): cmux Cloud now uses PlanetScale Postgres. Aurora references below describe the historical design and do not authorize AWS database operations. Use `skills/cmux-backend/references/cloud-vm-control-plane.md` for the current database workflow.
+
 Status: proposed. Phase 1 ships the generic sync substrate plus the device-list
 consumer behind a flag, with the Aurora registry kept intact as a fallback.
 

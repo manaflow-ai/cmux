@@ -1,5 +1,6 @@
 #include "include/GhosttyRuntimeTestStubs.h"
 #include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -37,6 +38,12 @@ static bool cmux_test_font_binding_succeeds = true;
 static void* cmux_test_font_callback_surface = NULL;
 static ghostty_font_size_action_cb cmux_test_font_callback = NULL;
 static void* cmux_test_font_callback_userdata = NULL;
+static bool cmux_test_surface_key_called = false;
+static int cmux_test_surface_key_mods_value = 0;
+static uint32_t cmux_test_surface_key_unshifted_codepoint_value = 0;
+static char cmux_test_surface_key_text_value[32];
+static int cmux_test_input_event_kinds[32];
+static uint32_t cmux_test_input_event_count_value = 0;
 static pthread_mutex_t cmux_test_surface_free_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t cmux_test_surface_free_condition = PTHREAD_COND_INITIALIZER;
 static bool cmux_test_surface_free_should_block = false;
@@ -51,6 +58,108 @@ static bool cmux_test_process_output_released = false;
 static bool cmux_test_process_output_called_on_main = false;
 static void* cmux_test_process_output_target = NULL;
 
+typedef struct {
+    void* surface;
+    bool modes[8];
+} GhosttyRuntimeTestTerminalModes;
+
+static GhosttyRuntimeTestTerminalModes cmux_test_terminal_modes[32];
+static const int cmux_test_terminal_mode_numbers[8] = {
+    1000, 1002, 1003, 1004, 1005, 1006, 1015, 1016,
+};
+
+static GhosttyRuntimeTestTerminalModes* cmux_test_terminal_modes_for(void* surface) {
+    for (size_t index = 0; index < sizeof(cmux_test_terminal_modes) / sizeof(cmux_test_terminal_modes[0]); index++) {
+        if (cmux_test_terminal_modes[index].surface == surface) {
+            return &cmux_test_terminal_modes[index];
+        }
+    }
+    for (size_t index = 0; index < sizeof(cmux_test_terminal_modes) / sizeof(cmux_test_terminal_modes[0]); index++) {
+        if (cmux_test_terminal_modes[index].surface == NULL) {
+            cmux_test_terminal_modes[index].surface = surface;
+            memset(cmux_test_terminal_modes[index].modes, 0, sizeof(cmux_test_terminal_modes[index].modes));
+            return &cmux_test_terminal_modes[index];
+        }
+    }
+    return NULL;
+}
+
+static void cmux_test_terminal_modes_apply(void* surface, const char* data, uintptr_t len) {
+    GhosttyRuntimeTestTerminalModes* state = cmux_test_terminal_modes_for(surface);
+    if (state == NULL || data == NULL) return;
+    for (uintptr_t index = 0; index + 4 < len; index++) {
+        if ((unsigned char)data[index] != 0x1b
+            || data[index + 1] != '['
+            || data[index + 2] != '?') continue;
+        uintptr_t cursor = index + 3;
+        int mode = 0;
+        while (cursor < len && data[cursor] >= '0' && data[cursor] <= '9') {
+            mode = mode * 10 + (data[cursor] - '0');
+            cursor += 1;
+        }
+        if (cursor >= len || (data[cursor] != 'h' && data[cursor] != 'l')) continue;
+        for (size_t modeIndex = 0; modeIndex < sizeof(cmux_test_terminal_mode_numbers) / sizeof(cmux_test_terminal_mode_numbers[0]); modeIndex++) {
+            if (cmux_test_terminal_mode_numbers[modeIndex] == mode) {
+                state->modes[modeIndex] = data[cursor] == 'h';
+                break;
+            }
+        }
+        index = cursor;
+    }
+}
+
+void cmux_test_ghostty_surface_terminal_modes_reset(void *surface) {
+    GhosttyRuntimeTestTerminalModes* state = cmux_test_terminal_modes_for(surface);
+    if (state != NULL) memset(state->modes, 0, sizeof(state->modes));
+}
+
+bool cmux_test_ghostty_surface_terminal_mode_enabled(void *surface, int mode) {
+    GhosttyRuntimeTestTerminalModes* state = cmux_test_terminal_modes_for(surface);
+    if (state == NULL) return false;
+    for (size_t index = 0; index < sizeof(cmux_test_terminal_mode_numbers) / sizeof(cmux_test_terminal_mode_numbers[0]); index++) {
+        if (cmux_test_terminal_mode_numbers[index] == mode) return state->modes[index];
+    }
+    return false;
+}
+
+typedef void (*GhosttyRuntimeTestRenderPresentedCallback)(void*, uint64_t);
+typedef void (*GhosttyRuntimeTestRenderFailedCallback)(void*, uint64_t, int);
+typedef struct {
+    void* surface;
+    GhosttyRuntimeTestRenderPresentedCallback presented;
+    void* presented_userdata;
+    GhosttyRuntimeTestRenderFailedCallback failed;
+    void* failed_userdata;
+    uint64_t pending_token;
+    bool has_pending_token;
+} GhosttyRuntimeTestRenderCallbacks;
+
+static GhosttyRuntimeTestRenderCallbacks cmux_test_render_callbacks[32];
+
+static GhosttyRuntimeTestRenderCallbacks* cmux_test_render_callbacks_for(void* surface) {
+    for (size_t index = 0; index < sizeof(cmux_test_render_callbacks) / sizeof(cmux_test_render_callbacks[0]); index++) {
+        if (cmux_test_render_callbacks[index].surface == surface) {
+            return &cmux_test_render_callbacks[index];
+        }
+    }
+    for (size_t index = 0; index < sizeof(cmux_test_render_callbacks) / sizeof(cmux_test_render_callbacks[0]); index++) {
+        if (cmux_test_render_callbacks[index].surface == NULL) {
+            cmux_test_render_callbacks[index].surface = surface;
+            return &cmux_test_render_callbacks[index];
+        }
+    }
+    return NULL;
+}
+
+static void cmux_test_render_callbacks_clear(void* surface) {
+    for (size_t index = 0; index < sizeof(cmux_test_render_callbacks) / sizeof(cmux_test_render_callbacks[0]); index++) {
+        if (cmux_test_render_callbacks[index].surface == surface) {
+            memset(&cmux_test_render_callbacks[index], 0, sizeof(cmux_test_render_callbacks[index]));
+            return;
+        }
+    }
+}
+
 static struct timespec cmux_test_surface_free_timeout(void) {
     return (struct timespec) {
         .tv_sec = 5,
@@ -63,6 +172,47 @@ void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_foreground_pid = 0;
     cmux_test_tty_name = NULL;
     cmux_test_tty_name_call_count = 0;
+    cmux_test_surface_key_called = false;
+    cmux_test_surface_key_mods_value = 0;
+    cmux_test_surface_key_unshifted_codepoint_value = 0;
+    cmux_test_surface_key_text_value[0] = '\0';
+    cmux_test_input_event_count_value = 0;
+}
+
+void cmux_test_ghostty_surface_key_reset(void) {
+    cmux_test_surface_key_called = false;
+    cmux_test_surface_key_mods_value = 0;
+    cmux_test_surface_key_unshifted_codepoint_value = 0;
+    cmux_test_surface_key_text_value[0] = '\0';
+}
+
+bool cmux_test_ghostty_surface_key_was_called(void) {
+    return cmux_test_surface_key_called;
+}
+
+int cmux_test_ghostty_surface_key_mods(void) {
+    return cmux_test_surface_key_mods_value;
+}
+
+uint32_t cmux_test_ghostty_surface_key_unshifted_codepoint(void) {
+    return cmux_test_surface_key_unshifted_codepoint_value;
+}
+
+const char* cmux_test_ghostty_surface_key_text(void) {
+    return cmux_test_surface_key_text_value;
+}
+
+void cmux_test_ghostty_input_events_reset(void) {
+    cmux_test_input_event_count_value = 0;
+}
+
+uint32_t cmux_test_ghostty_input_event_count(void) {
+    return cmux_test_input_event_count_value;
+}
+
+int cmux_test_ghostty_input_event_kind(uint32_t index) {
+    if (index >= cmux_test_input_event_count_value) return 0;
+    return cmux_test_input_event_kinds[index];
 }
 
 void cmux_test_ghostty_surface_free_blocking_begin(void *surface) {
@@ -230,6 +380,27 @@ bool ghostty_surface_clear_selection(void *surface) {
     return false;
 }
 
+bool ghostty_surface_read_selection_clipboard_text(
+    void *surface,
+    uintptr_t max_bytes,
+    ghostty_text_s *selection
+) {
+    (void)surface;
+    (void)max_bytes;
+    if (selection != NULL) {
+        *selection = (ghostty_text_s){0};
+    }
+    return false;
+}
+
+// GhosttyRuntimeCInterop.initialize() in CmuxTerminalCore references
+// ghostty_init directly, so this test runner needs a definition to link.
+int ghostty_init(uintptr_t argc, char **argv) {
+    (void)argc;
+    (void)argv;
+    return 0;
+}
+
 void *ghostty_config_new(void) {
     return calloc(1, sizeof(GhosttyRuntimeTestConfig));
 }
@@ -260,6 +431,46 @@ void ghostty_config_load_string(
     config->diagnostics_count = 1;
 }
 
+ghostty_string_s ghostty_config_serialize(void *raw_config) {
+    const GhosttyRuntimeTestConfig *config = raw_config;
+    if (config == NULL) {
+        return (ghostty_string_s){0};
+    }
+
+    const int length = snprintf(
+        NULL,
+        0,
+        "foreground=%u,%u,%u;has=%u;diagnostics=%u",
+        config->foreground.r,
+        config->foreground.g,
+        config->foreground.b,
+        (unsigned)config->has_foreground,
+        config->diagnostics_count
+    );
+    if (length < 0) {
+        return (ghostty_string_s){0};
+    }
+    char *serialized = malloc((size_t)length + 1);
+    if (serialized == NULL) {
+        return (ghostty_string_s){0};
+    }
+    snprintf(
+        serialized,
+        (size_t)length + 1,
+        "foreground=%u,%u,%u;has=%u;diagnostics=%u",
+        config->foreground.r,
+        config->foreground.g,
+        config->foreground.b,
+        (unsigned)config->has_foreground,
+        config->diagnostics_count
+    );
+    return (ghostty_string_s){
+        .ptr = serialized,
+        .len = (uintptr_t)length,
+        .sentinel = true,
+    };
+}
+
 bool ghostty_config_get(
     void *raw_config,
     void *raw_value,
@@ -282,7 +493,9 @@ uint32_t ghostty_config_diagnostics_count(void *raw_config) {
 
 void ghostty_config_get_diagnostic(void) {}
 void ghostty_string_free(ghostty_string_s string) {
-    (void)string;
+    if (string.sentinel) {
+        free((void *)string.ptr);
+    }
 }
 bool ghostty_surface_binding_action(
     void *surface,
@@ -392,8 +605,12 @@ void ghostty_surface_free(void *surface) {
         cmux_test_font_callback = NULL;
         cmux_test_font_callback_userdata = NULL;
     }
+    cmux_test_render_callbacks_clear(surface);
 }
-void ghostty_surface_free_text(void) {}
+void ghostty_surface_free_text(void* surface, ghostty_text_s* text) {
+    (void)surface;
+    (void)text;
+}
 float ghostty_surface_font_size(void *surface) {
     return surface == cmux_test_font_surface
         ? cmux_test_font_runtime_points
@@ -407,8 +624,33 @@ uint64_t ghostty_surface_foreground_pid(void *surface) {
     (void)surface;
     return cmux_test_foreground_pid;
 }
+bool ghostty_surface_grid_metrics(void *surface, void *metrics) {
+    (void)surface;
+    (void)metrics;
+    return false;
+}
 void ghostty_surface_has_selection(void) {}
-void ghostty_surface_key(void) {}
+bool ghostty_surface_key(void *surface, cmux_test_ghostty_input_key_s key_event) {
+    (void)surface;
+    // Keep the capture focused on the press. Synthetic named keys may also
+    // send a release, which should not erase the fields under test.
+    if (key_event.action != 1) {
+        return true;
+    }
+    if (cmux_test_input_event_count_value < 32) {
+        cmux_test_input_event_kinds[cmux_test_input_event_count_value++] = 2;
+    }
+    cmux_test_surface_key_called = true;
+    cmux_test_surface_key_mods_value = key_event.mods;
+    cmux_test_surface_key_unshifted_codepoint_value = key_event.unshifted_codepoint;
+    if (key_event.text != NULL) {
+        strncpy(cmux_test_surface_key_text_value, key_event.text, sizeof(cmux_test_surface_key_text_value) - 1);
+        cmux_test_surface_key_text_value[sizeof(cmux_test_surface_key_text_value) - 1] = '\0';
+    } else {
+        cmux_test_surface_key_text_value[0] = '\0';
+    }
+    return true;
+}
 void ghostty_surface_mouse_button(void) {}
 void ghostty_surface_mouse_pos(void) {}
 void ghostty_surface_mouse_scroll(void) {}
@@ -422,8 +664,7 @@ bool ghostty_surface_process_exited(void *surface) {
     return false;
 }
 void ghostty_surface_process_output(void *surface, const char *data, uintptr_t len) {
-    (void)data;
-    (void)len;
+    cmux_test_terminal_modes_apply(surface, data, len);
     pthread_mutex_lock(&cmux_test_process_output_mutex);
     if (cmux_test_process_output_should_block
         && surface == cmux_test_process_output_target) {
@@ -445,9 +686,73 @@ void ghostty_surface_process_output(void *surface, const char *data, uintptr_t l
     pthread_mutex_unlock(&cmux_test_process_output_mutex);
 }
 void ghostty_surface_quicklook_font(void) {}
-void ghostty_surface_read_screen_tail_vt(void) {}
+bool ghostty_surface_read_screen_tail_vt(
+    void* surface,
+    uintptr_t max_rows,
+    uintptr_t max_bytes,
+    ghostty_text_s* text
+) {
+    (void)surface;
+    (void)max_rows;
+    (void)max_bytes;
+    static const char value[] = "bounded-tail\r\n";
+    if (text == NULL) return false;
+    text->text = value;
+    text->text_len = sizeof(value) - 1;
+    return true;
+}
 void ghostty_surface_read_text(void) {}
 void ghostty_surface_refresh(void) {}
+bool ghostty_surface_set_render_presented_callback(
+    void *surface,
+    void (*callback)(void *, uint64_t),
+    void *userdata
+) {
+    if (surface == NULL || callback == NULL) return false;
+    GhosttyRuntimeTestRenderCallbacks* callbacks = cmux_test_render_callbacks_for(surface);
+    if (callbacks == NULL || callbacks->presented != NULL) return false;
+    callbacks->presented = callback;
+    callbacks->presented_userdata = userdata;
+    return true;
+}
+bool ghostty_surface_set_render_failed_callback(
+    void *surface,
+    void (*callback)(void *, uint64_t, int),
+    void *userdata
+) {
+    if (surface == NULL || callback == NULL) return false;
+    GhosttyRuntimeTestRenderCallbacks* callbacks = cmux_test_render_callbacks_for(surface);
+    if (callbacks == NULL || callbacks->failed != NULL) return false;
+    callbacks->failed = callback;
+    callbacks->failed_userdata = userdata;
+    return true;
+}
+bool ghostty_surface_request_render_with_token(void *surface, uint64_t token) {
+    GhosttyRuntimeTestRenderCallbacks* callbacks = cmux_test_render_callbacks_for(surface);
+    if (callbacks == NULL || callbacks->presented == NULL) return false;
+    if (callbacks->has_pending_token) return false;
+    callbacks->pending_token = token;
+    callbacks->has_pending_token = true;
+    return true;
+}
+
+bool cmux_test_ghostty_renderer_present(void* surface) {
+    GhosttyRuntimeTestRenderCallbacks* callbacks = cmux_test_render_callbacks_for(surface);
+    if (callbacks == NULL || callbacks->presented == NULL || !callbacks->has_pending_token) return false;
+    const uint64_t token = callbacks->pending_token;
+    callbacks->has_pending_token = false;
+    callbacks->presented(callbacks->presented_userdata, token);
+    return true;
+}
+
+bool cmux_test_ghostty_renderer_fail(void* surface, int status) {
+    GhosttyRuntimeTestRenderCallbacks* callbacks = cmux_test_render_callbacks_for(surface);
+    if (callbacks == NULL || callbacks->failed == NULL || !callbacks->has_pending_token) return false;
+    const uint64_t token = callbacks->pending_token;
+    callbacks->has_pending_token = false;
+    callbacks->failed(callbacks->failed_userdata, token, status);
+    return true;
+}
 void ghostty_surface_render_grid_json(void) {}
 void ghostty_surface_render_grid_json_with_theme(void) {}
 ghostty_string_s ghostty_surface_render_grid_json_v2(
@@ -492,8 +797,16 @@ bool ghostty_surface_rebuild_renderer(void *surface) {
 }
 void ghostty_surface_set_size(void) {}
 void ghostty_surface_size(void) {}
-void ghostty_surface_text(void) {}
-void ghostty_surface_text_input(void) {}
+void ghostty_surface_text(void) {
+    if (cmux_test_input_event_count_value < 32) {
+        cmux_test_input_event_kinds[cmux_test_input_event_count_value++] = 1;
+    }
+}
+void ghostty_surface_text_input(void) {
+    if (cmux_test_input_event_count_value < 32) {
+        cmux_test_input_event_kinds[cmux_test_input_event_count_value++] = 1;
+    }
+}
 void ghostty_surface_update_config(void *surface, void *raw_config) {
     (void)raw_config;
     cmux_test_last_updated_surface = surface;

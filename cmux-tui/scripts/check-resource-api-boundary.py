@@ -2231,7 +2231,7 @@ def _operation_catalog(
             agent_fields.get("updated_at_ms", {}).get("type")
             != {"kind": "primitive", "name": "decimal"}
             or agent_fields.get("source_session", {}).get("type") != nullable_string
-            or source_values != ["hook", "socket", "detected"]
+            or source_values != ["hook", "socket", "detected", "plugin"]
             or report_source_values != ["hook", "socket"]
             or "reported_at" in agent_fields
         ):
@@ -2239,7 +2239,7 @@ def _operation_catalog(
                 diagnostics,
                 path,
                 text,
-                "AgentSnapshot must use exact decimal time, nullable source session, and detected-only snapshot source",
+                "AgentSnapshot must use exact decimal time, nullable source session, and the complete source enum",
                 "AgentSnapshot",
             )
 
@@ -3301,6 +3301,12 @@ def _scan_region(
     for match in IDENTIFIER_RE.finditer(region):
         parts = _identifier_parts(match.group(0))
         if "surface" in parts or "surfaces" in parts:
+            # `cmux notify --surface` keeps the macOS CLI's flag name so a
+            # script written for a local terminal runs unchanged inside a
+            # machine. The public resource vocabulary is still terminal and
+            # browser; only the dash-prefixed compatibility flag is exempt.
+            if match.group(0) == "surface" and region[max(0, match.start() - 2):match.start()] == "--":
+                continue
             offset = start + match.start()
             diagnostics.append(
                 _diagnostic_at(

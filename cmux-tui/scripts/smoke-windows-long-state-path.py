@@ -16,6 +16,7 @@ import uuid
 
 STATE_PATH_LENGTH = 423
 START_TIMEOUT_SECONDS = 20
+MAX_DIAGNOSTIC_ENTRIES = 100
 
 
 def make_state_path(root: Path) -> Path:
@@ -35,6 +36,32 @@ def make_state_path(root: Path) -> Path:
 
 def extended_path(path: Path) -> Path:
     return Path("\\\\?\\" + str(path.resolve()))
+
+
+def describe_state_tree(root: Path) -> str:
+    """Return a bounded state-tree summary before failure cleanup removes it."""
+    extended_root = extended_path(root)
+    entries: list[str] = []
+    try:
+        for current, directories, files in os.walk(extended_root):
+            current_path = Path(current)
+            relative = current_path.relative_to(extended_root)
+            for name in sorted(directories):
+                entries.append(f"directory {relative / name}")
+            for name in sorted(files):
+                path = current_path / name
+                try:
+                    size = path.stat().st_size
+                except OSError as error:
+                    entries.append(f"file {relative / name} (stat failed: {error})")
+                else:
+                    entries.append(f"file {relative / name} ({size} bytes)")
+            if len(entries) >= MAX_DIAGNOSTIC_ENTRIES:
+                entries.append("... state tree truncated ...")
+                break
+    except OSError as error:
+        return f"state tree scan failed: {error}"
+    return "\n".join(entries) if entries else "state tree is empty"
 
 
 def run() -> None:
@@ -85,7 +112,8 @@ def run() -> None:
                 stdout, stderr = process.communicate()
                 raise AssertionError(
                     f"server exited with {exit_code} before socket publication\n"
-                    f"stdout:\n{stdout}\nstderr:\n{stderr}"
+                    f"stdout:\n{stdout}\nstderr:\n{stderr}\n"
+                    f"state tree:\n{describe_state_tree(root)}"
                 )
             if time.monotonic() >= deadline:
                 raise AssertionError("server did not publish its socket within 20 seconds")

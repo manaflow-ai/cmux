@@ -274,7 +274,7 @@ extension RemoteSessionCoordinator {
         )
         let command = "sh -c \(script.shellSingleQuoted)"
         let result = try sshExec(
-            arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command],
+            arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, command],
             timeout: 8
         )
         guard result.status == 0 else {
@@ -383,7 +383,7 @@ extension RemoteSessionCoordinator {
         let command = "sh -c \(Self.remoteAllPortsScanScript(excluding: excludedRemoteScanPorts()).shellSingleQuoted)"
         do {
             let result = try sshExec(
-                arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command],
+                arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, command],
                 timeout: 8
             )
             guard result.status == 0 else {

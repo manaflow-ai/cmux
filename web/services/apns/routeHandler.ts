@@ -46,6 +46,14 @@ export function recordApnsRouteOutcome(
 }
 
 /** Correlates a safe expected-failure stage without payload or device data. */
+export function recordApnsEncryptionKeyRejection(): void {
+  trace.getActiveSpan()?.setAttributes({
+    "cmux.apns.failure_stage": "push_e2e_key_missing_or_invalid",
+    "cmux.push.protocol": "notification-e2e-v1",
+  });
+}
+
+/** Correlates a safe expected-failure stage without payload or device data. */
 export function recordApnsRouteFailure(
   correlationId: string,
   stage: string,

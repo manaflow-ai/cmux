@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Return submission fixture</title>
+<form id="signin">
+  <label for="account">Account name</label>
+  <input id="account" name="account" type="text" autocomplete="off">
+  <button type="submit">Continue</button>
+</form>
+<p id="submissions">Submissions: 0</p>
+<p id="returns">Trusted Return: 0</p>
+<p id="commands">Trusted Command Return: 0</p>
+<script>
+  let submissions = 0, returns = 0, commands = 0;
+  document.getElementById('signin').addEventListener('submit', event => {
+    event.preventDefault();
+    document.getElementById('submissions').textContent = `Submissions: ${++submissions}`;
+  });
+  document.getElementById('account').addEventListener('keydown', event => {
+    if (event.key !== 'Enter' || !event.isTrusted) return;
+    if (event.metaKey) {
+      document.getElementById('commands').textContent = `Trusted Command Return: ${++commands}`;
+    } else {
+      document.getElementById('returns').textContent = `Trusted Return: ${++returns}`;
+    }
+  });
+</script>
+</html>

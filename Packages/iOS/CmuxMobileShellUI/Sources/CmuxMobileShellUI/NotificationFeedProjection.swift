@@ -15,6 +15,33 @@ struct NotificationFeedDaySection: Identifiable, Equatable, Sendable {
     let id: Date
     let kind: Kind
     let items: [NotificationFeedRowModel]
+    private(set) var groups: [NotificationFeedActivityGroup]
+    private(set) var rows: [NotificationFeedListRow]
+
+    init(id: Date, kind: Kind, items: [NotificationFeedRowModel]) {
+        self.id = id
+        self.kind = kind
+        self.items = items
+        groups = NotificationFeedActivityGroup.build(from: items)
+        rows = groups.flatMap { $0.rows(isExpanded: false) }
+    }
+
+    func expanding(_ groupIDs: Set<MobileNotificationFeedItemID>) -> Self {
+        var section = self
+        section.rows = groups.flatMap { $0.rows(isExpanded: groupIDs.contains($0.id)) }
+        return section
+    }
+
+    func reconcilingGroupIdentity(
+        previousIDs: Set<MobileNotificationFeedItemID>,
+        expandedIDs: Set<MobileNotificationFeedItemID>
+    ) -> Self {
+        var section = self
+        section.groups = groups.map {
+            $0.retainingIdentity(from: previousIDs, expandedIDs: expandedIDs)
+        }
+        return section
+    }
 }
 
 nonisolated let notificationFeedProjectionMaxSourceItemCount = MobileNotificationFeedAggregation.maxItemCount
@@ -84,6 +111,7 @@ final class NotificationFeedProjection {
     @ObservationIgnored private var rowWindow = notificationFeedProjectionInitialRowWindow
     /// True from an accepted `extendRowWindow()` until the next publish.
     @ObservationIgnored private var isRowWindowExtensionPending = false
+    @ObservationIgnored private var expandedGroupIDs: Set<MobileNotificationFeedItemID> = []
 
     init(referenceDate: Date = .now, calendar: Calendar = .autoupdatingCurrent) {
         self.referenceDate = referenceDate
@@ -108,6 +136,18 @@ final class NotificationFeedProjection {
 
     func waitForPendingRebuild() async {
         await rebuildTask?.value
+    }
+
+    /// Expansion changes the mounted rows, never their notification identities
+    /// or the shared open/read actions. The caller supplies the animation.
+    func toggleGroup(_ id: MobileNotificationFeedItemID) {
+        guard !hasStaleSourceSections,
+              sections.contains(where: { $0.groups.contains(where: { $0.id == id && $0.items.count > 1 }) })
+        else { return }
+        if !expandedGroupIDs.insert(id).inserted {
+            expandedGroupIDs.remove(id)
+        }
+        sections = sections.map { $0.expanding(expandedGroupIDs) }
     }
 
     /// Mounts the next chunk of rows when the load-more sentinel appears.
@@ -176,8 +216,26 @@ final class NotificationFeedProjection {
             // Publishing identical sections would still notify observers and
             // make the List re-diff every row, so no-op rebuilds (for example
             // a source recompute that produced the same items) publish nothing.
-            if self.sections != output.sections {
-                self.sections = output.sections
+            let previousGroups = self.sections.flatMap(\.groups)
+            let previousGroupIDs = Set(previousGroups.map(\.id))
+            // Retention can remove an event anchor while other members remain.
+            // Carry expansion through those surviving notifications, then bind
+            // it to each rebuilt group's current, nonoverlapping anchor.
+            let expandedItemIDs = Set(previousGroups.lazy
+                .filter { self.expandedGroupIDs.contains($0.id) }
+                .flatMap { $0.items.map(\.id) })
+            var sections = output.sections.map {
+                $0.reconcilingGroupIdentity(
+                    previousIDs: previousGroupIDs,
+                    expandedIDs: self.expandedGroupIDs
+                )
+            }
+            self.expandedGroupIDs = Set(sections.flatMap(\.groups).compactMap { group in
+                group.items.contains { expandedItemIDs.contains($0.id) } ? group.id : nil
+            })
+            sections = sections.map { $0.expanding(self.expandedGroupIDs) }
+            if self.sections != sections {
+                self.sections = sections
             }
             if self.hasMoreRows != output.hasMoreRows {
                 self.hasMoreRows = output.hasMoreRows

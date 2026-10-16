@@ -3,7 +3,7 @@ public import Foundation
 
 /// Downloads the over-the-air task-model catalog used when a selected Mac
 /// cannot enumerate models from its installed agent.
-public struct MobileTaskModelCatalogClient: Sendable {
+public nonisolated struct MobileTaskModelCatalogClient: Sendable {
     /// Injectable transport used by package tests and debug previews.
     public typealias Loader = @Sendable (URL) async throws -> Data
 
@@ -63,6 +63,43 @@ public struct MobileTaskModelCatalogClient: Sendable {
         return try Self.result(from: data, provider: provider)
     }
 
+    /// Fetches one full backend catalog so a prefetch wave can distribute the
+    /// same response to every provider and paired Mac.
+    func allResults() async throws -> [MobileTaskAgentProvider: MobileTaskModelListResult] {
+        let data = try await loadPrefetchData()
+        let catalog = try JSONDecoder().decode(Catalog.self, from: data)
+        guard catalog.schemaVersion == 1 else {
+            throw MobileTaskModelCatalogError.invalidCatalog
+        }
+        var results: [MobileTaskAgentProvider: MobileTaskModelListResult] = [:]
+        for provider in MobileTaskAgentProvider.allCases {
+            guard let providerCatalog = catalog.providers[provider.rawValue] else {
+                continue
+            }
+            results[provider] = try Self.result(from: providerCatalog)
+        }
+        guard !results.isEmpty else { throw MobileTaskModelCatalogError.invalidCatalog }
+        return results
+    }
+
+    private func loadPrefetchData() async throws -> Data {
+        let coordinator = MobileTaskModelCatalogLoadCoordinator()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Data, any Error>) in
+                Task {
+                    await coordinator.start(
+                        continuation: continuation,
+                        endpoint: endpoint,
+                        loader: loader
+                    )
+                }
+            }
+        } onCancel: {
+            Task { await coordinator.cancel() }
+        }
+    }
+
     /// Parses one provider from the versioned backend payload.
     public static func models(
         from data: Data,
@@ -82,6 +119,12 @@ public struct MobileTaskModelCatalogClient: Sendable {
               let providerCatalog = catalog.providers[provider.rawValue] else {
             throw MobileTaskModelCatalogError.invalidCatalog
         }
+        return try result(from: providerCatalog)
+    }
+
+    private static func result(
+        from providerCatalog: ProviderCatalog
+    ) throws -> MobileTaskModelListResult {
 
         var seenIDs: Set<String> = []
         var models: [MobileTaskAgentModel] = []

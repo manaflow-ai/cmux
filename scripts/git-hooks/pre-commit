@@ -1,19 +1,45 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # cmux pre-commit hook
-# Installed by ./scripts/setup.sh via `git config core.hooksPath scripts/git-hooks`.
+# Installed by ./scripts/setup.sh as a clone-local copy outside the checkout.
 # Normalizes cmux.xcodeproj/project.pbxproj when staged so Xcode's
 # nondeterministic section reordering never reaches a commit.
 set -euo pipefail
 
+HOOK_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)"
+PYTHON_PATH_FILE="$HOOK_DIR/python3-path"
+if [[ ! -r "$PYTHON_PATH_FILE" ]] || ! IFS= read -r PYTHON3_BIN < "$PYTHON_PATH_FILE" \
+    || [[ "$PYTHON3_BIN" != /* ]] || [[ ! -x "$PYTHON3_BIN" ]]; then
+    echo "pre-commit: trusted Python interpreter metadata is missing or invalid; rerun scripts/install-git-hooks.sh." >&2
+    exit 1
+fi
+REGISTRY_VALIDATOR="$HOOK_DIR/validate_test_execution_registry.py"
+PBX_NORMALIZER="$HOOK_DIR/normalize-pbxproj.py"
+if [[ ! -f "$REGISTRY_VALIDATOR" || ! -f "$PBX_NORMALIZER" ]]; then
+    echo "pre-commit: trusted helper copies are missing; rerun scripts/install-git-hooks.sh." >&2
+    exit 1
+fi
+
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 PBXPROJ="cmux.xcodeproj/project.pbxproj"
 
-# Only run when the pbxproj is part of this commit.
+cd "$REPO_ROOT"
+
+# Register new Python tests that a workflow already runs, so adding a test and
+# its ci-guards.yml step is all a commit needs. Best effort: CI still validates.
+REGISTRY="tests/test-execution.toml"
+if git diff --cached --name-only --diff-filter=ACMRT | grep -Eq '^(tests/test_[^/]+\.py|\.github/workflows/.+)$' \
+    && git diff --quiet -- "$REGISTRY"; then
+    "$PYTHON3_BIN" -I "$REGISTRY_VALIDATOR" --repo-root "$REPO_ROOT" --write >/dev/null 2>&1 || true
+    if ! git diff --quiet -- "$REGISTRY"; then
+        git add "$REGISTRY"
+        echo "pre-commit: registered new tests in $REGISTRY"
+    fi
+fi
+
+# Only normalize when the pbxproj is part of this commit.
 if ! git diff --cached --name-only --diff-filter=ACMRT | grep -Fxq "$PBXPROJ"; then
     exit 0
 fi
-
-cd "$REPO_ROOT"
 
 # Refuse to normalize when the working-tree pbxproj has unstaged changes.
 # Otherwise the `git add` at the end would silently stage hunks the
@@ -24,7 +50,7 @@ if ! git diff --quiet -- "$PBXPROJ"; then
     exit 1
 fi
 
-python3 scripts/normalize-pbxproj.py "$PBXPROJ"
+"$PYTHON3_BIN" -I "$PBX_NORMALIZER" "$PBXPROJ"
 
 # If the normalizer rewrote the file, restage so the commit captures
 # the normalized form. (Working tree had no unstaged changes per the

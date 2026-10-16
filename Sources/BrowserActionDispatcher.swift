@@ -28,6 +28,9 @@ struct BrowserActionDispatcher {
         case .reload:
             panel.reload()
             return true
+        case .hardReload:
+            appDelegate.hardReloadBrowserPanelForShortcut(panel)
+            return true
         case .openInDefaultBrowser:
             return openInDefaultBrowser(panel)
         case .focusAddressBar:
@@ -53,6 +56,9 @@ struct BrowserActionDispatcher {
             Task { @MainActor [weak panel] in
                 _ = await panel?.toggleDesignMode(reason: reason)
             }
+            return true
+        case .toggleKeepPageActive:
+            panel.keepsPageActiveWhileHidden.toggle()
             return true
         case .zoomIn:
             return panel.zoomIn()
@@ -161,11 +167,12 @@ struct BrowserActionDispatcher {
                 preferredProfileID: panel.profileID,
                 websiteDataStore:
                     panel.explicitEphemeralWebsiteDataStoreForSibling,
-                focus: true
+                focus: false
             ),
             let splitPanel = dock.browserPanel(for: splitPanelId) else {
                 return false
             }
+            dock.focusPanelFromDockInteraction(splitPanelId, window: nil)
             _ = appDelegate.focusBrowserAddressBar(in: splitPanel)
             return true
         }

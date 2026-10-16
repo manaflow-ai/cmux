@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.cmux.invalid/iroh-v2/V2PreferencesRequest.json",
+  "type": "object",
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "const": "preferences.update.v1"
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "relayURLs": {
+      "minItems": 1,
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 2048,
+        "format": "uri"
+      }
+    },
+    "expectedRevision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "schemaId",
+    "requestId",
+    "relayURLs",
+    "expectedRevision"
+  ],
+  "additionalProperties": false
+}

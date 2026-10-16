@@ -10,7 +10,9 @@ import json
 import os
 import signal
 import shutil
+import shlex
 import subprocess
+import sys
 import socket
 import tempfile
 import time
@@ -59,10 +61,12 @@ def wait_for_stable_text(
 
 
 class MockCmuxSocket:
-    def __init__(self, path: Path, workspace_id: str, surface_id: str) -> None:
+    def __init__(self, path: Path, workspace_id: str, surface_id: str,
+                 restore_record: dict[str, object] | None = None) -> None:
         self.path = path
         self.workspace_id = workspace_id
         self.surface_id = surface_id
+        self.restore_record = restore_record
         self._messages: list[str] = []
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -138,7 +142,9 @@ class MockCmuxSocket:
             return "OK"
         request_id = payload.get("id") or "unknown"
         method = payload.get("method")
-        if method == "surface.list":
+        if method == "surface.resume.get":
+            result = {"restore_record": self.restore_record, "workspace_id": self.workspace_id}
+        elif method == "surface.list":
             result = {
                 "surfaces": [
                     {
@@ -157,6 +163,8 @@ class MockCmuxSocket:
                 "source": "pid",
                 "pid_resolution": pid_resolution,
             }
+        elif method == "agent.hook.enqueue":
+            result = {}
         elif method == "surface.resume.set":
             result = {"ok": True}
         elif method == "feed.push":
@@ -321,10 +329,128 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
     return True
 
 
+def verify_restore_rejects_legacy_downgrade(cli_path: str, root: Path) -> None:
+    """A rejected OMP restore must not fall through to a legacy shell command."""
+    workspace_id = "11111111-1111-1111-1111-111111111111"
+    surface_id = "22222222-2222-2222-2222-222222222222"
+    session_id = "6f1d9f5a-2a0c-4b68-b7c7-9c8a1d6e5f40"
+    marker = root / "restored-omp"
+    executable = root / "restore-bin" / "omp"
+    executable.parent.mkdir()
+    make_executable(executable, "#!/bin/sh\nprintf executed > " + shlex.quote(str(marker)) + "\n")
+    cases = [(verb, "resumeAgent", arguments) for verb in ("restore", "fork")
+             for arguments in (None, [], ["omp", "--model", "sonnet"])]
+    cases.append(("restore", "direct", None))
+    for verb, mode, arguments in cases:
+        record = {"kind": "omp", "mode": mode, "checkpoint_id": session_id,
+                  "source": "agent-hook", "working_directory": str(root), "environment": {},
+                  "legacy_command": "PATH=" + shlex.quote(str(executable.parent)) + " omp --session " + session_id}
+        record["legacy_fork_command"] = record["legacy_command"]
+        if arguments is not None:
+            record["launch_command"] = {"launcher": "omp", "arguments": arguments}
+            record["prepared_arguments"] = ["omp", "--session", session_id]
+            record["fork_arguments"] = ["omp", "--session", session_id, "--fork"]
+        socket_path = Path("/tmp") / f"cmux-omp-restore-{os.getpid()}-{time.monotonic_ns()}.sock"
+        env = os.environ.copy()
+        env.update(CMUX_SOCKET_PATH=str(socket_path), CMUX_CLI_SENTRY_DISABLED="1",
+                   HOME=str(root), CFFIXED_USER_HOME=str(root), SHELL="/bin/sh")
+        for key in ("CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PASSWORD", "CMUX_AGENT_HOOK_RELAY_ORIGIN"):
+            env.pop(key, None)
+        marker.unlink(missing_ok=True)
+        with MockCmuxSocket(socket_path, workspace_id, surface_id, record):
+            result = subprocess.run([cli_path, verb, "--surface", surface_id, "omp", session_id],
+                                    env=env, text=True, capture_output=True, timeout=15)
+        if mode == "direct":
+            assert result.returncode == 0 and marker.exists(), result.stderr
+        else:
+            assert result.returncode != 0 and not marker.exists(), (
+                f"unresolved OMP {verb} executed legacy fallback: argv={arguments!r}, "
+                f"status={result.returncode}, stderr={result.stderr}")
+            assert (
+                "not compatible" in result.stderr
+                or "does not support forking" in result.stderr
+            ), result.stderr
+    print("PASS: managed OMP legacy fallback fails closed; explicit direct commands still run")
+
+
+def verify_launch_capture(bun: str, extension_path: Path, root: Path) -> None:
+    """Execute the extension's lifecycle and inspect the environment sent to cmux."""
+    root = root.resolve()
+    extension_path = extension_path.resolve()
+    shim = root / "original" / "omp"
+    script = root / "oh-my-pi" / "cli.js"
+    alternate = root / "alternate" / "omp"
+    for executable in (shim, script, alternate):
+        executable.parent.mkdir(parents=True, exist_ok=True)
+        make_executable(executable, "#!/usr/bin/env bun\n")
+    output = root / "launch-capture.json"
+    fake_cmux = root / "capture-cmux"
+    make_executable(fake_cmux, f"#!{bun}\n" +
+                    'const launch = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith("CMUX_AGENT_LAUNCH_")));\n'
+                    'require("node:fs").writeFileSync(process.env.CAPTURE_OUTPUT, JSON.stringify(launch));\n')
+    options = ["--model", "sonnet"]
+    cases = [
+        ("absolute binary", [str(shim), *options], "", [str(shim), *options]),
+        ("absolute shebang without PATH", [bun, str(shim), *options], "", [str(shim), *options]),
+        ("absolute script without PATH", [bun, str(script), *options], "", [str(script), *options]),
+        ("absolute shebang with competing PATH", [bun, str(shim), *options], str(alternate.parent), [str(shim), *options]),
+        ("relative binary", ["./original/omp", *options], str(alternate.parent), [str(shim), *options]),
+        ("relative shebang", [bun, "./original/omp", *options], str(alternate.parent), [str(shim), *options]),
+        ("PATH lookup", ["omp", *options], str(alternate.parent), [str(alternate), *options]),
+        ("relative PATH entry", ["omp", *options], "alternate", [str(alternate), *options]),
+        ("unresolved launch", ["omp", *options], "", None),
+        ("unresolved runtime", [bun, "unknown.js", *options], "", None),
+    ]
+    runner = """
+const mod = await import(process.env.CAPTURE_EXTENSION);
+const handlers = new Map();
+mod.default({ on(name, handler) { handlers.set(name, handler); } });
+process.argv = JSON.parse(process.env.CAPTURE_ARGV);
+const ctx = { cwd: process.cwd(), sessionManager: {
+  getSessionId() { return "capture-session"; },
+  getSessionFile() { return undefined; }
+} };
+await handlers.get("session_start")({}, ctx);
+await handlers.get("session_shutdown")({}, ctx);
+"""
+    failures = []
+    for name, argv, path_value, expected in cases:
+        env = {key: value for key, value in os.environ.items()
+               if not key.startswith("CMUX_AGENT_LAUNCH_")}
+        env.update(PATH=path_value, CMUX_SURFACE_ID="capture-surface",
+                   CMUX_OMP_CMUX_BIN=str(fake_cmux), CMUX_OMP_HOOKS_DISABLED="0",
+                   CAPTURE_OUTPUT=str(output), CAPTURE_EXTENSION=str(extension_path),
+                   CAPTURE_ARGV=json.dumps(argv))
+        output.unlink(missing_ok=True)
+        subprocess.run([bun, "--eval", runner], cwd=root, env=env, check=True, timeout=20)
+        captured = json.loads(output.read_text())
+        encoded = captured.get("CMUX_AGENT_LAUNCH_ARGV_B64")
+        actual = base64.b64decode(encoded).decode().rstrip("\0").split("\0") if encoded else None
+        if actual != expected:
+            failures.append(f"{name}: expected {expected!r}, got {actual!r}")
+        if expected is not None:
+            if captured.get("CMUX_AGENT_LAUNCH_EXECUTABLE") != expected[0]:
+                failures.append(f"{name}: executable metadata differs from expected argv")
+        elif any(key.startswith("CMUX_AGENT_LAUNCH_") for key in captured):
+            failures.append(f"{name}: unresolved capture published launch metadata")
+    assert not failures, "\n".join(failures)
+    print(f"PASS: {len(cases)} OMP lifecycle launch capture cases")
+
+
 def main() -> int:
     bun = shutil.which("bun")
     if bun is None:
         print("SKIP: bun not found")
+        return 0
+
+    if "--launch-capture-only" in sys.argv:
+        with tempfile.TemporaryDirectory(prefix="cmux-omp-capture-") as td:
+            root = Path(td).resolve()
+            # Execute the embedded artifact, without asserting its source shape.
+            source = (Path(__file__).resolve().parents[1] / "CLI/CMUXCLI+OmpExtension.swift").read_text()
+            extension = root / "extension.ts"
+            extension.write_text(source.split('private static let ompExtensionSource = #"""', 1)[1].split('"""#', 1)[0])
+            verify_launch_capture(bun, extension, root)
         return 0
 
     try:
@@ -332,6 +458,11 @@ def main() -> int:
     except Exception as exc:
         print(f"FAIL: {exc}")
         return 1
+
+    if "--restore-only" in sys.argv:
+        with tempfile.TemporaryDirectory(prefix="cmux-omp-restore-") as td:
+            verify_restore_rejects_legacy_downgrade(cli_path, Path(td).resolve())
+        return 0
 
     with tempfile.TemporaryDirectory(prefix="cmux-omp-extension-") as td:
         root = Path(td)
@@ -393,6 +524,9 @@ def main() -> int:
         extension_override = os.environ.get("CMUX_TEST_OMP_EXTENSION_OVERRIDE")
         if extension_override:
             shutil.copyfile(extension_override, extension_path)
+
+        verify_launch_capture(bun, extension_path, root)
+        verify_restore_rejects_legacy_downgrade(cli_path, root)
 
         fake_cmux = root / "fake-cmux"
         fake_args_log = root / "fake-cmux-args.log"
@@ -625,8 +759,8 @@ if (hungPidLines.length !== 22) {
   throw new Error(`shutdown did not start the queued Stop after cancelling the active hook: ${hungPidLines}`);
 }
 if (
-  startedArgs.at(-2) !== "hooks omp session-start" ||
-  startedArgs.at(-1) !== "hooks omp stop"
+  startedArgs.at(-2) !== "hooks enqueue omp session-start" ||
+  startedArgs.at(-1) !== "hooks enqueue omp stop"
 ) {
   throw new Error(`shutdown did not preserve the queued Stop after timeout: ${startedArgs}`);
 }
@@ -696,9 +830,9 @@ for (const rawPid of hungPidLines.slice(-2)) {
             print(f"FAIL: expected exactly {expected_invocations} hook invocations, got {args_lines!r}")
             return 1
         for expected in [
-            "hooks omp session-start",
-            "hooks omp prompt-submit",
-            "hooks omp stop",
+            "hooks enqueue omp session-start",
+            "hooks enqueue omp prompt-submit",
+            "hooks enqueue omp stop",
         ]:
             if expected not in args_log:
                 print(f"FAIL: extension did not invoke {expected}, got {args_log!r}")
@@ -874,6 +1008,61 @@ for (const rawPid of hungPidLines.slice(-2)) {
             print(f"stdout={config_uninstall.stdout.strip()}")
             print(f"stderr={config_uninstall.stderr.strip()}")
             return 1
+    with tempfile.TemporaryDirectory(prefix="cmux-omp-agent-dir-") as td:
+        # Pi and OMP both read PI_CODING_AGENT_DIR, so someone who runs the two
+        # side by side and points Pi at a directory sends OMP there too.
+        # OMP_AGENT_DIR is OMP's own override and has to win.
+        # https://github.com/manaflow-ai/cmux/issues/4955
+        root = Path(td)
+        home = root / "home"
+        home.mkdir()
+        omp_agent_dir = root / "omp-agent-dir"
+        pi_agent_dir = root / "pi-agent-dir"
+
+        env = os.environ.copy()
+        env["HOME"] = str(home)
+        env["OMP_AGENT_DIR"] = str(omp_agent_dir)
+        env["PI_CODING_AGENT_DIR"] = str(pi_agent_dir)
+        env.pop("PI_CONFIG_DIR", None)
+
+        install = subprocess.run(
+            [cli_path, "hooks", "omp", "install", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=20,
+        )
+        if install.returncode != 0:
+            print("FAIL: omp extension install failed under OMP_AGENT_DIR")
+            print(f"exit={install.returncode}")
+            print(f"stdout={install.stdout.strip()}")
+            print(f"stderr={install.stderr.strip()}")
+            return 1
+
+        omp_extension = omp_agent_dir / "extensions" / "cmux-omp-session.ts"
+        if not omp_extension.exists():
+            print(f"FAIL: OMP_AGENT_DIR ignored, expected extension at {omp_extension}")
+            return 1
+        if (pi_agent_dir / "extensions" / "cmux-omp-session.ts").exists():
+            print("FAIL: OMP install wrote into PI_CODING_AGENT_DIR while OMP_AGENT_DIR was set")
+            return 1
+
+        uninstall = subprocess.run(
+            [cli_path, "hooks", "omp", "uninstall", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=20,
+        )
+        if uninstall.returncode != 0 or omp_extension.exists():
+            print("FAIL: omp extension uninstall did not respect OMP_AGENT_DIR")
+            print(f"exit={uninstall.returncode}")
+            print(f"stdout={uninstall.stdout.strip()}")
+            print(f"stderr={uninstall.stderr.strip()}")
+            return 1
+
     print("PASS: generated OMP extension installs, emits complete cmux hook payloads, and persists hook sessions")
     return 0
 

@@ -47,7 +47,8 @@ func browserShouldPersistInsecureHTTPAllowlistSelection(
 
 func browserPreparedNavigationRequest(_ request: URLRequest) -> URLRequest {
     var preparedRequest = request
-    // Match browser behavior for ordinary loads while preserving method/body/headers.
-    preparedRequest.cachePolicy = .useProtocolCachePolicy
+    // Match browser behavior for ordinary loads while preserving method/body,
+    // headers, and an explicit hard-refresh cache policy.
+    preparedRequest.cachePolicy = request.cachePolicy
     return preparedRequest
 }

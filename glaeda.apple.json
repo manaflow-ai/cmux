@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "ci-compile-admission": {
+      "engine": "script",
+      "sdk": "macosx",
+      "executable": "scripts/ci/compile-app-host-test-product.sh",
+      "arguments": [
+        "build",
+        "{derived_data}",
+        "{source_packages}",
+        "{extensions}/xcode-compilation-cache",
+        "{derived_data}/persistent-build-aggregate.log"
+      ],
+      "environment": {
+        "CMUX_CI_MODULE_CACHE_PATH": "{module_cache}",
+        "CMUX_SKIP_ZIG_BUILD": "1"
+      }
+    }
+  },
+  "preparations": {
+    "ci-compile-admission": {
+      "engine": "xcode",
+      "project": "cmux.xcodeproj",
+      "scheme": "cmux-unit"
+    }
+  },
+  "cache_policies": {
+    "ci-compile-admission": "native"
+  }
+}

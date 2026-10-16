@@ -3,6 +3,8 @@ import Testing
 
 @testable import CmuxTerminal
 
+// On the main actor, not the cooperative pool: see PasteboardTextContentsTests.
+@MainActor
 @Suite("Terminal pasteboard temporary image adoption")
 struct TerminalPasteboardTemporaryImageAdoptionTests {
     @Test("adoption preserves a validated image extension")

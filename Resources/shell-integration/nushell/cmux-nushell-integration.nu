@@ -232,6 +232,18 @@ def --env _cmux_ports_kick [reason: string] {
     }
 }
 
+# Resets the mouse reporting, focus reports, bracketed paste and alternate
+# screen a killed TUI can leave on (reedline turns its own paste mode back on
+# after this hook). ESC 7 keeps the cursor when no alternate screen is up;
+# tmux and screen keep the 1049 cursor apart from ESC 7, so they skip it.
+def _cmux_reset_terminal_leftover_modes [] {
+    let forced = ($env.CMUX_TEST_FORCE_KEYBOARD_RESET? | default "")
+    if ($forced | is-empty) and not (is-terminal --stdout) { return }
+    print -n "\e[?9l\e[?1000l\e[?1002l\e[?1003l\e[?1005l\e[?1006l\e[?1015l\e[?1016l\e[?1004l\e[?2004l\e[?25h"
+    let multiplexed = ($env.TMUX? | default "") + ($env.STY? | default "")
+    if ($multiplexed | is-empty) { print -n "\e7\e[?1049l" }
+}
+
 # Resets modifyOtherKeys/kitty keyboard protocols a crashed TUI can leave enabled.
 def _cmux_reset_terminal_keyboard_protocols [] {
     let forced = ($env.CMUX_TEST_FORCE_KEYBOARD_RESET? | default "") + ($env.CMUX_TEST_FORCE_KITTY_RESET? | default "")
@@ -256,6 +268,22 @@ def --env _cmux_restore_scrollback_once [] {
     print -n $"\e]1337;CurrentDir=kitty-shell-cwd://($host)($env.PWD)\u{07}"
 }
 
+# First-launch welcome banner. cmux passes the path of a one-shot token file in
+# CMUX_SHOW_WELCOME_FILE instead of typing `cmux welcome` into the first
+# workspace's shell, so the banner prints during startup and never lands in
+# shell history. Only the shell whose `rm` of the token succeeds prints it, and
+# never inside tmux, so children that inherited the variable cannot repeat it.
+def --env _cmux_show_welcome_once [] {
+    let token = ($env.CMUX_SHOW_WELCOME_FILE? | default "")
+    if ($token | is-empty) { return }
+    hide-env CMUX_SHOW_WELCOME_FILE
+    if (^/bin/rm -- $token | complete | get exit_code) != 0 { return }
+    if not (($env.TMUX? | default "") | is-empty) { return }
+    let cli = (_cmux_wrapper_path "cmux")
+    if ($cli | is-empty) { return }
+    try { ^$cli welcome }
+}
+
 # Locates a bundled cmux CLI wrapper relative to CMUX_SHELL_INTEGRATION_DIR.
 def _cmux_wrapper_path [wrapper_file: string] {
     let dir = ($env.CMUX_SHELL_INTEGRATION_DIR? | default "")
@@ -268,9 +296,16 @@ def _cmux_wrapper_path [wrapper_file: string] {
 # Route `claude` through the cmux wrapper so session tracking and
 # notification hooks are injected even if later PATH edits shadow the
 # per-surface shim. `^claude` resolves the real external through PATH.
+#
+# The Automation toggle owns command interception. Nushell applies `hide` at
+# parse time, even inside an `if` that never runs, so a conditional hide
+# removed the wrapper for everyone. Decide at call time instead: with
+# integration off, run the user's external `claude` directly.
 def --wrapped claude [...args: string] {
     let shim = ($env.CMUX_CLAUDE_WRAPPER_SHIM? | default "")
-    if ($shim != "") and ($shim | path exists) {
+    if ($env.CMUX_CLAUDE_INTEGRATION_DISABLED? | default "") == "1" {
+        ^claude ...$args
+    } else if ($shim != "") and ($shim | path exists) {
         ^$shim ...$args
     } else {
         let wrapper = (_cmux_wrapper_path "cmux-claude-wrapper")
@@ -282,6 +317,16 @@ def --wrapped claude [...args: string] {
     }
 }
 
+# Routes agy through the bundled cmux wrapper when present.
+def --wrapped agy [...args: string] {
+    let wrapper = (_cmux_wrapper_path "agy")
+    if ($wrapper != "") {
+        ^$wrapper ...$args
+    } else {
+        ^agy ...$args
+    }
+}
+
 # Routes grok through the bundled cmux wrapper when present.
 def --wrapped grok [...args: string] {
     let wrapper = (_cmux_wrapper_path "grok")
@@ -289,6 +334,16 @@ def --wrapped grok [...args: string] {
         ^$wrapper ...$args
     } else {
         ^grok ...$args
+    }
+}
+
+# Routes muse through the bundled cmux wrapper when present.
+def --wrapped muse [...args: string] {
+    let wrapper = (_cmux_wrapper_path "muse")
+    if ($wrapper != "") {
+        ^$wrapper ...$args
+    } else {
+        ^muse ...$args
     }
 }
 
@@ -305,6 +360,7 @@ def --env _cmux_pre_execution [] {
 # refresh at most every 5 seconds.
 def --env _cmux_pre_prompt [] {
     if not (_cmux_integration_enabled) { return }
+    _cmux_reset_terminal_leftover_modes
     _cmux_reset_terminal_keyboard_protocols
     _cmux_report_tty_once
     _cmux_report_shell_activity_state prompt
@@ -317,6 +373,7 @@ def --env _cmux_pre_prompt [] {
 if (_cmux_integration_enabled) {
     $env._CMUX_SEND_TOOL = (_cmux_pick_send_tool)
     _cmux_restore_scrollback_once
+    _cmux_show_welcome_once
     # String hooks (not closures) so the def --env entry points can persist
     # their dedupe state into the REPL environment.
     $env.config = ($env.config | upsert hooks.pre_execution (

@@ -257,6 +257,7 @@ final class TraditionalChineseIMENumpadRegressionTests: XCTestCase {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
             KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
             cjkIMEInterpretKeyEventsHook = previousInterpretHook
+            terminalSurface.releaseHostedSurfaceForTesting()
             window.orderOut(nil)
             withExtendedLifetime(terminalSurface) {}
         }

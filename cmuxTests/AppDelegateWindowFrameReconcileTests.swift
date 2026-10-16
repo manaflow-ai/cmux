@@ -55,6 +55,23 @@ final class AppDelegateWindowFrameReconcileTests: XCTestCase {
         )
     }
 
+    func testUntrustedTopologyLeavesStrandedWindowForSettledSnapshot() {
+        let builtIn = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_512, height: 982),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_512, height: 944)
+        )
+        let stranded = CGRect(x: 300, y: 884, width: 1_000, height: 700)
+
+        XCTAssertNil(
+            AppDelegate.reconciledFrameAfterScreenChange(
+                frame: stranded,
+                availableDisplays: [builtIn],
+                topologyTrusted: false
+            )
+        )
+    }
+
     func testReconciledFrameAfterScreenChangeReturnsNilWithoutDisplays() {
         XCTAssertNil(
             AppDelegate.reconciledFrameAfterScreenChange(

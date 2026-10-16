@@ -15,6 +15,8 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxFoundation"),
+        .package(path: "../CMUXDebugLog"),
+        .package(path: "../CmuxSettings"),
         .package(path: "../../../vendor/bonsplit"),
     ],
     targets: [
@@ -22,6 +24,8 @@ let package = Package(
             name: "CmuxBrowser",
             dependencies: [
                 "CmuxFoundation",
+                "CMUXDebugLog",
+                "CmuxSettings",
                 .product(name: "Bonsplit", package: "bonsplit"),
             ],
             resources: [

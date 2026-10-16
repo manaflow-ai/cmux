@@ -18,13 +18,10 @@ describe("legacy Subrouter migration operator", () => {
       baseUrl: "https://subrouter.cmux.dev",
       adminToken: "production-admin",
     });
-    expect(legacySubrouterRetirementConfigForTarget("staging", {
+    expect(() => legacySubrouterRetirementConfigForTarget("staging", {
       VERCEL_ENV: "production",
       SUBROUTER_ADMIN_TOKEN: "staging-admin",
-    })).toEqual({
-      baseUrl: "https://subrouter-staging.cmux.dev",
-      adminToken: "staging-admin",
-    });
+    })).toThrow("the staging legacy Subrouter is retired");
   });
 
   test("requires apply before source finalization", async () => {

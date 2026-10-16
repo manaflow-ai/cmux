@@ -1,15 +1,39 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Bonsplit
 import Testing
 import XCTest
-
+// Legacy XCTest fixture; new Resources coverage is in CloudTreeMachineResourcesTests.swift.
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 final class MachinesPanelModelTests: XCTestCase {
+    @MainActor
+    func testLocalWorkspaceProjectionRefreshesWithoutCatalogPoll() {
+        let first = UUID()
+        let second = UUID()
+        var selected = first
+        let model = MachinesPanelViewModel(
+            client: nil,
+            isCloudEnabled: { false },
+            localWorkspacesProvider: {
+                [
+                    CloudTreeLocalWorkspace(id: first, title: "first", isSelected: selected == first),
+                    CloudTreeLocalWorkspace(id: second, title: "second", isSelected: selected == second),
+                ]
+            }
+        )
+
+        model.refreshLocalWorkspaces(selectedWorkspaceID: selected)
+        XCTAssertEqual(model.localWorkspaces.first(where: \.isSelected)?.id, first)
+        selected = second
+        model.refreshLocalWorkspaces(selectedWorkspaceID: selected)
+        XCTAssertEqual(model.localWorkspaces.first(where: \.isSelected)?.id, second)
+    }
+
     func testSnapshotMapsSummaryFields() {
         let summary = VMSummary(
             id: "noble-wren",
@@ -31,7 +55,6 @@ final class MachinesPanelModelTests: XCTestCase {
             Date(timeIntervalSince1970: 1_787_400_000)
         )
     }
-
     func testDesktopImageDetection() {
         let desktop = MachineSnapshotBuilder.snapshot(from: VMSummary(
             id: "noble-dolphin",
@@ -61,6 +84,39 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertFalse(devbox.isDesktop)
     }
 
+    func testCloudTerminalRenameRequiresAStableTabPlacement() {
+        let machine = SurfaceMachineID.cloud("freestyle-vm")
+        let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: "term-1")
+        let workspace = SurfaceRemoteWorkspace(id: "ws-1", name: "main", index: 0, focused: true)
+        let placement = SurfaceRemoteView(tabID: "tab-1", workspace: workspace)
+        let detached = SurfaceResource(
+            id: resourceID,
+            title: "shell",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: workspace,
+            remoteViews: [],
+            port: nil,
+            url: nil
+        )
+        let pooled = SurfaceResource(
+            id: resourceID,
+            title: "shell",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: nil,
+            remoteViews: [placement],
+            port: nil,
+            url: nil
+        )
+
+        XCTAssertFalse(CloudTreeOutlineView.canRenameTerminal(resource: detached, remoteView: nil))
+        XCTAssertTrue(CloudTreeOutlineView.canRenameTerminal(resource: detached, remoteView: placement))
+        XCTAssertTrue(CloudTreeOutlineView.canRenameTerminal(resource: pooled, remoteView: nil))
+    }
+
     func testLabelDrivesDisplayName() {
         var summary = VMSummary(
             id: "noble-wren",
@@ -86,6 +142,15 @@ final class MachinesPanelModelTests: XCTestCase {
             MachineSnapshotBuilder.activity(fromStatus: "error"),
             .attention("error")
         )
+    }
+
+    func testUsageRefreshBackoffIsBounded() {
+        XCTAssertEqual(MachinesPanelViewModel.usageBackoffDelay(failureCount: 0), 30)
+        XCTAssertEqual(MachinesPanelViewModel.usageBackoffDelay(failureCount: 1), 30)
+        XCTAssertEqual(MachinesPanelViewModel.usageBackoffDelay(failureCount: 2), 60)
+        XCTAssertEqual(MachinesPanelViewModel.usageBackoffDelay(failureCount: 3), 120)
+        XCTAssertEqual(MachinesPanelViewModel.usageBackoffDelay(failureCount: 4), 300)
+        XCTAssertEqual(MachinesPanelViewModel.usageBackoffDelay(failureCount: 100), 300)
     }
 
     func testPlanSnapshotLimitStates() {
@@ -116,22 +181,22 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertTrue(RightSidebarMode.allCases.contains(.machines))
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "machines"), .machines)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "vms"), .machines)
-        XCTAssertFalse(RightSidebarMode.machines.canOpenAsPane)
+        XCTAssertTrue(RightSidebarMode.machines.canOpenAsPane)
 
         // Availability follows the Cloud VM UI flag, independent of feed/dock.
         XCTAssertTrue(
-            RightSidebarMode.machines.isAvailable(feedEnabled: false, dockEnabled: false, machinesEnabled: true)
+            RightSidebarMode.machines.isAvailable(feedEnabled: false, machinesEnabled: true)
         )
         XCTAssertFalse(
-            RightSidebarMode.machines.isAvailable(feedEnabled: true, dockEnabled: true, machinesEnabled: false)
+            RightSidebarMode.machines.isAvailable(feedEnabled: true, machinesEnabled: false)
         )
         XCTAssertEqual(
-            RightSidebarMode.availableModes(feedEnabled: false, dockEnabled: false, machinesEnabled: true),
-            [.files, .find, .sessions, .machines]
+            RightSidebarMode.availableModes(feedEnabled: false, machinesEnabled: true),
+            [.files, .find, .sessions, .dock, .machines]
         )
         XCTAssertEqual(
-            RightSidebarMode.availableModes(feedEnabled: false, dockEnabled: false, machinesEnabled: false),
-            [.files, .find, .sessions]
+            RightSidebarMode.availableModes(feedEnabled: false, machinesEnabled: false),
+            [.files, .find, .sessions, .dock]
         )
     }
 
@@ -300,7 +365,7 @@ final class MachinesPanelModelTests: XCTestCase {
             now: now
         )
         XCTAssertEqual(single?.isSingleMachinePlan, true)
-        XCTAssertEqual(single?.countLabel, "1 of 1 machine")
+        XCTAssertEqual(single?.usage.countLabel, "1 of 1 machine")
         XCTAssertEqual(single?.freeAccessExpiresAt, serverExpiry)
         XCTAssertEqual(single?.freeAccessBanner, .expiresIn(countdown: "2d 1h"))
 
@@ -310,7 +375,7 @@ final class MachinesPanelModelTests: XCTestCase {
             now: now
         )
         XCTAssertEqual(plural?.isSingleMachinePlan, false)
-        XCTAssertEqual(plural?.countLabel, "2 of 5 machines")
+        XCTAssertEqual(plural?.usage.countLabel, "2 of 5 machines")
         XCTAssertEqual(plural?.freeAccessBanner, MachinePlanSnapshot.FreeAccessBanner.none)
     }
 
@@ -406,9 +471,9 @@ final class MachinesPanelModelTests: XCTestCase {
             includeLocalMachine: true
         )
         let ids = CloudTreeNodeBuilder.flattened(nodes).map(\.id)
-        // One machine, many workspaces: the Workspaces group leads (every workspace the
-        // machine reports, pointer rows under each), then Ports, VNC Displays (one row
-        // per screen), and last, its own section, Terminals (every terminal the machine owns).
+        // One machine, many workspaces: the Workspaces group leads (nonempty workspace
+        // pointers), then Ports, VNC Displays (one row per screen), and last, its own
+        // section, Terminals (every terminal the machine owns).
         XCTAssertEqual(ids, [
             "machine:local",
             "machine:local/ws/\(local.uuidString)",
@@ -416,13 +481,10 @@ final class MachinesPanelModelTests: XCTestCase {
             "machine:vivid-newt",
             "machine:vivid-newt/workspaces",
             "machine:vivid-newt/ws/ws_main",
-            "machine:vivid-newt/ws/ws_main/resource:vivid-newt/terminal/term_1",
-            "machine:vivid-newt/ws/ws_main/resource:vivid-newt/display/display:1",
+            "machine:vivid-newt/ws/ws_main/resource:vivid-newt/terminal/term_1/tab:tab_1",
             "machine:vivid-newt/ws/ws_side",
-            "machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1",
-            "machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1",
-            "machine:vivid-newt/ws/ws_empty",
-            "machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1",
+            "machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1/tab:tab_9",
+            "machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1/tab:tab_desk",
             "machine:vivid-newt/ports",
             "resource:vivid-newt/browser/port:3000",
             "machine:vivid-newt/displays",
@@ -430,46 +492,70 @@ final class MachinesPanelModelTests: XCTestCase {
             "machine:vivid-newt/terminals",
             "resource:vivid-newt/terminal/term_1",
             "resource:vivid-newt/terminal/term_2",
+            "machine:vivid-newt/resources", "machine:vivid-newt/resources/cpu", "machine:vivid-newt/resources/memory", "machine:vivid-newt/resources/disk", "machine:vivid-newt/resources/usage",
+            // The Coderouter section always closes the tree (#17233), with one
+            // group per addable provider even before an account exists.
+            "coderouter-section", "coderouter-section/codex", "coderouter-section/claude", "coderouter-section/opencode-go",
         ])
         // A remote workspace already showing locally: its row marks it open and the click
         // jumps to that local workspace instead of opening a second copy.
+        let remoteSideLocalWorkspace = UUID()
         let openSnapshot = SurfaceCatalogSnapshot(
             machines: snapshot.machines,
             resources: snapshot.resources,
-            projections: snapshot.projections + [SurfaceProjection(resource: remoteA.id, workspaceID: local, panelID: UUID())]
+            projections: snapshot.projections + [
+                SurfaceProjection(
+                    resource: remoteA.id,
+                    workspaceID: local,
+                    panelID: UUID(),
+                    remoteWorkspaceID: ws0.id,
+                    remoteTabID: "tab_1"
+                ),
+                SurfaceProjection(
+                    resource: remoteA.id,
+                    workspaceID: remoteSideLocalWorkspace,
+                    panelID: UUID(),
+                    remoteWorkspaceID: ws1.id,
+                    remoteTabID: "tab_9"
+                ),
+            ]
         )
         let openNodes = CloudTreeNodeBuilder.nodes(
             machines: [machineSnapshot(id: "vivid-newt")],
             snapshot: openSnapshot,
-            localWorkspaces: [CloudTreeLocalWorkspace(id: local, title: "cmux90", isSelected: true)],
+            localWorkspaces: [
+                CloudTreeLocalWorkspace(id: local, title: "cmux90", isSelected: true),
+                CloudTreeLocalWorkspace(id: remoteSideLocalWorkspace, title: "remote side", isSelected: false),
+            ],
             includeLocalMachine: true
         )
         let openByID = Dictionary(CloudTreeNodeBuilder.flattened(openNodes).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        if case .workspace(_, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_main"]!.kind {
+        if case .workspace(_, _, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_main"]!.kind {
             XCTAssertEqual(openIn, local, "term_1's pane lives in the local workspace")
         } else { XCTFail("expected ws_main row") }
-        if case .workspace(_, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_empty"]!.kind {
-            XCTAssertNil(openIn, "nothing of it is open anywhere")
-        } else { XCTFail("expected ws_empty row") }
+        if case .workspace(_, _, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_side"]!.kind {
+            XCTAssertEqual(openIn, remoteSideLocalWorkspace, "term_1's second remote view uses its own local workspace")
+        } else { XCTFail("expected ws_side row") }
+        XCTAssertNil(openByID["machine:vivid-newt/ws/ws_empty"], "empty workspaces are omitted from the Cloud sidebar")
         // Desktop rows: a workspace's own display pointer opens inside the local
         // workspace showing that remote workspace; the pool row keeps the global jump.
-        if case .display(_, let openIn) = openByID["machine:vivid-newt/ws/ws_main/resource:vivid-newt/display/display:1"]!.kind {
-            XCTAssertEqual(openIn, local, "ws_main shows locally, so its Desktop opens there")
-        } else { XCTFail("expected ws_main display row") }
-        if case .display(_, let openIn) = openByID["resource:vivid-newt/display/display:1"]!.kind {
+        if case .display(_, let openIn, _) = openByID["machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1/tab:tab_desk"]!.kind {
+            XCTAssertEqual(openIn, remoteSideLocalWorkspace, "the actual desktop placement opens in ws_side")
+        } else { XCTFail("expected ws_side display row") }
+        if case .display(_, let openIn, _) = openByID["resource:vivid-newt/display/display:1"]!.kind {
             XCTAssertNil(openIn, "the pool Desktop keeps the global open-or-focus")
         } else { XCTFail("expected pool display row") }
-        if case .display(_, let openIn) = openByID["machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1"]!.kind {
-            XCTAssertNil(openIn, "ws_empty shows nowhere locally")
-        } else { XCTFail("expected ws_empty display row") }
-        XCTAssertNil(CloudTreeNodeBuilder.localWorkspaceShowing([], snapshot: openSnapshot))
+        XCTAssertNil(CloudTreeNodeBuilder.localWorkspaceShowing(
+            remoteWorkspaceID: wsEmpty.id,
+            placements: [],
+            snapshot: openSnapshot
+        ))
         // The workspace's open/drag group carries its display pointer with its terminals.
         XCTAssertEqual(
             CloudTreeNodeBuilder.flattened(nodes).first { $0.id == "machine:vivid-newt/ws/ws_side" }?.dragGroup?.resources,
             [remoteA.id, display.id]
         )
-        // An implicit display row (no view pins it) shows under the workspace but
-        // stays out of the workspace's open/drag group.
+        // The workspace's open/drag group carries only actual remote placements.
         XCTAssertEqual(
             CloudTreeNodeBuilder.flattened(nodes).first { $0.id == "machine:vivid-newt/ws/ws_main" }?.dragGroup?.resources,
             [remoteA.id]
@@ -488,23 +574,20 @@ final class MachinesPanelModelTests: XCTestCase {
             XCTAssertEqual(row.viewBadge, 0, "zero views = still alive on the machine, no tab shows it")
             XCTAssertFalse(row.isDetached, "an exited terminal with unresolved zero views is not a live detached terminal")
         } else { XCTFail("expected term_2 pool row") }
-        // Pointer rows have workspace-scoped identity, no badge, and the terminal's own facts.
-        if case .terminal(let row) = byID["machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1"]!.kind {
+        // Pointer rows have workspace-scoped identity and no badge.
+        if case .terminal(let row) = byID["machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1/tab:tab_9"]!.kind {
             XCTAssertNil(row.viewBadge)
             XCTAssertFalse(row.isOpen)
             XCTAssertEqual(row.resource.id.key, "term_1")
             XCTAssertEqual(row.resource.agent?.source, "claude")
+            XCTAssertEqual(row.remoteView?.tabID, "tab_9")
         } else { XCTFail("expected pointer row") }
-        // The empty workspace still gets a row (from the machine info), with no pointers.
-        if case .workspace(_, let workspace, let count, _) = byID["machine:vivid-newt/ws/ws_empty"]!.kind {
-            XCTAssertEqual(workspace.name, "scratch")
-            XCTAssertEqual(count, 0)
-        } else { XCTFail("expected empty workspace row") }
+        XCTAssertNil(byID["machine:vivid-newt/ws/ws_empty"], "zero-terminal workspaces are not sidebar rows")
         if case .terminalsPool(_, let count) = byID["machine:vivid-newt/terminals"]!.kind {
             XCTAssertEqual(count, 2, "every terminal the machine owns")
         } else { XCTFail("expected terminals pool") }
         // A listening port is a row of its own (the `cmux vm open <m>:port/<n>` address).
-        if case .port(let resource, _) = byID["resource:vivid-newt/browser/port:3000"]!.kind {
+        if case .port(let resource, _, _) = byID["resource:vivid-newt/browser/port:3000"]!.kind {
             XCTAssertEqual(resource.port, 3000)
         } else { XCTFail("expected port row") }
         if case .localMachine(let row) = flattened[0].kind {
@@ -513,26 +596,223 @@ final class MachinesPanelModelTests: XCTestCase {
         if case .localWorkspace(let row) = flattened[1].kind { XCTAssertEqual(row.title, "cmux90"); XCTAssertTrue(row.isSelected) } else { XCTFail("expected local workspace") }
         XCTAssertEqual(flattened.compactMap { $0.dragResource?.id.rawValue }, [
             "local/terminal/AAA",
+            "vivid-newt/terminal/term_1",
             "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
-            "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
-            "vivid-newt/display/display:1",
             "vivid-newt/browser/port:3000",
             "vivid-newt/display/display:1",
             "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_2",
-        ], "one drag resource per pointer (or implicit display) row, then the port, the screen, then the Terminals rows")
+        ], "one drag resource per actual pointer row, then the port, the screen, then the Terminals rows")
         XCTAssertTrue(flattened[0].isMachineRow)
         XCTAssertTrue(flattened[3].isMachineRow)
         XCTAssertEqual(flattened[3].machine, .cloud("vivid-newt"))
-        // Only terminals and displays leave the tree by drag; workspaces,
-        // browsers, ports, machines, and headers do not.
+        // Remote workspace rows export their placement group alongside terminal
+        // and display leaves. Local workspace groups remain reorder-only because
+        // they point at live panes in the source workspace.
         for node in flattened {
             switch node.kind {
             case .terminal, .display:
+                XCTAssertTrue(node.isDragSource, "\(node.id) should drag")
+            case .workspace where !node.machine.isLocal:
                 XCTAssertTrue(node.isDragSource, "\(node.id) should drag")
             default:
                 XCTAssertFalse(node.isDragSource, "\(node.id) should not drag")
             }
         }
+    }
+
+    func testCloudTreeKeepsDistinctTerminalTabPlacementsInOneWorkspace() {
+        let machine = SurfaceMachineID.cloud("placement-test")
+        let workspace = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true)
+        var resource = terminal(machine, "term_1", title: "pty title")
+        resource.remoteViews = [
+            SurfaceRemoteView(tabID: "tab_build", workspace: workspace, name: "build"),
+            SurfaceRemoteView(tabID: "tab_shell", workspace: workspace, name: "shell"),
+        ]
+        let localWorkspaceID = UUID()
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [machineInfo(machine, remoteWorkspaces: [workspace])],
+            resources: [resource],
+            projections: [SurfaceProjection(
+                resource: resource.id,
+                workspaceID: localWorkspaceID,
+                panelID: UUID(),
+                remoteWorkspaceID: workspace.id,
+                remoteTabID: "tab_build"
+            )]
+        )
+
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [machineSnapshot(id: machine.rawValue)],
+            snapshot: snapshot,
+            localWorkspaces: [],
+            includeLocalMachine: false
+        )
+        let workspaceNode = CloudTreeNodeBuilder.flattened(nodes).first { $0.id == "machine:placement-test/ws/ws_main" }
+        let terminalRows = workspaceNode?.children.compactMap { child -> CloudTreeTerminalRow? in
+            guard case .terminal(let row) = child.kind else { return nil }
+            return row
+        } ?? []
+
+        XCTAssertEqual(terminalRows.map { $0.remoteView?.tabID }, ["tab_build", "tab_shell"])
+        XCTAssertEqual(terminalRows.map(\.displayTitle), ["build", "shell"])
+        XCTAssertEqual(terminalRows.map(\.isOpen), [true, false], "open state must stay scoped to the exact remote tab")
+        XCTAssertEqual(
+            workspaceNode?.children.map(\.id),
+            [
+                "machine:placement-test/ws/ws_main/resource:placement-test/terminal/term_1/tab:tab_build",
+                "machine:placement-test/ws/ws_main/resource:placement-test/terminal/term_1/tab:tab_shell",
+            ]
+        )
+        XCTAssertEqual(workspaceNode?.dragGroup?.placements.map(\.remoteTabID), ["tab_build", "tab_shell"])
+        XCTAssertEqual(workspaceNode?.dragGroup?.resources, [resource.id, resource.id])
+    }
+
+    @MainActor
+    func testCatalogWorkspaceGroupKeepsEveryPlacementOfOneTerminal() throws {
+        let machine = SurfaceMachineID.cloud("group-test")
+        let workspace = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true)
+        var terminalResource = terminal(machine, "term_1", title: "shell")
+        terminalResource.remoteViews = [
+            SurfaceRemoteView(tabID: "tab_a", workspace: workspace, index: 0),
+            SurfaceRemoteView(tabID: "tab_b", workspace: workspace, index: 1),
+        ]
+        let catalog = SurfaceCatalog()
+        // The catalog drops writes for a cloud machine with no registered provider.
+        let provider = GroupFakeProvider(machine: machine)
+        provider.info = machineInfo(machine, hasDesktop: false, remoteWorkspaces: [workspace])
+        catalog.register(provider)
+        XCTAssertTrue(catalog.replaceResources([terminalResource], on: machine, info: provider.info, from: provider))
+
+        let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)
+        XCTAssertEqual(group.title, "main")
+        XCTAssertEqual(group.resources, [terminalResource.id, terminalResource.id])
+        XCTAssertEqual(group.placements.map(\.remoteTabID), ["tab_a", "tab_b"])
+    }
+
+    @MainActor
+    func testCatalogWorkspaceGroupFollowsLayoutOrderNotKindBuckets() throws {
+        let machine = SurfaceMachineID.cloud("group-layout")
+        let workspace = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true)
+        var browser = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .browser, key: "docs"),
+            title: "Docs",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: workspace,
+            port: nil,
+            url: "https://example.com"
+        )
+        browser.remoteViews = [SurfaceRemoteView(
+            tabID: "tab_docs",
+            workspace: workspace,
+            screenID: "screen_1",
+            paneID: "pane_left",
+            name: nil,
+            index: 0,
+            focused: true,
+            screenIndex: 0,
+            paneIndex: 0
+        )]
+        var terminalResource = terminal(machine, "term_1", title: "shell")
+        terminalResource.remoteWorkspace = workspace
+        terminalResource.remoteViews = [SurfaceRemoteView(
+            tabID: "tab_shell",
+            workspace: workspace,
+            screenID: "screen_1",
+            paneID: "pane_right",
+            name: nil,
+            index: 0,
+            focused: true,
+            screenIndex: 0,
+            paneIndex: 1
+        )]
+        let catalog = SurfaceCatalog()
+        catalog.register(GroupFakeProvider(machine: machine))
+        catalog.replaceResources(
+            [terminalResource, browser],
+            on: machine,
+            info: machineInfo(machine, hasDesktop: false, remoteWorkspaces: [workspace])
+        )
+
+        let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)
+        XCTAssertEqual(group.placements.map(\.remoteTabID), ["tab_docs", "tab_shell"])
+        XCTAssertEqual(group.resources.map(\.kind), [.browser, .terminal])
+
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [machineSnapshot(id: machine.rawValue)],
+            snapshot: catalog.snapshot,
+            localWorkspaces: [],
+            includeLocalMachine: false
+        )
+        let workspaceNode = CloudTreeNodeBuilder.flattened(nodes).first { $0.id == "machine:group-layout/ws/ws_main" }
+        XCTAssertEqual(
+            workspaceNode?.dragGroup?.placements.map(\.remoteTabID),
+            group.placements.map(\.remoteTabID),
+            "the sidebar row and `vm workspace open` must open in the same order"
+        )
+    }
+
+    @MainActor
+    func testCatalogWorkspaceGroupListsTheShownTabBeforeHiddenTabs() throws {
+        let machine = SurfaceMachineID.cloud("group-shown-tab")
+        let workspace = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true)
+        var first = terminal(machine, "term_a", title: "build")
+        first.remoteWorkspace = workspace
+        first.remoteViews = [SurfaceRemoteView(
+            tabID: "tab_a",
+            workspace: workspace,
+            screenID: "screen_1",
+            paneID: "pane_1",
+            name: "build",
+            index: 0,
+            focused: false,
+            screenIndex: 0,
+            paneIndex: 0
+        )]
+        var second = terminal(machine, "term_b", title: "shell")
+        second.remoteWorkspace = workspace
+        second.remoteViews = [SurfaceRemoteView(
+            tabID: "tab_b",
+            workspace: workspace,
+            screenID: "screen_1",
+            paneID: "pane_1",
+            name: "shell",
+            index: 1,
+            focused: true,
+            screenIndex: 0,
+            paneIndex: 0
+        )]
+        let catalog = SurfaceCatalog()
+        catalog.register(GroupFakeProvider(machine: machine))
+        catalog.replaceResources(
+            [first, second],
+            on: machine,
+            info: machineInfo(machine, hasDesktop: false, remoteWorkspaces: [workspace])
+        )
+
+        let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)
+        XCTAssertEqual(group.placements.map(\.remoteTabID), ["tab_a", "tab_b"])
+    }
+
+    @MainActor
+    func testCatalogWorkspaceGroupUsesLegacyWorkspaceWhenRemoteViewsAreAbsent() throws {
+        let machine = SurfaceMachineID.cloud("legacy-group-test")
+        let workspace = SurfaceRemoteWorkspace(id: "ws_legacy", name: "legacy", index: 0, focused: true)
+        var resource = terminal(machine, "term_legacy", title: "shell")
+        // Older providers omit view metadata and use the single-workspace
+        // compatibility field. An explicit empty list means no workspace views.
+        resource.remoteWorkspace = workspace
+        resource.remoteViews = nil
+        let catalog = SurfaceCatalog()
+        // The catalog drops writes for a cloud machine with no registered provider.
+        let provider = GroupFakeProvider(machine: machine)
+        provider.info = machineInfo(machine, hasDesktop: false, remoteWorkspaces: [workspace])
+        catalog.register(provider)
+        XCTAssertTrue(catalog.replaceResources([resource], on: machine, info: provider.info, from: provider))
+
+        let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)
+        XCTAssertEqual(group.placements.map(\.resource), [resource.id])
     }
 
     func testCloudTreeLocalBrowsersGroupAndEmptyLocalPlaceholder() {
@@ -545,43 +825,16 @@ final class MachinesPanelModelTests: XCTestCase {
         )
         let nodes = CloudTreeNodeBuilder.nodes(machines: [], snapshot: snapshot, localWorkspaces: [CloudTreeLocalWorkspace(id: local, title: "web", isSelected: false)], includeLocalMachine: true)
         let ids = CloudTreeNodeBuilder.flattened(nodes).map(\.id)
-        XCTAssertEqual(ids, ["machine:local", "machine:local/placeholder", "machine:local/browsers", "resource:local/browser/BBB"])
+        XCTAssertEqual(ids, [
+            "machine:local", "machine:local/placeholder", "machine:local/browsers", "resource:local/browser/BBB",
+            "coderouter-section", "coderouter-section/codex", "coderouter-section/claude", "coderouter-section/opencode-go",
+        ])
         if case .browser(let row) = CloudTreeNodeBuilder.flattened(nodes)[3].kind {
             XCTAssertTrue(row.isOpen)
             XCTAssertEqual(row.workspaceTitle, "web")
             XCTAssertEqual(CloudTreeBrowserDetail.text(for: row), "cmux.com")
         } else { XCTFail("expected browser row") }
     }
-
-    func testCloudTreeSleepingAndBrokenMachinesShowOnePlaceholder() {
-        let asleep = CloudTreeNodeBuilder.nodes(
-            machines: [machineSnapshot(id: "quiet-owl", image: "cmuxd-ws:tooling-20260509f")],
-            snapshot: SurfaceCatalogSnapshot(machines: [machineInfo(.cloud("quiet-owl"), linkState: .asleep, hasDesktop: false)], resources: [], projections: []),
-            localWorkspaces: []
-        )
-        XCTAssertEqual(CloudTreeNodeBuilder.flattened(asleep).map(\.id), ["machine:quiet-owl", "machine:quiet-owl/placeholder"])
-        if case .placeholder(_, let placeholder) = asleep[0].children[0].kind { XCTAssertEqual(placeholder.style, .dimmed) } else { XCTFail() }
-
-        let broken = CloudTreeNodeBuilder.nodes(
-            machines: [machineSnapshot(id: "broken-elk")],
-            snapshot: SurfaceCatalogSnapshot(machines: [machineInfo(.cloud("broken-elk"), linkState: .error, linkError: "timed out", hasDesktop: false)], resources: [], projections: []),
-            localWorkspaces: []
-        )
-        if case .placeholder(_, let placeholder) = broken[0].children[0].kind {
-            XCTAssertEqual(placeholder.style, .error)
-            XCTAssertEqual(placeholder.text, "timed out")
-        } else { XCTFail() }
-        // A machine the catalog has not registered yet has nothing to expand.
-        XCTAssertNil(CloudTreeNodeBuilder.nodes(machines: [machineSnapshot(id: "new")], snapshot: .empty, localWorkspaces: [])[0].children.first)
-        // A machine only the catalog knows still gets a row.
-        let catalogOnly = CloudTreeNodeBuilder.nodes(
-            machines: [],
-            snapshot: SurfaceCatalogSnapshot(machines: [machineInfo(.cloud("ghost"))], resources: [], projections: []),
-            localWorkspaces: []
-        )
-        XCTAssertEqual(catalogOnly.map(\.id), ["machine:ghost"])
-    }
-
     func testSurfaceResourceDragRecordRoundTripsAndNamesEveryResource() throws {
         let port = SurfaceResourceID(machine: .cloud("vivid-newt"), kind: .browser, key: "port:8000")
         let term = SurfaceResourceID(machine: .cloud("vivid-newt"), kind: .terminal, key: "term_1")
@@ -590,6 +843,8 @@ final class MachinesPanelModelTests: XCTestCase {
         let decoded = try JSONDecoder().decode(SurfaceResourceDragPasteboardRecord.self, from: data)
         XCTAssertEqual(decoded, record)
         XCTAssertEqual(decoded.resourceIDs, [term, port], "open order is preserved")
+        XCTAssertEqual(decoded.placementValues.map(\.resource), [term, port])
+        XCTAssertNil(decoded.placements, "the legacy three-field record remains backward-compatible")
         XCTAssertEqual(decoded.title, "main")
         XCTAssertEqual(CloudTreeTerminalRowContent.abbreviated("/root/app"), "~/app")
         // A cloud machine's user home reads as `~` too (`/home/cua` on the devbox image).
@@ -667,13 +922,15 @@ final class MachinesPanelModelTests: XCTestCase {
 
     @MainActor
     func testProjectGroupLandsTheFirstAtTheDropAndTheRestAsTabsOfThatPane() async throws {
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
         let provider = GroupFakeProvider(machine: .cloud("m"))
         catalog.register(provider)
         let a = terminal(.cloud("m"), "term_a"), b = terminal(.cloud("m"), "term_b")
         let browser = SurfaceResource(id: SurfaceResourceID(machine: .cloud("m"), kind: .browser, key: "port:3000"), title: ":3000", detail: nil, lifecycle: .running, agent: nil, remoteWorkspace: nil, port: 3000, url: nil)
         catalog.replaceResources([a, b, browser], on: .cloud("m"))
-        let ws = UUID()
+        let ws = live.id()
         let missing = SurfaceResourceID(machine: .cloud("m"), kind: .terminal, key: "term_gone")
         let drop = SurfaceDestination.split(workspaceID: ws, paneID: "pane-drop", direction: .left)
 
@@ -706,43 +963,20 @@ final class MachinesPanelModelTests: XCTestCase {
         }
     }
 
-    @MainActor
-    func testCloudTreeExpansionStoreDefaultsToExpandedAndPersistsMachineCollapse() {
-        let defaults = UserDefaults(suiteName: "CloudTreeExpansionStoreTests-\(UUID().uuidString)")!
-        let store = CloudTreeExpansionStore(defaults: defaults)
-        let nodes = CloudTreeNodeBuilder.nodes(
-            machines: [machineSnapshot(id: "vivid-newt")],
-            snapshot: SurfaceCatalogSnapshot(machines: [machineInfo(.local), machineInfo(.cloud("vivid-newt"))], resources: [terminal(.cloud("vivid-newt"), "term_1")], projections: []),
-            localWorkspaces: [],
-            includeLocalMachine: true
-        )
-        let localNode = nodes[0], machineNode = nodes[1], group = machineNode.children[0]
-        XCTAssertTrue(store.isExpanded(localNode))
-        XCTAssertTrue(store.isExpanded(machineNode))
-        XCTAssertTrue(store.isExpanded(group))
-        store.setExpanded(false, node: machineNode)
-        store.setExpanded(false, node: localNode)
-        store.setExpanded(false, node: group)
-        let reloaded = CloudTreeExpansionStore(defaults: defaults)
-        XCTAssertFalse(reloaded.isExpanded(machineNode), "machine collapse persists")
-        XCTAssertFalse(reloaded.isExpanded(localNode), "This Mac's collapse persists too")
-        XCTAssertTrue(reloaded.isExpanded(group), "nested collapses are panel-lifetime only")
-    }
-
     func testMachineSubtitleNeverShowsTheFreeAccessCountdown() {
         let active = MachineSnapshot(
             id: "warm-owl", provider: "freestyle", image: "cmux-xfce-vnc:latest", isDesktop: true,
             activity: .ready, createdAt: nil, label: nil, freeAccess: .active(daysLeft: 3)
         )
-        XCTAssertFalse(CloudTreeMachineRowContent.subtitle(active).contains("3"), "expiry is plan chrome, not a machine fact")
-        XCTAssertNil(CloudTreeMachineRowContent.inlineFact(active, style: .compact))
+        XCTAssertFalse(CloudTreeMachineRowContent(machine: active).subtitle.contains("3"), "expiry is plan chrome, not a machine fact")
+        XCTAssertNotNil(CloudTreeMachineRowContent(machine: active, style: .compact).inlineFact)
 
         let expired = MachineSnapshot(
             id: "warm-owl", provider: "freestyle", image: "cmux-xfce-vnc:latest", isDesktop: true,
             activity: .attention("locked"), createdAt: nil, label: nil, freeAccess: .expired
         )
-        XCTAssertTrue(CloudTreeMachineRowContent.subtitle(expired).contains("Locked"), "a dead row still explains itself")
-        XCTAssertNotNil(CloudTreeMachineRowContent.inlineFact(expired, style: .compact))
+        XCTAssertTrue(CloudTreeMachineRowContent(machine: expired).subtitle.contains("Locked"), "a dead row still explains itself")
+        XCTAssertNotNil(CloudTreeMachineRowContent(machine: expired, style: .compact).inlineFact)
     }
 
     func testCloudTreeStylePresetsAreDistinctAndResolvable() {
@@ -759,7 +993,7 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertNil(CloudTreeStyle.preset(id: "bogus"))
         // The presets are different shapes, not one look at five sizes.
         XCTAssertEqual(Set(presets.map { "\($0.leafLayout)|\($0.iconTreatment)|\($0.groupLabelStyle)|\($0.metaPlacement)|\($0.machineBand)|\($0.monospacedText)" }).count, presets.count, "every preset differs structurally")
-        // Two-line cards grow with the stats line; single-line rows never do.
+        // Every cloud style reserves a dedicated resource strip.
         XCTAssertGreaterThan(CloudTreeStyle.aero.machineRowHeight(hasStats: true), CloudTreeStyle.aero.machineRowHeight(hasStats: false))
         XCTAssertEqual(CloudTreeStyle.compact.machineRowHeight(hasStats: true), CloudTreeStyle.compact.machineRowHeight(hasStats: false))
     }
@@ -780,20 +1014,44 @@ final class MachinesPanelModelTests: XCTestCase {
 }
 
 
-/// The Cloud tab shows this Mac by default (cloud-only stays one flip away), and the
-/// outline updates rows in place unless the tree's structure changed.
+/// The Cloud tab shows the cloud fleet by default (this Mac stays one flip away), and
+/// the outline updates rows in place unless the tree's structure changed.
 @MainActor
 final class CloudTreeScopeAndSignatureTests: XCTestCase {
     func testMachineCapabilitiesDecodeWithSupportedDefaults() {
-        XCTAssertEqual(VMCapabilities(json: nil), .all, "an older control plane supports everything")
+        var legacy = VMCapabilities.all
+        legacy.restart = false
+        XCTAssertEqual(VMCapabilities(json: nil), legacy, "restart requires explicit server support")
+        XCTAssertTrue(VMCapabilities(json: ["restart": true]).restart)
+        XCTAssertFalse(VMCapabilities(json: ["restart": false]).restart)
         XCTAssertEqual(VMCapabilities(json: ["snapshot": false, "fork": false]), VMCapabilities(snapshot: false, restore: true, fork: false))
         XCTAssertEqual(VMCapabilities(json: ["snapshot": NSNumber(value: false), "restore": NSNumber(value: true), "fork": true]),
                        VMCapabilities(snapshot: false, restore: true, fork: true))
         let summary = VMSummary(id: "m", provider: "freestyle", status: "running", image: "cmux-devbox:devbox-20260828b", createdAt: 0, base: nil)
-        XCTAssertEqual(summary.capabilities, .all)
+        XCTAssertEqual(summary.capabilities, legacy)
         var declared = summary
         declared.capabilities = VMCapabilities(json: ["snapshot": false, "restore": false, "fork": false])
         XCTAssertFalse(declared.capabilities.snapshot)
+    }
+
+    func testSocketCloudVMSummaryPreservesAttachTransports() {
+        let summary = VMSummary(
+            id: "transport-limited",
+            provider: "freestyle",
+            status: "running",
+            image: "cmux-devbox",
+            createdAt: 0,
+            capabilities: VMCapabilities(
+                snapshot: true,
+                restore: true,
+                fork: true,
+                attachTransports: ["ssh"]
+            )
+        )
+
+        let payload = TerminalController.socketWorkerVMSummaryPayload(summary)
+        let capabilities = payload["capabilities"] as? [String: Any]
+        XCTAssertEqual(capabilities?["attach_transports"] as? [String], ["ssh"])
     }
 
     private func terminal(_ machine: SurfaceMachineID, _ key: String, title: String = "shell", cwd: String? = "/root") -> SurfaceResource {
@@ -809,7 +1067,7 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
     }
 
     func testTreeShowsThisMacByDefaultAndCloudOnlyStaysOneFlipAway() {
-        XCTAssertTrue(CloudTreeNodeBuilder.includesLocalMachine, "every machine — this Mac included — shows the same shape")
+        XCTAssertFalse(CloudTreeNodeBuilder.includesLocalMachine, "the Machines panel defaults to the cloud fleet")
         let local = UUID()
         let snapshot = SurfaceCatalogSnapshot(
             machines: [info(.local), info(.cloud("vivid-newt"))],
@@ -818,7 +1076,8 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
         )
         let workspaces = [CloudTreeLocalWorkspace(id: local, title: "cmux90", isSelected: true)]
         let byDefault = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(machines: [machine("vivid-newt")], snapshot: snapshot, localWorkspaces: workspaces))
-        XCTAssertEqual(byDefault.first?.id, "machine:local")
+        XCTAssertEqual(byDefault.first?.id, "machine:vivid-newt")
+        XCTAssertFalse(byDefault.contains { $0.machine.isLocal })
         XCTAssertTrue(byDefault.contains { $0.id == "resource:vivid-newt/terminal/term_1" })
 
         let cloudOnly = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(machines: [machine("vivid-newt")], snapshot: snapshot, localWorkspaces: workspaces, includeLocalMachine: false))
@@ -876,7 +1135,7 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
     @Test func emptyDecisionMatchesWhatTheTreeRenders() {
         let localOnly = SurfaceCatalogSnapshot(machines: [info(.local)], resources: [terminal(.local, "AAA")], projections: [])
         #expect(
-            CloudTreeNodeBuilder.nodes(machines: [], snapshot: localOnly, localWorkspaces: []).isEmpty,
+            CloudTreeNodeBuilder.nodes(machines: [], snapshot: localOnly, localWorkspaces: []).withoutCoderouterSection.isEmpty,
             "precondition: the cloud-only tree renders nothing for a local-only catalog"
         )
         #expect(
@@ -900,8 +1159,7 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
     }
 }
 
-/// Pins the single-line machine row's inline fact: Locked wins, then the live
-/// CPU/Mem/Disk reading (when the style shows stats), else nothing.
+/// Compact rows retain the original inline resources and token summary.
 @Suite("Cloud tree machine inline fact")
 struct CloudTreeMachineInlineFactTests {
     private func snapshot(stats: VMStats?) -> MachineSnapshot {
@@ -912,20 +1170,21 @@ struct CloudTreeMachineInlineFactTests {
         return machine
     }
 
-    @Test("An awake reading renders inline in the default single-line style")
-    func awakeReadingRendersInline() {
+    @Test("Resource readings share the compact machine header")
+    func awakeReadingHasDedicatedSpace() {
         let stats = VMStats(
             state: .awake, sampledAt: Date(timeIntervalSince1970: 0), cpus: 2, cpuPercent: 9.4,
             loadAverage1m: nil, memoryTotalMb: 3891, memoryUsedMb: 3481, diskTotalMb: 3174, diskUsedMb: 2867
         )
-        let fact = CloudTreeMachineRowContent.inlineFact(snapshot(stats: stats), style: .compact)
-        #expect(fact?.contains("CPU 9%") == true)
-        #expect(fact?.contains("3.4/3.8") == true)
+        let fact = CloudTreeMachineRowContent(machine: snapshot(stats: stats), style: .compact,
+                                             now: stats.sampledAt).inlineFact
+        #expect(fact?.contains("CPU") == true)
+        #expect(CloudTreeStyle.compact.machineRowHeight(hasStats: true) == CloudTreeStyle.compact.machineRowHeight(hasStats: false))
     }
 
-    @Test("No reading yet means no inline fact")
+    @Test("No reading yet keeps missing-data state inline")
     func missingStatsShowsNothing() {
-        #expect(CloudTreeMachineRowContent.inlineFact(snapshot(stats: nil), style: .compact) == nil)
+        #expect(CloudTreeMachineRowContent(machine: snapshot(stats: nil), style: .compact).inlineFact?.contains("Token usage unavailable") == true)
     }
 }
 
@@ -986,7 +1245,7 @@ struct MachinesPanelListProblemTests {
 @Suite("Cloud machines paid-plan classification")
 struct MachinesPanelPaidPlanTests {
     @Test("Only plans the backend accepts for provisioning are paid", arguments: [
-        ("pro", true), ("TEAM", true), ("founders", true), (" Pro\n", true),
+        ("pro", true), ("max", true), ("TEAM", true), ("founders", true), (" Pro\n", true),
         ("free", false), ("", false), ("unknown", false), ("enterprise-unknown", false),
     ])
     func onlyProvisioningPlansArePaid(planId: String, expected: Bool) {
@@ -1051,13 +1310,11 @@ struct MachineUsageReadoutTests {
       ]
     }
     """.utf8)
-
     private func machine(_ id: String) -> MachineSnapshot {
         MachineSnapshotBuilder.snapshot(from: VMSummary(
             id: id, provider: "freestyle", status: "running", image: "cmux-devbox:devbox-20260828b", createdAt: 0, base: nil
         ))
     }
-
     @Test("A finite number outside Int range decodes as zero, never a trap")
     func hugeTokenCountsDoNotTrap() throws {
         let payload = Data("""
@@ -1072,7 +1329,6 @@ struct MachineUsageReadoutTests {
         #expect(totals.outputTokens == 2)
         #expect(totals.totalTokens == 9007199254740993)
     }
-
     @Test("The team payload decodes into typed totals")
     func payloadDecodes() throws {
         let usage = try MachineUsageClient.decodeTeamUsage(payload)
@@ -1090,7 +1346,6 @@ struct MachineUsageReadoutTests {
         ))
         #expect(usage.machines[1].displayName == nil, "JSON null reads as no label")
     }
-
     @Test("Rows key on the machine id; blanks and repeats collapse to one entry")
     func lookupKeysOnMachineID() throws {
         let usage = try MachineUsageClient.decodeTeamUsage(payload)
@@ -1098,7 +1353,6 @@ struct MachineUsageReadoutTests {
         #expect(Set(byID.keys) == ["noble-wren", "idle-owl", "brave-fox", "5f0f7d0e-1b2c-4d3e-8f90-123456789abc"])
         #expect(byID["noble-wren"]?.displayName == "wren", "the first entry wins on a repeated vmId")
         #expect(byID["brave-fox"]?.displayName == "fox", "the provider id keys the row, since GET /api/vm lists it as the machine id")
-
         let stamped = MachineSnapshotBuilder.applyingUsage(
             to: [machine("noble-wren"), machine("idle-owl"), machine("unknown-fox")],
             usage: byID
@@ -1106,11 +1360,9 @@ struct MachineUsageReadoutTests {
         #expect(stamped[0].usage?.totals.totalTokens == 41000)
         #expect(stamped[1].usage?.totals.isEmpty == true)
         #expect(stamped[2].usage == nil, "a machine the payload never names carries no readout")
-
         let cleared = MachineSnapshotBuilder.applyingUsage(to: stamped, usage: [:])
         #expect(cleared.allSatisfy { $0.usage == nil }, "a later payload without the machine drops the stale readout")
     }
-
     @Test("An unavailable payload yields no rows, and malformed payloads throw")
     func unavailableAndMalformed() throws {
         let unavailable = try MachineUsageClient.decodeTeamUsage(Data("""
@@ -1119,7 +1371,6 @@ struct MachineUsageReadoutTests {
         #expect(unavailable.kind == .unavailable)
         #expect(unavailable.asOf == nil)
         #expect(unavailable.byMachineID.isEmpty)
-
         #expect(throws: MachineUsageClientError.self) {
             try MachineUsageClient.decodeTeamUsage(Data(#"{"teamId":"t","kind":"weird","machines":[]}"#.utf8))
         }
@@ -1127,31 +1378,184 @@ struct MachineUsageReadoutTests {
             try MachineUsageClient.decodeTeamUsage(Data(#"{"teamId":"t","kind":"ready","machines":[{"totals":{}}]}"#.utf8))
         }
     }
-
-    @Test("The row line reads cost, compact tokens, and the window; idle machines show nothing")
+    @Test("The row line reads cost, compact tokens, and the window, including measured zero")
     func rowLine() throws {
         let usage = try MachineUsageClient.decodeTeamUsage(payload)
         let byID = usage.byMachineID
         let wren = try #require(byID["noble-wren"])
-        let line = try #require(CloudTreeMachineRowContent.usageLine(wren))
+        var withUsage = machine("noble-wren")
+        withUsage.usage = wren
+        let line = try #require(CloudTreeMachineRowContent(machine: withUsage).usageLine)
         #expect(line.hasPrefix("$1.23"), "two decimals, USD: \(line)")
         #expect(line.contains("41K"), "compact token count: \(line)")
         #expect(line.hasSuffix("30d"), "window label: \(line)")
         let owl = try #require(byID["idle-owl"])
-        #expect(CloudTreeMachineRowContent.usageLine(owl) == nil)
+        var idle = machine("idle-owl")
+        idle.usage = owl
+        #expect(CloudTreeMachineRowContent(machine: idle).usageLine?.contains("0 tokens") == true)
 
-        var withUsage = machine("noble-wren")
-        withUsage.usage = byID["noble-wren"]
-        let fact = try #require(CloudTreeMachineRowContent.inlineFact(withUsage, style: .compact))
-        #expect(fact.contains("$1.23"), "single-line rows carry the spend inline")
-        #expect(CloudTreeMachineRowContent.inlineFact(machine("noble-wren"), style: .compact) == nil)
+        let fact = CloudTreeMachineRowContent(machine: withUsage, style: .compact).inlineFact
+        #expect(fact?.contains(line) == true, "compact usage follows the name on the same line")
+        #expect(CloudTreeMachineRowContent(machine: withUsage).toolTip.contains(line), "spend stays available on hover")
+    }
+}
+
+// MARK: - Realtime `vms` stream
+
+@MainActor
+final class MachinesPanelVMStreamTests: XCTestCase {
+
+    /// A panel with no client, no pin store and Cloud enabled: the stream's
+    /// merge path with nothing to fetch.
+    private func makeStreamingModel(pollingClock: any Clock<Duration> = ContinuousClock()) -> MachinesPanelViewModel {
+        let model = MachinesPanelViewModel(
+            createCoordinator: MachineCreateCoordinator(notifier: { _ in }, notificationCenter: NotificationCenter()),
+            pollingClock: pollingClock,
+            isCloudEnabled: { true },
+            catalogProvider: { .empty }
+        )
+        model.localWorkspacesProvider = { [] }
+        return model
     }
 
-    @Test("Two-line rows grow by one line for the spend readout")
-    func twoLineHeightGrows() {
-        let twoLine = CloudTreeStyle.presets.first { $0.machineRowLayout == .twoLine }
-        guard let twoLine else { return }
-        #expect(twoLine.machineRowHeight(hasStats: false, hasUsage: true) > twoLine.machineRowHeight(hasStats: false))
-        #expect(CloudTreeStyle.compact.machineRowHeight(hasStats: false, hasUsage: true) == CloudTreeStyle.compact.machineRowHeight(hasStats: false))
+    /// Stats-less so a merge never samples the shared client.
+    private func streamSummary(_ id: String, status: String = "running", createdAt: Int64, label: String? = nil) -> VMSummary {
+        VMSummary(
+            id: id, provider: "freestyle", status: status, image: "cmux-devbox:devbox-20260828b", createdAt: createdAt,
+            capabilities: VMCapabilities(snapshot: true, restore: true, fork: true, stats: false), displayName: label
+        )
+    }
+
+    func testStreamUpsertReplacesTheRowInPlace() {
+        let model = makeStreamingModel()
+        model.applyVMChanges(
+            upserts: [streamSummary("c", createdAt: 3_000), streamSummary("b", createdAt: 2_000), streamSummary("a", createdAt: 1_000)],
+            deletions: [], authoritative: true
+        )
+        XCTAssertEqual(model.machines.map(\.id), ["c", "b", "a"])
+        XCTAssertTrue(model.hasLoadedOnce, "a complete fleet is a loaded list")
+
+        model.applyVMChanges(upserts: [streamSummary("b", status: "paused", createdAt: 2_000, label: "dev box")], deletions: [], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["c", "b", "a"], "an update keeps the row's slot")
+        XCTAssertEqual(model.machines[1].activity, .ready)
+        XCTAssertEqual(model.machines[1].label, "dev box")
+        XCTAssertEqual(model.machineIndexByID, ["c": 0, "b": 1, "a": 2])
+    }
+
+    func testStreamInsertKeepsCreatedAtDescendingOrder() {
+        let model = makeStreamingModel()
+        model.applyVMChanges(
+            upserts: [streamSummary("c", createdAt: 3_000), streamSummary("a", createdAt: 1_000)],
+            deletions: [], authoritative: true
+        )
+        model.applyVMChanges(upserts: [streamSummary("b", createdAt: 2_000)], deletions: [], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["c", "b", "a"])
+        model.applyVMChanges(upserts: [streamSummary("d", createdAt: 4_000)], deletions: [], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["d", "c", "b", "a"], "the newest machine leads, as the list endpoint orders it")
+        model.applyVMChanges(upserts: [streamSummary("z", createdAt: 0)], deletions: [], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["d", "c", "b", "a", "z"], "an unknown creation time sorts last")
+        XCTAssertEqual(model.machineIndexByID, ["d": 0, "c": 1, "b": 2, "a": 3, "z": 4])
+        XCTAssertNil(model.plan, "limits only arrive with a REST list")
+    }
+
+    func testStreamDeleteRemovesTheRow() {
+        let model = makeStreamingModel()
+        model.applyVMChanges(
+            upserts: [streamSummary("c", createdAt: 3_000), streamSummary("b", createdAt: 2_000), streamSummary("a", createdAt: 1_000)],
+            deletions: [], authoritative: true
+        )
+        model.applyVMChanges(upserts: [], deletions: ["b", "never-listed"], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["c", "a"])
+        XCTAssertEqual(model.machineIndexByID, ["c": 0, "a": 1])
+
+        // A backfilled snapshot is the complete fleet: rows it lacks are gone.
+        model.applyVMChanges(upserts: [streamSummary("a", createdAt: 1_000)], deletions: [], authoritative: true)
+        XCTAssertEqual(model.machines.map(\.id), ["a"])
+    }
+
+    func testUnbackfilledSnapshotNeverDeletes() {
+        let model = makeStreamingModel()
+        model.applyVMChanges(
+            upserts: [streamSummary("c", createdAt: 3_000), streamSummary("a", createdAt: 1_000)],
+            deletions: [], authoritative: true
+        )
+        // The worker has only seen `b` since the collection shipped: it may
+        // add and update, but `c` and `a` stay until a REST list says otherwise.
+        model.applyVMChanges(upserts: [streamSummary("b", createdAt: 2_000)], deletions: [], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["c", "b", "a"])
+        model.applyVMChanges(upserts: [], deletions: [], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["c", "b", "a"])
+    }
+
+    /// The stream record carries only the row's own columns; per-request
+    /// list fields (creator name, pool claim, free-access expiry) must survive
+    /// a live update instead of resetting until the next REST read.
+    func testStreamUpsertKeepsListOnlyFieldsOfTheExistingRow() {
+        let model = makeStreamingModel()
+        var listed = streamSummary("a", createdAt: 1_000)
+        listed.createdBy = VMCreator(userId: "user-1", displayName: "Ada")
+        let claim = CloudVMResourceReservation(vcpus: 4, memoryMb: 8_192)
+        listed.resourcePoolClaim = claim
+        listed.resourceReservation = claim
+        listed.agentUpdates = .latest
+        let expiresAt = Int64(Date().addingTimeInterval(3 * 86_400).timeIntervalSince1970 * 1000)
+        listed.freeAccessExpiresAt = expiresAt
+        model.applyVMChanges(upserts: [listed], deletions: [], authoritative: true)
+        let before = model.machines[0]
+
+        var streamed = streamSummary("a", status: "paused", createdAt: 1_000, label: "renamed")
+        streamed.createdBy = VMCreator(userId: "user-1")
+        model.applyVMChanges(upserts: [streamed], deletions: [], authoritative: false)
+
+        let after = model.machines[0]
+        XCTAssertEqual(after.label, "renamed", "the stream's own columns apply")
+        XCTAssertEqual(after.createdBy, VMCreator(userId: "user-1", displayName: "Ada"))
+        XCTAssertEqual(after.resourcePoolClaim, claim)
+        XCTAssertEqual(after.resourceReservation, claim)
+        XCTAssertEqual(after.agentUpdates, .latest)
+        XCTAssertEqual(after.freeAccess, before.freeAccess)
+    }
+
+    func testStreamInsertTakesTheCreatorFromTheRecord() throws {
+        let summary = try VMClient.decodeListItem([
+            "id": "vm-new", "provider": "freestyle", "image": "cmux-devbox", "status": "running",
+            "createdAt": 1_000, "createdByUserId": "user-2",
+        ])
+        XCTAssertEqual(summary.createdBy, VMCreator(userId: "user-2"))
+    }
+
+    /// A REST read that started before a stream change lands after it: the
+    /// newer change must survive the older page instead of being undone.
+    func testStreamChangesDuringARestReadSurviveItsResult() {
+        let model = makeStreamingModel()
+        model.applyVMChanges(
+            upserts: [streamSummary("c", createdAt: 3_000), streamSummary("b", createdAt: 2_000), streamSummary("a", createdAt: 1_000)],
+            deletions: [], authoritative: true
+        )
+        model.beginRestReadStreamCapture()
+        model.applyVMChanges(upserts: [], deletions: ["b"], authoritative: false)
+        model.applyVMChanges(upserts: [streamSummary("a", status: "paused", createdAt: 1_000, label: "renamed")], deletions: [], authoritative: false)
+
+        let stalePage = VMListPage(vms: [streamSummary("c", createdAt: 3_000), streamSummary("b", createdAt: 2_000), streamSummary("a", createdAt: 1_000)])
+        model.applyRefreshResult(.success(stalePage), generation: model.refreshGeneration, scope: nil)
+
+        XCTAssertEqual(model.machines.map(\.id), ["c", "a"], "a delete newer than the read stays deleted")
+        XCTAssertEqual(model.machines[1].label, "renamed", "an update newer than the read stays applied")
+
+        // Outside a read, the REST page is the authority again.
+        model.applyRefreshResult(.success(stalePage), generation: model.refreshGeneration, scope: nil)
+        XCTAssertEqual(model.machines.map(\.id), ["c", "b", "a"])
+    }
+
+    func testRoutinePollIntervalFollowsTheStream() {
+        let clock = CloudReadManualClock()
+        let model = makeStreamingModel(pollingClock: clock)
+        XCTAssertEqual(model.routinePollInterval, MachinesPanelViewModel.pollInterval)
+        XCTAssertEqual(MachinesPanelViewModel.pollInterval, .seconds(45))
+        XCTAssertEqual(MachinesPanelViewModel.streamingPollInterval, .seconds(300))
+        XCTAssertFalse(model.isVMSyncConnected)
+        XCTAssertNil(model.vmSync, "no auth coordinator, no stream")
+        model.stopVMSync()
+        XCTAssertEqual(model.routinePollInterval, .seconds(45), "stopping an absent stream keeps the polling cadence")
     }
 }

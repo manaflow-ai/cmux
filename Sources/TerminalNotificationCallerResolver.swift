@@ -75,6 +75,7 @@ extension TerminalController {
         )
     }
 
+    /// `notification.create_for_caller`: resolve the caller's workspace and surface from its claims and TTY, then deliver.
     func v2NotificationCreateForCaller(params: [String: Any]) -> V2CallResult {
         guard activeTabManagerForCallerNotification() != nil else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -92,6 +93,9 @@ extension TerminalController {
         let subtitle = stringParam(params, "subtitle") ?? ""
         let body = stringParam(params, "body") ?? ""
         let replyShape = TerminalNotificationReplyShape(wire: stringParam(params, "reply_shape"))
+        guard let effects = Self.notificationEffects(rawParam: params["effects"]) else {
+            return .err(code: "invalid_params", message: notificationStrings.effectsInvalid, data: nil)
+        }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to notify", data: nil)
         runOnMain {
@@ -112,7 +116,8 @@ extension TerminalController {
                 title: title,
                 subtitle: subtitle,
                 body: body,
-                replyShape: replyShape
+                replyShape: replyShape,
+                effects: effects
             )
             let surfaceId: Any = target.surfaceId?.uuidString ?? NSNull()
             let payload: [String: Any] = [

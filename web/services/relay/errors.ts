@@ -28,6 +28,39 @@ export class RelayDatabaseError extends Data.TaggedError("RelayDatabaseError")<{
   readonly cause: unknown;
 }> {}
 
+/**
+ * Return bounded, non-secret database failure metadata for operational logs.
+ * Aurora/pg errors can contain connection strings, SQL, or bind values, so
+ * never stringify the original cause into a response or log line.
+ */
+export function relayDatabaseFailureMetadata(
+  error: RelayDatabaseError,
+): { operation: string; category: string; code?: string; retryable: boolean } {
+  const cause = error.cause as {
+    readonly code?: unknown;
+    readonly name?: unknown;
+    readonly message?: unknown;
+    readonly errno?: unknown;
+  } | null;
+  const text = [cause?.name, cause?.code, cause?.message]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+  const retryable = /timeout|timed out|econn|connection|unavailable|deadlock|too many/i.test(text);
+  const category = /timeout|timed out/i.test(text)
+    ? "timeout"
+    : /econn|connection|unavailable/i.test(text)
+      ? "connection"
+      : /deadlock/i.test(text)
+        ? "deadlock"
+        : /too many/i.test(text)
+          ? "pool_exhausted"
+          : "database_failure";
+  const rawCode = [cause?.code, cause?.errno]
+    .find((value): value is string | number => typeof value === "string" || typeof value === "number");
+  const code = rawCode === undefined ? undefined : String(rawCode).slice(0, 64);
+  return { operation: error.operation, category, ...(code ? { code } : {}), retryable };
+}
+
 export class RelayPreferenceValidationError extends Data.TaggedError(
   "RelayPreferenceValidationError",
 )<{

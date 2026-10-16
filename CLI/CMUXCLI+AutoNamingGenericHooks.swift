@@ -62,7 +62,7 @@ extension CMUXCLI {
         }
         guard let probe = try? client.sendV2(
             method: "workspace.set_auto_title",
-            params: ["probe": true, "workspace_id": workspaceId]
+            params: ["probe": true, "workspace_id": workspaceId, "panel_id": surfaceId]
         ), probe["enabled"] as? Bool == true else {
             telemetry.breadcrumb("\(def.name)-hook.auto-name.disabled")
             return
@@ -122,6 +122,7 @@ extension CMUXCLI {
             messages: sourceResult.messages,
             lineCount: sourceResult.lineCount,
             sessionStore: sessionStore,
+            cloudNameContext: probe["cloud_name_context"],
             client: client,
             missingOverride: resolution.missingOverride,
             telemetryKey: "\(def.name)-hook.auto-name",
@@ -150,6 +151,7 @@ extension CMUXCLI {
         lines: [String],
         lineCount: Int,
         sessionStore: ClaudeHookSessionStore,
+        cloudNameContext: Any? = nil,
         client: SocketClient,
         missingOverride: String?,
         telemetryKey: String,
@@ -163,6 +165,7 @@ extension CMUXCLI {
             surfaceId: surfaceId,
             lineCount: lineCount,
             sessionStore: sessionStore,
+            cloudNameContext: cloudNameContext,
             client: client,
             missingOverride: missingOverride,
             telemetryKey: telemetryKey,
@@ -178,6 +181,7 @@ extension CMUXCLI {
         messages: [AutoNamingTranscriptMessage],
         lineCount: Int,
         sessionStore: ClaudeHookSessionStore,
+        cloudNameContext: Any? = nil,
         client: SocketClient,
         missingOverride: String?,
         telemetryKey: String,
@@ -191,6 +195,7 @@ extension CMUXCLI {
             surfaceId: surfaceId,
             lineCount: lineCount,
             sessionStore: sessionStore,
+            cloudNameContext: cloudNameContext,
             client: client,
             missingOverride: missingOverride,
             telemetryKey: telemetryKey,
@@ -205,6 +210,7 @@ extension CMUXCLI {
         surfaceId: String,
         lineCount: Int,
         sessionStore: ClaudeHookSessionStore,
+        cloudNameContext: Any? = nil,
         client: SocketClient,
         missingOverride: String?,
         telemetryKey: String,
@@ -244,6 +250,7 @@ extension CMUXCLI {
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             previousTitle: outcome.lastTitle,
+            cloudNameContext: cloudNameContext,
             client: client,
             telemetryKey: telemetryKey,
             telemetry: telemetry
@@ -260,6 +267,7 @@ extension CMUXCLI {
         workspaceId: String,
         surfaceId: String,
         previousTitle: String?,
+        cloudNameContext: Any? = nil,
         client: SocketClient,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry
@@ -268,12 +276,14 @@ extension CMUXCLI {
             "workspace_id": workspaceId,
             "panel_id": surfaceId,
             "panel_only_if_multiple": true,
-            "title": title
+            "title": title,
+            "cloud_name_context": cloudNameContext ?? NSNull()
         ]) else {
             telemetry.breadcrumb("\(telemetryKey).socket-failed")
             return nil
         }
-        if payload["workspace_applied"] as? Bool == true {
+        if payload["workspace_applied"] as? Bool == true
+            || (cloudNameContext is [String: Any] && payload["panel_applied"] as? Bool == true) {
             telemetry.breadcrumb("\(telemetryKey).applied")
             return title
         }

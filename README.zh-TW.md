@@ -152,7 +152,9 @@ cmux 是原語，而非解決方案。它提供終端機、瀏覽器、通知、
 
 | 快捷鍵 | 操作 |
 |----------|--------|
-| ⌘ N | 新增工作區 |
+| ⌘ N | 新增本機工作區 |
+| ⌘ Y | 在最近可用的 Cloud 內容中建立新的 Cloud 工作區；沒有可用內容時開啟 New Cloud Machine |
+| ⌘ ⇧ Y | 新增 Cloud 機器 |
 | ⌘ 1–8 | 跳至工作區 1–8 |
 | ⌘ 9 | 跳至最後一個工作區 |
 | ⌃ ⌘ ] | 下一個工作區 |
@@ -367,7 +369,7 @@ cmux 免費且開放原始碼，並將一直如此。如果您想支持開發並
 
 ### 我有功能請求或發現了 bug？
 
-我們很想聽到。請在 GitHub 上提交 [issue](https://github.com/manaflow-ai/cmux/issues) 或 [pull request](https://github.com/manaflow-ai/cmux/pulls)，或者 [寄電子郵件給我們](mailto:founders@manaflow.com?subject=cmux%20feature%20request)。
+我們很想聽到。請在 GitHub 上提交 [issue](https://github.com/manaflow-ai/cmux/issues) 或 [pull request](https://github.com/manaflow-ai/cmux/pulls)，或者 [寄電子郵件給我們](mailto:founders@cmux.com?subject=cmux%20feature%20request)。
 
 ## Star History
 
@@ -418,6 +420,6 @@ cmux 免費、開放原始碼，並將一直如此。如果您想支持開發並
 
 ## 授權
 
-cmux 以 [GPL-3.0-or-later](LICENSE) 開放原始碼。
+cmux 以 [GPL-3.0-or-later](LICENSE) 開放原始碼。cmux 伺服器軟體（`web/`、Cloudflare Worker 以及 [LICENSE](LICENSE) 中列出的中繼服務）改用 [Business Source License 1.1](web/LICENSE)：您可以為非正式環境用途閱讀、修改與執行它，正式環境使用或自行架設需要商業授權。
 
-如果您的組織無法遵守 GPL，可提供商業授權。詳情請聯絡 [founders@manaflow.com](mailto:founders@manaflow.com)。
+如果您的組織無法遵守 GPL，可提供商業授權。詳情請聯絡 [founders@cmux.com](mailto:founders@cmux.com)。

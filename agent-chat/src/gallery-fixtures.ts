@@ -127,7 +127,20 @@ longConversationBlocks.push(
   { kind: "error", text: "Example adapter error with enough text to show wrapping in the error block." },
 );
 
-export const activityScenarios: { id: string; label: string; status: string; blocks: Block[] }[] = [
+export const activityScenarios: { id: string; label: string; status: string; blocks: Block[]; repositorySlug?: string }[] = [
+  {
+    id: "github-references",
+    label: "GitHub references (manaflow-ai/cmux)",
+    status: "idle",
+    repositorySlug: "manaflow-ai/cmux",
+    blocks: [
+      {
+        kind: "assistant",
+        text: "I reviewed #15916 alongside manaflow-ai/cmux#15221.\n\nThe change is in commit 5cd7dfff. See https://github.com/manaflow-ai/cmux/pull/15916 for the discussion.\n\nThere are 42 review notes, and #roadmap is a label.",
+        open: false,
+      },
+    ],
+  },
   { id: "pre-first-token", label: "Pre-first-token Thinking", status: "running", blocks: [{ kind: "user", text: "Start a slow Claude turn." }] },
   { id: "thinking-elapsed", label: "Thinking with elapsed counter", status: "running", blocks: [{ kind: "user", text: "Slow turn that has waited." }] },
   { id: "reasoning", label: "Reasoning under open thinking", status: "running", blocks: [{ kind: "user", text: "Reason out loud." }, { kind: "thinking", text: "I am tracing the plan and checking the constraints.", open: true }] },
@@ -149,6 +162,22 @@ export const turnSummaryBlocks: Block[] = [
   { kind: "footer", text: "1432 in · 82 out · 4.2s" },
 ];
 
+// cmux agent messages: one that arrived with a prompt, one that woke the
+// agent after its reply.
+export const agentMessageBlocks: Block[] = [
+  { kind: "user", text: "Cut the 1.4 release branch." },
+  { kind: "message", id: "m-1", from: "coordinator", body: "Hold the v1.4 tag until #15302 merges." },
+  { kind: "assistant", text: "Branch `release/1.4` is ready. I'll hold the tag until #15302 merges.", open: false },
+  { kind: "footer", text: "3.1s" },
+  { kind: "message", id: "m-2", from: "reviewer", body: "#15302 merged. The tag is clear." },
+  { kind: "assistant", text: "Tagged `v1.4.0` and pushed it.", open: false },
+  { kind: "footer", text: "2.4s" },
+];
+
+export const queuedAgentMessages = [
+  { id: "m-3", from: "coordinator", body: "When the build is green, post the release notes in #releases." },
+];
+
 export const stressConversationBlocks: Block[] = Array.from({ length: 250 }, (_, i): Block[] => [
   { kind: "user", text: `Stress turn ${i}: keep virtualization smooth.` },
   { kind: "tool", toolId: `stress-rg-${i}`, name: "rg", detail: `query-${i}`, status: "ok", out: `match ${i}\n`.repeat(3) },
@@ -157,4 +186,4 @@ export const stressConversationBlocks: Block[] = Array.from({ length: 250 }, (_,
   { kind: "footer", text: `${200 + i} in · ${20 + i} out · 0.${i % 9}s` },
 ]).flat();
 
-export const galleryActions: SessionActions = { fork: true };
+export const galleryActions: SessionActions = { fork: true, handoff: true };

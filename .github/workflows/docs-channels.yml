@@ -3,7 +3,13 @@ name: Deploy docs channels
 on:
   push:
     branches: [main]
-    paths: ["web/**", "CHANGELOG.md"]
+    paths:
+      - "web/**"
+      - "CHANGELOG.md"
+      # Standalone lint policy is not an input to the docs build.
+      - "!web/scripts/check-complexity.mjs"
+      - "!web/oxlint-complexity-baseline.txt"
+      - "!web/.oxlintrc.json"
     tags: ["v*"]
 
 permissions:

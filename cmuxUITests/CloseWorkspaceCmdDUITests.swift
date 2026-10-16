@@ -230,6 +230,56 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         )
     }
 
+
+    func testExitOnOnlyTerminalDontWarnAgainSuppressesNextQuitPrompt() throws {
+        let app = XCUIApplication.cmuxTestApplication()
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-quit-pref-\(UUID().uuidString)", isDirectory: true)
+        let configHome = home.appendingPathComponent(".config", isDirectory: true)
+        try FileManager.default.createDirectory(at: configHome, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: home)
+            if app.state != .notRunning {
+                app.terminate()
+            }
+        }
+
+        app.launchEnvironment["CFFIXED_USER_HOME"] = home.path
+        app.launchEnvironment["XDG_CONFIG_HOME"] = configHome.path
+        app.launch()
+        app.activate()
+
+        XCTAssertTrue(waitForWindowCount(app: app, toBe: 1, timeout: 8.0))
+        let terminal = app.textViews.firstMatch
+        XCTAssertTrue(terminal.waitForExistence(timeout: 8.0), "Expected the sole terminal text area")
+        terminal.click()
+        app.typeText("exit\n")
+
+        XCTAssertTrue(waitForQuitCmuxAlert(app: app, timeout: 8.0))
+        let suppression = app.checkBoxes["Don't warn again for Cmd+Q"].firstMatch
+        XCTAssertTrue(
+            suppression.waitForExistence(timeout: 2.0),
+            "Expected the quit alert suppression checkbox"
+        )
+        suppression.click()
+        app.buttons["Cancel"].firstMatch.click()
+
+        XCTAssertTrue(waitForQuitCmuxAlertToDisappear(app: app, timeout: 8.0))
+        XCTAssertTrue(waitForWindowCount(app: app, toBe: 1, timeout: 8.0))
+        let replacementTerminal = app.textViews.firstMatch
+        XCTAssertTrue(
+            replacementTerminal.waitForExistence(timeout: 8.0),
+            "Expected a replacement terminal after cancelling quit"
+        )
+        replacementTerminal.click()
+        app.typeText("exit\n")
+
+        XCTAssertTrue(
+            waitForNoWindowsOrAppNotRunningForeground(app: app, timeout: 8.0),
+            "Expected the stored never preference to suppress the next last-terminal quit prompt"
+        )
+    }
+
     func testCtrlDFromKeyboardInThreePaneLayoutClosesOnlyFocusedPane() {
         let app = XCUIApplication.cmuxTestApplication()
         let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-tree-\(UUID().uuidString).json"

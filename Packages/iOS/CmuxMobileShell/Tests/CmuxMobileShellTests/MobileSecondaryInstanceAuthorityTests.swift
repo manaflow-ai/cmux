@@ -334,6 +334,7 @@ import Testing
             connectionState: .connected,
             connectionHandoffDrainTimeoutNanoseconds: 1_000_000
         )
+        shell.activeMacInstanceTag = "feature-a"
         shell.foregroundMacDeviceID = "mac-a"
         shell.activeTicket = foregroundTicket
         shell.activeRoute = foregroundRoute
@@ -850,6 +851,7 @@ import Testing
         )
         shell.workspacesByMac[MacPairingKey(macDeviceID: "mac-a", instanceTag: "feature-a")] = MacWorkspaceState(
             macDeviceID: "mac-a",
+            instanceTag: "feature-a",
             displayName: "Studio A",
             workspaces: [
                 MobileWorkspacePreview(
@@ -863,6 +865,7 @@ import Testing
         )
         shell.workspacesByMac[MacPairingKey(macDeviceID: "mac-b", instanceTag: "feature-b")] = MacWorkspaceState(
             macDeviceID: "mac-b",
+            instanceTag: "feature-b",
             displayName: "Studio B",
             workspaces: [
                 MobileWorkspacePreview(
@@ -998,7 +1001,9 @@ import Testing
         })
         #expect(shell.workspacesByMac[MacPairingKey(macDeviceID: "mac-b", instanceTag: "feature-b")]?.workspaces.first?.name
             != "Stale Promotion Snapshot")
-        #expect(shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-a", instanceTag: "feature-a")] == nil)
+        #expect(shell.secondaryMacSubscriptions[
+            MacPairingKey(macDeviceID: "mac-a", instanceTag: "feature-a")
+        ] == nil)
         #expect(!shell.liveMacConnections.contains {
             $0.macDeviceID == "mac-a"
         })

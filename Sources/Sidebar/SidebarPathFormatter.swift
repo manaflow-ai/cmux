@@ -9,6 +9,7 @@ enum SidebarPathFormatter {
     ) -> String {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return path }
+        guard !homeDirectoryPath.isEmpty else { return trimmed }
         if trimmed == homeDirectoryPath {
             return "~"
         }

@@ -1,5 +1,6 @@
 import Bonsplit
 import CmuxControlSocket
+import CmuxSurfaceCatalogModel
 import Foundation
 import WebKit
 
@@ -16,12 +17,15 @@ enum SurfacePaneFactory {
         case workspaceNotFound(UUID)
         case paneNotFound(String)
         case creationFailed(String)
+        /// Split admission had no room to divide the target pane.
+        case noSpace
 
         var errorDescription: String? {
             switch self {
             case .workspaceNotFound(let id): return "Workspace \(id.uuidString) was not found."
             case .paneNotFound(let id): return "Pane \(id) was not found."
             case .creationFailed(let detail): return "Could not create the pane: \(detail)"
+            case .noSpace: return String(localized: "surface.split.noSpace", defaultValue: "There is no room to split this pane.")
             }
         }
     }
@@ -29,16 +33,30 @@ enum SurfacePaneFactory {
     /// A terminal pane running `initialCommand` (nil → the login shell) at the destination.
     static func makeTerminalPane(
         initialCommand: String?,
+        initialInput: String? = nil,
         workingDirectory: String?,
         at destination: SurfaceDestination,
         focus: Bool
     ) throws -> (workspaceID: UUID, panelID: UUID) {
-        try create(typeRaw: "terminal", url: nil, initialCommand: initialCommand, workingDirectory: workingDirectory, at: destination, focus: focus)
+        try create(typeRaw: "terminal", url: nil, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, at: destination, focus: focus)
     }
 
     /// A browser pane loading `url` at the destination.
-    static func makeBrowserPane(url: URL, at destination: SurfaceDestination, focus: Bool) throws -> (workspaceID: UUID, panelID: UUID) {
-        try create(typeRaw: "browser", url: url.absoluteString, initialCommand: nil, workingDirectory: nil, at: destination, focus: focus)
+    static func makeBrowserPane(
+        url: URL?,
+        at destination: SurfaceDestination,
+        focus: Bool,
+        creationPolicy: Workspace.BrowserPanelCreationPolicy = .automationPreload
+    ) throws -> (workspaceID: UUID, panelID: UUID) {
+        try create(
+            typeRaw: "browser",
+            url: url?.absoluteString,
+            initialCommand: nil,
+            workingDirectory: nil,
+            at: destination,
+            focus: focus,
+            browserCreationPolicy: creationPolicy
+        )
     }
 
     /// The URL a browser pane opens with when its real URL is still being resolved; the
@@ -47,7 +65,7 @@ enum SurfacePaneFactory {
 
     /// The browser pane behind a projection, if it still exists and is a browser.
     static func browserPanel(panelID: UUID, in workspaceID: UUID) -> BrowserPanel? {
-        workspace(id: workspaceID)?.panels[panelID] as? BrowserPanel
+        workspace(id: workspaceID)?.browserPanelIncludingDock(for: panelID) ?? DockSplitStore.liveStore(containingPanel: panelID)?.browserPanel(for: panelID)
     }
 
     /// Sends an existing browser pane to `url` — the optimistic pane's second step, once
@@ -66,25 +84,85 @@ enum SurfacePaneFactory {
     /// Selects the workspace and focuses the pane, the way `surface.focus` does — an explicit
     /// focus-intent operation that still never activates the app.
     static func focus(panelID: UUID, in workspaceID: UUID) {
+        // AppKit focus-intent bookkeeping is optional. Socket/headless and
+        // windowless workspaces still need the shared control-socket focus
+        // operation below.
+        if let appDelegate = AppDelegate.shared,
+           let manager = appDelegate.tabManagerFor(tabId: workspaceID),
+           let workspace = manager.tabs.first(where: { $0.id == workspaceID }),
+           workspace.controlSurfaceTarget(for: panelID) != nil,
+           let windowID = appDelegate.windowId(for: manager),
+           let targetWindow = appDelegate.mainWindow(for: windowID) {
+            appDelegate.noteMainPanelKeyboardFocusIntent(
+                workspaceId: workspaceID,
+                panelId: panelID,
+                in: targetWindow
+            )
+        }
         _ = TerminalController.shared.controlSurfaceFocus(routing: routing(workspaceID: workspaceID), surfaceID: panelID)
     }
 
-    /// Closes a pane (a restored placeholder that a provider replaced).
+    /// Closes a pane the app is replacing or discarding itself (a restored placeholder a
+    /// provider replaced, the loser of an open race, the panes of a killed terminal). That
+    /// end is never a layout edit on the machine, unlike a pane the person closes.
     static func close(panelID: UUID, in workspaceID: UUID) {
-        _ = TerminalController.shared.controlSurfaceClose(routing: routing(workspaceID: workspaceID), surfaceID: panelID, hasSurfaceIDParam: true)
+        SurfaceCatalog.shared.withProjectionEndReason(for: [panelID], reason: .replaced) {
+            _ = TerminalController.shared.controlSurfaceClose(routing: routing(workspaceID: workspaceID), surfaceID: panelID, hasSurfaceIDParam: true)
+        }
+    }
+
+    /// Closes a pane whose process has ended, the way a local terminal pane
+    /// disappears when its shell exits.
+    ///
+    /// This is not ``close(panelID:in:)``: the socket close refuses a
+    /// workspace's last surface, so an agent cannot empty a workspace by
+    /// accident. A shell that ended is not an accident, and a cloud workspace
+    /// opened by `cmux vm workspace new` holds exactly one pane, so the socket
+    /// rule would leave the dead pane on screen forever.
+    static func closeExited(panelID: UUID, in workspaceID: UUID) {
+        guard let appDelegate = AppDelegate.shared,
+              let workspace = appDelegate.workspace(containingSurfaceID: panelID) else { return }
+        SurfaceCatalog.shared.withProjectionEndReason(for: [panelID], reason: .replaced) {
+            // A workspace whose only pane is the dead terminal goes with it, which
+            // is what a local workspace does when its last shell exits. Closing
+            // only the pane there leaves the workspace to open a fresh local shell
+            // in the cloud pane's place.
+            if workspace.panels.count <= 1 {
+                let manager = workspace.owningTabManager ?? TerminalController.shared.tabManager
+                if manager?.closeWorkspaceNonInteractively(workspace) == true { return }
+                // The workspace refused to close (pinned, or the window's last one
+                // during teardown). Close the pane anyway: a replacement local
+                // shell is still better than a frozen pane that swallows input.
+            }
+            workspace.markCloseHistoryEligible(panelId: panelID)
+            _ = workspace.closePanel(panelID, force: true)
+        }
     }
 
     /// A fresh local workspace (⌘N) titled `title`, returned with the id of the starter
     /// pane it opened with so a caller projecting a group can take that pane's place.
-    static func createLocalWorkspace(title: String) throws -> (workspaceID: UUID, starterPanelID: UUID?) {
+    /// `focus: false` creates it behind the current selection (no window or workspace switch).
+    static func createLocalWorkspace(title: String, titleSource: Workspace.CustomTitleSource = .user, focus: Bool) throws -> (workspaceID: UUID, starterPanelID: UUID?) {
         guard let workspace = AppDelegate.shared?.addWorkspaceInPreferredMainWindow(
-            title: title,
+            title: title, titleSource: titleSource,
+            select: focus,
             shouldBringToFront: false,
             debugSource: "surface.catalog.newWorkspace"
         ) else {
             throw FactoryError.workspaceNotFound(UUID())
         }
         return (workspace.id, workspace.focusedPanelId)
+    }
+
+    /// A pane an agent or script opened without focus gets the unread dot, so the person
+    /// sees that something landed without being pulled to it. It uses the restored-unread
+    /// indicator, which clears when the person selects the workspace, clicks the pane or
+    /// types in it; a manual mark-unread would survive everything but typing. The pane the
+    /// person is already looking at is left alone.
+    static func markOpenedInBackground(panelID: UUID, in workspaceID: UUID) {
+        guard let workspace = workspace(id: workspaceID), workspace.panels[panelID] != nil else { return }
+        if workspace.owningTabManager?.selectedTabId == workspaceID, workspace.focusedPanelId == panelID { return }
+        workspace.restorePanelUnreadIndicator(panelID)
     }
 
     /// The pane (Bonsplit id) that hosts a panel, for re-projecting in place.
@@ -127,9 +205,11 @@ enum SurfacePaneFactory {
         typeRaw: String,
         url: String?,
         initialCommand: String?,
+        initialInput: String? = nil,
         workingDirectory: String?,
         at destination: SurfaceDestination,
-        focus: Bool
+        focus: Bool,
+        browserCreationPolicy: Workspace.BrowserPanelCreationPolicy = .automationPreload
     ) throws -> (workspaceID: UUID, panelID: UUID) {
         let workspaceID = destination.workspaceID
         guard let workspace = workspace(id: workspaceID) else { throw FactoryError.workspaceNotFound(workspaceID) }
@@ -148,14 +228,14 @@ enum SurfacePaneFactory {
             switch destination {
             case .tab(_, let paneID, _):
                 guard let requestedPane = UUID(uuidString: paneID) else { throw FactoryError.paneNotFound(paneID) }
-                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: requestedPane, focus: focus)
+                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, requestedPane: requestedPane, focus: focus, browserCreationPolicy: browserCreationPolicy)
             case .workspace(_, .tab):
-                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: nil, focus: focus)
+                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, requestedPane: nil, focus: focus, browserCreationPolicy: browserCreationPolicy)
             case .split(_, let paneID, let direction):
                 let anchor = try anchorSurface(paneID: paneID, in: workspace)
-                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: direction, anchor: anchor, focus: focus)
+                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, direction: direction, anchor: anchor, focus: focus, browserCreationPolicy: browserCreationPolicy)
             case .workspace(_, .split):
-                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: .right, anchor: nil, focus: focus)
+                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, direction: .right, anchor: nil, focus: focus, browserCreationPolicy: browserCreationPolicy)
             }
         }
     }
@@ -166,9 +246,11 @@ enum SurfacePaneFactory {
         typeRaw: String,
         url: String?,
         initialCommand: String?,
+        initialInput: String?,
         workingDirectory: String?,
         requestedPane: UUID?,
-        focus: Bool
+        focus: Bool,
+        browserCreationPolicy: Workspace.BrowserPanelCreationPolicy
     ) throws -> (workspaceID: UUID, panelID: UUID) {
         let resolution = controller.controlSurfaceCreate(
             routing: routing,
@@ -179,6 +261,7 @@ enum SurfacePaneFactory {
                 urlRaw: url,
                 workingDirectory: workingDirectory,
                 initialCommand: initialCommand,
+                initialInput: initialInput,
                 tmuxStartCommand: nil,
                 remotePTYSessionID: nil,
                 remoteContextRaw: nil,
@@ -187,7 +270,8 @@ enum SurfacePaneFactory {
                 // the drop index, so it is not honored here either.
                 requestedPaneID: requestedPane,
                 requestedFocus: focus
-            )
+            ),
+            browserCreationPolicy: browserCreationPolicy
         )
         if case .created(_, let createdWorkspaceID, _, let surfaceID, _) = resolution {
             return (createdWorkspaceID, surfaceID)
@@ -201,10 +285,12 @@ enum SurfacePaneFactory {
         typeRaw: String,
         url: String?,
         initialCommand: String?,
+        initialInput: String?,
         workingDirectory: String?,
         direction: SurfaceSplitDirection,
         anchor: UUID?,
-        focus: Bool
+        focus: Bool,
+        browserCreationPolicy: Workspace.BrowserPanelCreationPolicy
     ) throws -> (workspaceID: UUID, panelID: UUID) {
         let resolution = controller.controlSurfaceSplit(
             routing: routing,
@@ -215,6 +301,7 @@ enum SurfacePaneFactory {
                 requestedSourceSurfaceID: anchor,
                 workingDirectory: workingDirectory,
                 initialCommand: initialCommand,
+                initialInput: initialInput,
                 tmuxStartCommand: nil,
                 remotePTYSessionID: nil,
                 remoteContextRaw: nil,
@@ -222,11 +309,15 @@ enum SurfacePaneFactory {
                 clientUnsupportedRemoteTmuxOptions: [],
                 requestedFocus: focus,
                 initialDividerPosition: nil
-            )
+            ),
+            browserCreationPolicy: browserCreationPolicy
         )
         if case .created(_, let createdWorkspaceID, _, let surfaceID, _) = resolution {
             return (createdWorkspaceID, surfaceID)
         }
+        // Typed so a user gesture can choose another placement; layout replay
+        // and socket callers still see the split refused.
+        if case .noSpace = resolution { throw FactoryError.noSpace }
         throw FactoryError.creationFailed("\(resolution)")
     }
 }
@@ -244,16 +335,23 @@ enum SurfaceBrowserPlaceholder {
         return page(title: title, detail: nil, spinner: true)
     }
 
-    /// "Couldn't open <label>" with the typed error and the way back.
-    static func failed(_ label: String, error: String) -> String {
+    /// "Couldn't open <label>" with the typed error and an appropriate next step.
+    /// Unsupported providers deliberately omit the retry instruction: the pane is
+    /// truthful about a permanent capability gap instead of inviting a retry loop.
+    static func failed(_ label: String, error: String, retryable: Bool = true) -> String {
         let title = String(
             format: String(localized: "cloudTree.pane.failed", defaultValue: "Couldn’t open %@"),
             label
         )
-        let hint = String(
-            localized: "cloudTree.pane.retryHint",
-            defaultValue: "Close this pane and open it again from the sidebar."
-        )
+        let hint = retryable
+            ? String(
+                localized: "cloudTree.pane.retryHint",
+                defaultValue: "Close this pane and open it again from the sidebar."
+            )
+            : String(
+                localized: "cloudTree.pane.unsupportedHint",
+                defaultValue: "This provider cannot open port previews. Do not retry; use `cmux vm exec` inside the machine or choose another machine."
+            )
         return page(title: title, detail: "\(error)\n\(hint)", spinner: false)
     }
 
@@ -303,5 +401,35 @@ enum SurfaceBrowserPlaceholder {
         </style></head>
         <body><main>\(spinnerHTML)<h1>\(escape(title))</h1>\(detailHTML)</main></body></html>
         """
+    }
+}
+
+extension SurfaceDestination {
+    /// Where a sidebar gesture lands when its split is refused for lack of room:
+    /// a tab in the pane that would have been split (the focused pane for a
+    /// workspace-level split). Nil for destinations that are already tabs.
+    var tabFallbackForRefusedSplit: SurfaceDestination? {
+        switch self {
+        case .workspace(let id, .split): return .workspace(id: id, placement: .tab)
+        case .split(let workspaceID, let paneID, _): return .tab(workspaceID: workspaceID, paneID: paneID, index: nil)
+        default: return nil
+        }
+    }
+}
+
+extension SurfacePaneFactory {
+    /// Opens with a split when it fits, otherwise as a tab. Only user gestures
+    /// (sidebar opens and display creation) use this; layout replay and socket
+    /// callers keep the refused split so their realized layout stays truthful.
+    static func openPreferringSplit<Result>(
+        at destination: SurfaceDestination,
+        _ open: (SurfaceDestination) async throws -> Result
+    ) async throws -> Result {
+        do {
+            return try await open(destination)
+        } catch FactoryError.noSpace {
+            guard let fallback = destination.tabFallbackForRefusedSplit else { throw FactoryError.noSpace }
+            return try await open(fallback)
+        }
     }
 }

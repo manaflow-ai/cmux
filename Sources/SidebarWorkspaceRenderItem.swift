@@ -35,9 +35,12 @@ enum SidebarWorkspaceRenderItem {
     static func renderItems(
         tabs: [Workspace],
         groupsById: [UUID: WorkspaceGroup],
-        orderedGroups: [WorkspaceGroup]? = nil
+        orderedGroups: [WorkspaceGroup]? = nil,
+        effectiveMembership: [UUID: UUID?]? = nil
     ) -> [SidebarWorkspaceRenderItem] {
         guard !tabs.isEmpty || !groupsById.isEmpty else { return [] }
+        let effectiveMembershipByWorkspaceId = effectiveMembership
+            ?? effectiveGroupIdByWorkspaceId(tabs: tabs, groupsById: groupsById)
         var items: [SidebarWorkspaceRenderItem] = []
         items.reserveCapacity(tabs.count + groupsById.count)
         var lastEmittedGroupId: UUID? = nil
@@ -45,7 +48,11 @@ enum SidebarWorkspaceRenderItem {
         var collapsedByGroupId: [UUID: Bool] = [:]
         var skipChildrenUntilNextGroup = false
         for tab in tabs {
-            let groupId = tab.groupId
+            // Render and row configuration must agree on whether this tab is
+            // actually grouped. A stale group id (or a group whose live anchor
+            // disappeared) is a root row, even if it sits between members of a
+            // valid group in the persisted tab order.
+            let groupId = effectiveMembershipByWorkspaceId[tab.id] ?? nil
             if groupId != lastEmittedGroupId {
                 lastEmittedGroupId = groupId
                 skipChildrenUntilNextGroup = false
@@ -64,7 +71,7 @@ enum SidebarWorkspaceRenderItem {
                 }
             }
             // Anchor workspaces are represented exclusively by the group header.
-            if let groupId, let group = groupsById[groupId], group.anchorWorkspaceId == tab.id {
+            if let groupId, let group = groupsById[groupId], group.liveAnchorWorkspaceId == tab.id {
                 continue
             }
             if groupId == nil || !skipChildrenUntilNextGroup {
@@ -79,9 +86,14 @@ enum SidebarWorkspaceRenderItem {
         // them) but remain renderable until an explicit mutation removes them.
         let ordered = orderedGroups
             ?? groupsById.values.sorted { $0.id.uuidString < $1.id.uuidString }
-        let memberGroupIds = Set(tabs.compactMap(\.groupId))
+        let memberGroupIds = Set(effectiveMembershipByWorkspaceId.values.compactMap { $0 })
         let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
-        let emptyGroups = ordered.filter { !memberGroupIds.contains($0.id) }
+        // Only durable empty groups belong in the header-only projection. A
+        // nonempty group whose anchor went stale is intentionally absent from
+        // the render tree; treating it as empty would create a ghost header.
+        let emptyGroups = ordered.filter {
+            $0.isEmpty && !memberGroupIds.contains($0.id)
+        }
         guard !emptyGroups.isEmpty else { return items }
 
         var emptyBeforeGroup: [UUID: [WorkspaceGroup]] = [:]
@@ -140,7 +152,7 @@ enum SidebarWorkspaceRenderItem {
                     guard let workspace = tabsById[workspaceId] else {
                         return false
                     }
-                    if let groupId = workspace.groupId,
+                    if let groupId = effectiveMembershipByWorkspaceId[workspace.id] ?? nil,
                        let group = groupsById[groupId] {
                         return !group.isPinned
                     }
@@ -190,9 +202,62 @@ enum SidebarWorkspaceRenderItem {
     }
 
     static func memberWorkspaceIdsByGroupId(tabs: [Workspace]) -> [UUID: [UUID]] {
+        memberWorkspaceIdsByGroupId(tabs: tabs, groupsById: nil)
+    }
+
+    /// Returns the group membership that is safe for sidebar rendering.
+    ///
+    /// A workspace may carry a stale group id after a restore or an
+    /// in-flight anchor promotion. Only groups with a live anchor (or an
+    /// explicitly empty durable anchor) are renderable; all other references
+    /// become root-level rows. A live anchor also wins when its workspace's
+    /// copied `groupId` is temporarily nil, keeping the header and member rows
+    /// on one authoritative group run.
+    static func effectiveGroupIdByWorkspaceId(
+        tabs: [Workspace],
+        groupsById: [UUID: WorkspaceGroup]
+    ) -> [UUID: UUID?] {
+        let liveWorkspaceIds = Set(tabs.map(\.id))
+        let renderableGroupIds = Set(groupsById.values.compactMap { group in
+            if group.isEmpty { return group.id }
+            guard let liveAnchorId = group.liveAnchorWorkspaceId,
+                  liveWorkspaceIds.contains(liveAnchorId) else {
+                return nil
+            }
+            return group.id
+        })
+        let groupIdByLiveAnchor = groupsById.values
+            .filter { renderableGroupIds.contains($0.id) }
+            .sorted { $0.id.uuidString < $1.id.uuidString }
+            .reduce(into: [UUID: UUID]()) { result, group in
+                guard let liveAnchorId = group.liveAnchorWorkspaceId,
+                      result[liveAnchorId] == nil else { return }
+                result[liveAnchorId] = group.id
+            }
+        return Dictionary(uniqueKeysWithValues: tabs.map { tab in
+            let effectiveGroupId = groupIdByLiveAnchor[tab.id]
+                ?? tab.groupId.flatMap { renderableGroupIds.contains($0) ? $0 : nil }
+            return (tab.id, effectiveGroupId)
+        })
+    }
+
+    /// Builds the member index using effective, renderable group membership.
+    static func memberWorkspaceIdsByGroupId(
+        tabs: [Workspace],
+        groupsById: [UUID: WorkspaceGroup]?,
+        effectiveMembership: [UUID: UUID?]? = nil
+    ) -> [UUID: [UUID]] {
         var result: [UUID: [UUID]] = [:]
+        let effectiveMembershipByWorkspaceId = effectiveMembership
+            ?? groupsById.map { effectiveGroupIdByWorkspaceId(tabs: tabs, groupsById: $0) }
         for tab in tabs {
-            if let groupId = tab.groupId {
+            let groupId: UUID?
+            if let effectiveMembershipByWorkspaceId {
+                groupId = effectiveMembershipByWorkspaceId[tab.id] ?? nil
+            } else {
+                groupId = tab.groupId
+            }
+            if let groupId {
                 result[groupId, default: []].append(tab.id)
             }
         }

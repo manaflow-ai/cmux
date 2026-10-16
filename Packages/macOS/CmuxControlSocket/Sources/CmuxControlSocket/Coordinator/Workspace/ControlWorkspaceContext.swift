@@ -76,7 +76,8 @@ public protocol ControlWorkspaceContext: AnyObject {
     /// - Returns: The close resolution.
     func controlCloseWorkspace(
         routing: ControlRoutingSelectors,
-        workspaceID: UUID
+        workspaceID: UUID,
+        force: Bool
     ) -> ControlWorkspaceCloseResolution
 
     /// Moves a workspace to another window for `workspace.move_to_window`.

@@ -1,19 +1,16 @@
+import { retainCloudServerError } from "../observability/cloudServerError";
 import { randomUUID } from "node:crypto";
 import { after } from "next/server";
 import { trace, type Span } from "@opentelemetry/api";
 
 import { POSTHOG_HOST, POSTHOG_PROJECT_KEY } from "../analytics/iosEventPolicy";
 import { reportError } from "../observability/report";
-import { setSpanAttributes, spanTraceIds } from "../telemetry";
+import { setSpanAttributes, spanTraceIds, VM_ERROR_CODE_HEADER } from "../telemetry";
 import { currentVmRequestContext, type VmRequestContext } from "./requestContext";
 import type { VmErrorResponseInput } from "./routeHelpers";
 
-/**
- * Response header carrying the machine-readable VM error code. Set by
- * `vmErrorResponse` on every error so response finalizers (analytics,
- * timing) can classify an outcome without re-parsing the body.
- */
-export const VM_ERROR_CODE_HEADER = "x-cmux-vm-error";
+// Defined with the route span, which reads it to label an unreported 5xx.
+export { VM_ERROR_CODE_HEADER };
 
 /**
  * Error codes that are the operator's fault, never the caller's: a
@@ -39,6 +36,35 @@ const OPERATOR_FAULT_VM_ERROR_CODES: ReadonlySet<string> = new Set([
  */
 const EXPECTED_5XX_VM_ERROR_CODES: ReadonlySet<string> = new Set([
   "vm_operation_unsupported",
+  // A provider read that missed its route budget (routeDeadline.ts). One slow
+  // read is not an incident; alert on its rate from the error-code attribute.
+  "vm_provider_timeout",
+  // A mutation still running at the provider when its route answered
+  // (routeDeadline.ts): it continues in the background. Alert on its rate.
+  "vm_operation_in_progress",
+  // The provider had no room for a machine (409 capacity refusal). One
+  // refusal is not an incident; alert on its rate.
+  "vm_provider_capacity",
+]);
+
+/**
+ * Permanent client-state errors: the caller addresses a machine, snapshot,
+ * tunnel or grant that does not exist, was revoked, or cannot serve the
+ * requested shape. Retrying the same request can never succeed and no
+ * operator action fixes it, so these are never operator faults, whatever
+ * status a route answers them with. A client that loops on one of them shows
+ * up as one `vm_id` and one distinct id with a high count (see the README).
+ */
+const CLIENT_STATE_VM_ERROR_CODES: ReadonlySet<string> = new Set([
+  "vm_not_found",
+  "vm_snapshot_not_found",
+  "vm_file_not_found",
+  "vm_firewall_rule_not_found",
+  "vm_tunnel_not_found",
+  "vm_access_revoked",
+  "vm_access_grant_not_found",
+  "vm_attach_transport_unsupported",
+  "vm_memory_size_unknown",
 ]);
 
 export function isOperatorFaultVmError(input: {
@@ -46,6 +72,7 @@ export function isOperatorFaultVmError(input: {
   readonly status: number;
 }): boolean {
   if (EXPECTED_5XX_VM_ERROR_CODES.has(input.error)) return false;
+  if (CLIENT_STATE_VM_ERROR_CODES.has(input.error)) return false;
   return input.status >= 500 || OPERATOR_FAULT_VM_ERROR_CODES.has(input.error);
 }
 
@@ -77,18 +104,21 @@ export function annotateVmErrorSpan(span: Span, input: VmErrorResponseInput): vo
  * - annotates the active span so the full operator context reaches Axiom;
  * - records the error on the request context so the response finalizer can
  *   ship it to PostHog with the user, client, duration and trace ids;
- * - reports to Sentry. Operator faults are `error` level, user faults are
- *   `warning`, both fingerprinted by code and provider so one condition is
- *   one issue. Every event carries the trace id as a tag and trace context.
+ * - reports operator faults to Sentry at `error` level, fingerprinted by
+ *   code and provider so one condition is one issue, with the trace id as a
+ *   tag and trace context. A user or tenant fault (a 4xx such as
+ *   `vm_not_found`, `vm_requires_pro`, `vm_command_too_large`) is an expected
+ *   answer, not an exception: the span and `cloud_vm_request` record it.
  */
 export function reportVmErrorResponse(input: VmErrorResponseInput): void {
   const activeSpan = trace.getActiveSpan();
   if (activeSpan) annotateVmErrorSpan(activeSpan, input);
   const context = currentVmRequestContext();
   if (context) context.lastError = input;
+  retainCloudServerError(input, context);
   const diagnostics = input.diagnostics ?? {};
   const provider = stringOrUndefined(diagnostics.provider);
-  const operatorFault = isOperatorFaultVmError(input);
+  if (!isOperatorFaultVmError(input)) return;
   reportError(
     new Error(`cloud VM ${input.error}: ${input.message}`),
     {
@@ -96,51 +126,122 @@ export function reportVmErrorResponse(input: VmErrorResponseInput): void {
       code: input.error,
       status: input.status,
       phase: input.phase ?? "unknown",
-      operator_fault: operatorFault,
+      operator_fault: true,
       reason: input.reason ?? input.message,
-      operation: context?.operation,
-      route: context?.route,
-      user_id: context?.userId,
-      client: context?.client,
-      vercel_request_id: context?.vercelRequestId,
+      ...vmErrorRequestContext(context),
       ...(input.details ?? {}),
       ...diagnostics,
     },
     {
       fingerprint: ["cmux-vm-error", input.error, provider ?? "unknown"],
-      level: operatorFault ? "error" : "warning",
+      level: "error",
       tags: {
         "vm.error_code": input.error,
         "vm.phase": input.phase ?? "unknown",
         "vm.status": input.status,
-        "vm.operator_fault": operatorFault,
-        "vm.operation": context?.operation,
+        "vm.operator_fault": true,
         "vm.provider": provider,
-        "client.name": context?.client.name,
-        "client.version": context?.client.version,
-        "client.channel": context?.client.channel,
-        user_id: context?.userId,
+        ...vmErrorRequestTags(context),
       },
     },
   );
 }
 
+function vmErrorRequestContext(context: VmRequestContext | undefined): Record<string, unknown> {
+  if (!context) return {};
+  return {
+    operation: context.operation,
+    route: context.route,
+    vm_id: context.vmId,
+    user_id: context.userId,
+    client: context.client,
+    vercel_request_id: context.vercelRequestId,
+  };
+}
+
+/**
+ * Searchable request tags. `vm_id` and `client.request_id` separate one
+ * client retrying a permanent error from many machines failing at once.
+ */
+function vmErrorRequestTags(context: VmRequestContext | undefined): Record<string, string | undefined> {
+  if (!context) return {};
+  return {
+    "vm.operation": context.operation,
+    "client.name": context.client.name,
+    "client.version": context.client.version,
+    "client.channel": context.client.channel,
+    "client.request_id": context.client.requestId,
+    vm_id: context.vmId,
+    user_id: context.userId,
+  };
+}
+
 /**
  * Operations a client polls on a timer. Their successes stay out of PostHog
  * (Axiom keeps 100% of them); their failures are captured like any other.
+ * `approve_cmux_remote_enrollment` answers `pending` until the guest connects
+ * and clients poll it: it produced 17.8k of 22k `cloud_vm_request` rows in one
+ * week and would otherwise dominate every "active user" count.
  */
-const POLLED_VM_OPERATIONS: ReadonlySet<string> = new Set([
+export const POLLED_VM_OPERATIONS: ReadonlySet<string> = new Set([
   "list",
   "status",
   "stats",
   "list_sessions",
   "get_tunnel",
+  "approve_cmux_remote_enrollment",
 ]);
+
+export function isPolledVmOperation(operation: string): boolean {
+  return POLLED_VM_OPERATIONS.has(operation);
+}
+
+/**
+ * Identity and billing scope shared by every PostHog row a VM request emits:
+ * the machine addressed, the plan and billing team, the `stack_team` group so
+ * account-level dashboards join billing and usage, and `is_synthetic` for
+ * probe accounts. `$groups` is a nested object, hence the wider value type.
+ */
+function requestScopeProperties(context: VmRequestContext): Record<string, string | number | boolean | Record<string, string>> {
+  const properties: Record<string, string | number | boolean | Record<string, string>> = {};
+  // `vm_id` is the provider id from the URL. A collection route (create, base
+  // open) has none; the ledger id it wrote names the machine instead, the
+  // internal UUID `cloud_vm_created.vm_id` carries. `vm_id_kind` says which.
+  if (context.vmId) {
+    properties.vm_id = context.vmId;
+    properties.vm_id_kind = "provider";
+  } else if (context.ledgerVmId) {
+    properties.vm_id = context.ledgerVmId;
+    properties.vm_id_kind = "ledger";
+  }
+  // Probe accounts (the Cloud VM canary): kept, but excludable.
+  if (context.synthetic) properties.is_synthetic = true;
+  if (context.planId) properties.plan_id = context.planId;
+  if (context.billingCustomerType) properties.billing_customer_type = context.billingCustomerType;
+  if (context.billingTeamId) {
+    properties.billing_team_id = context.billingTeamId;
+    properties.$groups = { stack_team: context.billingTeamId };
+  }
+  return properties;
+}
 
 /** PostHog event carrying one Cloud VM API request outcome with latency. */
 export const VM_REQUEST_POSTHOG_EVENT = "cloud_vm_request";
+/**
+ * Schema 2 (2026-09): adds `vm_id`, `plan_id`, `billing_customer_type`,
+ * `billing_team_id` and the `stack_team` group; moves
+ * `approve_cmux_remote_enrollment` successes out of the event.
+ * Schema 3 (2026-10): `vm_id` falls back to the ledger id on collection
+ * routes (create, base open); adds `is_synthetic` for probe accounts.
+ */
+export const VM_REQUEST_POSTHOG_SCHEMA_VERSION = 3;
 
-type PostHogProperties = Record<string, string | number | boolean>;
+type PostHogExceptionEntry = {
+  readonly type: string;
+  readonly value: string;
+  readonly mechanism: { readonly handled: boolean; readonly type: string; readonly synthetic: boolean };
+};
+type PostHogProperties = Record<string, string | number | boolean | Record<string, string> | readonly PostHogExceptionEntry[]>;
 
 function vmAnalyticsEnabled(env: Record<string, string | undefined>): boolean {
   return env.VERCEL_ENV === "production" || env.CMUX_VM_ANALYTICS_FORCE === "1";
@@ -180,13 +281,103 @@ function requestTelemetryProperties(
  * - PostHog `cloud_vm_request`: every failure, plus successes of the
  *   operations a user waits on (create, attach, base open, ...) with their
  *   duration. Polled reads succeed silently.
- * - PostHog `$exception` (Error Tracking): every failure, fingerprinted by
- *   error code, with the scrubbed reason, phase and the same ids.
+ * - PostHog `$exception` (Error Tracking): operator faults only,
+ *   fingerprinted by error code, with the scrubbed reason, phase and the same
+ *   ids. User and tenant faults stay in `cloud_vm_request`.
  *
  * Every event carries the server trace id, so a PostHog row, a Sentry issue
  * and an Axiom trace of one failure share one key. Reads only the status
  * and the `x-cmux-vm-error` header, never the body stream.
  */
+function addMemoryUpgradeProperties(requestProperties: PostHogProperties, errorCode: string | undefined, lastError: VmErrorResponseInput | undefined) {
+  if (errorCode === "vm_memory_requires_plan") {
+    requestProperties.requested_memory_mb = typeof lastError?.details?.requestedMemoryMb === "number" ? lastError.details.requestedMemoryMb : 0;
+    requestProperties.max_memory_mb = typeof lastError?.details?.maxMemoryMb === "number" ? lastError.details.maxMemoryMb : 0;
+    requestProperties.upgrade_plan = typeof lastError?.details?.upgradePlanId === "string" ? lastError.details.upgradePlanId : "max";
+  }
+}
+
+function requestAnalyticsBatch(requestProperties: PostHogProperties, errorCode: string | undefined) {
+  const batch: Array<{ event: string; properties: PostHogProperties }> = [
+    { event: VM_REQUEST_POSTHOG_EVENT, properties: requestProperties },
+  ];
+  if (errorCode === "vm_memory_requires_plan") {
+    batch.push({ event: "cmux_vm_size_upgrade_required", properties: { ...requestProperties, $insert_id: randomUUID() } });
+  }
+  return batch;
+}
+
+function annotateVmRequestSpan(
+  span: Span,
+  context: VmRequestContext,
+  outcome: { readonly success: boolean; readonly durationMs: number; readonly code: string | undefined },
+): void {
+  setSpanAttributes(span, {
+    "cmux.vm.request_success": outcome.success,
+    "cmux.vm.request_duration_ms": outcome.durationMs,
+    "cmux.vm.request_error_code": outcome.code,
+    "cmux.user_id": context.userId,
+    "cmux.vm.id": context.vmId,
+    "cmux.client.name": context.client.name,
+    "cmux.client.version": context.client.version,
+    "cmux.client.build": context.client.build,
+    "cmux.client.channel": normalizedCloudClientChannel(context.client.channel),
+    "cmux.client.revision": context.client.revision,
+    "cmux.operation_id": context.operationId,
+    "cmux.client.request_id": context.client.requestId,
+    "cmux.client.trace_id": context.client.traceId,
+    "cmux.vercel.request_id": context.vercelRequestId,
+  });
+}
+
+function addVmErrorProperties(
+  properties: PostHogProperties,
+  errorCode: string | undefined,
+  lastError: VmErrorResponseInput | undefined,
+): void {
+  if (errorCode) properties.error_code = errorCode;
+  if (lastError?.phase) properties.error_phase = lastError.phase;
+  if (lastError?.retryable !== undefined) properties.retryable = lastError.retryable;
+  addMemoryUpgradeProperties(properties, errorCode, lastError);
+  const provider = stringOrUndefined(lastError?.diagnostics?.provider);
+  if (provider) properties.provider = provider;
+}
+
+/**
+ * The Error Tracking leg, for operator faults only. `$exception_list` is a
+ * JSON array: PostHog rejects a string list and then files the event with no
+ * exception type, so nothing groups by the code.
+ */
+function vmOperatorExceptionEvent(
+  shared: PostHogProperties,
+  input: { readonly status: number; readonly errorCode: string | undefined; readonly lastError: VmErrorResponseInput | undefined },
+): { event: string; properties: PostHogProperties } {
+  const { status, lastError } = input;
+  const errorCode = input.errorCode ?? `http_${status}`;
+  return {
+    event: "$exception",
+    properties: {
+      ...shared,
+      status,
+      operator_fault: true,
+      error_code: errorCode,
+      error_phase: lastError?.phase ?? "unknown",
+      $exception_level: "error",
+      $exception_fingerprint: `cmux-vm-error:${errorCode}`,
+      $exception_list: [
+        {
+          type: errorCode,
+          value: scrubForAnalytics(lastError?.reason ?? lastError?.message ?? `HTTP ${status}`),
+          mechanism: { handled: true, type: "cmux_vm_api", synthetic: true },
+        },
+      ],
+      schema_version: 1,
+      $insert_id: randomUUID(),
+      $geoip_disable: true,
+    },
+  };
+}
+
 export function captureVmRequestOutcome(
   input: {
     readonly context: VmRequestContext;
@@ -206,74 +397,32 @@ export function captureVmRequestOutcome(
   const span = input.span ?? trace.getActiveSpan();
   const ids = spanTraceIds(span) ?? (context.traceId ? { traceId: context.traceId, spanId: context.spanId ?? "" } : undefined);
   const durationMs = Math.round(input.durationMs * 100) / 100;
-  if (span) {
-    setSpanAttributes(span, {
-      "cmux.vm.request_success": success,
-      "cmux.vm.request_duration_ms": durationMs,
-      "cmux.vm.request_error_code": code,
-      "cmux.user_id": context.userId,
-      "cmux.client.name": context.client.name,
-      "cmux.client.version": context.client.version,
-      "cmux.client.build": context.client.build,
-      "cmux.client.channel": context.client.channel,
-      "cmux.client.request_id": context.client.requestId,
-      "cmux.client.trace_id": context.client.traceId,
-      "cmux.vercel.request_id": context.vercelRequestId,
-    });
-  }
+  if (span) annotateVmRequestSpan(span, context, { success, durationMs, code });
   if (success && POLLED_VM_OPERATIONS.has(context.operation)) return;
   const env = options.env ?? process.env;
   if (!vmAnalyticsEnabled(env)) return;
   const distinctId = context.userId ?? "cmux-vm-anonymous";
   const lastError = context.lastError;
   const errorCode = code ?? lastError?.error;
-  const operatorFault = success ? false : isOperatorFaultVmError({ error: errorCode ?? "", status });
-  const base = requestTelemetryProperties(context, ids);
+  const operatorFault = !success && isOperatorFaultVmError({ error: errorCode ?? "", status });
+  const shared: PostHogProperties = {
+    ...requestTelemetryProperties(context, ids),
+    ...requestScopeProperties(context),
+    duration_ms: durationMs,
+  };
   const requestProperties: PostHogProperties = {
-    ...base,
+    ...shared,
     success,
     status,
-    duration_ms: durationMs,
     operator_fault: operatorFault,
-    schema_version: 1,
+    schema_version: VM_REQUEST_POSTHOG_SCHEMA_VERSION,
     $insert_id: randomUUID(),
     $geoip_disable: true,
   };
-  if (errorCode) requestProperties.error_code = errorCode;
-  if (lastError?.phase) requestProperties.error_phase = lastError.phase;
-  if (lastError?.retryable !== undefined) requestProperties.retryable = lastError.retryable;
-  const provider = stringOrUndefined(lastError?.diagnostics?.provider);
-  if (provider) requestProperties.provider = provider;
+  addVmErrorProperties(requestProperties, errorCode, lastError);
   const timestamp = new Date().toISOString();
-  const batch: Array<{ event: string; properties: PostHogProperties }> = [
-    { event: VM_REQUEST_POSTHOG_EVENT, properties: requestProperties },
-  ];
-  if (!success) {
-    const reason = scrubForAnalytics(lastError?.reason ?? lastError?.message ?? `HTTP ${status}`);
-    batch.push({
-      event: "$exception",
-      properties: {
-        ...base,
-        status,
-        duration_ms: durationMs,
-        operator_fault: operatorFault,
-        error_code: errorCode ?? `http_${status}`,
-        error_phase: lastError?.phase ?? "unknown",
-        $exception_level: operatorFault ? "error" : "warning",
-        $exception_fingerprint: `cmux-vm-error:${errorCode ?? `http_${status}`}`,
-        $exception_list: JSON.stringify([
-          {
-            type: errorCode ?? `http_${status}`,
-            value: reason,
-            mechanism: { handled: true, type: "cmux_vm_api", synthetic: true },
-          },
-        ]),
-        schema_version: 1,
-        $insert_id: randomUUID(),
-        $geoip_disable: true,
-      },
-    });
-  }
+  const batch = requestAnalyticsBatch(requestProperties, errorCode);
+  if (operatorFault) batch.push(vmOperatorExceptionEvent(shared, { status, errorCode, lastError }));
   const body = JSON.stringify({
     api_key: POSTHOG_PROJECT_KEY,
     batch: batch.map((entry) => ({
@@ -480,14 +629,17 @@ export function captureVmProvisionOutcome(
   if (!vmAnalyticsEnabled(env)) return;
   const context = currentVmRequestContext();
   const ids = spanTraceIds(span);
-  const properties: Record<string, string | number | boolean> = {
+  const properties: PostHogProperties = {
     operation: input.operation,
+    ...(context ? requestScopeProperties(context) : {}),
     success,
     status,
     // A missing code on a 5xx (a response that bypassed vmErrorResponse) is
     // still an operator fault; isOperatorFaultVmError treats every 5xx as one.
     operator_fault: isOperatorFaultVmError({ error: code ?? "", status }),
-    schema_version: 2,
+    // Schema 3: plan, billing team and the stack_team group. Schema 4: the
+    // ledger vm_id on collection routes and `is_synthetic`.
+    schema_version: 4,
     $insert_id: randomUUID(),
     $geoip_disable: true,
   };
@@ -530,4 +682,8 @@ export function captureVmProvisionOutcome(
 
 function stringOrUndefined(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function normalizedCloudClientChannel(channel: string | undefined): string | undefined {
+  return channel === "stable" ? "production" : channel;
 }

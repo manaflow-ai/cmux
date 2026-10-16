@@ -55,6 +55,15 @@ class Operations:
     SESSION_JOURNAL_SUBSCRIBE = _op(
         "session.journal.subscribe", "stream_open", ("session",), "stream"
     )
+    SESSION_JOURNAL_PRODUCER_LIST = _op(
+        "session.journal.producer.list", "read", ("session",), "journal_producer_list"
+    )
+    SESSION_JOURNAL_PRODUCER_PUT = _op(
+        "session.journal.producer.put", "mutation", ("session",), "journal_producer_put"
+    )
+    SESSION_JOURNAL_APPEND = _op(
+        "session.journal.append", "mutation", ("session",), "journal_append"
+    )
     SESSION_PING = _op("session.ping", "read", ("session",))
     SESSION_SHUTDOWN = _op("session.shutdown", "mutation", ("session",))
     SESSION_RELOAD_CONFIG = _op("session.reload_config", "mutation", ("session",))

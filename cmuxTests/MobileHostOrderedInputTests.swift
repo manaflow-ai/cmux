@@ -75,9 +75,13 @@ struct MobileHostOrderedInputTests {
             try Self.framedBatch([("input-overflow", "terminal.input")])
         )
 
-        #expect(await transport.closeCount() == 1)
+        let responses = await transport.waitForResponseCount(1)
+        #expect(responses == ["input-overflow"])
+        #expect(await transport.errorCode(for: "input-overflow") == "server_busy")
+        #expect(await transport.closeCount() == 0)
         #expect(await gate.handledRequestCount() == 1)
         await gate.releaseFirstInput()
+        await connection.close(reason: "test complete")
     }
 
     @Test
@@ -95,19 +99,28 @@ struct MobileHostOrderedInputTests {
             },
             onClose: { _ in }
         )
-        // input-1 is held on surface s1; input-2 targets surface s2 and must
+        // input-1 is held on one surface; input-2 targets another and must
         // run concurrently: ordering is a per-PTY property, and one surface's
-        // slow request must not block typing on another.
+        // slow request must not block typing on another. Surface ids are
+        // UUIDs because the ordering key is the canonical terminal UUID; an
+        // id that does not parse falls into the shared no-terminal bucket.
         let batch = try Self.framedBatch(
             [
                 ("input-1", "terminal.input"),
                 ("input-2", "terminal.input"),
             ],
             surfaceIDsByRequestID: [
-                "input-1": "surface-1",
-                "input-2": "surface-2",
+                "input-1": UUID().uuidString,
+                "input-2": UUID().uuidString,
             ]
         )
+
+        // The two requests must land in different ordering buckets, or the
+        // wait for input-2 below can never finish while input-1 is held.
+        // Check the buckets up front so a keying change fails here at once.
+        let orderingKeys = try Self.orderedInputSurfaceKeys(in: batch)
+        try #require(orderingKeys.count == 2)
+        try #require(orderingKeys[0] != orderingKeys[1])
 
         await connection.debugHandleReceiveDataForTesting(batch)
         await gate.waitUntilFirstInputStarts()
@@ -150,7 +163,8 @@ struct MobileHostOrderedInputTests {
         // a peer that stops reading stalls the serialized writer, and input
         // application must not sit behind that stall.
         var bothHandled = false
-        for _ in 0..<2_000 {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if await gate.handledRequestCount() >= 2 {
                 bothHandled = true
                 break
@@ -165,6 +179,13 @@ struct MobileHostOrderedInputTests {
         let responses = await transport.waitForResponseCount(2)
         #expect(Set(responses) == Set(["stall-1", "stall-2"]))
         await connection.close(reason: "test complete")
+    }
+
+    private static func orderedInputSurfaceKeys(in batch: Data) throws -> [String] {
+        var buffer = batch
+        return try MobileSyncFrameCodec.decodeFrames(from: &buffer).map {
+            try MobileHostRPCEnvelope.decodeRequest($0).get().orderedInputSurfaceKey
+        }
     }
 
     private static func framedBatch(
@@ -256,6 +277,7 @@ private actor OrderedInputHandlerGate {
 
 private actor OrderedInputRecordingTransport: CmxByteTransport {
     private var responses: [String] = []
+    private var errorCodes: [String: String] = [:]
     private var responseWaiters:
         [(Int, CheckedContinuation<[String], Never>)] = []
     private var closes = 0
@@ -286,7 +308,9 @@ private actor OrderedInputRecordingTransport: CmxByteTransport {
         for payload in payloads {
             let envelope = try JSONSerialization.jsonObject(with: payload)
                 as? [String: Any]
-            responses.append(envelope?["id"] as? String ?? "")
+            let id = envelope?["id"] as? String ?? ""
+            responses.append(id)
+            errorCodes[id] = (envelope?["error"] as? [String: Any])?["code"] as? String
         }
         let ready = responseWaiters.filter { responses.count >= $0.0 }
         responseWaiters.removeAll { responses.count >= $0.0 }
@@ -306,6 +330,7 @@ private actor OrderedInputRecordingTransport: CmxByteTransport {
         }
     }
 
+    func errorCode(for id: String) -> String? { errorCodes[id] }
     func responseIDs() -> [String] { responses }
     func closeCount() -> Int { closes }
 }

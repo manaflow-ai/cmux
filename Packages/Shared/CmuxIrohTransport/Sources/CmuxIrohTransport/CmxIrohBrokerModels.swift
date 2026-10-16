@@ -307,6 +307,7 @@ public struct CmxIrohRegistrationResponse: Decodable, Equatable, Sendable {
         case discoveryComplete = "discovery_complete"
         case discoveryScope = "discovery_scope"
         case discoveryScopeComplete = "discovery_scope_complete"
+        case minimumPublicationSpacingSeconds = "minimum_publication_spacing_seconds"
     }
 
     /// Monotonic account route revision after this registration commit.
@@ -323,6 +324,9 @@ public struct CmxIrohRegistrationResponse: Decodable, Equatable, Sendable {
     public let discoveryScope: CmxConnectivityDiscoveryScope?
     /// True only when embedded discovery covers every binding in its scope.
     public let discoveryScopeComplete: Bool?
+    /// The broker's floor between two reachability-driven publications for
+    /// this binding. Older brokers omit it; the client default applies.
+    public let minimumPublicationSpacingSeconds: Double?
 
     /// Whether the embedded discovery is proven complete globally or for its
     /// validated scoped-registration request.
@@ -340,7 +344,8 @@ public struct CmxIrohRegistrationResponse: Decodable, Equatable, Sendable {
         discovery: CmxIrohDiscoveryResponse? = nil,
         discoveryComplete: Bool? = nil,
         discoveryScope: CmxConnectivityDiscoveryScope? = nil,
-        discoveryScopeComplete: Bool? = nil
+        discoveryScopeComplete: Bool? = nil,
+        minimumPublicationSpacingSeconds: Double? = nil
     ) {
         self.revision = revision
         self.binding = binding
@@ -349,6 +354,7 @@ public struct CmxIrohRegistrationResponse: Decodable, Equatable, Sendable {
         self.discoveryComplete = discoveryComplete
         self.discoveryScope = discoveryScope
         self.discoveryScopeComplete = discoveryScopeComplete
+        self.minimumPublicationSpacingSeconds = minimumPublicationSpacingSeconds
     }
 }
 

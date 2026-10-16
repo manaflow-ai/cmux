@@ -7,6 +7,7 @@ import {
   issueRouteToken,
   revokeRouteToken,
 } from "../../../../services/coderouter/repository";
+import { authenticateCoderouterCredential, authenticateRequestRouteToken } from "../../../../services/coderouter/routeTokenAuth";
 import { resolveCodeRouterRequestContext } from "../../../../services/coderouter/requestContext";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 import {
@@ -30,12 +31,13 @@ export const POST = coderouterControlRoute("session", "/api/coderouter/session",
 export const GET = coderouterControlRoute("session", "/api/coderouter/session", makeCoderouterSessionGetHandler());
 
 export function makeCoderouterSessionGetHandler(
-  authenticate: typeof authenticateRouteToken = authenticateRouteToken,
+  authenticate: typeof authenticateRouteToken = authenticateCoderouterCredential,
 ) {
   return async function GET(request: Request): Promise<Response> {
     const authorization = request.headers.get("authorization")?.trim() ?? "";
     const token = /^Bearer[ \t]+(.+)$/i.exec(authorization)?.[1]?.trim();
-    const identity = token ? await authenticate(token) : null;
+    const auth = await authenticateRequestRouteToken(request, authenticate);
+    const identity = auth.ok ? auth.identity : null;
     if (!identity) {
       addCoderouterBreadcrumb(
         "auth",
@@ -64,6 +66,7 @@ export function makeCoderouterSessionGetHandler(
       teamId: identity.teamId,
       stackUserId: identity.stackUserId,
       vmId: identity.vmId ?? null,
+      ...(identity.apiKeyId ? { apiKeyId: identity.apiKeyId } : {}),
     });
     return new Response(null, {
       status: 204,

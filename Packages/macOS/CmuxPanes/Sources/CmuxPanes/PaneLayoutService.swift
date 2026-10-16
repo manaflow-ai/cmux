@@ -22,7 +22,24 @@ public struct PaneLayoutService {
         controller: BonsplitController,
         orientationFilter: String? = nil
     ) -> SplitEqualizeResult {
-        let plan = node.equalizeDividerPlan(orientationFilter: orientationFilter)
+        apply(node.equalizeDividerPlan(orientationFilter: orientationFilter), to: controller)
+    }
+
+    /// Equalizes only the run of same-orientation splits that directly
+    /// contains `paneId` (see
+    /// ``ExternalTreeNode/equalizeDividerPlan(forSplitRunContainingPaneId:)``),
+    /// so a new split rebalances its own row or column without resetting
+    /// dividers elsewhere in the tree.
+    @discardableResult
+    public func equalizeSplitRun(
+        containingPaneId paneId: String,
+        in node: ExternalTreeNode,
+        controller: BonsplitController
+    ) -> SplitEqualizeResult {
+        apply(node.equalizeDividerPlan(forSplitRunContainingPaneId: paneId), to: controller)
+    }
+
+    private func apply(_ plan: SplitEqualizePlan, to controller: BonsplitController) -> SplitEqualizeResult {
         var allSucceeded = !plan.hadInvalidSplitIds
         for adjustment in plan.adjustments {
             if !controller.setDividerPosition(adjustment.position, forSplit: adjustment.splitId, fromExternal: true) {

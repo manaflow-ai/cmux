@@ -15,10 +15,14 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
     private var installConstraints: [NSLayoutConstraint] = []
     private weak var installedReferenceView: NSView?
     private var lastRenderState: TmuxWorkspacePaneOverlayRenderState?
-    private var pendingGeometryRefresh = false
 
     var hasRenderedState: Bool {
         lastRenderState != nil || !containerView.isHidden
+    }
+
+    /// Geometry supplied to the overlay is measured in this view's coordinates.
+    var coordinateReferenceView: NSView? {
+        ensureInstalled() ? installedReferenceView : nil
     }
 
     static func controller(for window: NSWindow, createIfNeeded: Bool) -> WindowTmuxWorkspacePaneOverlayController? {
@@ -135,15 +139,4 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
         update(state: lastRenderState.replacingWorkspaceAttentionColor(with: color))
     }
 
-    func scheduleGeometryRefresh(stateProvider: @MainActor @escaping () -> TmuxWorkspacePaneOverlayRenderState?) {
-        guard !pendingGeometryRefresh else { return }
-        pendingGeometryRefresh = true
-        // Divider drags can emit many geometry snapshots; one overlay update per
-        // main-actor turn is enough to keep the active border aligned.
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            pendingGeometryRefresh = false
-            update(state: stateProvider())
-        }
-    }
 }

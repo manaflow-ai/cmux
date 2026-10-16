@@ -61,6 +61,16 @@ beforeEach(() => {
 });
 
 describe("verifyRequestIdentity", () => {
+  test("local-only verification rejects invalid tokens without spending Stack quota", async () => {
+    const identity = await verifyRequestIdentity(nativeRequest("invalid-token"), {
+      allowCookie: false,
+      allowStackFallback: false,
+      verifyAccessToken: localIdentity,
+    });
+    expect(identity).toBeNull();
+    expect(getUser).toHaveBeenCalledTimes(0);
+  });
+
   test("a locally verified access token never calls Stack", async () => {
     const identity = await verifyRequestIdentity(nativeRequest("good-token"), {
       allowCookie: false,

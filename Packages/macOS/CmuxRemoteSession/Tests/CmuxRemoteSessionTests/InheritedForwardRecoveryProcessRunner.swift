@@ -8,12 +8,20 @@ final class InheritedForwardRecoveryProcessRunner:
     // lint:allow lock - synchronous test requests consume one scripted counter.
     private let lock = NSLock()
     private let mode: InheritedForwardRecoveryMode
+    private let relayID: String
+    private let relayPort: Int
     private var _requests: [RemoteProcessRequest] = []
     private var forwardAttempts = 0
     private var metadataProbeAttempts = 0
 
-    init(mode: InheritedForwardRecoveryMode) {
+    init(
+        mode: InheritedForwardRecoveryMode,
+        relayID: String = "relay-startup-cancellation",
+        relayPort: Int = 64_044
+    ) {
         self.mode = mode
+        self.relayID = relayID
+        self.relayPort = relayPort
     }
 
     var requests: [RemoteProcessRequest] {
@@ -35,11 +43,11 @@ final class InheritedForwardRecoveryProcessRunner:
                         status: 255,
                         stdout: "",
                         stderr:
-                            "remote port forwarding failed for listen port 64044"
+                            "remote port forwarding failed for listen port \(relayPort)"
                     )
                 }
             }
-            if Self.isMetadataOwnershipProbe(request) {
+            if isMetadataOwnershipProbe(request) {
                 metadataProbeAttempts += 1
                 if mode == .metadataMismatch {
                     return RemoteCommandResult(
@@ -78,13 +86,16 @@ final class InheritedForwardRecoveryProcessRunner:
         })
     }
 
-    private static func isMetadataOwnershipProbe(
+    private func isMetadataOwnershipProbe(
         _ request: RemoteProcessRequest
     ) -> Bool {
-        request.arguments.last?.contains("tr -d") == true &&
-            request.arguments.last?.contains("auth_file=") == true &&
-            request.arguments.last?.contains(
-                "relay-startup-cancellation"
-            ) == true
+        guard request.arguments.last == "sh -s",
+              let stdin = request.stdin,
+              let script = String(data: stdin, encoding: .utf8) else {
+            return false
+        }
+        return script.contains("tr -d") &&
+            script.contains("auth_file=") &&
+            script.contains(relayID)
     }
 }

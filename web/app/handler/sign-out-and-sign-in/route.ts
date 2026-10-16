@@ -37,6 +37,27 @@ function validatedNativeSignInTarget(request: NextRequest): string | null {
   return `${target.pathname}${target.search}${target.hash}`;
 }
 
+function validatedCliSignInTarget(request: NextRequest): string | null {
+  const target = sameOriginURL(request.nextUrl.searchParams.get("after_auth_return_to"), request);
+  if (!target || target.pathname !== "/handler/sign-in") return null;
+  if (!onlySearchParams(target, ["after_auth_return_to"])) return null;
+
+  const confirmation = sameOriginURL(target.searchParams.get("after_auth_return_to"), request);
+  const loginCode = confirmation?.searchParams.get("login_code");
+  if (
+    !confirmation ||
+    confirmation.pathname !== "/handler/cli-auth-confirm" ||
+    !onlySearchParams(confirmation, ["login_code"]) ||
+    !loginCode ||
+    loginCode.length > 256 ||
+    !/^[a-zA-Z0-9_-]+$/.test(loginCode)
+  ) {
+    return null;
+  }
+
+  return `${target.pathname}${target.search}`;
+}
+
 function onlySearchParams(url: URL, allowed: readonly string[]): boolean {
   const keys = [...url.searchParams.keys()].sort();
   return keys.length === allowed.length && keys.every((key, index) => key === allowed[index]);
@@ -140,7 +161,10 @@ function isNextRedirectError(error: unknown): boolean {
 
 export function makeSignOutAndSignInHandler(dependencies: SignOutAndSignInDependencies) {
   return async function GET(request: NextRequest) {
-    const target = validatedNativeSignInTarget(request) ?? validatedPublicationSignInTarget(request);
+    const target =
+      validatedNativeSignInTarget(request) ??
+      validatedPublicationSignInTarget(request) ??
+      validatedCliSignInTarget(request);
     if (!target || !canStartSignOut(request)) return NextResponse.redirect(new URL("/", requestOrigin(request)));
 
     const response = NextResponse.redirect(new URL(target, requestOrigin(request)));

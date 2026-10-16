@@ -1,0 +1,45 @@
+name: cmux-next frame pacing
+
+# Nightly fling bench of the cmux-next agent pane at 120 Hz. The bench builds
+# and measures cmux-next, so it runs feat-cmux-next's copy of this workflow,
+# whose reload-build.yml knows that tree (ghostty-next, the in-tree acpmux).
+# main's reload-build.yml builds main: its client check expects the classic
+# ghostty, and the bench failed at that check every night from 2026-10-08
+# (cx-v9hdp). A schedule fires only on the default branch, so this copy only
+# starts that one; the bench, its gate and its summary live there.
+
+on:
+  schedule:
+    # 09:37 UTC, 02:37 in San Francisco: the fleet's quietest hour.
+    - cron: "37 9 * * *"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch of this repository to build and measure
+        required: false
+        default: feat-cmux-next
+        type: string
+      flings:
+        description: Measured flings per render rate
+        required: false
+        default: "3"
+        type: string
+
+permissions: {}
+
+jobs:
+  dispatch:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write # starts feat-cmux-next's copy of this workflow
+    steps:
+      - name: Start the bench on feat-cmux-next
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BENCH_REF: ${{ inputs.ref || 'feat-cmux-next' }}
+          FLINGS: ${{ inputs.flings || '3' }}
+        run: |
+          gh workflow run cmux-next-frame-pacing.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
+            -f ref="$BENCH_REF" -f flings="$FLINGS"

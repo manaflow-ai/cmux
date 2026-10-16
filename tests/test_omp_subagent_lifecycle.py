@@ -261,11 +261,11 @@ await handlers.get("session_shutdown")({}, mainCtx);
 
         args_lines = non_empty_lines(fake_args_log.read_text(encoding="utf-8"))
         expected_args = [
-            "hooks omp session-start",
-            "hooks omp prompt-submit",
-            "hooks omp stop",
-            "hooks omp session-start",
-            "hooks omp stop",
+            "hooks enqueue omp session-start",
+            "hooks enqueue omp prompt-submit",
+            "hooks enqueue omp stop",
+            "hooks enqueue omp session-start",
+            "hooks enqueue omp stop",
         ]
         if args_lines != expected_args:
             print("FAIL: hook invocation sequence did not match the top-level-session contract")

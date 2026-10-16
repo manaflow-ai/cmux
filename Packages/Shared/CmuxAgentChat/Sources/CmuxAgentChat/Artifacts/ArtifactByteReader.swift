@@ -1,6 +1,5 @@
 import Darwin
 import Foundation
-import ImageIO
 import UniformTypeIdentifiers
 
 /// Reads already-authorized artifact bytes and metadata from the local filesystem.
@@ -90,42 +89,20 @@ public struct ArtifactByteReader: Sendable {
     /// Generates a JPEG thumbnail for an already-authorized image path.
     public func thumbnail(path: String, maxDimension: Int) throws -> ChatArtifactThumbnail {
         let opened = try openVerifiedRegularFile(path: path)
-        try? opened.handle.close()
-        guard kind(path: path, isDirectory: false) == .image else {
+        defer { try? opened.handle.close() }
+        // Thumbnail eligibility is extension-derived; never sniff the pathname
+        // after the descriptor has been verified.
+        guard kind(
+            path: path,
+            isDirectory: false,
+            isRegularFile: true,
+            shouldSniffUnknownRegularFile: false
+        ) == .image else {
             throw Error.unsupportedMedia
         }
-        let url = URL(fileURLWithPath: path)
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
-            _ = try attributes(path: path)
-            throw Error.corruptMedia
-        }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxDimension,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-        ]
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-            throw Error.corruptMedia
-        }
-        guard let destinationData = CFDataCreateMutable(nil, 0),
-              let destination = CGImageDestinationCreateWithData(
-                destinationData,
-                UTType.jpeg.identifier as CFString,
-                1,
-                nil
-              ) else {
-            throw Error.previewFailed
-        }
-        CGImageDestinationAddImage(destination, image, [
-            kCGImageDestinationLossyCompressionQuality: 0.82,
-        ] as CFDictionary)
-        guard CGImageDestinationFinalize(destination) else {
-            throw Error.previewFailed
-        }
-        return ChatArtifactThumbnail(
-            data: destinationData as Data,
-            pixelWidth: image.width,
-            pixelHeight: image.height
+        return try thumbnail(
+            verifiedFile: opened,
+            maxDimension: maxDimension
         )
     }
 
@@ -186,7 +163,8 @@ public struct ArtifactByteReader: Sendable {
     private func kind(
         path: String,
         isDirectory: Bool,
-        isRegularFile: Bool?
+        isRegularFile: Bool?,
+        shouldSniffUnknownRegularFile: Bool = true
     ) -> ChatArtifactKind {
         if isDirectory { return .directory }
         if isRegularFile == false { return .binary }
@@ -201,6 +179,7 @@ public struct ArtifactByteReader: Sendable {
                 verifiedRegularFile = (attributes?[.type] as? FileAttributeType) == .typeRegular
             }
             guard verifiedRegularFile else { return .binary }
+            guard shouldSniffUnknownRegularFile else { return .binary }
             return isUTF8Text(path: path) ? .text : .binary
         }
         if type.conforms(to: .image) { return .image }

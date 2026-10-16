@@ -495,7 +495,7 @@ extension AppDelegate {
         ) else {
             return false
         }
-        dock.focusPanel(target.surfaceId)
+        dock.focusPanelFromDockInteraction(target.surfaceId, window: nil)
         return dock.focusedPanelId == target.surfaceId
     }
 

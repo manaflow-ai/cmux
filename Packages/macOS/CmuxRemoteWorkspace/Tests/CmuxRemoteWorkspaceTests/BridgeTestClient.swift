@@ -2,7 +2,7 @@ import Foundation
 import Network
 @testable import CmuxRemoteWorkspace
 
-/// Loopback TCP client helper for talking to a bridge endpoint.
+/// Loopback TCP client helper for talking to a bridge or proxy endpoint.
 final class BridgeTestClient: @unchecked Sendable {
     private let connection: NWConnection
     private let queue = DispatchQueue(label: "bridge-test-client")
@@ -10,10 +10,14 @@ final class BridgeTestClient: @unchecked Sendable {
     private var received = Data()
     private var closed = false
 
-    init(endpoint: RemotePTYBridgeServer.Endpoint) {
+    convenience init(endpoint: RemotePTYBridgeServer.Endpoint) {
+        self.init(host: endpoint.host, port: endpoint.port)
+    }
+
+    init(host: String, port: Int) {
         connection = NWConnection(
-            host: NWEndpoint.Host(endpoint.host),
-            port: NWEndpoint.Port(rawValue: UInt16(endpoint.port))!,
+            host: NWEndpoint.Host(host),
+            port: NWEndpoint.Port(rawValue: UInt16(port))!,
             using: .tcp
         )
         connection.start(queue: queue)
@@ -68,6 +72,13 @@ final class BridgeTestClient: @unchecked Sendable {
             usleep(20_000)
         }
         return false
+    }
+
+    /// Every byte received so far.
+    var receivedData: Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return received
     }
 
     var isClosed: Bool {

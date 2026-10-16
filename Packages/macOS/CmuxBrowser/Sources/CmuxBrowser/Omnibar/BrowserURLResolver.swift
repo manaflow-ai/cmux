@@ -55,7 +55,7 @@ public struct BrowserURLResolver: Sendable {
         let lower = trimmed.lowercased()
         let bareHost = bareHostCandidate(lower)
         if BrowserAppWebOrigin.isLoopbackHost(bareHost) {
-            return URL(string: "http://\(trimmed)")
+            return schemeLessURL(scheme: "http", authorityText: trimmed)
         }
 
         if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() {
@@ -63,13 +63,13 @@ public struct BrowserURLResolver: Sendable {
                 return url
             }
             if isDottedHostWithPort(trimmed, schemeCandidate: scheme) {
-                return URL(string: "https://\(trimmed)")
+                return schemeLessURL(scheme: "https", authorityText: trimmed)
             }
             return nil
         }
 
         if trimmed.contains(":") || trimmed.contains("/") || trimmed.contains(".") {
-            return URL(string: "https://\(trimmed)")
+            return schemeLessURL(scheme: "https", authorityText: trimmed)
         }
         return nil
     }
@@ -184,12 +184,51 @@ public struct BrowserURLResolver: Sendable {
     }
 
     /// Rejects scheme-less userinfo while allowing `@` in paths and queries.
+    ///
+    /// Only the authority prefix (text before the first `/`, `?`, or `#`) is
+    /// inspected, so a later `://` or `@` in the path, query, or fragment can
+    /// neither mask nor trigger the check.
     private func hasSchemeLessUserInfo(in input: String) -> Bool {
-        guard !input.contains("://") else { return false }
-        let authority = input.prefix { character in
+        schemeLessAuthority(of: input).contains("@")
+    }
+
+    /// The authority prefix of scheme-less text: everything before the first
+    /// `/`, `?`, or `#`.
+    private func schemeLessAuthority(of input: String) -> Substring {
+        input.prefix { character in
             character != "/" && character != "?" && character != "#"
         }
-        return authority.contains("@")
+    }
+
+    /// The host the heuristics believe scheme-less `input` names: the
+    /// authority prefix with any bracketed IPv6 literal kept intact and a
+    /// single trailing `:port` removed.
+    private func expectedSchemeLessHost(of input: String) -> Substring {
+        let authority = schemeLessAuthority(of: input)
+        if authority.hasPrefix("["), let close = authority.firstIndex(of: "]") {
+            return authority[...close]
+        }
+        guard authority.filter({ $0 == ":" }).count == 1,
+              let colon = authority.firstIndex(of: ":") else {
+            return authority
+        }
+        return authority[..<colon]
+    }
+
+    /// Prepends `scheme://` to scheme-less `authorityText` and returns the URL
+    /// only when Foundation parses the destination the heuristics inspected:
+    /// no userinfo, and a host equal to the text's authority host. This keeps
+    /// any parser disagreement from silently redirecting to another host.
+    private func schemeLessURL(scheme: String, authorityText: String) -> URL? {
+        guard let components = URLComponents(string: "\(scheme)://\(authorityText)"),
+              components.percentEncodedUser == nil,
+              components.percentEncodedPassword == nil,
+              let host = components.percentEncodedHost,
+              !host.isEmpty,
+              host.lowercased() == expectedSchemeLessHost(of: authorityText).lowercased() else {
+            return nil
+        }
+        return components.url
     }
 
     private func isSchemeLessHostWithStructure(_ input: String) -> Bool {

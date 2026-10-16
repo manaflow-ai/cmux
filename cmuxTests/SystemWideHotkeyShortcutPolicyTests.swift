@@ -255,9 +255,15 @@ extension GlobalSearchShortcutBehaviorTests {
         }
     }
 
+    /// WHY the presence check: `removeObject(forKey:)` posts
+    /// `UserDefaults.didChangeNotification` even for a key that was never
+    /// written, and the live app host answers every post with a full managed
+    /// policy re-evaluation. Sweeping all shortcut keys unguarded therefore cost
+    /// seconds per test while removing nothing. Skipping absent keys leaves the
+    /// cleared state identical.
     private nonisolated static func clearShortcutDefaults() {
         let defaults = UserDefaults.standard
-        for key in shortcutDefaultsKeys {
+        for key in shortcutDefaultsKeys where defaults.object(forKey: key) != nil {
             defaults.removeObject(forKey: key)
         }
     }

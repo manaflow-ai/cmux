@@ -240,7 +240,7 @@ struct SidebarWorkspaceTableRowConfiguration {
             appKitWorkspaceRowModel: appKitWorkspaceRowModel,
             environment: environment,
             equivalenceValue: id,
-            isEquivalentValue: { ($0 as? SidebarWorkspaceRenderItemID) == id }
+            isEquivalentValue: { [id] in ($0 as? SidebarWorkspaceRenderItemID) == id }
         )
     }
 

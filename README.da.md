@@ -152,7 +152,9 @@ For mere information om konfiguration af cmux, [se vores dokumentation](https://
 
 | Genvej | Handling |
 |----------|--------|
-| ⌘ N | Nyt workspace |
+| ⌘ N | Nyt lokalt arbejdsområde |
+| ⌘ Y | Nyt Cloud-arbejdsområde på den senest brugbare Cloud-kontekst; åbner New Cloud Machine, hvis ingen findes |
+| ⌘ ⇧ Y | Ny cloud-maskine |
 | ⌘ 1–8 | Hop til workspace 1–8 |
 | ⌘ 9 | Hop til sidste workspace |
 | ⌃ ⌘ ] | Næste workspace |
@@ -389,7 +391,7 @@ cmux er gratis og open source og vil altid være det. Hvis du vil støtte udvikl
 
 ### Jeg har et funktionsønske eller har fundet en fejl?
 
-Vi vil gerne høre det. Opret en [issue](https://github.com/manaflow-ai/cmux/issues) eller [pull request](https://github.com/manaflow-ai/cmux/pulls) på GitHub, eller [send os en e-mail](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
+Vi vil gerne høre det. Opret en [issue](https://github.com/manaflow-ai/cmux/issues) eller [pull request](https://github.com/manaflow-ai/cmux/pulls) på GitHub, eller [send os en e-mail](mailto:founders@cmux.com?subject=cmux%20feature%20request).
 
 ## Stjernehistorik
 
@@ -440,6 +442,6 @@ cmux er gratis, open source og vil altid være det. Hvis du gerne vil støtte ud
 
 ## Licens
 
-cmux er open source under [GPL-3.0-or-later](LICENSE).
+cmux er open source under [GPL-3.0-or-later](LICENSE). cmux-serversoftwaren (`web/`, Cloudflare-workerne og relætjenesterne i [LICENSE](LICENSE)) bruger i stedet [Business Source License 1.1](web/LICENSE): du må læse, ændre og køre den til ikke-produktionsbrug, mens produktionsbrug eller selvhosting kræver en kommerciel licens.
 
-Hvis din organisation ikke kan overholde GPL, er en kommerciel licens tilgængelig. Kontakt [founders@manaflow.com](mailto:founders@manaflow.com) for detaljer.
+Hvis din organisation ikke kan overholde GPL, er en kommerciel licens tilgængelig. Kontakt [founders@cmux.com](mailto:founders@cmux.com) for detaljer.

@@ -160,6 +160,24 @@ func dslTruncationMode(_ token: String?) -> Text.TruncationMode {
     }
 }
 
+/// Resolves a `.fixedSize` prop: `true` or `"both"` fixes both axes,
+/// `"horizontal"` or `"vertical"` one; anything else leaves sizing alone.
+func dslFixedSizeAxes(_ value: ScenePropValue?) -> (horizontal: Bool, vertical: Bool)? {
+    switch value {
+    case .bool(true):
+        return (true, true)
+    case let .string(token):
+        switch token.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".")) {
+        case "horizontal": return (true, false)
+        case "vertical": return (false, true)
+        case "both": return (true, true)
+        default: return nil
+        }
+    default:
+        return nil
+    }
+}
+
 /// Resolves an `Image.Scale` token (default `.medium`).
 func dslImageScale(_ token: String?) -> Image.Scale {
     switch token?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".")) {

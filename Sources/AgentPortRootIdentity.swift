@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Stable identity for one agent root, including process birth when available.

@@ -46,6 +46,27 @@ struct JSONConfigStoreSymlinkTests {
         try await assertSymlinkWriteThrough(store: store, linkURL: fixture.linkURL, targetURL: fixture.targetURL, key: key, expected: "dark")
     }
 
+    @Test func writesThroughSymlinkedParentDirectory() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-settings-symlink-parent-\(UUID().uuidString)", isDirectory: true)
+        let repoDir = tempDir.appendingPathComponent("repo", isDirectory: true)
+        let aliasDir = tempDir.appendingPathComponent("alias", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let targetURL = repoDir.appendingPathComponent("cmux.json", isDirectory: false)
+        let aliasedURL = aliasDir.appendingPathComponent("cmux.json", isDirectory: false)
+        try Data("{}".utf8).write(to: targetURL)
+        try FileManager.default.createSymbolicLink(at: aliasDir, withDestinationURL: repoDir)
+
+        let store = JSONConfigStore(fileURL: aliasedURL)
+        let key = JSONKey<String>(id: "app.appearance", defaultValue: "")
+        try await store.set("dark", for: key)
+
+        let parsed = try JSONSerialization.jsonObject(with: Data(contentsOf: targetURL)) as? [String: Any]
+        #expect((parsed?["app"] as? [String: Any])?["appearance"] as? String == "dark")
+        #expect((try FileManager.default.attributesOfItem(atPath: aliasDir.path)[.type] as? FileAttributeType) == .typeSymbolicLink)
+    }
+
     @Test func writesThroughDanglingSymlinkCreatesTarget() async throws {
         let fixture = try makeSymlinkFixture()
         defer { try? FileManager.default.removeItem(at: fixture.tempDir) }

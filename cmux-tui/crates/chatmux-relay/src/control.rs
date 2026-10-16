@@ -115,11 +115,22 @@ mod unix {
         socket_path: &std::path::Path,
         timeout_ms: u64,
     ) -> Result<Arc<UnixControl>, String> {
+        // SAFETY: getuid is always safe.
+        connect_control_as(socket_path, timeout_ms, unsafe { libc::getuid() }).await
+    }
+
+    /// Connect to a session socket served by `expected_uid`.
+    async fn connect_control_as(
+        socket_path: &std::path::Path,
+        timeout_ms: u64,
+        expected_uid: u32,
+    ) -> Result<Arc<UnixControl>, String> {
         let connect = UnixStream::connect(socket_path);
         let stream = tokio::time::timeout(Duration::from_millis(timeout_ms), connect)
             .await
             .map_err(|_| format!("cmux-tui control connect timed out ({})", socket_path.display()))?
             .map_err(|error| error.to_string())?;
+        require_peer_uid(&stream, expected_uid)?;
         let raw_fd = {
             use std::os::fd::AsRawFd as _;
             stream.as_raw_fd()
@@ -156,12 +167,37 @@ mod unix {
         }))
     }
 
+    /// Session sockets can live in shared fallback directories, so check who
+    /// serves one before sending anything on it.
+    fn require_peer_uid(stream: &UnixStream, expected_uid: u32) -> Result<(), String> {
+        let peer_uid = stream
+            .peer_cred()
+            .map_err(|error| format!("cmux-tui control peer check failed: {error}"))?
+            .uid();
+        if peer_uid == expected_uid {
+            Ok(())
+        } else {
+            Err(format!(
+                "cmux-tui control socket is served by uid {peer_uid}, not uid {expected_uid}"
+            ))
+        }
+    }
+
     #[cfg(test)]
     pub(crate) async fn connect_control_for_test(
         socket_path: &std::path::Path,
         timeout_ms: u64,
     ) -> Result<Arc<UnixControl>, String> {
         connect_control_inner(socket_path, timeout_ms).await
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn connect_control_as_for_test(
+        socket_path: &std::path::Path,
+        timeout_ms: u64,
+        expected_uid: u32,
+    ) -> Result<Arc<UnixControl>, String> {
+        connect_control_as(socket_path, timeout_ms, expected_uid).await
     }
 
     async fn write_loop(
@@ -408,6 +444,34 @@ mod tests {
     use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _};
     use tokio::net::UnixListener;
     use tokio::sync::{Notify, oneshot};
+
+    #[tokio::test]
+    async fn private_control_refuses_a_listener_run_by_another_user() {
+        let socket_path = std::env::temp_dir()
+            .join(format!("chatmux-relay-control-peer-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket_path);
+        let listener = UnixListener::bind(&socket_path).expect("bind control peer test socket");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept control peer test");
+            let mut bytes = Vec::new();
+            stream.read_to_end(&mut bytes).await.expect("read refused client");
+            bytes
+        });
+
+        // SAFETY: getuid is always safe.
+        let other_uid = unsafe { libc::getuid() }.wrapping_add(1);
+        let error = unix::connect_control_as_for_test(&socket_path, 3_000, other_uid)
+            .await
+            .err()
+            .expect("a listener run by another user is refused");
+        assert!(error.contains(&format!("uid {other_uid}")), "{error}");
+        let written = tokio::time::timeout(Duration::from_secs(1), server)
+            .await
+            .expect("server observes the refused client close")
+            .expect("join control peer test server");
+        assert!(written.is_empty(), "nothing is written to a refused listener");
+        let _ = std::fs::remove_file(socket_path);
+    }
 
     #[tokio::test]
     async fn end_wakes_paused_reader_and_closes_socket() {

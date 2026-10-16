@@ -77,10 +77,46 @@ function validateEntry(entry: MobileMacCompatEntry, path: string): void {
       );
     }
   }
-  version(entry.stableMinVersion, `${path}.stableMinVersion`);
-  if (entry.nightly !== undefined) {
-    version(entry.nightly.minBaseVersion, `${path}.nightly.minBaseVersion`);
-    build(entry.nightly.minBuild, `${path}.nightly.minBuild`);
+  if (entry.buildKinds !== undefined) {
+    const prod = entry.buildKinds.prod;
+    if (prod === undefined) {
+      throw new Error(`${path}.buildKinds must include a prod requirement`);
+    }
+    const supportedKinds = new Set(["dev", "beta", "internal", "demo", "prod"]);
+    for (const [kind, requirement] of Object.entries(entry.buildKinds)) {
+      if (!supportedKinds.has(kind)) {
+        throw new Error(`${path}.buildKinds.${kind} is not a supported build kind`);
+      }
+      const requirementPath = `${path}.buildKinds.${kind}`;
+      version(requirement.stableMinVersion, `${requirementPath}.stableMinVersion`);
+      if (requirement.nightly !== undefined) {
+        version(requirement.nightly.minBaseVersion, `${requirementPath}.nightly.minBaseVersion`);
+        build(requirement.nightly.minBuild, `${requirementPath}.nightly.minBuild`);
+      }
+    }
+    if (entry.stableMinVersion !== undefined) {
+      version(entry.stableMinVersion, `${path}.stableMinVersion`);
+      if (compareDottedVersions(entry.stableMinVersion, prod.stableMinVersion) !== 0) {
+        throw new Error(`${path}.stableMinVersion must match ${path}.buildKinds.prod.stableMinVersion`);
+      }
+    }
+    if (entry.nightly !== undefined) {
+      version(entry.nightly.minBaseVersion, `${path}.nightly.minBaseVersion`);
+      build(entry.nightly.minBuild, `${path}.nightly.minBuild`);
+      if (prod.nightly === undefined || compareDottedVersions(entry.nightly.minBaseVersion, prod.nightly.minBaseVersion) !== 0 || entry.nightly.minBuild !== prod.nightly.minBuild) {
+        throw new Error(`${path}.nightly must match ${path}.buildKinds.prod.nightly`);
+      }
+    }
+  } else {
+    // Accept the pre-build-kind shape during a rolling deployment.
+    if (entry.stableMinVersion === undefined) {
+      throw new Error(`${path}.stableMinVersion is required for legacy entries`);
+    }
+    version(entry.stableMinVersion, `${path}.stableMinVersion`);
+    if (entry.nightly !== undefined) {
+      version(entry.nightly.minBaseVersion, `${path}.nightly.minBaseVersion`);
+      build(entry.nightly.minBuild, `${path}.nightly.minBuild`);
+    }
   }
 }
 

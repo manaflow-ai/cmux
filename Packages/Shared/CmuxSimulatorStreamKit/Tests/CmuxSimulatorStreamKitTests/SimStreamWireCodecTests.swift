@@ -56,8 +56,8 @@ struct SimStreamWireCodecTests {
             .state(SimStreamStateUpdate(status: .deviceUnavailable, detail: "sim shut down")),
         ]
         for message in messages {
-            let encoded = SimStreamWireCodec.encode(message)
-            let decoded = try SimStreamWireCodec.decode(encoded)
+            let encoded = SimStreamWireCodec().encode(message)
+            let decoded = try SimStreamWireCodec().decode(encoded)
             #expect(decoded == message)
         }
     }
@@ -74,7 +74,7 @@ struct SimStreamWireCodecTests {
         ]
         var wire = Data()
         for message in messages {
-            wire.append(SimStreamWireCodec.encodeFramed(message))
+            wire.append(SimStreamWireCodec().encodeFramed(message))
         }
 
         // Feed the concatenated bytes in pathological chunk sizes.
@@ -87,7 +87,7 @@ struct SimStreamWireCodecTests {
                 accumulator.append(wire.subdata(in: offset..<end))
                 offset = end
                 while let body = try accumulator.nextMessageBody() {
-                    decoded.append(try SimStreamWireCodec.decode(body))
+                    decoded.append(try SimStreamWireCodec().decode(body))
                 }
             }
             #expect(decoded == messages, "chunk size \(chunkSize)")
@@ -96,7 +96,7 @@ struct SimStreamWireCodecTests {
 
     @Test
     func truncatedMessagesThrow() {
-        let encoded = SimStreamWireCodec.encode(
+        let encoded = SimStreamWireCodec().encode(
             .frame(
                 SimStreamFrame(
                     sequence: 1, flags: [.keyframe], presentationMicroseconds: 2,
@@ -104,24 +104,24 @@ struct SimStreamWireCodecTests {
         for cut in [0, 1, 8, encoded.count - 1] {
             let truncated = encoded.prefix(cut)
             #expect(throws: (any Error).self) {
-                _ = try SimStreamWireCodec.decode(Data(truncated))
+                _ = try SimStreamWireCodec().decode(Data(truncated))
             }
         }
     }
 
     @Test
     func trailingBytesAreRejected() {
-        var corrupted = SimStreamWireCodec.encode(.stop)
+        var corrupted = SimStreamWireCodec().encode(.stop)
         corrupted.append(0xFF)
         #expect(throws: SimStreamWireError.trailingBytes(count: 1)) {
-            _ = try SimStreamWireCodec.decode(corrupted)
+            _ = try SimStreamWireCodec().decode(corrupted)
         }
     }
 
     @Test
     func unknownMessageTypeThrows() {
         #expect(throws: SimStreamWireError.unknownMessageType(0x7F)) {
-            _ = try SimStreamWireCodec.decode(Data([0x7F]))
+            _ = try SimStreamWireCodec().decode(Data([0x7F]))
         }
     }
 
@@ -129,14 +129,14 @@ struct SimStreamWireCodecTests {
     func unknownCodecPreferenceIsSkippedNotFatal() throws {
         // A future viewer may know codecs this host doesn't; start must
         // still parse so the host can pick from the ones it understands.
-        var start = SimStreamWireCodec.encode(
+        var start = SimStreamWireCodec().encode(
             .start(
                 SimStreamStartRequest(
                     epoch: 1, maximumLongSidePixels: 1200, codecPreferences: [.hevc])))
         // Rewrite codec count to 2 and append an unknown codec byte.
         start[start.count - 2] = 2
         start.append(0x77)
-        let decoded = try SimStreamWireCodec.decode(start)
+        let decoded = try SimStreamWireCodec().decode(start)
         guard case .start(let request) = decoded else {
             Issue.record("expected start")
             return

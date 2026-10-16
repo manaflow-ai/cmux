@@ -1,4 +1,5 @@
 import CmuxIrohTransport
+import CmuxIrxTransport
 import CmuxMobileShell
 import Foundation
 import Testing
@@ -13,60 +14,25 @@ import Testing
 @MainActor
 @Suite("irx discovery provider")
 struct MobileIrxDiscoveryProviderTests {
-    static func discovery(
-        bindings: [[String: Any]]
-    ) throws -> CmxIrohDiscoveryResponse {
-        let object: [String: Any] = [
-            "route_contract_version": 1,
-            "bindings": bindings,
-            "relay_fleet": ["https://usw1.relay.cmux.dev/"],
-            "lan_rendezvous": [
-                "generation": 1,
-                "key": Data(repeating: 0, count: 32).base64EncodedString()
-                    .replacingOccurrences(of: "+", with: "-")
-                    .replacingOccurrences(of: "/", with: "_")
-                    .replacingOccurrences(of: "=", with: ""),
-            ],
-            "grant_verification_keys": [
-                "version": 1,
-                "current_kid": "test-key",
-                "keys": [["kid": "test-key", "alg": "EdDSA", "spki_der_base64": "AA=="]],
-            ],
-        ]
-        return try JSONDecoder().decode(
-            CmxIrohDiscoveryResponse.self,
-            from: JSONSerialization.data(withJSONObject: object)
-        )
+    static func discovery(bindings: [V2DeviceRecord]) throws -> V2Directory {
+        V2Directory(devices: bindings, issuedAt: 1_800_000_000,
+            permissionExpiresAt: 2_000_000_000, relayURLs: ["https://relay.example.com"], revision: 1, teamID: "team-a")
     }
 
-    static func binding(
-        bindingID: String,
-        deviceID: String,
-        platform: String,
-        tag: String = "default",
-        pairingEnabled: Bool = true,
-        endpointFill: Character = "a"
-    ) -> [String: Any] {
-        [
-            "binding_id": bindingID,
-            "device_id": deviceID,
-            "app_instance_id": "123e4567-e89b-42d3-a456-426614174012",
-            "client_namespace": "legacy",
-            "tag": tag,
-            "platform": platform,
-            "display_name": "Fixture \(platform)",
-            "endpoint_id": String(repeating: endpointFill, count: 64),
-            "identity_generation": 1,
-            "pairing_enabled": pairingEnabled,
-            "capabilities": ["rpc"],
-            "path_hints": [],
-            "last_seen_at": ISO8601DateFormatter()
-                .string(from: Date(timeIntervalSince1970: 1_800_000_000)),
-        ]
+    static func binding(bindingID: String, deviceID: String, platform: String,
+                        tag: String = "default", pairingEnabled: Bool = true,
+                        endpointFill: Character = "a") -> V2DeviceRecord {
+        V2DeviceRecord(descriptor: V2DeviceDescriptor(endpointID: String(repeating: endpointFill, count: 64),
+            identity: V2Identity(appNamespace: "dev.cmux.app", buildTag: tag, deviceID: deviceID,
+                environment: "development", projectID: "project-a", teamID: "team-a", userID: "account-a"),
+            identityGeneration: 1, metadata: V2DeviceMetadata(appVersion: "1.0", capabilities: ["rpc"],
+                displayName: "Fixture " + platform, pairingEnabled: pairingEnabled,
+                platform: platform == "mac" ? .mac : .ios, relayURLs: [])),
+            deviceRecordID: bindingID, revision: 1, revoked: false)
     }
 
     static func provider(
-        discovery: CmxIrohDiscoveryResponse?,
+        discovery: V2Directory?,
         accountID: String? = "account-a",
         onRevoke: (@Sendable (String) -> Void)? = nil
     ) -> MobileIrxDiscoveryProvider {
@@ -98,10 +64,49 @@ struct MobileIrxDiscoveryProviderTests {
         #expect(candidates.first?.routes.first?.kind == .iroh)
     }
 
+    @Test func directoryKeepsOfflineMacsAndRejectsDuplicateEndpointKeys() async throws {
+        let first = Self.binding(bindingID: "first", deviceID: "123e4567-e89b-42d3-a456-426614174011", platform: "mac")
+        let duplicate = Self.binding(bindingID: "second", deviceID: "123e4567-e89b-42d3-a456-426614174022", platform: "mac")
+        let offline = Self.binding(bindingID: "third", deviceID: "123e4567-e89b-42d3-a456-426614174033", platform: "mac", endpointFill: "b")
+        let candidates = await Self.provider(discovery: try Self.discovery(bindings: [first, duplicate, offline])).discoverLiveMacs()
+        #expect(candidates.map(\.deviceID) == ["123e4567-e89b-42d3-a456-426614174033"])
+    }
+
     @Test("discovery outage degrades to zero candidates instead of throwing")
     func discoveryOutage() async {
         let candidates = await Self.provider(discovery: nil).discoverLiveMacs()
         #expect(candidates.isEmpty)
+    }
+
+    @Test("an older discovery revision cannot overwrite the current projection")
+    func staleRevisionIsIgnored() async throws {
+        let newerMac = Self.binding(
+            bindingID: "newer", deviceID: "123e4567-e89b-42d3-a456-426614174044",
+            platform: "mac", endpointFill: "c"
+        )
+        let olderMac = Self.binding(
+            bindingID: "older", deviceID: "123e4567-e89b-42d3-a456-426614174055",
+            platform: "mac", endpointFill: "d"
+        )
+        let newer = V2Directory(
+            devices: [newerMac], issuedAt: 1_800_000_000,
+            permissionExpiresAt: 2_000_000_000, relayURLs: [], revision: 2, teamID: "team-a"
+        )
+        let older = V2Directory(
+            devices: [olderMac], issuedAt: 1_800_000_000,
+            permissionExpiresAt: 2_000_000_000, relayURLs: [], revision: 1, teamID: "team-a"
+        )
+        let sequence = DirectorySequenceBox([newer, older])
+        let provider = MobileIrxDiscoveryProvider(
+            preferredTag: "default", compatibilityPolicy: nil,
+            discover: { sequence.next() }, invalidateSnapshot: {},
+            revokeBinding: { _ in }, authenticatedAccountID: { "account-a" }
+        )
+
+        let first = await provider.discoverLiveMacs()
+        let second = await provider.discoverLiveMacs()
+        #expect(first.map(\.deviceID) == [newerMac.descriptor.identity.deviceID])
+        #expect(second.map(\.deviceID) == [newerMac.descriptor.identity.deviceID])
     }
 
     @Test("forget revokes exactly the matching device's bindings")
@@ -121,6 +126,21 @@ struct MobileIrxDiscoveryProviderTests {
         try await provider.forgetComputer(
             macDeviceID: mac, instanceTag: nil, expectedAccountID: "account-a")
         #expect(revoked.values == ["123e4567-e89b-42d3-a456-426614174001"])
+    }
+
+    @Test("forget includes stale UUID aliases and the live row, scoped to the selected channel")
+    func forgetRevokesDuplicateBindings() async throws {
+        let mac = "123e4567-e89b-42d3-a456-426614174011"
+        let response = try Self.discovery(bindings: [
+            Self.binding(bindingID: "stale", deviceID: mac.uppercased(), platform: "mac", endpointFill: "a"),
+            Self.binding(bindingID: "live", deviceID: mac, platform: "mac", endpointFill: "b"),
+            Self.binding(bindingID: "nightly", deviceID: mac, platform: "mac", tag: "nightly", endpointFill: "c"),
+            Self.binding(bindingID: "other", deviceID: "123e4567-e89b-42d3-a456-426614174033", platform: "mac", endpointFill: "d"),
+        ])
+        let revoked = RevokedBox()
+        let provider = Self.provider(discovery: response) { revoked.append($0) }
+        try await provider.forgetComputer(macDeviceID: mac, instanceTag: "default", expectedAccountID: "account-a")
+        #expect(revoked.values == ["stale", "live"])
     }
 
     @Test("forget refuses when the live account is not the expected owner")
@@ -149,5 +169,19 @@ private final class RevokedBox: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         storage.append(value)
+    }
+}
+
+private final class DirectorySequenceBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [V2Directory]
+
+    init(_ values: [V2Directory]) { self.values = values }
+
+    func next() -> V2Directory? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !values.isEmpty else { return nil }
+        return values.removeFirst()
     }
 }

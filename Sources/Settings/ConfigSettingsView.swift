@@ -67,7 +67,7 @@ struct ConfigSettingsView: View {
                     Text(verbatim: path)
                         .cmuxFont(size: 12, weight: .regular, design: .monospaced)
                         .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                        .copyOnlyTextSelection(for: path)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

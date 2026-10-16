@@ -62,7 +62,7 @@ extension Workspace {
             return panelNeedsConfirmClose(panelId: panelId)
         }
 
-        if CloseTabWarningStore(defaults: confirmationManager?.closeTabWarningDefaults ?? closeTabWarningDefaults).shouldConfirmClose(
+        if CloseTabWarningStore(defaults: confirmationManager?.closeTabWarningDefaults ?? closeTabWarningDefaults).shouldConfirmCloseIncludingSafety(
             requiresConfirmation: needsConfirmation,
             source: .shortcut
         ) {

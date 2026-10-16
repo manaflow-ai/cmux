@@ -11,6 +11,9 @@ public import Foundation
 /// because clients cross queue boundaries by contract (the bridge server
 /// calls it from its own rpc queue).
 public protocol RemotePTYBridgeRPCClient: AnyObject, Sendable {
+    /// Version advertised by this transport's hello, or nil when unverified.
+    var daemonVersion: String? { get }
+
     /// Whether the daemon attachment path supports sequenced input acks.
     var supportsInputSeqAck: Bool { get }
 
@@ -48,6 +51,9 @@ public protocol RemotePTYBridgeRPCClient: AnyObject, Sendable {
 
 /// Default for conformers predating sequenced input.
 public extension RemotePTYBridgeRPCClient {
+    /// Clients without a versioned hello cannot prove attach compatibility.
+    var daemonVersion: String? { nil }
+
     /// Legacy clients do not opt into sequenced PTY input.
     var supportsInputSeqAck: Bool { false }
 }

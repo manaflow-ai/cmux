@@ -14,13 +14,14 @@ import Testing
 private final class CanvasRoutingViewportSpy: CanvasViewportControlling {
     var revealedPanelIds: [UUID] = []
     var resetZoomCount = 0
+    var zoomFactors: [CGFloat] = []
     var currentMagnification: CGFloat = 1
     var currentCenterInCanvas: CGPoint = .zero
 
     func revealPane(_ panelId: UUID, animated: Bool) { revealedPanelIds.append(panelId) }
     func resetZoom() { resetZoomCount += 1 }
     func toggleOverview() {}
-    func zoom(by factor: CGFloat) {}
+    func zoom(by factor: CGFloat) { zoomFactors.append(factor) }
     func setViewport(center: CGPoint, magnification: CGFloat?) {}
     func modelDidChangeExternally(animated: Bool) {}
 }
@@ -50,6 +51,45 @@ struct CanvasShortcutContextTests {
                 clause.evaluate(canvasContext),
                 "\(action.rawValue) must be available when the workspace uses canvas layout"
             )
+        }
+    }
+
+    @MainActor
+    @Test
+    func fileEditorFocusWidensOnlyFileEditorActions() {
+        var shortcutContext = ShortcutFocusState(browser: false, markdown: false, sidebar: false).context
+        shortcutContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
+        // A Markdown source or Dock editor: a file editor, but not a text file preview.
+        let focus = ShortcutEventFocusContext(
+            browserPanel: nil,
+            markdownPanel: nil,
+            filePreviewTextEditorFocused: false,
+            fileEditorFocused: true,
+            simulatorFocused: false,
+            rightSidebarFocused: false,
+            shortcutContext: shortcutContext
+        )
+
+        let wordWrap = KeyboardShortcutSettings.Action.toggleFileEditorWordWrap
+        #expect(KeyboardShortcutSettings.effectiveWhenClause(for: wordWrap).evaluate(focus.whenClauseContext(for: wordWrap)))
+        #expect(wordWrap.shortcutContext.isAvailable(focus))
+
+        let canvasZoomActions: [KeyboardShortcutSettings.Action] = [.canvasZoomIn, .canvasZoomOut, .canvasZoomReset]
+        for action in canvasZoomActions {
+            #expect(
+                KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(focus.whenClauseContext(for: action)),
+                "\(action.rawValue) must reach the canvas while a non-preview file editor is focused"
+            )
+            #expect(action.shortcutContext.isAvailable(focus))
+        }
+
+        let previewZoomActions: [KeyboardShortcutSettings.Action] = [.browserZoomIn, .browserZoomOut, .browserZoomReset]
+        for action in previewZoomActions {
+            #expect(
+                !KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(focus.whenClauseContext(for: action)),
+                "\(action.rawValue) is scoped to text file previews, not every file editor"
+            )
+            #expect(!action.shortcutContext.isAvailable(focus))
         }
     }
 
@@ -328,6 +368,71 @@ struct CanvasShortcutRoutingFeedbackTests {
 #endif
 
             #expect(viewport.resetZoomCount == 1)
+        }
+    }
+
+    /// Canvas zoom in/out must reach the canvas, not the Markdown source editor:
+    /// the editor is a file editor for word wrap, but not a text file preview.
+    @Test func canvasZoomShortcutsZoomCanvasWhenMarkdownSourceEditorIsFocused() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let zoomIn = try #require(makeKeyDownEvent(
+                key: "=",
+                modifiers: [.command, .option],
+                keyCode: UInt16(kVK_ANSI_Equal),
+                windowNumber: window.windowNumber
+            ))
+            let zoomOut = try #require(makeKeyDownEvent(
+                key: "-",
+                modifiers: [.command, .option],
+                keyCode: UInt16(kVK_ANSI_Minus),
+                windowNumber: window.windowNumber
+            ))
+
+            window.makeKeyAndOrderFront(nil)
+            workspace.setLayoutMode(.canvas)
+            let viewport = CanvasRoutingViewportSpy()
+            workspace.canvasModel.viewport = viewport
+
+            let firstPane = try #require(workspace.bonsplitController.allPaneIds.first)
+            let fileURL = try temporaryMarkdownFile(contents: "# Preview\n")
+            defer { try? FileManager.default.removeItem(at: fileURL) }
+            let panel = try #require(workspace.newMarkdownSurface(
+                inPane: firstPane,
+                filePath: fileURL.path,
+                focus: true
+            ))
+            panel.setDisplayMode(.text)
+
+            let textView = SavingTextView.makeFilePreviewTextView()
+            textView.frame = NSRect(x: 0, y: 0, width: 200, height: 120)
+            textView.string = panel.textContent
+            textView.panel = panel
+            panel.attachTextView(textView)
+            window.contentView?.addSubview(textView)
+            defer { textView.removeFromSuperview() }
+            #expect(window.makeFirstResponder(textView))
+            #expect(workspace.focusedPanelId == panel.id)
+            #expect(manager.focusedTextFilePreviewPanel == nil)
+            let initialPointSize = try #require(textView.font?.pointSize)
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: zoomIn))
+            #expect(appDelegate.debugHandleCustomShortcut(event: zoomOut))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            #expect(viewport.zoomFactors.count == 2)
+            #expect((viewport.zoomFactors.first ?? 1) > 1)
+            #expect((viewport.zoomFactors.last ?? 1) < 1)
+            #expect(abs((textView.font?.pointSize ?? 0) - initialPointSize) < 0.01)
         }
     }
 

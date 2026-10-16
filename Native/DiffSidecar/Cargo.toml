@@ -55,6 +55,9 @@ opt-level = "z"
 panic = "abort"
 strip = "symbols"
 
+[profile.release.build-override]
+strip = "none"
+
 [lints.rust]
 unsafe_code = "deny"
 

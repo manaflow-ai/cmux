@@ -17,6 +17,12 @@ extension MobileMacConnectionRegistry {
             registry.focusedConnection(for: MacPairingKey(pairingID: macDeviceID))
         }
 
+        /// Resolve the one focused owner on a physical Mac regardless of the
+        /// stored versus authenticated instance tag.
+        func onDevice(_ macDeviceID: String) -> MacConnection? {
+            registry.focusedConnection(onDevice: macDeviceID)
+        }
+
         func removeAll() {
             registry.removeAllFocusedConnections()
         }

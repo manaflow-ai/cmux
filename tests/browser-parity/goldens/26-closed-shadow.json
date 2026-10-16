@@ -1,0 +1,10 @@
+{
+  "oracle": {},
+  "cmux": {
+    "full": "title: Closed Shadow Fixture\nurl: PRIMARY/closed-shadow.html\n- heading \"Closed shadow\" [level=1]\n- textbox \"Closed input\" [ref=e1]\n- button \"Closed button\" [ref=e2]\n- text: \"none\"\n- link \"Nested closed link\" [ref=e3]",
+    "ref-fill": "typed",
+    "locator-click": "closed true",
+    "nested-link": 1,
+    "css-pierces": 1
+  }
+}

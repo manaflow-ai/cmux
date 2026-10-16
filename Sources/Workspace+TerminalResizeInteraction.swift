@@ -14,7 +14,7 @@ extension Workspace {
     }
 
     private func terminalResizeInteractionWindow() -> NSWindow? {
-        if let eventWindow = NSApp.currentEvent?.window { return eventWindow }
+        if let eventWindow = TerminalWindowPortalRegistry.pointerEventWindow() { return eventWindow }
         return panels.values.lazy.compactMap { panel in
             (panel as? TerminalPanel)?.hostedView.window
         }.first

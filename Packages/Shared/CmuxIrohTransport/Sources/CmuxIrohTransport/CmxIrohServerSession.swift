@@ -197,7 +197,7 @@ public actor CmxIrohServerSession {
                 from: stream.receiveStream
             )
             switch decoded.header.lane {
-            case .terminal, .artifact, .simulatorStream:
+            case .terminal, .terminalInput, .artifact, .simulatorStream:
                 break
             case .control, .serverEvents:
                 throw CmxIrohServerSessionError.invalidPeerLane
@@ -235,7 +235,7 @@ public actor CmxIrohServerSession {
             break
         case .artifact:
             throw CmxIrohServerSessionError.applicationLanesUnavailable
-        case .control, .terminal, .simulatorStream:
+        case .control, .terminal, .terminalInput, .simulatorStream:
             throw CmxIrohServerSessionError.invalidServerLane
         }
         let stream = try await connection.openSendStream()

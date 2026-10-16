@@ -33,6 +33,8 @@ public struct MobileIrohReleaseGateProbeResult: Equatable, Sendable {
     public let unrefreshedExpiryDisconnectVerified: Bool
     /// Whole seconds spent driving control traffic during rollover.
     public let soakDurationSeconds: Int
+    /// Successful per-operation durations from this probe, in seconds.
+    public let operationLatencies: [String: Double]
 
     /// Creates a successful probe result.
     /// - Parameters:
@@ -59,7 +61,8 @@ public struct MobileIrohReleaseGateProbeResult: Equatable, Sendable {
         independentEventsContinuityVerified: Bool = false,
         artifactLaneVerified: Bool = false,
         unrefreshedExpiryDisconnectVerified: Bool = false,
-        soakDurationSeconds: Int = 0
+        soakDurationSeconds: Int = 0,
+        operationLatencies: [String: Double] = [:]
     ) {
         self.hostStatusVerified = hostStatusVerified
         self.rpcMethodInventoryVerified = rpcMethodInventoryVerified
@@ -77,6 +80,7 @@ public struct MobileIrohReleaseGateProbeResult: Equatable, Sendable {
         self.artifactLaneVerified = artifactLaneVerified
         self.unrefreshedExpiryDisconnectVerified = unrefreshedExpiryDisconnectVerified
         self.soakDurationSeconds = soakDurationSeconds
+        self.operationLatencies = operationLatencies
     }
 }
 #endif

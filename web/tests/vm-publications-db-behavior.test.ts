@@ -8,10 +8,19 @@ import {
 } from "bun:test";
 import { createHash, randomUUID } from "node:crypto";
 import * as Effect from "effect/Effect";
+import * as Statement from "@effect/sql/Statement";
+import { makePublicationAuthRepository } from "../services/vm-publications/authRepository";
+import { publicationDatabaseRuntime, closePublicationAuthDb } from "../services/vm-publications/database";
 import postgres, { type Sql } from "postgres";
 
 import { closeCloudDbForTests, cloudDb } from "../db/client";
 import { deleteVmPublicationRowsForAccountDeletion } from "../services/vm-publications/accountDeletion";
+import {
+  VmPublicationProvider,
+  VmPublicationProviderError,
+  type VmPublicationProviderShape,
+} from "../services/vm-publications/provider";
+import { createPublication, verifyPublication } from "../services/vm-publications/workflows";
 import {
   AUTH_ARTIFACT_SWEEP_LIMIT,
   AUTH_TRANSACTION_ABANDONED_AFTER_MS,
@@ -82,7 +91,7 @@ async function createActivePublication(input: {
   readonly ownerUserId?: string;
   readonly accessMode?: "personal" | "team" | "public";
   readonly teamId?: string | null;
-}): Promise<CloudVmPublicationTarget> {
+}): Promise<CloudVmPublicationTarget & { readonly domain: NonNullable<CloudVmPublicationTarget["domain"]> }> {
   const repo = requiredRepository();
   const ownerUserId = input.ownerUserId ?? `owner-${input.suffix}`;
   const accessMode = input.accessMode ?? "personal";
@@ -141,6 +150,7 @@ beforeAll(async () => {
       return yield* CloudVmPublicationRepository;
     }).pipe(Effect.provide(CloudVmPublicationRepositoryLive)),
   );
+  repository = { ...repository, ...await (await publicationDatabaseRuntime()).runPromise(makePublicationAuthRepository) };
 });
 
 beforeEach(async () => {
@@ -165,10 +175,262 @@ beforeEach(async () => {
 
 afterAll(async () => {
   await closeCloudDbForTests();
+  await closePublicationAuthDb();
   await sql?.end({ timeout: 5 });
 });
 
 describe("Cloud VM publication persistence", () => {
+  // The provisioning state machine end to end: real repository updates, a
+  // provider that fails at one point. See PUBLICATION_PROVISIONING_STATES.
+  type ProviderStep = "verifyDomain" | "reconcile" | "certificate";
+  const refused = (operation: string, cause: unknown) => new VmPublicationProviderError({ operation: operation as never, cause });
+  const tlsCap = Object.assign(new Error("conflict: TLS rule limit reached (2000)"), { status: 409, code: "CONFLICT" });
+  function stateMachineProvider(fail: { readonly step?: ProviderStep; readonly cause?: unknown }, certificateReady: boolean): VmPublicationProviderShape {
+    const failing = (step: ProviderStep) => fail.step === step;
+    return new Proxy({
+      createDomainVerification: () => failing("verifyDomain")
+        ? Effect.fail(refused("createDomainVerification", fail.cause))
+        : Effect.die(new Error("unused")),
+      getDomainVerification: () => failing("verifyDomain")
+        ? Effect.fail(refused("getDomainVerification", fail.cause))
+        : Effect.succeed(null),
+      reconcileTlsRule: (_ruleId: unknown, spec: { hostname: string; providerVmId: string; port: number }) => failing("reconcile")
+        ? Effect.fail(refused("reconcileTlsRule", fail.cause))
+        : Effect.succeed({
+          disposition: "created",
+          rule: { tlsRuleId: `tls-${spec.hostname}`, hostname: spec.hostname, providerVmId: spec.providerVmId, port: spec.port, forwardAuthId: null },
+        }),
+      getCertificateStatus: () => failing("certificate")
+        ? Effect.fail(refused("getCertificateStatus", fail.cause))
+        : Effect.succeed({ state: certificateReady ? "active" : "pending", ready: certificateReady }),
+    } as Record<string, unknown>, {
+      get: (target, property) => property in target ? target[property as string] : () => Effect.die(new Error(`unexpected provider call ${String(property)}`)),
+    }) as unknown as VmPublicationProviderShape;
+  }
+  async function runWith<A>(program: Effect.Effect<A, unknown, CloudVmPublicationRepository | VmPublicationProvider>, provider: VmPublicationProviderShape) {
+    return Effect.runPromise(Effect.either(program.pipe(
+      Effect.provideService(CloudVmPublicationRepository, requiredRepository()),
+      Effect.provideService(VmPublicationProvider, provider),
+    )));
+  }
+  async function reserveGenerated(suffix: string) {
+    const ownerUserId = `owner-${suffix}`;
+    await insertVm(ownerUserId, `provider-vm-${suffix}`);
+    const hostname = `${suffix}.preview.example.test`;
+    return runRepository(requiredRepository().reservePublicationWithNewDomain({
+      ownerUserId, provider: "freestyle", providerVmId: `provider-vm-${suffix}`,
+      domainHostname: hostname, hostname, kind: "generated", port: 3_000, accessMode: "public", now: NOW,
+    }));
+  }
+  async function stateOf(id: string) {
+    const [row] = await requiredSql()<{ state: string; provider_tls_rule_id: string | null }[]>`
+      select state, provider_tls_rule_id from cloud_vm_publications where id = ${id}
+    `;
+    return { state: row!.state, hasRule: row!.provider_tls_rule_id !== null };
+  }
+  const verify = (reserved: { publication: { id: string; ownerUserId: string } }, provider: VmPublicationProviderShape) =>
+    runWith(verifyPublication({
+      principal: { userId: reserved.publication.ownerUserId, teamIds: [] },
+      publicationId: reserved.publication.id,
+      now: NOW,
+    }), provider);
+
+  const cases: Array<{ name: string; failure: { step?: ProviderStep; cause?: unknown }; expected: { state: string; hasRule: boolean } }> = [
+    { name: "rule create refused at the TLS cap", failure: { step: "reconcile", cause: tlsCap }, expected: { state: "unavailable", hasRule: false } },
+    { name: "rule create fails transiently", failure: { step: "reconcile", cause: new Error("socket hang up") }, expected: { state: "unavailable", hasRule: false } },
+    { name: "certificate status fails after the rule is recorded", failure: { step: "certificate", cause: new Error("timeout") }, expected: { state: "provisioning", hasRule: true } },
+  ];
+  for (const testCase of cases) {
+    dbTest(`provisioning state machine: ${testCase.name}`, async () => {
+      const reserved = await reserveGenerated(`sm-${cases.indexOf(testCase)}`);
+      const result = await verify(reserved, stateMachineProvider(testCase.failure, false));
+      expect(result._tag).toBe("Left");
+      expect(await stateOf(reserved.publication.id)).toEqual(testCase.expected);
+    });
+  }
+
+  dbTest("provisioning state machine: a retry from unavailable records the rule, then activates", async () => {
+    const reserved = await reserveGenerated("sm-retry");
+    await verify(reserved, stateMachineProvider({ step: "reconcile", cause: tlsCap }, false));
+    expect(await stateOf(reserved.publication.id)).toEqual({ state: "unavailable", hasRule: false });
+    const pending = await verify(reserved, stateMachineProvider({}, false));
+    expect(pending._tag).toBe("Right");
+    expect(await stateOf(reserved.publication.id)).toEqual({ state: "provisioning", hasRule: true });
+
+    const again = await reserveGenerated("sm-retry-active");
+    await verify(again, stateMachineProvider({ step: "reconcile", cause: tlsCap }, false));
+    const active = await verify(again, stateMachineProvider({}, true));
+    expect(active._tag).toBe("Right");
+    expect(await stateOf(again.publication.id)).toEqual({ state: "active", hasRule: true });
+  });
+
+  dbTest("provisioning state machine: custom-domain verification failure on create", async () => {
+    const ownerUserId = "owner-sm-custom";
+    await insertVm(ownerUserId, "provider-vm-sm-custom");
+    const result = await runWith(createPublication({
+      principal: { userId: ownerUserId, teamIds: [] },
+      providerVmId: "provider-vm-sm-custom",
+      port: 3_000,
+      hostname: "app.sm-custom.example.test",
+      accessMode: "public",
+      now: NOW,
+    }), stateMachineProvider({ step: "verifyDomain", cause: new Error("provider refused") }, false));
+    expect(result._tag).toBe("Left");
+    const [row] = await requiredSql()<{ id: string }[]>`select id from cloud_vm_publications where owner_user_id = ${ownerUserId}`;
+    expect(await stateOf(row!.id)).toEqual({ state: "unavailable", hasRule: false });
+  });
+
+  dbTest("marks only a provisioning publication unavailable, bumping its routing revision", async () => {
+    const repo = requiredRepository();
+    const ownerUserId = "owner-mark";
+    await insertVm(ownerUserId, "provider-vm-mark");
+    const reserved = await runRepository(repo.reservePublicationWithNewDomain({
+      ownerUserId,
+      provider: "freestyle",
+      providerVmId: "provider-vm-mark",
+      domainHostname: "mark.preview.example.test",
+      hostname: "mark.preview.example.test",
+      kind: "generated",
+      port: 3_000,
+      accessMode: "public",
+      now: NOW,
+    }));
+    expect(reserved.publication.state).toBe("provisioning");
+
+    const marked = await runRepository(repo.markPublicationUnavailable({
+      id: reserved.publication.id,
+      expectedRoutingRevision: reserved.publication.routingRevision,
+      now: NOW,
+    }));
+    expect(marked.state).toBe("unavailable");
+    expect(marked.routingRevision).toBe(reserved.publication.routingRevision + 1);
+
+    // Already unavailable: unchanged, revision kept.
+    const again = await runRepository(repo.markPublicationUnavailable({
+      id: reserved.publication.id,
+      expectedRoutingRevision: marked.routingRevision,
+      now: NOW,
+    }));
+    expect(again).toMatchObject({ state: "unavailable", routingRevision: marked.routingRevision });
+
+    // A stale revision is refused.
+    await expectRepositoryError(runRepository(repo.markPublicationUnavailable({
+      id: reserved.publication.id,
+      expectedRoutingRevision: reserved.publication.routingRevision,
+      now: NOW,
+    })), { _tag: "PublicationConflictError", reason: "publication_revision_changed" });
+
+    // An active publication is never downgraded.
+    const active = await createActivePublication({ suffix: "mark-active" });
+    const kept = await runRepository(repo.markPublicationUnavailable({
+      id: active.publication.id,
+      expectedRoutingRevision: active.publication.routingRevision,
+      now: NOW,
+    }));
+    expect(kept).toMatchObject({ state: "active", routingRevision: active.publication.routingRevision });
+  });
+
+  dbTest("account deletion targets report hostnameClaimed as a boolean and the VM's provider id", async () => {
+    const active = await createActivePublication({ suffix: "claimed-flag" });
+    const targets = await runRepository(requiredRepository().listPublicationsForAccountDeletion(active.publication.ownerUserId));
+    expect(targets).toHaveLength(1);
+    expect(targets[0]!.hostnameClaimed).toBe(true);
+    expect(typeof targets[0]!.hostnameClaimed).toBe("boolean");
+    expect(targets[0]!.providerVmId).toBe("provider-vm-claimed-flag");
+    await requiredSql()`
+      update cloud_vm_publications
+      set hostname_claimed_at = null, state = 'provisioning', provider_tls_rule_id = null
+      where id = ${active.publication.id}
+    `;
+    const unclaimed = await runRepository(requiredRepository().listPublicationsForAccountDeletion(active.publication.ownerUserId));
+    expect(unclaimed[0]!.hostnameClaimed).toBe(false);
+  });
+
+  dbTest("keeps the pending sign-in cap under simultaneous writers", async () => {
+    const repo = requiredRepository();
+    const sql = requiredSql();
+    const target = await createActivePublication({ suffix: "auth-concurrent-cap" });
+    const rows = Array.from({ length: MAX_PENDING_AUTH_TRANSACTIONS_PER_PUBLICATION - 1 }, (_, index) => ({
+      transaction_hash: createHash("sha256").update(`cap-seed-${index}`).digest("hex"),
+      publication_id: target.publication.id,
+      routing_revision: target.publication.routingRevision,
+      pkce_challenge: "P".repeat(43), state_hash: "a".repeat(64),
+      hostname: target.publication.hostname, return_path: "/", created_at: NOW,
+      expires_at: new Date(NOW.getTime() + 600_000),
+    }));
+    await sql`insert into cloud_vm_publication_auth_transactions ${sql(rows)}`;
+    let unlock!: () => void;
+    let locked!: () => void;
+    const ready = new Promise<void>(resolve => { locked = resolve; });
+    const release = new Promise<void>(resolve => { unlock = resolve; });
+    const lock = sql.begin(async tx => {
+      await tx`lock table cloud_vm_publication_auth_transactions in share mode`;
+      locked(); await release;
+    });
+    await ready;
+    const contenders = Promise.allSettled(Array.from({ length: 4 }, (_, index) => runRepository(repo.createAuthTransaction({
+      publicationId: target.publication.id, hostname: target.publication.hostname,
+      transactionHash: createHash("sha256").update(`cap-contender-${index}`).digest("hex"),
+      pkceChallenge: "P".repeat(43), stateHash: "b".repeat(64), returnPath: "/",
+      now: NOW, expiresAt: new Date(NOW.getTime() + 600_000),
+    }))));
+    try {
+      const deadline = Date.now() + 3000;
+      let waiting = 0;
+      while (waiting < 4 && Date.now() < deadline) {
+        const [row] = await sql`select count(*)::integer as waiting from pg_stat_activity
+          where datname=current_database() and application_name='cmux-publication-auth' and wait_event_type='Lock'`;
+        waiting = row.waiting;
+        if (waiting < 4) await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      expect(waiting).toBe(4);
+    } finally { unlock(); await lock; }
+    const results = await contenders;
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    for (const result of results) if (result.status === "rejected") {
+      expect(result.reason).toMatchObject({ _tag: "PublicationConflictError", reason: "auth_transaction_limit" });
+    }
+    const [count] = await sql`select count(*)::integer as total from cloud_vm_publication_auth_transactions where publication_id=${target.publication.id}`;
+    expect(count.total).toBe(MAX_PENDING_AUTH_TRANSACTIONS_PER_PUBLICATION);
+  });
+
+  dbTest("reads current publication and session together without admitting stale or foreign sessions", async () => {
+    const repo = requiredRepository();
+    const sql = requiredSql();
+    const target = await createActivePublication({ suffix: "request-context" });
+    const foreign = await createActivePublication({ suffix: "request-foreign" });
+    const tokenHash = createHash("sha256").update("request-session").digest("hex");
+    await sql`insert into cloud_vm_publication_sessions (
+      token_hash, publication_id, user_id, routing_revision, created_at, expires_at
+    ) values (${tokenHash}, ${target.publication.id}, ${target.publication.ownerUserId},
+      ${target.publication.routingRevision}, ${NOW}, ${new Date(NOW.getTime() + 60_000)})`;
+    const input = { providerTlsRuleId: "tls-rule-request-context", sessionTokenHash: tokenHash, now: NOW };
+    const statements: string[] = [];
+    const result = await runRepository(repo.findRequestContext(input).pipe(Statement.withTransformer(statement => Effect.sync(() => {
+      statements.push(statement.compile()[0]);
+      return statement;
+    }))));
+    expect(result?.publication.id).toBe(target.publication.id);
+    expect(result?.session?.tokenHash).toBe(tokenHash);
+    expect(statements).toHaveLength(1);
+    expect(statements[0]?.trim().toLowerCase().startsWith("select ")).toBe(true);
+    expect((await runRepository(repo.findRequestContext({ ...input, sessionTokenHash: null })))?.session).toBeNull();
+    expect((await runRepository(repo.findRequestContext({ ...input, now: new Date(NOW.getTime() + 60_000) })))?.session).toBeNull();
+    const wrongPublication = await runRepository(repo.findRequestContext({ ...input, providerTlsRuleId: foreign.publication.providerTlsRuleId! }));
+    expect(wrongPublication?.publication.id).toBe(foreign.publication.id);
+    expect(wrongPublication?.session).toBeNull();
+    await sql`update cloud_vm_publication_sessions set revoked_at=${NOW} where token_hash=${tokenHash}`;
+    expect((await runRepository(repo.findRequestContext(input)))?.session).toBeNull();
+    await sql`update cloud_vm_publication_sessions set revoked_at=null where token_hash=${tokenHash}`;
+    await sql`update cloud_vm_publications set routing_revision=routing_revision+1 where id=${target.publication.id}`;
+    expect((await runRepository(repo.findRequestContext(input)))?.session).toBeNull();
+    await sql`update cloud_vm_publications set state='disabled', disabled_at=${NOW} where id=${target.publication.id}`;
+    expect(await runRepository(repo.findRequestContext(input))).toBeNull();
+    await sql`update cloud_vm_publications set state='active', disabled_at=null where id=${target.publication.id}`;
+    await sql`update cloud_vms set status='destroyed' where id=${target.vm.id}`;
+    expect(await runRepository(repo.findRequestContext(input))).toBeNull();
+  });
+
   dbTest(
     "serializes bootstrap of the account-shared forward-auth resource",
     async () => {

@@ -1,8 +1,10 @@
 import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxMobileRPC
+import CmuxMobileHost
 import Foundation
 @preconcurrency import Network
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -16,14 +18,10 @@ extension MobileHostAuthorizationTests {
     @Test func testMobileHostConnectionClosesWhenFirstFrameTimesOut() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
-        let connection = NWConnection(
-            host: NWEndpoint.Host("127.0.0.1"),
-            port: NWEndpoint.Port(rawValue: 9)!,
-            using: .tcp
-        )
+        let transport = RecordingMobileHostByteTransport()
         let session = MobileHostConnection(
             id: connectionID,
-            connection: connection,
+            transport: transport,
             firstFrameTimeoutNanoseconds: 1_000_000,
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
@@ -43,18 +41,13 @@ extension MobileHostAuthorizationTests {
         let finalRecordedIDs = await recorder.recordedIDs()
         #expect(finalRecordedIDs == [connectionID])
     }
-    @Test func testMobileHostConnectionClosesWhenIdleAfterFirstFrame() async throws {
+    @Test func testMobileHostConnectionKeepsControlUsableAfterFirstFrame() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
-        let connection = NWConnection(
-            host: NWEndpoint.Host("127.0.0.1"),
-            port: NWEndpoint.Port(rawValue: 9)!,
-            using: .tcp
-        )
+        let transport = RecordingMobileHostByteTransport()
         let session = MobileHostConnection(
             id: connectionID,
-            connection: connection,
-            idleTimeoutNanoseconds: 1_000_000,
+            transport: transport,
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
             handleRequest: { _ in .ok([:]) },
@@ -62,18 +55,15 @@ extension MobileHostAuthorizationTests {
                 await recorder.record(id)
             }
         )
-        await session.debugStartIdleTimeoutAfterFrameForTesting()
-        for _ in 0..<100 {
-            let recordedIDs = await recorder.recordedIDs()
-            if !recordedIDs.isEmpty {
-                break
-            }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        let finalRecordedIDs = await recorder.recordedIDs()
-        #expect(finalRecordedIDs == [connectionID])
+        let frame = try MobileSyncFrameCodec.encodeFrame(
+            Data(#"{"id":"status","method":"mobile.host.status","params":{}}"#.utf8)
+        )
+        await session.debugHandleReceiveDataForTesting(frame)
+        #expect(await transport.waitForSentBufferCount(1).count == 1)
+        #expect(await recorder.recordedIDs().isEmpty)
+        await session.close(reason: "test cleanup")
     }
-    @Test func testMobileHostConnectionKeepsSubscribedEventStreamPastIdleTimeout() async throws {
+    @Test func testMobileHostConnectionKeepsSubscribedEventStreamIdle() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
         let connection = NWConnection(
@@ -84,7 +74,6 @@ extension MobileHostAuthorizationTests {
         let session = MobileHostConnection(
             id: connectionID,
             connection: connection,
-            idleTimeoutNanoseconds: 1_000_000,
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
             handleRequest: { _ in .ok([:]) },
@@ -93,26 +82,15 @@ extension MobileHostAuthorizationTests {
             }
         )
         await session.subscribe(streamID: "events", topics: ["terminal.updated"])
-        await session.debugStartIdleTimeoutAfterFrameForTesting()
-        // An active subscription suppresses the idle-after-frame timeout: the
-        // arm path early-returns without scheduling any close. Awaiting an
-        // actor-isolated round-trip on the connection guarantees the arm call
-        // was fully processed and that the connection is still alive and
-        // subscribed, so the recorder reflects the final state with no
-        // wall-clock window to race.
+        // Subscriptions remain usable without requiring synthetic traffic. The
+        // host has no application-level idle deadline after admission.
         #expect(await session.isSubscribed(to: "terminal.updated"))
         let subscribedCloseIDs = await recorder.recordedIDs()
         #expect(subscribedCloseIDs.isEmpty)
         _ = await session.unsubscribe(streamID: "events")
-        for _ in 0..<100 {
-            let recordedIDs = await recorder.recordedIDs()
-            if !recordedIDs.isEmpty {
-                break
-            }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        let finalRecordedIDs = await recorder.recordedIDs()
-        #expect(finalRecordedIDs == [connectionID])
+        #expect(await !session.isSubscribed(to: "terminal.updated"))
+        #expect(await recorder.recordedIDs().isEmpty)
+        await session.close(reason: "test cleanup")
     }
 
     @Test func testDeadIndependentEventLaneFallsBackCurrentAndFutureEventsToControl() async throws {
@@ -183,7 +161,7 @@ extension MobileHostAuthorizationTests {
         await session.close(reason: "test complete")
     }
 
-    @Test func testIndependentEventBackpressureClosesAtBoundedQueueCapacity() async throws {
+    @Test func testIndependentEventBackpressurePreservesOrderedEvents() async throws {
         let control = RecordingMobileHostByteTransport()
         let independent = TestMobileHostIndependentEventWriter(
             behavior: .blockAfterProbe
@@ -198,10 +176,7 @@ extension MobileHostAuthorizationTests {
             handleRequest: { _ in .ok([:]) },
             onClose: { _ in }
         )
-        // A non-droppable topic (state-sync deltas cannot be re-derived by the
-        // client) keeps the close-on-overflow contract; recoverable topics like
-        // terminal.render_grid are shed instead — see
-        // testStalledRenderGridSubscriberStaysOpenWithBoundedEventQueue.
+        // Ordered state changes remain queued while the event lane is busy.
         _ = await session.debugHandleSubscriptionRPCForTesting(
             MobileHostRPCRequest(
                 id: "subscribe",
@@ -232,15 +207,16 @@ extension MobileHostAuthorizationTests {
             )
         }
         #expect(
-            !(await session.sendEvent(
+            await session.sendEvent(
                 topic: "mobile.sync.delta",
                 payload: ["seq": 257]
-            ))
+            )
         )
 
-        #expect(await control.observedCloseCount() == 1)
-        #expect(await independent.observedCloseCount() == 1)
-        #expect(await session.debugQueuedEventCountForTesting() == 0)
+        #expect(await control.observedCloseCount() == 0)
+        #expect(await independent.observedCloseCount() == 0)
+        #expect(await session.debugQueuedEventCountForTesting() == 257)
+        await session.close(reason: "test complete")
     }
 
     @Test func testIdempotentSubscriptionDoesNotReprobeHealthyIndependentLane() async throws {
@@ -333,11 +309,73 @@ extension MobileHostAuthorizationTests {
         #expect(await transport.observedCloseCount() == 1)
     }
 
-    /// Events that cannot be re-derived by the client (state-sync deltas and
-    /// other non-refresh topics) must keep the close-on-overflow contract: the
-    /// host may never silently drop them, so a subscriber that stops draining
-    /// is torn down at the bounded capacity instead of growing without bound.
-    @Test func testStalledSubscriberOverflowOnNonRecoverableTopicClosesConnection() async throws {
+    /// Closing a connection ends its event drain even when the transport's
+    /// close leaves the drain's in-flight write parked; otherwise the drain
+    /// task outlives the connection that started it.
+    @Test func testCloseCancelsEventDrainParkedInWrite() async throws {
+        let transport = CloseIgnoringStalledSendTransport()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        defer { transport.releaseStalledSends() }
+        await session.subscribe(streamID: "events", topics: ["terminal.render_grid"])
+        #expect(await session.sendEvent(
+            topic: "terminal.render_grid",
+            payload: ["surface_id": "surface-drain-close", "full": true, "state_seq": 1]
+        ))
+        await transport.waitUntilSendStalled()
+
+        await session.close(reason: "test cleanup")
+
+        #expect(transport.cancelledSendCount() == 1)
+        #expect(transport.stalledSendCount() == 0)
+    }
+
+    /// A drain the static fan-out claims is owned by the connection like one
+    /// `sendEvent` claims, so closing the connection cancels it too.
+    @Test func testCloseCancelsFanOutEventDrainParkedInWrite() async throws {
+        let registry = MobileHostConnectionRegistry.shared
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test setup")
+        }
+        let transport = CloseIgnoringStalledSendTransport()
+        let connectionID = UUID()
+        let session = MobileHostConnection(
+            id: connectionID,
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { id in
+                MobileHostConnectionRegistry.shared.remove(id: id)
+            }
+        )
+        defer { transport.releaseStalledSends() }
+        #expect(registry.insert(session, id: connectionID, authorization: .stackBearer, limit: 10))
+        await session.subscribe(streamID: "events", topics: ["terminal.render_grid"])
+
+        MobileHostService.emitEvent(
+            topic: "terminal.render_grid",
+            payload: ["surface_id": "surface-fanout-drain-close", "full": true, "state_seq": 1]
+        )
+        await transport.waitUntilSendStalled()
+
+        await session.close(reason: "test cleanup")
+
+        #expect(transport.cancelledSendCount() == 1)
+        #expect(transport.stalledSendCount() == 0)
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test cleanup")
+        }
+    }
+
+    /// Ordered events must survive congestion without forcing a reconnect.
+    @Test func testStalledSubscriberPreservesOrderedEventsBeyondSheddingBudget() async throws {
         let transport = StalledSendMobileHostByteTransport()
         let session = MobileHostConnection(
             id: UUID(),
@@ -359,9 +397,10 @@ extension MobileHostAuthorizationTests {
             }
         }
 
-        #expect(await transport.observedCloseCount() == 1)
-        #expect(admitted <= 258)
-        #expect(await session.debugQueuedEventCountForTesting() == 0)
+        #expect(await transport.observedCloseCount() == 0)
+        #expect(admitted == 300)
+        #expect(await session.debugQueuedEventCountForTesting() >= 299)
+        await session.close(reason: "test complete")
     }
 
     /// End-to-end fan-out proof for issue #8842: sustained emission through the
@@ -450,28 +489,24 @@ extension MobileHostAuthorizationTests {
             topic: "simulator.frame",
             payload: ["panel_id": "sim-panel-9401"]
         ) == "sim-panel-9401")
-        #expect(MobileHostEventTopicPolicy.isDroppable(
+        #expect(MobileHostEventTopicPolicy().isDroppable(
             topic: "simulator.frame",
             coalesceKey: "sim-panel-9401"
         ))
-        #expect(!MobileHostEventTopicPolicy.isDroppable(
+        #expect(!MobileHostEventTopicPolicy().isDroppable(
             topic: "simulator.state",
             coalesceKey: "sim-panel-9401"
         ))
     }
 
-    /// A subscriber whose transport accepted a frame but never completes the
-    /// write (TCP zero-window peer) is torn down by the bounded event-send
-    /// stall deadline instead of pinning the connection's queue, tasks, and
-    /// socket forever.
-    @Test func testEventSendStallDeadlineClosesStalledConnection() async throws {
+    /// A stalled event write does not end the connection or interrupt framing.
+    @Test func testEventSendStallDoesNotCloseConnection() async throws {
         let transport = StalledSendMobileHostByteTransport()
         let recorder = MobileHostConnectionCloseRecorder()
         let connectionID = UUID()
         let session = MobileHostConnection(
             id: connectionID,
             transport: transport,
-            eventSendStallTimeoutNanoseconds: 5_000_000,
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
             handleRequest: { _ in .ok([:]) },
@@ -485,15 +520,28 @@ extension MobileHostAuthorizationTests {
             payload: ["surface_id": "surface-stall-8842", "full": true]
         )
         await transport.waitUntilSendStalled()
-        for _ in 0..<2_000 {
-            if !(await recorder.recordedIDs().isEmpty) { break }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        #expect(await recorder.recordedIDs() == [connectionID])
-        #expect(await transport.observedCloseCount() == 1)
+        // The transport's signal proves the write is suspended and unresolved.
+        #expect(await recorder.recordedIDs().isEmpty)
+        #expect(await transport.observedCloseCount() == 0)
+        await session.close(reason: "test complete")
     }
 
     // MARK: - Bounded event queue admission policy
+
+    @Test func deviceLayoutSnapshotsSurviveQueueCongestion() {
+        let topic = DeviceWorkspaceLayoutHost.eventTopic
+        let queue = MobileHostConnectionEventQueue(maximumEventCount: 1, maximumByteCount: 16)
+        queue.updateSubscribedTopics([topic, "workspace.updated"])
+        let frame = Data(repeating: 1, count: 16)
+        #expect(queue.enqueue(topic: topic, coalesceKey: "workspace-a",
+            isFullRenderGridFrame: false, stateSeq: 1, frame: frame).admitted)
+        _ = queue.enqueue(topic: "workspace.updated", coalesceKey: nil,
+            isFullRenderGridFrame: false, frame: frame)
+        #expect(queue.enqueue(topic: topic, coalesceKey: "workspace-b",
+            isFullRenderGridFrame: false, stateSeq: 2, frame: frame).admitted)
+        #expect(queue.dequeue()?.coalesceKey == "workspace-a")
+        #expect(queue.dequeue()?.coalesceKey == "workspace-b")
+    }
 
     @Test func testEventQueueShedsRenderGridDeltasAndPoisonsUntilFullFrame() {
         let queue = MobileHostConnectionEventQueue(
@@ -518,7 +566,6 @@ extension MobileHostAuthorizationTests {
             isFullRenderGridFrame: false, frame: frame
         )
         #expect(!overflow.admitted)
-        #expect(!overflow.shouldClose)
         #expect(overflow.renderGridResyncSurfaceIDs == ["s1"])
         #expect(queue.count == 0)
         // While poisoned, deltas stay refused even though there is room.
@@ -540,7 +587,7 @@ extension MobileHostAuthorizationTests {
         #expect(queue.count == 2)
     }
 
-    @Test func testEventQueueOverflowOnNonDroppableTopicRequestsClose() {
+    @Test func testEventQueuePreservesOrderedEventsBeyondSheddingBudget() {
         let queue = MobileHostConnectionEventQueue(
             maximumEventCount: 1,
             maximumByteCount: 1_000_000
@@ -555,8 +602,10 @@ extension MobileHostAuthorizationTests {
             topic: "mobile.sync.delta", coalesceKey: nil,
             isFullRenderGridFrame: false, frame: frame
         )
-        #expect(!overflow.admitted)
-        #expect(overflow.shouldClose)
+        #expect(overflow.admitted)
+        #expect(queue.count == 2)
+        #expect(queue.dequeue()?.frame == frame)
+        #expect(queue.dequeue()?.frame == frame)
     }
 
     @Test func testEventQueueEnforcesByteBudgetBySheddingOldestDroppable() {
@@ -635,8 +684,8 @@ extension MobileHostAuthorizationTests {
 
         session = nil
         transport = nil
-        for _ in 0..<2_000 {
-            if weakSession == nil, weakTransport == nil { break }
+        let releaseDeadline = ContinuousClock.now + .seconds(10)
+        while (weakSession != nil || weakTransport != nil), ContinuousClock.now < releaseDeadline {
             await Task.yield()
         }
         #expect(weakSession == nil)
@@ -687,7 +736,8 @@ extension MobileHostAuthorizationTests {
                 == "iroh_server_events_v1"
         )
         await independent.failBlockedSend()
-        for _ in 0..<1_000 {
+        let transportDeadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < transportDeadline {
             if await session.debugEventTransportForTesting(streamID: "events") == .control {
                 break
             }
@@ -698,6 +748,85 @@ extension MobileHostAuthorizationTests {
                 == .control
         )
         #expect(await control.waitForSentBufferCount(1).count == 1)
+        await session.close(reason: "test complete")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func testQueueOverflowClosesWithoutWaitingOutLaneNegotiation() async throws {
+        let control = RecordingMobileHostByteTransport()
+        let (closed, closedContinuation) = AsyncStream<Void>.makeStream()
+        let independent = TestMobileHostIndependentEventWriter(
+            behavior: .blockAfterProbe
+        )
+        var eventBlocked = await independent.blockedEvents().makeAsyncIterator()
+        var probeBlocked = await independent.blockedProbeEvents().makeAsyncIterator()
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 1,
+            maximumByteCount: 1_000_000
+        )
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: control,
+            eventQueue: queue,
+            independentEventWriter: independent,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in closedContinuation.yield(()) }
+        )
+        _ = await session.debugHandleSubscriptionRPCForTesting(MobileHostRPCRequest(
+            id: "subscribe",
+            method: "mobile.events.subscribe",
+            params: [
+                "stream_id": "events",
+                "topics": ["terminal.updated", "device.terminal.grid"],
+                "event_transport": "iroh_server_events_v1",
+            ],
+            auth: nil
+        ))
+        // The running drain parks in an independent-lane send.
+        #expect(await session.sendEvent(topic: "terminal.updated", payload: ["seq": 1]))
+        _ = await eventBlocked.next()
+        // A second stream starts lane negotiation, whose probe parks behind
+        // the blocked send. Its topic is unique because the subscription
+        // tracker is process-wide.
+        let negotiatedTopic = "test.lane-negotiation.\(UUID().uuidString)"
+        let negotiation = Task {
+            await session.debugHandleSubscriptionRPCForTesting(MobileHostRPCRequest(
+                id: "subscribe-2",
+                method: "mobile.events.subscribe",
+                params: [
+                    "stream_id": "events-2",
+                    "topics": [negotiatedTopic],
+                    "event_transport": "iroh_server_events_v1",
+                ],
+                auth: nil
+            ))
+        }
+        _ = await probeBlocked.next()
+        let frame = Data(repeating: 0x61, count: 8)
+        #expect(session.enqueueEventFrame(
+            frame, topic: "device.terminal.grid", coalesceKey: "a",
+            isFullRenderGridFrame: false, stateSeq: nil
+        ).admitted)
+        let overflow = session.enqueueEventFrame(
+            frame, topic: "device.terminal.grid", coalesceKey: "b",
+            isFullRenderGridFrame: false, stateSeq: nil
+        )
+        #expect(overflow.overflowed)
+        // The running drain owns the overflow; it must close the connection
+        // on its next pass instead of yielding to the parked negotiation.
+        #expect(!overflow.startDrain)
+        await independent.failBlockedSend()
+        // The connection reports its close after closing the transport.
+        var closedEvents = closed.makeAsyncIterator()
+        _ = await closedEvents.next()
+        #expect(await control.observedCloseCount() == 1)
+        await independent.releaseBlockedProbe(result: false)
+        _ = await negotiation.value
+        // Close already released this connection's subscriptions, so the
+        // negotiation that resumes after it must not register a new one.
+        #expect(!MobileHostService.debugHasEventSubscribersForTesting(topic: negotiatedTopic))
         await session.close(reason: "test complete")
     }
 
@@ -992,5 +1121,76 @@ actor StalledSendMobileHostByteTransport: CmxByteTransport {
         for waiter in waiters {
             waiter.resume(throwing: StalledSendError.closed)
         }
+    }
+}
+
+/// A byte transport whose `close()` does not fail a parked `send`: only
+/// cancelling the sending task, or the test's own release, ends it. The
+/// cancellation count is recorded synchronously by the cancellation handler.
+final class CloseIgnoringStalledSendTransport: CmxByteTransport {
+    private struct State {
+        var sendWaiters: [CheckedContinuation<Void, any Error>] = []
+        var stalledWaiters: [CheckedContinuation<Void, Never>] = []
+        var cancelledSends = 0
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    func connect() async throws {}
+
+    func receive() async throws -> Data? { nil }
+
+    func send(_: Data) async throws {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                // Checked under the lock the handler takes, so a cancellation
+                // either finds this send parked or is seen here first.
+                let stalled = state.withLock { state -> [CheckedContinuation<Void, Never>]? in
+                    guard !Task.isCancelled else { return nil }
+                    state.sendWaiters.append(continuation)
+                    defer { state.stalledWaiters.removeAll() }
+                    return state.stalledWaiters
+                }
+                guard let stalled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                stalled.forEach { $0.resume() }
+            }
+        } onCancel: {
+            let waiters = state.withLock { state -> [CheckedContinuation<Void, any Error>] in
+                state.cancelledSends += 1
+                defer { state.sendWaiters.removeAll() }
+                return state.sendWaiters
+            }
+            waiters.forEach { $0.resume(throwing: CancellationError()) }
+        }
+    }
+
+    func close() async {}
+
+    /// Waits until a send has parked.
+    func waitUntilSendStalled() async {
+        await withCheckedContinuation { continuation in
+            let parked = state.withLock { state -> Bool in
+                guard state.sendWaiters.isEmpty else { return true }
+                state.stalledWaiters.append(continuation)
+                return false
+            }
+            if parked { continuation.resume() }
+        }
+    }
+
+    func cancelledSendCount() -> Int { state.withLock { $0.cancelledSends } }
+
+    func stalledSendCount() -> Int { state.withLock { $0.sendWaiters.count } }
+
+    /// Fails any send still parked so no task is stranded past the test.
+    func releaseStalledSends() {
+        let waiters = state.withLock { state -> [CheckedContinuation<Void, any Error>] in
+            defer { state.sendWaiters.removeAll() }
+            return state.sendWaiters
+        }
+        waiters.forEach { $0.resume(throwing: CancellationError()) }
     }
 }

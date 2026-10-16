@@ -24,10 +24,10 @@ extension TerminalSurface {
         return remoteOutputLane.enqueueTextInput(frame, to: surface)
     }
 
-    /// Notifies the pane host that user-initiated terminal input is about to be sent.
     @MainActor
     @discardableResult
     public func didReceiveExplicitInput() -> Bool {
+        startupInputGate.cancel(generation: terminalLifecycleId)
         var cancelledDeferredAdmission = false
         if cancelsStartupRestoreAdmissionOnExplicitInput,
            startupRestoreAdmissionPhase == .awaitingAdmission {
@@ -52,6 +52,7 @@ extension TerminalSurface {
     /// Notifies the current panel owner after explicit terminal input is accepted.
     @MainActor
     public func didAcceptExplicitInput() {
+        paneHost.terminalSurfaceDidAcceptExplicitInput()
         onExplicitInput?()
     }
 
@@ -85,48 +86,60 @@ extension TerminalSurface {
 
     /// Sends paste-style text to the surface, queueing on a cold surface.
     ///
+    /// - Parameter text: Literal UTF-8 text to paste.
     /// - Returns: Whether the text was delivered or queued.
     @MainActor
     @discardableResult
     public func sendText(_ text: String) -> Bool {
-        guard let data = text.data(using: .utf8), !data.isEmpty else { return true }
+        sendTextResult(text).accepted
+    }
+
+    /// Sends paste-style text and reports whether it was delivered or queued.
+    ///
+    /// Delivery means handed to the live terminal runtime, not consumed by its child process.
+    /// - Parameter text: Literal UTF-8 text to paste. Empty text succeeds without a write.
+    /// - Returns: The immediate delivery, queueing, or rejection outcome.
+    @MainActor
+    @discardableResult
+    public func sendTextResult(_ text: String) -> TextSendResult {
+        guard let data = text.data(using: .utf8), !data.isEmpty else { return .sent }
         didReceiveExplicitInput()
-        let accepted = sendTextAfterExplicitInput(data)
-        if accepted {
+        let result = sendTextAfterExplicitInput(data)
+        if result.accepted {
             hibernationRecorder.recordTerminalInput(
                 workspaceId: tabId,
                 panelId: id
             )
         }
-        return accepted
+        return result
     }
 
     @MainActor
-    private func sendTextAfterExplicitInput(_ data: Data) -> Bool {
+    private func sendTextAfterExplicitInput(_ data: Data) -> TextSendResult {
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: data.count,
             replay: { [weak self] in
                 _ = self?.sendTextAfterExplicitInput(data)
             }
         ) {
-            return true
+            return .queued
         }
         guard surface != nil else {
-            guard allowsRuntimeSurfaceCreation() else { return false }
+            guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             let queued = enqueuePendingSocketInput(.pasteText(data))
             if queued {
                 requestInputDemandSurfaceStartIfNeeded()
                 didAcceptExplicitInput()
             }
-            return queued
+            return queued ? .queued : .inputQueueFull
         }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendText") else {
-            return false
+            return .surfaceUnavailable
         }
-        guard !ghostty_surface_process_exited(liveSurface) else { return false }
+        guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
         writeTextData(data, to: liveSurface)
         didAcceptExplicitInput()
-        return true
+        return .sent
     }
 
     /// Sends raw key text as a single key event.
@@ -172,6 +185,7 @@ extension TerminalSurface {
         _ text: String,
         to liveSurface: ghostty_surface_t
     ) -> Bool {
+        TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: id)
 
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
@@ -290,11 +304,11 @@ extension TerminalSurface {
     }
 
     @MainActor
-    private func sendInputAfterExplicitInput(_ text: String) -> InputSendResult {
+    func sendInputAfterExplicitInput(_ text: String, recordsExplicitInput: Bool = true) -> InputSendResult {
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: text.utf8.count,
             replay: { [weak self] in
-                _ = self?.sendInputAfterExplicitInput(text)
+                _ = self?.sendInputAfterExplicitInput(text, recordsExplicitInput: recordsExplicitInput)
             }
         ) {
             return .queued
@@ -304,7 +318,7 @@ extension TerminalSurface {
             let queued = enqueuePendingSocketInput(text)
             if queued {
                 requestInputDemandSurfaceStartIfNeeded()
-                didAcceptExplicitInput()
+                if recordsExplicitInput { didAcceptExplicitInput() }
             }
             return queued ? .queued : .inputQueueFull
         }
@@ -322,7 +336,7 @@ extension TerminalSurface {
                 validatedGeneration: &validatedGeneration
             ) || queuedInput
         }
-        didAcceptExplicitInput()
+        if recordsExplicitInput { didAcceptExplicitInput() }
         return queuedInput ? .queued : .sent
     }
 
@@ -436,9 +450,15 @@ extension TerminalSurface {
                 previousWasCR = false
                 index += 1
             default:
-                bufferedText.unicodeScalars.append(scalar)
+                if let length = terminalControlSequenceLength(scalars, from: index) {
+                    flushBufferedText()
+                    appendTerminalBytes(length: length, from: index)
+                    index += length
+                } else {
+                    bufferedText.unicodeScalars.append(scalar)
+                    index += 1
+                }
                 previousWasCR = false
-                index += 1
             }
         }
         flushBufferedText()
@@ -450,27 +470,46 @@ extension TerminalSurface {
         _ scalars: [Unicode.Scalar],
         from start: Int
     ) -> Int? {
-        guard start + 1 < scalars.count, scalars[start].value == 0x1B else { return nil }
+        guard start < scalars.count else { return nil }
 
+        let value = scalars[start].value
+        if value == 0x9B {
+            return TerminalInputReportParser(
+                scalars: scalars,
+                start: start,
+                bodyStart: start + 1
+            ).csiSequenceLength()
+        }
+        if value == 0x9D {
+            return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: true)
+        }
+        switch value {
+        case 0x90, 0x98, 0x9E, 0x9F:
+            return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: false)
+        default:
+            break
+        }
+
+        guard value == 0x1B, start + 1 < scalars.count else { return nil }
         switch scalars[start + 1].value {
         case 0x5B: // CSI terminal reports such as CPR/DA/DSR responses.
             return TerminalInputReportParser(scalars: scalars, start: start).csiSequenceLength()
         case 0x5D: // OSC: ESC ] ... (BEL | ST)
             return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: true)
-        case 0x50, 0x5E, 0x5F: // DCS / PM / APC: ESC P/^/_ ... ST
+        case 0x50, 0x58, 0x5E, 0x5F: // DCS / SOS / PM / APC: ESC P/X/^/_ ... ST
             return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: false)
         default:
             return nil
         }
     }
 
-    /// Finds the terminator for ESC-prefixed string controls without accepting partial sequences.
+    /// Finds the terminator for 7-bit or C1 string controls without accepting partial sequences.
     private static func stringControlSequenceLength(
         _ scalars: [Unicode.Scalar],
         from start: Int,
         terminatesWithBEL: Bool
     ) -> Int? {
-        var index = start + 2
+        var index = start + (scalars[start].value >= 0x90 ? 1 : 2)
         while index < scalars.count {
             let value = scalars[index].value
             if terminatesWithBEL, value == 0x07 {
@@ -480,6 +519,9 @@ extension TerminalSurface {
                index + 1 < scalars.count,
                scalars[index + 1].value == 0x5C {
                 return index - start + 2
+            }
+            if value == 0x9C {
+                return index - start + 1
             }
             index += 1
         }
@@ -565,21 +607,60 @@ extension TerminalSurface {
     // the raw-text input path. Mobile builds the event from a bare keycode, so we
     // reproduce the same canonical text here, keyed purely off the keycode.
     //
-    // Only Backspace/Delete and Tab need this: their physical macOS keys carry
-    // the DEL (0x7F) and TAB (0x09) characters in `charactersIgnoringModifiers`.
-    // The text is independent of modifiers (Option-Backspace still reports DEL),
-    // so this intentionally ignores `mods`. Pure function keys (arrows, Home,
-    // End, page navigation) carry no characters and correctly encode from the
-    // keycode alone, so they return nil.
-    private static func canonicalKeyText(keycode: UInt32) -> String? {
+    // Backspace/Delete and Tab carry the DEL (0x7F) and TAB (0x09) characters
+    // in `charactersIgnoringModifiers`; letter keys carry their printable
+    // character. Ghostty needs that text even when the key has Ctrl pressed:
+    // it uses the character to derive both the legacy C0 byte and Kitty's
+    // CSI-u sequence. Pure function keys (arrows, Home, End, page navigation)
+    // carry no characters and correctly encode from the keycode alone.
+    private static func canonicalKeyCharacter(keycode: UInt32) -> Character? {
         switch keycode {
         case UInt32(kVK_Delete):
             return "\u{7F}"
         case UInt32(kVK_Tab):
             return "\t"
-        default:
-            return nil
+        case UInt32(kVK_ANSI_A): return "a"
+        case UInt32(kVK_ANSI_B): return "b"
+        case UInt32(kVK_ANSI_C): return "c"
+        case UInt32(kVK_ANSI_D): return "d"
+        case UInt32(kVK_ANSI_E): return "e"
+        case UInt32(kVK_ANSI_F): return "f"
+        case UInt32(kVK_ANSI_G): return "g"
+        case UInt32(kVK_ANSI_H): return "h"
+        case UInt32(kVK_ANSI_I): return "i"
+        case UInt32(kVK_ANSI_J): return "j"
+        case UInt32(kVK_ANSI_K): return "k"
+        case UInt32(kVK_ANSI_L): return "l"
+        case UInt32(kVK_ANSI_M): return "m"
+        case UInt32(kVK_ANSI_N): return "n"
+        case UInt32(kVK_ANSI_O): return "o"
+        case UInt32(kVK_ANSI_P): return "p"
+        case UInt32(kVK_ANSI_Q): return "q"
+        case UInt32(kVK_ANSI_R): return "r"
+        case UInt32(kVK_ANSI_S): return "s"
+        case UInt32(kVK_ANSI_T): return "t"
+        case UInt32(kVK_ANSI_U): return "u"
+        case UInt32(kVK_ANSI_V): return "v"
+        case UInt32(kVK_ANSI_W): return "w"
+        case UInt32(kVK_ANSI_X): return "x"
+        case UInt32(kVK_ANSI_Y): return "y"
+        case UInt32(kVK_ANSI_Z): return "z"
+        default: return nil
         }
+    }
+
+    private static func canonicalKeyText(
+        keycode: UInt32,
+        mods: ghostty_input_mods_e
+    ) -> String? {
+        guard let baseCharacter = canonicalKeyCharacter(keycode: keycode) else { return nil }
+        let baseText = String(baseCharacter)
+        guard mods.rawValue & GHOSTTY_MODS_SHIFT.rawValue != 0 else { return baseText }
+        return baseText.uppercased()
+    }
+
+    private static func canonicalUnshiftedCodepoint(keycode: UInt32) -> UInt32? {
+        canonicalKeyCharacter(keycode: keycode)?.unicodeScalars.first?.value
     }
 
     @MainActor
@@ -588,6 +669,7 @@ extension TerminalSurface {
         keycode: UInt32,
         mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE
     ) {
+        TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: id)
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
         keyEvent.keycode = keycode
@@ -595,8 +677,12 @@ extension TerminalSurface {
         keyEvent.consumed_mods = GHOSTTY_MODS_NONE
         keyEvent.composing = false
 
-        let canonicalText = Self.canonicalKeyText(keycode: keycode)
-        keyEvent.unshifted_codepoint = canonicalText?.unicodeScalars.first?.value ?? 0
+        let canonicalText = Self.canonicalKeyText(keycode: keycode, mods: mods)
+        keyEvent.unshifted_codepoint =
+            Self.canonicalUnshiftedCodepoint(keycode: keycode)
+            ?? canonicalText?.unicodeScalars.first?.value
+            ?? 0
+        let generation = runtimeSurfaceGeneration
 
         let handled: Bool
         if let canonicalText {
@@ -615,6 +701,16 @@ extension TerminalSurface {
             }
         }
 
+        // A named key is a complete stroke. Let Ghostty decide whether the
+        // negotiated protocol reports its release. A press can run a binding
+        // that tears down or replaces the runtime, so never release into a
+        // different surface generation.
+        if self.surface == surface, runtimeSurfaceGeneration == generation {
+            keyEvent.action = GHOSTTY_ACTION_RELEASE
+            keyEvent.text = nil
+            _ = ghostty_surface_key(surface, keyEvent)
+        }
+
 #if DEBUG
         logDebugEvent(
             "surface.socket_input.key surface=\(id.uuidString.prefix(8)) " +
@@ -630,14 +726,18 @@ extension TerminalSurface {
         return liveSurfaceForGhosttyAccess(reason: reason)
     }
 
+    @MainActor
     func writeTextData(_ data: Data, to surface: ghostty_surface_t) {
+        TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: id)
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
         }
     }
 
+    @MainActor
     func writeInputTextData(_ data: Data, to surface: ghostty_surface_t) {
+        TerminalPredictionCenter.shared.sentUntrackedInput(surfaceID: id)
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_text_input(surface, baseAddress, UInt(rawBuffer.count))
@@ -671,10 +771,12 @@ extension TerminalSurface {
     public func processRemoteOutput(_ data: Data) {
         guard !data.isEmpty else { return }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "remoteOutput") else {
+            let overflow = data.count > maxPendingRemoteOutputBytes - pendingRemoteOutput.count
             pendingRemoteOutput.append(data)
             if pendingRemoteOutput.count > maxPendingRemoteOutputBytes {
                 pendingRemoteOutput.removeFirst(pendingRemoteOutput.count - maxPendingRemoteOutputBytes)
             }
+            if overflow { discardPendingRemoteReplayCompletions() }
             return
         }
         flushPendingRemoteOutput(to: surface)
@@ -686,7 +788,18 @@ extension TerminalSurface {
         guard !pendingRemoteOutput.isEmpty else { return }
         let buffered = pendingRemoteOutput
         pendingRemoteOutput = Data()
-        remoteOutputLane.enqueue(buffered, to: surface)
+        let replayCompletions = pendingRemoteReplayCompletions
+        pendingRemoteReplayCompletions.removeAll(keepingCapacity: true)
+        remoteOutputLane.enqueue(buffered, to: surface) {
+            replayCompletions.forEach { $0.applied() }
+        }
+    }
+
+    @MainActor
+    func discardPendingRemoteReplayCompletions() {
+        let replayCompletions = pendingRemoteReplayCompletions
+        pendingRemoteReplayCompletions.removeAll(keepingCapacity: true)
+        replayCompletions.forEach { $0.discarded() }
     }
 
     private func keycodeForLetter(_ letter: Character) -> UInt32? {

@@ -9,6 +9,8 @@ public enum AgentLifecyclePhase: String, Codable, Sendable, CaseIterable, Equata
     case unknown
     /// The agent is actively working on a turn.
     case running
+    /// The last turn completed while background work remains active.
+    case backgroundWorkPending
     /// The agent is blocked on the user (approval, question, or plan review).
     case needsInput
     /// The last turn completed and nothing is pending.
@@ -19,15 +21,16 @@ public enum AgentLifecyclePhase: String, Codable, Sendable, CaseIterable, Equata
     /// Precedence used when several sessions of the same agent share one
     /// surface: the surface shows the most demanding live session.
     ///
-    /// Order (most to least demanding): `running` > `needsInput` > `error` >
+    /// Order (most to least demanding): `running` > `backgroundWorkPending` > `needsInput` > `error` >
     /// `unknown` > `idle`.
     public var combinePrecedence: Int {
         switch self {
         case .running: 5
-        case .needsInput: 4
-        case .error: 3
-        case .unknown: 2
-        case .idle: 1
+        case .backgroundWorkPending: 4
+        case .needsInput: 3
+        case .error: 2
+        case .unknown: 1
+        case .idle: 0
         }
     }
 }

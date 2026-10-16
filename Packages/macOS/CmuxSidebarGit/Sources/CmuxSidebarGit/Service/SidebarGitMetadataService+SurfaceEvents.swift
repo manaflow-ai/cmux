@@ -67,7 +67,22 @@ extension SidebarGitMetadataService {
             if clearsMetadataBeforeRefresh {
                 if host.isRemoteWorkspace(workspaceId) == true {
                     clearWorkspaceGitProbeTracking(for: probeKey)
-                    if hadTrustedRemoteDirectory, previousDirectory != nextDirectory {
+                    // A first trusted report promotes a restored/untrusted
+                    // directory to remote provenance. Any branch or PR that
+                    // was observed while the panel still carried its local
+                    // fallback belongs to that old directory and must not be
+                    // displayed after promotion. Preserve metadata only when
+                    // the panel was already trusted and reported the same
+                    // directory again.
+                    let hasExistingMetadata = host.panelGitBranch(
+                        workspaceId: workspaceId,
+                        panelId: panelId
+                    ) != nil || host.panelPullRequestBadge(
+                        workspaceId: workspaceId,
+                        panelId: panelId
+                    ) != nil
+                    if hasExistingMetadata,
+                       (!hadTrustedRemoteDirectory || previousDirectory != nextDirectory) {
                         host.clearPanelGitBranch(workspaceId: workspaceId, panelId: panelId)
                         host.clearPanelPullRequest(workspaceId: workspaceId, panelId: panelId)
                     }

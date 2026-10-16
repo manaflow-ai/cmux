@@ -23,6 +23,33 @@ import Testing
         try String(contentsOf: url, encoding: .utf8)
     }
 
+    private func centralDirectoryNames(in archive: Data) -> [String] {
+        let bytes = Array(archive)
+        var names: [String] = []
+        var offset = 0
+        while offset + 46 <= bytes.count {
+            guard bytes[offset] == 0x50,
+                  bytes[offset + 1] == 0x4b,
+                  bytes[offset + 2] == 0x01,
+                  bytes[offset + 3] == 0x02 else {
+                offset += 1
+                continue
+            }
+            let nameLength = Int(bytes[offset + 28])
+                | (Int(bytes[offset + 29]) << 8)
+            let extraLength = Int(bytes[offset + 30])
+                | (Int(bytes[offset + 31]) << 8)
+            let commentLength = Int(bytes[offset + 32])
+                | (Int(bytes[offset + 33]) << 8)
+            let nameStart = offset + 46
+            let nameEnd = nameStart + nameLength
+            guard nameEnd <= bytes.count else { break }
+            names.append(String(decoding: bytes[nameStart..<nameEnd], as: UTF8.self))
+            offset = nameEnd + extraLength + commentLength
+        }
+        return names
+    }
+
     @Test func routesEventsByDomain() async throws {
         let dir = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -73,6 +100,75 @@ import Testing
 
         #expect(try contents(of: appURL).contains("sim.stream state=1 panel=7"))
         #expect(try !contents(of: networkURL).contains("sim.stream"))
+    }
+
+    @Test func exportsExactlyTwoDomainFilesInFolderZip() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let appURL = dir.appendingPathComponent("app.log")
+        let networkURL = dir.appendingPathComponent("network.log")
+        let log = AppLog(appFileURL: appURL, networkFileURL: networkURL, buildStamp: "test")
+
+        log.mirrorAppLine("app export marker")
+        log.ingest(DiagnosticEvent(.transportDialStarted, a: 1))
+        try await waitForProcessed(log, 2)
+
+        let archiveURL = try #require(await log.exportLogs())
+        defer { try? FileManager.default.removeItem(at: archiveURL) }
+        let names = centralDirectoryNames(in: try Data(contentsOf: archiveURL))
+        #expect(names == [
+            "cmux-diagnostics/app-events.log",
+            "cmux-diagnostics/networking.log",
+        ])
+        let archiveText = try String(contentsOf: archiveURL, encoding: .isoLatin1)
+        #expect(archiveText.contains("app export marker"))
+        #expect(archiveText.contains("dial"))
+    }
+
+    @Test func exportIncludesSupplementalVerboseGenerations() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let appURL = dir.appendingPathComponent("app.log")
+        let networkURL = dir.appendingPathComponent("network.log")
+        let verboseArchiveURL = dir.appendingPathComponent("cmux-debug.log.1")
+        let verboseURL = dir.appendingPathComponent("cmux-debug.log")
+        try Data("CRASH signal=6 name=SIGABRT\n".utf8).write(to: verboseArchiveURL)
+        try Data("verbose marker\n".utf8).write(to: verboseURL)
+        let log = AppLog(
+            appFileURL: appURL,
+            networkFileURL: networkURL,
+            buildStamp: "test",
+            supplementalAppLogURLs: { [verboseArchiveURL, verboseURL] }
+        )
+
+        let archiveURL = try #require(await log.exportLogs())
+        defer { try? FileManager.default.removeItem(at: archiveURL) }
+        let archiveText = try String(contentsOf: archiveURL, encoding: .isoLatin1)
+        #expect(archiveText.contains("CRASH signal=6 name=SIGABRT"))
+        #expect(archiveText.contains("verbose marker"))
+    }
+
+    @Test func clearRemovesActiveAndArchivedGenerations() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let appURL = dir.appendingPathComponent("app.log")
+        let log = AppLog(
+            appFileURL: appURL,
+            networkFileURL: nil,
+            maxFileBytes: 128,
+            buildStamp: "test"
+        )
+        log.mirrorAppLine("before clear marker")
+        try await waitForProcessed(log, 1)
+        log.mirrorAppLine(String(repeating: "x", count: 200))
+        try await waitForProcessed(log, 2)
+        let beforeClear = AppLog.logFileURLs(for: appURL)
+        #expect(beforeClear.contains { $0 != appURL })
+
+        await log.clear()
+        let generations = AppLog.logFileURLs(for: appURL)
+        #expect(generations.count == 1)
+        #expect(!(try contents(of: appURL)).contains("before clear marker"))
     }
 
     /// A steady frame stream costs one line plus one summary, not a line per

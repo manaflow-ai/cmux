@@ -19,6 +19,23 @@ import Testing
         #expect(fingerprint.kind(forMessage: "Socket closed before complete reply") == "socket-closed-before-reply")
     }
 
+    /// A socket-connect `EPERM` is an OS policy denial of the calling process
+    /// (Sentry CMUXTERM-MACOS-3JHJ). It groups on its own and is throttled so
+    /// a denied agent-hook loop reports once per window, not once per hook.
+    @Test func classifiesSocketConnectPolicyDenialAsThrottled() {
+        let kind = fingerprint.kind(
+            forMessage: "Failed to connect to socket at /tmp/cmux.sock (Operation not permitted, errno 1)"
+        )
+        #expect(kind == "socket-connect-denied")
+        #expect(kind.map(CLISentryErrorFingerprint.throttledKinds.contains) == true)
+        #expect(fingerprint.kind(
+            forMessage: "Failed to connect to socket at /tmp/cmux.sock (Connection refused, errno 61)"
+        ) == "socket-connect-failed")
+        #expect(fingerprint.kind(
+            forMessage: "Failed to connect to socket at /tmp/cmux.sock (Timed out, errno 10)"
+        ) == "socket-connect-failed")
+    }
+
     @Test func unknownMessagesKeepDefaultGrouping() {
         #expect(fingerprint.kind(forMessage: "Missing relay auth metadata") == nil)
         #expect(fingerprint.kind(forMessage: "Server reports peer not connected") == nil)

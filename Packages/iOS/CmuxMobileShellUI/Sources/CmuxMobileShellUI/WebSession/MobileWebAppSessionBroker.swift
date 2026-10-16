@@ -29,7 +29,7 @@ public final class MobileWebAppSessionBroker: MobileWebAppSessionProviding, Send
     ) {
         self.tokens = tokens
         self.projectID = projectID
-        allowedHosts = MobileWebPageHosts.allowedHosts(apiBaseURL: apiBaseURL)
+        allowedHosts = MobileWebPageHosts().allowedHosts(apiBaseURL: apiBaseURL)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
@@ -67,7 +67,7 @@ public final class MobileWebAppSessionBroker: MobileWebAppSessionProviding, Send
     /// The exchange endpoint on the destination's own origin, or `nil` when
     /// the destination is off the allowlist (credentials never leave it).
     private func handoffRequest(for destination: URL) -> URLRequest? {
-        guard mobileWebPageURLAllowed(destination, allowedHosts: allowedHosts),
+        guard MobileWebPageHosts().allows(destination, allowedHosts: allowedHosts),
               destination.path != Self.handoffPath,
               var components = URLComponents(
                   url: destination,

@@ -211,8 +211,10 @@ cmux current-workspace --json`}
         name="new-split"
         desc={t("newSplitDesc")}
         cli={`cmux new-split right
-cmux new-split down`}
-        socket={`{"id":"split-new","method":"surface.split","params":{"direction":"right"}}`}
+cmux new-split down
+cmux new-split down --command "npm run dev"`}
+        socket={`{"id":"split-new","method":"surface.split","params":{"direction":"right"}}
+{"id":"split-cmd","method":"surface.split","params":{"direction":"down","initial_input":"npm run dev\\r"}}`}
       />
       <Cmd
         name="list-panels"

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -76,7 +77,8 @@ actor AgentHibernationProcessSnapshotCoordinator {
         ttyDevice: Int64?,
         excluding exitedIdentities: Set<AgentPIDProcessIdentity>
     ) async -> AgentHibernationProcessExitEpoch? {
-        guard let snapshot = await nextSnapshot() else { return nil }
+        guard let snapshot = await nextSnapshot(), snapshot.enumerationIsComplete,
+              !Task.isCancelled else { return nil }
         return Self.exitEpoch(
             in: snapshot,
             processGroupLeaders: processGroupLeaders,
@@ -139,9 +141,9 @@ actor AgentHibernationProcessSnapshotCoordinator {
     @concurrent
     #endif
     private nonisolated static func captureFreshSnapshot() async -> CmuxTopProcessSnapshot {
-        CmuxTopProcessSnapshot.capture(
+        await CmuxTopProcessSnapshot.capture(
             includeProcessDetails: false,
-            includeCMUXScope: false
+            includeCMUXScope: false, includeResources: false
         )
     }
 
@@ -182,12 +184,23 @@ actor AgentHibernationProcessSnapshotCoordinator {
                 AgentHibernationController.maximumScopedProcessTerminationCount else {
             return nil
         }
+        var validatedIdentities: [Int: AgentPIDProcessIdentity] = [:]
         if let processScopeKey {
             guard observedProcessIDs.allSatisfy({ processID in
-                processArgumentsProvider(processID)?.matchesCMUXScope(
+                guard let process = snapshot.process(pid: processID),
+                      let capturedIdentity = process.processIdentity,
+                      let currentIdentity = processIdentityProvider(pid_t(processID)),
+                      currentIdentity == capturedIdentity,
+                      let arguments = processArgumentsProvider(processID),
+                      arguments.matchesCMUXScope(
                     workspaceId: processScopeKey.workspaceId,
                     surfaceId: processScopeKey.panelId
-                ) == true
+                      ),
+                      processIdentityProvider(pid_t(processID)) == currentIdentity else {
+                    return false
+                }
+                validatedIdentities[processID] = currentIdentity
+                return true
             }) else {
                 return nil
             }
@@ -205,9 +218,13 @@ actor AgentHibernationProcessSnapshotCoordinator {
                 return nil
             }
             let processGroupID = pid_t(rawProcessGroupID)
-            guard let identity = processIdentityProvider(pid_t(processID)) else {
+            guard let identity = validatedIdentities[processID] ?? processIdentityProvider(pid_t(processID)) else {
                 return nil
             }
+            // Topology cannot authorize a replacement process that reused a
+            // listed PID between the census and this authoritative probe.
+            guard let capturedIdentity = process.processIdentity,
+                  capturedIdentity == identity else { return nil }
             guard !exitedIdentities.contains(identity) else { continue }
             guard processGroupProvider(pid_t(processID)) == processGroupID else {
                 return nil

@@ -25,12 +25,29 @@ final class FileExplorerNSOutlineView: NSOutlineView {
     /// cannot leave this outline's source graph latched forever.
     var onNativeDragPointerBoundary: (() -> Void)?
     var onQuickSearchChanged: ((String?) -> Void)?
+    /// True while this outline's context menu is on screen. AppKit keeps
+    /// drawing the context-menu highlight for the clicked row until the menu
+    /// closes, and throws if a reload leaves that row outside the row data
+    /// (#12914), so row reloads wait for `onContextMenuDidClose`.
+    private(set) var isContextMenuOpen = false
+    var onContextMenuDidClose: (() -> Void)?
     private var quickSearchActive = false
     private var quickSearchQuery = ""
 
     override func mouseDown(with event: NSEvent) {
         onNativeDragPointerBoundary?()
         super.mouseDown(with: event)
+    }
+
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        isContextMenuOpen = true
+        super.willOpenMenu(menu, with: event)
+    }
+
+    override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
+        super.didCloseMenu(menu, with: event)
+        isContextMenuOpen = false
+        onContextMenuDidClose?()
     }
 
     override func keyDown(with event: NSEvent) {

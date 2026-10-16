@@ -115,6 +115,12 @@ public struct FileDiffPageView: View {
                     LazyVStack(spacing: 0) {
                         ForEach(presentation.rows) { row in
                             diffRow(row, gutterWidth: gutterWidth)
+                                .modifier(LegacyTopScrollRowReporter(
+                                    rowID: row.id,
+                                    isFirstRow: row.id == presentation.rows.first?.id,
+                                    tracker: rowTracker,
+                                    onRowChanged: onScrollRowIDChanged
+                                ))
                         }
                         if continuation.shouldShowFooter {
                             FileDiffContinuationFooter(

@@ -66,6 +66,11 @@ extension CMUXCLI {
             print(Self.remotesUsage)
 
         case "list", "ls":
+            do {
+                try RemotesArgumentParser.validateList(rest)
+            } catch {
+                throw remotesArgumentCLIError(error, command: "remotes list")
+            }
             let response = try client.sendV2(method: "remotes.list")
             if jsonOutput {
                 print(jsonString(response))
@@ -120,8 +125,13 @@ extension CMUXCLI {
             if let tagOpt, !tagOpt.isEmpty { print("  tag:      \(tagOpt)") }
 
         case "remove", "rm", "delete":
-            let positionals = rest.filter { !$0.hasPrefix("-") }
-            guard let target = positionals.first, !target.isEmpty else {
+            let target: String?
+            do {
+                target = try RemotesArgumentParser.removeTarget(rest)
+            } catch {
+                throw remotesArgumentCLIError(error, command: "remotes remove")
+            }
+            guard let target, !target.isEmpty else {
                 throw CLIError(message: """
                     remotes remove requires a name or deviceId.
 
@@ -250,6 +260,39 @@ extension CMUXCLI {
 
                 \(Self.aiAccountsUsage)
                 """)
+        }
+    }
+
+    private func remotesArgumentCLIError(_ error: Error, command: String) -> CLIError {
+        switch error {
+        case let RemotesArgumentError.unknownFlag(flag):
+            let message = String(
+                format: String(
+                    localized: "cli.remotes.error.unknownFlag",
+                    defaultValue: "%1$@: unknown flag '%2$@'."
+                ),
+                command,
+                flag
+            )
+            return CLIError(message: message + "\n\n" + Self.remotesUsage)
+        case let RemotesArgumentError.unexpectedArgument(argument):
+            return CLIError(message: String(
+                format: String(
+                    localized: "cli.remotes.error.unexpectedArgument",
+                    defaultValue: "%1$@: unexpected argument '%2$@'."
+                ),
+                command,
+                argument
+            ))
+        default:
+            let message = String(
+                format: String(
+                    localized: "cli.remotes.error.invalidArguments",
+                    defaultValue: "%@: invalid arguments."
+                ),
+                command
+            )
+            return CLIError(message: message + "\n\n" + Self.remotesUsage)
         }
     }
 

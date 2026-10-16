@@ -431,6 +431,35 @@ extension GhosttySurfaceView {
         CATransaction.commit()
     }
 
+    /// Keeps the last-good replay frame aligned with the settled viewport while
+    /// a keyboard geometry pass replaces its old grid. Without this, the
+    /// frozen frame remains bottom-pinned using the old row count and visibly
+    /// drops before the new natural grid is presented.
+    func alignVerifiedReplayFrozenPresentationToViewportTop(viewportRect: CGRect) {
+        guard let frozenLayer = verifiedReplayFrozenPresentationLayer,
+              let backgroundLayer = verifiedReplayFrozenBackgroundLayer else {
+            return
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        frozenLayer.frame = layer.bounds
+        let oldViewport = verifiedReplayFrozenViewportRect ?? viewportRect
+        if let contentLayer = verifiedReplayFrozenContentLayer {
+            // The copy spans the renderer layer, which extends above the grid
+            // into the scroll-edge band. Offset it the same way
+            // `rendererLayerRect(forGridRenderRect:)` offsets the live layer.
+            contentLayer.frame = CGRect(
+                x: viewportRect.minX,
+                y: viewportRect.minY - appliedRenderTopInsetPts,
+                width: contentLayer.bounds.width,
+                height: contentLayer.bounds.height
+            )
+        }
+        let contentRect = verifiedReplayFrozenContentLayer?.frame ?? .null
+        backgroundLayer.frame = oldViewport.union(viewportRect).union(contentRect)
+        CATransaction.commit()
+    }
+
     func clearVerifiedReplayPresentation() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -679,7 +708,7 @@ extension GhosttySurfaceView {
 }
 
 /// One generation-bound pointer used only on its serial Ghostty surface queue.
-private nonisolated struct VerifiedReplayViewportSurfaceOperation: @unchecked Sendable {
+private struct VerifiedReplayViewportSurfaceOperation: @unchecked Sendable {
     // Safety: the surface stays owned by GhosttySurfaceView, and every C call
     // using this pointer is enqueued on that generation's serial output queue.
     let surface: ghostty_surface_t

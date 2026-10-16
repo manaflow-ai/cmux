@@ -30,14 +30,14 @@ describe("Stripe price override guard", () => {
     expect(() =>
       assertPriceMatchesPlan(
         price({
-          id: "price_team_576",
-          unit_amount: 57600,
-          recurring: { interval: "year" },
+          id: "price_team_60",
+          unit_amount: 6000,
+          recurring: { interval: "month" },
           product: { id: "prod_team", metadata: { app: "cmux", plan: "team" } },
         }),
-        TEAM_PRICING_USD.year,
-        "year",
-        "STRIPE_TEAM_YEARLY_576_PRICE_ID",
+        TEAM_PRICING_USD.month,
+        "month",
+        "STRIPE_TEAM_MONTHLY_60_PRICE_ID",
         "team",
       ),
     ).not.toThrow();

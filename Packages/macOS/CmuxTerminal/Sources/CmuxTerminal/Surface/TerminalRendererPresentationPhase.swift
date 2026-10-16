@@ -13,3 +13,12 @@ enum TerminalRendererPresentationPhase: Equatable, Sendable {
         self != .released
     }
 }
+
+/// The user-facing render-health projection for one terminal surface.
+public enum TerminalSurfaceRenderHealth: String, Equatable, Sendable {
+    case notStarted = "not_started"
+    case awaitingFrame = "awaiting_frame"
+    case rendering = "rendering"
+    case notRendering = "not_rendering"
+    case shellExited = "shell_exited"
+}

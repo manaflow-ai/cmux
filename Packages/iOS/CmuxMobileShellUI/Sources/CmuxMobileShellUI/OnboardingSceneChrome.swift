@@ -15,7 +15,9 @@ struct OnboardingSceneChrome: Equatable {
         connectionMethod: MobileConnectionMethod = .automatic
     ) {
         showsBack = stage != .agents
-        showsSkip = stage != .connect
+        // Pairing opt-in is the required handoff between the tour and Mac
+        // discovery. Keep it from reading like an incidental permission.
+        showsSkip = stage != .connect && stage != .pairing
 
         switch stage {
         case .agents:
@@ -39,6 +41,12 @@ struct OnboardingSceneChrome: Equatable {
                 "mobile.onboarding.push.notNow",
                 defaultValue: "Not Now"
             )
+        case .pairing:
+            primaryTitle = L10n.string(
+                "mobile.onboarding.pairing.primary",
+                defaultValue: "I've enabled iOS pairing"
+            )
+            secondaryTitle = nil
         case .connect:
             guard isAuthenticated else {
                 primaryTitle = L10n.string(

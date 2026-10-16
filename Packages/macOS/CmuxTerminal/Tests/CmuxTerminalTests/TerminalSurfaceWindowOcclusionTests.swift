@@ -59,6 +59,7 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(!surface.isRendererPresented)
 
         surface.setRendererWindowVisible(true)
+        fixture.acknowledgePendingPresentation()
 
         #expect(surface.isRendererPresented)
         #expect(rendererRebuildCallCount() == 1)
@@ -93,6 +94,7 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(!rendererOcclusionVisible())
 
         surface.setRendererWindowVisible(true)
+        fixture.acknowledgePendingPresentation()
 
         #expect(surface.isRendererPresented)
         #expect(rendererRebuildCallCount() == 1)

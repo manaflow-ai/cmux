@@ -278,7 +278,7 @@ test "missing field capability rejects a stream before its write" {
     try std.testing.expectError(
         error.MissingFieldCapability,
         protocol.attachSurface(&client, .{
-            .surface = 1,
+            .surface = .{ .value = 1 },
             .cols = .{ .value = 80 },
             .rows = .{ .value = 24 },
         }),

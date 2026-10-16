@@ -1,4 +1,6 @@
+import CmuxCloud
 import AppKit
+import CmuxBrowser
 import CmuxCore
 import CmuxSettings
 import Foundation
@@ -52,6 +54,36 @@ struct BrowserExternalNavigationHandler {
     private func shouldOpenExternally(target: String) -> Bool {
         guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return true }
         return policyCache.currentPolicy().matches(target)
+    }
+
+    /// Where a link chosen in cmux UI opens.
+    enum LinkDestination: Equatable {
+        case embeddedBrowser
+        case systemBrowser
+    }
+
+    /// The destination for a link the user chose in the sidebar.
+    /// `prefersEmbeddedBrowser` is the "open sidebar links in the cmux browser"
+    /// preference. A matching external-open rule outranks it: a site listed there
+    /// cannot work in the embedded web view at all. The rules are about web pages,
+    /// so other schemes keep following the preference.
+    func sidebarLinkDestination(for url: URL, prefersEmbeddedBrowser: Bool) -> LinkDestination {
+        guard prefersEmbeddedBrowser else { return .systemBrowser }
+        if Self.isWebNavigationURL(url), shouldOpenExternally(url) { return .systemBrowser }
+        return .embeddedBrowser
+    }
+
+    /// The destination for a web link clicked in a Markdown panel. Like a
+    /// terminal link, it goes to the system browser when an external-open rule
+    /// matches it or its host is outside the embedded-browser host list.
+    func markdownLinkDestination(for url: URL) -> LinkDestination {
+        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults),
+              !shouldOpenExternally(url),
+              let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? ""),
+              BrowserLinkOpenSettings.hostMatchesWhitelist(host, defaults: defaults) else {
+            return .systemBrowser
+        }
+        return .embeddedBrowser
     }
 
     /// Returns whether a user-activated main-frame navigation should be external.

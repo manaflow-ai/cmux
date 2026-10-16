@@ -10,6 +10,50 @@ import Testing
 
 @MainActor
 @Suite(.serialized) struct RemoteTmuxMirrorLayoutIdentityTests {
+    @Test("sidebar mirror tabs expose the active focusable pane while preserving tab identity")
+    func customSidebarTabsExposeProjectedSurface() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let panel = try #require(harness.singlePanePanel(tmuxPaneID: 11))
+        let snapshot = harness.workspace.customSidebarWorkspaceSnapshot(
+            index: 0, selectedId: harness.workspace.id, unreadCount: 0
+        )
+        let tab = try #require(snapshot.surfaces.first)
+        #expect(tab.panelId != panel.id)
+        #expect(tab.surfaceId == panel.id)
+        let surfaceID = try #require(tab.surfaceId)
+        guard case .pane(let location) = harness.workspace.remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) else {
+            Issue.record("sidebar surface must resolve to a projected pane")
+            return
+        }
+        #expect(location.pane.panel.id == panel.id)
+
+        try harness.publishLayout(
+            "abcd,80x24,0,0[80x12,0,0,11,80x11,0,13,22]",
+            rects: ["%11 0 0 80 12 0 off :zsh", "%22 0 13 80 11 1 off :zsh"]
+        )
+        let mirror = try #require(harness.windowMirror)
+        mirror.noteRemoteActivePane(22)
+        let updated = try #require(harness.workspace.customSidebarWorkspaceSnapshot(
+            index: 0, selectedId: harness.workspace.id, unreadCount: 0
+        ).surfaces.first)
+        #expect(updated.panelId == tab.panelId)
+        #expect(updated.surfaceId == mirror.panel(forPane: 22)?.id)
+    }
+
+    @Test("local sidebar surface identifiers resolve to workspace panels")
+    func customSidebarLocalTabsExposeFocusableSurface() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.selectedWorkspace)
+        let tab = try #require(workspace.customSidebarWorkspaceSnapshot(
+            index: 0, selectedId: workspace.id, unreadCount: 0
+        ).surfaces.first)
+        let surfaceID = try #require(tab.surfaceId)
+        #expect(workspace.panels[surfaceID] != nil)
+        #expect(surfaceID == tab.panelId)
+    }
+
     @Test("remote layout changes reconcile pane identities incrementally")
     func remoteLayoutChangesReconcilePaneIdentitiesIncrementally() throws {
         let harness = try Harness()

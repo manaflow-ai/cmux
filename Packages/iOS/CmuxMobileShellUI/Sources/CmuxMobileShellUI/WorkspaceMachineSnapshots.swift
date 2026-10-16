@@ -1,3 +1,5 @@
+import CmuxMobilePairedMac
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 
@@ -80,6 +82,6 @@ struct WorkspaceMachineSnapshots: Equatable {
             "mobile.workspaces.macPicker.titleWithBuildFormat",
             defaultValue: "%1$@ · %2$@"
         )
-        return String(format: format, machine.name, buildLabel)
+        return String(format: format, machine.name, MacAppInstanceDisplayFormatter().localizedBuildLabel(buildLabel))
     }
 }

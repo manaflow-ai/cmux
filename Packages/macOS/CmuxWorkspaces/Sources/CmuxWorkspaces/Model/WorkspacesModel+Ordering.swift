@@ -303,10 +303,14 @@ extension WorkspacesModel {
             return groupClamp
         }
         let pinnedCount = leadingGlobalPinnedRowCount()
-        if workspace.isPinned {
+        // Tier by how the row renders: a group anchor follows its group's
+        // pin, not its own per-workspace pin (#13417).
+        if isGlobalPinnedRow(workspace) {
             return min(clamped, max(0, pinnedCount - 1))
         }
-        return max(clamped, pinnedCount)
+        // The caller removes the row before inserting, so the last legal
+        // index is tabs.count - 1 even when every row is pinned.
+        return min(max(clamped, pinnedCount), tabs.count - 1)
     }
 
     /// The in-group clamp for a non-anchor member reorder, or `nil` when the

@@ -340,6 +340,46 @@ struct MobilePushSettingsContent: View {
 
 }
 
+/// Release settings recovery for a failed authenticated push-key exchange.
+struct MobilePushSecuritySetupFailureView: View {
+    let onRetry: @MainActor () async -> Bool
+    @State private var isRetrying = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(L10n.string(
+                "mobile.notifications.secureSetupFailed.title",
+                defaultValue: "Secure Push Setup Needs Attention"
+            ))
+            .font(.subheadline.weight(.semibold))
+            Text(L10n.string(
+                "mobile.notifications.secureSetupFailed.detail",
+                defaultValue: "Push alerts stay unavailable until this iPhone and Mac finish secure setup."
+            ))
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            Button {
+                guard !isRetrying else { return }
+                isRetrying = true
+                Task {
+                    _ = await onRetry()
+                    isRetrying = false
+                }
+            } label: {
+                Label(
+                    L10n.string(
+                        "mobile.notifications.repair.retrySecureSetup",
+                        defaultValue: "Retry Secure Push Setup"
+                    ),
+                    systemImage: "lock.rotation"
+                )
+            }
+            .disabled(isRetrying)
+            .accessibilityIdentifier("MobileSettingsPushRepairSecureSetup")
+        }
+    }
+}
+
 private extension MobilePushSettingsContent {
 
     private var readinessText: String {
@@ -405,7 +445,8 @@ private extension MobilePushSettingsContent {
             registrationBlockerText(blocker)
         case .macStatusUnavailable, .macAdmissionUnavailable,
              .macAccountMismatch, .macForwardingDisabled,
-             .macCurrentlyActive, .apiOriginMismatch:
+             .macCurrentlyActive, .apiOriginMismatch,
+             .securePushSetupFailed:
             macBlockerText(blocker)
         }
     }
@@ -533,6 +574,11 @@ private extension MobilePushSettingsContent {
             return L10n.string(
                 "mobile.notifications.status.originMismatch",
                 defaultValue: "Blocked, Mac and iPhone Servers Differ"
+            )
+        case .securePushSetupFailed:
+            return L10n.string(
+                "mobile.notifications.status.secureSetupFailed",
+                defaultValue: "Blocked, Secure Push Setup Failed"
             )
         default:
             assertionFailure("Expected a Mac-side push blocker")
@@ -672,6 +718,15 @@ private extension MobilePushSettingsContent {
                 ),
                 systemImage: "bell.fill",
                 identifier: "MobileSettingsPushRepairUseAlways"
+            )
+        case .retrySecurePushSetup:
+            RepairPresentation(
+                title: L10n.string(
+                    "mobile.notifications.repair.retrySecureSetup",
+                    defaultValue: "Retry Secure Push Setup"
+                ),
+                systemImage: "lock.rotation",
+                identifier: "MobileSettingsPushRepairSecureSetup"
             )
         case .waitForDeviceToken, .finishAccountDeletion,
              .disablePushOnAnotherDevice, .enableOnMac,

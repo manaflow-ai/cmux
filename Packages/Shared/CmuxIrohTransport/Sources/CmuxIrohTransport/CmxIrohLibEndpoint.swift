@@ -10,6 +10,7 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
     private var relayProfile: CmxIrohEndpointRelayProfile
     private var relayConfigurations: [String: CmxIrohEndpointRelayProfile.Relay]
     private var addressWatch: WatchHandle?
+    private var relayDiagnosticWatch: WatchHandle?
     private var onlineTask: Task<Void, Never>?
     private var closureTask: Task<Void, Never>?
     private var closing = false
@@ -39,6 +40,9 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
 
     func startMonitoring() {
         guard addressWatch == nil, closureTask == nil else { return }
+        relayDiagnosticWatch = driver.watchRelayConnectionDiagnostics(
+            callback: CmxIrohRelayDiagnosticObserver()
+        )
         // Iroh's `network_change()` is an input that tells the endpoint to
         // rescan, not an observable event. `watchAddr` is the authoritative
         // output for route changes after Iroh's native network monitor runs.
@@ -236,6 +240,8 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         closureTask = nil
         await addressWatch?.stop()
         addressWatch = nil
+        await relayDiagnosticWatch?.stop()
+        relayDiagnosticWatch = nil
         try? await driver.close()
         closed = true
         finishObservers()
@@ -295,6 +301,8 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         closureTask = nil
         await addressWatch?.stop()
         addressWatch = nil
+        await relayDiagnosticWatch?.stop()
+        relayDiagnosticWatch = nil
         finishObservers()
     }
 

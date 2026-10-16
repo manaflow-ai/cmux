@@ -551,7 +551,7 @@ import CmuxSettings
 
     @Test func customSoundConversionHasBoundedDeadline() async {
         let runner = NotificationSoundProcessRunner(
-            executableURL: URL(fileURLWithPath: "/usr/bin/sleep"),
+            executableURL: URL(fileURLWithPath: "/bin/sleep"),
             timeoutNanoseconds: 50_000_000,
             argumentBuilder: { _, _ in ["1"] }
         )

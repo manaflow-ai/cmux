@@ -34,9 +34,19 @@ enum MobileHostIrxLegacyDialectServer {
         acceptor: CmxIrohGrantPeer,
         trust: IrxTrustSnapshot,
         brokerClient: CmxIrohTrustBrokerClient,
+        listCurrent: IrxDeviceListCurrent,
         isCurrent: @escaping @Sendable () async -> Bool,
         journal: IrxJournal
     ) async {
+        let remoteEndpoint = (await connection.remoteIdentity()).endpointID
+        guard let snapshot = listCurrent.current,
+              snapshot.isFresh(now: .now),
+              let entry = snapshot.entries[remoteEndpoint], !entry.revoked,
+              entry.capabilities?.contains(LegacyCompatibilityService.v2Capability) != true else {
+            journal.record("legacy-dialect", "list-denied", ["remote": String(remoteEndpoint.prefix(12))])
+            await connection.close(errorCode: 2, reason: "legacy_not_authorized")
+            return
+        }
         let onlineRegistry = CmxIrohOnlineAdmissionRegistry(
             broker: brokerClient,
             keys: trust.verificationKeys,
@@ -78,10 +88,9 @@ enum MobileHostIrxLegacyDialectServer {
             "legacy-dialect", "admitted",
             ["device": peer.deviceID, "binding": peer.bindingID]
         )
-        MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
-            .admissionSucceeded,
-            a: DiagnosticTransportKind.iroh.rawValue
-        ))
+        // The v2 runtime owns diagnostics. Keep the legacy dialect observable
+        // without reaching into the retired MobileHostIrohRuntime singleton.
+        journal.record("legacy-dialect", "admission-succeeded", ["device": peer.deviceID])
         if let onlineLease = try? await session.admittedOnlineLease() {
             await onlineRegistry.monitor(onlineLease, connection: connection) { reason in
                 journal.record(
@@ -111,8 +120,10 @@ enum MobileHostIrxLegacyDialectServer {
                 await MobileHostService.acceptTransport(
                     admitted.controlTransport,
                     authorization: .irohAdmission(admitted.peer),
+                    hostDeviceID: acceptor.deviceID,
                     artifactTransfers: artifactTransfers,
                     independentEventWriter: eventWriter,
+                    firstFrameTimeoutNanoseconds: 0,
                     promoteUsableSession: { await admitted.markUsable() },
                     isCurrent: isCurrent
                 )

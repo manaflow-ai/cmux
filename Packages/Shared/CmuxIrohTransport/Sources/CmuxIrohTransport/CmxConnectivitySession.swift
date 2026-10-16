@@ -11,6 +11,9 @@ protocol CmxConnectivitySession: Sendable {
     ) async throws -> CmxIrohBidirectionalStream
     func serverEventByteStream() async throws -> CmxIndependentEventByteStream
     func waitUntilClosed() async
+    func makeClosureObservationID() async -> UUID?
+    func waitForClosure(observationID: UUID) async
+    func cancelClosureObservation(observationID: UUID) async
     func closeAttribution() async -> CmxIrohConnectionCloseAttribution
     func isClosed() async -> Bool
     func connectionContinuityID() async -> UInt64?

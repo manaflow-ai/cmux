@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxMobileRPC
 import Foundation
@@ -48,6 +49,12 @@ public actor MobileIrohTerminalLane: MobileTerminalLaneConnection {
             pendingOutputEnvelopes.append(contentsOf: try outputDecoder.append(bytes))
         }
         let envelope = pendingOutputEnvelopes.removeFirst()
+        if envelope.kind == .inputAcknowledgement {
+            guard let acknowledgement = envelope.inputAcknowledgement else {
+                throw MobileIrohTerminalLaneError.truncatedOutputFrame
+            }
+            return .inputAcknowledgement(acknowledgement)
+        }
         return MobileTerminalLaneOutputFrame(
             kind: envelope.kind == .replay ? .replay : .chunk,
             retainedBaseSequence: envelope.retainedBaseSequence,
@@ -59,15 +66,30 @@ public actor MobileIrohTerminalLane: MobileTerminalLaneConnection {
 
     /// Sends one terminal input operation as an exact UTF-8 frame.
     public func sendInput(_ input: String) async throws {
+        try await sendInput(input, sequence: nil)
+    }
+
+    public func sendInput(_ input: String, sequence: UInt64?) async throws {
         guard !closed else { throw MobileIrohTerminalLaneError.closed }
-        let bytes = Data(input.utf8)
-        guard !bytes.isEmpty else { throw MobileIrohTerminalLaneError.emptyInput }
-        guard bytes.count <= Self.maximumInputByteCount else {
-            throw MobileIrohTerminalLaneError.inputTooLarge
-        }
-        var length = UInt32(bytes.count).bigEndian
-        var frame = withUnsafeBytes(of: &length) { Data($0) }
-        frame.append(bytes)
+        guard !input.isEmpty else { throw MobileIrohTerminalLaneError.emptyInput }
+        guard input.utf8.count <= Self.maximumInputByteCount else { throw MobileIrohTerminalLaneError.inputTooLarge }
+        let frame = try MobileTerminalInputFrame(text: input, sequence: sequence).encoded()
+        try await stream.sendStream.send(frame)
+    }
+
+    public func sendInput(
+        _ input: String,
+        sequence: UInt64?,
+        delivery: MobileTerminalInputDelivery
+    ) async throws {
+        guard !closed else { throw MobileIrohTerminalLaneError.closed }
+        guard !input.isEmpty else { throw MobileIrohTerminalLaneError.emptyInput }
+        guard input.utf8.count <= Self.maximumInputByteCount else { throw MobileIrohTerminalLaneError.inputTooLarge }
+        let frame = try MobileTerminalInputFrame(
+            text: input,
+            sequence: sequence,
+            delivery: delivery
+        ).encoded()
         try await stream.sendStream.send(frame)
     }
 

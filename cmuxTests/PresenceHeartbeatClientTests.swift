@@ -14,6 +14,18 @@ import Testing
 /// the presence DO can push fresh port/IP routes to subscribed phones the
 /// moment they change.
 @Suite struct PresenceHeartbeatClientTests {
+    @MainActor
+    @Test func iPhonePairingPublishesPresenceWithoutMacIncomingAccess() {
+        let suiteName = "presence-iphone-only-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
+        #expect(MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(PresenceSettings.isEnabled(defaults: defaults))
+        defaults.set(false, forKey: PresenceSettings.enabledKey)
+        #expect(!PresenceSettings.isEnabled(defaults: defaults))
+    }
+
     private func route(host: String, port: Int, id: String = "r") throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: id,
@@ -47,9 +59,25 @@ import Testing
         #expect(body["stopping"] == nil)
     }
 
+    @Test func rcBundleIdentifierIsCarriedVerbatim() throws {
+        // The phone labels the build channel from the bundle id, so an RC Mac must
+        // advertise its own identifier rather than folding into stable or nightly.
+        let body = PresenceHeartbeatClient.heartbeatBody(
+            deviceID: "11111111-2222-4333-8444-555555555555",
+            tag: "rc",
+            bundleID: "com.cmuxterm.app.rc",
+            displayName: "Studio",
+            routes: [try route(host: "100.0.0.1", port: 51000)],
+            stopping: false
+        )
+        #expect(body["tag"] as? String == "rc")
+        #expect(body["bundleId"] as? String == "com.cmuxterm.app.rc")
+    }
+
     @Test func emptyRoutesAreStatedNotOmitted() throws {
-        // Pairing off: the wire must carry [] ("no routes"), never an absent
-        // field (which the service reads as "keep the previous set").
+        // While the host is enabled, the wire must carry [] ("no routes"),
+        // never an absent field (which the service reads as "keep the previous
+        // set"). Pairing off suppresses the heartbeat before this body exists.
         let body = PresenceHeartbeatClient.heartbeatBody(
             deviceID: "11111111-2222-4333-8444-555555555555",
             tag: "default",
@@ -141,5 +169,17 @@ import Testing
             ],
             defaults: defaults
         )?.absoluteString == PresenceSettings.productionServiceURL)
+    }
+
+    @MainActor
+    @Test func explicitPresenceEnableCannotOverridePairingOptOut() {
+        let suiteName = "presence-pairing-gate-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: PresenceSettings.enabledKey)
+        defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
+
+        #expect(!PresenceSettings.isEnabled(defaults: defaults))
     }
 }

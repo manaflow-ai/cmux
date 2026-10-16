@@ -4,8 +4,8 @@ import zlib
 /// Inflates the zlib-deflated markdown viewer JS assets produced by
 /// `scripts/compress-markdown-viewer-assets.sh` at build time. Shared by the
 /// macOS and iOS asset loaders so both bundles use the identical format.
-public enum MarkdownViewerAssetCompression {
-    public static func inflate(_ data: Data) -> Data? {
+extension Data {
+    public static func inflateMarkdownViewerAsset(_ data: Data) -> Data? {
         guard !data.isEmpty else {
             return Data()
         }

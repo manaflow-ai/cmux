@@ -2,6 +2,11 @@
 internal import CMUXMobileCore
 
 extension MobileCoreRPCSession {
+    func transportConnectionObservation() async -> CmxTransportConnectionObservation? {
+        guard let inspecting = transport as? any CmxByteTransportConnectionInspecting else { return nil }
+        return await inspecting.transportConnectionObservation()
+    }
+
     /// Returns the process-local identity of the exact installed native
     /// transport. This does not create or reconnect a transport.
     func transportContinuityID() async -> UInt64? {

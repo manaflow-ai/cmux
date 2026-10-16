@@ -162,12 +162,18 @@ impl VerifiedSshPrincipal {
 /// Server-side evidence established by the transport boundary.
 ///
 /// Network evidence identifies provenance for diagnostics but never
-/// authorizes carrier authentication.
+/// authorizes carrier authentication. `TrustedNetwork` is the one exception:
+/// a listener the operator marked trusted, because the network it is bound to
+/// already admits only authorized peers (a cmux Cloud machine's private VPC,
+/// where every member is the owner's Mac or another of the owner's machines).
+/// The listener, not the daemon, carries that policy, so ssh, relay, and iroh
+/// links on the same daemon still enroll.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InboundAuthEvidence {
     Kernel(VerifiedKernelPeer),
     Ssh(VerifiedSshPrincipal),
     Network(NetworkPeer),
+    TrustedNetwork(NetworkPeer),
 }
 
 impl InboundAuthEvidence {

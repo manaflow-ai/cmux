@@ -14,7 +14,7 @@ const { GET, validateList } = await import("../app/api/whats-new/route");
  */
 describe("whats-new route channel targeting", () => {
   const base: WhatsNewList = {
-    visibleEntryIds: ["connections.v1"],
+    visibleEntryIds: ["connections.v2"],
     announcements: [],
   };
   const announcement = {
@@ -30,6 +30,7 @@ describe("whats-new route channel targeting", () => {
     expect(response.status).toBe(200);
     const payload = (await response.json()) as WhatsNewList;
     expect(payload).toEqual(whatsNewList);
+    expect(payload.visibleEntryIds).toEqual(["pairing.1.0.6", "connections.v2", "connections.v1"]);
     // The rejection-driven contract: no checked-in entry or announcement may
     // silently target the official app; reaching "prod" must be a reviewed,
     // explicit channel list. If this assertion fails, someone opted content
@@ -50,7 +51,7 @@ describe("whats-new route channel targeting", () => {
   test("accepts a valid per-entry channel override including prod", () => {
     const list: WhatsNewList = {
       ...base,
-      entryChannels: { "connections.v1": ["dev", "beta", "internal", "prod"] },
+      entryChannels: { "connections.v2": ["dev", "beta", "internal", "prod"] },
     };
     expect(validateList(list)).toEqual(list);
   });
@@ -66,17 +67,17 @@ describe("whats-new route channel targeting", () => {
   test("rejects an entryChannels key that is not a visible entry", () => {
     const list = {
       ...base,
-      entryChannels: { "connections.v2": ["beta"] },
+      entryChannels: { "connections.v1": ["beta"] },
     } as WhatsNewList;
     expect(() => validateList(list)).toThrow(
-      "entryChannels key connections.v2 is not in visibleEntryIds",
+      "entryChannels key connections.v1 is not in visibleEntryIds",
     );
   });
 
   test("rejects unknown channel tokens (they fail closed on device)", () => {
     const list = {
       ...base,
-      entryChannels: { "connections.v1": ["official"] },
+      entryChannels: { "connections.v2": ["official"] },
     } as unknown as WhatsNewList;
     expect(() => validateList(list)).toThrow(/must be one of dev, beta, internal, demo, prod/);
   });
@@ -84,10 +85,10 @@ describe("whats-new route channel targeting", () => {
   test("rejects an empty channel list (hidden everywhere is a retraction, not targeting)", () => {
     const list: WhatsNewList = {
       ...base,
-      entryChannels: { "connections.v1": [] },
+      entryChannels: { "connections.v2": [] },
     };
     expect(() => validateList(list)).toThrow(
-      "entryChannels[connections.v1] must list at least one channel",
+      "entryChannels[connections.v2] must list at least one channel",
     );
     const announcementList: WhatsNewList = {
       ...base,
@@ -101,10 +102,10 @@ describe("whats-new route channel targeting", () => {
   test("rejects duplicate channels", () => {
     const list: WhatsNewList = {
       ...base,
-      entryChannels: { "connections.v1": ["beta", "beta"] },
+      entryChannels: { "connections.v2": ["beta", "beta"] },
     };
     expect(() => validateList(list)).toThrow(
-      "entryChannels[connections.v1] contains duplicate channel beta",
+      "entryChannels[connections.v2] contains duplicate channel beta",
     );
   });
 
@@ -119,4 +120,52 @@ describe("whats-new route channel targeting", () => {
   test("still accepts the legacy shape with no channel fields", () => {
     expect(validateList(base)).toEqual(base);
   });
+
+  test("ships the 1.0.6 connection notice only to beta and internal", () => {
+    const notice = whatsNewList.announcements.find(
+      (entry) => entry.id === "ios-1.0.6-connections",
+    );
+    expect(notice).toEqual({
+      id: "ios-1.0.6-connections",
+      minVersion: "1.0.6",
+      maxVersion: "1.0.6",
+      title: "What's New in 1.0.6",
+      releaseLabel: "1.0.6 · September 2026",
+      channels: ["beta", "internal"],
+      localizations: expect.objectContaining({ en: expect.objectContaining({ title: "What's New in 1.0.6" }) }),
+      features: expect.arrayContaining([
+        expect.objectContaining({
+          title: "Updated Mac connections",
+        }),
+        expect.objectContaining({
+          detail: expect.stringContaining("0.64.25-nightly.3522337919701"),
+        }),
+      ]),
+    });
+  });
+
+  test("serves translated release instructions with exact compatibility values", async () => {
+    const response = await GET(new Request("https://cmux.test/api/whats-new"));
+    const payload = await response.json() as WhatsNewList;
+    const notice = payload.announcements.find((entry) => entry.id === "ios-1.0.6-connections")!;
+    const translations = notice.localizations!;
+    expect(Object.keys(translations).sort()).toEqual([
+      "ar", "bs", "da", "de", "en", "es", "fr", "it", "ja", "km", "ko", "no",
+      "pl", "pt-BR", "ru", "th", "tr", "uk", "zh-CN", "zh-TW",
+    ]);
+    for (const [locale, content] of Object.entries(translations)) {
+      expect(content.features[1].detail).toContain("0.64.25-nightly.3522337919701");
+      expect(content.features[2].detail).toContain("1.0.5 (20260914204800)");
+      expect(JSON.stringify(content)).not.toMatch(/\{(?:stableVersion|nightlyVersion|rollbackBuild)\}/);
+      if (locale !== "en") expect(content.features[2].detail).not.toBe(translations.en.features[2].detail);
+    }
+  });
+
+  test("rejects incomplete translated release instructions", () => {
+    expect(() => validateList({
+      ...base,
+      announcements: [{ ...announcement, localizations: { ja: { title: "お知らせ", features: [] } } }],
+    })).toThrow("localizations[ja].features must not be empty");
+  });
+
 });

@@ -16,7 +16,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// Discovery's stable tmux session id (`$N`), seeded at creation so id-based
     /// de-dup works before the control stream reports `connection.sessionId`.
     let seededSessionId: Int?
-    let connection: RemoteTmuxControlConnection
+    let connection: any RemoteTmuxSessionSource
     let onControlPaneRemoved: (PaneID, UUID?) -> Void
     let onControlSurfaceRemoved: (UUID) -> Void
 
@@ -154,8 +154,9 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     var paneSeedReadinessObserverTokens: [NSObjectProtocol] = []
     /// Per-window renderers, created from each window's first published layout.
     var windowMirrorByWindowId: [Int: RemoteTmuxWindowMirror] = [:]
+    private let agentStatusProjector = RemoteTmuxAgentStatusProjector()
     private var pendingExplicitFocusWindowId: Int?
-    private var observerToken: RemoteTmuxControlConnection.ObserverToken?
+    private var observerToken: UUID?
     private var paneInputForwarder: RemoteTmuxPaneInputForwarder?
 
     /// Snapshots the session's ordered input seam for a Ghostty I/O callback.
@@ -172,7 +173,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         host: RemoteTmuxHost,
         sessionName: String,
         seededSessionId: Int? = nil,
-        connection: RemoteTmuxControlConnection,
+        connection: any RemoteTmuxSessionSource,
         tabManager: TabManager,
         workspace: Workspace,
         pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes,
@@ -190,6 +191,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         self.workspace = workspace
         self.defaultPanelIds = Array(workspace.panels.keys)
         workspace.remoteTmuxSessionMirror = self
+        workspace.syncRemoteRelayIDAliasesToController()
         self.paneInputForwarder = RemoteTmuxPaneInputForwarder(
             isActive: connection.connectionState == .connected,
             onInput: { [weak self] input, paneID in
@@ -198,13 +200,13 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             onOverflow: { [weak self] in
                 guard let self else { return }
                 self.connection.record("manual-input-backpressure")
-                self.connection.beginReconnecting()
+                self.connection.beginReconnecting(preservingBackoff: false)
             }
         )
 
         // Register as one of possibly several observers — never overwrite a
         // single shared closure on the connection.
-        self.observerToken = connection.addObserver(
+        self.observerToken = connection.addObserver(RemoteTmuxSessionObservers(
             onPaneOutput: { [weak self] paneId, data in
                 self?.routeOutput(paneId: paneId, data: data)
             },
@@ -217,11 +219,17 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             onPaneReflow: { [weak self] paneId, noReflow in
                 self?.routeNoReflow(paneId: paneId, noReflow: noReflow)
             },
+            onPaneTitleChanged: { [weak self] paneId in
+                self?.handlePaneTitleChanged(paneId: paneId)
+            },
             onActivePaneChanged: { [weak self] windowId, paneId in
                 self?.handleActivePaneChanged(windowId: windowId, paneId: paneId)
             },
             onSessionChanged: { [weak self] oldName, newName in
                 self?.handleSessionNameChanged(oldName: oldName, newName: newName)
+            },
+            onPaneAgent: { [weak self] _, _ in
+                self?.refreshAgentStatus()
             },
             onTopologyChanged: { [weak self] in
                 self?.rebuild()
@@ -230,6 +238,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 self?.forceResizeAllVisibleMirrors()
             },
             onExit: { [weak self] in
+                self?.clearAgentStatus()
                 self?.handleConnectionExited()
             },
             onConnectionStateChanged: { [weak self] state in
@@ -240,6 +249,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 // Resetting on the disconnect edge is ordering-independent (no output
                 // arrives while not connected).
                 if state != .connected {
+                    self?.clearAgentStatus()
                     self?.titleFilters.removeAll()
                     self?.notificationFilters.removeAll()
                     self?.clearPendingPaneSeedDeliveries()
@@ -247,9 +257,34 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                         $0.cancelPendingControlPaneFocus()
                     }
                 }
+                // Reaching `.connected` is the only thing that proves the login worked, so
+                // it is what ends the host's outstanding login offer. Releasing it on a
+                // resume *attempt* instead meant a reconnect that failed authentication
+                // again opened another login tab, once per retry.
+                if state == .connected, let self {
+                    AppDelegate.shared?.remoteTmuxController.noteMirrorConnected(host: self.host)
+                }
+            },
+            onAuthRequired: { [weak self] sshArgv in
+                self?.handleReconnectNeedsAuthentication(sshArgv: sshArgv) ?? false
             }
-        )
+        ))
         rebuild()
+    }
+
+    /// A reconnect stopped because the host wants interactive authentication that a
+    /// pipe-backed reconnect cannot service (a password, MFA, a security-key touch).
+    ///
+    /// The mirror is frozen but ALIVE — the tmux session and every mirrored workspace
+    /// are intact — so nothing is torn down here. The controller surfaces a login the
+    /// user can complete; finishing it opens the shared ControlMaster and the parked
+    /// connection resumes over it.
+    /// - Returns: whether a login was actually put in front of the user. `false` means the
+    ///   caller must fall back to retrying, or the host is stranded with nothing pending.
+    private func handleReconnectNeedsAuthentication(sshArgv: [String]) -> Bool {
+        AppDelegate.shared?.remoteTmuxController.presentReconnectAuthentication(
+            host: host, sshArgv: sshArgv
+        ) ?? false
     }
 
     /// The remote session ended for good (its last tmux window was killed, it was
@@ -286,6 +321,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// renderers (called when the mirror is torn down so its callbacks
     /// don't linger on a shared connection and its pane surfaces don't leak).
     func detachObserver() {
+        clearAgentStatus()
         clearPendingPaneSeedDeliveries()
         if let observerToken {
             connection.removeObserver(observerToken)
@@ -295,6 +331,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         workspace?.remoteTmuxWindowOrderSync = nil
         if workspace?.remoteTmuxSessionMirror === self {
             workspace?.remoteTmuxSessionMirror = nil
+            workspace?.syncRemoteRelayIDAliasesToController()
         }
         // Detach owns the whole mirror set, so prune the sizing ledger once.
         // Each mirror's teardown then sees no claim and avoids rescanning the
@@ -307,6 +344,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         windowMirrorByWindowId.removeAll()
         windowIdByPanel.removeAll()
         windowIdByPane.removeAll()
+
     }
 
     /// The tmux window id (if any) whose layout currently contains `paneId`.
@@ -403,6 +441,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         if desiredPanelOrder.count > 1 {
             workspace.reorderRemoteTmuxMirrorTabs(toPanelOrder: desiredPanelOrder)
         }
+        refreshAgentStatus()
     }
 
     /// Applies explicit focus only after the corresponding mirror tab exists and
@@ -484,6 +523,29 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
               let mirror = windowMirrorByWindowId[windowId] else { return }
         mirror.surface(forPane: paneId)?.setManualIONoReflow(noReflow)
         mirror.updatePaneTitle(paneId)
+    }
+
+    private func refreshAgentStatus() {
+        guard let workspace else { return }
+        agentStatusProjector.reconcile(
+            statuses: connection.paneAgentStatuses,
+            panelByPane: windowIdByPane.compactMapValues { panelIdByWindow[$0] },
+            workspace: workspace
+        )
+    }
+
+    private func clearAgentStatus() {
+        guard let workspace else { return }
+        agentStatusProjector.reconcile(statuses: [:], panelByPane: [:], workspace: workspace)
+    }
+
+    /// Updates only the mirror-owned tab for a pane whose tmux title changed.
+    /// Title events do not alter topology, so rebuilding every window here would
+    /// turn a single-pane retitle into a session-wide reconciliation.
+    private func handlePaneTitleChanged(paneId: Int) {
+        guard let windowId = windowIdContaining(pane: paneId),
+              let mirror = windowMirrorByWindowId[windowId] else { return }
+        mirror.updatePaneTitleMetadata(paneId)
     }
 
     /// Whether `surfaceId` is one of this session mirror's pane surfaces. Used to route

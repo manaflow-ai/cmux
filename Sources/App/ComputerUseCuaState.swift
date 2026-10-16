@@ -1,6 +1,8 @@
+import CmuxComputerUse
 import CryptoKit
 import Darwin
 import Foundation
+import CmuxFoundation
 
 /// A validated snapshot written by the local cmux-cua runtime.
 struct ComputerUseCuaState: Equatable, Sendable {

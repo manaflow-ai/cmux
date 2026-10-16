@@ -7,9 +7,11 @@ public struct CanvasViewportMath: Sendable {
 
     /// Computes the minimal scroll origin that brings a rect into view.
     ///
-    /// Scrolls only as far as needed: a target already visible (with margin)
-    /// returns the current origin unchanged. A target larger than the
-    /// viewport aligns its top-left corner (plus margin).
+    /// Scrolls only as far as needed, per axis. A target already fully on
+    /// screen along an axis keeps that axis's origin, even when it sits inside
+    /// the margin, so moving focus between visible panes never pans. A target
+    /// that is off screen or cut off is scrolled in with the margin, and one
+    /// larger than the viewport aligns its top-left corner (plus margin).
     ///
     /// - Parameters:
     ///   - target: The rect to reveal, in canvas coordinates.
@@ -25,14 +27,16 @@ public struct CanvasViewportMath: Sendable {
     ) -> CanvasPoint {
         CanvasPoint(
             x: axisOriginToReveal(
-                targetMin: target.minX - margin,
-                targetMax: target.maxX + margin,
+                targetMin: target.minX,
+                targetMax: target.maxX,
+                margin: margin,
                 viewportMin: viewportOrigin.x,
                 viewportLength: viewportSize.width
             ),
             y: axisOriginToReveal(
-                targetMin: target.minY - margin,
-                targetMax: target.maxY + margin,
+                targetMin: target.minY,
+                targetMax: target.maxY,
+                margin: margin,
                 viewportMin: viewportOrigin.y,
                 viewportLength: viewportSize.height
             )
@@ -67,18 +71,26 @@ public struct CanvasViewportMath: Sendable {
     private func axisOriginToReveal(
         targetMin: Double,
         targetMax: Double,
+        margin: Double,
         viewportMin: Double,
         viewportLength: Double
     ) -> Double {
-        if targetMax - targetMin >= viewportLength {
-            return targetMin
+        if targetMin >= viewportMin, targetMax <= viewportMin + viewportLength {
+            return viewportMin
         }
-        if targetMin < viewportMin {
-            return targetMin
+        let paddedMin = targetMin - margin
+        let paddedMax = targetMax + margin
+        let origin: Double
+        if paddedMax - paddedMin >= viewportLength || paddedMin < viewportMin {
+            origin = paddedMin
+        } else if paddedMax > viewportMin + viewportLength {
+            origin = paddedMax - viewportLength
+        } else {
+            origin = viewportMin
         }
-        if targetMax > viewportMin + viewportLength {
-            return targetMax - viewportLength
-        }
-        return viewportMin
+        // A target that fits without its margin still ends up fully on
+        // screen; the margin shrinks instead.
+        guard targetMax - targetMin <= viewportLength else { return origin }
+        return min(max(origin, targetMax - viewportLength), targetMin)
     }
 }

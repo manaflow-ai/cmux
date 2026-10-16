@@ -28,6 +28,7 @@ Review production Swift and runtime changes for:
 - Per-call allocating formatting (`String(format:)`, per-call formatters) on hot or concurrent paths instead of preallocated buffers or reused formatters.
 - Correctness-critical detection/identity derived from title/name heuristics or unreliable fallbacks instead of a single reliable source of truth.
 - Custom React composite UI built from raw elements when Base UI or an existing local component should own accessibility, focus, and keyboard behavior.
+- Remote CLI relay authorization (GHSA-9vmv-3hjw-j28c): the relay credential lives on the remote host, so flag any v2 method added to the relay allowlist without a per-method security analysis, any command-bearing param (`initial_command`, `command`, `tmux_start_command`, `pane_start_command`) accepted through the relay, new workspace/surface/tab ID param names missing from the scoped key sets, and any weakening of deny-by-default in `RemoteRelayCommandPolicy`.
 
 ## Runtime No Hacky Sleeps
 
@@ -54,6 +55,10 @@ Flag Swift UI, menu, alert, tooltip, error, recovery, or command text that is no
 Pass for tests, operational docs not shown to end users, developer-only comments, debug-only logs, exact protocol/config tokens, and existing untranslated strings the PR does not introduce or worsen.
 
 ## User-Facing Error Messages
+
+Establish the audience before reporting: cite a concrete path by which the changed text reaches a cmux end user (app UI, product CLI, or product API). A deployed service, HTTP response, or production file alone does not establish that scope.
+
+Internal CI/build/deployment tools, artifact brokers, and operator-only diagnostics may name the services, providers, and configuration needed to diagnose or recover an operation. For example, an artifact broker telling CI to fall back to GitHub is allowed. Do not request provider-neutral wording for these surfaces solely because a vendor is named. This exception never permits secrets, credentials, personal data, or unredacted sensitive payloads, and does not apply when internal errors are forwarded to end users.
 
 For production user-facing errors, alerts, command output, API error bodies, and recovery copy, do not expose implementation details.
 
@@ -146,3 +151,9 @@ Flag a new `(landing)` page (or a new path added to `web/app/sitemap.ts`) when i
 Localization of the new page copy into every locale is covered by the internationalization rule, not this one.
 
 Pass for routes intentionally kept out of the sitemap (legal, deeplink, redirect-only) when excluded consistently and not added to `agentReadablePages` either, non-landing routes, edits to existing landing pages, and existing registry drift the PR does not introduce or worsen.
+
+## Cloud Persistent Session and Early Input
+
+For Cloud terminal creation and transport, keep one authenticated machine-owned cmux-tui session and multiplex control replies and revisioned events over it. Logical per-terminal streams are allowed when they preserve attachment leases, cancellation, geometry ownership, and byte routing. Reserve the focused user-created manual pane and request its empty Ghostty runtime immediately; remote PTY creation, shell startup, and attachment populate that runtime later. Preserve ordered input ownership, auth, idempotency keys, revision fences, and attachment leases. Reuse a current validated event graph and refresh only for cold, stale, missing, or revision-conflict state.
+
+Hidden panes retain bounded restore admission. Manual renderers must not wait for local command-wrapper installation: that startup work belongs to surfaces that execute a local child. Never replay early input to a replacement terminal or generation.

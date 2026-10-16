@@ -3,6 +3,7 @@ import {
   VM_IMAGE_SIZES,
   VM_IMAGE_SIZE_NAMES,
   pickVmImageSizeForMemory,
+  vcpusByMemoryMb,
   vmImageSize,
   vmImageSizeRank,
 } from "../services/vms/images/sizes";
@@ -13,9 +14,9 @@ import {
   type DevboxManifestEntry,
 } from "../scripts/devbox-image-common";
 
-// Machine sizes are Freestyle's t-shirt ladder (freestyle-vms
-// catalog/snapshots.json), one cmux snapshot per size, picked by the plan's
-// memory. These pin the ladder and the per-size promotion semantics.
+// Machine sizes are Freestyle's t-shirt ladder plus cmux's validated 24 GiB
+// intermediate snapshot, one cmux snapshot per size, picked by plan memory.
+// These pin the ladder and the per-size promotion semantics.
 
 const entry = (overrides: Partial<DevboxManifestEntry> = {}): DevboxManifestEntry => ({
   provider: "freestyle",
@@ -32,7 +33,7 @@ const entry = (overrides: Partial<DevboxManifestEntry> = {}): DevboxManifestEntr
 });
 
 describe("size ladder", () => {
-  test("mirrors Freestyle's catalog exactly, smallest first", () => {
+  test("keeps the Freestyle ladder and cmux intermediate size, smallest first", () => {
     expect(VM_IMAGE_SIZE_NAMES).toEqual(["sm", "md", "lg", "lgx", "xl", "2xl"]);
     expect(VM_IMAGE_SIZES.map((s) => [s.name, s.cpu, s.memoryMb, s.storageMb, s.freestyleBase])).toEqual([
       ["sm", 2, 4096, 16384, "freestyle/ubuntu-sm"],
@@ -78,7 +79,7 @@ describe("promoteImageManifestEntry with sizes", () => {
     schemaVersion: 1,
     images: [
       // A pre-ladder, size-less default: the sized promotion replaces it.
-      entry({ version: "freestyle-old", imageId: "sh-old", kind: "base", defaultForKind: true }),
+      entry({ version: "freestyle-old", imageId: "sh-old", kind: "base", defaultForKind: true, defaultForLocalDev: true }),
       // An old desktop default: not this promotion's kind, untouched.
       entry({ version: "freestyle-old-desktop", imageId: "sh-old-d", kind: "desktop", defaultForKind: true }),
     ],
@@ -87,7 +88,7 @@ describe("promoteImageManifestEntry with sizes", () => {
   test("writes one entry per kind and size, ladder order, and demotes the size-less default", () => {
     const next = promoteImageManifestEntry(base, entry(), { kinds: ["base"], sizes, validationNotes: "ok" });
     expect(imageManifestProblems(next)).toEqual([]);
-    expect(next.images[0]).toMatchObject({ version: "freestyle-old", defaultForKind: false });
+    expect(next.images[0]).toMatchObject({ version: "freestyle-old", defaultForKind: false, defaultForLocalDev: false });
     expect(next.images[1]).toMatchObject({ version: "freestyle-old-desktop", defaultForKind: true });
     expect(next.images.slice(2).map((e) => [e.version, e.imageId, e.kind, e.size?.name, e.defaultForKind])).toEqual([
       ["freestyle-cmux-devbox-test-sm", "sh-sm", "base", "sm", true],
@@ -95,6 +96,7 @@ describe("promoteImageManifestEntry with sizes", () => {
       ["freestyle-cmux-devbox-test-xl", "sh-xl", "base", "xl", true],
     ]);
     expect(next.images[2].size).toEqual({ name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384, freestyleBase: "freestyle/ubuntu-sm" });
+    expect(next.images[2].defaultForLocalDev).toBe(true);
     expect(next.images[2].notes).toBe("epoch test ok");
   });
 
@@ -149,5 +151,15 @@ describe("imageManifestProblems with sizes", () => {
     ]) {
       expect(problems.some((problem) => problem.includes(expected))).toBe(true);
     }
+  });
+});
+
+describe("vcpusByMemoryMb", () => {
+  test("labels each offered size with the vCPUs of the row it boots on", () => {
+    expect(vcpusByMemoryMb([4096, 8192, 16384, 24576, 32768, 65536])).toEqual({
+      "4096": 2, "8192": 4, "16384": 8, "24576": 12, "32768": 16, "65536": 32,
+    });
+    // An operator override between rows boots on the next row up; one above the ladder has no row.
+    expect(vcpusByMemoryMb([20480, 131072])).toEqual({ "20480": 12 });
   });
 });

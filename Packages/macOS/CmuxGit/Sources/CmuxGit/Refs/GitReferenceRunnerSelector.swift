@@ -2,7 +2,7 @@ import Dispatch
 import Foundation
 
 /// Selects one Git executable that can read a repository's reference format.
-nonisolated struct GitReferenceRunnerSelector: Sendable {
+struct GitReferenceRunnerSelector: Sendable {
     private static let maximumProbeOutputByteCount = 16 * 1_024
 
     private let runners: [any WorkspaceChangesGitRunning]

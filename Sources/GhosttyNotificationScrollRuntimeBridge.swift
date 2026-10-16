@@ -59,6 +59,10 @@ extension GhosttyNSView {
         localRenderedFrameNotificationDemand.isActive
     }
 
+    var renderedFrameSequence: UInt64 {
+        (layer as? GhosttyMetalLayer)?.renderedFrameSequence ?? 0
+    }
+
     @objc dynamic func readAuthoritativeScrollbar(
         _ result: UnsafeMutablePointer<ghostty_surface_scrollbar_s>
     ) -> Bool {

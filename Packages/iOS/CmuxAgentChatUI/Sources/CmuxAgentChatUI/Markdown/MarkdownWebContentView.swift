@@ -15,13 +15,14 @@ import WebKit
 /// opener.
 struct MarkdownWebContentView: UIViewRepresentable {
     let markdown: String
+    let assets: MarkdownWebViewerAssets
     let theme: MarkdownWebTheme
     /// Body zoom factor derived from the reader's Dynamic Type size.
     let pageZoom: CGFloat
     let openURL: OpenURLAction
 
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+        Coordinator(assets: assets)
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -31,8 +32,8 @@ struct MarkdownWebContentView: UIViewRepresentable {
             MarkdownWebWeakScriptMessageHandler(context.coordinator),
             name: "cmuxLib"
         )
-        config.setURLSchemeHandler(context.coordinator, forURLScheme: MarkdownWebViewerScheme.localImage)
-        config.setURLSchemeHandler(context.coordinator, forURLScheme: MarkdownWebViewerScheme.remoteImage)
+        config.setURLSchemeHandler(context.coordinator, forURLScheme: MarkdownWebViewerScheme.localImage.rawValue)
+        config.setURLSchemeHandler(context.coordinator, forURLScheme: MarkdownWebViewerScheme.remoteImage.rawValue)
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.isOpaque = false
@@ -68,6 +69,13 @@ struct MarkdownWebContentView: UIViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, @preconcurrency WKNavigationDelegate, @preconcurrency WKUIDelegate,
         @preconcurrency WKScriptMessageHandler, @preconcurrency WKURLSchemeHandler {
+        private let assets: MarkdownWebViewerAssets
+
+        init(assets: MarkdownWebViewerAssets) {
+            self.assets = assets
+            super.init()
+        }
+
         weak var webView: WKWebView?
         var openURL: OpenURLAction?
 
@@ -92,6 +100,14 @@ struct MarkdownWebContentView: UIViewRepresentable {
             }
         }
         private var imageLoads: [ObjectIdentifier: ImageLoad] = [:]
+        /// Remote images the reader approved in the current shell document.
+        /// The scheme handler fetches only these exact URLs.
+        private var remoteImageApprovals = MarkdownRemoteImageApprovals()
+        /// Set by `loadShell`, consumed by the next main-frame navigation
+        /// decision: the shell (`loadHTMLString(_:baseURL: nil)`) is the only
+        /// navigation allowed without user activation.
+        private var awaitingShellNavigation = false
+        private let navigationPolicy = MarkdownViewerNavigationPolicy()
 
         func close() {
             if let webView {
@@ -106,6 +122,8 @@ struct MarkdownWebContentView: UIViewRepresentable {
             webContentProcessRecoveryAttempts = 0
             requestedLibs.removeAll()
             cancelImageLoads()
+            remoteImageApprovals.revokeAll()
+            awaitingShellNavigation = false
         }
 
         func loadShell(theme: MarkdownWebTheme, initialMarkdown: String) {
@@ -114,11 +132,13 @@ struct MarkdownWebContentView: UIViewRepresentable {
             lastTheme = theme
             requestedLibs.removeAll()
             isLoaded = false
-            guard let html = MarkdownWebViewerAssets.shared.shellHTML() else {
+            guard let html = assets.shellHTML() else {
                 isShellLoading = false
                 return
             }
             isShellLoading = true
+            remoteImageApprovals.revokeAll()
+            awaitingShellNavigation = true
             webView?.loadHTMLString(html, baseURL: nil)
         }
 
@@ -258,9 +278,30 @@ struct MarkdownWebContentView: UIViewRepresentable {
                     "window.__cmuxMarkdownFileResolved && window.__cmuxMarkdownFileResolved(\(json));",
                     completionHandler: nil
                 )
+            case "approveRemoteImage":
+                guard let rawURL = body["url"] as? String else { return }
+                approveRemoteImage(rawURL)
+            case "openRemoteImage":
+                guard let rawURL = body["url"] as? String,
+                      let url = MarkdownRemoteImageApprovals.openableRemoteImageURL(rawURL) else { return }
+                openURL?(url)
             default:
                 break
             }
+        }
+
+        /// Records the reader's "Load this image" choice for exactly `rawURL`
+        /// and tells the shell whether it may now request that image.
+        private func approveRemoteImage(_ rawURL: String) {
+            let approved = remoteImageApprovals.approve(rawURL) != nil
+            guard let webView,
+                  let data = try? JSONSerialization.data(withJSONObject: [rawURL]),
+                  let literal = String(data: data, encoding: .utf8) else { return }
+            let callback = approved ? "__cmuxRemoteImageApproved" : "__cmuxRemoteImageRejected"
+            webView.evaluateJavaScript(
+                "window.\(callback) && window.\(callback)(\(literal)[0]);",
+                completionHandler: nil
+            )
         }
 
         private func handleLibRequest(_ lib: String) {
@@ -279,8 +320,8 @@ struct MarkdownWebContentView: UIViewRepresentable {
 
             // The diagram bundles are megabytes; read and inflate them off the
             // main actor, then inject on main.
-            Task { [weak self] in
-                guard let sources = await MarkdownWebViewerAssets.shared.assets(specs),
+            Task { [weak self, assets] in
+                guard let sources = await assets.assets(specs),
                       sources.contains(where: { !$0.isEmpty }) else {
                     self?.requestedLibs.remove(lib)
                     return
@@ -318,10 +359,10 @@ struct MarkdownWebContentView: UIViewRepresentable {
             imageLoads[taskId] = load
 
             let reader: Task<MarkdownRemoteImageFetchResult?, Never>
-            if requestURL.scheme?.lowercased() == MarkdownWebViewerScheme.remoteImage,
-               let remoteURL = MarkdownRemoteImageSecurity.remoteImageURL(from: requestURL) {
+            if requestURL.scheme?.lowercased() == MarkdownWebViewerScheme.remoteImage.rawValue,
+               let remoteURL = remoteImageApprovals.approvedRemoteImageURL(for: requestURL) {
                 reader = Task.detached(priority: .userInitiated) {
-                    await MarkdownRemoteImageFetcher.fetch(remoteURL)
+                    await MarkdownRemoteImageFetcher().fetch(remoteURL)
                 }
             } else {
                 // Local images cannot resolve on the phone — the document's
@@ -417,21 +458,37 @@ struct MarkdownWebContentView: UIViewRepresentable {
         func webView(
             _ webView: WKWebView,
             decidePolicyFor navigationAction: WKNavigationAction,
-            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+            // Must match the SDK requirement exactly under Swift 6, or the
+            // method is not exposed to WebKit and every navigation is allowed.
+            decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
         ) {
-            if navigationAction.navigationType == .linkActivated,
-               let url = navigationAction.request.url {
-                if MarkdownWebLinkPolicy.isInPageFragment(url) {
-                    decisionHandler(.allow)
-                    return
-                }
-                if let external = MarkdownWebLinkPolicy.externalURL(for: url) {
+            let url = navigationAction.request.url
+            let isMainFrame = navigationAction.targetFrame?.isMainFrame ?? true
+            var isShellDocumentLoad = false
+            if isMainFrame, awaitingShellNavigation {
+                awaitingShellNavigation = false
+                isShellDocumentLoad = url.map {
+                    navigationPolicy.isShellDocumentURL($0, shellBaseURL: nil)
+                } ?? false
+            }
+            let decision = navigationPolicy.decide(
+                url: url,
+                isUserLinkActivation: navigationAction.navigationType == .linkActivated,
+                isMainFrame: isMainFrame,
+                isInPageFragment: url.map { MarkdownWebLinkPolicy().isInPageFragment($0) } ?? false,
+                isShellDocumentLoad: isShellDocumentLoad
+            )
+            switch decision {
+            case .allow:
+                decisionHandler(.allow)
+            case .openExternally(let activatedURL):
+                if let external = MarkdownWebLinkPolicy().externalURL(for: activatedURL) {
                     openURL?(external)
                 }
                 decisionHandler(.cancel)
-                return
+            case .cancel:
+                decisionHandler(.cancel)
             }
-            decisionHandler(.allow)
         }
 
         func webView(
@@ -440,8 +497,14 @@ struct MarkdownWebContentView: UIViewRepresentable {
             for navigationAction: WKNavigationAction,
             windowFeatures: WKWindowFeatures
         ) -> WKWebView? {
-            if let url = navigationAction.request.url,
-               let external = MarkdownWebLinkPolicy.externalURL(for: url) {
+            // Script `window.open` calls are not user link activations.
+            if case .openExternally(let url) = navigationPolicy.decide(
+                url: navigationAction.request.url,
+                isUserLinkActivation: navigationAction.navigationType == .linkActivated,
+                isMainFrame: true,
+                isInPageFragment: false,
+                isShellDocumentLoad: false
+            ), let external = MarkdownWebLinkPolicy().externalURL(for: url) {
                 openURL?(external)
             }
             return nil

@@ -482,6 +482,10 @@ Result<SurfaceAttachment> SurfaceAttachment::connect(
     const AttachSurfaceRequest& request,
     ClientOptions options,
     RequestOptions request_options) {
+    if (!request.surface.has_value()) {
+        return make_error(ErrorCode::invalid_argument,
+                          "SurfaceAttachment requires a numeric surface; use the raw stream for identity attachment");
+    }
     auto transport = connect_transport(options);
     if (!transport) {
         return std::move(transport).error();
@@ -530,7 +534,7 @@ Result<SurfaceAttachment> SurfaceAttachment::connect(
     auto impl = std::make_unique<Impl>(
         std::move(transport).value(),
         std::move(options),
-        request.surface,
+        request.surface.value(),
         own_client_id.value(),
         std::move(buffered_events),
         bootstrap.next_request_id);

@@ -7,6 +7,10 @@ import Testing
 @testable import cmux
 #endif
 
+// `resolvedKeyCode()` consults the live keyboard layout through HIToolbox,
+// which only accepts main-thread callers; from a detached Swift Testing
+// worker it traps the whole app host (`BUG IN CLIENT OF LIBDISPATCH`).
+@MainActor
 @Suite struct KeyboardShortcutSpaceKeyTests {
     @Test func shortcutConfigParsingRoundTripsReturnKey() throws {
         let shortcut = try #require(StoredShortcut.parseConfig("return", allowBareFirstStroke: true))

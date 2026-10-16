@@ -3,6 +3,7 @@ import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxCanvasUI
+import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
 
@@ -22,7 +23,9 @@ struct WorkspaceCanvasHostView: View {
     let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
     @Environment(\.settingsRuntime) private var settingsRuntime
+    @Environment(BrowserDataImportCoordinator.self) private var browserDataImportCoordinator: BrowserDataImportCoordinator?
     @Environment(\.workspaceAttentionColor) private var workspaceAttentionColor
+    @Environment(\.cmuxAccentColor) private var accentColor
     @AppStorage(SessionContentWidthSettings.maxWidthKey)
     private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
     @AppStorage(SessionContentWidthSettings.alignmentKey)
@@ -33,7 +36,8 @@ struct WorkspaceCanvasHostView: View {
             workspace: workspace,
             descriptors: descriptors,
             focusedPanelId: workspace.focusedPanelId,
-            isWorkspaceVisible: isWorkspaceVisible
+            isWorkspaceVisible: isWorkspaceVisible,
+            accentColor: accentColor
         )
     }
 
@@ -71,6 +75,7 @@ struct WorkspaceCanvasHostView: View {
                             appearance: appearance,
                             windowAppearance: windowAppearance,
                             settingsRuntime: settingsRuntime,
+                            browserDataImportCoordinator: browserDataImportCoordinator,
                             workspaceAttentionColor: workspaceAttentionColor,
                             sessionContentWidthPresentation: sessionContentWidthPresentation
                         ),
@@ -111,10 +116,12 @@ struct WorkspaceCanvasHostView: View {
         case .project: return "folder"
         case .extensionBrowser: return "puzzlepiece.extension"
         case .workspaceTodo: return "checklist"
+        case .coderouterGuide: return "questionmark.circle"
         case .notifications: return "bell"
         case .cloudVMLoading: return "cloud.fill"
         case .mobilePairing: return "iphone"
         case .accountSignIn: return "person.crop.circle"
+        case .cloudVPNSetup: return "network"
         }
     }
 
@@ -130,6 +137,7 @@ struct WorkspaceCanvasHostView: View {
         appearance: PanelAppearance,
         windowAppearance: WindowAppearanceSnapshot,
         settingsRuntime: SettingsRuntime?,
+        browserDataImportCoordinator: BrowserDataImportCoordinator?,
         workspaceAttentionColor: WorkspaceAttentionColor,
         sessionContentWidthPresentation: SessionContentWidthPresentation
     ) -> CanvasPaneContent {
@@ -154,6 +162,7 @@ struct WorkspaceCanvasHostView: View {
             appearance: appearance,
             windowAppearance: windowAppearance,
             settingsRuntime: settingsRuntime,
+            browserDataImportCoordinator: browserDataImportCoordinator,
             customSidebarTabManager: workspace?.owningTabManager,
             onRequestPanelFocus: { [weak workspace] in
                 workspace?.focusPanel(panel.id)
@@ -181,6 +190,7 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
     let descriptors: [CanvasPaneDescriptor]
     let focusedPanelId: UUID?
     let isWorkspaceVisible: Bool
+    let accentColor: CmuxAccentColor
 
     func makeNSView(context: Context) -> CanvasRootView {
         let workspace = workspace
@@ -260,12 +270,39 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
             ),
             themeProvider: {
                 let background = GhosttyBackgroundTheme.currentColor()
-                return CanvasTheme(canvasBackground: background, paneBackground: background)
-            }
+                // When the window root paints a see-through backdrop, as in
+                // split mode, opaque canvas fills would hide it. Read the same
+                // backdrop plan the window applies so Reduce Transparency and
+                // window glass resolve identically in both layout modes.
+                let windowChrome = AppWindowChromeComposition()
+                let showsWindowBackdrop = windowChrome
+                    .appearanceSnapshotFromUserDefaults(app: GhosttyApp.shared)
+                    .showsWindowBackdrop(
+                        glassEffectAvailable: windowChrome.glassEffect.isAvailable,
+                        windowBackgroundPolicy: windowChrome.windowBackgroundPolicy
+                    )
+                return CanvasTheme(
+                    canvasBackground: background,
+                    paneBackground: background,
+                    showsWindowBackdrop: showsWindowBackdrop
+                )
+            },
+            // The signals split mode's window backdrop refreshes on: a Ghostty
+            // background or opacity change (including a config reload) and a
+            // Display accessibility change such as Reduce Transparency.
+            themeChangeSignals: [
+                CanvasThemeChangeSignal(name: .ghosttyDefaultBackgroundDidChange),
+                CanvasThemeChangeSignal(name: .ghosttyConfigDidReload),
+                CanvasThemeChangeSignal(
+                    name: DisplayAccessibilityOptions.didChangeNotification,
+                    center: NSWorkspace.shared.notificationCenter
+                ),
+            ]
         )
     }
 
     func updateNSView(_ nsView: CanvasRootView, context: Context) {
+        nsView.accentColor = accentColor
         nsView.sync(
             descriptors: descriptors,
             focusedPanelId: focusedPanelId,

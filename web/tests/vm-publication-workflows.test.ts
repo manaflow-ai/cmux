@@ -11,6 +11,7 @@ import {
   type CloudVmPublicationTarget,
 } from "../services/vm-publications/repository";
 import {
+  makeVmPublicationProvider,
   VmPublicationProvider,
   VmPublicationProviderError,
   type PublicationDomainVerification,
@@ -20,6 +21,7 @@ import {
   createPublication,
   deletePublication,
   listCustomDomains,
+  listPublications,
   PublicationConfigurationError,
   updatePublicationAccess,
   verifyCustomDomain,
@@ -43,6 +45,38 @@ import {
 } from "../app/api/vm/publications/routeShared";
 
 const NOW = new Date("2026-09-02T20:00:00.000Z");
+
+test("publication inventory hides VMs from a team the creator has left", async () => {
+  const personal = target(publication("personal"));
+  const team = { ...target(publication("team")), vm: { ...personal.vm, billingTeamId: "team-1" } };
+  const result = await run(listPublications({ principal: { userId: "owner-1", teamIds: [] } }),
+    fakeRepository({ listOwnedPublications: () => Effect.succeed([personal, team]) }), fakeProvider({}));
+  expect(result).toHaveLength(1);
+  expect(result[0].accessMode).toBe("personal");
+});
+
+test("zone verification cannot resume publication of a team VM after its creator leaves", async () => {
+  const zone = domain("custom", { hostname: "example.com", verificationState: "verified", certificateState: "active" });
+  const base = target(publication("public", { hostname: "app.example.com", domainId: zone.id }), zone);
+  const waiting = { ...base, vm: { ...base.vm, billingTeamId: "team-1" } };
+  let claimed = false;
+  const result = await run(verifyCustomDomain({
+    principal: { userId: "owner-1", teamIds: [] }, hostname: zone.hostname, now: NOW,
+  }), fakeRepository({
+    findOwnedDomainByHostname: () => Effect.succeed(zone),
+    updateDomainState: () => Effect.succeed(zone),
+    listOwnedPublicationsForDomain: () => Effect.succeed([waiting]),
+    claimVmPublicationOperation: () => {
+      claimed = true;
+      return Effect.succeed({ kind: "in_progress", retryAt: new Date(NOW.getTime() + 1000) });
+    },
+  }), fakeProvider({
+    requestWildcardCertificate: () => Effect.succeed({} as never),
+    getWildcardCertificateStatus: () => Effect.succeed({ state: "active", ready: true } as never),
+  }));
+  expect(claimed).toBe(false);
+  expect(result.publications).toEqual([]);
+});
 
 function domain(
   kind: "generated" | "custom",
@@ -92,7 +126,7 @@ function publication(
 function target(
   publicationRow: CloudVmPublicationRow,
   domainRow = domain("generated"),
-): CloudVmPublicationTarget {
+): CloudVmPublicationTarget & { readonly domain: CloudVmDomainRow } {
   return {
     publication: publicationRow,
     domain: domainRow,
@@ -235,10 +269,52 @@ describe("Cloud VM publication workflows", () => {
     expect(providerCalled).toBeFalse();
   });
 
+  test("never publishes the cmux-tui daemon port", async () => {
+    // Port 1337 is the VM's cmux-tui daemon, which trusts every carrier link
+    // (it is reached only over the private VPC). Publishing it would hand
+    // terminal control of the VM to anyone who can reach the publication.
+    let repositoryCalled = false;
+    let providerCalled = false;
+    const repository = fakeRepository({
+      listOwnedDomains: () => {
+        repositoryCalled = true;
+        return Effect.succeed([]);
+      },
+    });
+    const provider = fakeProvider({
+      createDomainVerification: () => {
+        providerCalled = true;
+        return Effect.succeed(verification);
+      },
+    });
+    for (const accessMode of ["public", "personal"] as const) {
+      const result = await Effect.runPromise(Effect.either(createPublication({
+        principal: { userId: "owner-1", teamIds: [] },
+        providerVmId: "vm-provider-1",
+        port: 1337,
+        accessMode,
+        now: NOW,
+      }).pipe(
+        Effect.provideService(CloudVmPublicationRepository, repository),
+        Effect.provideService(VmPublicationProvider, provider),
+      )));
+      expect(result._tag).toBe("Left");
+      if (result._tag === "Left") {
+        expect(result.left).toMatchObject({ _tag: "PublicationInputError", reason: "reserved_port", field: "port" });
+      }
+    }
+    expect(repositoryCalled).toBeFalse();
+    expect(providerCalled).toBeFalse();
+  });
+
   test("mints generated names under the configured zone and keeps that zone reserved", async () => {
     const reserved: string[] = [];
     const repository = fakeRepository({
       listOwnedDomains: () => Effect.succeed([]),
+      reserveManagedPublication: (input) => {
+        reserved.push(`hello--lawrence--${input.port}.${input.generatedDomain}`);
+        return Effect.fail(new PublicationNotFoundError({ resource: "vm" }));
+      },
       reservePublicationWithNewDomain: (input) => {
         reserved.push(input.hostname);
         return Effect.fail(new PublicationNotFoundError({ resource: "vm" }));
@@ -261,8 +337,8 @@ describe("Cloud VM publication workflows", () => {
     await attempt({});
     await attempt({ generatedDomain: "Preview.Example.Org." });
     expect(reserved).toHaveLength(2);
-    expect(reserved[0]).toMatch(/^[a-z]+-[a-z]+-[a-z]+\.cmux\.sh$/u);
-    expect(reserved[1]).toMatch(/^[a-z]+-[a-z]+-[a-z]+\.preview\.example\.org$/u);
+    expect(reserved[0]).toBe("hello--lawrence--3000.cmux.sh");
+    expect(reserved[1]).toBe("hello--lawrence--3000.preview.example.org");
 
     for (const hostname of [
       "cmux.sh",
@@ -292,80 +368,35 @@ describe("Cloud VM publication workflows", () => {
     expect(reserved).toHaveLength(3);
   });
 
-  test("mints another friendly name when a generated one is already claimed", async () => {
-    const reserved: string[] = [];
-    let collisions = 4;
-    const repository = fakeRepository({
-      reservePublicationWithNewDomain: (input) => {
-        reserved.push(input.hostname);
-        if (collisions > 0) {
-          collisions -= 1;
-          return Effect.fail(new PublicationConflictError({ reason: "hostname_taken" }));
-        }
-        return Effect.fail(new PublicationNotFoundError({ resource: "vm" }));
-      },
-    });
-    const attempt = (overrides: { hostname?: string } = {}) =>
-      Effect.runPromise(Effect.either(createPublication({
-        principal: { userId: "owner-1", teamIds: [] },
-        providerVmId: "vm-provider-1",
-        port: 3_000,
-        accessMode: "public",
-        now: NOW,
-        ...overrides,
-      }).pipe(
-        Effect.provideService(CloudVmPublicationRepository, repository),
-        Effect.provideService(VmPublicationProvider, fakeProvider({})),
-      )));
-
-    const result = await attempt();
-    expect(result._tag === "Left" ? result.left : null).toMatchObject({
-      _tag: "PublicationNotFoundError",
-      resource: "vm",
-    });
-    expect(reserved).toHaveLength(5);
-    expect(new Set(reserved).size).toBe(5);
-    for (const hostname of reserved.slice(0, 3)) {
-      expect(hostname).toMatch(/^[a-z]+-[a-z]+-[a-z]+\.cmux\.sh$/u);
+  test("uses the owning organization for private defaults and never makes reopening public", async () => {
+    for (const billingTeamId of ["owner-1", "team-1"]) {
+      let reserved: Record<string, unknown> | undefined;
+      const repository = fakeRepository({ reserveManagedPublication: (input) => {
+        reserved = { ...input };
+        return Effect.succeed({ ...target(publication("personal", { state: "active" })), domain: null });
+      } });
+      const result = await run(createPublication({
+        principal: { userId: "owner-1", teamIds: ["team-1", "team-2"], billingTeamId },
+        providerVmId: "vm-provider-1", port: 3000,
+      }), repository, fakeProvider({}));
+      expect(reserved?.accessMode).toBe(billingTeamId === "owner-1" ? "personal" : "team");
+      expect(reserved?.teamId).toBe(billingTeamId === "owner-1" ? null : "team-1");
+      expect(result.accessMode).toBe("personal");
+      expect(result).toMatchObject({ publicPort: 443, targetPort: 3000, protocol: "https" });
     }
-    for (const hostname of reserved.slice(3)) {
-      expect(hostname).toMatch(/^[a-z]+-[a-z]+-[a-z]+-[0-9a-f]{4}\.cmux\.sh$/u);
-    }
+  });
 
-    // A zone that never yields gives up with the conflict instead of looping.
-    reserved.length = 0;
-    collisions = Number.POSITIVE_INFINITY;
-    const exhausted = await attempt();
-    expect(exhausted._tag === "Left" ? exhausted.left : null).toMatchObject({
-      _tag: "PublicationConflictError",
-      reason: "hostname_taken",
-    });
-    expect(reserved).toHaveLength(6);
-
-    // A customer-chosen hostname is theirs to pick; its conflict is reported once.
-    reserved.length = 0;
-    const customRepository = fakeRepository({
-      listOwnedDomains: () => Effect.succeed([]),
-      reservePublicationWithNewDomain: (input) => {
-        reserved.push(input.hostname);
-        return Effect.fail(new PublicationConflictError({ reason: "hostname_taken" }));
-      },
-    });
-    const custom = await Effect.runPromise(Effect.either(createPublication({
-      principal: { userId: "owner-1", teamIds: [] },
-      providerVmId: "vm-provider-1",
-      port: 3_000,
-      hostname: "preview.example.com",
-      accessMode: "public",
-      now: NOW,
-    }).pipe(
-      Effect.provideService(CloudVmPublicationRepository, customRepository),
-      Effect.provideService(VmPublicationProvider, fakeProvider({})),
-    )));
-    expect(custom._tag === "Left" ? custom.left : null).toMatchObject({
-      reason: "hostname_taken",
-    });
-    expect(reserved).toEqual(["preview.example.com"]);
+  test("reports a canonical hostname conflict without silently choosing another route", async () => {
+    let calls = 0;
+    const repository = fakeRepository({ reserveManagedPublication: () => {
+      calls++;
+      return Effect.fail(new PublicationConflictError({ reason: "hostname_taken" }));
+    } });
+    const result = await run(Effect.either(createPublication({
+      principal: { userId: "owner-1", teamIds: [] }, providerVmId: "vm-1", port: 3000,
+    })), repository, fakeProvider({}));
+    expect(result).toMatchObject({ _tag: "Left", left: { reason: "hostname_taken" } });
+    expect(calls).toBe(1);
   });
 
   test("lists custom zones apart from publications with zone-level DNS work", async () => {
@@ -1352,7 +1383,7 @@ describe("Cloud VM publication workflows", () => {
       },
     });
     const provider = fakeProvider({
-      deleteTlsRulesForHostname: () => {
+      deletePublicationTlsRules: () => {
         calls.push("rules.sweep");
         return Effect.succeed(2);
       },
@@ -1778,7 +1809,7 @@ describe("Cloud VM publication workflows", () => {
       finishDisablePublication: () => Effect.succeed({ ...disabling, state: "disabled", disabledAt: NOW }),
     });
     const provider = fakeProvider({
-      deleteTlsRulesForHostname: () => Effect.succeed(1),
+      deletePublicationTlsRules: () => Effect.succeed(1),
     });
 
     const result = await run(deletePublication({
@@ -1789,6 +1820,231 @@ describe("Cloud VM publication workflows", () => {
 
     expect(result).toEqual({ deleted: true, id: current.id });
     expect(calls).toEqual([`lookup:${current.hostname}`]);
+  });
+
+  // 2026-10-10: a create refused at the provider left its row `provisioning`
+  // forever, so every PATCH answered a retryable 503 "already being configured".
+  test("a create that fails at the provider marks the publication unavailable", async () => {
+    const generatedDomain = domain("generated");
+    const reserved = target(publication("public", { routingRevision: 3 }), generatedDomain);
+    const marked: Array<{ id: string; expectedRoutingRevision: number }> = [];
+    const repository = fakeRepository({
+      listOwnedDomains: () => Effect.succeed([]),
+      reservePublicationWithNewDomain: () => Effect.succeed(reserved),
+      markPublicationUnavailable: (input) => {
+        marked.push({ id: input.id, expectedRoutingRevision: input.expectedRoutingRevision });
+        return Effect.succeed({ ...reserved.publication, state: "unavailable", routingRevision: 4 });
+      },
+    });
+    const failure = new VmPublicationProviderError({ operation: "reconcileTlsRule", cause: new Error("TLS rule limit reached") });
+    const provider = fakeProvider({ reconcileTlsRule: () => Effect.fail(failure) });
+
+    const result = await Effect.runPromise(Effect.either(createPublication({
+      principal: { userId: "owner-1", teamIds: [] },
+      providerVmId: "vm-provider-1",
+      port: 3_000,
+      accessMode: "public",
+      generatedHostname: generatedDomain.hostname,
+      now: NOW,
+    }).pipe(
+      Effect.provideService(CloudVmPublicationRepository, repository),
+      Effect.provideService(VmPublicationProvider, provider),
+    )));
+
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") expect(result.left).toBe(failure);
+    expect(marked).toEqual([{ id: reserved.publication.id, expectedRoutingRevision: 3 }]);
+  });
+
+  test("zone verification retries an unavailable publication like a provisioning one", async () => {
+    const zone = domain("custom", { hostname: "example.com", verificationState: "verified", certificateState: "active" });
+    const failed = target(publication("public", { hostname: "app.example.com", domainId: zone.id, state: "unavailable" }), zone);
+    const claimed: string[] = [];
+    const reconciled: Array<{ ruleId: string | null | undefined; hostname: string; providerVmId: string }> = [];
+    const recorded: Array<{ id: string; providerTlsRuleId: string }> = [];
+    await run(verifyCustomDomain({
+      principal: { userId: "owner-1", teamIds: [] }, hostname: zone.hostname, now: NOW,
+    }), fakeRepository({
+      findOwnedDomainByHostname: () => Effect.succeed(zone),
+      updateDomainState: () => Effect.succeed(zone),
+      listOwnedPublicationsForDomain: () => Effect.succeed([failed]),
+      claimVmPublicationOperation: (input) => {
+        claimed.push(input.publicationId);
+        return Effect.succeed({ kind: "claimed", vmId: "db-vm-1" });
+      },
+      recordProvisioningTlsRule: (input) => {
+        recorded.push({ id: input.id, providerTlsRuleId: input.providerTlsRuleId });
+        return Effect.succeed({ ...failed.publication, providerTlsRuleId: input.providerTlsRuleId });
+      },
+    }), fakeProvider({
+      requestWildcardCertificate: () => Effect.succeed({} as never),
+      getWildcardCertificateStatus: () => Effect.succeed({ state: "active", ready: true } as never),
+      reconcileTlsRule: (ruleId, spec) => {
+        reconciled.push({ ruleId, hostname: spec.hostname, providerVmId: spec.providerVmId });
+        return Effect.succeed({
+          disposition: "created",
+          rule: { tlsRuleId: "tls-rule-retried", hostname: spec.hostname, providerVmId: spec.providerVmId, port: spec.port, forwardAuthId: null },
+        } as never);
+      },
+      // The certificate is still pending, so the retry stops after recording the rule.
+      getCertificateStatus: () => Effect.succeed({ state: "pending", ready: false } as never),
+    }));
+    expect(claimed).toEqual([failed.publication.id]);
+    expect(reconciled).toEqual([{ ruleId: null, hostname: "app.example.com", providerVmId: "vm-provider-1" }]);
+    expect(recorded).toEqual([{ id: failed.publication.id, providerTlsRuleId: "tls-rule-retried" }]);
+  });
+
+  test("a custom-domain create that fails at domain verification marks the publication unavailable", async () => {
+    const pendingZone = domain("custom", { hostname: "example.com", verificationState: "pending", providerVerificationId: null });
+    const reserved = target(publication("public", { hostname: "app.example.com", domainId: pendingZone.id, hostnameClaimedAt: null, routingRevision: 2 }), pendingZone);
+    const marked: Array<{ id: string; expectedRoutingRevision: number }> = [];
+    const failure = new VmPublicationProviderError({ operation: "createDomainVerification", cause: new Error("provider refused") });
+    const repository = fakeRepository({
+      listOwnedDomains: () => Effect.succeed([pendingZone]),
+      findOwnedDomainByHostname: () => Effect.succeed(pendingZone),
+      reservePublication: () => Effect.succeed(reserved),
+      markPublicationUnavailable: (input) => {
+        marked.push({ id: input.id, expectedRoutingRevision: input.expectedRoutingRevision });
+        return Effect.succeed({ ...reserved.publication, state: "unavailable" });
+      },
+    });
+    const provider = fakeProvider({
+      getDomainVerification: () => Effect.fail(failure),
+      createDomainVerification: () => Effect.fail(failure),
+    });
+    const result = await Effect.runPromise(Effect.either(createPublication({
+      principal: { userId: "owner-1", teamIds: [] },
+      providerVmId: "vm-provider-1",
+      port: 3_000,
+      hostname: "app.example.com",
+      accessMode: "public",
+      now: NOW,
+    }).pipe(
+      Effect.provideService(CloudVmPublicationRepository, repository),
+      Effect.provideService(VmPublicationProvider, provider),
+    )));
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") expect(result.left).toBe(failure);
+    expect(marked).toEqual([{ id: reserved.publication.id, expectedRoutingRevision: 2 }]);
+  });
+
+  test("changing access on a failed publication is a clear 409 that says to delete it", async () => {
+    const failed = publication("personal", { state: "unavailable", providerTlsRuleId: null });
+    const repository = fakeRepository({ findOwnedPublication: () => Effect.succeed(target(failed)) });
+    const result = await Effect.runPromise(Effect.either(updatePublicationAccess({
+      principal: { userId: "owner-1", teamIds: [] },
+      publicationId: failed.id,
+      accessMode: "public",
+      now: NOW,
+    }).pipe(
+      Effect.provideService(CloudVmPublicationRepository, repository),
+      Effect.provideService(VmPublicationProvider, fakeProvider({})),
+    )));
+    expect(result._tag).toBe("Left");
+    if (result._tag !== "Left") return;
+    expect(result.left).toBeInstanceOf(PublicationConflictError);
+    const response = publicationErrorResponse(result.left);
+    expect(response.status).toBe(409);
+    const body = await response.json() as Record<string, unknown>;
+    expect(body).toMatchObject({ error: "vm_publication_conflict", reason: "publication_failed" });
+    expect(String(body.action)).toContain("cmux cloud domains rm");
+  });
+
+  test("deleting a failed publication with no provider rule deletes no stored rule id", async () => {
+    const calls: string[] = [];
+    const failed = publication("personal", { state: "unavailable", providerTlsRuleId: null });
+    const repository = fakeRepository({
+      findOwnedPublication: () => Effect.succeed(target(failed)),
+      beginDisablePublication: () => Effect.succeed({ ...failed, state: "disabling" }),
+      revokePublicationSessions: () => Effect.succeed(0),
+      finishDisablePublication: () => {
+        calls.push("publication.finish");
+        return Effect.succeed({ ...failed, state: "disabled", disabledAt: NOW });
+      },
+    });
+    const provider = fakeProvider({
+      deletePublicationTlsRules: (publications) => {
+        calls.push(`rules.delete:${publications.map((owner) => `${owner.hostname}|${owner.providerTlsRuleId}`).join(",")}`);
+        return Effect.succeed(0);
+      },
+    });
+    const result = await run(deletePublication({
+      principal: { userId: "owner-1", teamIds: [] },
+      publicationId: failed.id,
+      now: NOW,
+    }), repository, provider);
+    expect(result).toEqual({ deleted: true, id: failed.id });
+    expect(calls).toEqual([`rules.delete:${failed.hostname}|null`, "publication.finish"]);
+  });
+
+  // Security: the hostname sweep deleted every exact rule for a hostname. An
+  // unclaimed custom-domain row (a second account that typed someone else's
+  // hostname) could delete the claimed owner's live rule by deleting itself.
+  describe("deleting a publication removes only rules it owns", () => {
+    type Rule = { id: string; domain: string; protocol: "http"; source: { public: true }; destination: { vmId: string; port: number }; createdAt: string };
+    const rule = (id: string, vmId: string): Rule => ({
+      id, domain: "app.example.com", protocol: "http", source: { public: true },
+      destination: { vmId, port: 3_000 }, createdAt: NOW.toISOString(),
+    });
+    function ruleStore(rules: Rule[]) {
+      const deleted: string[] = [];
+      const client = {
+        tls: {
+          rules: {
+            list: async (options: { limit?: number; offset?: number } = {}) => {
+              const offset = options.offset ?? 0;
+              return { rules: rules.slice(offset, offset + (options.limit ?? 100)), totalCount: rules.length };
+            },
+            delete: async (id: string) => {
+              deleted.push(id);
+              rules.splice(rules.findIndex((candidate) => candidate.id === id), 1);
+            },
+          },
+        },
+      };
+      return { provider: makeVmPublicationProvider(() => client as never), deleted, rules };
+    }
+    function repositoryFor(row: CloudVmPublicationRow) {
+      return fakeRepository({
+        findOwnedPublication: () => Effect.succeed(target(row)),
+        beginDisablePublication: () => Effect.succeed({ ...row, state: "disabling" }),
+        revokePublicationSessions: () => Effect.succeed(0),
+        finishDisablePublication: () => Effect.succeed({ ...row, state: "disabled", disabledAt: NOW }),
+      });
+    }
+
+    test("an unclaimed row never deletes the claimed owner's live rule", async () => {
+      const store = ruleStore([rule("tls-owner-live", "vm-owner")]);
+      const unclaimed = publication("personal", {
+        id: "20000000-0000-4000-8000-000000000002",
+        hostname: "app.example.com",
+        hostnameClaimedAt: null,
+        providerTlsRuleId: null,
+      });
+      await run(deletePublication({
+        principal: { userId: "owner-1", teamIds: [] }, publicationId: unclaimed.id, now: NOW,
+      }), repositoryFor(unclaimed), store.provider);
+      expect(store.deleted).toEqual([]);
+      expect(store.rules.map((candidate) => candidate.id)).toEqual(["tls-owner-live"]);
+    });
+
+    test("a claimed row removes its own rule and crash duplicates, never another VM's", async () => {
+      const store = ruleStore([
+        rule("tls-own", "vm-provider-1"),
+        rule("tls-own-crash-duplicate", "vm-provider-1"),
+        rule("tls-other-vm", "vm-other"),
+      ]);
+      const claimed = publication("personal", {
+        hostname: "app.example.com",
+        hostnameClaimedAt: NOW,
+        providerTlsRuleId: "tls-own",
+      });
+      await run(deletePublication({
+        principal: { userId: "owner-1", teamIds: [] }, publicationId: claimed.id, now: NOW,
+      }), repositoryFor(claimed), store.provider);
+      expect(store.deleted.sort()).toEqual(["tls-own", "tls-own-crash-duplicate"]);
+      expect(store.rules.map((candidate) => candidate.id)).toEqual(["tls-other-vm"]);
+    });
   });
 
   test("resumes a delete left in disabling by a failed sweep", async () => {
@@ -1823,7 +2079,7 @@ describe("Cloud VM publication workflows", () => {
       },
     });
     const provider = fakeProvider({
-      deleteTlsRulesForHostname: () => {
+      deletePublicationTlsRules: () => {
         calls.push("rules.sweep");
         return Effect.succeed(1);
       },
@@ -1890,7 +2146,7 @@ describe("Cloud VM publication REST adapters", () => {
       verify,
     );
     expect(response.status).toBe(401);
-    expect(verified).toEqual([{ listAllTeams: true, requestedTeamId: "team-2" }]);
+    expect(verified).toEqual([{ listAllTeams: true, forceCompleteTeamList: true, requireFreshTeamMembership: true, requestedTeamId: "team-2" }]);
 
     expect(await requestedPublicationTeamId(
       new Request("https://cmux.com/api/vm/publications", { method: "GET" }),
@@ -1949,7 +2205,7 @@ describe("Cloud VM publication REST adapters", () => {
     const createResponse = await handlePublicationCreate(
       new Request("https://cmux.com/api/vm/publications", {
         method: "POST",
-        body: JSON.stringify({ vmId: "vm-provider-1", port: 3_000, accessMode: "public" }),
+        body: JSON.stringify({ vmId: "vm-provider-1", port: 3_000, accessMode: "public", confirmPublic: true }),
       }),
       {
         principal: { userId: "owner-1", teamIds: [] },

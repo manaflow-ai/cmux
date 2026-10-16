@@ -10,7 +10,7 @@ extension AgentHibernationController {
         startEvaluationIfIdle { [weak self] in
             guard let self,
                   AgentHibernationTrackingGate.isEnabled(),
-                  let index = await SharedLiveAgentIndex.shared.indexRefreshingNow(),
+                  let index = await SharedLiveAgentIndex.shared.indexForScheduledHibernation(),
                   !Task.isCancelled,
                   // Re-check after suspension: stop() may disable tracking while the index refreshes.
                   AgentHibernationTrackingGate.isEnabled() else {

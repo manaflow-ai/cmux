@@ -26,11 +26,14 @@ export interface AuthedUser {
   id: string;
   selectedTeamId: string | null;
   teamIds: readonly string[];
+  /** Profile fields resolved from the verified Stack user record. */
+  displayName?: string | null;
+  profileImageURL?: string | null;
 }
 
 /** Max cache age. A revoked-but-unexpired token stays usable for at most this
- * long, which is acceptable for presence (read/announce, no mutations of
- * durable state). */
+ * long on read/announce routes; routes that change durable state verify with
+ * `fresh: true` and do not use a cached success. */
 export const AUTH_CACHE_TTL_MS = 60_000;
 const AUTH_CACHE_MAX_ENTRIES = 1024;
 /** Negative cache window for a token Stack rejected. Bounds the amplification
@@ -155,6 +158,10 @@ async function fetchStackUser(env: AuthEnv, accessToken: string): Promise<Authed
   if (!meResponse.ok) return null;
   const me = (await meResponse.json()) as {
     id?: unknown;
+    display_name?: unknown;
+    displayName?: unknown;
+    profile_image_url?: unknown;
+    profileImageUrl?: unknown;
     selected_team_id?: unknown;
     selected_team?: { id?: unknown } | null;
   };
@@ -182,13 +189,23 @@ async function fetchStackUser(env: AuthEnv, accessToken: string): Promise<Authed
       ]
     : [];
 
-  return { id: userId, selectedTeamId, teamIds };
+  const displayName =
+    (typeof me.display_name === "string" ? me.display_name : null)
+    ?? (typeof me.displayName === "string" ? me.displayName : null);
+  const profileImageURL =
+    (typeof me.profile_image_url === "string" ? me.profile_image_url : null)
+    ?? (typeof me.profileImageUrl === "string" ? me.profileImageUrl : null);
+  return { id: userId, selectedTeamId, teamIds, displayName, profileImageURL };
 }
 
 /** Verify the caller. Returns the resolved user or null when unauthenticated
  * or when Stack auth is not configured (fail closed, like
  * `isStackConfigured()` on the web side). */
-export async function verifyRequest(request: Request, env: AuthEnv): Promise<AuthedUser | null> {
+export async function verifyRequest(
+  request: Request,
+  env: AuthEnv,
+  options: { readonly fresh?: boolean } = {},
+): Promise<AuthedUser | null> {
   if (!env.STACK_PROJECT_ID || !env.STACK_PUBLISHABLE_CLIENT_KEY) return null;
   const token = bearerToken(request);
   if (!token) return null;
@@ -201,7 +218,10 @@ export async function verifyRequest(request: Request, env: AuthEnv): Promise<Aut
   const cached = authCache.get(cacheKey);
   // A live entry serves either a verified user or a verified failure (null),
   // so a rejected token does not re-hit Stack on every request.
-  if (cached && cached.expiresAt > now) return cached.user;
+  // `fresh` (durable mutations: device revocation, control-socket setup)
+  // never trusts a cached success, so a revoked bearer fails at once; a
+  // cached rejection still answers without another Stack call.
+  if (cached && cached.expiresAt > now && !(options.fresh && cached.user !== null)) return cached.user;
   authCache.delete(cacheKey);
 
   const user = await fetchStackUser(env, token);

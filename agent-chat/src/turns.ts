@@ -3,6 +3,8 @@ import type { Block } from "./session";
 export interface TurnGroup {
   id: string;
   user?: Extract<Block, { kind: "user" }>;
+  /** cmux agent messages the agent received for this turn. */
+  messages?: Extract<Block, { kind: "message" }>[];
   activity: Block[];
   assistant?: Extract<Block, { kind: "assistant" }>;
   footer?: Extract<Block, { kind: "footer" }>;
@@ -22,13 +24,24 @@ export function groupTurns(blocks: Block[], status?: string): TurnGroup[] {
     }
   };
   const push = () => {
-    if (current && (current.user || current.activity.length || current.assistant || current.footer)) groups.push(current);
+    if (current && (current.user || current.messages?.length || current.activity.length || current.assistant || current.footer)) groups.push(current);
   };
   for (const block of blocks) {
     if (block.kind === "user") {
       push();
       current = { id: `turn-${groups.length}-${block.text.slice(0, 24)}`, user: block, activity: [], done: false };
       pendingAssistantIndex = null;
+      continue;
+    }
+    if (block.kind === "message") {
+      // A message joins the prompt it arrived with. One that woke an idle
+      // agent, or continued it after a reply, starts the turn it caused.
+      if (!current || current.assistant || current.footer || current.activity.length) {
+        push();
+        current = { id: `turn-${groups.length}-message-${block.id}`, activity: [], done: false };
+        pendingAssistantIndex = null;
+      }
+      current.messages = [...(current.messages ?? []), block];
       continue;
     }
     if (!current) {
@@ -70,6 +83,21 @@ function sentenceCase(text: string) {
   return text ? text[0].toUpperCase() + text.slice(1) : text;
 }
 
+// Structured tools (Claude Code's Read/Edit/Grep, Codex's apply_patch, MCP
+// tools) are not shell commands. Everything else is a command: Claude's Bash,
+// Codex's exec_command, and adapters that name the tool after the program.
+const STRUCTURED_TOOLS = new Set([
+  "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "NotebookRead", "Grep", "Glob", "LS",
+  "WebFetch", "WebSearch", "Task", "Agent", "TodoWrite", "TodoRead", "Skill", "ToolSearch", "ExitPlanMode",
+  "apply_patch", "update_plan", "view_image", "web_search", "spawn_agent",
+]);
+
+const SHELL_WRAPPER_TOOLS = new Set(["Bash", "bash", "shell", "exec_command", "local_shell"]);
+
+export function isShellCommandTool(name: string): boolean {
+  return !STRUCTURED_TOOLS.has(name) && !name.startsWith("mcp__");
+}
+
 export function summarizeTurnActivity(blocks: Block[]): string {
   let edited = 0;
   let read = 0;
@@ -77,22 +105,29 @@ export function summarizeTurnActivity(blocks: Block[]): string {
   let searched = false;
   let listed = false;
   let other = 0;
+  let tools = 0;
   for (const block of blocks) {
     if (block.kind === "assistant") continue;
     if (block.kind === "files") {
       edited += block.files.length;
       continue;
     }
+    if (block.kind === "plan") {
+      other++;
+      continue;
+    }
     if (block.kind !== "tool") {
       other++;
       continue;
     }
-    commands++;
+    const shell = isShellCommandTool(block.name);
+    if (shell) commands++;
     const text = `${block.name} ${block.detail ?? ""}`.toLowerCase();
     if (/\b(read|cat|sed|nl|open)\b/.test(text)) read++;
     else if (/\b(rg|grep|search)\b/.test(text)) searched = true;
     else if (/\b(ls|find|list)\b/.test(text)) listed = true;
     else if (/\b(edit|write|apply_patch|patch)\b/.test(text)) edited++;
+    else if (!shell) tools++;
   }
   const parts: string[] = [];
   if (edited) parts.push(`edited ${plural(edited, "file")}`);
@@ -100,7 +135,8 @@ export function summarizeTurnActivity(blocks: Block[]): string {
   if (searched) parts.push("searched code");
   if (listed) parts.push("listed files");
   if (commands) parts.push(`ran ${plural(commands, "command")}`);
-  if (!commands && other) parts.push(`processed ${plural(other, "event")}`);
+  if (tools) parts.push(`used ${plural(tools, "tool")}`);
+  if (!commands && !tools && other) parts.push(`processed ${plural(other, "event")}`);
   return sentenceCase(joinSentence(parts));
 }
 
@@ -113,7 +149,10 @@ export function activityRowLabel(block: Block): string {
     if (/\b(read|cat|sed|nl|open)\b/.test(lower)) return `Read ${detail.trim() || name}`;
     if (/\b(ls|find|list)\b/.test(lower)) return `Listed ${detail.trim() || name}`;
     if (/\b(edit|write|apply_patch|patch)\b/.test(lower)) return `Edited ${detail.trim() || name}`;
-    return `Ran ${name}${detail}`;
+    // Shell wrappers (Claude's Bash, Codex's exec_command) read better as the
+    // command itself.
+    if (SHELL_WRAPPER_TOOLS.has(name) && block.detail) return `Ran ${block.detail}`;
+    return `${isShellCommandTool(name) ? "Ran" : "Used"} ${name}${detail}`;
   }
   if (block.kind === "files") return `Edited ${plural(block.files.length, "file")}`;
   if (block.kind === "thinking") return "Reasoned";

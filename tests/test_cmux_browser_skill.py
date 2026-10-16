@@ -100,6 +100,7 @@ def test_scoped_aliases_are_accepted(validator: ModuleType) -> None:
         "cmux browser surface:1 get-url",
         "cmux browser surface:1 snapshot -i",
         "cmux browser --surface surface:1 tab list",
+        "cmux browser --surface surface:1 download list --limit 5",
     ]
     examples = [
         validator.ShellExample(Path("scoped-fixture.md"), line, text)

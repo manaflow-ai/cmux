@@ -21,11 +21,15 @@ type TestStackAuthUser = {
 let handoffCookie: string | undefined;
 let rawRefreshCookie: string;
 let rawAccessCookie: string;
-let getUserResponses: Array<TestStackAuthUser | null> = [];
+let getUserResponses: Array<TestStackAuthUser | null | Error> = [];
 let promotionShouldFail = false;
 const claimVerifiedBilling = mock(async () => undefined);
 const applyAdminGrants = mock(async () => undefined);
-const getUser = mock(async (): Promise<TestStackAuthUser | null> => getUserResponses.shift() ?? null);
+const getUser = mock(async (): Promise<TestStackAuthUser | null> => {
+  const next = getUserResponses.shift() ?? null;
+  if (next instanceof Error) throw next;
+  return next;
+});
 const signOut = mock((options?: unknown) => {
   void options;
   return Promise.resolve();
@@ -165,6 +169,36 @@ describe("after sign-in native handoff", () => {
     expect(setCookie).toContain(`${HANDOFF_COOKIE}=;`);
     expect(setCookie).toContain("Max-Age=0");
     expect(setCookie).toContain("Path=/handler/after-sign-in");
+  });
+
+  test("redirects verified release-candidate handoffs directly to cmux-rc", async () => {
+    handoffCookie = "handoff-nonce";
+    const nativeReturnTo = "cmux-rc://auth-callback?cmux_auth_state=state-rc";
+
+    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+
+    expect(response.status).toBe(307);
+    const location = response.headers.get("location");
+    expect(location).toBeTruthy();
+    const callbackURL = new URL(location!);
+    expect(callbackURL.protocol).toBe("cmux-rc:");
+    expect(callbackURL.hostname).toBe("auth-callback");
+    expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-rc");
+  });
+
+  test("redirects verified cmux NEXT handoffs directly to cmux-next", async () => {
+    // nightly-next installs beside classic NIGHTLY as cmux NEXT with its own
+    // scheme, so its sign-in never lands in the NIGHTLY app.
+    handoffCookie = "handoff-nonce";
+    const nativeReturnTo = "cmux-next://auth-callback?cmux_auth_state=state-next";
+
+    const response = await GET(signInRequest(nativeReturnTo, "handoff-nonce"));
+
+    expect(response.status).toBe(307);
+    const callbackURL = new URL(response.headers.get("location")!);
+    expect(callbackURL.protocol).toBe("cmux-next:");
+    expect(callbackURL.hostname).toBe("auth-callback");
+    expect(callbackURL.searchParams.get("cmux_auth_state")).toBe("state-next");
   });
 
   test("keeps the manual return page when the handoff nonce is not verified", async () => {
@@ -378,6 +412,28 @@ describe("after sign-in native handoff", () => {
     );
   });
 
+  test("a Stack throttle answers a localized retry page that resumes the same callback", async () => {
+    const throttled = Object.assign(new Error("Stack Auth rate limited"), { status: 429 });
+    for (const [language, title] of [["en", "Sign-in is busy"], ["ja", "サインインが混み合っています"]] as const) {
+      getUserResponses = [throttled];
+      const request = signInRequest("cmux://auth-callback", "nonce-1");
+      request.headers.set("accept-language", language);
+      const response = await GET(request);
+
+      expect(response.status).toBe(503);
+      expect(response.headers.get("retry-after")).toBe("30");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      const html = await response.text();
+      expect(html).toContain(title);
+      const retry = html.match(/<a href="([^"]+)">/)?.[1]?.replaceAll("&amp;", "&");
+      expect(retry).toBe(`${request.nextUrl.pathname}${request.nextUrl.search}`);
+      // Nothing ran against the old cookie session.
+      expect(promoteVerifiedAnonymousUser).not.toHaveBeenCalled();
+      expect(claimVerifiedBilling).not.toHaveBeenCalled();
+      expect(response.headers.get("location")).toBeNull();
+    }
+  });
+
   test("accepts only signed tagged purchase callbacks on the deployed host", async () => {
     const previousSecret = process.env.CMUX_APP_PRICING_RELAY_SECRET;
     process.env.CMUX_APP_PRICING_RELAY_SECRET =
@@ -543,7 +599,40 @@ describe("sign out and sign back in", () => {
     expect(signOut).toHaveBeenCalledWith({ redirectUrl: `https://cmux.test${signIn}` });
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(`https://cmux.test${signIn}`);
-    expect(response.headers.get("set-cookie")).toContain("stack-access=;");
+    const setCookie = response.headers.get("set-cookie");
+    expect(setCookie).toMatch(/(?:^|,\s*)stack-access=;[^,]*Max-Age=0/i);
+    expect(setCookie).toContain("stack-refresh-test-project=;");
+  });
+
+  test("signs out and redirects into sign-in for CLI authorization", async () => {
+    const confirmation = "/handler/cli-auth-confirm?login_code=test-login-code";
+    const signIn = `/handler/sign-in?after_auth_return_to=${encodeURIComponent(confirmation)}`;
+
+    const response = await GET(switchRequest(signIn));
+
+    expect(signOut).toHaveBeenCalledWith({ redirectUrl: `https://cmux.test${signIn}` });
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(`https://cmux.test${signIn}`);
+    expect(response.headers.get("set-cookie")).toMatch(
+      /(?:^|,\s*)stack-access=;[^,]*Max-Age=0/i,
+    );
+  });
+
+  test("rejects CLI sign-in targets that are not one exact authorization code", async () => {
+    const malformedConfirmations = [
+      "/handler/cli-auth-confirm",
+      "/handler/cli-auth-confirm?login_code=test-login-code&next=%2Fdocs",
+      "/handler/cli-auth-confirm?login_code=not.valid",
+      "https://evil.test/handler/cli-auth-confirm?login_code=test-login-code",
+    ];
+
+    for (const confirmation of malformedConfirmations) {
+      const signIn = `/handler/sign-in?after_auth_return_to=${encodeURIComponent(confirmation)}`;
+      const response = await GET(switchRequest(signIn));
+      expect(signOut).not.toHaveBeenCalled();
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe("https://cmux.test/");
+    }
   });
 
   test("rejects Cloud VM access targets that are not exactly an opaque transaction", async () => {

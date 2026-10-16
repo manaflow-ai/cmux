@@ -94,8 +94,21 @@ extension WorkspaceListView {
                                     machineSnapshots: machineSnapshots
                                 )
                             )
-                            if canCreateWorkspace {
+                        }
+                        if showsNewWorkspaceControl {
+                            // Keep creation separate from the filter group. On
+                            // narrow Cloud lists UIKit can otherwise drop the
+                            // second group child while retaining the filter.
+                            ToolbarItem(id: "workspace-list-new-workspace", placement: .topBarTrailing) {
                                 newWorkspaceButton.equatable()
+                            }
+                        }
+                        if let sidebarToggleAction {
+                            ToolbarItem(id: "workspace-list-sidebar-toggle", placement: .topBarTrailing) {
+                                WorkspaceSidebarToggleButton(
+                                    action: sidebarToggleAction,
+                                    usesSystemToolbarChrome: true
+                                )
                             }
                         }
                     }
@@ -110,7 +123,7 @@ extension WorkspaceListView {
                             actions: workspaceListFilterMenuActions
                         )
                         .equatable()
-                        if canCreateWorkspace {
+                        if showsNewWorkspaceControl {
                             newWorkspaceButton.equatable()
                         }
                     }

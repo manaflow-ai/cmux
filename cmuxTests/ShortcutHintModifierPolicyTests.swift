@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -41,6 +42,21 @@ struct ShortcutHintModifierHoldPolicyTests {
             #expect(!policy.shouldShowCommandHints(for: [.command]))
             #expect(!policy.shouldShowControlHints(for: [.control]))
         }
+    }
+
+    @Test
+    func chromeRevealShowsInstantlyAndFadesOnlyOnHide() {
+        let fade = Animation.easeOut(duration: 0.12)
+
+        #expect(ChromeRevealAnimation.animation(isVisible: true, fadeOut: fade, reduceMotion: false) == nil)
+        #expect(ChromeRevealAnimation.animation(isVisible: false, fadeOut: fade, reduceMotion: false) == fade)
+        #expect(ChromeRevealAnimation.animation(isVisible: false, fadeOut: fade, reduceMotion: true) == nil)
+    }
+
+    @Test
+    func shortcutHintsFadeInAndOutUnlessReduceMotion() {
+        #expect(ShortcutHintAnimation.animation(reduceMotion: false) == ShortcutHintAnimation.fade)
+        #expect(ShortcutHintAnimation.animation(reduceMotion: true) == nil)
     }
 
     private func withDefaultsSuite(_ body: (UserDefaults) throws -> Void) throws {

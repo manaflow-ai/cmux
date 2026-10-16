@@ -7,12 +7,17 @@
 // carries its provider and env var), so a new provider cannot be added
 // without this audit learning about it.
 
+import { VERCEL_SENSITIVE_PLACEHOLDER } from "./projects.mjs";
+
 /**
  * Provider API credential env keys. These cannot be derived from the manifest;
  * keep in sync with services/vms/drivers/*.
  */
-const PROVIDER_CREDENTIAL_KEYS = {
-  freestyle: ["FREESTYLE_API_KEY"],
+const PROVIDER_CREDENTIAL_ALTERNATIVES = {
+  // The permanent API key is the normal deployment credential. The
+  // Stack-issued token pair is also supported by freestyleClient() for
+  // short-lived or operator-managed deployments.
+  freestyle: [["FREESTYLE_API_KEY"], ["FREESTYLE_STACK_ACCESS_TOKEN", "FREESTYLE_TEAM_ID"]],
 };
 
 // Runtime kill switches are fail-open when unset, but an explicit false value
@@ -31,7 +36,7 @@ export const CODE_DEFAULT_PROVIDER = "freestyle";
 // What `vercel env pull` writes for values it cannot decrypt. The default
 // provider and its image id are configuration, not secrets; stored as
 // Sensitive they become unauditable, which defeats this check.
-const SENSITIVE_PLACEHOLDER = "[SENSITIVE]";
+export const SENSITIVE_PLACEHOLDER = VERCEL_SENSITIVE_PLACEHOLDER;
 
 /**
  * Audit one provider: its image env var must name a validated manifest entry
@@ -40,7 +45,7 @@ const SENSITIVE_PLACEHOLDER = "[SENSITIVE]";
  * @param {string} provider
  * @param {Record<string, string | undefined>} env deployed runtime env values
  * @param {{ images: Array<{ provider: string, version: string, imageId: string, envVar: string, validationStatus: string }> }} manifest
- * @returns {{ provider: string, envVar: string | null, image: string | null, imageSource?: string, problems: string[] }}
+ * @returns {{ provider: string, envVar: string | null, image: string | null, imageSource: "manifest" | null, problems: string[] }}
  */
 export function auditProviderReadiness(provider, env, manifest) {
   const problems = [];
@@ -50,7 +55,7 @@ export function auditProviderReadiness(provider, env, manifest) {
       `provider ${provider} has no entries in the image manifest; ` +
       "every imageless create will fail closed in deployed runtimes",
     );
-    return { provider, envVar: null, image: null, problems };
+    return { provider, envVar: null, image: null, imageSource: null, problems };
   }
 
   // The checked-in manifest is the only source of truth for images: deployed
@@ -84,19 +89,30 @@ export function auditProviderReadiness(provider, env, manifest) {
     );
   }
 
-  const credentialKeys = PROVIDER_CREDENTIAL_KEYS[provider];
-  if (!credentialKeys) {
+  const credentialAlternatives = PROVIDER_CREDENTIAL_ALTERNATIVES[provider];
+  if (!credentialAlternatives) {
     // Fail closed: a provider without a credential mapping would otherwise
     // pass this audit and then fail every create at runtime.
     problems.push(
       `provider ${provider} has no credential mapping in this audit; ` +
-      "add its API credential env keys to PROVIDER_CREDENTIAL_KEYS",
+      "add its API credential env keys to PROVIDER_CREDENTIAL_ALTERNATIVES",
     );
   }
-  for (const key of credentialKeys ?? []) {
-    if (!env[key]?.trim()) {
-      problems.push(`${key} is not set but provider ${provider} must be provisionable`);
-    }
+  const hasCredential = (key) => {
+    const value = env[key];
+    // Vercel CLI 50 redacts Sensitive values as an empty string. The audit
+    // layer replaces those values with this marker after checking env metadata.
+    return typeof value === "string" && value.trim() !== "";
+  };
+  const credentialReady = (credentialAlternatives ?? []).some((alternative) =>
+    alternative.every((key) => hasCredential(key)),
+  );
+  if (!credentialReady && credentialAlternatives) {
+    const forms = credentialAlternatives.map((alternative) => alternative.join(" + ")).join(" or ");
+    problems.push(
+      `${credentialAlternatives[0][0]} is not set and no complete credential form is present; ` +
+      `provider ${provider} must be provisionable (${forms})`,
+    );
   }
 
   const enabledKey = PROVIDER_ENABLED_KEYS[provider];

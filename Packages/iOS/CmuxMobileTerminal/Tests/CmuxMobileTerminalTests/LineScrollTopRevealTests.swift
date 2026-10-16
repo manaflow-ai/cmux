@@ -23,6 +23,7 @@ struct LineScrollTopRevealTests {
         let delegate = LineScrollDelegate()
         let view = GhosttySurfaceView(runtime: runtime, delegate: delegate, fontSize: 10)
         defer { view.prepareForDismantle() }
+        view.useLegacyTerminalSizing = true
         view.hostedAltScreenActive = true
         view.setHostedKeyboardState(height: 300, isVisible: true)
         #expect(view.hostedScrollTopRevealBudget == 300)
@@ -52,6 +53,7 @@ struct LineScrollTopRevealTests {
         let delegate = LineScrollDelegate()
         let view = GhosttySurfaceView(runtime: runtime, delegate: delegate, fontSize: 10)
         defer { view.prepareForDismantle() }
+        view.useLegacyTerminalSizing = true
         view.hostedAltScreenActive = true
         view.setHostedKeyboardState(height: 300, isVisible: true)
 
@@ -76,6 +78,7 @@ struct LineScrollTopRevealTests {
         let delegate = LineScrollDelegate()
         let view = GhosttySurfaceView(runtime: runtime, delegate: delegate, fontSize: 10)
         defer { view.prepareForDismantle() }
+        view.useLegacyTerminalSizing = true
         view.hostedAltScreenActive = true
         #expect(view.hostedScrollTopRevealBudget == 0)
 
@@ -94,6 +97,7 @@ struct LineScrollTopRevealTests {
         let delegate = LineScrollDelegate()
         let view = GhosttySurfaceView(runtime: runtime, delegate: delegate, fontSize: 10)
         defer { view.prepareForDismantle() }
+        view.useLegacyTerminalSizing = true
         view.hostedAltScreenActive = true
         view.setHostedKeyboardState(height: 300, isVisible: true)
 

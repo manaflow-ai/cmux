@@ -51,6 +51,22 @@ public struct CommandPaletteRenameTarget: Equatable {
         }
     }
 
+    private static let userInfoKey = "cmux.commandPaletteRenameTarget"
+
+    /// The notification payload for a `.rename` palette request.
+    public var userInfo: [AnyHashable: Any] {
+        [Self.userInfoKey: self]
+    }
+
+    /// Reads the target back out of a `.rename` request's payload. Returns nil
+    /// when the payload carries no target, so the receiver can ignore it.
+    public init?(userInfo: [AnyHashable: Any]?) {
+        guard let target = userInfo?[Self.userInfoKey] as? CommandPaletteRenameTarget else {
+            return nil
+        }
+        self = target
+    }
+
     // Strings resolve against the app bundle (`bundle: .main`) so the keys in
     // the app's Localizable.xcstrings (including Japanese) keep working from
     // package code.

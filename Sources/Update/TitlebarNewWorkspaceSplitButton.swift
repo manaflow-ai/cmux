@@ -42,11 +42,22 @@ struct TitlebarNewWorkspaceSplitButton: View {
         titlebarControlBorderOpacity(config: config, isHovering: isHovering, isPressed: false, isEnabled: true)
     }
 
+    /// Makes each segment's full frame interactive, including transparent label space.
     var body: some View {
         HStack(spacing: 0) {
             Button(action: onNewTab) {
-                CmuxSystemSymbolImage(systemName: "plus", pointSize: config.iconSize, weight: .medium)
-                    .frame(width: primaryWidth, height: config.buttonSize)
+                ZStack {
+                    Rectangle()
+                        .fill(Color.clear)
+                    CmuxSystemSymbolImage(
+                        systemName: "plus",
+                        pointSize: config.iconSize,
+                        weight: .medium,
+                        tint: foregroundColor.opacity(foregroundOpacity)
+                    )
+                }
+                .frame(width: primaryWidth, height: config.buttonSize)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .frame(width: primaryWidth, height: config.buttonSize)
@@ -54,6 +65,7 @@ struct TitlebarNewWorkspaceSplitButton: View {
             .accessibilityElement(children: .ignore)
             .accessibilityIdentifier("titlebarControl.newTab")
             .accessibilityLabel(String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"))
+            .windowHintTarget(String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"))
             .overlay {
                 TitlebarSplitButtonRightClickView { anchorView, event in
                     _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: anchorView, event: event)
@@ -80,7 +92,8 @@ struct TitlebarNewWorkspaceSplitButton: View {
                     CmuxSystemSymbolImage(
                         systemName: "chevron.down",
                         pointSize: TitlebarNewWorkspaceSplitButtonMetrics.dropdownIconSize(config: config),
-                        weight: .bold
+                        weight: .bold,
+                        tint: foregroundColor.opacity(foregroundOpacity)
                     )
                 }
                 .frame(width: dropdownWidth, height: config.buttonSize)
@@ -92,6 +105,7 @@ struct TitlebarNewWorkspaceSplitButton: View {
             .accessibilityElement(children: .ignore)
             .accessibilityIdentifier("titlebarControl.newWorkspaceMenu")
             .accessibilityLabel(String(localized: "titlebar.newWorkspace.menu.accessibilityLabel", defaultValue: "New Workspace Menu"))
+            .windowHintTarget(String(localized: "titlebar.newWorkspace.menu.accessibilityLabel", defaultValue: "New Workspace Menu"))
             .background(TitlebarControlAnchorView { menuAnchorView = $0 })
             .overlay {
                 TitlebarSplitButtonRightClickView { anchorView, event in

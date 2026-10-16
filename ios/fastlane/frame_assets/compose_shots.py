@@ -102,6 +102,12 @@ def identify(path):
 
 def header_image(tmp, title, font, pt, box_w, logo):
     cap = os.path.join(tmp, "cap.png")
+    if not title:
+        # A shot with no title anywhere (titles.json + titles.en.json) still
+        # frames; magick's caption: crashes on an empty label otherwise.
+        print(f"warning: no title for a framed shot; composing without a header")
+        subprocess.run([MAGICK, "-size", "1x1", "xc:none", cap], check=True)
+        return cap
     cmd = [MAGICK, "-background", "none", "-fill", "white", "-font", font]
     if font == SF_PRO:
         cmd += ["-weight", "800"]

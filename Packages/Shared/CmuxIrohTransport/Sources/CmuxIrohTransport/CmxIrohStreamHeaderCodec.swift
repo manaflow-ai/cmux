@@ -78,6 +78,12 @@ public struct CmxIrohStreamHeaderCodec: Sendable {
                 append(cursor, to: &payload)
             }
 
+        case let .terminalInput(resourceID):
+            laneCode = 6
+            credentialCode = 0
+            flags = 0
+            try appendLengthPrefixedString(resourceID.value, lengthByteCount: 1, to: &payload)
+
         case let .artifact(resourceID, offset):
             laneCode = 4
             credentialCode = 0
@@ -201,6 +207,15 @@ public struct CmxIrohStreamHeaderCodec: Sendable {
             }
             let resourceID = try readResourceID(payload: &payload)
             return try CmxIrohStreamHeader(lane: .simulatorStream(resourceID: resourceID))
+        case 6:
+            guard flags == 0 else {
+                throw CmxIrohStreamHeaderCodecError.invalidFlags(flags)
+            }
+            guard credentialCode == 0 else {
+                throw CmxIrohStreamHeaderCodecError.invalidCredentialKind(credentialCode)
+            }
+            let resourceID = try readResourceID(payload: &payload)
+            return try CmxIrohStreamHeader(lane: .terminalInput(resourceID: resourceID))
         default:
             throw CmxIrohStreamHeaderCodecError.unknownLane(laneCode)
         }

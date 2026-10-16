@@ -60,8 +60,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let timestamp = formatter.string(from: Date(timeIntervalSince1970: now - 120))
             let prefix = String(repeating: "x", count: scenario.prefixBytes)
             let suffix = String(repeating: "x", count: scenario.suffixBytes)
+            // Durable resume verification needs the real foreground session
+            // identity before the oversized permission-evidence padding.
+            let sessionMetadata = #"{"type":"session_meta","payload":{"id":"\#(sessionId)","source":"cli","originator":"codex-tui"}}"#
             let line = #"{"timestamp":"\#(timestamp)","type":"turn_context","payload":{"approval_policy":"\#(scenario.approvalPolicy)","sandbox_policy":{"type":"\#(scenario.sandboxMode)"}}}"#
-            try (prefix + "\n" + line + "\n" + suffix).write(
+            try (sessionMetadata + "\n" + prefix + "\n" + line + "\n" + suffix).write(
                 to: transcriptURL,
                 atomically: true,
                 encoding: .utf8
@@ -101,7 +104,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 }
             }
 
-            var environment = ProcessInfo.processInfo.environment
+            var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("CMUX_CODEX_") }
             environment["HOME"] = root.path
             environment["CMUX_SOCKET_PATH"] = socketPath
             environment["CMUX_WORKSPACE_ID"] = workspaceId
@@ -113,6 +116,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated([executable])
             environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
             environment["CMUX_CODEX_PID"] = String(scenario.currentPID)
+            // Native hooks identify the process that caused this callback,
+            // separately from the owner PID inherited by nested Codex launches.
+            environment["CMUX_CODEX_HOOK_PID"] = String(scenario.currentPID)
+            for key in ["CODEX_HOME", "ANTHROPIC_BASE_URL", "CLAUDE_CONFIG_DIR"] {
+                environment.removeValue(forKey: key)
+            }
             environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
             let result = runProcess(

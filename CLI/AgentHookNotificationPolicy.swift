@@ -121,7 +121,8 @@ enum AgentHookNotificationClassifier {
         displayName: String,
         signal: String,
         message: String,
-        isFallback: Bool
+        isFallback: Bool,
+        neutralErrorBody: String? = nil
     ) -> AgentHookNotificationSummary {
         let lower = "\(signal) \(message)".lowercased()
         if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") || lower.contains("permission_prompt") {
@@ -138,10 +139,10 @@ enum AgentHookNotificationClassifier {
         }
         if lower.contains("error") || lower.contains("failed") || lower.contains("failure") || lower.contains("exception") {
             let body = message.isEmpty
-                ? String.localizedStringWithFormat(
+                ? (neutralErrorBody ?? String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.body.reportedError", defaultValue: "%@ reported an error"),
                     displayName
-                )
+                ))
                 : message
             return AgentHookNotificationSummary(
                 subtitle: String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error"),
@@ -204,6 +205,24 @@ enum AgentHookNotificationClassifier {
             || lowercasedMessage.contains("hookexecution {")
             || lowercasedMessage.contains("event_name: user_prompt_submit")
             || lowercasedMessage.contains(#""event_name":"user_prompt_submit""#)
+    }
+
+    /// Returns true only for the provider's structured idle reminder marker.
+    /// Prose such as "waiting for input" remains a real attention request.
+    static func isStructuredIdleReminder(_ object: [String: Any]?) -> Bool {
+        guard let object else { return false }
+        let nestedObjects = [
+            object,
+            object["notification"] as? [String: Any],
+            object["data"] as? [String: Any],
+            object["extra"] as? [String: Any],
+        ].compactMap { $0 }
+        return nestedObjects.contains { candidate in
+            ["notification_type", "notificationType", "reason"].contains { key in
+                guard let value = candidate[key] as? String else { return false }
+                return value.caseInsensitiveCompare("idle_prompt") == .orderedSame
+            }
+        }
     }
 
     static func isGrokGenericTurnCompletion(_ message: String) -> Bool {
@@ -416,6 +435,30 @@ enum AgentHookNotificationPolicy {
         return patternIndex == patternScalars.count
     }
 
+    /// Redacts credentials in upstream error text before notifications or
+    /// Feed show it. Unlike commands, paths and long identifiers such as model
+    /// names stay readable because they are the useful part of the error.
+    static func redactSensitiveErrorDetail(_ value: String) -> String {
+        let boundedValue = value.utf8.count > 8_192
+            ? String(decoding: value.utf8.prefix(8_191), as: UTF8.self) + "…"
+            : value
+        let patterns: [(pattern: String, replacement: String)] = [
+            (#"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#, "<email>"),
+            (#"\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16})\b"#, "<token>"),
+            (#"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{12,}"#, "Bearer <token>"),
+            (#"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"#, "<token>"),
+            (#"(?i)\b(?:x[-_])?(?:api[-_]?key|password|secret|token|authorization|cookie)\s*[:=]\s*(?:Bearer\s+)?(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|,]+)"#, "<credential>:<token>"),
+            (#"\b(?:sk|rk|sess)-[A-Za-z0-9._:-]{8,}\b"#, "<token>"),
+        ]
+        return patterns.reduce(boundedValue) { partial, entry in
+            partial.replacingOccurrences(
+                of: entry.pattern,
+                with: entry.replacement,
+                options: [.regularExpression, .caseInsensitive]
+            )
+        }
+    }
+
     /// Redacts credentials before a command reaches durable hook state or UI.
     static func redactSensitiveCommand(_ value: String) -> String {
         let boundedValue = value.utf8.count > 8_192
@@ -425,7 +468,6 @@ enum AgentHookNotificationPolicy {
             (#"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#, "<email>"),
             (#"(?:~|/)[^\s\"']+"#, "<path>"),
             (#"\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16})\b"#, "<token>"),
-            (#"\b(?:sk|rk|sess|token|key|secret|api[_-]?key)[A-Za-z0-9._:-]{8,}\b"#, "<token>"),
             (#"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{12,}"#, "Bearer <token>"),
             (#"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"#, "<token>"),
             (#"(?i)\b(?:authorization|proxy-authorization)\s*:\s*[^\s'\";&|]+(?:\s+[^\s'\";&|]+)*"#, "<credential>:<token>"),
@@ -434,9 +476,12 @@ enum AgentHookNotificationPolicy {
             (#"(?i)--?(?:api[-_]?key|password|secret|token|authorization|cookie)(?:=|\s+)(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, "<credential>=<token>"),
             (#"(?i)(?:^|\s)(?:-u|--user)(?:=|\s+)(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, " <credential>"),
             (#"(?i)(?:^|\s)(?:--passphrase|--password|--pass|--auth|--credential)(?:=|\s+)(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, " <credential>"),
-            (#"(?i)(?:^|\s)(?:-a|-p|-pass)(?:=|\s+|(?=[^\s]))(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, " <credential>"),
+            (#"(?i)(?:^|\s)(?:-pass|-a|-p)(?:=|\s+|(?=[^\s]))(?:'[^']*'|\"[^\"]*\"|[^\s'\";&|]+)"#, " <credential>"),
             (#"(?i)\b[A-Za-z_]*(?:api[_-]?key|password|secret|token|authorization|cookie)[A-Za-z0-9_]*\s*=\s*(?:'[^']*'|\"[^\"]*\"|[^\s;&|]+)"#, "<credential>=<token>"),
             (#"(?i)\b(?:api[_-]?key|password|secret|token|authorization|cookie)\s*=\s*[^\s;&|]+"#, "<credential>=<token>"),
+            // Consume credential options and their values before generic token
+            // matching can replace a token-like option name on its own.
+            (#"\b(?:sk|rk|sess|token|key|secret|api[_-]?key)[A-Za-z0-9._:-]{8,}\b"#, "<token>"),
             (#"\b[A-Za-z0-9_-]{24,}\b"#, "<token>"),
         ]
         return patterns.reduce(boundedValue) { partial, entry in

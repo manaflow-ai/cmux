@@ -64,6 +64,7 @@ public struct CmuxAPIClient: Sendable {
                 userID: body.userId,
                 email: body.email,
                 planID: body.planId.rawValue,
+                subscriptionPlanID: body.subscriptionPlanId?.rawValue,
                 isPro: body.isPro,
                 billingManagement: body.billingManagement.rawValue
             )

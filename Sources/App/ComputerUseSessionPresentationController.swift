@@ -175,10 +175,12 @@ final class ComputerUseSessionPresentationController {
         }
     }
 
-    func reassertCallingTerminal(
+    /// Agent activity in calling-terminal mode keeps the helper cursor pinned
+    /// to its target but never focuses the terminal. Selecting the workspace or
+    /// raising cmux here would pull the user away from whatever workspace or app
+    /// they moved to; only an explicit menu choice may do that.
+    func reassertCursorBehindCallingTerminal(
         driverSessionID: String,
-        workspaceID: UUID,
-        surfaceID: UUID,
         targetWindowID: UInt32? = nil
     ) {
         guard var state = statesByDriverSessionID[driverSessionID],
@@ -189,19 +191,12 @@ final class ComputerUseSessionPresentationController {
         }
         state.targetWindowID = targetWindowID ?? state.targetWindowID
         statesByDriverSessionID[driverSessionID] = state
-        let isCurrent = focusValidity(
-            driverSessionID: driverSessionID,
-            epoch: state.focusEpoch
-        )
-        scheduleFocusEffect(
+        scheduleCursorReassertion(
             driverSessionID: driverSessionID,
             proxySessionID: state.proxySessionID,
             targetWindowID: state.targetWindowID,
-            epoch: state.focusEpoch,
-            isCurrent: isCurrent
-        ) { [focusTerminal] in
-            focusTerminal(workspaceID, surfaceID, isCurrent)
-        }
+            epoch: state.focusEpoch
+        )
     }
 
     func activateTarget(

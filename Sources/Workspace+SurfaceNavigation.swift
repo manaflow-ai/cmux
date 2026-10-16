@@ -15,22 +15,25 @@ extension Workspace {
     /// Moves keyboard focus through the rendered pane hierarchy. A selected
     /// remote-tmux window owns a nested split tree, so it gets first refusal;
     /// an edge with no inner neighbor falls through to the workspace tree.
-    func moveFocus(direction: NavigationDirection) {
+    @discardableResult
+    func moveFocus(direction: NavigationDirection) -> Bool {
         if layoutMode == .canvas {
-            moveCanvasFocus(direction: direction)
-            return
+            return moveCanvasFocus(direction: direction)
         }
         if let focusedPanelId,
            let mirror = remoteTmuxWindowMirror(forPanelId: focusedPanelId) {
             switch mirror.navigateFocus(direction: direction) {
-            case .moved, .invalid:
-                return
+            case .moved:
+                return true
+            case .invalid:
+                return false
             case .edge:
                 break
             }
         }
 
         let previousFocusedPanelId = focusedPanelId
+        let previousFocusedPaneId = bonsplitController.focusedPaneId
         if let previousFocusedPanelId, let previous = panels[previousFocusedPanelId] {
             previous.unfocus()
         }
@@ -40,6 +43,8 @@ extension Workspace {
            let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
             applyTabSelection(tabId: tabId, inPane: paneId)
         }
+        return previousFocusedPanelId != focusedPanelId ||
+            previousFocusedPaneId != bonsplitController.focusedPaneId
     }
 
     /// Moves the focused surface into another pane, optionally creating a
@@ -205,6 +210,8 @@ extension Workspace {
             return SurfaceKind.extensionBrowser.rawValue
         case .workspaceTodo:
             return SurfaceKind.todo.rawValue
+        case .coderouterGuide:
+            return SurfaceKind.coderouterGuide.rawValue
         case .notifications:
             return SurfaceKind.notifications.rawValue
         case .cloudVMLoading:
@@ -213,6 +220,8 @@ extension Workspace {
             return SurfaceKind.mobilePairing.rawValue
         case .accountSignIn:
             return SurfaceKind.accountSignIn.rawValue
+        case .cloudVPNSetup:
+            return SurfaceKind.cloudVPNSetup.rawValue
         }
     }
 
@@ -258,6 +267,27 @@ extension Workspace {
             forward: forward
         ) else { return false }
 
+        focusSplitPane(targetPaneId)
+        return true
+    }
+
+    /// Focuses split pane `number` (1…9) in the tree order `cycleFocus`
+    /// walks; 9 picks the last pane, as Cmd+9 does for workspaces.
+    @discardableResult
+    func focusPane(number: Int) -> Bool {
+        guard layoutMode != .canvas else { return false }
+        var livePanes: [UUID: PaneID] = [:]
+        for paneId in bonsplitController.allPaneIds { livePanes[paneId.id] = paneId }
+        let orderedPanes = spatiallyOrderedPaneIds.compactMap { livePanes[$0] }
+        let index = number == 9 ? orderedPanes.count - 1 : number - 1
+        guard orderedPanes.indices.contains(index) else { return false }
+        if orderedPanes[index] != bonsplitController.focusedPaneId {
+            focusSplitPane(orderedPanes[index])
+        }
+        return true
+    }
+
+    private func focusSplitPane(_ targetPaneId: PaneID) {
         if let previousPanelId = focusedPanelId,
            let previousPanel = panels[previousPanelId] {
             previousPanel.unfocus()
@@ -269,7 +299,6 @@ extension Workspace {
            let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
             applyTabSelection(tabId: tabId, inPane: paneId)
         }
-        return true
     }
 
     /// Moves the selected surface within its focused split or Canvas pane

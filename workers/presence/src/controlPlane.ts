@@ -15,6 +15,7 @@
 // fetch, sockets, clock, alarm). The thin Durable Object adapter lives in
 // controlPlaneDo.ts.
 
+import { canonicalEndpointId } from "./endpointId";
 import type {
   Binding,
   CTLACK,
@@ -36,6 +37,7 @@ import type {
   ReleaseTrack,
   Status,
 } from "./generated/controlPlane";
+import { DEFAULT_RETRY_AFTER_SECONDS } from "./retryAfterResponse";
 
 export const CONTROL_PROTOCOL_VERSION = 1;
 
@@ -107,20 +109,28 @@ export const REV_KEY = "ctl:rev";
  * Broker truth only: publish_hint announcements are never folded in, and the
  * DO-owned device overlay is joined in at directory build time, not here. */
 export const DIR_KEY = "ctl:dir";
-/** Per-endpoint relay-pass mint generation counter (`ctl:gen:<endpointId>`).
- * The broker response carries no generation; passes minted in one batch share
- * one monotonically increasing number so clients can order credential sets. */
+/** Account-wide upstream cooldowns survive DO hibernation and prevent a
+ * reconnecting fleet from replaying a Vercel 429 before its deadline. */
+export const DIRECTORY_RETRY_AT_KEY = "ctl:retry:directory";
+export const MINT_RETRY_AT_KEY = "ctl:retry:mint";
+/** Per-endpoint relay-pass mint generation counter (`ctl:gen:<endpointId>`,
+ * canonical id). The broker response carries no generation; passes minted in
+ * one batch share one monotonically increasing number so clients can order
+ * credential sets. */
 export const GEN_PREFIX = "ctl:gen:";
 /** Per-socket bearer token (`ctl:bearer:<sessionId>`), stored so upstream
  * calls survive DO hibernation. Strictly per-socket for endpoint-bound calls
  * (mint); deleted on close and on revocation. The control adapter keeps these
  * credentials for the lifetime of its authenticated socket. */
 export const BEARER_PREFIX = "ctl:bearer:";
-/** Per-device authorization overlay (`ctl:dev:<endpointId>`): the DO-owned
- * listv2 facts (status, revoked, version/track/capabilities, confirmation and
- * ack watermarks) joined onto broker bindings at every directory build. Rows
- * whose binding disappeared upstream are kept (so revocation survives a
- * binding flap) but never emitted. */
+/** Per-device authorization overlay (`ctl:dev:<endpointId>`, canonical id):
+ * the DO-owned listv2 facts (status, revoked, version/track/capabilities,
+ * confirmation and ack watermarks) joined onto broker bindings at every
+ * directory build. Rows whose binding disappeared upstream are kept (so
+ * revocation survives a binding flap) but never emitted. Rows an older
+ * deploy stored under a variant spelling are folded into the canonical row
+ * at directory build and at revocation, and consulted by the revocation
+ * check until then. */
 export const DEV_PREFIX = "ctl:dev:";
 
 /** The stored shape under DEV_PREFIX. lastAckedRev is bookkeeping only and is
@@ -138,6 +148,33 @@ export interface DeviceOverlay {
   lastAckedRev?: number;
   deviceId?: string;
   clientNamespace?: string;
+}
+
+/** Fold one legacy variant overlay row into the canonical row. Revocation is
+ * sticky across spellings (either row revoked keeps the device revoked), the
+ * row with the freshest confirmation supplies the descriptive fields, a
+ * freshly seeded row never masks what the other spelling knew, and ack
+ * bookkeeping keeps its high-water mark. */
+function mergeDeviceOverlays(
+  canonical: DeviceOverlay | undefined,
+  variant: DeviceOverlay,
+): DeviceOverlay {
+  if (canonical === undefined) return variant;
+  const canonicalAt = canonical.lastConfirmedAt === undefined
+    ? Number.NEGATIVE_INFINITY
+    : Date.parse(canonical.lastConfirmedAt);
+  const variantAt = variant.lastConfirmedAt === undefined
+    ? Number.NEGATIVE_INFINITY
+    : Date.parse(variant.lastConfirmedAt);
+  const [older, newer] = variantAt > canonicalAt ? [canonical, variant] : [variant, canonical];
+  const lastAckedRev = Math.max(canonical.lastAckedRev ?? -1, variant.lastAckedRev ?? -1);
+  return {
+    ...older,
+    ...newer,
+    status: newer.status === "seeded" ? older.status : newer.status,
+    revoked: canonical.revoked || variant.revoked,
+    ...(lastAckedRev >= 0 ? { lastAckedRev } : {}),
+  };
 }
 
 // The generated types annotate RFC3339 `format: date-time` fields as `Date`,
@@ -549,9 +586,15 @@ export function directoryPayloadFromDiscovery(
   for (const raw of value.bindings) {
     if (!isObject(raw)) continue;
     const bindingId = raw.binding_id;
-    const endpointId = raw.endpoint_id;
+    // Canonicalize at ingest (defense in depth — the broker already emits
+    // canonical hex): stored broker truth then joins the overlay by identity,
+    // not by whatever spelling arrived, and a malformed id is skipped like
+    // any other malformed binding.
+    const endpointId = typeof raw.endpoint_id === "string"
+      ? canonicalEndpointId(raw.endpoint_id)
+      : null;
     const clientNamespace = raw.client_namespace;
-    if (typeof bindingId !== "string" || typeof endpointId !== "string"
+    if (typeof bindingId !== "string" || endpointId === null
       || typeof clientNamespace !== "string") continue;
     let homeRelayUrl: string | null = null;
     if (Array.isArray(raw.path_hints)) {
@@ -746,9 +789,11 @@ export interface CtlAttachment {
    * upstream calls so discovery/mint see the same namespace the client's own
    * HTTPS calls would carry. */
   namespace?: string;
-  /** Declared by hello. Phase A trusts the declaration: facts are account-
-   * scoped, and passes minted for a declared endpointId are useless to any
-   * other key by relay design. */
+  /** Declared by hello, stored in CANONICAL form. Phase A trusts the
+   * declaration: facts are account-scoped, and passes minted for a declared
+   * endpointId are useless to any other key by relay design. Attachments
+   * serialized by older deploys may still carry a variant spelling, so every
+   * comparison canonicalizes rather than trusting this value's form. */
   endpointId?: string;
   wantPasses?: boolean;
   /** True once a hello arrived. Only helloed sockets receive broadcasts. */
@@ -768,6 +813,10 @@ export interface CtlAttachment {
 
 // ---- Device revocation (worker HTTP route -> account DO) ----
 
+// One shared canonicalization boundary (endpointId.ts) backs every trust
+// decision in this module; re-exported for the routes and tests.
+export { canonicalEndpointId } from "./endpointId";
+
 export interface RevocationRequest {
   endpointId: string;
   revoked: boolean;
@@ -775,15 +824,20 @@ export interface RevocationRequest {
 
 /** Strict body parse for POST /v1/control/devices/revoke, shared by the
  * worker route and the DO adapter. The account identity NEVER rides in this
- * body — the worker derives the DO from the verified Stack user id. */
+ * body — the worker derives the DO from the verified Stack user id. Only the
+ * accepted endpoint-id grammar passes, and the CANONICAL spelling is what
+ * travels onward, so the flag can never land beside the row it was meant
+ * for. */
 export function parseRevocationRequest(value: unknown): RevocationRequest | null {
   if (!isObject(value)) return null;
   if (!hasOnlyKeys(value, ["endpointId", "revoked"])) return null;
   if (typeof value.endpointId !== "string"
     || value.endpointId.length === 0
     || value.endpointId.length > MAX_ENDPOINT_ID_CHARS) return null;
+  const endpointId = canonicalEndpointId(value.endpointId);
+  if (endpointId === null) return null;
   if (typeof value.revoked !== "boolean") return null;
-  return { endpointId: value.endpointId, revoked: value.revoked };
+  return { endpointId, revoked: value.revoked };
 }
 
 export interface CtlSocket {
@@ -810,6 +864,9 @@ export interface CtlUpstreamInit {
 export interface CtlUpstreamResult {
   status: number;
   json: unknown;
+  /** Parsed Retry-After response header for HTTP 429, with a conservative
+   * fallback supplied by the adapter when the upstream omitted it. */
+  retryAfterSeconds?: number;
 }
 
 export interface CtlDeps {
@@ -979,16 +1036,54 @@ export class ControlPlaneCore {
     if (attachment.helloed) return;
     const payload = frame.payload;
     if (payload.endpointId.length > MAX_ENDPOINT_ID_CHARS) return;
+    // The canonical identity — not the client's spelling — is what this
+    // socket owns from here on: overlay rows, revocation sweeps, supersede
+    // matching, and mint admission all key on it. A string that is not an
+    // endpoint id at all never becomes an identity; the socket stays
+    // un-helloed so a well-formed retry can still complete.
+    const endpointId = canonicalEndpointId(payload.endpointId);
+    if (endpointId === null) {
+      this.sendFrame(socket, attachment, errorFrame(
+        "invalid_endpoint_id",
+        "endpointId is not a valid iroh endpoint id",
+        false,
+      ));
+      return;
+    }
     attachment.helloed = true;
-    attachment.endpointId = payload.endpointId;
+    attachment.endpointId = endpointId;
     attachment.wantPasses = payload.wantPasses;
     socket.setAttachment(attachment);
+
+    // One control socket owns an endpoint identity. App and notification
+    // extension lifecycles can race to reconnect with the same identity; let
+    // the new, already-authenticated hello win and close only the older
+    // handshaken socket. Without this ownership rule both sockets continue to
+    // receive directory revisions and each client can tear down the other's
+    // session while trying to recover.
+    for (const candidate of this.deps.sockets()) {
+      const candidateAttachment = candidate.getAttachment();
+      // The DO recreates wrappers after hibernation and on each enumeration.
+      // The authenticated session attachment, not wrapper identity, owns the socket.
+      if (candidateAttachment?.sessionId === attachment.sessionId) continue;
+      // Ownership is decided on the canonical identity: a reconnect that
+      // spells the same key differently still supersedes the older socket.
+      if (!candidateAttachment?.helloed
+        || candidateAttachment.endpointId === undefined
+        || canonicalEndpointId(candidateAttachment.endpointId) !== endpointId) continue;
+      try {
+        candidate.close(1000, "superseded");
+      } catch {
+        // already closed
+      }
+      await this.deps.storage.delete(BEARER_PREFIX + candidateAttachment.sessionId);
+    }
 
     // Confirm-on-hello BEFORE reading the head revision: the overlay flip
     // (seeded -> active, plus version/track/capabilities) bumps the revision
     // and broadcasts to peers, and the snapshot this client is about to
     // receive must already show its own confirmed entry.
-    await this.confirmDeviceFromHello(attachment, payload);
+    await this.confirmDeviceFromHello(attachment, payload, endpointId);
 
     const storedRev = await this.deps.storage.get<number>(REV_KEY);
     const cached = await this.deps.storage.get<BrokerDirectoryPayload>(DIR_KEY);
@@ -1030,7 +1125,15 @@ export class ControlPlaneCore {
       } else {
         attachment.snapshotPending = true;
         socket.setAttachment(attachment);
-        await this.deps.scheduleAlarmAt(this.deps.now() + SNAPSHOT_RETRY_DELAY_MS);
+        const serverFloor = await this.upstreamCooldownRemainingSeconds(
+          DIRECTORY_RETRY_AT_KEY,
+        );
+        await this.deps.scheduleAlarmAt(
+          this.deps.now() + Math.max(
+            SNAPSHOT_RETRY_DELAY_MS,
+            (serverFloor ?? 0) * 1_000,
+          ),
+        );
       }
       return;
     }
@@ -1053,6 +1156,7 @@ export class ControlPlaneCore {
   private async confirmDeviceFromHello(
     attachment: CtlAttachment,
     payload: CTLHelloPayload,
+    endpointId: string,
   ): Promise<void> {
     const hasClientInfo = payload.deviceId != null || payload.platform != null
       || payload.appVersion != null || payload.releaseTrack != null
@@ -1064,7 +1168,7 @@ export class ControlPlaneCore {
       payload.capabilities.length > MAX_CLIENT_CAPABILITIES
       || payload.capabilities.some((cap) => cap.length > MAX_CLIENT_CAPABILITY_CHARS)
     )) return;
-    const overlay = await this.ensureOverlay(payload.endpointId);
+    const overlay = await this.ensureOverlay(endpointId);
     const updated: DeviceOverlay = {
       ...overlay,
       status: "active",
@@ -1075,7 +1179,7 @@ export class ControlPlaneCore {
       ...(payload.deviceId != null ? { deviceId: payload.deviceId } : {}),
       ...(attachment.namespace !== undefined ? { clientNamespace: attachment.namespace } : {}),
     };
-    await this.deps.storage.put(DEV_PREFIX + payload.endpointId, updated);
+    await this.deps.storage.put(DEV_PREFIX + endpointId, updated);
     await this.bumpOverlayRevisionAndBroadcast(attachment.sessionId);
   }
 
@@ -1142,11 +1246,16 @@ export class ControlPlaneCore {
     }
     socket.setAttachment(attachment);
     // Mirror into the device overlay when the socket is bound to a known
-    // device (bookkeeping only: no revision bump, never emitted).
-    if (attachment.endpointId) {
-      const overlay = await this.deps.storage.get<DeviceOverlay>(DEV_PREFIX + attachment.endpointId);
+    // device (bookkeeping only: no revision bump, never emitted). The row is
+    // addressed canonically even for an attachment an older deploy serialized
+    // with a variant spelling.
+    const endpointId = attachment.endpointId === undefined
+      ? null
+      : canonicalEndpointId(attachment.endpointId);
+    if (endpointId !== null) {
+      const overlay = await this.deps.storage.get<DeviceOverlay>(DEV_PREFIX + endpointId);
       if (overlay !== undefined && (overlay.lastAckedRev ?? -1) < rev) {
-        await this.deps.storage.put(DEV_PREFIX + attachment.endpointId, {
+        await this.deps.storage.put(DEV_PREFIX + endpointId, {
           ...overlay,
           lastAckedRev: rev,
         });
@@ -1172,21 +1281,47 @@ export class ControlPlaneCore {
    * issueRelayBootstrap) using THIS socket's stored token, with one immediate
    * retry on connection-level failure. Phase A ignores any proof on the
    * message: the broker authorizes the endpoint from its registration state.
-   * The reply goes to this socket only. */
+   * The reply goes to this socket only. The mint is the last trust decision
+   * an endpoint id crosses, so this sink canonicalizes for itself instead of
+   * trusting any caller: the revocation check, the cooldown key, the
+   * generation counter, the upstream body, and the relay_passes frame all
+   * carry the canonical id, whatever the request spelled. */
   private async mintAndSend(
     socket: CtlSocket,
     attachment: CtlAttachment,
-    endpointId: string,
+    requestedEndpointId: string,
     rev: number,
   ): Promise<void> {
+    const endpointId = canonicalEndpointId(requestedEndpointId);
+    if (endpointId === null) {
+      this.sendFrame(socket, attachment, errorFrame(
+        "mint_rejected",
+        "endpointId is not a valid iroh endpoint id",
+        false,
+      ));
+      return;
+    }
     // A revoked device keeps its socket and may see the directory, but never
     // fresh relay credentials. Non-retryable: only an un-revoke (or asking for
     // a non-revoked endpoint) changes the answer. Checked for both the minted
-    // endpoint and the requesting socket's own bound endpoint.
+    // endpoint and the requesting socket's own bound endpoint; a bound
+    // identity that no longer parses (older serialized attachment) fails
+    // closed rather than minting around the check.
+    const boundEndpointId = attachment.endpointId === undefined
+      ? undefined
+      : canonicalEndpointId(attachment.endpointId);
+    if (boundEndpointId === null) {
+      this.sendFrame(socket, attachment, errorFrame(
+        "mint_rejected",
+        "connection is bound to an invalid endpoint id; reconnect",
+        false,
+      ));
+      return;
+    }
     if (await this.isEndpointRevoked(endpointId)
-      || (attachment.endpointId !== undefined
-        && attachment.endpointId !== endpointId
-        && await this.isEndpointRevoked(attachment.endpointId))) {
+      || (boundEndpointId !== undefined
+        && boundEndpointId !== endpointId
+        && await this.isEndpointRevoked(boundEndpointId))) {
       this.sendFrame(socket, attachment, errorFrame(
         "mint_revoked",
         "device revoked for this account",
@@ -1205,6 +1340,20 @@ export class ControlPlaneCore {
       ));
       return;
     }
+    // Account and deployment are isolated by the DO. Preserve the upstream
+    // namespace/endpoint boundary across reconnects and hibernation as well.
+    const mintRetryKey = `${MINT_RETRY_AT_KEY}:${JSON.stringify([
+      attachment.namespace ?? "legacy", endpointId,
+    ])}`;
+    const activeCooldown = await this.upstreamCooldownRemainingSeconds(mintRetryKey);
+    if (activeCooldown !== null) {
+      this.sendFrame(socket, attachment, errorFrame(
+        "mint_upstream_unavailable",
+        `relay token mint rate limited; retry after ${activeCooldown}s`,
+        true,
+      ));
+      return;
+    }
     const result = await this.upstreamOnceRetry(MINT_PATH, {
       method: "POST",
       headers: upstreamHeaders(credentials, attachment.namespace, true),
@@ -1219,6 +1368,7 @@ export class ControlPlaneCore {
       return;
     }
     if (result.status < 200 || result.status >= 300) {
+      await this.recordUpstreamCooldown(mintRetryKey, result);
       const retryable = result.status >= 500 || result.status === 429;
       this.sendFrame(socket, attachment, errorFrame(
         retryable ? "mint_upstream_unavailable" : "mint_rejected",
@@ -1227,6 +1377,7 @@ export class ControlPlaneCore {
       ));
       return;
     }
+    // An older in-flight success must not erase a newer request's cooldown.
     const generation = ((await this.deps.storage.get<number>(GEN_PREFIX + endpointId)) ?? 0) + 1;
     const passes = passesFromMintResponse(result.json, generation);
     if (passes === null) {
@@ -1256,8 +1407,21 @@ export class ControlPlaneCore {
     attachment: CtlAttachment,
     frame: CTLPublishHint,
   ): Promise<void> {
-    const { endpointId, homeRelayUrl } = frame.payload;
-    if (!endpointId || endpointId.length > MAX_ENDPOINT_ID_CHARS) return;
+    const { homeRelayUrl } = frame.payload;
+    if (!frame.payload.endpointId
+      || frame.payload.endpointId.length > MAX_ENDPOINT_ID_CHARS) return;
+    // Hints are dialing advice peers act on, keyed by endpoint identity:
+    // fan out the canonical id so a hint can never shadow or split the
+    // directory entry it describes.
+    const endpointId = canonicalEndpointId(frame.payload.endpointId);
+    if (endpointId === null) {
+      this.sendFrame(socket, attachment, errorFrame(
+        "invalid_endpoint_id",
+        "endpointId is not a valid iroh endpoint id",
+        false,
+      ));
+      return;
+    }
     if (!isPlausibleRelayUrl(homeRelayUrl)) {
       this.sendFrame(socket, attachment, errorFrame(
         "invalid_hint",
@@ -1291,7 +1455,9 @@ export class ControlPlaneCore {
   // ---- Device overlay (listv2): storage-driven, joined at directory build ----
 
   /** Load a device's overlay, materializing the seeded default on first
-   * sighting so admin mutations (revoke) always have a record to land on. */
+   * sighting so admin mutations (revoke) always have a record to land on.
+   * Callers pass the CANONICAL endpoint id; this row is the only one trust
+   * decisions read once legacy variants are folded in. */
   private async ensureOverlay(endpointId: string): Promise<DeviceOverlay> {
     const existing = await this.deps.storage.get<DeviceOverlay>(DEV_PREFIX + endpointId);
     if (existing !== undefined) return existing;
@@ -1300,23 +1466,75 @@ export class ControlPlaneCore {
     return seeded;
   }
 
+  /** Revoked under ANY spelling of the same key: the canonical row first,
+   * then the exact and trim+lowercase spellings older deploys stored, and —
+   * only when those probes miss — every legacy row whose key canonicalizes
+   * to the same endpoint (a different case, or the other accepted encoding).
+   * The scan keeps the decision correct for rows written before
+   * canonical keying; directory builds and revocations migrate those rows
+   * away, so the probes answer almost every call. */
   private async isEndpointRevoked(endpointId: string): Promise<boolean> {
-    const overlay = await this.deps.storage.get<DeviceOverlay>(DEV_PREFIX + endpointId);
-    return overlay?.revoked === true;
+    const canonical = canonicalEndpointId(endpointId);
+    const probes = new Set([endpointId, endpointId.trim().toLowerCase()]);
+    if (canonical !== null) probes.add(canonical);
+    for (const key of probes) {
+      const overlay = await this.deps.storage.get<DeviceOverlay>(DEV_PREFIX + key);
+      if (overlay?.revoked === true) return true;
+    }
+    if (canonical === null) return false;
+    const overlays = await this.deps.storage.list<DeviceOverlay>({ prefix: DEV_PREFIX });
+    for (const [key, overlay] of overlays) {
+      if (overlay.revoked !== true) continue;
+      if (canonicalEndpointId(key.slice(DEV_PREFIX.length)) === canonical) return true;
+    }
+    return false;
+  }
+
+  /** Fold overlay rows an older deploy stored under a variant spelling into
+   * their canonical row — persisted, so one device can never again appear
+   * under two spellings (once revoked, once not) — and return the canonical
+   * overlay map. Rows whose key is not an endpoint id at all are left in
+   * storage but never joined, emitted, or minted against. */
+  private async canonicalOverlays(): Promise<Map<string, DeviceOverlay>> {
+    const overlays = await this.deps.storage.list<DeviceOverlay>({ prefix: DEV_PREFIX });
+    const byCanonical = new Map<string, DeviceOverlay>();
+    const variants: { canonical: string; spelling: string; overlay: DeviceOverlay }[] = [];
+    for (const [key, overlay] of overlays) {
+      const spelling = key.slice(DEV_PREFIX.length);
+      const canonical = canonicalEndpointId(spelling);
+      if (canonical === null) continue;
+      if (canonical === spelling) {
+        byCanonical.set(canonical, overlay);
+      } else {
+        variants.push({ canonical, spelling, overlay });
+      }
+    }
+    for (const { canonical, spelling, overlay } of variants) {
+      const merged = mergeDeviceOverlays(byCanonical.get(canonical), overlay);
+      byCanonical.set(canonical, merged);
+      await this.deps.storage.put(DEV_PREFIX + canonical, merged);
+      await this.deps.storage.delete(DEV_PREFIX + spelling);
+    }
+    return byCanonical;
   }
 
   /** Join broker bindings with the DO-owned overlay. Bindings never seen
    * before get a seeded overlay row created; overlay rows whose binding
    * disappeared upstream are kept in storage but not emitted. lastAckedRev is
-   * bookkeeping and never emitted. */
+   * bookkeeping and never emitted. The join and the emitted ids are
+   * canonical, so peers evaluating revocation see exactly one identity per
+   * device whatever spelling reached this DO. */
   private async mergedDirectory(broker: BrokerDirectoryPayload): Promise<WireDirectoryBody> {
+    const overlays = await this.canonicalOverlays();
     const bindings: Binding[] = [];
     const emitted = new Set<string>();
     for (const binding of broker.bindings) {
-      const overlay = await this.ensureOverlay(binding.endpointId);
-      emitted.add(binding.endpointId);
+      const endpointId = canonicalEndpointId(binding.endpointId) ?? binding.endpointId;
+      const overlay = overlays.get(endpointId) ?? await this.ensureOverlay(endpointId);
+      emitted.add(endpointId);
       bindings.push({
         ...binding,
+        endpointId,
         status: overlay.status,
         revoked: overlay.revoked,
         ...(overlay.appVersion !== undefined ? { appVersion: overlay.appVersion } : {}),
@@ -1335,10 +1553,8 @@ export class ControlPlaneCore {
     // contract exists to prevent. Bounded by the directory TTL so an
     // upstream deletion cannot outlive the trust lease; revoked rides along
     // so peers still see the kill switch.
-    const overlays = await this.deps.storage.list<DeviceOverlay>({ prefix: DEV_PREFIX });
     const cutoffMs = this.deps.now() - DIRECTORY_TTL_SECONDS * 1000;
-    for (const [key, overlay] of overlays) {
-      const endpointId = key.slice(DEV_PREFIX.length);
+    for (const [endpointId, overlay] of overlays) {
       if (emitted.has(endpointId)) continue;
       if (overlay.status !== "active") continue;
       const confirmedAtMs = overlay.lastConfirmedAt === undefined
@@ -1397,24 +1613,48 @@ export class ControlPlaneCore {
    * orthogonal). Idempotent. On revoke: bump the revision, broadcast the
    * merged directory immediately (the revoked device may still see the list),
    * then close every socket bound to that endpoint with 1008 "revoked". Mints
-   * for the endpoint are refused until un-revoked. */
+   * for the endpoint are refused until un-revoked. The id is canonicalized
+   * and every legacy row spelling the same endpoint is folded into the
+   * canonical row first, so the flag lands on the ONE row every reader —
+   * directory join, mint admission, peers — consults, and no variant row
+   * survives carrying the stale value. */
   async handleRevocation(
-    request: RevocationRequest,
+    raw: RevocationRequest,
   ): Promise<{ rev: number; changed: boolean; revoked: boolean }> {
-    const overlay = await this.ensureOverlay(request.endpointId);
-    if (overlay.revoked === request.revoked) {
+    const endpointId = canonicalEndpointId(raw.endpointId);
+    if (endpointId === null) {
+      // The routes reject malformed ids before they get here; a direct call
+      // fails closed rather than keying storage off an unparseable string.
+      const rev = (await this.deps.storage.get<number>(REV_KEY)) ?? 0;
+      return { rev, changed: false, revoked: false };
+    }
+    let overlay = await this.ensureOverlay(endpointId);
+    const overlays = await this.deps.storage.list<DeviceOverlay>({ prefix: DEV_PREFIX });
+    let migrated = false;
+    for (const [key, row] of overlays) {
+      const spelling = key.slice(DEV_PREFIX.length);
+      if (spelling === endpointId) continue;
+      if (canonicalEndpointId(spelling) !== endpointId) continue;
+      overlay = mergeDeviceOverlays(overlay, row);
+      await this.deps.storage.delete(DEV_PREFIX + spelling);
+      migrated = true;
+    }
+    // A migration is itself a list change (the variant row stops being
+    // emitted), so it bumps and broadcasts even when the flag already held.
+    if (!migrated && overlay.revoked === raw.revoked) {
       const rev = (await this.deps.storage.get<number>(REV_KEY)) ?? 0;
       return { rev, changed: false, revoked: overlay.revoked };
     }
-    await this.deps.storage.put(DEV_PREFIX + request.endpointId, {
+    await this.deps.storage.put(DEV_PREFIX + endpointId, {
       ...overlay,
-      revoked: request.revoked,
+      revoked: raw.revoked,
     });
     const rev = await this.bumpOverlayRevisionAndBroadcast(null);
-    if (request.revoked) {
+    if (raw.revoked) {
       for (const socket of this.deps.sockets()) {
         const attachment = socket.getAttachment();
-        if (!attachment || attachment.endpointId !== request.endpointId) continue;
+        if (!attachment || attachment.endpointId === undefined
+          || canonicalEndpointId(attachment.endpointId) !== endpointId) continue;
         await this.deps.storage.delete(BEARER_PREFIX + attachment.sessionId);
         try {
           socket.close(1008, "revoked");
@@ -1423,7 +1663,7 @@ export class ControlPlaneCore {
         }
       }
     }
-    return { rev, changed: true, revoked: request.revoked };
+    return { rev, changed: true, revoked: raw.revoked };
   }
 
   // ---- Alarm: periodic refresh + pending-snapshot recovery ----
@@ -1570,6 +1810,9 @@ export class ControlPlaneCore {
   private async fetchDirectory(
     attachment: CtlAttachment,
   ): Promise<{ revision: number | null; payload: BrokerDirectoryPayload } | null> {
+    if (await this.upstreamCooldownRemainingSeconds(DIRECTORY_RETRY_AT_KEY) !== null) {
+      return null;
+    }
     const credentials = decodeStoredCredentials(
       await this.deps.storage.get<string>(BEARER_PREFIX + attachment.sessionId),
     );
@@ -1585,8 +1828,38 @@ export class ControlPlaneCore {
       // mutation/relay requests.
       headers: upstreamHeaders(credentials, "legacy", false),
     });
-    if (result === null || result.status < 200 || result.status >= 300) return null;
+    if (result === null) return null;
+    if (result.status < 200 || result.status >= 300) {
+      await this.recordUpstreamCooldown(DIRECTORY_RETRY_AT_KEY, result);
+      return null;
+    }
+    await this.deps.storage.delete(DIRECTORY_RETRY_AT_KEY);
     return directoryPayloadFromDiscovery(result.json);
+  }
+
+  private async recordUpstreamCooldown(
+    key: string,
+    result: CtlUpstreamResult,
+  ): Promise<void> {
+    if (result.status !== 429) return;
+    const seconds = Math.max(
+      1,
+      result.retryAfterSeconds ?? DEFAULT_RETRY_AFTER_SECONDS,
+    );
+    const retryAt = this.deps.now() + seconds * 1_000;
+    const current = await this.deps.storage.get<number>(key);
+    if (current === undefined || retryAt > current) {
+      await this.deps.storage.put(key, retryAt);
+    }
+  }
+
+  private async upstreamCooldownRemainingSeconds(key: string): Promise<number | null> {
+    const retryAt = await this.deps.storage.get<number>(key);
+    if (retryAt === undefined) return null;
+    const remaining = Math.ceil((retryAt - this.deps.now()) / 1_000);
+    if (remaining > 0) return remaining;
+    await this.deps.storage.delete(key);
+    return null;
   }
 
   private async storeDirectory(

@@ -180,11 +180,7 @@ final class TitlebarControlsLayoutModel {
         )
 
         observers.append(
-            notificationCenter.addObserver(
-                forName: UserDefaults.didChangeNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
+            notificationCenter.addUserDefaultsObserver(object: nil) { [weak self] in
                 MainActor.assumeIsolated {
                     self?.refreshStyleIfNeeded()
                 }
@@ -836,6 +832,7 @@ struct TitlebarControlButton<Content: View>: View {
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier(accessibilityIdentifier)
         .accessibilityLabel(accessibilityLabel)
+        .windowHintTarget(accessibilityLabel, isEnabled: isEnabled)
         .overlay {
             if let rightClickAction {
                 TitlebarControlRightClickView(onRightMouseDown: rightClickAction)
@@ -890,6 +887,11 @@ private struct TitlebarControlButtonStyleBody: View {
         configuration.label
             .frame(width: config.buttonSize, height: config.buttonSize)
             .foregroundStyle(foregroundColor.opacity(foregroundOpacity))
+            // Hosted symbols bake their tint into the bitmap, so they read the
+            // same dimming from the environment (`TitlebarControlSymbol`)
+            // while other label content (the notification badge) keeps its
+            // own colors.
+            .environment(\.titlebarControlForegroundOpacity, foregroundOpacity)
             .background {
                 if backgroundOpacity > 0 {
                     RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
@@ -985,6 +987,7 @@ private struct TitlebarNotificationBadge: View {
     let unreadModel: SidebarUnreadModel
     let config: TitlebarControlsStyleConfig
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
 
     var body: some View {
         let unreadCount = unreadModel.totalUnreadCount
@@ -997,7 +1000,7 @@ private struct TitlebarNotificationBadge: View {
                 )
                 .foregroundColor(.white)
                 .frame(width: config.badgeSize, height: config.badgeSize)
-                .background(Circle().fill(cmuxAccentColor()))
+                .background(Circle().fill(cmuxAccent.color))
                 .offset(x: config.badgeOffset.width, y: config.badgeOffset.height)
         }
     }
@@ -1098,10 +1101,10 @@ struct TitlebarControlsView: View {
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
                 focusHistoryAvailabilityRevision &+= 1
             }
-            .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
                 appearanceRefreshTick &+= 1
             }
-            .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .ghosttyChromeConfigurationDidChange)) { _ in
                 appearanceRefreshTick &+= 1
             }
             .onAppear {
@@ -1164,6 +1167,7 @@ struct TitlebarControlsView: View {
                     iconLabel(
                         systemName: "bell",
                         config: config,
+                        foregroundColor: foregroundColor,
                         iconGeometryKeyPrefix: "titlebarControl_showNotificationsIcon"
                     )
 
@@ -1196,7 +1200,7 @@ struct TitlebarControlsView: View {
                     _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: anchorView, event: event, direction: .back)
                 }
             ) {
-                iconLabel(systemName: "arrow.left", config: config, iconGeometryKeyPrefix: "titlebarControl_focusHistoryBackIcon")
+                iconLabel(systemName: "arrow.left", config: config, foregroundColor: foregroundColor, iconGeometryKeyPrefix: "titlebarControl_focusHistoryBackIcon")
             }
             .safeHelp(KeyboardShortcutSettings.Action.focusHistoryBack.tooltip(String(localized: "menu.history.focusBack", defaultValue: "Focus Back")))
 
@@ -1211,7 +1215,7 @@ struct TitlebarControlsView: View {
                     _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: anchorView, event: event, direction: .forward)
                 }
             ) {
-                iconLabel(systemName: "arrow.right", config: config, iconGeometryKeyPrefix: "titlebarControl_focusHistoryForwardIcon")
+                iconLabel(systemName: "arrow.right", config: config, foregroundColor: foregroundColor, iconGeometryKeyPrefix: "titlebarControl_focusHistoryForwardIcon")
             }
             .safeHelp(KeyboardShortcutSettings.Action.focusHistoryForward.tooltip(String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")))
 
@@ -1345,10 +1349,15 @@ struct TitlebarControlsView: View {
     private func iconLabel(
         systemName: String,
         config: TitlebarControlsStyleConfig,
+        foregroundColor: Color,
         iconGeometryKeyPrefix: String? = nil
     ) -> some View {
         titlebarIconChrome(config: config, iconGeometryKeyPrefix: iconGeometryKeyPrefix) {
-            CmuxSystemSymbolImage(systemName: systemName, pointSize: config.iconSize, weight: TitlebarControlIconStyle.weight)
+            TitlebarControlSymbol(
+                systemName: systemName,
+                config: config,
+                foregroundColor: foregroundColor
+            )
         }
     }
 
@@ -1374,6 +1383,39 @@ struct TitlebarControlsView: View {
                 height: TitlebarControlIconStyle.iconFrameSize(for: config)
             )
             .background(TitlebarChromeGeometryReporter(keyPrefix: iconGeometryKeyPrefix ?? ""))
+    }
+}
+
+/// Hover/pressed dimming for hosted symbols inside `TitlebarControlButtonStyle`.
+///
+/// The style fades its label with `.foregroundStyle(color.opacity(...))`,
+/// which SwiftUI text and shapes pick up but a hosted AppKit bitmap cannot.
+/// The style publishes the same opacity here so the symbol bakes it into its
+/// tint, and non-symbol label content (the notification badge) is untouched.
+private struct TitlebarControlForegroundOpacityKey: EnvironmentKey {
+    static let defaultValue: Double = 1
+}
+
+extension EnvironmentValues {
+    fileprivate var titlebarControlForegroundOpacity: Double {
+        get { self[TitlebarControlForegroundOpacityKey.self] }
+        set { self[TitlebarControlForegroundOpacityKey.self] = newValue }
+    }
+}
+
+private struct TitlebarControlSymbol: View {
+    let systemName: String
+    let config: TitlebarControlsStyleConfig
+    let foregroundColor: Color
+    @Environment(\.titlebarControlForegroundOpacity) private var foregroundOpacity
+
+    var body: some View {
+        CmuxSystemSymbolImage(
+            systemName: systemName,
+            pointSize: config.iconSize,
+            weight: TitlebarControlIconStyle.weight,
+            tint: foregroundColor.opacity(foregroundOpacity)
+        )
     }
 }
 
@@ -1912,7 +1954,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var cachedContentSize: NSSize?
     private var lastObservedViewSize: NSSize = .zero
     private var lastAppliedLayoutSnapshot: TitlebarControlsLayoutSnapshot?
-    private weak var observedWindow: NSWindow?
+    // An identity, not a weak reference: `view.window` can still return a
+    // window that is deallocating, and a weak store to it aborts the process.
+    private var observedWindowIdentifier: ObjectIdentifier?
     private var windowGeometryObservers: [NSObjectProtocol] = []
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
@@ -1949,7 +1993,8 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                   let context = prepareOriginatingAction() else { return }
             _ = appDelegate.performNewWorkspaceAction(
                 tabManager: context.tabManager,
-                debugSource: "titlebar.accessoryNewWorkspace"
+                debugSource: "titlebar.accessoryNewWorkspace",
+                localOnly: true
             )
         }
         let focusHistoryBack = {
@@ -1971,13 +2016,18 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         )
         hostingView = NonDraggableHostingView(
             rootView: AnyView(
-                rootView.environment(\.settingsRuntime, settingsRuntime)
+                rootView
+                    .environment(\.settingsRuntime, settingsRuntime)
+                    .cmuxAccentColorEnvironment()
             )
         )
 
         super.init(nibName: nil, bundle: nil)
 
         view = containerView
+        containerView.onWindowChange = { [weak self] window in
+            self?.setObservedWindow(window)
+        }
         containerView.translatesAutoresizingMaskIntoConstraints = true
         // The shortcut-hint pills (and button backgrounds) sit below the button
         // row and overflow the accessory's titlebar-height content frame on
@@ -1996,11 +2046,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         hostingView.layer?.masksToBounds = false
         containerView.addSubview(hostingView)
 
-        userDefaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        userDefaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             guard let self else { return }
             let shouldShow = self.showsWorkspaceTitlebar
             let debugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
@@ -2072,10 +2118,15 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
     @discardableResult
     private func updateObservedWindowIfNeeded() -> Bool {
-        let currentWindow = view.window
-        guard currentWindow !== observedWindow else { return false }
+        setObservedWindow(view.window)
+    }
+
+    @discardableResult
+    private func setObservedWindow(_ currentWindow: NSWindow?) -> Bool {
+        let currentWindowIdentifier = currentWindow.map(ObjectIdentifier.init)
+        guard currentWindowIdentifier != observedWindowIdentifier else { return false }
         removeWindowGeometryObservers()
-        observedWindow = currentWindow
+        observedWindowIdentifier = currentWindowIdentifier
         guard let currentWindow else { return true }
         let center = NotificationCenter.default
         windowGeometryObservers = TitlebarWindowGeometryNotifications.names.map { name in
@@ -2206,6 +2257,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
               let contentView = window.contentView else {
             return
         }
+        let windowIdentifier = ObjectIdentifier(window)
         // Recreate content view each time to avoid stale observers when popover is hidden
         let hostingController = NSHostingController(
             rootView: NotificationsPopoverView(
@@ -2213,11 +2265,12 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                 onDismiss: { [weak notificationsPopover] in
                     notificationsPopover?.performClose(nil)
                 },
-                onOpenPhoneForwarding: { [weak notificationsPopover, weak window] in
+                onOpenPhoneForwarding: { [weak notificationsPopover] in
                     notificationsPopover?.performClose(nil)
-                    openPhoneForwardingSettings(in: window)
+                    openPhoneForwardingSettings(in: NSApp.windows.first { ObjectIdentifier($0) == windowIdentifier })
                 }
             )
+            .cmuxAccentColorEnvironment()
         )
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = .clear
@@ -2317,6 +2370,7 @@ private func openPhoneForwardingSettings(in window: NSWindow?) {
 private struct NotificationsPopoverView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let onDismiss: () -> Void
     let onOpenPhoneForwarding: () -> Void
 
@@ -2442,12 +2496,17 @@ private struct NotificationsPopoverView: View {
                     .foregroundColor(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
-                    .background(Capsule().fill(cmuxAccentColor()))
+                    .background(Capsule().fill(cmuxAccent.color))
             }
             Spacer()
             Button(action: jumpToLatestUnread) {
                 HStack(spacing: 5) {
-                    CmuxSystemSymbolImage(systemName: "arrow.down.to.line", pointSize: 10, weight: .semibold)
+                    CmuxSystemSymbolImage(
+                        systemName: "arrow.down.to.line",
+                        pointSize: 10,
+                        weight: .semibold,
+                        tint: hasUnreadNotifications ? .primary : .secondary
+                    )
                     Text(String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest"))
                         .cmuxFont(size: 11)
                     if !jumpToUnreadShortcut.displayString.isEmpty {
@@ -2505,8 +2564,7 @@ private struct NotificationsPopoverView: View {
     private var phoneForwardingEntry: some View {
         Button(action: onOpenPhoneForwarding) {
             HStack(spacing: 8) {
-                CmuxSystemSymbolImage(systemName: "iphone", pointSize: 12, weight: .medium)
-                    .foregroundColor(.secondary)
+                CmuxSystemSymbolImage(systemName: "iphone", pointSize: 12, weight: .medium, tint: .secondary)
                 Text(
                     String(
                         localized: "notifications.forwardToPhone.title",
@@ -2515,8 +2573,7 @@ private struct NotificationsPopoverView: View {
                 )
                 .cmuxFont(size: 12, weight: .medium)
                 Spacer()
-                CmuxSystemSymbolImage(systemName: "chevron.right", pointSize: 9, weight: .semibold)
-                    .foregroundColor(.secondary)
+                CmuxSystemSymbolImage(systemName: "chevron.right", pointSize: 9, weight: .semibold, tint: .secondary)
             }
             .contentShape(Rectangle())
             .padding(.horizontal, 14)
@@ -2652,8 +2709,7 @@ private struct NotificationsPopoverView: View {
 
     private func emptyState(systemImage: String, title: String, subtitle: String?) -> some View {
         VStack(spacing: 10) {
-            CmuxSystemSymbolImage(systemName: systemImage, pointSize: 30, weight: .light)
-                .foregroundColor(.secondary.opacity(0.7))
+            CmuxSystemSymbolImage(systemName: systemImage, pointSize: 30, weight: .light, tint: .secondary.opacity(0.7))
             Text(title)
                 .cmuxFont(size: 14, weight: .medium)
                 .foregroundColor(.primary)
@@ -2799,9 +2855,10 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            Task { @MainActor [weak self, weak window] in
-                guard let window else { return }
-                self?.attachIfNeeded(to: window)
+            let windowIdentifier = ObjectIdentifier(window)
+            Task { @MainActor [weak self] in
+                guard let self, let window = self.liveWindow(withIdentifier: windowIdentifier) else { return }
+                self.attachIfNeeded(to: window)
             }
         })
 
@@ -2811,19 +2868,16 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            Task { @MainActor [weak self, weak window] in
-                guard let window else { return }
-                self?.attachIfNeeded(to: window)
+            let windowIdentifier = ObjectIdentifier(window)
+            Task { @MainActor [weak self] in
+                guard let self, let window = self.liveWindow(withIdentifier: windowIdentifier) else { return }
+                self.attachIfNeeded(to: window)
             }
         })
 
         // Re-evaluate all windows when the presentation mode changes so that
         // accessories are removed in minimal mode and re-attached in standard mode.
-        observers.append(center.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        observers.append(center.addUserDefaultsObserver(object: nil) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.reattachIfPresentationModeChanged()
             }
@@ -2851,6 +2905,10 @@ final class UpdateTitlebarAccessoryController {
         for window in NSApp.windows {
             attachIfNeeded(to: window)
         }
+    }
+
+    private func liveWindow(withIdentifier identifier: ObjectIdentifier) -> NSWindow? {
+        NSApp.windows.first { ObjectIdentifier($0) == identifier }
     }
 
     private func scheduleStartupWindowScans() {
@@ -2892,9 +2950,9 @@ final class UpdateTitlebarAccessoryController {
             let attempts = pendingAttachRetries[key, default: 0]
             if attempts < 40 {
                 pendingAttachRetries[key] = attempts + 1
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak window] in
-                    Task { @MainActor [weak self, weak window] in
-                        guard let self, let window else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                    Task { @MainActor [weak self] in
+                        guard let self, let window = self.liveWindow(withIdentifier: key) else { return }
                         self.attachIfNeeded(to: window)
                     }
                 }
@@ -2975,8 +3033,10 @@ final class UpdateTitlebarAccessoryController {
 
         attachedWindows.remove(window)
         pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
-        DispatchQueue.main.async { [weak window] in
-            guard let window else { return }
+        let windowIdentifier = ObjectIdentifier(window)
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  let window = self.liveWindow(withIdentifier: windowIdentifier) else { return }
             window.contentView?.needsLayout = true
             window.contentView?.superview?.needsLayout = true
             window.contentView?.layoutSubtreeIfNeeded()
@@ -3067,6 +3127,7 @@ final class UpdateTitlebarAccessoryController {
               let contentView = window.contentView else {
             return
         }
+        let windowIdentifier = ObjectIdentifier(window)
 
         let popover = NSPopover()
         let delegate = DetachedNotificationsPopoverDelegate { [weak self, weak popover] in
@@ -3089,11 +3150,12 @@ final class UpdateTitlebarAccessoryController {
                 onDismiss: { [weak popover] in
                     popover?.performClose(nil)
                 },
-                onOpenPhoneForwarding: { [weak popover, weak window] in
+                onOpenPhoneForwarding: { [weak popover] in
                     popover?.performClose(nil)
-                    openPhoneForwardingSettings(in: window)
+                    openPhoneForwardingSettings(in: NSApp.windows.first { ObjectIdentifier($0) == windowIdentifier })
                 }
             )
+            .cmuxAccentColorEnvironment()
         )
 
         contentView.layoutSubtreeIfNeeded()

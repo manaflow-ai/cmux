@@ -29,8 +29,23 @@ if [ ! -x "$LINT" ]; then
   exit 1
 fi
 
-# (a) Real repo must lint clean.
+# (a) Real repo must lint clean and the stronger authoring sync check must agree.
 "$LINT" --repo-root "$ROOT_DIR"
+"$ROOT_DIR/scripts/sync-test-wiring" --repo-root "$ROOT_DIR" --check
+
+# cmuxCLITests is a second test target, so sync-test-wiring (cmuxTests-only)
+# cannot see it. Without these the host-free bundle sits outside the repo's
+# silent-skip rule: an unwired file there compiles nothing and CI stays green.
+# cmuxCLITestSupport/ is compiled into both bundles, so it is checked twice.
+# A checkout whose project has no cmuxCLITests target (verify-local's fixture
+# repository) has nothing to check; one whose project names the target checks
+# it even if a directory is missing, so a deleted directory still fails.
+if [ -d "$ROOT_DIR/cmuxCLITests" ] \
+  || grep -q 'cmuxCLITests' "$ROOT_DIR/cmux.xcodeproj/project.pbxproj"; then
+  "$LINT" --repo-root "$ROOT_DIR" --target cmuxCLITests --tests-dir cmuxCLITests
+  "$LINT" --repo-root "$ROOT_DIR" --target cmuxCLITests --tests-dir cmuxCLITestSupport
+  "$LINT" --repo-root "$ROOT_DIR" --target cmuxTests --tests-dir cmuxCLITestSupport
+fi
 
 # Shared sandbox cleanup.
 SANDBOX_PARENT="$(mktemp -d)"
@@ -268,5 +283,9 @@ if grep -q "  - PrefixFooTests.swift" "$SANDBOX_E/out"; then
   cat "$SANDBOX_E/out" >&2
   exit 1
 fi
+
+# Fixture coverage for deterministic authoring, repair, deletion, target safety,
+# normalization, idempotence, and agreement with the existing lint.
+python3 "$ROOT_DIR/tests/test_sync_test_wiring.py"
 
 echo "test_ci_pbxproj_test_wiring: ok"

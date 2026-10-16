@@ -70,4 +70,14 @@ struct SocketPasswordAuthorizationTests {
         ))
         #expect(!authorization.isAuthenticated)
     }
+
+    @Test func sameLengthWrongPasswordIsRejected() {
+        var authorization = SocketPasswordAuthorization()
+        authorization.authenticate(password: "configured-secret")
+
+        #expect(!authorization.permitsConnectionContinuation(
+            accessMode: .password,
+            currentPassword: "configured-secret-typo"
+        ))
+    }
 }

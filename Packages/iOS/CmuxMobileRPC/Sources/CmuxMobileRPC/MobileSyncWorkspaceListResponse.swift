@@ -321,12 +321,17 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
     public let createdWorkspaceID: String?
     /// Identifier of a terminal created by the request, if any.
     public let createdTerminalID: String?
+    /// Authenticated host metadata returned by the v2 mobile workspace-list
+    /// method. Older Macs omit this field and the caller falls back to the
+    /// separate host-status request.
+    public let hostStatus: MobileHostStatusResponse?
 
     private enum CodingKeys: String, CodingKey {
         case workspaces
         case groups
         case createdWorkspaceID = "created_workspace_id"
         case createdTerminalID = "created_terminal_id"
+        case hostStatus = "host_status"
     }
 
     /// Decodes a workspace-list response, defaulting `groups` to empty so a Mac
@@ -341,6 +346,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         groups = try container.decodeIfPresent([Group].self, forKey: .groups) ?? []
         createdWorkspaceID = try container.decodeIfPresent(String.self, forKey: .createdWorkspaceID)
         createdTerminalID = try container.decodeIfPresent(String.self, forKey: .createdTerminalID)
+        hostStatus = try container.decodeIfPresent(MobileHostStatusResponse.self, forKey: .hostStatus)
     }
 
     /// Decode a workspace-list response from raw JSON data.
@@ -363,12 +369,14 @@ extension MobileSyncWorkspaceListResponse {
         groups: [Group],
         groupsFieldWasPresent: Bool = true,
         createdWorkspaceID: String?,
-        createdTerminalID: String?
+        createdTerminalID: String?,
+        hostStatus: MobileHostStatusResponse? = nil
     ) {
         self.workspaces = workspaces
         self.groups = groups
         self.groupsFieldWasPresent = groupsFieldWasPresent
         self.createdWorkspaceID = createdWorkspaceID
         self.createdTerminalID = createdTerminalID
+        self.hostStatus = hostStatus
     }
 }

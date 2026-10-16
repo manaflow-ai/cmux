@@ -78,8 +78,10 @@ struct CanvasActionExecutor {
 
     /// Runs the action. Returns `false` when the action does not apply
     /// (for example a canvas-only action while the workspace is in splits).
+    /// Keyboard, palette and menu callers animate; socket verbs pass
+    /// `animated: false` so an agent's change lands in place.
     @discardableResult
-    func perform(_ action: CanvasAction) -> Bool {
+    func perform(_ action: CanvasAction, animated: Bool = true) -> Bool {
         switch action {
         case .toggleLayout:
             workspace.toggleCanvasLayout()
@@ -87,23 +89,23 @@ struct CanvasActionExecutor {
         case .revealFocusedPane:
             guard workspace.layoutMode == .canvas,
                   let panelId = workspace.focusedPanelId else { return false }
-            workspace.canvasModel.viewport?.revealPane(panelId, animated: true)
+            workspace.canvasModel.viewport?.revealPane(panelId, animated: animated)
             return true
         case .toggleOverview:
             guard workspace.layoutMode == .canvas else { return false }
-            workspace.canvasModel.viewport?.toggleOverview()
+            workspace.canvasModel.viewport?.toggleOverview(animated: animated)
             return true
         case .zoomIn:
             guard workspace.layoutMode == .canvas else { return false }
-            workspace.canvasModel.viewport?.zoom(by: Self.zoomStepFactor)
+            workspace.canvasModel.viewport?.zoom(by: Self.zoomStepFactor, animated: animated)
             return true
         case .zoomOut:
             guard workspace.layoutMode == .canvas else { return false }
-            workspace.canvasModel.viewport?.zoom(by: 1 / Self.zoomStepFactor)
+            workspace.canvasModel.viewport?.zoom(by: 1 / Self.zoomStepFactor, animated: animated)
             return true
         case .zoomReset:
             guard workspace.layoutMode == .canvas else { return false }
-            workspace.canvasModel.viewport?.resetZoom()
+            workspace.canvasModel.viewport?.resetZoom(animated: animated)
             return true
         case .alignment(let command):
             guard workspace.layoutMode == .canvas else { return false }
@@ -113,7 +115,7 @@ struct CanvasActionExecutor {
                 reference: workspace.focusedPanelId
             )
             if changed {
-                workspace.canvasModel.viewport?.modelDidChangeExternally(animated: true)
+                workspace.canvasModel.viewport?.modelDidChangeExternally(animated: animated)
             }
             return changed
         }

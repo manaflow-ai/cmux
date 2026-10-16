@@ -2,7 +2,7 @@ import AppKit
 import CmuxTerminalCore
 import Foundation
 import GhosttyKit
-import GhosttyRuntimeTestStubs
+import CmuxTerminalGhosttyRuntimeTestStubs
 import Testing
 @testable import CmuxTerminal
 
@@ -160,6 +160,148 @@ import Testing
         let completed = await recorder.waitForEventCount(2)
         #expect(completed, "timed out waiting for native free and tee-lease release")
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
+    }
+
+    @Test func agentHibernationResetWaitsForAgentExitAndRunsBeforeNativeFree() async throws {
+        let registry = TerminalSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        defer { runtimeSurface.deallocate() }
+
+        let modes = [1000, 1002, 1003, 1004, 1005, 1006, 1015, 1016]
+        let enabled = Data(modes.flatMap { Array("\u{1b}[?\($0)h".utf8) })
+        cmux_test_ghostty_surface_terminal_modes_reset(runtimeSurface)
+        surface.writeProcessOutputData(enabled, to: runtimeSurface)
+        #expect(modes.allSatisfy {
+            cmux_test_ghostty_surface_terminal_mode_enabled(runtimeSurface, Int32($0))
+        })
+
+        let fenceEntered = AsyncStream<Void>.makeStream()
+        let releaseFence = AsyncStream<Void>.makeStream()
+        let freeObserved = AsyncStream<Bool>.makeStream()
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
+            freeObserved.continuation.yield(
+                modes.allSatisfy {
+                    !cmux_test_ghostty_surface_terminal_mode_enabled(surface, Int32($0))
+                }
+            )
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+
+        let processExitFence: @Sendable () async -> Bool = {
+            fenceEntered.continuation.yield()
+            var iterator = releaseFence.stream.makeAsyncIterator()
+            _ = await iterator.next()
+            return true
+        }
+        #expect(surface.suspendRuntimeSurfaceForAgentHibernation(
+            reason: "test.hibernate",
+            processExitFence: processExitFence
+        ))
+
+        var enteredIterator = fenceEntered.stream.makeAsyncIterator()
+        #expect(await enteredIterator.next() != nil)
+        #expect(modes.allSatisfy {
+            cmux_test_ghostty_surface_terminal_mode_enabled(runtimeSurface, Int32($0))
+        })
+
+        releaseFence.continuation.yield()
+        var freeIterator = freeObserved.stream.makeAsyncIterator()
+        #expect(await freeIterator.next() == true)
+        #expect(await surface.waitForAgentHibernationRuntimeTeardown(timeout: .seconds(1)))
+    }
+
+    /// A released runtime never reports echo back on, so the pane host must
+    /// hear about the release to clear runtime-driven chrome such as the
+    /// password input badge.
+    @Test func teardownSurfaceNotifiesPaneHostOfRuntimeRelease() async throws {
+        let recorder = TeardownOrderRecorder()
+        let surface = makeSurface()
+        let paneHost = try #require(surface.paneHost as? FakeTerminalSurfacePaneHost)
+        surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            recorder.record(.nativeFree)
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+        #expect(paneHost.runtimeReleaseCount == 0)
+
+        surface.teardownSurface()
+
+        #expect(paneHost.runtimeReleaseCount == 1)
+        #expect(await recorder.waitForEventCount(1), "timed out waiting for native free")
+    }
+
+    @Test func teardownWithoutRuntimeDoesNotNotifyPaneHost() throws {
+        let surface = makeSurface()
+        let paneHost = try #require(surface.paneHost as? FakeTerminalSurfacePaneHost)
+
+        surface.teardownSurface()
+
+        #expect(paneHost.runtimeReleaseCount == 0)
+    }
+
+    @Test func agentHibernationNotifiesPaneHostOfRuntimeRelease() async throws {
+        let recorder = TeardownOrderRecorder()
+        let registry = TerminalSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let paneHost = try #require(surface.paneHost as? FakeTerminalSurfacePaneHost)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        defer { runtimeSurface.deallocate() }
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            recorder.record(.nativeFree)
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+
+        #expect(surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test.hibernate"))
+
+        #expect(paneHost.runtimeReleaseCount == 1)
+        #expect(await recorder.waitForEventCount(1), "timed out waiting for native free")
+    }
+
+    @Test func explicitTeardownReleasesUnusedAgentHibernationReservation() {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let slotCount = TerminalSurfaceRuntimeTeardownCoordinator
+            .maximumIsolatedHibernationTeardownCount
+        var closedSurfaces: [TerminalSurface] = []
+        for _ in 0..<slotCount {
+            let surface = makeSurface(runtimeTeardown: coordinator)
+            #expect(surface.reserveAgentHibernationRuntimeTeardown())
+            // The terminal is closed while hibernation is still waiting for
+            // the agent to exit, so the reservation is never consumed.
+            surface.teardownSurface()
+            closedSurfaces.append(surface)
+        }
+
+        let nextSurface = makeSurface(runtimeTeardown: coordinator)
+        #expect(nextSurface.reserveAgentHibernationRuntimeTeardown())
+        nextSurface.cancelAgentHibernationRuntimeTeardownReservation()
+        withExtendedLifetime(closedSurfaces) {}
+    }
+
+    @Test func deinitReleasesUnusedAgentHibernationReservation() async {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let slotCount = TerminalSurfaceRuntimeTeardownCoordinator
+            .maximumIsolatedHibernationTeardownCount
+        for _ in 0..<slotCount {
+            var surface: TerminalSurface? = makeSurface(runtimeTeardown: coordinator)
+            #expect(surface?.reserveAgentHibernationRuntimeTeardown() == true)
+            surface = nil
+        }
+
+        // deinit is nonisolated, so the release lands on a later main-actor turn.
+        let nextSurface = makeSurface(runtimeTeardown: coordinator)
+        var reserved = false
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !reserved, ContinuousClock.now < deadline {
+            reserved = nextSurface.reserveAgentHibernationRuntimeTeardown()
+            if !reserved { try? await Task.sleep(for: .milliseconds(10)) }
+        }
+        #expect(reserved)
+        nextSurface.cancelAgentHibernationRuntimeTeardownReservation()
     }
 
     @Test func agentHibernationEndsCurrentTerminalProcessGeneration() {
@@ -355,7 +497,7 @@ import Testing
                 runtimeTeardown: runtimeTeardown,
                 restoreSpawnScheduler: TerminalSurfaceRestoreSpawnScheduler(interSpawnDelay: .zero),
                 runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
-                    agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
+                    agentCommandShimRootDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
                     installAgentCommandShims: { _, _, _ in nil },
                     isExecutableFile: { _ in false }
                 ),

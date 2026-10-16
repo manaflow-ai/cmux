@@ -2,7 +2,7 @@
 import CmuxMobileTerminalKit
 import CoreGraphics
 
-struct TerminalViewportSnapshot {
+struct TerminalViewportSnapshot: Equatable, Sendable {
     let bounds: CGSize
     let containerSize: CGSize
     /// Points the dock's bottom edge sits above the screen bottom (keyboard
@@ -12,18 +12,16 @@ struct TerminalViewportSnapshot {
     let composerFrame: CGRect
     let toolbarFrame: CGRect
     let layoutViewportRect: CGRect
+    let renderTopInset: CGFloat
 
-    /// The render rect in surface coordinates: bottom-pinned to the viewport's
-    /// bottom edge, which the host keeps glued to the dock top. Letterbox
-    /// slack (whole-cell remainder or a daemon pin smaller than the viewport)
-    /// shows at the top.
-    func renderRect(forRenderSize renderSize: CGSize) -> CGRect {
-        CGRect(
-            x: layoutViewportRect.minX,
-            y: layoutViewportRect.maxY - renderSize.height,
-            width: renderSize.width,
-            height: renderSize.height
-        )
+    /// The render rect in surface coordinates
+    /// (`TerminalLetterboxGeometry.renderRect`): a grid at least one row
+    /// shorter than the viewport (a daemon pin) is top-pinned with its slack
+    /// below; the natural grid stays bottom-pinned to the viewport's bottom
+    /// edge, which the host keeps glued to the dock top, with its sub-row
+    /// remainder at the top.
+    func renderRect(forRenderSize renderSize: CGSize, cellHeight: CGFloat) -> CGRect {
+        TerminalLetterboxGeometry.renderRect(renderSize: renderSize, in: layoutViewportRect, cellHeight: cellHeight)
     }
 
     func isLetterboxed(renderSize: CGSize) -> Bool {

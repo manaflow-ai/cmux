@@ -192,6 +192,26 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
     /// The editable text shown for the default user allowlist.
     public static let defaultAllowlistText = defaultPatterns.joined(separator: "\n")
 
+    /// Loopback origins a *managed* allowlist permits without an entry while
+    /// `BrowserAllowLocalhost` is not forced to `false`: the localhost family
+    /// (`localhost`, `*.localhost`) and the loopback addresses, on any HTTP(S)
+    /// port. Derived from the same loopback definition the remote-workspace
+    /// proxy uses, so an explicit `localhost` rule and the implicit default
+    /// match the same URLs (including the proxy alias for a remote
+    /// workspace's own loopback).
+    public static let implicitLoopbackPatterns: [BrowserURLAllowlistPattern] = (
+        RemoteLoopbackProxyAlias.exactLoopbackHosts.sorted()
+            + ["*.\(RemoteLoopbackProxyAlias.canonicalLoopbackHost)"]
+    ).compactMap { BrowserURLAllowlistPattern($0) }
+
+    /// The administrator-facing rule text for ``implicitLoopbackPatterns``.
+    public static let implicitLoopbackRuleText = implicitLoopbackPatterns.map(\.rawValue)
+
+    /// Whether `url` is an HTTP(S) loopback origin per ``implicitLoopbackPatterns``.
+    public static func isLoopbackURL(_ url: URL) -> Bool {
+        implicitLoopbackPatterns.contains { $0.matches(url) }
+    }
+
     /// The source that supplied the effective rules.
     public enum Source: Equatable, Sendable {
         /// No restriction is configured.
@@ -204,7 +224,9 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
 
     /// Schemes that app-owned loads may use without an origin rule. Page-
     /// initiated navigations to these schemes still go through ``allows(_:)``
-    /// and are denied while a managed list is active.
+    /// and are denied while a managed list is active — except `file:`, which
+    /// ``allows(_:)`` governs through ``allowsLocalFiles`` (WebKit itself
+    /// never lets a web origin navigate to a local file).
     public static let trustedInternalSchemes: Set<String> = [
         "about", "applewebdata", "blob", "cmux-browser-action", "cmux-diff-viewer",
         "data", "file", "javascript"
@@ -227,9 +249,23 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
     /// closed.
     public let patterns: [BrowserURLAllowlistPattern]
 
+    /// Whether the embedded browser may open loopback origins. `false` only
+    /// when a profile forces `BrowserAllowLocalhost` to `false`; it then blocks
+    /// loopback in every mode, even for a rule that names it.
+    public let allowsLocalhost: Bool
+
+    /// Whether the embedded browser may show local `file:` documents. `false`
+    /// only when a profile forces `BrowserAllowLocalFiles` to `false`.
+    public let allowsLocalFiles: Bool
+
     /// Whether the administrator supplied a forced key, including an empty or
     /// malformed forced value.
     public var isManaged: Bool { source == .managed }
+
+    /// Whether loopback origins pass without a rule: a managed list with
+    /// ``allowsLocalhost`` left at its default. A user-level list is edited
+    /// by the user, so there the suggested loopback entries are explicit.
+    public var isLocalhostImplicitlyAllowed: Bool { source == .managed && allowsLocalhost }
 
     /// Whether navigation is restricted. A missing or explicitly empty user
     /// value leaves the optional user restriction off. A non-empty user value,
@@ -248,6 +284,8 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
         managedDevicePolicy: ManagedDevicePolicy? = nil
     ) {
         let resolver = managedDevicePolicy ?? ManagedDevicePolicy(defaults: defaults)
+        self.allowsLocalhost = resolver.isAllowed(.browserAllowLocalhost)
+        self.allowsLocalFiles = resolver.isAllowed(.browserAllowLocalFiles)
         if let forced = resolver.forcedBrowserURLAllowlistObject(
             userDefaultsKey: Self.userDefaultsKey
         ) {
@@ -273,7 +311,14 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
     }
 
     /// Creates a policy from explicit rules, primarily for deterministic tests.
-    public init(managedPatterns: [String]?, userPatterns: [String] = []) {
+    public init(
+        managedPatterns: [String]?,
+        userPatterns: [String] = [],
+        allowsLocalhost: Bool = true,
+        allowsLocalFiles: Bool = true
+    ) {
+        self.allowsLocalhost = allowsLocalhost
+        self.allowsLocalFiles = allowsLocalFiles
         if let managedPatterns {
             source = .managed
             patterns = Self.patterns(from: managedPatterns)
@@ -287,10 +332,23 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
     }
 
     /// Whether a URL may be loaded in the embedded browser.
+    ///
+    /// Local `file:` documents answer to ``allowsLocalFiles`` in every mode
+    /// (under an active list only well-formed local file URLs pass), loopback
+    /// origins answer to ``allowsLocalhost`` (a forced `false` blocks them
+    /// even when a rule names them, and a managed list permits them without a
+    /// rule), and every other origin must match a rule while a list is active.
     public func allows(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return !isActive }
+        if scheme == "file" {
+            guard allowsLocalFiles else { return false }
+            return !isActive || isLocalFileURL(url)
+        }
+        let isLoopback = Self.isLoopbackURL(url)
+        if isLoopback, !allowsLocalhost { return false }
         guard isActive else { return true }
-        guard let scheme = url.scheme?.lowercased() else { return false }
         if Self.alwaysAllowedDocumentSchemes.contains(scheme) { return true }
+        if isLoopback, isLocalhostImplicitlyAllowed { return true }
         return patterns.contains { $0.matches(url) }
     }
 
@@ -298,13 +356,14 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
     ///
     /// Callers must use this only for a navigation they initiated themselves;
     /// WebKit delegate callbacks use ``allows(_:)`` so page scripts cannot
-    /// turn `file:`, `data:`, `blob:`, or `javascript:` into an origin-policy
-    /// bypass. Local file URLs must be absolute, have no credentials or port,
-    /// and be hostless (or use the `localhost` host); network-host and relative
-    /// file URLs remain denied.
+    /// turn `data:`, `blob:`, or `javascript:` into an origin-policy bypass.
+    /// Local file URLs must be absolute, have no credentials or port, and be
+    /// hostless (or use the `localhost` host); network-host and relative file
+    /// URLs remain denied, and a forced `BrowserAllowLocalFiles=false` denies
+    /// them all.
     public func allowsTrustedInternalURL(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased() else { return !isActive }
-        if scheme == "file" { return isLocalFileURL(url) }
+        if scheme == "file" { return allowsLocalFiles && isLocalFileURL(url) }
         guard isActive else { return true }
         return Self.trustedInternalSchemes.contains(scheme) || allows(url)
     }

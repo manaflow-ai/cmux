@@ -61,11 +61,10 @@ struct CmxIrohReconnectBackoffTests {
     }
 
     @Test
-    func serverRetryAfterWinsOverLocalScheduleAndIsBounded() {
+    func serverRetryAfterWinsOverLocalScheduleWithoutBeingShortened() {
         let backoff = CmxIrohReconnectBackoff(seed: 9)
         #expect(backoff.nextDelay(retryAfterSeconds: 120) >= 120)
-        #expect(backoff.nextDelay(retryAfterSeconds: Int.max)
-            <= TimeInterval(CmxIrohBrokerCooldown.maximumRetryAfterSeconds))
+        #expect(backoff.nextDelay(retryAfterSeconds: 90_000) == 90_000)
         // A server directive never poisons the local streak: the next local
         // draw stays inside the decorrelated window, not the directive's.
         let after = backoff.nextDelay()

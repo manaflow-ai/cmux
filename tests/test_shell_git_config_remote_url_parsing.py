@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
-Regression coverage for shell-side GitHub remote slug parsing.
+Regression coverage for the remaining zsh GitHub remote slug parser.
 
-The sidebar PR probe reads .git/config directly so it does not spawn git while
+Bash no longer contains the legacy PR probe or its private config parser (#15067).
+
+The legacy zsh PR probe reads .git/config directly so it does not spawn git while
 refreshing metadata. Quoted git config URL values must match git's parsed value
 closely enough that the app still scopes gh calls with --repo.
 """
@@ -130,7 +132,6 @@ def main() -> int:
     root = Path(__file__).resolve().parents[1]
     cases = [
         ("zsh", ["-f", "-c"], root / "Resources/shell-integration/cmux-zsh-integration.zsh"),
-        ("bash", ["--noprofile", "--norc", "-c"], root / "Resources/shell-integration/cmux-bash-integration.bash"),
     ]
 
     base = Path("/tmp") / f"cmux_shell_git_config_remote_url_{os.getpid()}"

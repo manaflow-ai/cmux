@@ -339,7 +339,7 @@ struct IrxHelloGrantlessTests {
         #expect(!text.contains("grant"))
         let hello = try JSONDecoder().decode(IrxHello.self, from: encoded)
         #expect(hello.grant == nil)
-        #expect(hello.proto == IrxProtocol.alpn)
+        #expect(hello.proto == IrxProtocol().alpn)
     }
 
     @Test func legacyGrantJudgeDeniesGrantlessHello() {

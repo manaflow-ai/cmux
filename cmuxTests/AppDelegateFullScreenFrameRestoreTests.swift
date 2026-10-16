@@ -46,4 +46,5 @@ struct AppDelegateFullScreenFrameRestoreTests {
         #expect(screen.visibleFrame.contains(window.frame))
         #expect(window.frame.maxY <= screen.visibleFrame.maxY)
     }
+
 }

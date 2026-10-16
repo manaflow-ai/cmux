@@ -13,4 +13,11 @@ public protocol SessionSnapshotRepresenting: Codable, Sendable {
     /// snapshot with an empty window list is anomalous (empty states remove
     /// the file instead of writing it) and is treated as unusable.
     var hasWindows: Bool { get }
+    /// How much restorable layout the snapshot carries. Drives the
+    /// overwrite guard and history retention; defaults to empty.
+    var richness: SessionSnapshotRichness { get }
+}
+
+extension SessionSnapshotRepresenting {
+    public var richness: SessionSnapshotRichness { .empty }
 }

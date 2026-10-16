@@ -51,6 +51,9 @@ import Testing
     }
 
     @Test func signInOwnsScreenWhileSignedOut() {
+        // Every user signs in before using the app: the removed signed-out
+        // SSH shell no longer bypasses this gate (saved SSH computers or
+        // not), so an unauthenticated launch always lands on sign-in.
         #expect(MobileRootAuthGate.shouldShowSignIn(
             stackAuthenticated: false,
             attachTicketAuthenticated: false,
@@ -173,6 +176,57 @@ import Testing
             didFinishAuthBootstrap: false,
             isRestoringSession: false,
             connectionState: .disconnected
+        ))
+    }
+
+    /// A primed session dials the saved Mac while its token and teams are
+    /// still being confirmed, so a relay-only launch does not wait for the
+    /// serial auth bootstrap before its first dial.
+    @Test func reconnectsStoredMacDuringPrimedAuthRestore() {
+        #expect(MobileRootAuthGate.shouldReconnectStoredMacDuringRestore(
+            stackAuthenticated: true,
+            isRestoringSession: true,
+            attachTicketAuthenticated: false,
+            hasLaunchConnectionRoute: false,
+            connectionState: .disconnected
+        ))
+        // No primed session: nothing to dial as.
+        #expect(!MobileRootAuthGate.shouldReconnectStoredMacDuringRestore(
+            stackAuthenticated: false,
+            isRestoringSession: true,
+            attachTicketAuthenticated: false,
+            hasLaunchConnectionRoute: false,
+            connectionState: .disconnected
+        ))
+        // Restore already finished: the normal post-bootstrap path owns it.
+        #expect(!MobileRootAuthGate.shouldReconnectStoredMacDuringRestore(
+            stackAuthenticated: true,
+            isRestoringSession: false,
+            attachTicketAuthenticated: false,
+            hasLaunchConnectionRoute: false,
+            connectionState: .disconnected
+        ))
+        // An attach ticket or a launch attach route owns the first connection.
+        #expect(!MobileRootAuthGate.shouldReconnectStoredMacDuringRestore(
+            stackAuthenticated: true,
+            isRestoringSession: true,
+            attachTicketAuthenticated: true,
+            hasLaunchConnectionRoute: false,
+            connectionState: .disconnected
+        ))
+        #expect(!MobileRootAuthGate.shouldReconnectStoredMacDuringRestore(
+            stackAuthenticated: true,
+            isRestoringSession: true,
+            attachTicketAuthenticated: false,
+            hasLaunchConnectionRoute: true,
+            connectionState: .disconnected
+        ))
+        #expect(!MobileRootAuthGate.shouldReconnectStoredMacDuringRestore(
+            stackAuthenticated: true,
+            isRestoringSession: true,
+            attachTicketAuthenticated: false,
+            hasLaunchConnectionRoute: false,
+            connectionState: .connected
         ))
     }
 

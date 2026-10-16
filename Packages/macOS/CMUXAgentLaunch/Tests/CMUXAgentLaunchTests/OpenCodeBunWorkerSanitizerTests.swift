@@ -6,12 +6,14 @@ struct OpenCodeBunWorkerSanitizerTests {
     @Test("Drops internal TUI worker paths", arguments: [
         "/$bunfs/root/src/cli/cmd/tui/worker.js",
         "/$bunfs/root/src/cli/tui/worker.js",
+        "/$bunfs/root/src/index.js",
+        "B:/~BUN/root/src/index.js",
     ])
     func dropsInternalTUIWorkerPaths(workerPath: String) {
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [
-                    "/Users/lawrence/.bun/bin/opencode",
+                    "/Users/dev/.bun/bin/opencode",
                     workerPath,
                     "--model",
                     "anthropic/claude-sonnet-4-6",
@@ -19,17 +21,17 @@ struct OpenCodeBunWorkerSanitizerTests {
                     "old-session",
                     "--port",
                     "4096",
-                    "/Users/lawrence/fun",
+                    "/Users/dev/fun",
                 ],
                 launcher: "opencode",
                 fallbackKind: "opencode"
             ) == [
-                "/Users/lawrence/.bun/bin/opencode",
+                "/Users/dev/.bun/bin/opencode",
                 "--model",
                 "anthropic/claude-sonnet-4-6",
                 "--port",
                 "4096",
-                "/Users/lawrence/fun",
+                "/Users/dev/fun",
             ]
         )
     }

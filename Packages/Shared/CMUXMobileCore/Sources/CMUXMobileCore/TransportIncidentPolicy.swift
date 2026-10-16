@@ -39,19 +39,24 @@ public struct TransportIncidentPolicy: Sendable {
         /// After an outage fires, another cannot fire until this much time
         /// passes or a success resets the streak.
         public var outageRearmInterval: TimeInterval
+        /// When false, retain breadcrumbs but suppress individual failure
+        /// captures. Outage escalation remains enabled.
+        public var captureIndividualFailures: Bool
 
         public init(
             signatureCooldown: TimeInterval = 600,
             hourlyCaptureLimit: Int = 30,
             outageFailureThreshold: Int = 5,
             outageMinimumDuration: TimeInterval = 60,
-            outageRearmInterval: TimeInterval = 3600
+            outageRearmInterval: TimeInterval = 3600,
+            captureIndividualFailures: Bool = true
         ) {
             self.signatureCooldown = signatureCooldown
             self.hourlyCaptureLimit = hourlyCaptureLimit
             self.outageFailureThreshold = outageFailureThreshold
             self.outageMinimumDuration = outageMinimumDuration
             self.outageRearmInterval = outageRearmInterval
+            self.captureIndividualFailures = captureIndividualFailures
         }
     }
 
@@ -141,11 +146,13 @@ public struct TransportIncidentPolicy: Sendable {
     private var captureWindow: [UInt64] = []
     private var droppedByBudget = 0
 
-    /// Event codes that mark the transport as healthy and reset the streak.
+    /// Event codes that prove a user-usable connection and reset the streak.
+    ///
+    /// Intermediate progress such as discovery, endpoint startup, or a socket
+    /// connect does not reset the streak: those phases can succeed on every
+    /// retry while authentication or RPC readiness keeps failing for the user.
     public static let successCodes: Set<DiagnosticEventCode> = [
-        .pairOk, .transportDialConnected, .hostAuthenticated, .rpcReady,
-        .recoverySucceeded, .endpointActive, .relayPolicyRefreshSucceeded,
-        .discoverySucceeded, .admissionSucceeded,
+        .pairOk, .rpcReady, .recoverySucceeded,
     ]
 
     /// Event codes that are failure candidates (subject to suppression rules).
@@ -179,10 +186,18 @@ public struct TransportIncidentPolicy: Sendable {
             return nil
         }
 
-        guard Self.failureCodes.contains(event.code) else { return nil }
+        let isTerminalLatencyIncident = event.code == .appFeatureAction
+            && event.a == DiagnosticAppEventKind.terminalRenderLagDetected.rawValue
+        guard Self.failureCodes.contains(event.code) || isTerminalLatencyIncident else { return nil }
 
         let failure = failureKind(of: event)
         guard isReportable(event: event, failure: failure) else { return nil }
+
+        if isTerminalLatencyIncident {
+            guard configuration.captureIndividualFailures, appPhase != .background else { return nil }
+            return decideFailureCapture(event: event, signature: "terminalRenderLagDetected/timedOut",
+                                        failure: failure, transport: nil)
+        }
 
         let transport = DiagnosticEventPresentation().transportKind(of: event)
         let signature = Self.signature(code: event.code, failure: failure, transport: transport)
@@ -195,6 +210,8 @@ public struct TransportIncidentPolicy: Sendable {
         if let outage = decideOutage(event: event, signature: signature, failure: failure, transport: transport) {
             return outage
         }
+
+        guard configuration.captureIndividualFailures else { return nil }
 
         return decideFailureCapture(
             event: event,

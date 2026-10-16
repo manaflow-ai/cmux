@@ -158,10 +158,11 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             backgroundOpacity: 0.8,
             sharesWindowBackdrop: true,
             renderingMode: .ghosttyRendererOwnedBackgroundImage,
+            chromeBackgroundColor: color,
             chromeHost: .dock
         )
 
-        XCTAssertEqual(colors.backgroundHex, "#112233CC")
+        XCTAssertEqual(colors.backgroundHex, "#112233")
     }
 
     func testSidebarTintChangesDoNotDriveWindowBackdropPlanIdentity() {

@@ -99,6 +99,11 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         public let isReady: Bool
         /// Whether the terminal currently holds focus in its workspace.
         public let isFocused: Bool
+        /// The agent whose structured status the Mac shows for this terminal
+        /// (`claude_code`, `codex`, …), when one is attached. `nil` from older Macs.
+        public let agentSource: String?
+        /// That agent's current status text, when one is attached.
+        public let agentState: String?
 
         /// Creates a terminal row from its wire fields.
         public init(
@@ -106,13 +111,17 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
             title: String,
             currentDirectory: String?,
             isReady: Bool,
-            isFocused: Bool
+            isFocused: Bool,
+            agentSource: String? = nil,
+            agentState: String? = nil
         ) {
             self.id = id
             self.title = title
             self.currentDirectory = currentDirectory
             self.isReady = isReady
             self.isFocused = isFocused
+            self.agentSource = agentSource
+            self.agentState = agentState
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -121,6 +130,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
             case currentDirectory = "current_directory"
             case isReady = "is_ready"
             case isFocused = "is_focused"
+            case agentSource = "agent_source"
+            case agentState = "agent_state"
         }
     }
 

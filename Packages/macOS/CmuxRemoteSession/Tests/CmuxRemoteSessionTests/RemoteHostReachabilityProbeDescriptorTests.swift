@@ -52,7 +52,7 @@ extension RemoteSubprocessTests {
             let invocations = await commandRunner.invocations
             let invocation = try #require(invocations.first)
             #expect(invocation.executable == "/usr/bin/ssh")
-            #expect(invocation.arguments == ["-G", "-F", "/dev/null", "cmux-test"])
+            #expect(invocation.arguments == ["-G", "-F", "/dev/null", "--", "cmux-test"])
             #expect(invocation.timeout == 3.0)
         }
     }

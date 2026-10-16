@@ -28,6 +28,9 @@ export function vmCreateDisabledReason(
   if (isFalseFlag(env[providerEnabledEnvKey(provider)])) {
     return `${provider} VM creation is disabled`;
   }
+  if (!vmPrivateNetworkEnabled(env)) {
+    return "Cloud VM creation requires private networking";
+  }
   return null;
 }
 
@@ -41,22 +44,47 @@ export function providerEnabledEnvKey(provider: ProviderId): string {
 }
 
 /**
- * Whether new machines join their owner's private network — the default.
+ * Whether private-network operations are enabled.
  *
- * This is one switch rather than two because the network and the closed
- * inbound port are the same decision: a machine placed on the VPC is reached
- * at its private address and opens no public port, and a machine kept off it
- * is reached at its public IPv6 and must open one. Splitting them would let a
- * deployment configure a machine that is on the network but still publicly
- * exposed, or on the network but addressed publicly and therefore unreachable.
- *
- * Setting `CMUX_VM_PRIVATE_NETWORK_ENABLED=0` is the complete rollback: later
- * creates go back to the public-IPv6 posture, and machines already on a network
- * keep working, because reachability is resolved per machine from the addresses
- * it actually holds.
+ * This is a fail-closed kill switch. Turning it off disables new Cloud VM
+ * creation and tunnel enrollment. It never changes a machine to public ingress
+ * and it never selects a public route for an existing machine.
  */
 export function vmPrivateNetworkEnabled(env: VmRuntimeEnv = process.env): boolean {
   return !isFalseFlag(env.CMUX_VM_PRIVATE_NETWORK_ENABLED);
+}
+
+/**
+ * The deployment's network namespace, or null for production.
+ *
+ * Production, staging, and every dev-backend stack share one provider
+ * account, and slugs are derived from the Stack user id, so without a
+ * namespace every deployment resolved the same user to the same network and
+ * tunnel slugs: dev stacks enrolled tunnels into users' production networks.
+ * A namespace prefixes every slug this deployment derives. Unset or empty is
+ * production and keeps the historical slugs, so existing networks are found
+ * unchanged. A malformed value throws instead of falling back to production.
+ *
+ * At most 16 characters of lowercase letters, digits, and single hyphens,
+ * which keeps the longest derived slug inside the provider's 63.
+ */
+export function vmNetworkNamespace(env: VmRuntimeEnv = process.env): string | null {
+  const value = env.CMUX_VM_NETWORK_NAMESPACE?.trim() ?? "";
+  if (!value) return null;
+  if (value.length > 16 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)) {
+    throw new Error(
+      `CMUX_VM_NETWORK_NAMESPACE must be 1-16 lowercase letters, digits, and single hyphens; got ${JSON.stringify(value)}`,
+    );
+  }
+  return value;
+}
+
+/**
+ * The slug prefix for one kind of provider resource (`net`, `team-net`, `wg`)
+ * in a namespace; `cmux-<kind>` for production.
+ */
+export function vmNetworkSlugPrefix(kind: "net" | "team-net" | "wg", namespace: string | null): string {
+  return namespace ? `cmux-${namespace}-${kind}` : `cmux-${kind}`;
 }
 
 export function isDeployedRuntime(env: VmRuntimeEnv = process.env): boolean {
@@ -69,6 +97,7 @@ export function isDeployedRuntime(env: VmRuntimeEnv = process.env): boolean {
 export function allowUnmanifestedImages(env: VmRuntimeEnv = process.env): boolean {
   return isTrueFlag(env.CMUX_VM_ALLOW_UNMANIFESTED_IMAGES) || !isDeployedRuntime(env);
 }
+
 
 function isFalseFlag(value: string | undefined): boolean {
   if (value === undefined) return false;

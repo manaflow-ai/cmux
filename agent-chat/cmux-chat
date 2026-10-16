@@ -3,9 +3,11 @@
 #
 #   cmux-chat                          new composer as a workspace tab (sidebar entry)
 #   cmux-chat fix the failing test     start a chat with that prompt
-#   cmux-chat -p codex refactor foo    pick provider (claude/codex/opencode/pi/gemini)
+#   cmux-chat -p codex refactor foo    pick provider (claude/codex/opencode/goose/pi/gemini)
 #   cmux-chat --split                  open as a split in the current workspace instead
 #   cmux-chat --no-open ...            print the URL only
+#   cmux-chat --terminal [--surface ID] chat view of the agent running in a
+#                                      terminal ($CMUX_SURFACE_ID), as a split
 #
 # Starts the sidecar server (bun server.ts) if it isn't running.
 set -euo pipefail
@@ -23,6 +25,7 @@ if [ -n "${CMUX_AGENT_CHAT_STATE_FILE:-}" ]; then
 fi
 
 provider="claude" cwd="" open_mode="tab" auto_approve=true no_open=false
+terminal=false surface="${CMUX_SURFACE_ID:-}"
 prompt=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -31,8 +34,10 @@ while [ $# -gt 0 ]; do
     --split) open_mode="split"; shift ;;
     --tab) open_mode="tab"; shift ;;
     --no-open) no_open=true; shift ;;
+    --terminal) terminal=true; open_mode="split"; shift ;;
+    --surface) surface="$2"; shift 2 ;;
     --no-auto-approve) auto_approve=false; shift ;;
-    -h|--help) sed -n '2,10p' "$SELF" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,12p' "$SELF" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) prompt+=("$1"); shift ;;
   esac
 done
@@ -49,7 +54,10 @@ if ! curl -fsS --max-time 1 "$BASE/healthz" >/dev/null 2>&1; then
 fi
 
 url="$BASE/"
-if [ ${#prompt[@]} -gt 0 ]; then
+if $terminal; then
+  [ -n "$surface" ] || { echo "--terminal needs --surface or CMUX_SURFACE_ID" >&2; exit 1; }
+  url="$BASE/terminal/$surface"
+elif [ ${#prompt[@]} -gt 0 ]; then
   body=$(printf '%s' "${prompt[*]}" | \
     CC_PROVIDER="$provider" CC_CWD="${cwd:-$PWD}" CC_AUTO="$auto_approve" python3 -c '
 import json, sys, os

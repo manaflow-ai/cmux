@@ -16,7 +16,7 @@ public struct ControlRequestParser: Sendable {
     public init() {}
 
     /// Leniently decodes a line, returning `nil` unless it is a JSON object
-    /// with a non-empty `method`.
+    /// with a non-empty `method` and no aliased routing selector.
     ///
     /// - Parameter line: The raw socket line.
     /// - Returns: The decoded envelope, or `nil` when the line is not a v2
@@ -28,7 +28,9 @@ public struct ControlRequestParser: Sendable {
               let object = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
             return nil
         }
-        guard let request = Self.request(fromObject: object), !request.method.isEmpty else {
+        guard let request = Self.request(fromObject: object),
+              !request.method.isEmpty,
+              Self.unsupportedTargetAlias(in: request.params) == nil else {
             return nil
         }
         return request
@@ -60,6 +62,13 @@ public struct ControlRequestParser: Sendable {
         guard !request.method.isEmpty else {
             return .failure(.missingMethod(id: request.id))
         }
+        if let alias = Self.unsupportedTargetAlias(in: request.params) {
+            return .failure(.unsupportedTargetAlias(
+                id: request.id,
+                supplied: alias.supplied,
+                canonical: alias.canonical
+            ))
+        }
         return .success(request)
     }
 
@@ -83,5 +92,34 @@ public struct ControlRequestParser: Sendable {
             params = values
         }
         return ControlRequest(id: id, method: method, params: params)
+    }
+
+    /// Detects noncanonical spellings of selectors that control which window,
+    /// workspace, surface, or pane receives an RPC. These spellings were
+    /// previously ignored, which could turn an explicitly targeted request
+    /// into the protocol's no-target focused-surface fallback.
+    private static func unsupportedTargetAlias(
+        in params: [String: JSONValue]
+    ) -> (supplied: String, canonical: String)? {
+        for key in params.keys {
+            let normalized = key
+                .replacingOccurrences(of: "_", with: "")
+                .lowercased()
+            let canonical: String?
+            switch normalized {
+            case "windowid": canonical = "window_id"
+            case "groupid": canonical = "group_id"
+            case "workspaceid": canonical = "workspace_id"
+            case "surfaceid": canonical = "surface_id"
+            case "terminalid": canonical = "terminal_id"
+            case "tabid": canonical = "tab_id"
+            case "paneid": canonical = "pane_id"
+            default: canonical = nil
+            }
+            if let canonical, key != canonical {
+                return (key, canonical)
+            }
+        }
+        return nil
     }
 }

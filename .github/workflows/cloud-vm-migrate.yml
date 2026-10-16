@@ -8,21 +8,27 @@ on:
         required: true
         default: staging
         type: choice
-        options:
-          - staging
-          - production
+        options: [staging, production]
+      cleanup_iroh_challenges:
+        description: Prune expired, consumed, and duplicate Iroh registration challenges after migration
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
-  group: cloud-vm-migrate-${{ inputs.target }}
+  # Production also migrates staging. One group prevents two runs from
+  # applying to the same database at once.
+  group: cloud-vm-migrate
   cancel-in-progress: false
 
 jobs:
   preflight:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     defaults:
       run:
         working-directory: web
@@ -30,130 +36,102 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          # Staging must rehearse the dispatched branch before it can merge.
-          # Production remains pinned to reviewed main for both preflight and
-          # the prerequisite staging migration.
           ref: ${{ inputs.target == 'production' && 'refs/heads/main' || github.sha }}
-
+      - name: Pin migration source
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-
+        with:
+          bun-version: "1.3.14"
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
       - name: Cloud VM migration preflight
         run: bun run cloud-vm:preflight -- --schema-only .
+      - name: Rehearse Iroh cleanup on isolated Postgres
+        if: ${{ inputs.cleanup_iroh_challenges }}
+        run: bun run cloud-vm:preflight -- .
 
   migrate-staging:
     if: ${{ inputs.target == 'staging' || inputs.target == 'production' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     needs: preflight
     environment: cloud-vm-staging
     defaults:
       run:
         working-directory: web
     env:
-      AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
-      AWS_ROLE_ARN: ${{ secrets.AWS_MIGRATION_ROLE_ARN }}
       CMUX_CLOUD_VM_ENV_SOURCE: process
-      CMUX_DB_DRIVER: aws-rds-iam
-      CMUX_DB_SSL_REJECT_UNAUTHORIZED: ${{ vars.CMUX_DB_SSL_REJECT_UNAUTHORIZED || 'true' }}
-      PGDATABASE: ${{ vars.PGDATABASE }}
-      PGHOST: ${{ vars.PGHOST }}
-      PGPORT: ${{ vars.PGPORT || '5432' }}
-      PGUSER: ${{ vars.PGUSER }}
+      CMUX_DB_DRIVER: url
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.target == 'production' && 'refs/heads/main' || github.sha }}
-
+          ref: ${{ needs.preflight.outputs.source_sha }}
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-
+        with:
+          bun-version: "1.3.14"
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
-      - name: Prepare AWS web identity credentials
+      - name: Validate PlanetScale credentials
         run: |
           set -euo pipefail
-          if [ -z "${AWS_ROLE_ARN:-}" ]; then
-            echo "::error::Missing cloud-vm-staging secret AWS_MIGRATION_ROLE_ARN"
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::Missing cloud-vm-staging secret DATABASE_URL"
             exit 1
           fi
-          for key in PGHOST PGPORT PGUSER PGDATABASE AWS_REGION; do
-            if [ -z "${!key:-}" ]; then
-              echo "::error::Missing cloud-vm-staging variable $key"
-              exit 1
-            fi
-          done
-          token_file="$RUNNER_TEMP/aws-web-identity-token"
-          curl -fsSL \
-            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" \
-            | jq -e -r '.value' > "$token_file"
-          echo "AWS_WEB_IDENTITY_TOKEN_FILE=$token_file" >> "$GITHUB_ENV"
-          echo "AWS_ROLE_ARN=$AWS_ROLE_ARN" >> "$GITHUB_ENV"
-          echo "AWS_REGION=$AWS_REGION" >> "$GITHUB_ENV"
-          export AWS_WEB_IDENTITY_TOKEN_FILE="$token_file"
-          aws sts get-caller-identity --no-cli-pager >/dev/null
-
+          case "$DATABASE_URL" in
+            postgres://*|postgresql://*) ;;
+            *) echo "::error::DATABASE_URL must use the PostgreSQL URL scheme"; exit 1 ;;
+          esac
+      - name: Verify staging PlanetScale connection (read only)
+        run: bun run cloud-vm:migrate -- staging --check
       - name: Apply staging migration
         run: bun run cloud-vm:migrate -- staging
+      - name: Clean up staging Iroh challenges
+        if: ${{ inputs.cleanup_iroh_challenges }}
+        run: bun run cloud-vm:cleanup-iroh -- staging --apply
 
   migrate-production:
     if: ${{ inputs.target == 'production' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    needs: migrate-staging
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    needs: [preflight, migrate-staging]
     environment: cloud-vm-production
     defaults:
       run:
         working-directory: web
     env:
-      AWS_REGION: ${{ vars.AWS_REGION || 'us-west-2' }}
-      AWS_ROLE_ARN: ${{ secrets.AWS_MIGRATION_ROLE_ARN }}
       CMUX_CLOUD_VM_ENV_SOURCE: process
-      CMUX_DB_DRIVER: aws-rds-iam
-      CMUX_DB_SSL_REJECT_UNAUTHORIZED: ${{ vars.CMUX_DB_SSL_REJECT_UNAUTHORIZED || 'true' }}
-      PGDATABASE: ${{ vars.PGDATABASE }}
-      PGHOST: ${{ vars.PGHOST }}
-      PGPORT: ${{ vars.PGPORT || '5432' }}
-      PGUSER: ${{ vars.PGUSER }}
+      CMUX_DB_DRIVER: url
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: refs/heads/main
-
+          ref: ${{ needs.preflight.outputs.source_sha }}
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-
+        with:
+          bun-version: "1.3.14"
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
-      - name: Prepare AWS web identity credentials
+      - name: Validate PlanetScale credentials
         run: |
           set -euo pipefail
-          if [ -z "${AWS_ROLE_ARN:-}" ]; then
-            echo "::error::Missing cloud-vm-production secret AWS_MIGRATION_ROLE_ARN"
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::error::Missing cloud-vm-production secret DATABASE_URL"
             exit 1
           fi
-          for key in PGHOST PGPORT PGUSER PGDATABASE AWS_REGION; do
-            if [ -z "${!key:-}" ]; then
-              echo "::error::Missing cloud-vm-production variable $key"
-              exit 1
-            fi
-          done
-          token_file="$RUNNER_TEMP/aws-web-identity-token"
-          curl -fsSL \
-            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" \
-            | jq -e -r '.value' > "$token_file"
-          echo "AWS_WEB_IDENTITY_TOKEN_FILE=$token_file" >> "$GITHUB_ENV"
-          echo "AWS_ROLE_ARN=$AWS_ROLE_ARN" >> "$GITHUB_ENV"
-          echo "AWS_REGION=$AWS_REGION" >> "$GITHUB_ENV"
-          export AWS_WEB_IDENTITY_TOKEN_FILE="$token_file"
-          aws sts get-caller-identity --no-cli-pager >/dev/null
-
+          case "$DATABASE_URL" in
+            postgres://*|postgresql://*) ;;
+            *) echo "::error::DATABASE_URL must use the PostgreSQL URL scheme"; exit 1 ;;
+          esac
+      - name: Verify production PlanetScale connection (read only)
+        run: bun run cloud-vm:migrate -- production --check
       - name: Apply production migration
         run: bun run cloud-vm:migrate -- production
+      - name: Clean up production Iroh challenges
+        if: ${{ inputs.cleanup_iroh_challenges }}
+        run: bun run cloud-vm:cleanup-iroh -- production --apply

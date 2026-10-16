@@ -119,8 +119,8 @@ struct CloudTerminalReconnectOverlayPolicyTests {
         #expect(presentation?.showsProgress == false)
     }
 
-    @Test("Cloud terminal surfaces show progress while reconnecting")
-    func cloudTerminalShowsProgressWhileReconnecting() {
+    @Test("Cloud terminal surfaces stay quiet while reconnecting")
+    func cloudTerminalStaysQuietWhileReconnecting() {
         let presentation = CloudTerminalReconnectOverlayPolicy.presentation(
             isManagedCloudWorkspace: true,
             isRemoteTerminalSurface: true,
@@ -128,9 +128,7 @@ struct CloudTerminalReconnectOverlayPolicyTests {
             detail: "Waiting"
         )
 
-        #expect(presentation?.showsReconnectButton == false)
-        #expect(presentation?.showsProgress == true)
-        #expect(presentation?.detail == "Waiting")
+        #expect(presentation == nil)
     }
 
     @Test("Connected Cloud terminal surfaces hide the overlay")

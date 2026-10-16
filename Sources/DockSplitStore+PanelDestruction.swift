@@ -10,6 +10,11 @@ extension DockSplitStore {
 
     @discardableResult
     func discardPanelStateAndClose(panelId: UUID) -> (any Panel)? {
+        // A panel this Dock still owns is being closed, not handed to another
+        // container (a transfer detaches it first).
+        if panels[panelId] != nil {
+            journalClosedAgentSessions(panelId: panelId)
+        }
         if panels[panelId] is BrowserPanel {
             removeBrowserOpenTabSuggestion(panelId: panelId)
         }

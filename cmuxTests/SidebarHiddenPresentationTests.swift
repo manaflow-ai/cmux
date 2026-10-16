@@ -5,8 +5,26 @@ import SwiftUI
 import Testing
 @testable import cmux_DEV
 
-@Suite(.serialized)
+/// Counts the async notifications that land inside a measured window, so a
+/// failure can name the input that drove an extra sidebar body pass.
 @MainActor
+private final class RevealSignalLog {
+    private var countsByName: [String: Int] = [:]
+
+    func record(_ name: Notification.Name) {
+        countsByName[name.rawValue, default: 0] += 1
+    }
+
+    var summary: String {
+        countsByName
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: " ")
+    }
+}
+
+@MainActor
+@Suite(.serialized, .exclusiveAppContext)
 struct SidebarHiddenPresentationTests {
     @Test
     func focusBoundaryUsesScrollableRespondersVisibleRect() throws {
@@ -178,6 +196,31 @@ struct SidebarHiddenPresentationTests {
     }
 
     @Test
+    func hiddenSpinnerRemovesItsInstalledAnimation() {
+        let spinner = GPUSpinnerNSView(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
+        spinner.contentLayer.add(
+            CABasicAnimation(keyPath: "transform.rotation.z"),
+            forKey: GPUSpinnerNSView.animationKey
+        )
+        #expect(spinner.contentLayer.animation(forKey: GPUSpinnerNSView.animationKey) != nil)
+
+        spinner.isHidden = true
+
+        #expect(spinner.contentLayer.animation(forKey: GPUSpinnerNSView.animationKey) == nil)
+    }
+
+    @Test
+    func spinnerAnimationsRequestTheirStepRateFromTheCompositor() {
+        let spokes = GPUSpinnerNSView.makeRotationAnimation(style: .macOSSpokes, beginTime: 0)
+        #expect(spokes.preferredFrameRateRange.maximum <= 20)
+        #expect(spokes.preferredFrameRateRange.minimum >= 10)
+
+        let arc = GPUSpinnerNSView.makeRotationAnimation(style: .arc, beginTime: 0)
+        #expect(arc.preferredFrameRateRange.maximum <= 60)
+    }
+
+    /// Ensures a hidden sidebar rebuilds retained rows from current Cloud state.
+    @Test
     func visibilityToggleKeepsAppKitTableContainerMounted() async throws {
         _ = NSApplication.shared
 
@@ -190,6 +233,21 @@ struct SidebarHiddenPresentationTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
+        let cloudMarkerKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
+        let previousCloudMarker = UserDefaults.standard.object(forKey: cloudMarkerKey)
+        defer {
+            if let previousCloudMarker {
+                UserDefaults.standard.set(previousCloudMarker, forKey: cloudMarkerKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: cloudMarkerKey)
+            }
+        }
+        // Keep the presentation fixture independent of other app-host tests
+        // that mutate this process-wide marker while exercising activation.
+        // Activation transitions are covered by CloudActivationCoordinatorTests;
+        // this test starts with Cloud rows available and only checks retention
+        // and reconciliation across a hidden/revealed sidebar.
+        UserDefaults.standard.set(true, forKey: cloudMarkerKey)
         defaults.set(
             CmuxExtensionSidebarSelection.defaultProviderId,
             forKey: CmuxExtensionSidebarSelection.defaultsKey
@@ -201,13 +259,14 @@ struct SidebarHiddenPresentationTests {
         )
         featureFlags.setOverride(true, for: CmuxFeatureFlags.appKitSidebarListFlag)
 
-        let tabManager = TabManager()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
         for _ in 0..<3 {
-            tabManager.addWorkspace(autoWelcomeIfNeeded: false)
+            tabManager.addWorkspace(initialSurface: .cloudVMLoading, select: false, autoWelcomeIfNeeded: false)
         }
         let sidebarState = SidebarState()
         let notificationStore = TerminalNotificationStore.shared
         var revealRowInputProjections = 0
+        var isMeasuringRevealInvalidations = false
         let root = ContentView(
             updateViewModel: UpdateStateModel(),
             windowId: UUID(),
@@ -222,6 +281,7 @@ struct SidebarHiddenPresentationTests {
             .environment(
                 \.sidebarLazyContractProbe,
                 SidebarLazyContractProbe(
+                    shouldTraceBodyChanges: { isMeasuringRevealInvalidations },
                     workspaceRowInputProjection: { revealRowInputProjections += 1 }
                 )
             )
@@ -234,6 +294,8 @@ struct SidebarHiddenPresentationTests {
             defer: false
         )
         window.contentView = MainWindowHostingView(rootView: root)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
         defer {
             window.contentView = nil
             window.close()
@@ -246,6 +308,22 @@ struct SidebarHiddenPresentationTests {
         )
         #expect(initialContainers.count == 1)
         let initialContainer = try #require(initialContainers.first)
+        // Cloud activation is process-wide and another app-host fixture may
+        // finish its marker notification while this window is mounting. Wait
+        // for the workspace list to settle before recording the baseline so a
+        // delayed external transition cannot look like a hidden-table update.
+        var lastTabCount = tabManager.tabs.count
+        var stableTabCountRounds = 0
+        for _ in 0..<20 where stableTabCountRounds < 3 {
+            await drainMainRunLoop(for: window, iterations: 5)
+            let currentTabCount = tabManager.tabs.count
+            if currentTabCount == lastTabCount {
+                stableTabCountRounds += 1
+            } else {
+                lastTabCount = currentTabCount
+                stableTabCountRounds = 0
+            }
+        }
         let initialRowCount = initialContainer.tableView.numberOfRows
         #expect(initialRowCount > 0)
         let focusedWorkspace = try #require(tabManager.selectedWorkspace)
@@ -270,16 +348,51 @@ struct SidebarHiddenPresentationTests {
             focusedPanel.ownedFocusIntent(for: responderAfterHide, in: window) != nil,
             "Hiding the sidebar must return keyboard focus to the selected main panel."
         )
-        tabManager.addWorkspace(autoWelcomeIfNeeded: false)
+        // Change hidden row membership without changing the panel whose focus this test tracks.
+        tabManager.addWorkspace(initialSurface: .cloudVMLoading, select: false, autoWelcomeIfNeeded: false)
         await drainMainRunLoop(for: window)
         #expect(
             initialContainer.tableView.numberOfRows == initialRowCount,
             "The retained native table must not apply workspace updates while hidden."
         )
-
+        var cloudChangeIterator = focusedWorkspace.cloudBindingState.changes().makeAsyncIterator()
+        _ = await cloudChangeIterator.next()
+        focusedWorkspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
+        _ = await cloudChangeIterator.next()
+        // A doubled projection count means a SECOND sidebar body pass followed
+        // the reveal. Record what landed inside the reveal window (the async
+        // inputs the hidden phase queued: the workspace's directory channel,
+        // workspace order, the shared agent index) and how many projections
+        // the first run-loop turn alone produced, so the failure names which
+        // input drove the extra pass instead of only reporting the count.
+        let revealSignals = RevealSignalLog()
+        let revealSignalNames: [Notification.Name] = [
+            .workspaceCurrentDirectoryDidChange,
+            .workspaceOrderDidChange,
+            .sharedLiveAgentIndexDidChange,
+        ]
+        let revealSignalObservers = revealSignalNames.map { name in
+            NotificationCenter.default.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { _ in
+                MainActor.assumeIsolated { revealSignals.record(name) }
+            }
+        }
+        defer {
+            for observer in revealSignalObservers {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        }
         revealRowInputProjections = 0
+        isMeasuringRevealInvalidations = true
+        defer { isMeasuringRevealInvalidations = false }
         sidebarState.toggle()
+        await drainMainRunLoop(for: window, iterations: 1)
+        let projectionsAfterFirstRevealTurn = revealRowInputProjections
         await drainMainRunLoop(for: window)
+        isMeasuringRevealInvalidations = false
         let reopenedContainers = descendants(
             of: SidebarWorkspaceTableContainerView.self,
             in: window.contentView
@@ -295,18 +408,62 @@ struct SidebarHiddenPresentationTests {
         )
         #expect(
             revealRowInputProjections == tabManager.tabs.count,
-            "Reopening must project each current workspace row exactly once."
+            """
+            Reopening must project each current workspace row exactly once. \
+            firstTurn=\(projectionsAfterFirstRevealTurn) \
+            signals=[\(revealSignals.summary)]
+            """
+        )
+        var cloudRow: SidebarWorkspaceRowTableCellView?
+        let deadline = Date(timeIntervalSinceNow: 1)
+        while cloudRow == nil, Date() < deadline {
+            cloudRow = descendants(
+                of: SidebarWorkspaceRowTableCellView.self,
+                in: initialContainer
+            ).first { $0.accessibilityLabel()?.contains("Cloud workspace on vivid-newt") == true }
+            if cloudRow == nil {
+                await drainMainRunLoop(for: window, iterations: 1)
+            }
+        }
+        #expect(
+            cloudRow != nil,
+            "Reopening must rebuild retained AppKit rows from the current Cloud identity after a hidden update."
+        )
+        focusedWorkspace.cloudVMBinding = nil
+        let removalDeadline = Date(timeIntervalSinceNow: 1)
+        while cloudRow?.accessibilityLabel()?.contains("Cloud workspace") == true, Date() < removalDeadline {
+            await drainMainRunLoop(for: window, iterations: 1)
+        }
+        #expect(
+            cloudRow?.accessibilityLabel()?.contains("Cloud workspace") == false,
+            "The shared sidebar observation must also refresh a visible row when its Cloud binding is removed."
         )
 
-        let sidebarField = NSTextField(frame: NSRect(x: 20, y: 40, width: 120, height: 24))
-        window.contentView?.addSubview(sidebarField)
+        let contentView = try #require(window.contentView)
+        let sidebarFocusHost = try #require(
+            descendants(of: SidebarPointerEventHostView.self, in: contentView)
+                .max { lhs, rhs in
+                    lhs.bounds.width * lhs.bounds.height < rhs.bounds.width * rhs.bounds.height
+                }
+        )
+        let sidebarFrame = sidebarFocusHost.convert(sidebarFocusHost.bounds, to: contentView)
+        let fieldFrameInHost = sidebarFocusHost.convert(
+            NSRect(x: sidebarFrame.midX - 60, y: sidebarFrame.midY - 12, width: 120, height: 24),
+            from: contentView
+        )
+        let sidebarField = NSTextField(frame: fieldFrameInHost)
+        sidebarFocusHost.addSubview(sidebarField)
         #expect(window.makeFirstResponder(sidebarField))
+        let sidebarEditor = try #require(sidebarField.currentEditor())
+        let sidebarBoundary = SidebarFocusBoundaryReference()
+        sidebarBoundary.attach(sidebarFocusHost)
+        #expect(sidebarBoundary.contains(sidebarEditor, in: window), "The fixture must belong to sidebar \(sidebarFrame).")
         sidebarState.toggle()
         await drainMainRunLoop(for: window)
         let responderAfterSidebarFieldHide = try #require(window.firstResponder)
         #expect(
             focusedPanel.ownedFocusIntent(for: responderAfterSidebarFieldHide, in: window) != nil,
-            "Hiding must restore main-panel focus from controls anywhere in the sidebar boundary."
+            "Hiding must restore main-panel focus from controls in sidebar \(sidebarFrame)."
         )
         sidebarState.toggle()
         await drainMainRunLoop(for: window)
@@ -316,11 +473,12 @@ struct SidebarHiddenPresentationTests {
         window.contentView?.addSubview(foreignField)
         defer { foreignField.removeFromSuperview() }
         #expect(window.makeFirstResponder(foreignField))
-        #expect(window.firstResponder === foreignField)
+        let foreignEditor = try #require(foreignField.currentEditor())
+        #expect(window.firstResponder === foreignEditor)
         sidebarState.toggle()
         await drainMainRunLoop(for: window)
         #expect(
-            window.firstResponder === foreignField,
+            window.firstResponder === foreignEditor && foreignField.currentEditor() === foreignEditor,
             "Hiding the sidebar must preserve focus owned by non-sidebar main content."
         )
     }

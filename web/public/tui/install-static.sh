@@ -2,6 +2,7 @@
 set -eu
 
 base_url="${CMUX_DOWNLOAD_BASE_URL:-https://files.cmux.com/cmux-tui/latest}"
+base_url="${base_url%/}"
 install_root="${CMUX_INSTALL:-$HOME/.cmux}"
 bin_dir="$install_root/bin"
 
@@ -38,7 +39,21 @@ if [ "${#checksum}" -ne 64 ]; then
   exit 1
 fi
 
-curl --proto '=https' --tlsv1.2 -fsSL "$base_url/$artifact" \
+commit="$(
+  sed -n 's/.*"commit"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{40\}\)".*/\1/p' \
+    "$tmp_dir/manifest.json"
+)"
+if [ "${#commit}" -ne 40 ]; then
+  echo "cmux: manifest has no commit" >&2
+  exit 1
+fi
+
+artifact_base_url="$base_url"
+case "$artifact_base_url" in
+  */latest) artifact_base_url="${artifact_base_url%/latest}/$commit" ;;
+esac
+
+curl --proto '=https' --tlsv1.2 -fsSL "$artifact_base_url/$artifact" \
   -o "$tmp_dir/cmux"
 
 if command -v shasum >/dev/null 2>&1; then

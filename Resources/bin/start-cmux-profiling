@@ -154,6 +154,15 @@ if ! [[ "$duration" =~ ^[0-9]+$ ]] || [ "$duration" -lt 1 ]; then
   exit 2
 fi
 
+# The timeout helpers do arithmetic on these; a non-integer would abort the
+# surrounding command instead of timing it out.
+for timeout_var in CMUX_PROFILE_SYSTEM_PROFILER_TIMEOUT_SECONDS CMUX_PROFILE_TOOL_VERSION_TIMEOUT_SECONDS CMUX_PROFILE_TOC_TIMEOUT_SECONDS; do
+  if [ -n "${!timeout_var:-}" ] && ! [[ "${!timeout_var}" =~ ^[0-9]+$ ]]; then
+    echo "start-cmux-profiling: $timeout_var must be a whole number of seconds" >&2
+    exit 2
+  fi
+done
+
 case "$target_channel" in
   ""|stable|nightly|staging|dev)
     ;;
@@ -248,14 +257,17 @@ run_output_with_timeout() {
   local timeout_seconds="$1"
   shift
   local output_file="${TMPDIR:-/tmp}/cmux-profile-probe.$$.$RANDOM"
-  local child_pid elapsed
+  local child_pid ticks
+  # Poll in tenths of a second: a whole-second poll cost every probe at least
+  # 1 s, even an instant one like `xcodebuild -version`.
+  local limit=$((10#$timeout_seconds * 10))
 
   "$@" > "$output_file" 2>/dev/null &
   child_pid="$!"
-  elapsed=0
+  ticks=0
 
   while kill -0 "$child_pid" >/dev/null 2>&1; do
-    if [ "$elapsed" -ge "$timeout_seconds" ]; then
+    if [ "$ticks" -ge "$limit" ]; then
       kill "$child_pid" >/dev/null 2>&1 || true
       sleep 1
       kill -9 "$child_pid" >/dev/null 2>&1 || true
@@ -263,8 +275,8 @@ run_output_with_timeout() {
       rm -f "$output_file"
       return 124
     fi
-    sleep 1
-    elapsed=$((elapsed + 1))
+    sleep 0.1
+    ticks=$((ticks + 1))
   done
 
   if wait "$child_pid"; then
@@ -418,6 +430,9 @@ channel_for_bundle() {
     com.cmuxterm.app.nightly|com.cmuxterm.app.nightly.*)
       printf 'nightly'
       ;;
+    com.cmuxterm.app.rc|com.cmuxterm.app.rc.*)
+      printf 'rc'
+      ;;
     com.cmuxterm.app.staging|com.cmuxterm.app.staging.*)
       printf 'staging'
       ;;
@@ -501,9 +516,11 @@ tag_matches() {
   esac
   [ "$display_name" = "cmux DEV ${path_tag}" ] && return 0
   [ "$display_name" = "cmux NIGHTLY ${path_tag}" ] && return 0
+  [ "$display_name" = "cmux RC ${path_tag}" ] && return 0
   [ "$display_name" = "cmux STAGING ${path_tag}" ] && return 0
   [ "$app_base" = "cmux DEV ${path_tag}" ] && return 0
   [ "$app_base" = "cmux NIGHTLY ${path_tag}" ] && return 0
+  [ "$app_base" = "cmux RC ${path_tag}" ] && return 0
   [ "$app_base" = "cmux STAGING ${path_tag}" ] && return 0
   return 1
 }
@@ -654,10 +671,12 @@ wait_with_timeout() {
   local child_pid="$1"
   local timeout_seconds="$2"
   local log_file="$3"
-  local elapsed=0
+  local ticks=0
+  # Tenths of a second, like run_output_with_timeout.
+  local limit=$((10#$timeout_seconds * 10))
 
   while kill -0 "$child_pid" >/dev/null 2>&1; do
-    if [ "$elapsed" -ge "$timeout_seconds" ]; then
+    if [ "$ticks" -ge "$limit" ]; then
       echo "Timed out after ${timeout_seconds}s; terminating pid ${child_pid}" >> "$log_file"
       kill "$child_pid" >/dev/null 2>&1 || true
       sleep 1
@@ -665,8 +684,8 @@ wait_with_timeout() {
       wait "$child_pid" >/dev/null 2>&1 || true
       return 124
     fi
-    sleep 1
-    elapsed=$((elapsed + 1))
+    sleep 0.1
+    ticks=$((ticks + 1))
   done
 
   wait "$child_pid"

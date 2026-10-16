@@ -50,11 +50,15 @@ extension CMUXCLI {
             return claudeHookWorkspaceExists(raw, client: client) ? raw : nil
         }
         // Explicit non-UUID selectors (handle refs like "workspace:1", numeric indexes —
-        // both documented for --workspace) resolve strictly. `resolveWorkspaceId` fails
-        // closed for every non-blank selector, and `raw` is non-blank here (callers pass
-        // it through `nonEmptyClaudeHookIdentifier`), so the focused-tab fallback inside
-        // `resolveWorkspaceId` is structurally unreachable and the "never fall back to
-        // focused" invariant holds.
+        // both documented for --workspace) resolve strictly. `raw` is non-blank here
+        // (callers pass it through `nonEmptyClaudeHookIdentifier`), so the focused-tab
+        // fallback inside `resolveWorkspaceId` is unreachable.
+        //
+        // `resolveWorkspaceId` no longer fails closed for every selector: a handle ref
+        // it could not scan for — a relay session, or a window that went away mid-scan —
+        // comes back unresolved so the host can resolve it against its own registry.
+        // The `isUUID(resolved)` check below is what keeps the "never fall back to
+        // focused" invariant here; it is load-bearing, not defensive.
         guard let resolved = try? resolveWorkspaceId(raw, client: client),
               isUUID(resolved),
               claudeHookWorkspaceExists(resolved, client: client) else {

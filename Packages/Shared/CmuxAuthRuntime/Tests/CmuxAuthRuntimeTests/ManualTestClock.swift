@@ -80,6 +80,23 @@ final class ManualTestClock: Clock, @unchecked Sendable {
         }
     }
 
+    /// Suspends until a sleeper is parked whose deadline is at most `window`
+    /// from now, so a test can target one short backoff sleep while longer
+    /// phase deadlines are also parked.
+    func waitUntilSleeper(dueWithin window: Duration) async {
+        while !hasSleeper(dueWithin: window) {
+            await waitUntilSleepers()
+            await Task.yield()
+        }
+    }
+
+    private func hasSleeper(dueWithin window: Duration) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let limit = currentInstant.advanced(by: window)
+        return sleepers.values.contains { $0.deadline <= limit }
+    }
+
     /// Advance virtual time, resuming every sleeper whose deadline has passed.
     func advance(by duration: Duration) {
         lock.lock()

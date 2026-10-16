@@ -48,6 +48,18 @@ pub const FLAG_SMART_RENDERER: u32 = 1 << 2;
 /// Protocol-v4 HostHello flag. The authenticated launch-owner connection must
 /// send `Activate` after its daemon has durably committed public topology.
 pub const FLAG_LAUNCH_ACTIVATION_REQUIRED: u32 = 1 << 3;
+/// ClientHello opt-in and HostHello acknowledgement for the optional
+/// generic terminal metadata tail in a Snapshot payload. The bit is separate
+/// from the protocol version so older persistent hosts and renderers can keep
+/// using the exact v4 snapshot layout.
+pub const FLAG_TERMINAL_METADATA: u32 = 1 << 4;
+/// ClientHello opt-in and HostHello acknowledgement for viewer-size priority.
+/// The host echoes it only to a renderer granted `RESIZE`. While any such
+/// renderer holds a viewer size, the canonical grid is the per-dimension
+/// minimum over those renderers alone; every other viewer crops or pans.
+/// Hosts that predate the bit reject the whole hello, so peers send it only
+/// when the host record advertises support.
+pub const FLAG_VIEWER_SIZE_PRIORITY: u32 = 1 << 5;
 /// ResizeAck payload flag: this request changed the canonical grid and its
 /// sequenced Resized+Colors transition was enqueued immediately before the
 /// targeted acknowledgement.
@@ -406,6 +418,8 @@ pub enum MessageKind {
     /// host. Every live frame admitted before this receipt is queued before it,
     /// and this client is removed from live publication before the receipt.
     DetachAck = 22,
+    /// Targeted confirmation that `Input` reached the authoritative PTY writer.
+    InputAck = 23,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
@@ -462,6 +476,7 @@ impl TryFrom<u16> for MessageKind {
             20 => Ok(Self::LaunchFailed),
             21 => Ok(Self::TerminateAck),
             22 => Ok(Self::DetachAck),
+            23 => Ok(Self::InputAck),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),
@@ -945,6 +960,8 @@ mod tests {
         assert_eq!(MessageKind::try_from(21).unwrap(), MessageKind::TerminateAck);
         assert_eq!(MessageKind::DetachAck as u16, 22);
         assert_eq!(MessageKind::try_from(22).unwrap(), MessageKind::DetachAck);
+        assert_eq!(MessageKind::InputAck as u16, 23);
+        assert_eq!(MessageKind::try_from(23).unwrap(), MessageKind::InputAck);
         assert_eq!(MessageKind::Terminate as u16, 104);
         assert_eq!(MessageKind::try_from(104).unwrap(), MessageKind::Terminate);
     }

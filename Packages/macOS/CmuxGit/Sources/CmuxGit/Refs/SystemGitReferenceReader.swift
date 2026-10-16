@@ -2,7 +2,7 @@ import Dispatch
 import Foundation
 
 /// Reads file-backed refs directly and delegates other storage backends to Git.
-nonisolated struct SystemGitReferenceReader: GitReferenceReading {
+struct SystemGitReferenceReader: GitReferenceReading {
     static let maximumSymbolicReferenceByteCount = 16 * 1_024
     private static let maximumObjectIDByteCount = 128
     /// Configs above this bound use Git plumbing instead of an unbounded scan.

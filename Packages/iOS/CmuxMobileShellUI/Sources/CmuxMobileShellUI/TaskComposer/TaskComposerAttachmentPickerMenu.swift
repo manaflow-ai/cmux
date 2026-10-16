@@ -11,9 +11,26 @@ struct TaskComposerAttachmentPickerMenu: View {
 
     let style: Style
     let isDisabled: Bool
+    let usesFullLiquidGlass: Bool
     let choosePhotos: () -> Void
     let chooseFiles: () -> Void
     let pasteAttachments: () -> Void
+
+    init(
+        style: Style,
+        isDisabled: Bool,
+        usesFullLiquidGlass: Bool = false,
+        choosePhotos: @escaping () -> Void,
+        chooseFiles: @escaping () -> Void,
+        pasteAttachments: @escaping () -> Void
+    ) {
+        self.style = style
+        self.isDisabled = isDisabled
+        self.usesFullLiquidGlass = usesFullLiquidGlass
+        self.choosePhotos = choosePhotos
+        self.chooseFiles = chooseFiles
+        self.pasteAttachments = pasteAttachments
+    }
 
     var body: some View {
         Menu {
@@ -47,12 +64,21 @@ struct TaskComposerAttachmentPickerMenu: View {
         } label: {
             switch style {
             case .circularPlus:
-                Image(systemName: "plus")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 38, height: 38)
-                    .background(Color.primary.opacity(0.07), in: Circle())
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
+                if usesFullLiquidGlass {
+                    Image(systemName: "plus")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 38, height: 38)
+                        .mobileGlassCircle()
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                } else {
+                    Image(systemName: "plus")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 38, height: 38)
+                        .background(Color.primary.opacity(0.07), in: Circle())
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
             case .paperclip:
                 Image(systemName: "paperclip")
                     .font(.body.weight(.semibold))

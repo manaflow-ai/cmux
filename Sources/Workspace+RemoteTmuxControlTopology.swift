@@ -137,17 +137,26 @@ extension Workspace {
     }
 
     /// Local word-path fallback must never interpret a remote transcript
-    /// against this Mac's filesystem. Projected tmux panes are remote even
-    /// though their mirror-owned surface IDs are not stored in the ordinary
-    /// remote-terminal set.
+    /// against this Mac's filesystem. Only a terminal known to run on this Mac
+    /// resolves locally: SSH, cloud and unplaced surfaces don't. Projected tmux
+    /// panes are remote even though their mirror-owned surface IDs are not
+    /// stored in the ordinary remote-terminal set.
     func canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: UUID) -> Bool {
         guard !isRemoteTerminalSurface(surfaceID) else { return false }
         switch remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
-        case .notRemote:
-            return true
         case .unresolvedMirror, .pane:
             return false
+        case .notRemote:
+            break
         }
+        if let machine = machineOwningSurface(surfaceID) { return machine.isLocal }
+        // A Dock terminal reports this workspace as its owner but lives in the Dock.
+        if let dock = DockSplitStore.liveStores.first(where: {
+            $0.panelID(forTerminalLinkSourceID: surfaceID) != nil
+        }) {
+            return !dock.terminalLinkIsRemoteTerminal(surfaceID)
+        }
+        return false
     }
 
     /// Agent discovery and launch policy must classify the live projected
@@ -155,13 +164,25 @@ extension Workspace {
     func isRemoteTerminalContext(_ surfaceOrPanelID: UUID) -> Bool {
         let surfaceID = surfaceOwnershipTarget(for: surfaceOrPanelID)?.surfaceID
             ?? surfaceOrPanelID
-        if isRemoteTerminalSurface(surfaceID) {
+        if isRemoteTerminalSurface(surfaceID) || machineOwningSurface(surfaceID)?.isSSH == true {
             return true
         }
         if case .pane = remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
             return true
         }
         return false
+    }
+
+    /// Whether a terminal's shell runs somewhere other than this Mac: an SSH
+    /// or Cloud machine, a remote tmux pane, or another signed-in Mac. Its
+    /// keystrokes cross a network before they echo, which is what predicted
+    /// echo hides; a local shell never gets it.
+    func terminalRunsOnAnotherMachine(_ surfaceOrPanelID: UUID) -> Bool {
+        if isRemoteTerminalContext(surfaceOrPanelID) { return true }
+        let surfaceID = surfaceOwnershipTarget(for: surfaceOrPanelID)?.surfaceID
+            ?? surfaceOrPanelID
+        guard let machine = machineOwningSurface(surfaceID) else { return false }
+        return !machine.isLocal
     }
 
     /// Maps a control-plane surface identity to the workspace-owned tab that
@@ -349,7 +370,16 @@ extension Workspace {
 
     /// Whether `surfaceID` is the workspace's canonical keyboard-input target.
     func isFocusedTerminalInputSurface(_ surfaceID: UUID) -> Bool {
-        focusedTerminalInputTarget()?.surfaceID == surfaceID
+        // A Cloud manual-mirror panel owns its own native input surface. It is
+        // represented by a TerminalPanel, but it is not a remote-tmux container
+        // and therefore has no nested control projection to resolve.
+        if focusedPanelId == surfaceID,
+           let panel = panels[surfaceID] as? TerminalPanel,
+           panel.cloudAttachment != nil,
+           !isRemoteTmuxControlContainer(surfaceID) {
+            return true
+        }
+        return focusedTerminalInputTarget()?.surfaceID == surfaceID
     }
 
     /// Resolves the selected terminal target. A mirror container projects its

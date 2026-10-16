@@ -1,6 +1,6 @@
 import { after } from "next/server";
 
-import { activeTraceIds } from "../telemetry";
+import { activeTraceIds, noteHandledRouteError } from "../telemetry";
 
 export type ReportErrorLevel = "error" | "warning" | "info";
 
@@ -18,12 +18,15 @@ export type ReportErrorOptions = {
 };
 
 const SENSITIVE_KEY_PATTERN = /authorization|cookie|credential|dsn|key|password|providerMetadata|secret|token|webhook/i;
+const SENSITIVE_KEY_TOKEN =
+  /(?:^|_)(?:account|authorization|body|completion|content|cookie|credential|dsn|email|handoff|header|key|lease|output|password|prompt|provider|request|response|secret|session|team|webhook)(?:_|$)/;
 
 export function reportError(
   error: unknown,
   context: Record<string, unknown>,
   options: ReportErrorOptions = {},
 ): void {
+  noteHandledRouteError(error);
   const trace = options.trace ?? activeTraceIds();
   const safeContext = scrubContext(
     trace ? { ...context, trace_id: trace.traceId, span_id: trace.spanId } : context,
@@ -43,7 +46,7 @@ export function reportError(
   if (!process.env.SENTRY_DSN?.trim()) return;
 
   const fingerprint = options.fingerprint;
-  const tags = boundedTags(options.tags, trace);
+  const tags = boundedTags(withSubsystemTag(options.tags, context), trace);
   const send = () =>
     import("@sentry/nextjs")
       .then(async (Sentry) => {
@@ -88,6 +91,21 @@ export function reportError(
 
 const TAG_VALUE_MAX = 200;
 
+/**
+ * Index the reporting subsystem (or service) as the `subsystem` tag, so every
+ * reported issue is searchable by owner in Sentry. An explicit tag wins.
+ */
+function withSubsystemTag(
+  tags: ReportErrorOptions["tags"],
+  context: Record<string, unknown>,
+): ReportErrorOptions["tags"] {
+  if (tags?.subsystem !== undefined) return tags;
+  const owner = [context.subsystem, context.service].find(
+    (value): value is string => typeof value === "string" && value.trim() !== "",
+  );
+  return owner ? { ...tags, subsystem: owner } : tags;
+}
+
 function boundedTags(
   tags: ReportErrorOptions["tags"],
   trace: { readonly traceId: string; readonly spanId?: string } | undefined,
@@ -95,7 +113,7 @@ function boundedTags(
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(tags ?? {})) {
     if (value === undefined || value === null) continue;
-    if (SENSITIVE_KEY_PATTERN.test(key)) continue;
+    if (isSensitiveObservabilityKey(key)) continue;
     out[key] = String(value).slice(0, TAG_VALUE_MAX);
   }
   if (trace) out.trace_id = trace.traceId;
@@ -110,9 +128,10 @@ function scrubContext(context: Record<string, unknown>): Record<string, unknown>
   return scrubbed;
 }
 
-const SENSITIVE_TEXT_PATTERN = /(srt_[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]{8,}|Bearer\s+\S+|eyJ[A-Za-z0-9_-]{10,})/g;
+const SENSITIVE_TEXT_PATTERN = /((?:crt|crh|crk)_[A-Za-z0-9_-]{32,}|srt_[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]{8,}|Bearer\s+\S+|eyJ[A-Za-z0-9_-]{10,})/g;
 
-function scrubErrorForLog(error: unknown): string {
+/** Name and message of an error with credential-shaped text redacted, for logs. */
+export function scrubErrorForLog(error: unknown): string {
   const name =
     error && typeof error === "object" && typeof (error as { name?: unknown }).name === "string"
       ? (error as { name: string }).name
@@ -125,7 +144,7 @@ function scrubErrorForLog(error: unknown): string {
 }
 
 function scrubValue(key: string, value: unknown): unknown {
-  if (SENSITIVE_KEY_PATTERN.test(key)) return "[redacted]";
+  if (isSensitiveObservabilityKey(key)) return "[redacted]";
   if (Array.isArray(value)) return value.map((entry) => scrubValue(key, entry));
   if (!value || typeof value !== "object") return value;
   const scrubbed: Record<string, unknown> = {};
@@ -133,4 +152,15 @@ function scrubValue(key: string, value: unknown): unknown {
     scrubbed[childKey] = scrubValue(childKey, childValue);
   }
   return scrubbed;
+}
+
+/** Returns whether an observability key can contain credentials or tenant data. */
+export function isSensitiveObservabilityKey(key: string): boolean {
+  const normalized = key
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+  return SENSITIVE_KEY_PATTERN.test(key) || SENSITIVE_KEY_TOKEN.test(normalized);
 }

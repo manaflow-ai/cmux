@@ -202,11 +202,23 @@ int main(int argc, const char *argv[]) {
         descriptor.sizeInMillimeters = CGSizeMake(530, 300);
         descriptor.vendorID = 0x1234;
         descriptor.productID = 0x5678;
-        descriptor.serialNum = 0x0001;
         descriptor.queue = dispatch_get_main_queue();
 
-        // Create virtual display
-        CGVirtualDisplay *display = [[CGVirtualDisplay alloc] initWithDescriptor:descriptor];
+        // Create virtual display. WindowServer refuses a second display with the
+        // same vendor/product/serial ("already exists!"), and it can keep a
+        // display after its helper exits: on the owned minis a display from a
+        // killed helper stayed listed for hours, and every later create with the
+        // old fixed serial 0x0001 failed until the GUI session restarted. So each
+        // helper takes a serial of its own (its pid), and tries a few more if a
+        // leaked display already holds that one.
+        CGVirtualDisplay *display = nil;
+        for (unsigned int attempt = 0; attempt < 4 && !display; attempt++) {
+            descriptor.serialNum = ((unsigned int)getpid() & 0x00FFFFFF) | (attempt << 24);
+            if (descriptor.serialNum == 0) {
+                descriptor.serialNum = 1;
+            }
+            display = [[CGVirtualDisplay alloc] initWithDescriptor:descriptor];
+        }
         if (!display) {
             fprintf(stderr, "ERROR: Failed to create CGVirtualDisplay\n");
             return 1;

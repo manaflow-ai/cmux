@@ -67,7 +67,7 @@ def _shell_command(kind: str) -> str:
             _cmux_send() { print -r -- "$1" >> "$CMUX_TEST_SEND_LOG"; }
             cd "$CMUX_TEST_NONREPO"
             setopt noclobber
-            _cmux_set_git_active_pwd "$PWD"
+            _cmux_set_git_active_pwd "$PWD" create
             unsetopt noclobber
             _cmux_report_git_branch_for_path "$CMUX_TEST_REPO" &
             wait
@@ -168,7 +168,7 @@ def _same_repo_shell_command(kind: str) -> str:
             preexec_functions=()
             _cmux_send() { print -r -- "$1" >> "$CMUX_TEST_SEND_LOG"; }
             cd "$CMUX_TEST_REPO/pkg"
-            _cmux_set_git_active_pwd "$PWD"
+            _cmux_set_git_active_pwd "$PWD" create
             _cmux_report_git_branch_for_path "$CMUX_TEST_REPO"
             """
         )

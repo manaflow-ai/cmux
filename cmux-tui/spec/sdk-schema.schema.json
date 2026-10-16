@@ -232,7 +232,8 @@
               "subscribe-deltas",
               "attach-byte",
               "attach-render",
-              "attach-browser"
+              "attach-browser",
+              "control"
             ]
           },
           "uniqueItems": true

@@ -185,9 +185,8 @@ final class SidebarWorkspaceDragSourceMonitor {
         at windowPoint: NSPoint,
         in window: NSWindow
     ) -> Bool {
-        guard let contentView = window.contentView else { return false }
-        let contentPoint = contentView.convert(windowPoint, from: nil)
-        guard var candidate = contentView.hitTest(contentPoint) else { return false }
+        guard let contentView = window.contentView,
+              var candidate = contentView.cmuxHitTest(windowPoint: windowPoint) else { return false }
         while true {
             if candidate is NSTextView
                 || candidate is NSControl

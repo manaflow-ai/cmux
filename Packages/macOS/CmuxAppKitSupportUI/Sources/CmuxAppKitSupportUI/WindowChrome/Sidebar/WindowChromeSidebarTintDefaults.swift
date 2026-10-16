@@ -6,6 +6,11 @@ public struct WindowChromeSidebarTintDefaults: Sendable {
     /// Default tint opacity.
     public let opacity: Double
 
+    /// Whether the sidebar uses the terminal background instead of the tint
+    /// when the user has not chosen. Mirrors the
+    /// `sidebarAppearance.matchTerminalBackground` catalog default.
+    public static let matchesTerminalBackground = true
+
     /// Creates sidebar tint defaults.
     public init(
         hex: String = "#000000",

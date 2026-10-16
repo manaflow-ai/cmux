@@ -14,6 +14,13 @@ import CMUXMobileCore
 /// routes clear, and re-register after an account/team switch even when the
 /// routes are unchanged.
 @Suite struct DeviceRegistryClientTests {
+    @Test func availabilityLeaseRenewsBeforeItsServerDeadline() {
+        let started = ContinuousClock.now
+        #expect(DeviceRegistryClient.leaseRenewalDue(lastSuccess: nil, now: started))
+        #expect(!DeviceRegistryClient.leaseRenewalDue(lastSuccess: started, now: started.advanced(by: .seconds(59))))
+        #expect(DeviceRegistryClient.leaseRenewalDue(lastSuccess: started, now: started.advanced(by: .seconds(60))))
+    }
+
     private func route(host: String, port: Int, id: String = "r") throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: id,
@@ -58,6 +65,15 @@ import CMUXMobileCore
         let previous = reg(team: "team-a", routes: routes)
         let current = reg(team: "team-b", routes: routes)
         #expect(DeviceRegistryClient.shouldReRegister(previous: previous, current: current) == true)
+    }
+
+    @Test func aNewSessionCannotReuseAnEarlierPublication() throws {
+        let routes = [try route(host: "100.64.0.1", port: 51000)]
+        let previous = DeviceRegistryClient.Registration(teamID: "team", tag: "test", routes: routes, accountID: "a", generation: 1)
+        let restored = DeviceRegistryClient.Registration(teamID: "team", tag: "test", routes: routes, accountID: "a", generation: 2)
+        let otherAccount = DeviceRegistryClient.Registration(teamID: "team", tag: "test", routes: routes, accountID: "b", generation: 2)
+        #expect(DeviceRegistryClient.shouldReRegister(previous: previous, current: restored))
+        #expect(DeviceRegistryClient.shouldReRegister(previous: previous, current: otherAccount))
     }
 
     @Test func clearingRoutesRegistersOnceToPublishOffState() throws {

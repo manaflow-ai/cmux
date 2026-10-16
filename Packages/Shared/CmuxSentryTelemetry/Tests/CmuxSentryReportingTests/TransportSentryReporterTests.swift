@@ -84,6 +84,7 @@ import os
         TransportSentryReporter(
             role: .mobileClient,
             exportRing: { ring },
+            incidentConfiguration: .init(captureIndividualFailures: true),
             logsPerHour: logsPerHour,
             delivery: recorder.delivery
         )

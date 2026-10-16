@@ -214,9 +214,11 @@ stray_helper_pids() {
   # the filter is identical on macOS runners and the Linux guard host. Exclude
   # the clang compile of the .m source and this script itself. Tolerate no-match
   # at every stage so an empty result is exit 0, not a pipefail that would abort
-  # reap_strays under `set -e`.
+  # reap_strays under `set -e`. The bracket keeps the grep from matching its own
+  # command line: ps often lists it, so reap-strays "found" a stray on every
+  # run, waited 5 s for it and then kill -9'd a pid that had already exited.
   { ps -axww -o pid=,command= 2>/dev/null || true; } \
-    | { grep 'create-virtual-display' || true; } \
+    | { grep '[c]reate-virtual-display' || true; } \
     | { grep -v -e 'clang' -e 'create-virtual-display[.]m' -e 'virtual-display-lock' || true; } \
     | awk -v self="$$" '$1 != self { print $1 }'
 }

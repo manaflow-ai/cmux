@@ -15,6 +15,8 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
     @Test("Cmd+T after session restore uses workspace cwd when focused agent has no terminal cwd")
     func cmdTAfterSessionRestoreUsesWorkspaceCurrentDirectoryForAgentPane() throws {
         let workspaceDirectory = "/tmp/cmux-cmdt-restore-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: workspaceDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: workspaceDirectory) }
         let agentPanelId = UUID()
         let snapshot = SessionWorkspaceSnapshot(
             workspaceId: UUID(),
@@ -171,6 +173,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         snapshot.panels[0].directoryIsTrustedRemoteReport = nil
         let restored = Workspace()
         let restoredPanelId = try #require(restored.restoreSessionSnapshot(snapshot)[remotePanelId])
+        restored.focusPanel(restoredPanelId)
         #expect(restored.panelDirectories[restoredPanelId] == remoteDirectory)
         #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == nil)
         #expect(restored.presentedCurrentDirectory == nil)
@@ -277,9 +280,13 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         let remotePanelId = try #require(workspace.focusedPanelId)
         #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory))
         workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
+        let delegate = try #require(AppDelegate.shared)
+        let previousDelegateManager = delegate.tabManager
+        delegate.tabManager = manager
         TerminalController.shared.setActiveTabManager(manager)
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
+            delegate.tabManager = previousDelegateManager
         }
         let preReportSnapshot = try #require(TerminalController.shared.controlSidebarStateSnapshot(tabArg: nil))
         #expect(preReportSnapshot.currentDirectory == "")
@@ -391,6 +398,8 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
     func newTerminalToRightUsesAnchorTabWorkingDirectoryWhenAnchorIsNotSelected() throws {
         let selectedDirectory = "/tmp/cmux-selected-\(UUID().uuidString)"
         let anchorDirectory = "/tmp/cmux-anchor-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: anchorDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: anchorDirectory) }
         let workspace = Workspace(workingDirectory: "/tmp/cmux-workspace-\(UUID().uuidString)")
         let paneId = try #require(workspace.bonsplitController.focusedPaneId)
         let selectedPanel = try #require(workspace.focusedTerminalPanel)
@@ -428,6 +437,8 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
     func surfaceCreateInheritsWorkspaceCurrentDirectoryForAgentPane() throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let workspaceDirectory = "/tmp/cmux-surface-create-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: workspaceDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: workspaceDirectory) }
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         workspace.currentDirectory = workspaceDirectory

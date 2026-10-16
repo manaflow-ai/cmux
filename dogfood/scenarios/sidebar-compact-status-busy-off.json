@@ -1,0 +1,65 @@
+{
+  "launch": {
+    "args": [
+      "-sidebarCompactAgentStatus",
+      "<false/>",
+      "-sidebarShellIntegration",
+      "<false/>",
+      "-newWorkspacePlacement",
+      "end"
+    ],
+    "env": {
+      "CMUX_UI_TEST_SOCKET_COMMANDS": "new_workspace api server\nselect_workspace {last}\nwait 500\nlet api\nset_agent_pid claude_code {pid} --tab={api}\nset_agent_lifecycle claude_code needsInput --tab={api}\nset_status claude_code \"Needs input\" --icon=bell.fill --color=#4C8DFF --tab={api}\nreport_git_branch feat/compact-status --status=dirty --tab={api}\nreport_pr 14838 https://github.com/manaflow-ai/cmux/pull/14838 --label=PR --state=open --branch=feat/compact-status --tab={api}\nreport_ports 3000 5432 8080 --tab={api}\nset_progress 0.62 --label=Indexing --tab={api}\nlog --level=info --tab={api} -- Rebuilt 42 modules in 3.1s\nset_status deploy \"staging green\" --icon=checkmark.circle --color=#34C759 --tab={api}\nreport_meta_block plan --tab={api} -- **Next:** wire the poller, then land the check data\n{\"id\":\"desc1\",\"method\":\"workspace.action\",\"params\":{\"workspace_id\":\"{api}\",\"action\":\"set_description\",\"description\":\"Long running API server workspace with the database and the worker attached.\"}}\n{\"id\":\"todo1\",\"method\":\"workspace.todo.add\",\"params\":{\"workspace_id\":\"{api}\",\"text\":\"Carry check data over the control socket\"}}\n{\"id\":\"todo2\",\"method\":\"workspace.todo.add\",\"params\":{\"workspace_id\":\"{api}\",\"text\":\"Add the factory level test\",\"state\":\"done\"}}\nwait 400\nnew_workspace worker\nselect_workspace {last}\nwait 500\nlet worker\nset_agent_pid codex {pid} --tab={worker}\nset_agent_lifecycle codex running --tab={worker}\nreport_git_branch feat/worker-queue --status=clean --tab={worker}\nlog --level=warn --tab={worker} -- Retrying the queue drain, attempt 2\nwait 400\nnew_workspace docs rewrite for the configuration reference and the settings catalog\nselect_workspace {last}\nwait 500\nlet docs\nset_agent_lifecycle claude_code idle --tab={docs}\nreport_git_branch docs/configuration --tab={docs}\nreport_pr 15164 https://github.com/manaflow-ai/cmux/pull/15164 --label=PR --state=merged --tab={docs}\n{\"id\":\"desc2\",\"method\":\"workspace.action\",\"params\":{\"workspace_id\":\"{docs}\",\"action\":\"set_description\",\"description\":\"Docs pass over configuration.md and the settings catalog.\"}}\nwait 400\nnew_workspace scratch\nselect_workspace {last}\nwait 500\nlet scratch\nwait 400\nselect_workspace {api}\nwait 600"
+    }
+  },
+  "steps": [
+    {
+      "wait": 2.5
+    },
+    {
+      "shot": "compact-off-busy-sidebar"
+    },
+    {
+      "tree": "compact-off-busy-tree"
+    },
+    {
+      "hoverAt": {
+        "x": 0.06,
+        "y": 0.18
+      }
+    },
+    {
+      "wait": 0.8
+    },
+    {
+      "shot": "compact-off-busy-hover-row"
+    },
+    {
+      "key": ",",
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 2.0
+    },
+    {
+      "shot": "compact-off-settings"
+    },
+    {
+      "tree": "compact-off-settings-tree"
+    },
+    {
+      "key": "w",
+      "modifiers": [
+        "command"
+      ]
+    },
+    {
+      "wait": 1.0
+    },
+    {
+      "shot": "compact-off-busy-final"
+    }
+  ]
+}

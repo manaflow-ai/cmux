@@ -74,6 +74,16 @@ cmux for iOS is a companion app for the cmux macOS terminal. The reviewer does
 not need to own or install cmux on a Mac. We have prepared a review Mac that is
 already online and signed in to this demo account.
 
+Prior review resolutions:
+- Guideline 2.5.2 was resolved in the prior review (submission
+  99c2f5b0-5940-41d4-a02b-fd222d2eeeca). The iOS app does not download or
+  execute executable code on the iPhone or iPad. It streams terminal UI and
+  input to the prepared remote Mac; command execution occurs on that Mac.
+- The earlier Guideline 2.1(a) access concern was addressed with the
+  server-flagged Demo Mac and the prepared review Mac described below. The Demo
+  Mac is available immediately after sign-in, while the prepared Mac verifies
+  the live pairing path.
+
 Demo account:
 - Use the demo account email in the App Review demo account field.
 - There is no password. The app emails a one-time sign-in code.
@@ -120,8 +130,17 @@ Optional permissions:
 - Notifications are optional and can be enabled or disabled from the app.
 
 Payments:
-- This App Store build has no purchase, upgrade, checkout, or billing-management
-  links. Existing paid access from web or desktop accounts is read-only.
+- cmux Go, Pro, and Max are monthly auto-renewable subscriptions in the
+  subscription group "cmux Plans", sold only through In-App Purchase.
+- To review them, open Settings > Account > Plan (or Cloud > Upgrade). The plans
+  screen shows each plan with its App Store price, Restore Purchases, Manage
+  Subscription, the auto-renewal terms, and links to the Terms of Use and
+  Privacy Policy.
+- Purchases use the Sandbox Apple Account on the review device. The server
+  verifies the signed transaction and grants the plan to the signed-in cmux
+  account. The demo account has no web subscription, so the purchase buttons
+  are enabled.
+- The app has no Stripe, external checkout, or external billing links.
 
 Support during review:
 - Contact <REVIEW_CONTACT_EMAIL> or <REVIEW_CONTACT_PHONE> if the prepared Mac

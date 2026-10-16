@@ -84,8 +84,8 @@ struct SimStreamVideoRoundTripTests {
 
         // Round-trip config and frames through the wire codec, as the network
         // would.
-        let decodedConfigMessage = try SimStreamWireCodec.decode(
-            SimStreamWireCodec.encode(.config(config!)))
+        let decodedConfigMessage = try SimStreamWireCodec().decode(
+            SimStreamWireCodec().encode(.config(config!)))
         guard case .config(let wireConfig) = decodedConfigMessage else {
             Issue.record("expected config")
             return
@@ -97,8 +97,8 @@ struct SimStreamVideoRoundTripTests {
         var decodedCount = 0
 
         for wireFrame in wireFrames {
-            let decodedMessage = try SimStreamWireCodec.decode(
-                SimStreamWireCodec.encode(.frame(wireFrame)))
+            let decodedMessage = try SimStreamWireCodec().decode(
+                SimStreamWireCodec().encode(.frame(wireFrame)))
             guard case .frame(let received) = decodedMessage else {
                 Issue.record("expected frame")
                 return

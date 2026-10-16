@@ -110,6 +110,8 @@ struct SurfaceInsight: Identifiable {
             return "doc"
         case .rightSidebarTool:
             return "sidebar.right"
+        case .agentSession:
+            return "sparkles"
         case .project:
             return "folder"
         case .unknown:

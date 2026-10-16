@@ -172,6 +172,30 @@ struct CmxIrohCustomPrivatePathStoreTests {
     }
 
     @Test
+    func enabledPathsJoinOnlyToMatchingPublishedFamilyPorts() throws {
+        let profile = try CmxIrohNetworkProfileKey(
+            source: .customVPN,
+            profileID: opaqueProfileID("private-path")
+        )
+        let paths = try ["10.0.0.8", "fd00::8", "10.0.0.8"].map {
+            try CmxIrohCustomPrivatePathBootstrap(
+                address: CmxIrohCustomPrivateAddress($0),
+                networkProfile: profile
+            )
+        }
+        let ipv4Only = try CmxIrohDirectPorts(ipv4: 49152)
+
+        #expect(CmxIrohCustomPrivatePathBootstrap.dialAddresses(
+            paths,
+            directPorts: ipv4Only
+        ) == ["10.0.0.8:49152"])
+        #expect(CmxIrohCustomPrivatePathBootstrap.dialAddresses(
+            paths,
+            directPorts: try CmxIrohDirectPorts(ipv4: 49152, ipv6: 49153)
+        ) == ["10.0.0.8:49152", "[fd00::8]:49153"])
+    }
+
+    @Test
     func composerChangesGenerationWhenEitherAuthorityChanges() async throws {
         let platformProfile = try CmxIrohNetworkProfileKey(
             source: .tailscale,

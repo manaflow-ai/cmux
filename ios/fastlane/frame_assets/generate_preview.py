@@ -14,7 +14,7 @@ import os
 import re
 import sys
 
-PRIO = ["en-US", "ja"]
+PRIO = ["en-US", "de-DE", "fr-FR", "ar-SA", "es-ES", "zh-Hant", "zh-Hans", "ko", "ja"]
 
 
 def main():

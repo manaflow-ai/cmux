@@ -718,9 +718,18 @@ mod tests {
         let replay = dispatch(&mux, report_request("agent-report-once")).unwrap();
         assert_eq!(replay["replayed"], true);
         assert_eq!(replay["value"], first["value"]);
+        let revision_after_first = first["revision"].as_str().unwrap().parse::<u64>().unwrap();
+        let epoch_after_first = mux.resource_event_epoch();
         let repeated = dispatch(&mux, report_request("agent-report-twice")).unwrap();
-        assert_eq!(repeated["replayed"], false);
-        assert_eq!(repeated["value"]["id"], first["value"]["id"]);
+        assert_eq!(repeated["replayed"], true);
+        assert_eq!(repeated["revision"], revision_after_first.to_string());
+        assert_eq!(repeated["value"], first["value"]);
+        assert_eq!(mux.resource_event_epoch(), epoch_after_first);
+        assert_eq!(
+            mux.with_state(|state| state.resource_revision),
+            revision_after_first,
+            "a same-state socket report must not advance the shared revision"
+        );
         assert!(
             !first["value"]["id"]
                 .as_str()
@@ -741,6 +750,18 @@ mod tests {
         .unwrap();
         assert_eq!(listed.as_array().unwrap().len(), 1);
         assert_eq!(listed[0]["id"], first["value"]["id"]);
+    }
+
+    #[test]
+    fn public_agent_report_rejects_internal_plugin_and_detected_sources() {
+        for source in ["plugin", "detected"] {
+            assert!(
+                parse_agent_source(source).is_err(),
+                "{source} is an internal projection source"
+            );
+        }
+        assert!(parse_agent_source("hook").is_ok());
+        assert!(parse_agent_source("socket").is_ok());
     }
 
     #[test]

@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "CmuxMobileTransport",
     platforms: [
-        .iOS(.v18),
+        .iOS(.v17),
         .macOS(.v14),
     ],
     products: [

@@ -4,8 +4,8 @@ import UIKit
 @testable import CmuxMobileShellUI
 
 /// SwiftUI does not register a represented UIKit table with its enclosing
-/// bars. These tests pin the controller contract that makes the soft scroll
-/// edge effect render without taking inset or offset ownership from UIKit.
+/// bars. These tests pin the small bridge that makes the soft scroll edge
+/// effect render while UIKit retains safe-area, inset, and offset ownership.
 @MainActor
 @Suite struct WorkspaceListScrollEdgeEffectTests {
     @Test func hostedTableDrivesNavigationAndTabBarScrollEdgeEffects() throws {

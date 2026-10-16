@@ -224,6 +224,56 @@ final class SearchIndexTests: XCTestCase {
         )
     }
 
+    func testSearchFindsTerminalScrollbackAndClosePurgesItWithTheTitleDocument() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+
+        let index = try SearchIndex(databaseURL: fixture.databaseURL)
+        let windowID = UUID()
+        let workspaceID = UUID()
+        let panelID = UUID()
+
+        try await index.upsert(
+            SearchIndexDocument(
+                id: SearchIndexDocument.panelStableID(panelID: panelID, kind: .title),
+                windowID: windowID,
+                workspaceID: workspaceID,
+                panelID: panelID,
+                kind: .title,
+                title: "agent — zsh",
+                location: "Window > Workspace",
+                anchor: "title",
+                text: "agent — zsh"
+            )
+        )
+        try await index.upsert(
+            SearchIndexDocument(
+                id: SearchIndexDocument.panelStableID(panelID: panelID, kind: .terminal),
+                windowID: windowID,
+                workspaceID: workspaceID,
+                panelID: panelID,
+                kind: .terminal,
+                title: "agent — zsh",
+                location: "Window > Workspace",
+                anchor: "terminal",
+                text: "npm ERR! elderberry module not found"
+            )
+        )
+
+        let hits = try await index.search("elderberry", limit: 10)
+        XCTAssertEqual(hits.map(\.kind), [.terminal])
+        XCTAssertEqual(hits.first?.panelID, panelID)
+
+        // Closing the panel purges every document it owns, scrollback included,
+        // so a stale hit can no longer route to a surface that is gone.
+        try await index.deletePanel(panelID)
+
+        let scrollbackHitsAfterClose = try await index.search("elderberry", limit: 10)
+        XCTAssertEqual(scrollbackHitsAfterClose, [])
+        let titleHitsAfterClose = try await index.search("zsh", limit: 10)
+        XCTAssertEqual(titleHitsAfterClose, [])
+    }
+
     func testDeletePanelRemovesIndexedDocuments() async throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }

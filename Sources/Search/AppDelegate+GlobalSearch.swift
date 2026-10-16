@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminal
 import Foundation
 
 extension AppDelegate {
@@ -187,6 +188,8 @@ extension AppDelegate {
                 applyBrowserInlineSearch(query: query, hit: hit, to: browserPanel)
             } else if let markdownPanel = workspace.markdownPanel(for: panelID) {
                 applyMarkdownInlineSearch(query: query, hit: hit, to: markdownPanel)
+            } else if hit.kind == .terminal, let terminalPanel = workspace.terminalPanel(for: panelID) {
+                applyTerminalInlineSearch(query: query, hit: hit, to: terminalPanel)
             }
         }
     }
@@ -203,6 +206,14 @@ extension AppDelegate {
     private func applyMarkdownInlineSearch(query: String, hit: SearchIndexHit, to panel: MarkdownPanel) {
         guard let needle = GlobalSearchInlineSearch.needle(for: query, hit: hit) else { return }
         panel.applySearchNeedle(needle)
+    }
+
+    /// Opens the surface find bar on the needle, the same entry point Cmd+F
+    /// uses. Ghostty searches screen and history on its own thread, scrolls to
+    /// the match and highlights it.
+    private func applyTerminalInlineSearch(query: String, hit: SearchIndexHit, to panel: TerminalPanel) {
+        guard let needle = GlobalSearchInlineSearch.needle(for: query, hit: hit) else { return }
+        _ = startOrFocusTerminalSearch(panel.surface, initialNeedle: needle)
     }
 }
 

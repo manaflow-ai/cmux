@@ -19,4 +19,8 @@ public struct TerminalRenderedFrameDeliveryReasons: OptionSet, Sendable {
 
     /// Refresh only the surface's keyboard-copy cursor overlay.
     public static let keyboardCopyModeCursor = Self(rawValue: 1 << 1)
+
+    /// Retire predicted-echo glyphs whose character is now painted, and
+    /// reposition the rest. Requested only while a prediction is on screen.
+    public static let predictedEcho = Self(rawValue: 1 << 2)
 }

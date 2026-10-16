@@ -37,6 +37,7 @@ import {
 import {
   IROH_ALPN,
   IROH_CHALLENGE_LIFETIME_MS,
+  IROH_MIN_REGISTRATION_SPACING_MS,
   IROH_ENDPOINT_ATTESTATION_LIFETIME_SECONDS,
   IROH_ENDPOINT_ATTESTATION_SCOPE,
   IROH_ENDPOINT_ATTESTATION_VERSION,
@@ -531,6 +532,10 @@ export function makeIrohTrustBroker(
       return {
         revision: registration.accountRevision,
         binding: publicBinding(registration.binding, now, savedCustomRelayURLs),
+        // Server-owned publication policy. Clients that read it space their
+        // own publications; older clients ignore the field and meet the same
+        // floor as a 429 at challenge mint time.
+        minimum_publication_spacing_seconds: IROH_MIN_REGISTRATION_SPACING_MS / 1_000,
         relay,
         discovery,
         discovery_complete: request.discoveryScope

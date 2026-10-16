@@ -29,6 +29,7 @@ enum WorkspaceListConnectionChrome: Equatable {
         connectionRequiresReauth: Bool,
         connectionRecoveryFailed: Bool,
         isRecoveringConnection: Bool,
+        isRecoveringWorkspaceList: Bool = false,
         connectionStatus: MobileMacConnectionStatus,
         tailscalePairingRequired: Bool = false,
         isInitialConnectionLoading: Bool = false,
@@ -37,6 +38,8 @@ enum WorkspaceListConnectionChrome: Equatable {
     ) {
         if hasStore && connectionRequiresReauth {
             self = .recoveryBanner
+        } else if isRecoveringWorkspaceList {
+            self = .statusLine(.reconnecting)
         } else if hasStore && tailscalePairingRequired && !hasLiveTransportPath {
             // Keep the workspace content visible while directing the user to
             // the scanner from the existing reconnect action. Tailscale setup
@@ -64,6 +67,12 @@ enum WorkspaceListConnectionChrome: Equatable {
     var statusLine: WorkspaceConnectionStatusLine? {
         if case .statusLine(let line) = self { return line }
         return nil
+    }
+
+    /// The empty-state actions are only useful when the list is idle. During
+    /// an active reconnect, the picker status line owns the recovery surface.
+    var showsWorkspaceEmptyState: Bool {
+        self != .statusLine(.reconnecting)
     }
 
     /// Whether the toolbar shows the Mac-update hint indicator. The hint is a

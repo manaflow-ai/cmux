@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import CmuxSettings
 
 @MainActor
 final class AgentSessionProcessStore {
@@ -21,17 +22,19 @@ final class AgentSessionProcessStore {
             throw AgentSessionBridgeError.sessionAlreadyRunning
         }
         let sessionId = UUID().uuidString
-        let process = Process()
         let launchArguments = plan.arguments
-        let launchEnvironment = plan.environment(overridingWorkingDirectory: workingDirectory)
-        process.executableURL = plan.executableURL
-        process.arguments = launchArguments
-        process.environment = launchEnvironment
-        if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !workingDirectory.isEmpty {
-            process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory, isDirectory: true)
-                .standardizedFileURL
+        var launchEnvironment = plan.environment(overridingWorkingDirectory: workingDirectory)
+        if AutomationCatalogSection().canonicalAgentScratch.value(in: .standard) {
+            let scratchDirectory = try AgentSessionScratchDirectory.prepare(
+                sessionID: sessionId,
+                provider: plan.provider
+            )
+            launchEnvironment["TMPDIR"] = scratchDirectory.path
+            launchEnvironment["CMUX_AGENT_ARTIFACT_ROOT"] = scratchDirectory.path
         }
+        let process = try AgentSessionOwnedProcessLauncher().prepare(
+            plan: plan, workingDirectory: workingDirectory, environment: launchEnvironment
+        )
 
         let stdin = Pipe()
         let stdout = Pipe()
@@ -145,11 +148,13 @@ final class AgentSessionProcessStore {
         guard let session = sessions[sessionId] else {
             throw AgentSessionBridgeError.sessionNotFound(sessionId)
         }
+        session.stopRequested = true
         requestTermination(for: session)
     }
 
     func closeAll() {
         for session in sessions.values {
+            session.stopRequested = true
             requestTermination(for: session)
         }
     }
@@ -157,18 +162,30 @@ final class AgentSessionProcessStore {
     private func makeReadTask(_ fileHandle: FileHandle, sessionId: String, stream: String) -> Task<Void, Never> {
         Task.detached(priority: .utility) { [weak self] in
             while !Task.isCancelled {
-                let data: Data
-                do {
-                    data = try fileHandle.read(upToCount: 64 * 1024) ?? Data()
-                } catch {
-                    data = Data()
-                }
-
+                let data = Self.readAvailableOutput(from: fileHandle.fileDescriptor)
                 await self?.consumeOutputData(data, sessionId: sessionId, stream: stream)
                 if data.isEmpty {
                     return
                 }
             }
+        }
+    }
+
+    /// Whatever the provider has written so far, up to 64 KB; empty at end
+    /// of file or on a read error. `FileHandle.read(upToCount:)` waits for
+    /// the full count on a pipe, which held a running agent's replies back
+    /// until it exited.
+    nonisolated private static func readAvailableOutput(from fileDescriptor: Int32) -> Data {
+        var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+        while true {
+            let count = buffer.withUnsafeMutableBytes { Darwin.read(fileDescriptor, $0.baseAddress, $0.count) }
+            if count > 0 {
+                return Data(buffer[..<count])
+            }
+            if count < 0, errno == EINTR {
+                continue
+            }
+            return Data()
         }
     }
 
@@ -201,7 +218,8 @@ final class AgentSessionProcessStore {
         emitExit(
             sessionId: session.sessionId,
             providerID: session.providerID,
-            status: status
+            status: status,
+            stopRequested: session.stopRequested
         )
     }
 
@@ -215,7 +233,8 @@ final class AgentSessionProcessStore {
         emitExit(
             sessionId: session.sessionId,
             providerID: session.providerID,
-            status: status
+            status: status,
+            stopRequested: session.stopRequested
         )
     }
 
@@ -392,7 +411,8 @@ final class AgentSessionProcessStore {
                 self.emitExit(
                     sessionId: session.sessionId,
                     providerID: session.providerID,
-                    status: 1
+                    status: 1,
+                    stopRequested: false
                 )
             }
         }
@@ -480,12 +500,23 @@ final class AgentSessionProcessStore {
                 throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.opencode.displayName)
             }
 
+            // Split lines by hand: `bytes.lines` skips the blank line that ends an event.
             var parser = OpenCodeEventStreamParser()
-            for try await line in bytes.lines {
+            var line: [UInt8] = []
+            for try await byte in bytes {
                 guard !Task.isCancelled else { return }
-                for event in parser.consumeLine(line) {
+                guard byte == UInt8(ascii: "\n") else {
+                    // Past the parser's 1 MiB event cap the line is dropped as invalid anyway.
+                    if line.count <= 1024 * 1024 { line.append(byte) }
+                    continue
+                }
+                for event in parser.consumeLine(String(decoding: line, as: UTF8.self)) {
                     await handleEvent(event)
                 }
+                line.removeAll(keepingCapacity: true)
+            }
+            for event in parser.consumeLine(String(decoding: line, as: UTF8.self)) {
+                await handleEvent(event)
             }
             for event in parser.flush() {
                 await handleEvent(event)
@@ -662,13 +693,15 @@ final class AgentSessionProcessStore {
     private func emitExit(
         sessionId: String,
         providerID: AgentSessionProviderID,
-        status: Int32
+        status: Int32,
+        stopRequested: Bool
     ) {
         eventSink?([
             "type": "provider.exit",
             "sessionId": sessionId,
             "providerId": providerID.rawValue,
-            "status": status
+            "status": status,
+            "stopRequested": stopRequested
         ])
     }
 

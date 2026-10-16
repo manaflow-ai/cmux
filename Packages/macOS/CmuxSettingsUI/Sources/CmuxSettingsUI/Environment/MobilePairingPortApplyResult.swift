@@ -3,9 +3,8 @@ import Foundation
 /// The result of an explicit "Apply" of the iOS pairing port from the Mobile
 /// settings section.
 ///
-/// The Mobile section uses this to render inline feedback. The host checks
-/// whether the port can be bound *before* disturbing a running listener, so a
-/// conflict leaves existing connections intact (``portInUse``).
+/// The result drives inline feedback. The IROH owner saves a new preference
+/// for its next start so changing this setting leaves current sessions intact.
 public enum MobilePairingPortApplyResult: Sendable, Equatable {
     /// The port was accepted; the listener is (or will be) bound to it.
     case applied(port: Int)
@@ -14,7 +13,7 @@ public enum MobilePairingPortApplyResult: Sendable, Equatable {
     /// untouched (still on its current port).
     case portInUse(requestedPort: Int)
 
-    /// Pairing is off, so the port was saved and will bind when pairing is on.
+    /// The port was saved for the next pairing start.
     case savedForLater(port: Int)
 
     /// The requested port was outside the valid `1...65535` range.

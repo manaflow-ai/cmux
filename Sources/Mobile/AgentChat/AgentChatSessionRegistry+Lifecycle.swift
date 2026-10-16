@@ -1,6 +1,7 @@
 import CMUXAgentLaunch
 import CmuxAgentChat
 import CmuxFoundation
+import CmuxMobileHost
 import Foundation
 
 /// A coding-agent session discovered by observing the process table, with no
@@ -82,6 +83,19 @@ extension AgentChatSessionRegistry {
         if stateIsEnded(previous), event.hookEventName != .sessionStart {
             return .ended
         }
+        // Claude emits AskUserQuestion and ExitPlanMode through PreToolUse.
+        // Feed telemetry for that hook arrives before the dedicated journal
+        // event, so treating every PreToolUse as working briefly overwrites
+        // the blocking state and leaves the sidebar waiting for Claude's
+        // delayed idle notification. Preserve the needs-input state at the
+        // first hook hop; PermissionRequest/Notification still converge on
+        // the same state in permission modes that emit them.
+        if event.source == "claude",
+           event.hookEventName == .preToolUse,
+           let toolName = event.toolName,
+           toolName == "AskUserQuestion" || toolName == "ExitPlanMode" {
+            return .needsInput(since: event.receivedAt)
+        }
         switch event.hookEventName {
         case .sessionStart:
             return .idle
@@ -93,12 +107,18 @@ extension AgentChatSessionRegistry {
             // is idle, so it must not create a synthetic working state.
             return previous
         case .permissionRequest, .askUserQuestion, .exitPlanMode, .notification:
+            // Structured idle reminders are informational regardless of
+            // whether a new prompt has already made the session working, and
+            // must never reopen Needs input or overwrite a later state.
+            if event.hookEventName == .notification, event.isIdleReminder {
+                return previous
+            }
             if case .needsInput = previous { return previous }
             return .needsInput(since: event.receivedAt)
         case .stop:
             return .idle
         case .subagentStart, .subagentStop:
-            // Task subagent lifecycle says nothing about the parent
+            // Subagent lifecycle says nothing about the parent
             // session's activity; keep the current state.
             return previous
         case .sessionEnd:
@@ -112,4 +132,5 @@ extension AgentChatSessionRegistry {
         }
         return false
     }
+
 }

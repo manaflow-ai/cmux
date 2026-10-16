@@ -9,7 +9,7 @@ extension CMUXCLI {
             name: "codex", displayName: "Codex", statusKey: "codex",
             configDir: ".codex", configFile: "hooks.json", configDirEnvOverride: "CODEX_HOME",
             sessionStoreSuffix: "codex", disableEnvVar: "CMUX_CODEX_HOOKS_DISABLED",
-            hookMarker: "cmux hooks codex", format: .nested(timeoutMs: 5),
+            hookMarker: "cmux hooks codex", format: .nested(timeoutMs: agentHookDeclaredTimeoutMilliseconds),
             events: [
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
@@ -48,6 +48,7 @@ extension CMUXCLI {
         AgentHookDef(
             name: "opencode", displayName: "OpenCode", statusKey: "opencode",
             configDir: ".config/opencode", configFile: "plugins/cmux-session.js", configDirEnvOverride: "OPENCODE_CONFIG_DIR",
+            configDirResolver: { OpenCodePaths(environment: ProcessInfo.processInfo.environment).configDirectory.path },
             sessionStoreSuffix: "opencode", disableEnvVar: "CMUX_OPENCODE_HOOKS_DISABLED",
             hookMarker: "cmux hooks opencode", format: .flat,
             events: []
@@ -93,7 +94,11 @@ extension CMUXCLI {
                 .init(agentEvent: "beforeSubmitPrompt", cmuxSubcommand: "prompt-submit"),
                 .init(agentEvent: "stop", cmuxSubcommand: "stop"),
                 .init(agentEvent: "afterAgentResponse", cmuxSubcommand: "agent-response"),
-                .init(agentEvent: "beforeShellExecution", cmuxSubcommand: "shell-exec"),
+                .init(
+                    agentEvent: "beforeShellExecution",
+                    cmuxSubcommand: "shell-exec",
+                    delivery: .direct
+                ),
                 .init(agentEvent: "afterShellExecution", cmuxSubcommand: "shell-done"),
                 .init(
                     agentEvent: "postToolUseFailure",
@@ -252,6 +257,25 @@ extension CMUXCLI {
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
             feedHookEvents: ["PreToolUse", "PostToolUse"]
+        ),
+        AgentHookDef(
+            name: "muse", displayName: "Muse Code", statusKey: "muse",
+            configDir: ".config/muse", configFile: "settings.json",
+            configDirEnvOverride: "XDG_CONFIG_HOME", configDirEnvOverrideSubpath: "muse",
+            createConfigDirIfMissing: true,
+            sessionStoreSuffix: "muse", disableEnvVar: "CMUX_MUSE_HOOKS_DISABLED",
+            hookMarker: "cmux hooks muse", format: .nested(timeoutMs: 10_000),
+            events: [
+                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
+                .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
+                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
+                .init(agentEvent: "StopFailure", cmuxSubcommand: "notification"),
+                .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
+                .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
+            ],
+            // Muse runs hooks with a cleared environment, so hooks reach cmux
+            // through the installing CLI and socket.
+            dispatch: .pinned(marker: "cmux-muse-hook-v1")
         ),
     ]
 

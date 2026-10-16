@@ -23,7 +23,7 @@ if (!["default", "freestyle"].includes(provider)) {
 }
 
 const requireFromWeb = createRequire(path.join(webDir, "package.json"));
-const stackModule = await import(pathToFileURL(requireFromWeb.resolve("@stackframe/js")).href);
+const stackModule = await import(pathToFileURL(requireFromWeb.resolve("@hexclave/js")).href);
 const { StackServerApp } = stackModule;
 
 const env = loadTargetEnv(project);

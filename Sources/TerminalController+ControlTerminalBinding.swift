@@ -33,12 +33,23 @@ struct ControlTerminalSocketTarget {
         return surface.sendInputResult(text)
     }
 
+    /// Resumes a hibernated agent for a remote viewer's attach. Like explicit
+    /// input, this goes through the panel only when both owners agree.
+    func resumeAgentHibernationForRemoteAttach() {
+        guard surface === panel.surface else { return }
+        panel.resumeAgentHibernationForRemoteAttach()
+    }
+
     /// Sends a bracketed-paste payload through the canonical surface.
     func sendText(_ text: String) -> Bool {
+        sendTextResult(text).accepted
+    }
+
+    func sendTextResult(_ text: String) -> TerminalSurface.TextSendResult {
         if surface === panel.surface {
-            return panel.sendText(text)
+            return panel.sendTextResult(text)
         }
-        return surface.sendText(text)
+        return surface.sendTextResult(text)
     }
 
     /// Sends a named key through the canonical surface, retaining the panel's
@@ -225,7 +236,9 @@ extension TerminalController {
                 inWindow: terminalTarget?.surface.isViewInWindow
                     ?? terminalPanel.surface.isViewInWindow,
                 socketBindingRawValue: terminalTarget?.bindingState.rawValue
-                    ?? ControlTerminalSocketBindingState.unavailable.rawValue
+                    ?? ControlTerminalSocketBindingState.unavailable.rawValue,
+                renderHealthRawValue: terminalTarget?.surface.renderHealth.rawValue
+                    ?? terminalPanel.surface.renderHealth.rawValue
             )
         }
         let inWindow = (panel as? BrowserPanel).map { $0.webView.window != nil }

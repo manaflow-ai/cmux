@@ -51,7 +51,9 @@ public final class CmuxResolvedIconRenderer {
         }
         appearance.performAsCurrentDrawingAppearance {
             for candidate in sources {
-                guard let sourceImage = resolvedSourceImage(for: candidate.source, request: request),
+                guard let sourceImage = resolvedSourceImage(
+                    for: candidate.source, request: request, isTinted: candidate.tintColor != nil
+                ),
                       let bitmap = bitmapRepresentation(size: imageSize) else {
                     continue
                 }
@@ -66,7 +68,11 @@ public final class CmuxResolvedIconRenderer {
                 NSRect(origin: .zero, size: imageSize).fill()
                 NSGraphicsContext.current?.imageInterpolation = .high
 
-                let drawRect = drawingRect(for: sourceImage.size, in: imageSize)
+                let drawRect = drawingRect(
+                    for: sourceImage.size,
+                    in: imageSize,
+                    preservesNaturalSize: request.drawsSymbolAtNaturalSize(candidate.source)
+                )
                 sourceImage.draw(
                     in: drawRect,
                     from: .zero,
@@ -85,8 +91,11 @@ public final class CmuxResolvedIconRenderer {
                     tintColor.setFill()
                     NSRect(origin: .zero, size: imageSize).fill(using: .sourceIn)
                 }
-                let isVisible = containsVisiblePixels(in: bitmap)
+                graphicsContext.flushGraphics()
                 NSGraphicsContext.restoreGraphicsState()
+                let isVisible = request.centersVisibleContent
+                    ? centerVisiblePixels(in: bitmap)
+                    : containsVisiblePixels(in: bitmap)
                 guard isVisible else {
                     failure = .blankOutput
                     continue
@@ -117,7 +126,8 @@ public final class CmuxResolvedIconRenderer {
 
     private func resolvedSourceImage(
         for source: CmuxResolvedIconSource,
-        request: CmuxResolvedIconRequest
+        request: CmuxResolvedIconRequest,
+        isTinted: Bool
     ) -> NSImage? {
         switch source {
         case .systemSymbol(let name, let accessibilityDescription):
@@ -127,11 +137,17 @@ public final class CmuxResolvedIconRenderer {
             ) else {
                 return nil
             }
-            let pointSize = max(1, min(request.size.width, request.size.height))
-            let configuration = NSImage.SymbolConfiguration(
+            let pointSize = max(1, request.symbolPointSize ?? min(request.size.width, request.size.height))
+            var configuration = NSImage.SymbolConfiguration(
                 pointSize: pointSize,
                 weight: request.symbolWeight
             )
+            if isTinted {
+                // Tinting consumes alpha only. Multicolor symbols may paint
+                // an opaque interior glyph, which would become a solid shape.
+                // Monochrome preserves that glyph as a transparent cutout.
+                configuration = configuration.applying(.preferringMonochrome())
+            }
             let configured = baseImage.withSymbolConfiguration(configuration) ?? baseImage
             let image = copiedImage(configured)
             return image
@@ -183,6 +199,58 @@ public final class CmuxResolvedIconRenderer {
         return false
     }
 
+    /// Shifts the bitmap by whole pixels so its visible bounds split the
+    /// leftover space evenly. An odd leftover pixel goes to the right and
+    /// bottom, so the glyph never reads low or left of center.
+    /// - Returns: `false` when the bitmap has no visible pixels.
+    private func centerVisiblePixels(in bitmap: NSBitmapImageRep) -> Bool {
+        guard let data = bitmap.bitmapData,
+              !bitmap.isPlanar,
+              bitmap.samplesPerPixel == 4,
+              bitmap.bitsPerPixel == 32 else {
+            return containsVisiblePixels(in: bitmap)
+        }
+        let width = bitmap.pixelsWide
+        let height = bitmap.pixelsHigh
+        let rowBytes = bitmap.bytesPerRow
+        let alphaOffset = bitmap.bitmapFormat.contains(.alphaFirst) ? 0 : 3
+        // Matches the 0.01 alpha floor used by `containsVisiblePixels`.
+        let visibleAlpha: UInt8 = 2
+        var minX = width, maxX = -1, minY = height, maxY = -1
+        for y in 0..<height {
+            let row = data + y * rowBytes
+            for x in 0..<width where row[x * 4 + alphaOffset] > visibleAlpha {
+                minX = min(minX, x)
+                maxX = max(maxX, x)
+                minY = min(minY, y)
+                maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= 0 else { return false }
+        // Row 0 of `bitmapData` is the top row.
+        let dx = (width - (maxX - minX + 1)) / 2 - minX
+        let dy = (height - (maxY - minY + 1)) / 2 - minY
+        guard dx != 0 || dy != 0 else { return true }
+        let byteCount = rowBytes * height
+        let original = Data(bytes: data, count: byteCount)
+        data.update(repeating: 0, count: byteCount)
+        let sourceX = max(0, -dx)
+        let destinationX = max(0, dx)
+        let spanBytes = (width - abs(dx)) * 4
+        original.withUnsafeBytes { source in
+            guard let source = source.baseAddress, spanBytes > 0 else { return }
+            for destinationY in max(0, dy)..<min(height, height + dy) {
+                let sourceY = destinationY - dy
+                (data + destinationY * rowBytes + destinationX * 4).update(
+                    from: source.advanced(by: sourceY * rowBytes + sourceX * 4)
+                        .assumingMemoryBound(to: UInt8.self),
+                    count: spanBytes
+                )
+            }
+        }
+        return true
+    }
+
     private func normalizedSize(_ size: NSSize) -> NSSize? {
         guard size.width.isFinite,
               size.height.isFinite,
@@ -193,14 +261,24 @@ public final class CmuxResolvedIconRenderer {
         return NSSize(width: ceil(size.width), height: ceil(size.height))
     }
 
-    private func drawingRect(for sourceSize: NSSize, in targetSize: NSSize) -> NSRect {
+    /// Fits `sourceSize` into `targetSize`. With `preservesNaturalSize`, the
+    /// source keeps its own size (centered) unless it overflows the target,
+    /// matching how a configured SF Symbol lays out at its point size.
+    private func drawingRect(
+        for sourceSize: NSSize,
+        in targetSize: NSSize,
+        preservesNaturalSize: Bool = false
+    ) -> NSRect {
         guard sourceSize.width.isFinite,
               sourceSize.height.isFinite,
               sourceSize.width > 0,
               sourceSize.height > 0 else {
             return NSRect(origin: .zero, size: targetSize)
         }
-        let scale = min(targetSize.width / sourceSize.width, targetSize.height / sourceSize.height)
+        var scale = min(targetSize.width / sourceSize.width, targetSize.height / sourceSize.height)
+        if preservesNaturalSize {
+            scale = min(scale, 1)
+        }
         let width = sourceSize.width * scale
         let height = sourceSize.height * scale
         return NSRect(

@@ -64,6 +64,23 @@ private extension DockSplitStore {
         bindSurface(tabId, toPanelId: panel.id)
         return panel
     }
+
+    @discardableResult
+    func seedBrowserTestPanel(_ panel: BrowserPanel) throws -> BrowserPanel {
+        let pane = try #require(bonsplitController.allPaneIds.first)
+        panels[panel.id] = panel
+        let tabId = try #require(
+            bonsplitController.createTab(
+                title: panel.displayTitle,
+                icon: panel.displayIcon,
+                kind: "browser",
+                isDirty: panel.isDirty,
+                inPane: pane
+            )
+        )
+        bindSurface(tabId, toPanelId: panel.id)
+        return panel
+    }
 }
 
 /// Per-window Dock registry lifecycle: every main window owns an independent
@@ -98,6 +115,140 @@ struct WindowDockLifecycleTests {
             AppDelegate.shared = previousAppDelegate
         }
         try body(appDelegate)
+    }
+
+    @Test("Dock toolbar creation claims keyboard focus for the owning window")
+    @MainActor
+    func dockToolbarCreationClaimsKeyboardFocus() throws {
+        try withIsolatedAppDelegate { appDelegate in
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            dock.newInFocusedPane(kind: .terminal)
+
+            #expect(
+                appDelegate.focusedDockStoreForShortcut(preferredWindow: nil) === dock,
+                "Creating a surface from the Dock toolbar must make the Dock the next keyboard target"
+            )
+        }
+    }
+
+    @Test("Dock pane selection claims keyboard focus for the owning window")
+    @MainActor
+    func dockPaneSelectionClaimsKeyboardFocus() throws {
+        try withIsolatedAppDelegate { appDelegate in
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            let pane = try #require(dock.resolvePane(requestedPaneID: nil))
+            let panelId = try #require(
+                dock.newSurface(kind: .terminal, inPane: pane, focus: false)
+            )
+            dock.focusPanel(panelId)
+
+            #expect(
+                appDelegate.focusedDockStoreForShortcut(preferredWindow: nil) === dock,
+                "Selecting a Dock pane must move keyboard ownership with the visual selection"
+            )
+        }
+    }
+
+    @Test("Plain Dock surface creation remains keyboard-focus neutral")
+    @MainActor
+    func plainDockSurfaceCreationRemainsKeyboardFocusNeutral() throws {
+        try withIsolatedAppDelegate { appDelegate in
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            let pane = try #require(dock.resolvePane(requestedPaneID: nil))
+            _ = dock.newSurface(kind: .terminal, inPane: pane, focus: true)
+
+            #expect(
+                appDelegate.focusedDockStoreForShortcut(preferredWindow: nil) == nil,
+                "Low-level surface creation must not steal keyboard routing from its caller"
+            )
+        }
+    }
+
+    @Test("Dock activation restores a loaded browser's address-bar focus intent")
+    @MainActor
+    func dockActivationRestoresLoadedBrowserAddressBarIntent() throws {
+        try withIsolatedAppDelegate { appDelegate in
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            let hostId = UUID()
+            dock.setVisibleInUI(true, hostId: hostId)
+            defer { dock.setVisibleInUI(false, hostId: hostId) }
+
+            let browser = try dock.seedBrowserTestPanel(
+                BrowserPanel(
+                    workspaceId: dock.workspaceId,
+                    initialURL: try #require(URL(string: "https://example.com/address")),
+                    renderInitialNavigation: false
+                )
+            )
+            browser.prepareFocusIntentForActivation(.browser(.addressBar))
+            #expect(browser.pendingAddressBarFocusRequestId == nil)
+
+            dock.focusPanelFromDockInteraction(browser.id, window: nil)
+
+            #expect(browser.preferredFocusIntentForActivation() == .browser(.addressBar))
+            #expect(browser.pendingAddressBarFocusRequestId != nil)
+        }
+    }
+
+    @Test("Dock activation restores a loaded browser's find-field focus intent")
+    @MainActor
+    func dockActivationRestoresLoadedBrowserFindFieldIntent() throws {
+        try withIsolatedAppDelegate { appDelegate in
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            let hostId = UUID()
+            dock.setVisibleInUI(true, hostId: hostId)
+            defer { dock.setVisibleInUI(false, hostId: hostId) }
+
+            let browser = try dock.seedBrowserTestPanel(
+                BrowserPanel(
+                    workspaceId: dock.workspaceId,
+                    initialURL: try #require(URL(string: "https://example.com/find")),
+                    renderInitialNavigation: false
+                )
+            )
+            browser.prepareFocusIntentForActivation(.browser(.findField))
+            #expect(browser.searchState == nil)
+
+            dock.focusPanelFromDockInteraction(browser.id, window: nil)
+
+            #expect(browser.preferredFocusIntentForActivation() == .browser(.findField))
+            #expect(browser.searchState != nil)
+        }
     }
 
     @Test("Each window gets its own independent Dock store")
@@ -262,7 +413,8 @@ struct WindowDockLifecycleTests {
     @Test("Recoverable context replacement preserves and re-adopts the window Dock")
     @MainActor
     func recoverableContextReplacementPreservesWindowDock() async throws {
-        try await AppContextSerialGate.withExclusiveAppContext {
+        let _: Void = try await AppContextSerialGate.withExclusiveAppContext {
+            () async throws -> Void in
             _ = NSApplication.shared
             let previousAppDelegate = AppDelegate.shared
             let previousActiveManager =
@@ -314,15 +466,8 @@ struct WindowDockLifecycleTests {
             #expect(appDelegate.existingWindowDocks.contains { $0 === dock })
             #expect(
                 appDelegate.recoverableMainWindowRoute(windowId: windowId)?
-                    .windowDock === dock
+                    .liveWindowDock === dock
             )
-            let recoverableSnapshot = try #require(
-                appDelegate.sessionSnapshotForTesting()?.windows.first(where: {
-                    $0.windowId == windowId
-                })
-            )
-            #expect(recoverableSnapshot.dock != nil)
-
             appDelegate.registerMainWindow(
                 replacementWindow,
                 windowId: windowId,
@@ -336,6 +481,13 @@ struct WindowDockLifecycleTests {
             #expect(appDelegate.recoverableMainWindowRoute(windowId: windowId) == nil)
             #expect(!dock.isRetired)
             #expect(dock.containsPanel(panel.id))
+
+            let recoveredSnapshot = try #require(
+                appDelegate.sessionSnapshotForTesting()?.windows.first(where: {
+                    $0.windowId == windowId
+                })
+            )
+            #expect(recoveredSnapshot.dock != nil)
 
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             #expect(!dock.isRetired)

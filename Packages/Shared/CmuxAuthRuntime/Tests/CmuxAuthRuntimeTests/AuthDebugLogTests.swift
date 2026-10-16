@@ -13,6 +13,54 @@ import Testing
         #endif
     }
 
+    #if DEBUG && os(macOS)
+    @Test func debugLineIsNotWrittenThroughASymbolicLink() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let target = directory.appendingPathComponent("target.txt")
+        try Data("original\n".utf8).write(to: target)
+        let log = directory.appendingPathComponent("cmux-auth-debug.log")
+        try FileManager.default.createSymbolicLink(at: log, withDestinationURL: target)
+
+        appendAuthDebugLineToFile("auth: line\n", path: log.path)
+
+        #expect(try String(contentsOf: target, encoding: .utf8) == "original\n")
+    }
+
+    @Test func debugLineIsNotWrittenThroughAHardLink() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let target = directory.appendingPathComponent("target.txt")
+        try Data("original\n".utf8).write(to: target)
+        let log = directory.appendingPathComponent("cmux-auth-debug.log")
+        try FileManager.default.linkItem(at: target, to: log)
+
+        appendAuthDebugLineToFile("auth: line\n", path: log.path)
+
+        #expect(try String(contentsOf: target, encoding: .utf8) == "original\n")
+    }
+
+    @Test func debugLinesAppendToAPrivateLogFile() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let log = directory.appendingPathComponent("cmux-auth-debug.log")
+
+        appendAuthDebugLineToFile("auth: first\n", path: log.path)
+        appendAuthDebugLineToFile("auth: second\n", path: log.path)
+
+        #expect(try String(contentsOf: log, encoding: .utf8) == "auth: first\nauth: second\n")
+        let permissions = try FileManager.default.attributesOfItem(atPath: log.path)[.posixPermissions] as? NSNumber
+        #expect(permissions?.intValue == 0o600)
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-auth-debug-log-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        return directory
+    }
+    #endif
+
     @Test func redactionCoversCallbackTokenQueryValues() {
         let redacted = AuthDebugLog.redacted(
             "auth.callback.complete url=cmux-dev://auth-callback?stack_refresh=refresh-secret&stack_access=access-secret&cmux_auth_state=state-secret"

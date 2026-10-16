@@ -8,6 +8,19 @@ struct OnboardingSceneContent<Visual: View>: View {
     let title: String
     let message: String
     let visual: Visual
+    let bodyLineReservation: Int
+
+    init(
+        title: String,
+        message: String,
+        visual: Visual,
+        bodyLineReservation: Int = 2
+    ) {
+        self.title = title
+        self.message = message
+        self.visual = visual
+        self.bodyLineReservation = bodyLineReservation
+    }
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -17,8 +30,13 @@ struct OnboardingSceneContent<Visual: View>: View {
         Group {
             if usesWideLayout {
                 HStack(alignment: .center, spacing: wideSpacing) {
-                    OnboardingSceneCopy(title: title, message: message, alignment: .leading)
-                        .frame(maxWidth: wideCopyMaxWidth)
+                    OnboardingSceneCopy(
+                        title: title,
+                        message: message,
+                        alignment: .leading,
+                        bodyLineReservation: bodyLineReservation
+                    )
+                    .frame(maxWidth: wideCopyMaxWidth)
                         .layoutPriority(1)
                     visual
                         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
@@ -29,8 +47,13 @@ struct OnboardingSceneContent<Visual: View>: View {
                 .frame(maxWidth: 980, maxHeight: .infinity, alignment: .top)
             } else {
                 VStack(spacing: 18) {
-                    OnboardingSceneCopy(title: title, message: message, alignment: .center)
-                        .frame(maxWidth: 560)
+                    OnboardingSceneCopy(
+                        title: title,
+                        message: message,
+                        alignment: .center,
+                        bodyLineReservation: bodyLineReservation
+                    )
+                    .frame(maxWidth: 560)
                         .layoutPriority(1)
                     visual
                         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)

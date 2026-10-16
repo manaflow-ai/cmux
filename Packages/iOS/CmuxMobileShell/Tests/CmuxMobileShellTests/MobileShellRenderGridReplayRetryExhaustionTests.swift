@@ -24,7 +24,7 @@ import Testing
     let transport = try #require(box.get())
 
     await router.holdNextReplayResponses()
-    store.requestTerminalReplay(surfaceID: surfaceID)
+    store.requestTerminalReplay(surfaceID: surfaceID, trigger: .coldAttach)
     let oldReplayInFlight = await router.waitForCount(
         of: "mobile.terminal.replay",
         atLeast: replayCountAfterMount + 1

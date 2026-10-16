@@ -706,6 +706,21 @@ func (c *Client) SubscribeWithOptions(
 	return c.openGeneratedStream(ctx, commandMetadata["subscribe"], params)
 }
 
+// URLOpenSubscribe opens a dedicated stream for URL-open requests targeted at
+// the supplied projected terminal identities.
+func (c *Client) URLOpenSubscribe(
+	ctx context.Context,
+	request URLOpenSubscribeRequest,
+) (*Stream, error) {
+	params, err := commandMap(request)
+	if err != nil {
+		return nil, fmt.Errorf("%w: encode url-open-subscribe parameters: %v", ErrInvalidArgument, err)
+	}
+	params["id"] = c.nextRequestID()
+	params["cmd"] = "url-open-subscribe"
+	return c.openGeneratedStream(ctx, commandMetadata["url-open-subscribe"], params)
+}
+
 func (c *Client) AttachSurface(
 	ctx context.Context,
 	surface ID,

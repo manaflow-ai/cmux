@@ -37,22 +37,11 @@ struct WorkspaceListSearchHost<Content: View>: View {
             content(searchText)
         } else {
             content(searchText)
-                .searchable(
-                    text: $searchText,
-                    placement: .navigationBarDrawer(displayMode: .always)
-                )
-                .searchFocused($searchIsFocused)
-                .overlay(alignment: .bottomTrailing) {
-                    if let taskComposerAction {
-                        TaskComposerButton(action: taskComposerAction)
-                            .padding(.trailing, 20)
-                            .padding(.bottom, 6)
-                            // Same keyboard exemption as the iOS 26 scaffold:
-                            // a sheet keyboard must not drag the button up.
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                            .ignoresSafeArea(.keyboard, edges: .bottom)
-                    }
-                }
+                // The explicit navigationBarDrawer placement and focus bridge
+                // used by newer shells can wedge iOS 18's first layout pass.
+                // The default placement keeps native search available without
+                // that UIKit feedback path.
+                .searchable(text: $searchText)
         }
     }
     #endif

@@ -19,6 +19,41 @@ struct CommandPaletteRenderResultRow: Identifiable, Equatable {
     let trailingLabel: CommandPaletteRenderTrailingLabel?
 }
 
+/// Result-row fill. Selection wins over hover, and hover stays quieter than
+/// selection so the pointer row never reads as the keyboard selection (white
+/// at 8% was about as bright as the accent at 12% in dark mode).
+enum CommandPaletteRowHighlight: Equatable {
+    case selected
+    case hovered
+    case plain
+
+    init(isSelected: Bool, isHovered: Bool) {
+        if isSelected {
+            self = .selected
+        } else if isHovered {
+            self = .hovered
+        } else {
+            self = .plain
+        }
+    }
+
+    var backgroundOpacity: Double {
+        switch self {
+        case .selected: return 0.12
+        case .hovered: return 0.04
+        case .plain: return 0
+        }
+    }
+
+    func backgroundColor(accent: CmuxAccentColor) -> Color {
+        switch self {
+        case .selected: return accent.color.opacity(backgroundOpacity)
+        case .hovered: return Color.primary.opacity(backgroundOpacity)
+        case .plain: return .clear
+        }
+    }
+}
+
 struct CommandPaletteCommandListRenderState: Equatable {
     var resultsVersion: UInt64 = 0
     var emptyStateText: String = ""
@@ -75,6 +110,7 @@ struct CommandPaletteCommandListRenderView: View {
 }
 
 struct CommandPaletteCommandListRowsView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let state: CommandPaletteCommandListRenderState
     let onRunResult: (String) -> Void
     @State private var hoveredIndex: Int?
@@ -106,11 +142,10 @@ struct CommandPaletteCommandListRowsView: View {
                     }
                 } else {
                     ForEach(Array(state.rows.enumerated()), id: \.element.id) { index, row in
-                        let isSelected = index == state.selectedIndex
-                        let isHovered = hoveredIndex == index
-                        let rowBackground: Color = isSelected
-                            ? cmuxAccentColor().opacity(0.12)
-                            : (isHovered ? Color.primary.opacity(0.08) : .clear)
+                        let rowBackground = CommandPaletteRowHighlight(
+                            isSelected: index == state.selectedIndex,
+                            isHovered: hoveredIndex == index
+                        ).backgroundColor(accent: cmuxAccent)
 
                         Button {
                             onRunResult(row.id)
@@ -127,8 +162,9 @@ struct CommandPaletteCommandListRowsView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .accessibilityIdentifier("CommandPaletteResultRow.\(index)")
-                        .accessibilityValue(row.id)
+                        // The command id lives in the identifier (not the spoken value)
+                        // so UI tests can find rows without VoiceOver reading internal ids.
+                        .accessibilityIdentifier("CommandPaletteResultRow.\(index).\(row.id)")
                         .onHover { hovering in
                             if hovering {
                                 hoveredIndex = index

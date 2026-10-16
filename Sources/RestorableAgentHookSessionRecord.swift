@@ -16,4 +16,6 @@ struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
     var updatedAt: TimeInterval
+    var activePromptDepth: Int?
+    var activePromptTurnIds: [String]?
 }

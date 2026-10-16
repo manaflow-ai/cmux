@@ -1,4 +1,4 @@
-/// Structured input for planning one restored process.
+/// Structured input for planning one restored or forked process.
 public struct AgentRestoreRequest: Equatable, Sendable {
     /// The restore construction mode.
     public let mode: AgentRestoreRequestMode
@@ -21,7 +21,7 @@ public struct AgentRestoreRequest: Equatable, Sendable {
     /// The last observed Claude permission mode.
     public let observedPermissionMode: String?
 
-    /// Creates a structured restore request.
+    /// Creates a structured restore or fork request.
     public init(
         mode: AgentRestoreRequestMode,
         kind: String,

@@ -135,26 +135,17 @@ extension AppDelegate {
             }
             activateBrowserHostWindow(for: manager)
             manager.focusTab(workspace.id)
-            dock.focusPanel(panel.id)
+            dock.focusPanelFromDockInteraction(panel.id, window: NSApp.keyWindow ?? NSApp.mainWindow)
             return true
 
         case .windowDock(let windowID):
             guard let dock = dock(resolving: target),
-                  dock.browserPanel(for: panel.id) === panel else {
+                  dock.browserPanel(for: panel.id) === panel,
+                  let manager = tabManagerForWindowDockOwner(windowID),
+                  TerminalController.shared.focusAndRevealWindowDock(for: dock, fallback: manager) else {
                 return false
             }
-            let preferredWindow = mainWindow(for: windowID)
-            if let manager = tabManagerFor(windowId: windowID) {
-                activateBrowserHostWindow(for: manager)
-            } else {
-                _ = focusMainWindow(windowId: windowID)
-            }
-            _ = focusRightSidebarInActiveMainWindow(
-                mode: .dock,
-                focusFirstItem: false,
-                preferredWindow: preferredWindow
-            )
-            dock.focusPanel(panel.id)
+            dock.focusPanelFromDockInteraction(panel.id, window: mainWindow(for: windowID))
             return true
         }
     }

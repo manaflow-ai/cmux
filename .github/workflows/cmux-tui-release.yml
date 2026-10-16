@@ -10,6 +10,11 @@ on:
         description: "TUI package version to build, for example 0.1.0"
         required: true
         type: string
+      include_windows:
+        description: "Include experimental Windows packages (requires registry publisher setup)"
+        required: true
+        default: false
+        type: boolean
       publish_npm:
         description: "Publish the verified npm artifacts after the build"
         required: true
@@ -40,7 +45,7 @@ concurrency:
 jobs:
   version:
     name: derive package version
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     outputs:
@@ -85,14 +90,16 @@ jobs:
       version: ${{ needs.version.outputs.version }}
       package_npm: true
       package_pypi: true
-      include_windows: true
+      include_windows: ${{ inputs.include_windows == true }}
       attest_packages: true
+      # The Cloudflare Worker is deployed separately and is not shipped in
+      # these native packages. Keep its tests in its own verification lane.
 
   dispatch-publishers:
     name: dispatch verified artifacts to registries
     if: ${{ inputs.publish_npm || inputs.publish_pypi }}
     needs: build-package
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       actions: write
       contents: read
@@ -121,8 +128,7 @@ jobs:
             local label="$2"
             local run_id=""
             local delay=2
-            local discovery_deadline=$((SECONDS + 300))
-            while (( SECONDS < discovery_deadline )); do
+            while (( SECONDS < DISCOVERY_DEADLINE )); do
               run_id="$(
                 gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" \
                   --event workflow_dispatch --limit 50 --json databaseId,headSha,headBranch,status,conclusion,createdAt \
@@ -137,8 +143,15 @@ jobs:
               (( delay = delay < 30 ? delay * 2 : 30 ))
             done
             if [[ -z "$run_id" ]]; then
-              echo "$label publisher run was not visible after dispatch" >&2
-              return 1
+              # Discovery only decorates this run's summary. The publishers were
+              # already dispatched above and validate themselves, so failing here
+              # turns a completed dispatch into a red run -- and each publisher
+              # rejects an artifact run whose conclusion is not success, which
+              # makes a fully built, verified, attested release permanently
+              # unpublishable through this path. Warn and finish instead.
+              echo "::warning::$label publisher run was not resolved before the discovery budget expired; it was dispatched and should appear in the Actions list for $workflow" >&2
+              echo "- $label publisher dispatched (run id not resolved in time)" >> "$GITHUB_STEP_SUMMARY"
+              return 0
             fi
             echo "$label publisher run dispatched: $run_id"
             echo "- $label publisher run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$run_id" >> "$GITHUB_STEP_SUMMARY"
@@ -167,6 +180,11 @@ jobs:
               echo "- Dispatched PyPI publisher"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+          # Both publishers poll THIS run and give up after 120s (24 x 5s), then
+          # require its conclusion to be success. Everything below runs after the
+          # dispatches, so it has to finish inside that window with room to
+          # spare: one budget shared by both lookups, not 300s each.
+          DISCOVERY_DEADLINE=$((SECONDS + 45))
           if [[ "$PUBLISH_NPM" == "true" ]]; then
             record_publisher tui-publish-npm.yml "npm"
           fi

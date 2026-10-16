@@ -1,0 +1,63 @@
+name: Required checks drift
+
+# The required status checks on main live in a repository ruleset, not in this
+# tree. scripts/ci/required_status_checks.py keeps a copy of that list, and
+# nothing in a pull request can tell when the two stop agreeing: an admin adds
+# a required check, no file changes, every guard stays green, and pull requests
+# start waiting on a context no workflow produces with no red check to say so.
+#
+# So this asks GitHub. It reconciles the copy against the live ruleset, and
+# checks that every required context actually reported on recently merged pull
+# request heads -- the drift in the other direction, where a renamed job leaves
+# a required name that nothing produces.
+#
+# A schedule is the trigger that matters: an admin editing protection changes
+# nothing here, so a push- or pull-request-only trigger would wait forever. The
+# push and pull_request triggers only cover edits to the copy itself.
+#
+# The reconciliation fails when it cannot read its source. That is deliberate:
+# the whole class of bug here is a guard that reports success while knowing
+# nothing, and a red scheduled run on main is the signal this repository has.
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"
+  push:
+    branches: [main]
+    paths:
+      - scripts/ci/required_status_checks.py
+      - tests/test_ci_required_checks_drift.py
+      - .github/workflows/required-checks-drift.yml
+  pull_request:
+    paths:
+      - scripts/ci/required_status_checks.py
+      - tests/test_ci_required_checks_drift.py
+      - .github/workflows/required-checks-drift.yml
+  workflow_dispatch:
+
+# Read-only. The rules endpoint this reads needs no more than the repository's
+# ordinary read scope, unlike branches/main/protection, which needs
+# `administration: read` that pull request CI must never hold.
+permissions:
+  contents: read
+
+concurrency:
+  group: required-checks-drift-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    name: Reconcile required checks with GitHub
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - name: Check out the reconciliation
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Reconcile the required status checks on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 scripts/ci/required_status_checks.py

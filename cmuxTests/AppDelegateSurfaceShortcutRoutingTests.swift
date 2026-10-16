@@ -148,8 +148,14 @@ struct AppDelegateSurfaceShortcutRoutingTests {
     }
 
     @Test func keyboardCopyModeKeyClearsTerminalUnread() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
         try await withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
+            let previousSharedAppDelegate = AppDelegate.shared
+            AppDelegate.shared = appDelegate
+            defer { AppDelegate.shared = previousSharedAppDelegate }
+            let previousNotificationStore = appDelegate.notificationStore
+            defer { appDelegate.notificationStore = previousNotificationStore }
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
@@ -170,8 +176,10 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             window.displayIfNeeded()
             terminalPanel.hostedView.setVisibleInUI(true)
             terminalPanel.hostedView.setActive(true)
-            #expect(window.makeFirstResponder(surfaceView))
             await startAndWaitForLiveSurface(terminalPanel.surface)
+            try #require(await appDelegate.focusTerminalForTesting(
+                terminalPanel, workspace: workspace, in: window
+            ))
             #expect(surfaceView.prepareSurfaceForPaste(
                 reason: "test.keyboardCopyModeKey"
             ))
@@ -182,6 +190,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
                 }
             }
 
+            appDelegate.notificationStore = TerminalNotificationStore.shared
             workspace.markPanelUnread(panelId)
             #expect(workspace.manualUnreadPanelIds.contains(panelId))
 
@@ -189,11 +198,18 @@ struct AppDelegateSurfaceShortcutRoutingTests {
 
             #expect(!workspace.manualUnreadPanelIds.contains(panelId))
         }
+        }
     }
 
     @Test func workspaceFontSizeShortcutPreservesBackgroundTerminalUnread() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
         try await withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
+            let previousSharedAppDelegate = AppDelegate.shared
+            AppDelegate.shared = appDelegate
+            defer { AppDelegate.shared = previousSharedAppDelegate }
+            let previousNotificationStore = appDelegate.notificationStore
+            defer { appDelegate.notificationStore = previousNotificationStore }
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
@@ -225,8 +241,10 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             #expect(foregroundPanel.surface.hasLiveSurface)
             #expect(backgroundPanel.surface.hasLiveSurface)
 
-            workspace.focusPanel(foregroundPanelId)
-            #expect(window.makeFirstResponder(foregroundPanel.hostedView.surfaceView))
+            try #require(await appDelegate.focusTerminalForTesting(
+                foregroundPanel, workspace: workspace, in: window
+            ))
+            appDelegate.notificationStore = TerminalNotificationStore.shared
             workspace.markPanelUnread(foregroundPanelId)
             workspace.markPanelUnread(backgroundPanel.id)
             #expect(workspace.manualUnreadPanelIds.contains(foregroundPanelId))
@@ -250,6 +268,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
                 workspace.manualUnreadPanelIds.contains(backgroundPanel.id),
                 "Changing terminal configuration is not accepted terminal input"
             )
+        }
         }
     }
 

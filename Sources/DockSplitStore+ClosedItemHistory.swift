@@ -1,3 +1,4 @@
+import AppKit
 import Bonsplit
 import CmuxPanes
 import Foundation
@@ -252,10 +253,11 @@ extension DockSplitStore {
                 tabId,
                 toIndex: min(max(entry.tabIndex, 0), maximumIndex)
             )
+            noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
             bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(tabId)
         }
-        focusPanel(panelId)
+        focusPanelFromDockInteraction(panelId, window: NSApp.keyWindow ?? NSApp.mainWindow)
         triggerFocusFlash(panelId: panelId)
         return panelId
     }

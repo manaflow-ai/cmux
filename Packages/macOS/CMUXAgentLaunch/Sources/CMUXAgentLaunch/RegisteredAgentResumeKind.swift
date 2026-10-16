@@ -10,24 +10,32 @@ public enum RegisteredAgentResumeKind: String, Sendable {
     case omp
     /// Campfire.
     case campfire
+    /// Sourcegraph Amp.
+    case amp
     /// Antigravity.
     case antigravity
     /// Grok CLI.
     case grok
     /// Kimi Code.
     case kimi
+    /// Meta Muse Code.
+    case muse
 
     /// The canonical Vault `resumeCommand` template for this built-in agent.
     public var commandTemplate: String {
         switch self {
         case .pi, .omp, .campfire:
             "{{executable}} --session {{sessionId}}"
+        case .amp:
+            "amp threads continue {{sessionId}}"
         case .antigravity:
             "{{executable}} --conversation {{sessionId}}"
         case .grok:
             "{{executable}} -r {{sessionId}}"
         case .kimi:
             "{{executable}} --resume {{sessionId}}"
+        case .muse:
+            "{{executable}} resume {{sessionId}}"
         }
     }
 }

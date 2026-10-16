@@ -16,7 +16,7 @@ final class SessionIndexTableRowHeightCalculator {
         case .section(let section, let rowLimit, _, _, let isCollapsed, _, _, _):
             let headerHeight = lineHeight(
                 baseFontSize: 13,
-                minimumContentHeight: 14,
+                minimumContentHeight: SessionIndexRowMetrics.sectionIconSize,
                 verticalPadding: 6,
                 environment: environment
             )
@@ -24,15 +24,15 @@ final class SessionIndexTableRowHeightCalculator {
 
             let entryHeight = lineHeight(
                 baseFontSize: 13,
-                // SessionRow reserves a 20-point agent icon frame so the
-                // primary line stays aligned even when an icon asset is
-                // unavailable.
-                minimumContentHeight: 20,
-                verticalPadding: 8,
+                // The primary line is the title text or the bare agent glyph,
+                // whichever is taller; there is no icon tile to reserve.
+                minimumContentHeight: SessionIndexRowMetrics.agentIconSize,
+                verticalPadding: SessionIndexRowMetrics.verticalPadding * 2,
                 environment: environment
             )
-            // Recent rows can carry a second subtitle line (folder · branch,
-            // message count); agree with SessionRow's layout.
+            // Default rows in every grouping can carry a second subtitle line
+            // (folder · branch); compact rows remove it before this snapshot
+            // reaches the calculator.
             let subtitleHeight = lineHeight(
                 baseFontSize: 11,
                 minimumContentHeight: 0,
@@ -43,9 +43,9 @@ final class SessionIndexTableRowHeightCalculator {
             for entry in section.entries.prefix(rowLimit) {
                 visibleEntryHeight += entryHeight
                 if section.accessories[entry.id]?.hasSubtitle == true {
-                    // SessionRow is a VStack with one point of spacing
-                    // between its primary and metadata lines.
-                    visibleEntryHeight += 1 + subtitleHeight
+                    // SessionRow stacks its primary and detail lines with
+                    // `detailLineSpacing` between them.
+                    visibleEntryHeight += SessionIndexRowMetrics.detailLineSpacing + subtitleHeight
                 }
             }
             let showMoreHeight: CGFloat

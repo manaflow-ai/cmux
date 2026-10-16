@@ -5,7 +5,8 @@ import os
 ///
 /// Logs to the unified log (`com.cmuxterm.app` / `auth`) in all builds. macOS
 /// DEBUG builds additionally append to `/tmp/cmux-auth-debug.log` (0600) so a
-/// sign-in repro can be tailed without Console.app. Token material, JWTs, and
+/// sign-in repro can be tailed without Console.app; a symlink, hard link or
+/// file owned by someone else at that path is skipped. Token material, JWTs, and
 /// emails are redacted before any sink sees the message. A pure value;
 /// construct it freely and store it as a `let` on the consumer.
 public struct AuthDebugLog: Sendable {
@@ -86,10 +87,18 @@ private func authDebugLogType(for message: String) -> OSLogType {
 }
 
 #if DEBUG && os(macOS)
-private func appendAuthDebugLineToFile(_ line: String, path: String) {
-    let fd = open(path, O_WRONLY | O_APPEND | O_CREAT, 0o600)
+func appendAuthDebugLineToFile(_ line: String, path: String) {
+    // Any local account can create names in /tmp. Never follow a symlink, and
+    // skip anything but a regular file this user owns with a single link, so a
+    // name planted there can't redirect the append into another file.
+    let fd = open(path, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, 0o600)
     guard fd >= 0 else { return }
     defer { close(fd) }
+    var info = stat()
+    guard fstat(fd, &info) == 0,
+          (info.st_mode & S_IFMT) == S_IFREG,
+          info.st_uid == geteuid(),
+          info.st_nlink == 1 else { return }
     // Re-assert 0600 on pre-existing files (O_CREAT mode only applies at
     // creation) so an old permissive log can't stay world-readable.
     _ = fchmod(fd, 0o600)

@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::server::{VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY};
+use cmux_tui_core::sizing_policy::TerminalSizingState;
 use cmux_tui_core::{
     BrowserFrame, BrowserFrameUpdate, BrowserSource, BrowserStatus, ClearHistoryDelivery,
     ClearHistoryFailure, GraphicsStatus, GuardedMouseEncode, MuxEvent, MuxEventBroadcaster,
@@ -23,7 +24,8 @@ use cmux_tui_core::{
     server::{
         CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, CREATION_RECEIPTS_CAPABILITY,
         CREATION_SELECTOR_FALLBACKS_CAPABILITY, GUARDED_BROWSER_POINTER_CAPABILITY,
-        ProtocolKeyInput, VIEW_ATTACHMENT_DETACH_CAPABILITY, VIEW_ATTACHMENT_LEASE_CAPABILITY,
+        ProtocolKeyInput, SHARED_SIZING_CAPABILITY, TERMINAL_PENDING_SEQUENCE_CAPABILITY,
+        VIEW_ATTACHMENT_DETACH_CAPABILITY, VIEW_ATTACHMENT_LEASE_CAPABILITY,
     },
 };
 use cmux_tui_machine_protocol::BearerToken;
@@ -204,6 +206,7 @@ pub(crate) enum RemoteRequestError {
     Timeout,
     Rejected { error: String, code: Option<String>, delivery: Option<ClearHistoryDelivery> },
     Shutdown,
+    DaemonShutdown,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -244,6 +247,7 @@ impl std::fmt::Display for RemoteRequestError {
             Self::Timeout => write!(formatter, "remote session did not respond"),
             Self::Rejected { error, .. } => write!(formatter, "remote command rejected: {error}"),
             Self::Shutdown => write!(formatter, "remote response wait canceled for shutdown"),
+            Self::DaemonShutdown => write!(formatter, "remote daemon shut down by request"),
         }
     }
 }
@@ -667,11 +671,22 @@ impl RemoteSurface {
         replay: Option<&[u8]>,
         kitty_image_aliases: &[ghostty_vt::KittyImageAlias],
     ) -> ghostty_vt::Result<()> {
-        self.apply_stream_resize_with_colors(cols, rows, replay, kitty_image_aliases, None, None)
+        self.apply_stream_resize_with_colors(
+            cols,
+            rows,
+            replay,
+            kitty_image_aliases,
+            None,
+            None,
+            &[],
+        )
     }
 
     /// Apply one authoritative replay and its coupled Kitty alias and color
     /// state before the mirror can be observed at the new size.
+    /// `pending_sequence` is the daemon parser's incomplete sequence, written
+    /// last so the live stream completes it.
+    #[allow(clippy::too_many_arguments)]
     fn apply_stream_resize_with_colors(
         &self,
         cols: u16,
@@ -680,6 +695,7 @@ impl RemoteSurface {
         kitty_image_aliases: &[ghostty_vt::KittyImageAlias],
         kitty_state: Option<KittyReplayState>,
         colors: Option<&RemoteTerminalColors>,
+        pending_sequence: &[u8],
     ) -> ghostty_vt::Result<()> {
         #[cfg(test)]
         self.run_geometry_test_hook(RemoteGeometryTestStep::StreamResizeStarted);
@@ -691,11 +707,12 @@ impl RemoteSurface {
         self.run_geometry_test_hook(RemoteGeometryTestStep::StreamResizeCommitBoundary);
         let mut term = self.term.lock().unwrap();
         let owned_replay;
-        let (replay, replay_aliases, replay_state) = match replay {
+        let (replay, replay_aliases, replay_state, pending_sequence) = match replay {
             Some(replay) => (
                 replay,
                 kitty_image_aliases,
                 kitty_state.unwrap_or_else(KittyReplayState::disabled),
+                pending_sequence,
             ),
             None => {
                 if !kitty_image_aliases.is_empty() || kitty_state.is_some() {
@@ -706,6 +723,7 @@ impl RemoteSurface {
                     owned_replay.bytes.as_slice(),
                     owned_replay.kitty_image_aliases.as_slice(),
                     owned_replay.kitty_state,
+                    owned_replay.pending_sequence.as_slice(),
                 )
             }
         };
@@ -715,6 +733,7 @@ impl RemoteSurface {
         if let Some(colors) = colors {
             apply_terminal_colors(&mut fresh, colors);
         }
+        fresh.vt_write(pending_sequence);
         *term = fresh;
         if daemon_replay {
             // Daemon-built replays carry resolved state, not application
@@ -1565,6 +1584,7 @@ enum DisconnectState {
     #[default]
     Active,
     LocalShutdown,
+    ExpectedRemoteShutdown,
     Remote(String),
 }
 
@@ -1600,6 +1620,8 @@ pub struct RemoteSession {
     cell_pixel_lifecycle: Mutex<()>,
     cell_pixels: Mutex<(u16, u16)>,
     capabilities: Mutex<HashSet<String>>,
+    /// Latest `size-state` per terminal (shared-sizing-v1).
+    size_states: Mutex<HashMap<SurfaceId, super::SurfaceSizeState>>,
     provider_workspace_authority: Option<BearerToken>,
     provider_workspaces_guarded: AtomicBool,
 }
@@ -1865,17 +1887,27 @@ impl RemoteSession {
     }
 
     pub fn connect(path: &Path) -> anyhow::Result<Arc<Self>> {
-        Self::connect_path(path, true)
+        Self::connect_path(path, false, true)
     }
 
-    pub fn connect_for_terminal_attach(path: &Path) -> anyhow::Result<Arc<Self>> {
-        Self::connect_path(path, false)
+    /// Connect to a session socket. A path derived from the session name must
+    /// be in this user's private runtime directory and served by this user.
+    pub fn connect_session(path: &Path, is_derived: bool) -> anyhow::Result<Arc<Self>> {
+        Self::connect_path(path, is_derived, true)
     }
 
-    fn connect_path(path: &Path, subscribe: bool) -> anyhow::Result<Arc<Self>> {
-        let stream = transport::connect(path).map_err(|e| {
-            anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
-        })?;
+    pub fn connect_session_for_terminal_attach(
+        path: &Path,
+        is_derived: bool,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::connect_path(path, is_derived, false)
+    }
+
+    fn connect_path(path: &Path, is_derived: bool, subscribe: bool) -> anyhow::Result<Arc<Self>> {
+        let stream =
+            cmux_tui_core::server::connect_session_socket(path, is_derived).map_err(|e| {
+                anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
+            })?;
         if subscribe {
             Self::connect_stream(stream)
         } else {
@@ -1958,6 +1990,7 @@ impl RemoteSession {
             cell_pixel_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
             capabilities: Mutex::new(HashSet::new()),
+            size_states: Mutex::new(HashMap::new()),
             provider_workspace_authority,
             provider_workspaces_guarded: AtomicBool::new(false),
         });
@@ -2029,6 +2062,22 @@ impl RemoteSession {
         if self.supports_capability(CREATION_SELECTOR_FALLBACKS_CAPABILITY) {
             negotiated.push(CREATION_SELECTOR_FALLBACKS_CAPABILITY);
         }
+        if self.supports_capability(SHARED_SIZING_CAPABILITY) {
+            // Join shared sizing as a terminal client named after this host,
+            // like the Mac and iPhone (docs/shared-terminal-sizing.md).
+            negotiated.push(SHARED_SIZING_CAPABILITY);
+            // One cmux-tui install per host, so the host name is also the
+            // stable device id that keeps two hosts' priority keys apart.
+            let host = local_hostname().unwrap_or_else(|| "cmux-tui".to_string());
+            client_info["device_kind"] = json!("tui");
+            client_info["device_name"] = json!(host);
+            client_info["device_id"] = json!(host);
+        }
+        // Replays are applied with colors written after them, so the
+        // daemon's incomplete sequence must arrive separately.
+        if self.supports_capability(TERMINAL_PENDING_SEQUENCE_CAPABILITY) {
+            negotiated.push(TERMINAL_PENDING_SEQUENCE_CAPABILITY);
+        }
         if !negotiated.is_empty() {
             client_info["capabilities"] = json!(negotiated);
         }
@@ -2042,6 +2091,52 @@ impl RemoteSession {
             self.subscription_started.store(true, Ordering::Release);
         }
         Ok(())
+    }
+
+    /// The latest `size-state` for `surface`.
+    pub(super) fn size_state(&self, surface: SurfaceId) -> Option<super::SurfaceSizeState> {
+        self.size_states.lock().unwrap().get(&surface).cloned()
+    }
+
+    /// Keeps the newest state per terminal; an older generation is ignored.
+    /// Returns whether the stored state changed.
+    fn store_size_state(
+        &self,
+        surface: SurfaceId,
+        state: TerminalSizingState,
+        self_participant: Option<String>,
+    ) -> bool {
+        let mut states = self.size_states.lock().unwrap();
+        if let Some(current) = states.get(&surface)
+            && (current.state.generation > state.generation
+                || (current.state == state && current.self_participant == self_participant))
+        {
+            return false;
+        }
+        states.insert(surface, super::SurfaceSizeState { state, self_participant });
+        true
+    }
+
+    /// A `shared-sizing-v1` attach answers with this view's participant id
+    /// and the current size state, so the terminal has bounds before the
+    /// first change event.
+    fn adopt_attach_size_state(&self, surface: SurfaceId, response: &Value) {
+        let Some(state) = response
+            .get("size_state")
+            .cloned()
+            .and_then(|state| serde_json::from_value::<TerminalSizingState>(state).ok())
+        else {
+            return;
+        };
+        let self_participant =
+            response.get("participant").and_then(Value::as_str).map(str::to_string);
+        if self.store_size_state(surface, state.clone(), self_participant) {
+            self.emit(MuxEvent::SizeStateChanged {
+                surface,
+                runtime: surface,
+                state: Arc::new(state),
+            });
+        }
     }
 
     pub(super) fn supports_capability(&self, capability: &str) -> bool {
@@ -2157,6 +2252,7 @@ impl RemoteSession {
             | "agent-changed"
             | "title-changed"
             | "bell"
+            | "size-state"
             | "scroll-changed" => surface == Some(target),
             _ => true,
         }
@@ -2209,6 +2305,10 @@ impl RemoteSession {
                     return;
                 };
                 let colors = value.get("colors").and_then(parse_terminal_colors);
+                let Ok(pending_sequence) = parse_pending_sequence(&value) else {
+                    self.disconnect_transport();
+                    return;
+                };
                 self.log_frame(
                     id,
                     format_args!("vt-state cols={cols} rows={rows} bytes={}", replay.len()),
@@ -2230,6 +2330,7 @@ impl RemoteSession {
                             &kitty_image_aliases,
                             Some(kitty_state),
                             colors.as_ref(),
+                            &pending_sequence,
                         )
                         .is_err()
                     {
@@ -2319,6 +2420,10 @@ impl RemoteSession {
                     return;
                 };
                 let colors = value.get("colors").and_then(parse_terminal_colors);
+                let Ok(pending_sequence) = parse_pending_sequence(&value) else {
+                    self.disconnect_transport();
+                    return;
+                };
                 self.log_frame(
                     id,
                     format_args!(
@@ -2335,6 +2440,7 @@ impl RemoteSession {
                             &kitty_image_aliases,
                             Some(kitty_state),
                             colors.as_ref(),
+                            &pending_sequence,
                         )
                         .is_err()
                     {
@@ -2396,12 +2502,46 @@ impl RemoteSession {
             Some("detached") => {
                 if let Some(id) = surface_id() {
                     self.surfaces.lock().unwrap().remove(&id);
+                    self.size_states.lock().unwrap().remove(&id);
                     self.emit(MuxEvent::SurfaceOutput(id));
                 }
+            }
+            Some(cmux_tui_core::server::DAEMON_SHUTDOWN_EVENT) => {
+                let mut state = self.disconnect_state.lock().unwrap();
+                if matches!(&*state, DisconnectState::Active) {
+                    *state = DisconnectState::ExpectedRemoteShutdown;
+                }
+                drop(state);
+                // Wake every request that was already admitted before the
+                // daemon announced its shutdown. The synthetic response is
+                // classified with the expected-remote state, so callers get
+                // DaemonShutdown instead of a timeout when EOF follows.
+                self.begin_shutdown();
+                self.emit(MuxEvent::Empty);
             }
             Some("tree-changed") => {
                 self.tree_stale.store(true, Ordering::Release);
                 self.emit(MuxEvent::TreeChanged);
+            }
+            Some("size-state") => {
+                let Some(surface) = surface_id() else { return };
+                let Some(state) = value
+                    .get("state")
+                    .cloned()
+                    .and_then(|state| serde_json::from_value::<TerminalSizingState>(state).ok())
+                else {
+                    return;
+                };
+                let self_participant =
+                    value.get("self_participant").and_then(Value::as_str).map(str::to_string);
+                if !self.store_size_state(surface, state.clone(), self_participant) {
+                    return;
+                }
+                self.emit(MuxEvent::SizeStateChanged {
+                    surface,
+                    runtime: surface,
+                    state: Arc::new(state),
+                });
             }
             Some("agent-changed") => {
                 let Some(surface) = surface_id() else { return };
@@ -2411,11 +2551,13 @@ impl RemoteSession {
                     return;
                 };
                 let session = value.get("session").and_then(Value::as_str).map(str::to_string);
+                let agent_adapter = value.get("agent").and_then(Value::as_str).map(str::to_string);
                 let agent = AgentInfo {
                     surface,
                     state: state.to_string(),
                     source: source.to_string(),
                     session,
+                    agent: agent_adapter,
                     updated_at_ms,
                 };
                 let event = MuxEvent::AgentChanged {
@@ -2423,6 +2565,7 @@ impl RemoteSession {
                     state: Arc::from(agent.state.as_str()),
                     source: Arc::from(agent.source.as_str()),
                     session: agent.session.as_deref().map(Arc::from),
+                    agent: agent.agent.as_deref().map(Arc::from),
                     updated_at_ms,
                 };
                 {
@@ -2696,6 +2839,9 @@ impl RemoteSession {
         mut cmd: Value,
         deadline: RequestDeadline,
     ) -> anyhow::Result<Value> {
+        if let Some(error) = self.request_shutdown_error() {
+            return Err(error.into());
+        }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let progress = Arc::new(AtomicU64::new(0));
         let attach_progress = matches!(deadline, RequestDeadline::Attach)
@@ -2720,17 +2866,17 @@ impl RemoteSession {
             Ok(sequence) => sequence,
             Err(error) => {
                 self.pending.lock().unwrap().remove(&id);
-                return Err(RemoteRequestError::Transport(error).into());
+                return Err(self.classify_transport_error(error).into());
             }
         };
         if let Err(error) = self.wait_for_ordered_write(sequence) {
             self.pending.lock().unwrap().remove(&id);
-            return Err(RemoteRequestError::Transport(error).into());
+            return Err(self.classify_transport_error(error).into());
         }
 
         if self.shutdown.load(Ordering::Acquire) {
             self.pending.lock().unwrap().remove(&id);
-            return Err(RemoteRequestError::Shutdown.into());
+            return Err(self.shutdown_error().into());
         }
 
         let response = match self.wait_for_response(rx, deadline, progress, attach_progress) {
@@ -2744,7 +2890,7 @@ impl RemoteSession {
             }
         };
         if response.get("shutdown").and_then(Value::as_bool) == Some(true) {
-            return Err(RemoteRequestError::Shutdown.into());
+            return Err(self.shutdown_error().into());
         }
         if response.get("ok").and_then(|v| v.as_bool()) == Some(true) {
             Ok(response.get("data").cloned().unwrap_or(Value::Null))
@@ -2777,7 +2923,7 @@ impl RemoteSession {
                 Ok(response) => Ok(response),
                 Err(RecvTimeoutError::Timeout) => Err(RemoteRequestError::Timeout),
                 Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
-                    Err(RemoteRequestError::Shutdown)
+                    Err(self.shutdown_error())
                 }
                 Err(RecvTimeoutError::Disconnected) => Err(RemoteRequestError::Timeout),
             };
@@ -2803,13 +2949,13 @@ impl RemoteSession {
             match rx.recv_timeout(wait) {
                 Ok(response) => return Ok(response),
                 Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
-                    return Err(RemoteRequestError::Shutdown);
+                    return Err(self.shutdown_error());
                 }
                 Err(RecvTimeoutError::Disconnected) => return Err(RemoteRequestError::Timeout),
                 Err(RecvTimeoutError::Timeout) => {}
             }
             if self.shutdown.load(Ordering::Acquire) {
-                return Err(RemoteRequestError::Shutdown);
+                return Err(self.shutdown_error());
             }
         }
     }
@@ -2819,6 +2965,9 @@ impl RemoteSession {
     /// its unknown request id is intentionally ignored. Reliable remote
     /// sessions replay this write after carrier reconnect.
     fn request_no_wait(&self, mut cmd: Value) -> anyhow::Result<()> {
+        if let Some(error) = self.request_shutdown_error() {
+            return Err(error.into());
+        }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         cmd["id"] = json!(id);
         // The local remote bridge replaces eligible sends with compact binary
@@ -2831,10 +2980,11 @@ impl RemoteSession {
         let sequence = self
             .interactive_writer
             .enqueue(message, true)
-            .map_err(RemoteRequestError::Transport)?;
+            .map_err(|error| self.classify_transport_error(error))?;
         if self.shutdown.load(Ordering::Acquire) {
-            self.wait_for_ordered_write(sequence).map_err(RemoteRequestError::Transport)?;
-            return Err(RemoteRequestError::Shutdown.into());
+            self.wait_for_ordered_write(sequence)
+                .map_err(|error| self.classify_transport_error(error))?;
+            return Err(self.shutdown_error().into());
         }
         Ok(())
     }
@@ -2949,6 +3099,26 @@ impl RemoteSession {
         self.shutdown.load(Ordering::Acquire)
     }
 
+    pub fn daemon_shutdown_requested(&self) -> bool {
+        matches!(&*self.disconnect_state.lock().unwrap(), DisconnectState::ExpectedRemoteShutdown)
+    }
+
+    fn request_shutdown_error(&self) -> Option<RemoteRequestError> {
+        match &*self.disconnect_state.lock().unwrap() {
+            DisconnectState::LocalShutdown => Some(RemoteRequestError::Shutdown),
+            DisconnectState::ExpectedRemoteShutdown => Some(RemoteRequestError::DaemonShutdown),
+            DisconnectState::Active | DisconnectState::Remote(_) => None,
+        }
+    }
+
+    fn shutdown_error(&self) -> RemoteRequestError {
+        self.request_shutdown_error().unwrap_or(RemoteRequestError::Shutdown)
+    }
+
+    fn classify_transport_error(&self, error: io::Error) -> RemoteRequestError {
+        self.request_shutdown_error().unwrap_or(RemoteRequestError::Transport(error))
+    }
+
     pub fn begin_shutdown(&self) {
         self.shutdown.store(true, Ordering::Release);
         self.provider_workspaces_guarded.store(false, Ordering::Release);
@@ -2994,7 +3164,9 @@ impl RemoteSession {
     pub fn transport_disconnect_reason(&self) -> Option<String> {
         match &*self.disconnect_state.lock().unwrap() {
             DisconnectState::Remote(reason) => Some(reason.clone()),
-            DisconnectState::Active | DisconnectState::LocalShutdown => None,
+            DisconnectState::Active
+            | DisconnectState::LocalShutdown
+            | DisconnectState::ExpectedRemoteShutdown => None,
         }
     }
 
@@ -3379,6 +3551,9 @@ impl RemoteSession {
                 None
             }
         };
+        if superseded.is_none() {
+            self.adopt_attach_size_state(id, &response);
+        }
         if let Some(outcome) = superseded {
             if let Some(lease) = attachment_lease
                 && self.supports_capability(VIEW_ATTACHMENT_DETACH_CAPABILITY)
@@ -3647,6 +3822,19 @@ fn parse_kitty_image_aliases(
     cmux_tui_core::terminal_host_runtime::validate_kitty_image_aliases(&aliases)
         .map_err(|_| "kitty_image_aliases violates terminal-host invariants")?;
     Ok(aliases)
+}
+
+/// Decodes the optional `pending` field of `vt-state` and `resized`: the
+/// incomplete sequence the daemon's parser is inside. Absent from older
+/// daemons and whenever the parser is at a boundary.
+fn parse_pending_sequence(value: &Value) -> Result<Vec<u8>, ()> {
+    match value.get("pending") {
+        None => Ok(Vec::new()),
+        Some(Value::String(data)) => {
+            base64::engine::general_purpose::STANDARD.decode(data).map_err(|_| ())
+        }
+        Some(_) => Err(()),
+    }
 }
 
 fn parse_kitty_replay_state(value: &Value) -> Result<KittyReplayState, &'static str> {
@@ -3927,6 +4115,7 @@ fn test_session_with_writer(
         cell_pixel_lifecycle: Mutex::new(()),
         cell_pixels: Mutex::new((8, 16)),
         capabilities: Mutex::new(capabilities),
+        size_states: Mutex::new(HashMap::new()),
         provider_workspace_authority,
         provider_workspaces_guarded: AtomicBool::new(false),
     })
@@ -4386,6 +4575,100 @@ mod tests {
     }
 
     #[test]
+    fn size_state_events_keep_the_newest_generation_per_terminal() {
+        let session = super::test_session_with_provider_context(None, HashSet::new());
+        let state = |generation: u64, cols: u16| {
+            json!({
+                "generation": generation, "cols": cols, "rows": 30, "reason": "smallest",
+                "owners": ["c3"], "policy": {"mode": "smallest", "priority": [], "fixed": null},
+                "participants": [],
+            })
+        };
+        session.handle_line(json!({
+            "event": "size-state", "surface": 9, "state": state(4, 118), "self_participant": "c3",
+        }));
+        let stored = session.size_state(9).expect("size state is stored");
+        assert_eq!((stored.state.generation, stored.state.cols), (4, 118));
+        assert_eq!(stored.self_participant.as_deref(), Some("c3"));
+
+        session.handle_line(json!({"event": "size-state", "surface": 9, "state": state(3, 80)}));
+        assert_eq!(session.size_state(9).unwrap().state.cols, 118);
+
+        session.handle_line(json!({"event": "size-state", "surface": 9, "state": state(5, 90)}));
+        assert_eq!(session.size_state(9).unwrap().state.cols, 90);
+        assert!(session.size_state(10).is_none());
+    }
+
+    /// Answers `attach-surface` like a `shared-sizing-v1` daemon: with this
+    /// view's participant id and the current size state, and no event.
+    struct SizedAttachWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+    }
+
+    impl RemoteMessageWriter for SizedAttachWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let Some(id) = request.get("id").and_then(Value::as_u64) else { return Ok(()) };
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let response = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            let data = match request.get("cmd").and_then(Value::as_str) {
+                Some("attach-surface") => json!({
+                    "participant": "c3",
+                    "size_state": {
+                        "generation": 2, "cols": 100, "rows": 40, "reason": "smallest",
+                        "owners": ["c3"],
+                        "policy": {"mode": "smallest", "priority": [], "fixed": null},
+                        "participants": [{
+                            "id": "c3", "device_kind": "tui", "device_name": "devbox",
+                            "viewport": {"cols": 100, "rows": 40},
+                            "counts": true, "priority_key": "anon:c3/tui",
+                        }],
+                    },
+                }),
+                _ => Value::Null,
+            };
+            response
+                .response
+                .send(json!({"id": id, "ok": true, "data": data}))
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_terminal_has_its_size_state_right_after_attach() {
+        let session_slot: Arc<Mutex<Option<Weak<RemoteSession>>>> = Arc::new(Mutex::new(None));
+        let session = test_session_with_writer(
+            Box::new(SizedAttachWriter { session: session_slot.clone() }),
+            None,
+            HashSet::from([SHARED_SIZING_CAPABILITY.to_string()]),
+        );
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+
+        let attached =
+            session.try_ensure_surface_with_kind(9, SurfaceKind::Pty, Some((100, 40))).unwrap();
+        assert!(matches!(attached, RemoteSurfaceAttach::Attached(_)));
+
+        let stored = session.size_state(9).expect("the attach answer carries the size state");
+        assert_eq!((stored.state.generation, stored.state.cols, stored.state.rows), (2, 100, 40));
+        assert_eq!(stored.self_participant.as_deref(), Some("c3"));
+    }
+
+    #[test]
     fn per_surface_client_sizing_requires_protocol_10() {
         const { assert!(SUPPORTED_PROTOCOL_VERSION >= 10) };
     }
@@ -4598,7 +4881,7 @@ mod tests {
         surface.scan_cursor_provenance(b"\x1b[6 q");
         assert!(surface.cursor_style_authored());
         surface
-            .apply_stream_resize_with_colors(80, 24, Some(b"\x1b[5 q"), &[], None, None)
+            .apply_stream_resize_with_colors(80, 24, Some(b"\x1b[5 q"), &[], None, None, &[])
             .unwrap();
         assert!(!surface.cursor_style_authored());
     }
@@ -4644,7 +4927,7 @@ mod tests {
         let (_session, surface) = test_unleased_view_surface(11);
         assert!(!surface.term.lock().unwrap().mouse_tracking());
         surface
-            .apply_stream_resize_with_colors(80, 24, Some(b"\x1b[?1002h"), &[], None, None)
+            .apply_stream_resize_with_colors(80, 24, Some(b"\x1b[?1002h"), &[], None, None, &[])
             .unwrap();
         assert!(
             surface.term.lock().unwrap().mouse_tracking(),
@@ -4679,6 +4962,7 @@ mod tests {
                 &replay.kitty_image_aliases,
                 Some(replay.kitty_state),
                 None,
+                &replay.pending_sequence,
             )
             .unwrap();
         match surface.try_pointer_semantics() {
@@ -4727,6 +5011,7 @@ mod tests {
                 &replay.kitty_image_aliases,
                 Some(replay.kitty_state),
                 None,
+                &replay.pending_sequence,
             )
             .unwrap();
 
@@ -4756,6 +5041,7 @@ mod tests {
                 &replay.kitty_image_aliases,
                 Some(replay.kitty_state),
                 None,
+                &replay.pending_sequence,
             )
             .unwrap();
 
@@ -4781,6 +5067,7 @@ mod tests {
                 &[],
                 None,
                 None,
+                &[],
             )
             .unwrap();
 
@@ -4789,6 +5076,44 @@ mod tests {
             b"\x1b[32;36;21M",
             "ambiguous legacy replay must preserve its last selector instead of guessing SGR"
         );
+    }
+
+    /// The daemon replayed while its parser was inside an SGR. The client
+    /// writes its color sidecar after the replay, so the incomplete sequence
+    /// must come last for the next output to complete it.
+    #[test]
+    fn daemon_replay_resumes_its_pending_sequence_after_the_colors() {
+        let mut host = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        host.vt_write(b"before \x1b[1;3");
+        let replay = host
+            .vt_replay_bounded_theme_portable_with_aliases(REMOTE_CONTROL_MESSAGE_MAX_BYTES)
+            .unwrap();
+        assert_eq!(replay.pending_sequence, b"\x1b[1;3");
+        let colors = RemoteTerminalColors {
+            fg: Some(Rgb { r: 1, g: 2, b: 3 }),
+            bg: None,
+            cursor: None,
+            cursor_style: Some(CursorShape::Bar),
+            cursor_blink: Some(false),
+            palette: [None; 256],
+        };
+
+        let (_session, surface) = test_unleased_view_surface(15);
+        surface
+            .apply_stream_resize_with_colors(
+                80,
+                24,
+                Some(&replay.bytes),
+                &replay.kitty_image_aliases,
+                Some(replay.kitty_state),
+                Some(&colors),
+                &replay.pending_sequence,
+            )
+            .unwrap();
+        let mut term = surface.term.lock().unwrap();
+        term.vt_write(b"1mred\x1b[0m after");
+        assert_eq!(term.viewport_text().unwrap().lines().next(), Some("before red after"));
+        assert_eq!(term.effective_colors().0, Some(Rgb { r: 1, g: 2, b: 3 }));
     }
 
     #[test]
@@ -5169,6 +5494,7 @@ mod tests {
             cell_pixel_lifecycle: Mutex::new(()),
             cell_pixels: Mutex::new((8, 16)),
             capabilities: Mutex::new(capabilities),
+            size_states: Mutex::new(HashMap::new()),
             provider_workspace_authority,
             provider_workspaces_guarded: AtomicBool::new(false),
         })
@@ -6355,6 +6681,60 @@ mod tests {
         session.disconnect_transport_with_reason(Some("peer reset".into()));
 
         assert_eq!(session.transport_disconnect_reason(), None);
+    }
+
+    #[test]
+    fn daemon_shutdown_event_marks_the_following_eof_as_expected() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+
+        session.handle_line(json!({
+            "event": cmux_tui_core::server::DAEMON_SHUTDOWN_EVENT,
+        }));
+        session.disconnect_transport_with_reason(Some("the daemon closed the connection".into()));
+
+        assert!(session.daemon_shutdown_requested());
+        assert_eq!(session.transport_disconnect_reason(), None);
+        assert!(matches!(
+            session
+                .request(json!({"cmd": "identify"}))
+                .unwrap_err()
+                .downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::DaemonShutdown)
+        ));
+    }
+
+    #[test]
+    fn daemon_shutdown_event_cancels_an_inflight_request_as_expected() {
+        let session = test_session(Box::new(SilentWriter));
+        let request_session = session.clone();
+        let worker = std::thread::spawn(move || {
+            request_session.request_with_deadline(
+                json!({"cmd": "identify"}),
+                RequestDeadline::Fixed(Duration::from_secs(2)),
+            )
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while session.pending.lock().unwrap().is_empty() {
+            assert!(Instant::now() < deadline, "request did not become pending");
+            std::thread::yield_now();
+        }
+        session.handle_line(json!({
+            "event": cmux_tui_core::server::DAEMON_SHUTDOWN_EVENT,
+        }));
+
+        let error = worker
+            .join()
+            .expect("request worker panicked")
+            .expect_err("in-flight request unexpectedly succeeded");
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::DaemonShutdown)
+        ));
+        assert!(session.shutdown.load(Ordering::Acquire));
+        assert!(session.pending.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -7552,6 +7932,7 @@ mod tests {
                 state: "blocked".into(),
                 source: "hook".into(),
                 session: Some("review".into()),
+                agent: None,
                 updated_at_ms: 41,
             }]
         );
@@ -7614,6 +7995,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: Some("review".into()),
+                agent: None,
                 updated_at_ms: 41,
             }],
             0,
@@ -7694,6 +8076,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: Some("review".into()),
+                agent: None,
                 updated_at_ms: surface,
             }
         }
@@ -7724,6 +8107,7 @@ mod tests {
             state: "working".into(),
             source: "hook".into(),
             session: Some("review".into()),
+            agent: None,
             updated_at_ms: 41,
         };
         let mut cache = RemoteTreeCache::default();
@@ -7995,6 +8379,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: Some("review".into()),
+                agent: None,
                 updated_at_ms: 41,
             },
             &retired,
@@ -8035,6 +8420,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: Some("review".into()),
+                agent: None,
                 updated_at_ms: 41,
             },
             &retired,
@@ -8076,6 +8462,7 @@ mod tests {
             state: "working".into(),
             source: "hook".into(),
             session: Some("review".into()),
+            agent: None,
             updated_at_ms: 41,
         };
         cache.update_agent(update.clone(), &retired);
@@ -8863,6 +9250,7 @@ mod tests {
                 &[ghostty_vt::KittyImageAlias { image_id: 999, image_number: 77 }],
                 Some(replay.kitty_state),
                 None,
+                &replay.pending_sequence,
             )
             .unwrap_err();
 

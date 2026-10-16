@@ -7,8 +7,13 @@ import UIKit
 /// sign-in, Mac pairing, or network. The terminal shots replay REAL recorded
 /// agent sessions (see TerminalPreviewTranscripts). Each shot is a separate
 /// launch with a fresh environment; `snapshot()` is called after the screen
-/// settles. fastlane `frameit` later adds the real device frame, background, and
-/// localized title.
+/// settles.
+///
+/// The shot roster mirrors the live App Store listing 1:1 (see
+/// ios/fastlane/appstore-shots-plan.json; `ios/scripts/appstore-shots.sh`
+/// post-processes captures to exact ASC pixel dimensions and stages uploads).
+/// Numbering matches the listing order. 05 (lock-screen inline reply) cannot be
+/// driven from XCUITest and is produced by `appstore-shots.sh lockshot`.
 final class SnapshotUITests: XCTestCase {
     private let app = XCUIApplication()
     private lazy var springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
@@ -21,56 +26,96 @@ final class SnapshotUITests: XCTestCase {
     func testCaptureAppStoreScreenshots() throws {
         setupSnapshot(app)
 
-        // 1) Workspace list.
-        shoot("01-Workspaces", [
+        // 01/02) Claude + Codex, full terminal showing a real recorded session.
+        // TARGET_COLS auto-fits the font so the 76-col fixtures fill the width
+        // edge-to-edge on both iPhone and iPad. The believable workspace name
+        // shown in the nav title pill belongs to each recorded transcript
+        // (re-record with ios/fastlane/frame_assets/record_sessions.sh). The
+        // terminal background is auto-derived from each transcript's own
+        // dominant background (TerminalPreviewTranscripts.dominantBackgroundHex).
+        shootTerminal("01-Claude", transcript: "claude", title: "App entry point")
+        shootTerminal("02-Codex", transcript: "codex", title: "Readability pass")
+
+        // 03) Workspace list.
+        shoot("03-Workspaces", [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
         ])
 
-        // 2) A REAL agent push notification over the workspace list: the app
+        // 04) Notifications feed tab.
+        shoot("04-Notifications", [
+            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
+        ])
+
+        // 06) Per-file diff: ChangesPreviewView mode "diff" opens directly on
+        // the Sources/SessionStore.swift fixture.
+        shoot("06-DiffFile", [
+            "CMUX_UITEST_CHANGES_PREVIEW": "diff",
+        ])
+
+        // 07) OpenCode session.
+        shootTerminal("07-Opencode", transcript: "opencode", title: "String catalogs")
+
+        // 08) Task Composer.
+        shoot("08-Composer", [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+
+        // 09) A REAL agent push notification over the workspace list: the app
         // requests authorization and schedules a genuine local notification, so
         // the system renders the actual banner (real icon, "cmux" display name).
-        shoot("02-Notifications", [
+        // Source for the framed marketing pages; excluded from the 6.9" store
+        // set by the plan.
+        shoot("09-Banner", [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
             "CMUX_UITEST_NOTIFICATION_BANNER": "1",
         ], waitForRealNotification: true)
 
-        // 3-6) Each agent, full terminal showing its real recorded session.
-        // TARGET_COLS auto-fits the font so the 76-col fixtures fill the width
-        // edge-to-edge on both iPhone and iPad.
-        // Believable workspace/session name per agent, shown in the nav bar
-        // titlebar (mirrors the real terminal screen).
-        let titles = ["claude": "App entry point", "codex": "Readability pass",
-                      "opencode": "String catalogs", "pi": "Ship improvements"]
-        // The terminal background is auto-derived from each transcript's own
-        // dominant background (see TerminalLayoutPreviewView /
-        // TerminalPreviewTranscripts.dominantBackgroundHex) — no hardcoded
-        // per-agent color. OpenCode (near-black card) and the others (terminal
-        // default) both render seamlessly.
-        for (idx, agent) in ["claude", "codex", "opencode", "pi"].enumerated() {
-            shoot(String(format: "%02d-%@", idx + 3, agent.capitalized), [
-                "CMUX_UITEST_TERMINAL_PREVIEW": "1",
-                "CMUX_UITEST_TERMINAL_PREVIEW_CONTENT": "1",
-                "CMUX_UITEST_TERMINAL_TRANSCRIPT": agent,
-                "CMUX_UITEST_TERMINAL_TARGET_COLS": "76",
-                "CMUX_UITEST_TERMINAL_TITLE": titles[agent] ?? "cmux",
-            ])
-        }
+        // 10) Pi session (kept out of the store set by the plan).
+        shootTerminal("10-Pi", transcript: "pi", title: "Ship improvements")
+    }
+
+    @MainActor
+    private func shootTerminal(_ name: String, transcript: String, title: String) {
+        shoot(name, [
+            "CMUX_UITEST_TERMINAL_PREVIEW": "1",
+            "CMUX_UITEST_TERMINAL_PREVIEW_CONTENT": "1",
+            "CMUX_UITEST_TERMINAL_TRANSCRIPT": transcript,
+            "CMUX_UITEST_TERMINAL_TARGET_COLS": "76",
+            "CMUX_UITEST_TERMINAL_TITLE": title,
+        ])
     }
 
     @MainActor
     private func shoot(_ name: String, _ env: [String: String], waitForRealNotification: Bool = false) {
         var full = env
         full["CMUX_UITEST_MOCK_DATA"] = "1"
+        // Workspace detail can show a one-time educational changes hint over
+        // the content. It is not listing content, so keep it out of every
+        // store capture and assert that the fixture honors the contract.
+        full["CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT"] = "1"
         app.launchEnvironment = full
         app.launch()
-        // iPad screenshots are captured in landscape.
+        // The live App Store 13" iPad set is portrait full-bleed; landscape
+        // remains available for framed marketing compositions via
+        // SNAPSHOT_IPAD_LANDSCAPE=1 (see Fastfile).
         if UIDevice.current.userInterfaceIdiom == .pad {
-            XCUIDevice.shared.orientation = .landscapeLeft
+            XCUIDevice.shared.orientation =
+                ProcessInfo.processInfo.environment["SNAPSHOT_IPAD_LANDSCAPE"] == "1"
+                    ? .landscapeLeft : .portrait
         }
         if waitForRealNotification {
             settleForNotification()
         } else {
             settle()
+        }
+        if full["CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT"] == "1" {
+            let hint = app.descendants(matching: .any)
+                .matching(identifier: "MobileChangesHint")
+                .firstMatch
+            XCTAssertFalse(
+                hint.waitForExistence(timeout: 1),
+                "workspace changes education banner must not be present in screenshots"
+            )
         }
         snapshot(name)
         app.terminate()

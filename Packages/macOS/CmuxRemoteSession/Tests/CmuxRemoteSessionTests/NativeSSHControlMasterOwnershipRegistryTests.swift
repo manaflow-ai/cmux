@@ -16,6 +16,7 @@ struct NativeSSHControlMasterOwnershipRegistryTests {
         defer { try? FileManager.default.removeItem(at: scratchDirectory) }
         let sharingOptions = SSHConnectionSharingOptions(
             userID: Int(getuid()),
+            controlSocketDirectoryPath: "/Users/alice/.cmux/ssh",
             authenticationLockDirectoryPath: scratchDirectory.path
         )
         let controlPath = resolvedControlPath(userID: Int(getuid()))
@@ -69,6 +70,7 @@ struct NativeSSHControlMasterOwnershipRegistryTests {
         defer { try? FileManager.default.removeItem(at: scratchDirectory) }
         let sharingOptions = SSHConnectionSharingOptions(
             userID: Int(getuid()),
+            controlSocketDirectoryPath: "/Users/alice/.cmux/ssh",
             authenticationLockDirectoryPath: scratchDirectory.path
         )
         let controlPath = resolvedControlPath(userID: Int(getuid()))
@@ -140,6 +142,7 @@ struct NativeSSHControlMasterOwnershipRegistryTests {
         let registry = NativeSSHControlMasterOwnershipRegistry(
             sharingOptions: SSHConnectionSharingOptions(
                 userID: Int(getuid()),
+                controlSocketDirectoryPath: "/Users/alice/.cmux/ssh",
                 authenticationLockDirectoryPath: scratchDirectory.path
             )
         )
@@ -175,6 +178,7 @@ struct NativeSSHControlMasterOwnershipRegistryTests {
         defer { try? FileManager.default.removeItem(at: scratchDirectory) }
         let sharingOptions = SSHConnectionSharingOptions(
             userID: Int(getuid()),
+            controlSocketDirectoryPath: "/Users/alice/.cmux/ssh",
             authenticationLockDirectoryPath: scratchDirectory.path
         )
         let first = NativeSSHControlMasterOwnershipRegistry(
@@ -222,6 +226,7 @@ struct NativeSSHControlMasterOwnershipRegistryTests {
         defer { try? FileManager.default.removeItem(at: scratchDirectory) }
         let sharingOptions = SSHConnectionSharingOptions(
             userID: Int(getuid()),
+            controlSocketDirectoryPath: "/Users/alice/.cmux/ssh",
             authenticationLockDirectoryPath: scratchDirectory.path
         )
         let controlPath = resolvedControlPath(userID: Int(getuid()))
@@ -250,7 +255,7 @@ struct NativeSSHControlMasterOwnershipRegistryTests {
     }
 
     private func resolvedControlPath(userID: Int) -> String {
-        "/tmp/cmux-ssh-\(userID)-0123456789abcdef0123456789abcdef01234567"
+        "/Users/alice/.cmux/ssh/0123456789abcdef0123456789abcdef01234567"
     }
 
     private func childCanAcquireAuthenticationLock(

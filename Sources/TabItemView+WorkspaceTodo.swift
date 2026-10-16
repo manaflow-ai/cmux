@@ -85,6 +85,7 @@ extension TabItemView {
 @MainActor
 enum WorkspaceTodoPaletteCommands {
     static let markWorkspaceDoneCommandId = "palette.markWorkspaceDone"
+    static let cycleWorkspaceStatusCommandId = "palette.cycleWorkspaceStatus"
     private static let statusAutoCommandId = "palette.workspaceStatusAuto"
     private static let addChecklistItemCommandId = "palette.addWorkspaceChecklistItem"
     private static let openTodoPaneCommandId = "palette.openWorkspaceTodoPane"
@@ -148,6 +149,15 @@ enum WorkspaceTodoPaletteCommands {
                     },
                     subtitle: workspaceSubtitle,
                     keywords: ["workspace", "done", "complete", "finish", "todo", "status"],
+                    when: hasWorkspace
+                )
+            )
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: cycleWorkspaceStatusCommandId,
+                    title: { _ in KeyboardShortcutSettings.Action.cycleWorkspaceStatus.label },
+                    subtitle: workspaceSubtitle,
+                    keywords: ["workspace", "status", "todo", "lane", "cycle", "next", "advance"],
                     when: hasWorkspace
                 )
             )
@@ -226,6 +236,18 @@ enum WorkspaceTodoPaletteCommands {
                     return
                 }
                 WorkspaceTodoActions.applyStatusOverride(.done, to: [workspace])
+            }
+        )
+        // Same shared path as the cycleWorkspaceStatus shortcut, the
+        // workspace.status.cycle socket verb, and `cmux workspace status cycle`.
+        registry.register(
+            commandId: cycleWorkspaceStatusCommandId,
+            handler: withSelectedWorkspace { workspace in
+                guard WorkspaceTodoFeature.isEnabled else {
+                    NSSound.beep()
+                    return
+                }
+                WorkspaceTodoActions.cycleStatus(for: workspace)
             }
         )
         registry.register(

@@ -143,3 +143,52 @@ extension TerminalPasteboardService {
         return lane.applyUnmanagedMutation(mutation)
     }
 }
+
+extension TerminalPasteboardService {
+    /// Copies text to the standard clipboard for a cmux copy action.
+    ///
+    /// Leaves the clipboard untouched when the text is missing or blank (see
+    /// `String.nonBlankClipboardText`), so a missing directory or blank screen
+    /// never replaces what the user already copied.
+    ///
+    /// - Parameter text: The already-normalized text to copy.
+    /// - Returns: `true` when a write was admitted, `false` when there was
+    ///   nothing to copy or the write was rejected.
+    @discardableResult
+    public func copyToStandardClipboard(_ text: String?) -> Bool {
+        guard let payload = text?.nonBlankClipboardText else { return false }
+        return writeString(payload, to: standardPasteboard)
+    }
+
+    /// The standard clipboard's current generation, for a later
+    /// ``copyToStandardClipboard(_:ifUnchangedSince:)``.
+    public var standardClipboardChangeCount: Int {
+        standardPasteboard.changeCount
+    }
+
+    /// Copies text to the standard clipboard only if nothing else has written
+    /// it since `changeCount` was read.
+    ///
+    /// Use this when the text is computed asynchronously: a copy the user made
+    /// in the meantime wins, and this late write is dropped with
+    /// ``TerminalPasteboardMutationResult/Status/conditionNotMet``.
+    ///
+    /// - Parameters:
+    ///   - text: The already-normalized text to copy.
+    ///   - changeCount: ``standardClipboardChangeCount`` read when the copy
+    ///     action started.
+    /// - Returns: The write's outcome, or `nil` when there was nothing to copy.
+    public func copyToStandardClipboard(
+        _ text: String?,
+        ifUnchangedSince changeCount: Int
+    ) async -> TerminalPasteboardMutationResult.Status? {
+        guard let payload = text?.nonBlankClipboardText else { return nil }
+        let item = NSPasteboardItem()
+        guard item.setString(payload, forType: .string) else { return .writeFailed }
+        return await replaceContentsAndWait(
+            of: standardPasteboard,
+            with: [item],
+            expectedChangeCount: changeCount
+        ).status
+    }
+}

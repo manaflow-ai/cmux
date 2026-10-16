@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, type NextResponse } from "next/server";
 import { directDevBackendOrigin } from "./direct-dev-backend-origin";
 
 /**
@@ -35,4 +35,23 @@ export function requestWithOrigin(
     headers: request.headers,
     method: request.method,
   });
+}
+
+/** Public URLs belong in redirects; local rewrites must stay inside Next.
+ * Rewriting through Tailscale Serve runs middleware again and loops when
+ * next-intl removes the default locale prefix from its own rewrite. */
+export function responseWithInternalRewrite(
+  response: NextResponse,
+  incomingRequest: NextRequest,
+  environment: Record<string, string | undefined> = process.env,
+): NextResponse {
+  const publicOrigin = directDevBackendOrigin(environment)?.origin;
+  const rewrite = response.headers.get("x-middleware-rewrite");
+  if (!publicOrigin || !rewrite) return response;
+  const target = new URL(rewrite);
+  if (target.origin !== publicOrigin) return response;
+  target.protocol = incomingRequest.nextUrl.protocol;
+  target.host = incomingRequest.nextUrl.host;
+  response.headers.set("x-middleware-rewrite", target.toString());
+  return response;
 }

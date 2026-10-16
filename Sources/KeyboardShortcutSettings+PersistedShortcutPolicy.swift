@@ -49,6 +49,7 @@ extension KeyboardShortcutSettings {
 
         return settingsAction.effectivePersistedShortcut(
             candidate?.cmuxSettingsStoredShortcut,
+            defaultShortcut: action.defaultShortcut.cmuxSettingsStoredShortcut,
             normalizing: { shortcut in
                 normalizedExecutableShortcut(
                     StoredShortcut(cmuxSettingsStoredShortcut: shortcut),

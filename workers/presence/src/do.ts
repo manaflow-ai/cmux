@@ -71,6 +71,13 @@ import {
   type PairedMacBackupOp,
   type PairedMacBackupRecord,
 } from "./syncPairedMacs";
+import {
+  annotateVmSnapshotPages,
+  applyVmOps,
+  VMS_COLLECTION,
+  type VmPublishOp,
+  type VmRecord,
+} from "./syncVms";
 import { sanitizePublishedRoutes } from "./routePrivacy";
 import {
   ackPhoneReplies,
@@ -78,9 +85,17 @@ import {
   listPhoneReplies,
   PHONE_REPLY_NUDGE_REVISION,
   type EnqueuePhoneReplyResult,
+  type PhoneReplyTarget,
   type StoredPhoneReply,
 } from "./replies";
+import {
+  ackPhoneReplies as ackLegacyPhoneReplies,
+  enqueueLegacyPhoneReply,
+  listPhoneReplies as listLegacyPhoneReplies,
+  type StoredLegacyPhoneReply,
+} from "./legacyReplies";
 import { captureSentryException, type SentryEnv } from "./sentry";
+import { rateLimitedJson } from "./retryAfterResponse";
 
 const INSTANCE_PREFIX = "inst:";
 /** `owner:<deviceId>` -> Stack user id pinned on first heartbeat. Durable:
@@ -408,6 +423,29 @@ export class TeamPresence extends DurableObject<SentryEnv> {
     return { ok: true, changed: deltas.length, teamId };
   }
 
+  /** Publish Cloud machine list changes for this team. Called only by the
+   * worker after it checks the service publisher secret, so `teamId` is the
+   * trusted list scope the web backend chose (never a user bearer: cron
+   * writers have none). Applies the ops in one storage transaction, then
+   * broadcasts the resulting deltas to every socket subscribed to `vms`
+   * (team-wide, like `devices`). Returns the number of records changed. */
+  async publishVms(
+    teamId: string,
+    ops: readonly VmPublishOp[],
+  ): Promise<{ ok: true; changed: number; teamId: string }> {
+    await this.rememberTeamId(teamId);
+    const deltas = await this.ctx.storage.transaction(async (transaction) => {
+      const storage: SyncStorage = transaction;
+      return await applyVmOps(storage, ops, Date.now());
+    });
+    for (const delta of deltas) this.broadcastSync(delta);
+    // A delete leaves a tombstone the alarm GCs; an idle team may never
+    // schedule an alarm otherwise, so pin the next GC deadline now.
+    const gcTime = await nextTombstoneGcTime(this.syncStorage(), VMS_COLLECTION);
+    if (gcTime !== null) await this.ensureAlarmAt(gcTime);
+    return { ok: true, changed: deltas.length, teamId };
+  }
+
   /** Read a user's backed-up saved-host list (the GET restore path). Called only
    * by the worker after it verifies the token, so `userId` is trusted. Returns
    * live records plus retained delete tombstones for the per-user collection,
@@ -486,6 +524,9 @@ export class TeamPresence extends DurableObject<SentryEnv> {
     accountId: string,
     reply: Omit<StoredPhoneReply, "createdAtMs" | "expiresAtMs">,
   ): Promise<EnqueuePhoneReplyResult> {
+    if (reply.encryptedPayload.tuple.accountID !== accountId) {
+      return { ok: false, error: "account_mismatch" };
+    }
     const result = await enqueuePhoneReply(this.ctx.storage, reply, Date.now());
     if (result.ok && !result.duplicate) {
       const nudge = await this.invalidateConnectivity(accountId, PHONE_REPLY_NUDGE_REVISION);
@@ -495,13 +536,36 @@ export class TeamPresence extends DurableObject<SentryEnv> {
   }
 
   /** Pending replies for one Mac, oldest first. */
-  async listPhoneReplies(macDeviceId: string): Promise<StoredPhoneReply[]> {
-    return listPhoneReplies(this.ctx.storage, macDeviceId, Date.now());
+  async listPhoneReplies(target: PhoneReplyTarget): Promise<StoredPhoneReply[]> {
+    return listPhoneReplies(this.ctx.storage, target, Date.now());
   }
 
   /** Remove replies the Mac has finished processing. Idempotent. */
-  async ackPhoneReplies(replyIds: string[]): Promise<{ removed: number }> {
-    return ackPhoneReplies(this.ctx.storage, replyIds, Date.now());
+  async ackPhoneReplies(replyIds: string[], target: PhoneReplyTarget): Promise<{ removed: number }> {
+    return ackPhoneReplies(this.ctx.storage, replyIds, target, Date.now());
+  }
+
+  async enqueueLegacyPhoneReply(
+    accountId: string,
+    reply: Omit<StoredLegacyPhoneReply, "createdAtMs" | "expiresAtMs">,
+  ) {
+    const result = await enqueueLegacyPhoneReply(this.ctx.storage, reply, Date.now());
+    if (result.ok && !result.duplicate) {
+      const nudge = await this.invalidateConnectivity(
+        accountId,
+        PHONE_REPLY_NUDGE_REVISION,
+      );
+      return { ...result, nudged: nudge.delivered };
+    }
+    return result;
+  }
+
+  async listLegacyPhoneReplies(macDeviceId: string): Promise<StoredLegacyPhoneReply[]> {
+    return listLegacyPhoneReplies(this.ctx.storage, macDeviceId, Date.now());
+  }
+
+  async ackLegacyPhoneReplies(replyIds: string[]): Promise<{ removed: number }> {
+    return ackLegacyPhoneReplies(this.ctx.storage, replyIds, Date.now());
   }
 
   // ---- Subscribe transports (worker forwards the original Request) ----
@@ -553,10 +617,7 @@ export class TeamPresence extends DurableObject<SentryEnv> {
     const userId = request.headers.get("x-presence-user-id")?.trim() || undefined;
 
     if (this.presenceSubscriberCount() >= MAX_SUBSCRIBERS_PER_TEAM) {
-      return new Response(JSON.stringify({ error: "too_many_subscribers" }), {
-        status: 429,
-        headers: { "content-type": "application/json" },
-      });
+      return rateLimitedJson({ error: "too_many_subscribers" });
     }
 
     if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
@@ -634,10 +695,7 @@ export class TeamPresence extends DurableObject<SentryEnv> {
       (ws) => wsConnectivityAccountId(ws) !== null && wsExpiresAt(ws) > now,
     ).length;
     if (connected >= MAX_CONNECTIVITY_SUBSCRIBERS_PER_ACCOUNT) {
-      return new Response(JSON.stringify({ error: "too_many_subscribers" }), {
-        status: 429,
-        headers: { "content-type": "application/json" },
-      });
+      return rateLimitedJson({ error: "too_many_subscribers" });
     }
     const pair = new WebSocketPair();
     const client = pair[0];
@@ -712,9 +770,10 @@ export class TeamPresence extends DurableObject<SentryEnv> {
     const already = new Set(wsSyncCollections(ws));
     const subscribed: string[] = [];
     for (const { name, cursor, epoch } of collections) {
-      // Phase serves `devices` (team-wide, server-derived) and `pairedMacs`
-      // (per-user, client-owned). Any other name is ignored.
-      if (name !== DEVICES_COLLECTION && name !== PAIRED_MACS_COLLECTION) continue;
+      // Serves `devices` (team-wide, server-derived), `pairedMacs` (per-user,
+      // client-owned) and `vms` (team-wide, backend-published). Any other name
+      // is ignored.
+      if (name !== DEVICES_COLLECTION && name !== PAIRED_MACS_COLLECTION && name !== VMS_COLLECTION) continue;
       if (already.has(name)) continue;            // duplicate hello; reconnect to resync
       // Mark as seen IMMEDIATELY so a hello that repeats the same collection name
       // N times within one message does the backfill + snapshot/delta serialization
@@ -751,6 +810,30 @@ export class TeamPresence extends DurableObject<SentryEnv> {
           }
         } else if (resolved.delta !== null) {
           this.sendSync(ws, sanitizeDeviceSyncFrame(resolved.delta));
+        }
+        continue;
+      }
+
+      if (name === VMS_COLLECTION) {
+        // `vms`: team-wide like `devices`, but there is no local source to
+        // backfill from (Postgres owns the list); the web backend publishes a
+        // full `replace` after every list read, which marks the backfill. A
+        // snapshot before that carries only rows written since this shipped;
+        // its `backfilled: false` tells the client to apply it upsert-only.
+        subscribed.push(name);
+        const resolved = await resolveHelloFrames<VmRecord>(
+          this.syncStorage(),
+          name,
+          cursor,
+          undefined,
+          epoch ?? 0,
+        );
+        if (resolved.mode === "snapshot") {
+          for (const page of await annotateVmSnapshotPages(this.syncStorage(), resolved.pages)) {
+            this.sendSync(ws, page);
+          }
+        } else if (resolved.delta !== null) {
+          this.sendSync(ws, resolved.delta);
         }
         continue;
       }
@@ -909,6 +992,10 @@ export class TeamPresence extends DurableObject<SentryEnv> {
       // instances left to schedule a heartbeat-driven alarm) still wakes to GC
       // its tombstones and advance the GC floor (DESIGN.md §3.5).
       tombGc = await nextTombstoneGcTime(this.syncStorage(), DEVICES_COLLECTION);
+      // The backend-published machine list tombstones destroyed machines.
+      await gcTombstones(this.syncStorage(), VMS_COLLECTION, now);
+      const vmsGc = await nextTombstoneGcTime(this.syncStorage(), VMS_COLLECTION);
+      if (vmsGc !== null) tombGc = tombGc === null ? vmsGc : Math.min(tombGc, vmsGc);
       // Each Stack user's paired-Mac backup is its OWN physical collection,
       // including build-scoped variants. GC every collection that currently holds
       // tombstones; otherwise authenticated create/delete churn grows

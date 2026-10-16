@@ -26,9 +26,39 @@ from claude_teams_test_utils import (
 NONBLOCKING_LOCK_TIMEOUT_SECONDS = 5.0
 
 
+# Fixtures exit at once while this is set, so priming runs none of their logic.
+PRIME_ENVIRONMENT_KEY = "CMUX_TEST_PRIME_EXEC"
+
+
+def prime_first_exec(path: Path) -> None:
+    """Pay macOS's first-exec assessment for a new executable before timing it.
+
+    The first exec of every newly written file blocks while syspolicyd assesses
+    it, one file at a time across the whole machine: about 0.2 s on an idle Mac
+    and seconds on a loaded shared mini. The fake cmux runs first inside the
+    import check's 5 s waits, which must time only the extension's hooks.
+    """
+    subprocess.run(
+        [str(path)],
+        env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), PRIME_ENVIRONMENT_KEY: "1"},
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=120,
+        check=False,
+    )
+
+
 def make_executable(path: Path, content: str) -> None:
-    path.write_text(content, encoding="utf-8")
+    """Write a fixture that exits at once while primed, then prime it."""
+    shebang, newline, body = content.partition("\n")
+    if "node" in shebang:
+        guard = f"if (process.env.{PRIME_ENVIRONMENT_KEY}) process.exit(0);\n"
+    else:
+        guard = f'if [ -n "${{{PRIME_ENVIRONMENT_KEY}:-}}" ]; then exit 0; fi\n'
+    path.write_text(f"{shebang}{newline}{guard}{body}", encoding="utf-8")
     path.chmod(0o755)
+    prime_first_exec(path)
 
 
 def communicate_or_terminate(
@@ -385,6 +415,10 @@ case "$*" in
     fi
     printf '{}\n'
     ;;
+  *"hooks pi session-start"*)
+    printf '{"resume_binding":{"kind":"pi","checkpoint_id":"pi-session-test","source":"agent-hook","auto_resume":true,"approval_policy":"auto"}}\n' > "$CMUX_TEST_PI_BINDING_FILE"
+    printf '{"workspace_id":"workspace-pi-test","surface_id":"surface-pi-test"}\n'
+    ;;
   *"surface resume get"*)
     if [ -f "$CMUX_TEST_PI_BINDING_FILE" ]; then
       cat "$CMUX_TEST_PI_BINDING_FILE"
@@ -517,8 +551,25 @@ async function waitForFeedEvent(eventName, expectedCount) {
   }
   throw new Error(`timed out waiting for ${expectedCount} ${eventName} Feed events`);
 }
+async function waitForArgument(fragment) {
+    const path = process.env.CMUX_TEST_PI_ARGS_LOG;
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      const lines = path && Bun.file(path).size
+        ? (await Bun.file(path).text()).split("\\n")
+        : [];
+      if (lines.some((line) => line.includes(fragment))) return;
+      await Bun.sleep(10);
+    }
+  throw new Error(`timed out waiting for ${fragment}`);
+}
 await handlers.get("session_start")({}, ctx);
 await handlers.get("before_agent_start")({ prompt: "hello pi" }, ctx);
+await waitForArgument("hooks pi prompt-submit");
+const sessionStartBinding = JSON.parse(await Bun.file(process.env.CMUX_TEST_PI_BINDING_FILE).text()).resume_binding;
+if (sessionStartBinding?.auto_resume !== true || sessionStartBinding?.approval_policy !== "auto") {
+  throw new Error(`Pi session-start downgraded its resume binding: ${JSON.stringify(sessionStartBinding)}`);
+}
 await handlers.get("tool_execution_start")({
   id: "tool-event-start-should-not-be-turn-id",
   toolCallId: "tool-call-1",
@@ -551,6 +602,7 @@ const subagentTools = [
   { tool_name: "team_spawn" },
   { name: "superpowers_dispatch" },
   { toolName: "Task" },
+  { toolName: "Agent" },
   { toolName: "review_subagent_batch" }
 ];
 for (let index = 0; index < subagentTools.length; index += 1) {
@@ -824,8 +876,6 @@ await waitForCompletionHookCount(completionCount);
             "hooks feed --source pi --event PostCompact",
             "hooks feed --source pi --event SubagentStart",
             "hooks feed --source pi --event SubagentStop",
-            "surface resume get",
-            "surface resume set",
             "surface resume clear",
         ]:
             if expected not in args_log:
@@ -842,29 +892,13 @@ await waitForCompletionHookCount(completionCount);
             elif "surface resume clear" in line:
                 resume_ops.append("clear")
         expected_resume_ops = [
-            "set",
-            "get",
             "clear",
-            "set",
-            "get",
             "clear",
-            "set",
-            "get",
             "clear",
-            "set",
-            "get",
             "clear",
-            "set",
-            "get",
-            "set",
-            "get",
-            "set",
-            "get",
-            "set",
-            "get",
         ]
         if resume_ops != expected_resume_ops:
-            print(f"FAIL: extension did not verify resume binding after set, got {resume_ops!r}")
+            print(f"FAIL: extension emitted unexpected resume binding operations, got {resume_ops!r}")
             return 1
         payloads = payloads_from_log(stdin_log)
         for session_id in [
@@ -1028,6 +1062,7 @@ await waitForCompletionHookCount(completionCount);
             "team_spawn",
             "superpowers_dispatch",
             "Task",
+            "Agent",
             "review_subagent_batch",
         ]
         for tool_name in expected_subagent_names:

@@ -63,7 +63,7 @@ struct DockSocketLifecycleTests {
     }
 
     @MainActor
-    private func v2Result(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
+    func v2Result(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
         let envelope = try v2Envelope(method: method, params: params)
         if envelope["ok"] as? Bool != true {
             Issue.record("Expected \(method) to succeed: \(envelope)")
@@ -149,43 +149,14 @@ struct DockSocketLifecycleTests {
         #expect(createdBrowser.bypassesRemoteWorkspaceProxyForTabDuplication)
     }
 
-    private func restoreUserDefault(_ value: Any?, forKey key: String) {
-        let defaults = UserDefaults.standard
-        if let value {
-            defaults.set(value, forKey: key)
-        } else {
-            defaults.removeObject(forKey: key)
-        }
-    }
-
     @MainActor
-    private func withDockEnabled(_ body: () throws -> Void) rethrows {
-        let defaults = UserDefaults.standard
-        let key = RightSidebarBetaFeatureSettings.dockEnabledKey
-        let previous = defaults.object(forKey: key)
-        defaults.set(true, forKey: key)
-        defer { restoreUserDefault(previous, forKey: key) }
+    func withDockAvailable(_ body: () throws -> Void) rethrows {
         try body()
     }
 
     @MainActor
-    private func withDockEnabled(_ body: () async throws -> Void) async rethrows {
-        let defaults = UserDefaults.standard
-        let key = RightSidebarBetaFeatureSettings.dockEnabledKey
-        let previous = defaults.object(forKey: key)
-        defaults.set(true, forKey: key)
-        defer { restoreUserDefault(previous, forKey: key) }
+    private func withDockAvailable(_ body: () async throws -> Void) async rethrows {
         try await body()
-    }
-
-    @MainActor
-    private func withDockDisabled(_ body: () throws -> Void) rethrows {
-        let defaults = UserDefaults.standard
-        let key = RightSidebarBetaFeatureSettings.dockEnabledKey
-        let previous = defaults.object(forKey: key)
-        defaults.set(false, forKey: key)
-        defer { restoreUserDefault(previous, forKey: key) }
-        try body()
     }
 
     @MainActor
@@ -240,8 +211,9 @@ struct DockSocketLifecycleTests {
     }
 
     @MainActor
-    private func withSocketAppContext(
+    func withSocketAppContext(
         fileExplorerState: FileExplorerState? = nil,
+        requiresLiveWindow: Bool = false,
         _ body: (TabManager, Workspace, UUID) throws -> Void
     ) throws {
         let previousAppDelegate = AppDelegate.shared
@@ -258,11 +230,35 @@ struct DockSocketLifecycleTests {
             tabManager: manager,
             fileExplorerState: fileExplorerState
         )
+        let window: NSWindow?
+        if requiresLiveWindow {
+            let mainWindow = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            mainWindow.isReleasedWhenClosed = false
+            mainWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+            appDelegate.registerMainWindow(
+                mainWindow,
+                windowId: windowId,
+                tabManager: manager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: fileExplorerState
+            )
+            mainWindow.makeKeyAndOrderFront(nil)
+            window = mainWindow
+        } else {
+            window = nil
+        }
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
+            window?.orderOut(nil)
             AppDelegate.shared = previousAppDelegate
         }
 
@@ -345,12 +341,12 @@ struct DockSocketLifecycleTests {
     @Test("Dock surface create with focus reveals the Dock")
     @MainActor
     func dockSurfaceCreateWithFocusRevealsDock() throws {
-        try withDockEnabled {
+        try withDockAvailable {
             let fileExplorerState = FileExplorerState()
             fileExplorerState.setVisible(false)
             fileExplorerState.mode = .files
 
-            try withSocketAppContext(fileExplorerState: fileExplorerState) { _, workspace, windowId in
+            try withSocketAppContext(fileExplorerState: fileExplorerState, requiresLiveWindow: true) { _, workspace, windowId in
                 let result = try v2Result(
                     method: "surface.create",
                     params: ["placement": "dock", "type": "terminal", "focus": true]
@@ -372,12 +368,12 @@ struct DockSocketLifecycleTests {
     @Test("Dock pane create with focus reveals the Dock")
     @MainActor
     func dockPaneCreateWithFocusRevealsDock() throws {
-        try withDockEnabled {
+        try withDockAvailable {
             let fileExplorerState = FileExplorerState()
             fileExplorerState.setVisible(false)
             fileExplorerState.mode = .files
 
-            try withSocketAppContext(fileExplorerState: fileExplorerState) { _, workspace, windowId in
+            try withSocketAppContext(fileExplorerState: fileExplorerState, requiresLiveWindow: true) { _, workspace, windowId in
                 let result = try v2Result(
                     method: "pane.create",
                     params: ["placement": "dock", "direction": "right", "type": "terminal", "focus": true]
@@ -396,49 +392,58 @@ struct DockSocketLifecycleTests {
         }
     }
 
-    @Test("Dock placement is rejected when Dock mode is disabled")
+    @Test("Dock placement stays available without the removed beta setting")
     @MainActor
-    func dockPlacementRejectedWhenDockModeDisabled() throws {
-        try withDockDisabled {
+    func dockPlacementRemainsAvailableWithoutBetaSetting() throws {
+        try withSocketAppContext { _, workspace, windowID in
+            let defaults = UserDefaults.standard
+            let legacyDockBetaKey = "rightSidebar.beta.dock.enabled"
+            let previousLegacyDockBeta = defaults.object(forKey: legacyDockBetaKey)
+            defaults.set(false, forKey: legacyDockBetaKey)
+            defer {
+                if let previousLegacyDockBeta {
+                    defaults.set(previousLegacyDockBeta, forKey: legacyDockBetaKey)
+                } else {
+                    defaults.removeObject(forKey: legacyDockBetaKey)
+                }
+            }
+            for method in ["surface.create", "pane.create"] {
+                var params = ["placement": "dock", "type": "terminal", "focus": true]
+                if method == "pane.create" {
+                    params["direction"] = "right"
+                }
+                let result = try v2Result(method: method, params: params)
+                #expect(result["workspace_id"] as? String == windowID.uuidString)
+                #expect(result["dock_surface_id"] as? String != nil)
+                #expect(AppDelegate.shared?.existingWindowDocks.isEmpty == false)
+                #expect(workspace._dockSplit?.bonsplitController.allTabIds.isEmpty ?? true)
+            }
+        }
+    }
+
+    @Test("Dock browser creation uses browser-disabled external fallback after graduation")
+    @MainActor
+    func dockBrowserCreationUsesBrowserDisabledExternalFallbackAfterGraduation() throws {
+        try withBrowserDisabled {
             try withSocketAppContext { _, workspace, _ in
                 for method in ["surface.create", "pane.create"] {
-                    var params = ["placement": "dock", "type": "terminal", "focus": true]
+                    var params = ["placement": "dock", "type": "browser", "url": "https://example.com"]
                     if method == "pane.create" {
                         params["direction"] = "right"
                     }
                     let envelope = try v2Envelope(method: method, params: params)
 
-                    #expect(envelope["ok"] as? Bool == false)
-                    let error = try #require(envelope["error"] as? [String: Any])
-                    #expect(error["code"] as? String == "invalid_params")
-                    #expect(error["message"] as? String == "Dock placement is disabled")
+                    if envelope["ok"] as? Bool == true {
+                        let result = try #require(envelope["result"] as? [String: Any])
+                        #expect(result["opened_externally"] as? Bool == true)
+                        #expect(result["browser_disabled"] as? Bool == true)
+                        #expect(result["placement_strategy"] as? String == "external_browser_disabled")
+                    } else {
+                        let error = try #require(envelope["error"] as? [String: Any])
+                        #expect(error["code"] as? String == "external_open_failed")
+                    }
                     #expect(AppDelegate.shared?.existingWindowDocks.isEmpty ?? true)
                     #expect(workspace._dockSplit?.bonsplitController.allTabIds.isEmpty ?? true)
-                }
-            }
-        }
-    }
-
-    @Test("Dock unavailable beats browser-disabled external fallback")
-    @MainActor
-    func dockUnavailableBeatsBrowserDisabledExternalFallback() throws {
-        try withDockDisabled {
-            try withBrowserDisabled {
-                try withSocketAppContext { _, workspace, _ in
-                    for method in ["surface.create", "pane.create"] {
-                        var params = ["placement": "dock", "type": "browser", "url": "https://example.com"]
-                        if method == "pane.create" {
-                            params["direction"] = "right"
-                        }
-                        let envelope = try v2Envelope(method: method, params: params)
-
-                        #expect(envelope["ok"] as? Bool == false)
-                        let error = try #require(envelope["error"] as? [String: Any])
-                        #expect(error["code"] as? String == "invalid_params")
-                        #expect(error["message"] as? String == "Dock placement is disabled")
-                        #expect(AppDelegate.shared?.existingWindowDocks.isEmpty ?? true)
-                        #expect(workspace._dockSplit?.bonsplitController.allTabIds.isEmpty ?? true)
-                    }
                 }
             }
         }
@@ -447,7 +452,7 @@ struct DockSocketLifecycleTests {
     @Test("Conflicting Dock create selectors beat browser-disabled external fallback")
     @MainActor
     func conflictingDockCreateSelectorsBeatBrowserDisabledExternalFallback() throws {
-        try withDockEnabled {
+        try withDockAvailable {
             try withBrowserDisabled {
                 try withSocketAppContext { _, workspace, windowId in
                     let appDelegate = try #require(AppDelegate.shared)
@@ -487,7 +492,7 @@ struct DockSocketLifecycleTests {
     @Test("surface.close closes Dock surfaces")
     @MainActor
     func surfaceCloseClosesDockSurfaces() throws {
-        try withDockEnabled {
+        try withDockAvailable {
             try withSocketAppContext { _, workspace, windowId in
                 let mainPanelIds = Set(workspace.panels.keys)
                 let createResult = try v2Result(
@@ -520,7 +525,7 @@ struct DockSocketLifecycleTests {
     @Test("Window Dock owner id resolves surface read snapshots")
     @MainActor
     func windowDockOwnerResolvesSurfaceReadSnapshots() throws {
-        try withDockEnabled {
+        try withDockAvailable {
             try withSocketAppContext { _, workspace, windowId in
                 let mainPanelIds = Set(workspace.panels.keys)
                 let createResult = try v2Result(
@@ -552,7 +557,7 @@ struct DockSocketLifecycleTests {
     @Test("Window Dock owner pane mutations do not fall back to selected workspace")
     @MainActor
     func windowDockOwnerPaneMutationDoesNotFallBackToSelectedWorkspace() throws {
-        try withDockEnabled {
+        try withDockAvailable {
             try withSocketAppContext { _, workspace, windowId in
                 let mainPanelIds = Set(workspace.panels.keys)
                 let mainFocusedPane = workspace.bonsplitController.focusedPaneId
@@ -581,7 +586,11 @@ struct DockSocketLifecycleTests {
     @Test("Window Dock browser surfaces resolve browser commands")
     @MainActor
     func windowDockBrowserSurfacesResolveBrowserCommands() async throws {
-        try await withDockEnabled {
+        let navigationURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dock-navigation-\(UUID().uuidString).html")
+        try "<!doctype html><title>Dock navigation</title>".write(to: navigationURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: navigationURL) }
+        try await withDockAvailable {
             try await withBrowserEnabled {
                 try await withSocketAppContext { _, workspace, windowId in
                     let mainPanelIds = Set(workspace.panels.keys)
@@ -607,14 +616,15 @@ struct DockSocketLifecycleTests {
                     #expect(urlResult["workspace_id"] as? String == windowId.uuidString)
                     #expect(urlResult["surface_id"] as? String == dockSurfaceId.uuidString)
 
-                    await #expect(throws: (any Error).self) {
-                        try await v2ResultOnSocketWorker(method: "browser.navigate", params: [
-                            "workspace_id": windowId.uuidString,
-                            "surface_id": dockSurfaceId.uuidString,
-                            "url": "about:blank",
-                            "expected_url": "https://stale.invalid",
-                        ])
-                    }
+                    let staleNavigation = try await v2EnvelopeOnSocketWorker(method: "browser.navigate", params: [
+                        "workspace_id": windowId.uuidString,
+                        "surface_id": dockSurfaceId.uuidString,
+                        "url": "about:blank",
+                        "expected_url": "https://stale.invalid",
+                    ])
+                    #expect(staleNavigation["ok"] as? Bool == false)
+                    let staleError = try #require(staleNavigation["error"] as? [String: Any])
+                    #expect(staleError["code"] as? String == "stale_state")
 
                     let appDelegate = try #require(AppDelegate.shared)
                     let secondManager = TabManager(autoWelcomeIfNeeded: false)
@@ -635,7 +645,7 @@ struct DockSocketLifecycleTests {
                         method: "browser.navigate",
                         params: [
                             "surface_id": secondDockBrowserId.uuidString,
-                            "url": "about:blank",
+                            "url": navigationURL.absoluteString,
                         ]
                     )
                     #expect(crossWindowNavigate["workspace_id"] as? String == secondWindowId.uuidString)
@@ -668,6 +678,10 @@ struct DockSocketLifecycleTests {
     @Test("Workspace Dock browser surfaces resolve programmatic browser commands")
     @MainActor
     func workspaceDockBrowserSurfacesResolveBrowserCommands() async throws {
+        let navigationURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("workspace-dock-navigation-\(UUID().uuidString).html")
+        try "<!doctype html><title>Workspace Dock navigation</title>".write(to: navigationURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: navigationURL) }
         try await withBrowserEnabled {
             try await withSocketAppContext { _, workspace, windowId in
                 let dock = try #require(workspace.dockSplit)
@@ -702,7 +716,7 @@ struct DockSocketLifecycleTests {
                 #expect(urlResult["url"] as? String == "about:blank")
 
                 var navigateParams = routing
-                navigateParams["url"] = "about:blank"
+                navigateParams["url"] = navigationURL.absoluteString
                 let navigateResult = try await v2ResultOnSocketWorker(
                     method: "browser.navigate",
                     params: navigateParams
@@ -966,7 +980,7 @@ struct DockSocketLifecycleTests {
     /// Sets up a single registered main window with that window's Dock created,
     /// and tears everything down (the Dock included, via unregister) on exit.
     @MainActor
-    private func withDockShortcutHarness(
+    func withDockShortcutHarness(
         _ body: @MainActor (
             _ appDelegate: AppDelegate,
             _ manager: TabManager,
@@ -1033,7 +1047,7 @@ struct DockSocketLifecycleTests {
     @MainActor
     func creationAndSplitShortcutsRouteToFocusedDock() throws {
 #if DEBUG
-        try withDockEnabled {
+        try withDockAvailable {
             try withBrowserEnabled {
                 try withDefaultShortcuts([.newSurface, .openBrowser, .splitRight, .splitDown]) {
                     try withDockShortcutHarness { appDelegate, _, mainWorkspace, windowDock, fileExplorerState, window in
@@ -1085,7 +1099,7 @@ struct DockSocketLifecycleTests {
     @MainActor
     func newSurfaceShortcutStaysInMainAreaWhenDockUnfocused() throws {
 #if DEBUG
-        try withDockEnabled {
+        try withDockAvailable {
             try withDefaultShortcuts([.newSurface]) {
                 try withDockShortcutHarness { appDelegate, _, mainWorkspace, windowDock, fileExplorerState, window in
                     // Dock has content but is NOT the focused area; the main panel is.

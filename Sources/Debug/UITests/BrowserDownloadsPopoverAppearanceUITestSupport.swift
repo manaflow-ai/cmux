@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxBrowser
 import CmuxTestSupport
 import Foundation
 import SwiftUI

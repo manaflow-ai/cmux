@@ -19,7 +19,7 @@ import Testing
 /// after the capture block must be replayed exactly once after pane state.
 @MainActor
 @Suite struct RemoteTmuxPaneSeedTransportTests {
-    @Test func peerDetachReplaysEveryRecordedSizeClaimInStableOrder() throws {
+    @Test(.timeLimit(.minutes(1))) func peerDetachReplaysEveryRecordedSizeClaimInStableOrder() async throws {
         let fixture = attachedConnection()
         defer { fixture.close() }
 
@@ -30,16 +30,17 @@ import Testing
         ]
         fixture.connection.sentWindowSizes = fixture.connection.lastWindowSizes
         fixture.connection.windowClaimParityRearmsSpent = [3: 1, 9: 3]
-        _ = fixture.pipe.fileHandleForReading.availableData
-
         fixture.connection.handleMessageForTesting(
             .clientDetached(client: "/dev/pts/22")
         )
 
-        let commands = String(
-            decoding: fixture.pipe.fileHandleForReading.availableData,
-            as: UTF8.self
-        )
+        // Closing queues EOF after every command write, without blocking the main actor.
+        fixture.writer.close()
+        var commandBytes = Data()
+        for try await byte in fixture.pipe.fileHandleForReading.bytes {
+            commandBytes.append(byte)
+        }
+        let commands = String(decoding: commandBytes, as: UTF8.self)
         let envelope = try #require(commands.range(of: "refresh-client -C 242x62"))
         let window3 = try #require(
             commands.range(of: "refresh-client -C '@3:180x50'")
@@ -291,6 +292,12 @@ import Testing
             workspace: workspace
         )
         defer { sessionMirror.detachObserver() }
+        // A manual-I/O mirror pane spawns eagerly in its hidden bootstrap
+        // window and renders the grid the mirror assigned it before this seed
+        // arrives, so a seed against that grid would be delivered on the spot.
+        // Publish a larger pane grid than any surface here has applied; the
+        // retention under test exists for exactly that lag.
+        publishLaggingPaneGrid(on: fixture.connection, windowId: 1, paneIds: [7])
 
         let snapshot = Data(repeating: UInt8(ascii: "x"), count: 9 * 1_024 * 1_024)
         sessionMirror.routeSeed(
@@ -333,6 +340,12 @@ import Testing
             workspace: workspace
         )
         defer { sessionMirror.detachObserver() }
+        // A manual-I/O mirror pane spawns eagerly in its hidden bootstrap
+        // window and renders the grid the mirror assigned it before this seed
+        // arrives, so a seed against that grid would be delivered on the spot.
+        // Publish a larger pane grid than any surface here has applied; the
+        // retention under test exists for exactly that lag.
+        publishLaggingPaneGrid(on: fixture.connection, windowId: 1, paneIds: [7])
 
         sessionMirror.routeSeed(
             paneId: 7,
@@ -381,6 +394,12 @@ import Testing
             workspace: manager.selectedWorkspace!
         )
         defer { sessionMirror.detachObserver() }
+        // A manual-I/O mirror pane spawns eagerly in its hidden bootstrap
+        // window and renders the grid the mirror assigned it before this seed
+        // arrives, so a seed against that grid would be delivered on the spot.
+        // Publish a larger pane grid than any surface here has applied; the
+        // retention under test exists for exactly that lag.
+        publishLaggingPaneGrid(on: fixture.connection, windowId: 1, paneIds: [7])
 
         sessionMirror.routeSeed(
             paneId: 7,
@@ -654,7 +673,8 @@ import Testing
         )
 
         fixture.connection.cancelPaneSeed(paneId: 7, seedID: blockingSeedID)
-        for _ in 0..<10 {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if fixture.connection.pendingPaneSeeds[8] != nil { break }
             await Task.yield()
         }
@@ -783,6 +803,12 @@ import Testing
             pendingPaneSeedByteLimit: 10
         )
         defer { sessionMirror.detachObserver() }
+        // A manual-I/O mirror pane spawns eagerly in its hidden bootstrap
+        // window and renders the grid the mirror assigned it before this seed
+        // arrives, so a seed against that grid would be delivered on the spot.
+        // Publish a larger pane grid than any surface here has applied; the
+        // retention under test exists for exactly that lag.
+        publishLaggingPaneGrid(on: fixture.connection, windowId: 1, paneIds: [7, 8], columns: 600, rows: 600)
 
         sessionMirror.routeSeed(
             paneId: 7,
@@ -924,6 +950,57 @@ import Testing
         #expect(fixture.connection.connectionState == .reconnecting)
     }
 
+    private static func singlePaneWindow(columns: Int, rows: Int) -> RemoteTmuxWindow {
+        RemoteTmuxWindow(
+            id: 1,
+            name: "main",
+            width: columns,
+            height: rows,
+            layout: RemoteTmuxLayoutNode(width: columns, height: rows, x: 0, y: 0, content: .pane(7))
+        )
+    }
+
+    private static func visibleRepaints(_ connection: RemoteTmuxControlConnection, pane: Int) -> Int {
+        connection.pendingCommandKindsForTesting.filter {
+            if case .capturePane(pane, _) = $0 { return true }
+            return false
+        }.count
+    }
+
+    /// tmux rewraps a pane's lines when its width changes, in either direction. The mirror's
+    /// own rewrap matches only for lines it saw arrive live: a seeded row carries no wrap
+    /// information, and capture drops the trailing spaces a shell pads its prompt line with.
+    /// Measured on tmux 3.7b with zsh: narrowing 120 columns to 93 wrapped the padded prompt
+    /// row onto a second row in tmux and not in the mirror, so every row below it sat a row
+    /// off, and the cursor with them. Only tmux's own screen puts that right.
+    @Test func narrowedPaneIsRepaintedFromTmux() {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        let wide = Self.singlePaneWindow(columns: 120, rows: 40)
+        let narrow = Self.singlePaneWindow(columns: 93, rows: 40)
+        fixture.connection.windowsByID[1] = narrow
+        fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+        fixture.connection.repaintPanesTmuxRedrew(from: wide, to: narrow)
+
+        #expect(Self.visibleRepaints(fixture.connection, pane: 7) == 1)
+    }
+
+    /// A pane that only gets shorter is not rewrapped: tmux moves whole rows into history,
+    /// and so does the mirror. No repaint is owed.
+    @Test func paneThatOnlyGotShorterIsNotRepainted() {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        let tall = Self.singlePaneWindow(columns: 93, rows: 40)
+        let short = Self.singlePaneWindow(columns: 93, rows: 37)
+        fixture.connection.windowsByID[1] = short
+        fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+        fixture.connection.repaintPanesTmuxRedrew(from: tall, to: short)
+
+        #expect(Self.visibleRepaints(fixture.connection, pane: 7) == 0)
+    }
+
     @Test func captureFailureForExitedPaneCancelsSeedWithoutReconnect() {
         let fixture = attachedConnection()
         defer { fixture.close() }
@@ -955,6 +1032,83 @@ import Testing
         #expect(fixture.connection.connectionState == .connected)
         #expect(fixture.connection.pendingPaneSeeds.isEmpty)
         #expect(rendered.isEmpty)
+    }
+
+    /// tmux stops a queued line at its first failing command and answers nothing after it.
+    /// Measured on tmux 3.7b: the five-command seed for a pane that has exited gets three
+    /// replies, and the two commands after the failed capture get none. The next reply on the
+    /// wire belongs to the next command sent, here the window list the failure asks for.
+    @Test func seedCutShortByAnExitedPaneLeavesNoReplySlotsBehind() {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        fixture.connection.capturePane(paneId: 7)
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 40, lines: [], isError: false)
+        )
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 41, lines: ["0"], isError: false)
+        )
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 42, lines: ["can't find pane: %7"], isError: true)
+        )
+
+        let waiting = fixture.connection.pendingCommandKindsForTesting
+        #expect(waiting.count == 1, "slots still waiting on replies tmux will not send: \(waiting)")
+        guard case .listWindows = waiting.first else {
+            Issue.record("the next reply would go to \(String(describing: waiting.first)), not the window list")
+            return
+        }
+
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 43, lines: ["@1 not-a-layout not-a-layout [] shell"], isError: false)
+        )
+        #expect(!fixture.connection.windowListRequestInFlight, "the window list never got its reply")
+        #expect(fixture.connection.connectionState == .connected)
+    }
+
+    /// A line tmux cannot parse is answered once, however many commands it holds.
+    @Test func queuedLineRejectedOnItsFirstCommandLeavesNoReplySlotsBehind() {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        let seed = UUID()
+        #expect(fixture.connection.sendCommandQueueInternal(
+            ["display-message -p a", "display-message -p b", "display-message -p c"],
+            kinds: [.paneAltScreen(7, seed), .paneAltScreen(7, seed), .paneAltScreen(7, seed)]
+        ))
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 40, lines: ["parse error"], isError: true)
+        )
+
+        #expect(fixture.connection.pendingCommandKindsForTesting.isEmpty)
+    }
+
+    /// The last command of a queued line has nothing after it to skip, so its failure must
+    /// not take a slot from whatever was sent next.
+    @Test func queuedLineFailingOnItsLastCommandKeepsTheNextCommandsSlot() {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        let seed = UUID()
+        #expect(fixture.connection.sendCommandQueueInternal(
+            ["display-message -p a", "display-message -p b"],
+            kinds: [.paneAltScreen(7, seed), .paneAltScreen(7, seed)]
+        ))
+        fixture.connection.requestWindows()
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 40, lines: ["a"], isError: false)
+        )
+        fixture.connection.handleMessageForTesting(
+            .commandResult(commandNumber: 41, lines: ["failed"], isError: true)
+        )
+
+        let waiting = fixture.connection.pendingCommandKindsForTesting
+        #expect(waiting.count == 1)
+        guard case .listWindows = waiting.first else {
+            Issue.record("the window list lost its slot: \(waiting)")
+            return
+        }
     }
 
     @Test func rechunkedLiveEchoCutsOverAtomicallyAtCaptureReply() throws {
@@ -1335,7 +1489,7 @@ import Testing
         fixture.connection.windowsByID[1] = grownWindow
         fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
         fixture.connection.observers.notifyTopologyChanged()
-        fixture.connection.repaintPanesThatGrew(from: initialWindow, to: grownWindow)
+        fixture.connection.repaintPanesTmuxRedrew(from: initialWindow, to: grownWindow)
 
         finishPendingCommands(
             on: fixture.connection,
@@ -1492,7 +1646,7 @@ import Testing
             fixture.connection.windowsByID[1] = restoredWindow
             fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
             fixture.connection.observers.notifyTopologyChanged()
-            fixture.connection.repaintPanesThatGrew(
+            fixture.connection.repaintPanesTmuxRedrew(
                 from: shrunkenWindow,
                 to: restoredWindow
             )
@@ -1588,6 +1742,31 @@ import Testing
             offset = end
             chunkIndex += 1
         }
+    }
+
+    /// Re-publishes `windowId` with pane grids far larger than any surface in
+    /// these tests has applied, keeping the pane ids and their order. Seed
+    /// delivery waits for the published grid, so this models tmux running
+    /// ahead of the local terminal without spinning the run loop.
+    private func publishLaggingPaneGrid(
+        on connection: RemoteTmuxControlConnection,
+        windowId: Int,
+        paneIds: [Int],
+        columns: Int = 400,
+        rows: Int = 200
+    ) {
+        let leaves = paneIds.enumerated().map { index, paneId in
+            RemoteTmuxLayoutNode(
+                width: columns, height: rows, x: index * (columns + 1), y: 0, content: .pane(paneId)
+            )
+        }
+        let width = paneIds.count * columns + max(0, paneIds.count - 1)
+        let layout = leaves.count == 1
+            ? leaves[0]
+            : RemoteTmuxLayoutNode(width: width, height: rows, x: 0, y: 0, content: .horizontal(leaves))
+        connection.windowsByID[windowId] = RemoteTmuxWindow(
+            id: windowId, width: width, height: rows, layout: layout
+        )
     }
 
     private func attachedConnection(
@@ -1789,7 +1968,9 @@ import Testing
 
         if condition() { return }
         GhosttyApp.shared.scheduleTick()
-        for await _ in events where !condition() {}
+        for await _ in events {
+            if condition() { return }
+        }
     }
 
     private func readTerminalText(
@@ -1889,6 +2070,12 @@ import Testing
             pendingPaneSeedByteLimit: 64
         )
         defer { sessionMirror.detachObserver() }
+        // A manual-I/O mirror pane spawns eagerly in its hidden bootstrap
+        // window and renders the grid the mirror assigned it before this seed
+        // arrives, so a seed against that grid would be delivered on the spot.
+        // Publish a larger pane grid than any surface here has applied; the
+        // retention under test exists for exactly that lag.
+        publishLaggingPaneGrid(on: fixture.connection, windowId: 1, paneIds: [7])
 
         sessionMirror.routeSeed(
             paneId: 7,
@@ -1941,6 +2128,12 @@ import Testing
             pendingPaneSeedByteLimit: 64
         )
         defer { sessionMirror.detachObserver() }
+        // A manual-I/O mirror pane spawns eagerly in its hidden bootstrap
+        // window and renders the grid the mirror assigned it before this seed
+        // arrives, so a seed against that grid would be delivered on the spot.
+        // Publish a larger pane grid than any surface here has applied; the
+        // retention under test exists for exactly that lag.
+        publishLaggingPaneGrid(on: fixture.connection, windowId: 1, paneIds: [7])
 
         sessionMirror.routeSeed(
             paneId: 7,

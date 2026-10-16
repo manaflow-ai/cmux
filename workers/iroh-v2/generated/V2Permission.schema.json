@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.cmux.invalid/iroh-v2/V2Permission.json",
+  "type": "object",
+  "properties": {
+    "subjectUserId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "deviceRecordId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "connect": {
+      "type": "boolean"
+    },
+    "manage": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "subjectUserId",
+    "deviceRecordId",
+    "connect",
+    "manage"
+  ],
+  "additionalProperties": false
+}

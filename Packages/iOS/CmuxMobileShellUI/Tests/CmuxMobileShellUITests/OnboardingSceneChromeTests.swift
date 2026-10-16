@@ -17,6 +17,11 @@ import UIKit
             isAuthenticated: true,
             connectionPhase: .searching
         )
+        let pairing = OnboardingSceneChrome(
+            stage: .pairing,
+            isAuthenticated: true,
+            connectionPhase: .searching
+        )
 
         #expect(!agents.showsBack)
         #expect(agents.showsSkip)
@@ -27,6 +32,11 @@ import UIKit
         #expect(notifications.showsSkip)
         #expect(notifications.primaryTitle != nil)
         #expect(notifications.secondaryTitle == nil)
+
+        #expect(pairing.showsBack)
+        #expect(!pairing.showsSkip)
+        #expect(pairing.primaryTitle != nil)
+        #expect(pairing.secondaryTitle == nil)
     }
 
     /// The push page always offers the paired opt-in choice: Enable as the

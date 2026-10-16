@@ -71,6 +71,8 @@ struct NotificationSoundGlobalRow: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .help(previewSoundLabel)
+                    .accessibilityLabel(previewSoundLabel)
                     .disabled(
                         filePicker.isValidating
                             || !canPreviewSound
@@ -143,6 +145,13 @@ struct NotificationSoundGlobalRow: View {
             )
         }
         return URL(fileURLWithPath: path).lastPathComponent
+    }
+
+    private var previewSoundLabel: String {
+        String(
+            localized: "settings.notifications.sound.preview",
+            defaultValue: "Preview Sound"
+        )
     }
 
     private var canPreviewSound: Bool {

@@ -642,7 +642,7 @@ extension NotificationSoundSettings {
 
     nonisolated private static let soundStager = NotificationSoundStager()
 
-    nonisolated enum CustomSoundPreparationIssue: Error, Sendable {
+    enum CustomSoundPreparationIssue: Error, Sendable {
         case emptyPath
         case missingFile(path: String)
         case missingFileExtension(path: String)

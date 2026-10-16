@@ -40,6 +40,45 @@ function harness(result: ClickHouseInsertResult = { ok: true }) {
 }
 
 describe("CodeRouter usage ledger rows", () => {
+  test("keeps the opaque API key id on usage rows without storing the key", () => {
+    const row = usageEventRow({
+      requestId: "request-api-key",
+      teamId: "team-1",
+      stackUserId: "stack-user-1",
+      apiKeyId: "00000000-0000-4000-8000-000000000001",
+      vmId: null,
+      provider: "codex",
+      agent: "codex",
+      model: "gpt-5",
+      inputTokens: 2,
+      cachedInputTokens: 0,
+      outputTokens: 3,
+      totalTokens: 5,
+      status: 200,
+    }, now());
+    expect(row?.api_key_id).toBe("00000000-0000-4000-8000-000000000001");
+    expect(JSON.stringify(row)).not.toContain("crk_");
+  });
+
+  test("rejects a secret-shaped API key value in the ledger id field", () => {
+    const row = usageEventRow({
+      requestId: "request-api-key-secret",
+      teamId: "team-1",
+      stackUserId: "stack-user-1",
+      apiKeyId: `crk_${"A".repeat(43)}`,
+      vmId: null,
+      provider: "codex",
+      agent: "codex",
+      model: "gpt-5",
+      inputTokens: 1,
+      cachedInputTokens: 0,
+      outputTokens: 1,
+      totalTokens: 2,
+      status: 200,
+    }, now());
+    expect(row?.api_key_id ?? null).toBeNull();
+    expect(JSON.stringify(row)).not.toContain("crk_");
+  });
   test("formats event_time as a UTC DateTime64(3) literal", () => {
     expect(clickHouseDateTime(now())).toBe("2026-09-02 10:20:30.456");
   });
@@ -71,6 +110,8 @@ describe("CodeRouter usage ledger rows", () => {
         provider: "codex",
         upstream_kind: "",
         upstream_account_id: "",
+        workspace_id: "",
+        surface_id: "",
         agent: "codex",
         model: "gpt-5.2-codex",
         input_tokens: 1_200_000,
@@ -186,6 +227,25 @@ describe("CodeRouter usage ledger rows", () => {
     });
   });
 
+  test("route row records time held for capacity and how often", () => {
+    const row = routeEventRow({
+      requestId,
+      teamId: "team-1",
+      provider: "codex",
+      agent: "codex",
+      outcome: "success",
+      failureStage: "none",
+      status: 200,
+      attemptCount: 5,
+      refreshRetryCount: 0,
+      durationMs: 190_000,
+      heldMs: 187_654.4,
+      holdCount: 400,
+      responseStreamed: true,
+    }, now());
+    expect(row).toMatchObject({ held_ms: 187_654, hold_count: 400 });
+  });
+
   test("route row for an unauthenticated request has an empty team", async () => {
     const { inserts, tasks, dependencies } = harness();
     recordRouteEvent({
@@ -206,6 +266,7 @@ describe("CodeRouter usage ledger rows", () => {
       rows: [{
         event_time: "2026-09-02 10:20:30.456",
         team_id: "",
+        stack_user_id: null,
         vm_id: null,
         provider: "codex",
         agent: "other",
@@ -215,6 +276,8 @@ describe("CodeRouter usage ledger rows", () => {
         attempt_count: 0,
         refresh_retry_count: 0,
         duration_ms: 13,
+        held_ms: 0,
+        hold_count: 0,
         response_streamed: 0,
         request_id: requestId,
         upstream_account_id: "",
@@ -223,6 +286,7 @@ describe("CodeRouter usage ledger rows", () => {
     expect(routeEventRow({
       requestId,
       teamId: "team-1",
+      stackUserId: "stack-user-1",
       vmId,
       provider: "claude",
       agent: "claude",
@@ -233,7 +297,7 @@ describe("CodeRouter usage ledger rows", () => {
       refreshRetryCount: 0,
       durationMs: 840,
       responseStreamed: true,
-    }, now())).toMatchObject({ team_id: "team-1", vm_id: vmId, response_streamed: 1 });
+    }, now())).toMatchObject({ team_id: "team-1", stack_user_id: "stack-user-1", vm_id: vmId, response_streamed: 1 });
   });
 
   test("reports insert failures without team data and stays silent when disabled", async () => {
@@ -339,6 +403,7 @@ describe("CodeRouter usage ledger wiring", () => {
       const usage = calls.find((call) => call.table === "usage_events");
       expect(route?.row).toMatchObject({
         team_id: "team-1",
+        stack_user_id: "stack-user-1",
         vm_id: vmId,
         provider: "claude",
         agent: "claude",

@@ -164,6 +164,21 @@ import Testing
         #expect(intelURL.absoluteString.hasSuffix("/releases/download/nightly/cmux-nightly-macos-x86_64.dmg"))
     }
 
+    /// An RC build recovers to the RC DMG for its architecture, never the stable one.
+    @Test func manualDownloadRoutesRCFeedToTheRCDMG() throws {
+        let didNotStart = NSError(domain: UpdateStateModel.updateErrorDomain, code: UpdateStateModel.installDidNotStartCode)
+        let rcFeed = "https://files.cmux.com/rc/appcast-arm64.xml"
+
+        let armURL = try #require(UpdateManualDownloadRecovery(hostArchitecture: .arm64).url(for: didNotStart, feedURLString: rcFeed))
+        #expect(armURL.absoluteString == "https://github.com/manaflow-ai/cmux/releases/download/rc/cmux-rc-macos-arm64.dmg")
+
+        let sparkleInstallFailure = NSError(domain: SUSparkleErrorDomain, code: 4005)
+        let intelURL = try #require(UpdateManualDownloadRecovery(hostArchitecture: .x86_64).url(for: sparkleInstallFailure, feedURLString: rcFeed))
+        #expect(intelURL.absoluteString == "https://github.com/manaflow-ai/cmux/releases/download/rc/cmux-rc-macos-x86_64.dmg")
+        #expect(!intelURL.absoluteString.contains("latest/download"))
+        #expect(!intelURL.absoluteString.contains("/nightly/"))
+    }
+
     /// The watchdog can fire before Sparkle asks its delegate for a feed URL; in that passive path
     /// the driver still needs to recover the build's appcast channel so NIGHTLY installs offer the
     /// nightly DMG instead of downgrading to stable.

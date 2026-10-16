@@ -27,6 +27,18 @@ import Testing
         #expect(response.eventTransport == "iroh_server_events_v1")
     }
 
+    @Test func subscribeResponseDecodesSurfaceEventLaneGrant() throws {
+        let granted = try MobileEventSubscribeResponse.decode(Data(
+            #"{"stream_id":"s","event_transport":"iroh_server_events_v1","surface_event_lanes":"v1"}"#.utf8
+        ))
+        #expect(granted.surfaceEventLanes == "v1")
+        // Older hosts omit the field: render-grid stays on the shared lane.
+        let older = try MobileEventSubscribeResponse.decode(Data(
+            #"{"stream_id":"s","event_transport":"iroh_server_events_v1"}"#.utf8
+        ))
+        #expect(older.surfaceEventLanes == nil)
+    }
+
     @Test func hostStatusDecodesRenderGridCapability() throws {
         let data = Data(#"{"capabilities":["terminal.render_grid.v1"],"terminal_fidelity":"render_grid"}"#.utf8)
         let response = try MobileHostStatusResponse.decode(data)

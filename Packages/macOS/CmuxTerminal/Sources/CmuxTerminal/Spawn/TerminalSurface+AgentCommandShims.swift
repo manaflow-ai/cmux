@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxFoundation
 public import CmuxTerminalCore
 
 extension TerminalSurface {
@@ -11,14 +12,17 @@ extension TerminalSurface {
     /// - Parameters:
     ///   - wrapperDirectoryURL: The app bundle directory containing cmux's launch wrappers.
     ///   - surfaceId: The terminal surface that owns the generated shim directory.
-    ///   - temporaryDirectory: The root under which the isolated shim directory is created.
+    ///   - rootDirectory: The root under which the isolated shim directory is created. The
+    ///     live app supplies a durable per-user cmux state directory; tests may use a temporary root.
+    ///   - enabledCommands: Bundled agent commands that should receive a shim.
     ///   - hermesProfileAliasDirectoryURL: The Hermes-owned wrapper directory to inspect for profile aliases.
     ///   - fileManager: The filesystem implementation used for discovery and installation.
     /// - Returns: The installed shim set, or `nil` when no bundled wrapper can be installed.
     public static func installAgentCommandShimsIfPossible(
         wrapperDirectoryURL: URL?,
         surfaceId: UUID,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        rootDirectory: URL,
+        enabledCommands: Set<TerminalSurfaceAgentCommand> = Set(TerminalSurfaceAgentCommand.allCases),
         hermesProfileAliasDirectoryURL: URL? = nil,
         computerUseSettingFileURL: URL? = nil,
         fileManager: FileManager = .default
@@ -33,7 +37,8 @@ extension TerminalSurface {
         return installAgentCommandShimsIfPossible(
             wrapperDirectoryURL: wrapperDirectoryURL,
             surfaceId: surfaceId,
-            temporaryDirectory: temporaryDirectory,
+            rootDirectory: rootDirectory,
+            enabledCommands: enabledCommands,
             hermesProfileAliases: aliases,
             computerUseSettingFileURL: computerUseSettingFileURL,
             fileManager: fileManager
@@ -48,14 +53,17 @@ extension TerminalSurface {
     /// - Parameters:
     ///   - wrapperDirectoryURL: The app bundle directory containing cmux's launch wrappers.
     ///   - surfaceId: The terminal surface that owns the generated shim directory.
-    ///   - temporaryDirectory: The root under which the isolated shim directory is created.
+    ///   - rootDirectory: The root under which the isolated shim directory is created. The
+    ///     live app supplies a durable per-user cmux state directory; tests may use a temporary root.
+    ///   - enabledCommands: Bundled agent commands that should receive a shim.
     ///   - hermesProfileAliasCatalog: The process-owned Hermes alias discovery cache.
     ///   - fileManager: The filesystem implementation used for shim installation.
     /// - Returns: The installed shim set, or `nil` when no bundled wrapper can be installed.
     public static func installAgentCommandShimsIfPossible(
         wrapperDirectoryURL: URL?,
         surfaceId: UUID,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        rootDirectory: URL,
+        enabledCommands: Set<TerminalSurfaceAgentCommand> = Set(TerminalSurfaceAgentCommand.allCases),
         hermesProfileAliasCatalog: HermesProfileAliasCatalog,
         computerUseSettingFileURL: URL? = nil,
         fileManager: FileManager = .default
@@ -67,7 +75,8 @@ extension TerminalSurface {
         return installAgentCommandShimsIfPossible(
             wrapperDirectoryURL: wrapperDirectoryURL,
             surfaceId: surfaceId,
-            temporaryDirectory: temporaryDirectory,
+            rootDirectory: rootDirectory,
+            enabledCommands: enabledCommands,
             hermesProfileAliases: aliases,
             computerUseSettingFileURL: computerUseSettingFileURL,
             fileManager: fileManager
@@ -81,7 +90,8 @@ extension TerminalSurface {
     private static func installAgentCommandShimsIfPossible(
         wrapperDirectoryURL: URL,
         surfaceId: UUID,
-        temporaryDirectory: URL,
+        rootDirectory: URL,
+        enabledCommands: Set<TerminalSurfaceAgentCommand>,
         hermesProfileAliases: [HermesProfileAliasResolver.Alias],
         computerUseSettingFileURL: URL? = nil,
         fileManager: FileManager
@@ -91,6 +101,7 @@ extension TerminalSurface {
             wrapperURL: URL
         )] = []
         for definition in TerminalSurfaceAgentCommandShimDefinition.bundled {
+            guard enabledCommands.contains(definition.command) else { continue }
             let wrapperURL = wrapperDirectoryURL
                 .appendingPathComponent(definition.wrapperName, isDirectory: false)
                 .standardizedFileURL
@@ -99,17 +110,27 @@ extension TerminalSurface {
         }
         guard !availableDefinitions.isEmpty else { return nil }
 
-        let shimParentDirectory = temporaryDirectory
+        let shimParentDirectory = rootDirectory
             .appendingPathComponent("cmux-cli-shims", isDirectory: true)
             .standardizedFileURL
         let shimDirectory = shimParentDirectory
             .appendingPathComponent(surfaceId.uuidString, isDirectory: true)
             .standardizedFileURL
+        let stagingDirectory = shimParentDirectory
+            .appendingPathComponent(".\(surfaceId.uuidString).staging.\(UUID().uuidString)", isDirectory: true)
+            .standardizedFileURL
+        defer {
+            try? fileManager.removeItem(at: stagingDirectory)
+        }
+        // A shared temporary directory lets another user create these
+        // directories first or plant a symlink, so each one must be a real
+        // directory this user owns before anything is written into it.
+        let privateDirectoryCheck = PrivateDirectoryCheck()
         do {
-            try fileManager.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
-            for directory in [shimParentDirectory, shimDirectory] {
-                try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
-            }
+            try fileManager.createDirectory(at: shimParentDirectory, withIntermediateDirectories: true)
+            guard privateDirectoryCheck.makePrivate(atPath: shimParentDirectory.path) else { return nil }
+            try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: false)
+            guard privateDirectoryCheck.makePrivate(atPath: stagingDirectory.path) else { return nil }
         } catch {
             return nil
         }
@@ -130,7 +151,8 @@ extension TerminalSurface {
                         isDirectory: false
                     ),
                     wrapperURL: hermesDefinition.wrapperURL,
-                    shimDirectory: shimDirectory,
+                    stagingDirectory: stagingDirectory,
+                    publishedDirectory: shimDirectory,
                     computerUseSettingFileURL: computerUseSettingURL,
                     fileManager: fileManager
                 ) else { continue }
@@ -141,13 +163,30 @@ extension TerminalSurface {
             guard let shim = installAgentCommandShim(
                 definition: definition,
                 wrapperURL: wrapperURL,
-                shimDirectory: shimDirectory,
+                stagingDirectory: stagingDirectory,
+                publishedDirectory: shimDirectory,
                 computerUseSettingFileURL: computerUseSettingURL,
                 fileManager: fileManager
             ) else { continue }
             shims.append(shim)
         }
         guard !shims.isEmpty else { return nil }
+        do {
+            if fileManager.fileExists(atPath: shimDirectory.path) {
+                guard privateDirectoryCheck.makePrivate(atPath: shimDirectory.path) else { return nil }
+                _ = try fileManager.replaceItemAt(
+                    shimDirectory,
+                    withItemAt: stagingDirectory,
+                    backupItemName: nil,
+                    options: []
+                )
+            } else {
+                try fileManager.moveItem(at: stagingDirectory, to: shimDirectory)
+            }
+        } catch {
+            return nil
+        }
+        guard privateDirectoryCheck.makePrivate(atPath: shimDirectory.path) else { return nil }
         return TerminalSurfaceAgentCommandShimSet(
             directoryPath: shimDirectory.path,
             shims: shims
@@ -159,12 +198,14 @@ extension TerminalSurface {
         commandName: String? = nil,
         hermesProfileAliasURL: URL? = nil,
         wrapperURL: URL,
-        shimDirectory: URL,
+        stagingDirectory: URL,
+        publishedDirectory: URL,
         computerUseSettingFileURL: URL,
         fileManager: FileManager
     ) -> TerminalSurfaceAgentCommandShim? {
         let commandName = commandName ?? definition.commandName
-        let shimURL = shimDirectory.appendingPathComponent(commandName, isDirectory: false)
+        let stagingShimURL = stagingDirectory.appendingPathComponent(commandName, isDirectory: false)
+        let publishedShimURL = publishedDirectory.appendingPathComponent(commandName, isDirectory: false)
         let wrapperInvocation: String
         if let hermesProfileAliasURL {
             // Hermes owns and can retarget this two-line wrapper while the
@@ -215,18 +256,17 @@ extension TerminalSurface {
         let script = """
         #!/bin/bash
         cmux_wrapper=\(shellSingleQuoted(wrapperURL.path))
-        cmux_shim_root=\(shellSingleQuoted(shimDirectory.path))
+        cmux_shim_root=\(shellSingleQuoted(publishedDirectory.path))
         cmux_computer_use_setting=\(shellSingleQuoted(computerUseSettingFileURL.path))
         cmux_computer_use_enabled="${CMUX_COMPUTER_USE_APP_ENABLED:-1}"
         if [[ -r "$cmux_computer_use_setting" ]]; then
             IFS= read -r cmux_computer_use_enabled < "$cmux_computer_use_setting" || true
         fi
-        # App authority and the user's documented kill switch are separate:
-        # app state may disable attachment, but enabling it never clears a
-        # user-exported CMUX_COMPUTER_USE_MCP_DISABLED=1.
-        case "$cmux_computer_use_enabled" in
-            0) export CMUX_COMPUTER_USE_MCP_DISABLED=1 ;;
-        esac
+        # A functional `$cmux-cua` request is the explicit opt-in. Keep the
+        # live setting available to the app for first-use reconciliation, but
+        # do not turn an ordinary settings-off value into the hard kill switch.
+        # Only CMUX_COMPUTER_USE_MCP_DISABLED=1 (or managed policy in cmux)
+        # blocks attachment.
         if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then
             cmux_candidate="$(dirname "$CMUX_BUNDLED_CLI_PATH")/\(definition.wrapperName)"
             if [[ -x "$cmux_candidate" ]]; then
@@ -242,7 +282,7 @@ extension TerminalSurface {
                 fi
             fi
         fi
-        export \(definition.environmentVariablePrefix)_WRAPPER_SHIM=\(shellSingleQuoted(shimURL.path))
+        export \(definition.environmentVariablePrefix)_WRAPPER_SHIM=\(shellSingleQuoted(publishedShimURL.path))
         export \(definition.environmentVariablePrefix)_WRAPPER_SHIM_ROOT="$cmux_shim_root"
         if [[ -x "$cmux_wrapper" ]]; then
             \(wrapperInvocation)
@@ -274,14 +314,14 @@ extension TerminalSurface {
         """
 
         do {
-            try script.write(to: shimURL, atomically: true, encoding: .utf8)
-            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shimURL.path)
+            try script.write(to: stagingShimURL, atomically: true, encoding: .utf8)
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: stagingShimURL.path)
             return TerminalSurfaceAgentCommandShim(
                 commandName: commandName,
                 wrapperName: definition.wrapperName,
                 environmentVariablePrefix: definition.environmentVariablePrefix,
-                directoryPath: shimDirectory.path,
-                executablePath: shimURL.path
+                directoryPath: publishedDirectory.path,
+                executablePath: publishedShimURL.path
             )
         } catch {
             return nil

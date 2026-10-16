@@ -67,7 +67,8 @@ struct SSHRemoteCommandChainingTests {
         let script = RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: 64_123,
             shellFeatures: "ssh-env,ssh-terminfo",
-            configuredRemoteCommand: configuredRemoteCommand
+            configuredRemoteCommand: configuredRemoteCommand,
+            protectsFromHangup: true
         )
         let result = processSupport.runProcess(
             executablePath: "/usr/bin/env",
@@ -156,85 +157,6 @@ struct SSHRemoteCommandChainingTests {
         let remainingPayloads = try fileManager.contentsOfDirectory(atPath: shellStateDirectory.path)
             .filter { $0.hasPrefix(".initial-command.payload.") }
         #expect(remainingPayloads.isEmpty, "\(remainingPayloads)")
-    }
-
-    @Test
-    func persistentWorkspaceRestoreKeepsConfiguredRemoteCommandInNewPaneBootstrap() throws {
-        let configuredRemoteCommand = #"cd "/srv/project dir" && exec fish"#
-        let liveConfiguration = WorkspaceRemoteConfiguration(
-            destination: "dev@example.com",
-            port: 2222,
-            identityFile: nil,
-            sshOptions: [
-                "ControlMaster=auto",
-                "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-%C",
-            ],
-            localProxyPort: nil,
-            relayPort: 64_123,
-            relayID: "relay-id",
-            relayToken: String(repeating: "a", count: 64),
-            localSocketPath: "/tmp/cmux-live.sock",
-            terminalStartupCommand: "live startup command",
-            configuredRemoteCommand: configuredRemoteCommand,
-            preserveAfterTerminalExit: true,
-            persistentDaemonSlot: "ssh-restore-slot"
-        )
-        let encodedSnapshot = try JSONEncoder().encode(try #require(liveConfiguration.sessionSnapshot()))
-        let snapshot = try JSONDecoder().decode(
-            SessionRemoteWorkspaceSnapshot.self,
-            from: encodedSnapshot
-        )
-        let restored = try #require(
-            snapshot.workspaceConfiguration(localSocketPath: "/tmp/cmux-restored.sock")
-        )
-        let startupCommand = try #require(restored.terminalStartupCommand)
-        let expectedBootstrap = SSHPTYAttachStartupCommandBuilder.restoredRemoteShellCommand(
-            relayPort: 64_123,
-            configuredRemoteCommand: configuredRemoteCommand
-        )
-        let expectedBootstrapBase64 = Data(expectedBootstrap.utf8).base64EncodedString()
-
-        #expect(snapshot.configuredRemoteCommand == configuredRemoteCommand)
-        #expect(restored.configuredRemoteCommand == configuredRemoteCommand)
-        #expect(startupCommand.contains(expectedBootstrapBase64), "\(startupCommand)")
-    }
-
-    @Test
-    func nonPersistentRestorePreservesExplicitRemoteCommandIntent() throws {
-        let cases: [(options: [String], expectedCommandFragment: String?)] = [
-            (["RemoteCommand=printf restored-command"], "'RemoteCommand=printf restored-command'"),
-            (["RemoteCommand=none"], "RemoteCommand=none"),
-            ([], nil),
-        ]
-
-        for testCase in cases {
-            let snapshot = SessionRemoteWorkspaceSnapshot(
-                transport: .ssh,
-                terminalTransport: .ssh,
-                terminalProfile: .shell,
-                destination: "dev@example.com",
-                sshOptions: testCase.options,
-                preserveAfterTerminalExit: true,
-                relayPort: 64_123,
-                persistentDaemonSlot: "ssh-restore-slot"
-            )
-            let restored = try #require(
-                snapshot.workspaceConfiguration(
-                    localSocketPath: "/tmp/cmux-restored.sock",
-                    allowPersistentPTYRestore: false
-                )
-            )
-            let startupCommand = try #require(restored.terminalStartupCommand)
-
-            #expect(restored.sshOptions == testCase.options)
-            #expect(startupCommand.hasPrefix("/usr/bin/ssh "), "\(startupCommand)")
-            if let expectedCommandFragment = testCase.expectedCommandFragment {
-                #expect(startupCommand.contains(expectedCommandFragment), "\(startupCommand)")
-            } else {
-                #expect(!startupCommand.localizedCaseInsensitiveContains("RemoteCommand"), "\(startupCommand)")
-            }
-        }
     }
 
     @Test

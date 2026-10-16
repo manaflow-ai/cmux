@@ -1,8 +1,8 @@
 #!/bin/sh
 # cmux devbox desktop supervisor (/usr/local/bin/cmux-desktop-boot).
 #
-# Runs as the work user `ubuntu` (the cmux-desktop systemd unit sets
-# User=ubuntu, HOME=/home/ubuntu, DISPLAY=:1 and creates /run/cmux-desktop
+# Runs as the work user `cmux` (the cmux-desktop systemd unit sets
+# User=cmux, HOME=/home/cmux, DISPLAY=:1 and creates /run/cmux-desktop
 # for the session's published env; in a container cmux-devbox-boot starts it
 # the same way) and keeps the desktop up: start-vnc.sh is idempotent, so
 # re-running it every 30 s against a healthy desktop is a cheap no-op probe

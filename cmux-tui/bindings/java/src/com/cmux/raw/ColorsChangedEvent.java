@@ -17,6 +17,7 @@ public final class ColorsChangedEvent implements WireValue, ByteAttachEvent, Pro
     private final Field<Boolean> cursorBlink;
     private final Field<CursorStyle> cursorStyle;
     private final String fg;
+    private final Field<TerminalColorOverrides> overrides;
     private final Field<Map<String, String>> palette;
     private final String selectionBg;
     private final String selectionFg;
@@ -30,6 +31,7 @@ public final class ColorsChangedEvent implements WireValue, ByteAttachEvent, Pro
         this.cursorStyle = builder.cursorStyle;
         if (!builder.fgSet) throw new IllegalArgumentException("fg is required");
         this.fg = builder.fg;
+        this.overrides = builder.overrides;
         this.palette = builder.palette.map(value -> Collections.unmodifiableMap(new LinkedHashMap<>(value)));
         if (!builder.selectionBgSet) throw new IllegalArgumentException("selection_bg is required");
         this.selectionBg = builder.selectionBg;
@@ -45,6 +47,7 @@ public final class ColorsChangedEvent implements WireValue, ByteAttachEvent, Pro
     public Field<Boolean> cursorBlink() { return cursorBlink; }
     public Field<CursorStyle> cursorStyle() { return cursorStyle; }
     public String fg() { return fg; }
+    public Field<TerminalColorOverrides> overrides() { return overrides; }
     public Field<Map<String, String>> palette() { return palette; }
     public String selectionBg() { return selectionBg; }
     public String selectionFg() { return selectionFg; }
@@ -71,6 +74,10 @@ public final class ColorsChangedEvent implements WireValue, ByteAttachEvent, Pro
         }
         Object rawFg = Wire.required(object, "fg");
         builder.fg(rawFg == null ? null : Wire.string(rawFg, "ColorsChangedEvent.fg"));
+        Object rawOverrides = Wire.optional(object, "overrides");
+        if (!Wire.isMissing(rawOverrides)) {
+            builder.overrides(TerminalColorOverrides.fromWire(rawOverrides));
+        }
         Object rawPalette = Wire.optional(object, "palette");
         if (!Wire.isMissing(rawPalette)) {
             builder.palette(Wire.map(rawPalette, "ColorsChangedEvent.palette", item -> Wire.string(item, "ColorsChangedEvent.palette value")));
@@ -95,6 +102,7 @@ public final class ColorsChangedEvent implements WireValue, ByteAttachEvent, Pro
         Wire.put(object, "cursor_blink", cursorBlink);
         Wire.put(object, "cursor_style", cursorStyle);
         Wire.put(object, "fg", fg);
+        Wire.put(object, "overrides", overrides);
         Wire.put(object, "palette", palette);
         Wire.put(object, "selection_bg", selectionBg);
         Wire.put(object, "selection_fg", selectionFg);
@@ -105,11 +113,11 @@ public final class ColorsChangedEvent implements WireValue, ByteAttachEvent, Pro
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ColorsChangedEvent that)) return false;
-        return Objects.equals(bg, that.bg) && Objects.equals(cursor, that.cursor) && Objects.equals(cursorBlink, that.cursorBlink) && Objects.equals(cursorStyle, that.cursorStyle) && Objects.equals(fg, that.fg) && Objects.equals(palette, that.palette) && Objects.equals(selectionBg, that.selectionBg) && Objects.equals(selectionFg, that.selectionFg) && Objects.equals(surface, that.surface);
+        return Objects.equals(bg, that.bg) && Objects.equals(cursor, that.cursor) && Objects.equals(cursorBlink, that.cursorBlink) && Objects.equals(cursorStyle, that.cursorStyle) && Objects.equals(fg, that.fg) && Objects.equals(overrides, that.overrides) && Objects.equals(palette, that.palette) && Objects.equals(selectionBg, that.selectionBg) && Objects.equals(selectionFg, that.selectionFg) && Objects.equals(surface, that.surface);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(bg, cursor, cursorBlink, cursorStyle, fg, palette, selectionBg, selectionFg, surface); }
+    public int hashCode() { return Objects.hash(bg, cursor, cursorBlink, cursorStyle, fg, overrides, palette, selectionBg, selectionFg, surface); }
 
     @Override
     public String toString() { return "ColorsChangedEvent" + toWire(); }
@@ -122,6 +130,7 @@ public final class ColorsChangedEvent implements WireValue, ByteAttachEvent, Pro
         private Field<CursorStyle> cursorStyle = Field.omitted();
         private String fg;
         private boolean fgSet;
+        private Field<TerminalColorOverrides> overrides = Field.omitted();
         private Field<Map<String, String>> palette = Field.omitted();
         private String selectionBg;
         private boolean selectionBgSet;
@@ -149,6 +158,10 @@ public final class ColorsChangedEvent implements WireValue, ByteAttachEvent, Pro
         public Builder fg(String value) {
             this.fg = value;
             this.fgSet = true;
+            return this;
+        }
+        public Builder overrides(TerminalColorOverrides value) {
+            this.overrides = Field.of(value);
             return this;
         }
         public Builder palette(Map<String, String> value) {

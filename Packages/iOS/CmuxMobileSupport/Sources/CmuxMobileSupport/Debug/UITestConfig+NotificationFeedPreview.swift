@@ -2,6 +2,15 @@ import Foundation
 
 /// Debug-only notification-feed fixture flags.
 extension UITestConfig {
+    /// Adds retained history to the production feed fixture for disclosure tests.
+    public static var notificationFeedGroupPreviewEnabled: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["CMUX_UITEST_NOTIFICATION_FEED_GROUP_PREVIEW"] == "1"
+        #else
+        false
+        #endif
+    }
+
     /// Whether the deterministic production notification-feed preview is enabled.
     ///
     /// `CMUX_UITEST_NOTIFICATION_FEED_PREVIEW=1` bypasses sign-in and pairing and

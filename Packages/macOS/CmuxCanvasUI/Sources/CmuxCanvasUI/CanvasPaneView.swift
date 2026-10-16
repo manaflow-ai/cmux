@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import CmuxCanvas
+import CmuxFoundation
 
 /// Delegate through which a pane view reports gestures to the canvas root.
 @MainActor
@@ -54,11 +55,27 @@ final class CanvasPaneView: NSView {
 
     /// Pane fill behind the content, resolved by the host through
     /// ``CanvasTheme``.
+    /// Accent for the focused border, set by the canvas root.
+    var accentColor = CmuxAccentColor() {
+        didSet {
+            guard accentColor != oldValue else { return }
+            applyChromeColors()
+        }
+    }
+
     var paneBackground: NSColor = .windowBackgroundColor {
         didSet {
             guard paneBackground != oldValue else { return }
             applyChromeColors()
             rebuildTitleBar()
+        }
+    }
+
+    /// False when the window backdrop shows through; the layer stays clear.
+    var drawsBackground = true {
+        didSet {
+            guard drawsBackground != oldValue else { return }
+            applyChromeColors()
         }
     }
 
@@ -108,6 +125,25 @@ final class CanvasPaneView: NSView {
     }
 
     override var isFlipped: Bool { true }
+
+    // The document leaves its dot grid out from under panes, so a moved or
+    // resized pane must repaint both the area it left and the area it covers.
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        let oldFrame = frame
+        super.setFrameOrigin(newOrigin)
+        invalidateDocumentGrid(oldFrame: oldFrame)
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let oldFrame = frame
+        super.setFrameSize(newSize)
+        invalidateDocumentGrid(oldFrame: oldFrame)
+    }
+
+    private func invalidateDocumentGrid(oldFrame: CGRect) {
+        guard oldFrame != frame else { return }
+        superview?.setNeedsDisplay(oldFrame.union(frame))
+    }
 
     /// Updates the tab strip and focus ring. No-op when nothing changed.
     func updateChrome(_ chrome: CanvasPaneChrome) {
@@ -183,10 +219,10 @@ final class CanvasPaneView: NSView {
 
     private func applyChromeColors() {
         layer?.borderColor = chrome.isFocused
-            ? NSColor.controlAccentColor.cgColor
+            ? accentColor.nsColor(for: effectiveAppearance).cgColor
             : NSColor.separatorColor.cgColor
-        layer?.borderWidth = chrome.isFocused ? 2 : 1
-        layer?.backgroundColor = paneBackground.cgColor
+        layer?.borderWidth = chrome.isFocused ? CGFloat.paneIndicatorStrokeWidth : 1
+        layer?.backgroundColor = drawsBackground ? paneBackground.cgColor : NSColor.clear.cgColor
     }
 
     override func updateTrackingAreas() {

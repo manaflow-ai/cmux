@@ -14,6 +14,7 @@ import pty
 import re
 import select
 import shlex
+import shutil
 import signal
 import socket
 import tempfile
@@ -120,11 +121,32 @@ class InteractiveBash:
         return self.output.decode("utf-8", errors="replace")
 
 
+def _remove_tree_after_reporters_exit(path: str) -> None:
+    """Remove the scratch tree once the integration's background reporters stop.
+
+    ``set -m`` puts the reporters the integration forks into their own process
+    groups, so killing the shell's group leaves them briefly alive and still
+    writing into this tree; a plain ``TemporaryDirectory`` cleanup then races
+    them and fails with ``ENOTEMPTY`` on shared CI runners.
+    """
+    deadline = time.monotonic() + 5
+    while True:
+        try:
+            shutil.rmtree(path)
+            return
+        except OSError:
+            if time.monotonic() >= deadline:
+                shutil.rmtree(path, ignore_errors=True)
+                return
+            time.sleep(0.1)
+
+
 def test_bash_integration_does_not_emit_done_notifications() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     integration_script = repo_root / "Resources/shell-integration/cmux-bash-integration.bash"
 
-    with tempfile.TemporaryDirectory() as tmp:
+    tmp = tempfile.mkdtemp()
+    try:
         tmp_path = Path(tmp)
         socket_path = tmp_path / "cmux.sock"
         repo_path = tmp_path / "repo"
@@ -215,6 +237,8 @@ def test_bash_integration_does_not_emit_done_notifications() -> None:
                     )
         finally:
             sock.close()
+    finally:
+        _remove_tree_after_reporters_exit(tmp)
 
 
 if __name__ == "__main__":

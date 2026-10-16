@@ -18,7 +18,7 @@ These defaults come from `Keys::default`.
 | `Ctrl-b t` | New PTY tab in the active pane |
 | `Alt-t` | New PTY tab in the active pane |
 | `Ctrl-b B` | Open the browser-tab URL prompt |
-| `Alt-n` | Create a pane with Zellij's default auto-layout in the focused horizontal column |
+| `Ctrl-b N` or `Alt-n` | Create a pane with Zellij's default auto-layout in the focused horizontal column |
 | `Ctrl-b Tab` | Next tab in the active pane |
 | `Ctrl-b BackTab` | Previous tab in the active pane |
 | `Ctrl-b 0` through `Ctrl-b 9` | Select visible screen 0 through 9 |
@@ -60,19 +60,21 @@ These defaults come from `Keys::default`.
 | `Alt-k` or `Alt-Up` | Focus up |
 | `Ctrl-b j` or `Ctrl-b Down` | Focus down |
 | `Alt-j` or `Alt-Down` | Focus down |
-| `Alt-=` | Grow the focused split, or its horizontal viewport column |
-| `Alt--` | Shrink the focused split, or its horizontal viewport column |
+| `Ctrl-b +` or `Alt-=` | Grow the focused split, or its horizontal viewport column |
+| `Ctrl-b -` or `Alt--` | Shrink the focused split, or its horizontal viewport column |
 | `Ctrl-b [` | Scroll the active PTY viewport up 10 rows |
 | `Ctrl-b PageUp` | Scroll the active PTY viewport up 10 rows |
 | `Ctrl-b PageDown` | Scroll the active PTY viewport down 10 rows |
 | `Cmd-k` / `Super-k` | Clear retained PTY history and completed visible rows while preserving active input |
 | `Ctrl-b d` | Quit a local TUI or detach an attached TUI |
 
+Press `Ctrl-b`, release it, then press the suffix. `N` is uppercase and `+` is the plus character (Shift-Equal on a US keyboard). Lowercase `Ctrl-b n` still selects the next screen. Every default Alt action also has a prefix binding, including when `keys.alt_shortcuts` is `false`.
+
 Directional focus follows Zellij's pane memory: when several panes share the requested edge, cmux-tui returns to the pane focused most recently.
 
 When a screen is wider than the viewport, `h`/`l`, Left/Right, and their modeless Alt bindings reveal the focused pane. The viewport movement is animated unless `viewport.animation` is false.
 
-On a screen created with `Ctrl-b g`, `Alt-=` and `Alt--` resize the complete horizontal column containing the focused pane in five-percent steps. On an ordinary screen they retain their existing split-resize behavior.
+On a screen created with `Ctrl-b g`, `Ctrl-b +` / `Alt-=` and `Ctrl-b -` / `Alt--` resize the complete horizontal column containing the focused pane in five-percent steps. On an ordinary screen they retain their existing split-resize behavior.
 
 `Ctrl-b U` undoes the latest pane creation, split resize, column resize, swap, zoom, or automatic-layout change on the focused screen. Repeated resize updates to one divider form one undo entry. An undo that removes a created pane opens a confirmation prompt; type `CONFIRM` to remove its tab placements and commit the undo. Session-owned PTY terminals remain alive, while single-view browser tabs close. Closing a pane directly clears that screen's undo history because the journal cannot reconstruct its exact tab membership or a closed browser target.
 
@@ -130,7 +132,9 @@ User commands from the top-level `commands` config section bind through the same
     "alt_shortcuts": false,
     "super_shortcuts": false,
     "new-tab": ["t", "alt+t", "cmd+t"],
-    "new-pane-smart": "alt+n",
+    "new-pane-smart": ["alt+n", "N"],
+    "resize-grow": ["alt+=", "shift+="],
+    "resize-shrink": ["alt+-", "-"],
     "select-screen-0": "0",
     "select-screen-1": "1",
     "next-screen": ["n", "alt+]"],

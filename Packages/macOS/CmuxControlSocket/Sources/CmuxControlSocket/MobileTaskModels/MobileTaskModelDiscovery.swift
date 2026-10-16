@@ -84,7 +84,12 @@ public actor MobileTaskModelDiscovery {
         }
         inFlight[provider] = pending
         let result = await pending.value
-        cache[provider] = CacheEntry(result: result, fetchedAt: await now())
+        // A failed probe is a snapshot of a transient command or provider
+        // state. Keep successful catalogs cached, but let the next request
+        // retry failures instead of replaying a stale error for ten minutes.
+        if result.error == nil {
+            cache[provider] = CacheEntry(result: result, fetchedAt: await now())
+        }
         inFlight[provider] = nil
         return result
     }

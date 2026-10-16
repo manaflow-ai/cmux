@@ -2,6 +2,10 @@
 
 Flag production changes that add or materially change user-facing errors, alerts, command output, API error bodies, or recovery copy when they expose implementation details.
 
+Establish the audience before reporting: cite a concrete path by which the changed text reaches a cmux end user (app UI, product CLI, or product API). A deployed service, HTTP response, or production file alone does not establish that scope.
+
+Internal CI/build/deployment tools, artifact brokers, and operator-only diagnostics may name the services, providers, and configuration needed to diagnose or recover an operation. For example, an artifact broker telling CI to fall back to GitHub is allowed. Do not request provider-neutral wording for these surfaces solely because a vendor is named. This exception never permits secrets, credentials, personal data, or unredacted sensitive payloads, and does not apply when internal errors are forwarded to end users.
+
 Fail when user-facing text includes:
 
 - Upstream vendor or service names unless the user explicitly configured that vendor in the product UI.

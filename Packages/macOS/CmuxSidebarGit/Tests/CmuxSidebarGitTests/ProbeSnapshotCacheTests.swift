@@ -21,16 +21,6 @@ import CmuxGit
         return service
     }
 
-    private func waitUntil(maxYields: Int = 5_000, _ predicate: () -> Bool) async -> Bool {
-        for _ in 0..<maxYields {
-            if predicate() {
-                return true
-            }
-            await Task.yield()
-        }
-        return predicate()
-    }
-
     @Test(.timeLimit(.minutes(1)))
     func explicitRefreshBypassesTrackedSnapshotCacheGeneration() async throws {
         let directory = "/tmp/repo"

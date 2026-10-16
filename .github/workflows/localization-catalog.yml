@@ -1,0 +1,30 @@
+name: Localization catalog structure
+
+on:
+  pull_request:
+    paths:
+      - Resources/Localizable.xcstrings
+      - tests/test_localizable_xcstrings_structure.py
+      - .github/workflows/localization-catalog.yml
+  push:
+    branches: [main]
+    paths:
+      - Resources/Localizable.xcstrings
+      - tests/test_localizable_xcstrings_structure.py
+      - .github/workflows/localization-catalog.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: localization-catalog-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  catalog-structure:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - run: python3 tests/test_localizable_xcstrings_structure.py

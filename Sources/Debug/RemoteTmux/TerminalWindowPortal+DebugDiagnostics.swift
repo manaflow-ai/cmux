@@ -20,6 +20,10 @@ enum RemoteTmuxSizingDiagnostics {
     /// geometry this must stay bounded no matter which interactive flags
     /// are held, or the chain is a per-runloop-turn busy loop.
     static var externalGeometrySyncPassCount = 0
+    /// Divider-overlay invalidations. Each one costs a recursive walk of the
+    /// whole window view tree in `SplitDividerOverlayView.draw`, so with
+    /// static geometry this must not advance.
+    static var dividerOverlayRepaintCount = 0
 }
 
 extension WindowTerminalPortal {

@@ -90,6 +90,40 @@ struct MobileCoreRPCIndependentEventTests {
         await client.disconnect()
     }
 
+    @Test(arguments: [false, true])
+    func subscribeRequestsSurfaceEventLanesOnlyWhenTheReaderMergesThem(
+        merges: Bool
+    ) async throws {
+        let route = try irohRoute(hexBytePair: merges ? "9c" : "9b")
+        let source = IndependentEventSource()
+        let transport = SubscribeRoundTripTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: FixedTransportFactory(transport: transport),
+            independentEventByteStreamProvider: { _ in await source.makeStream() },
+            independentEventsMergeSurfaceLanes: merges
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: try ticket(route: route, deviceSuffix: merges ? "013" : "012")
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.events.subscribe",
+            params: [
+                "stream_id": "events",
+                "topics": ["terminal.render_grid"],
+            ]
+        )
+
+        _ = try await client.sendRequest(request)
+
+        // A reader that sees only one stream would never read a per-surface
+        // stream, so the opt-in rides only with a merging reader.
+        #expect(await transport.recordedEventTransport() == "iroh_server_events_v1")
+        #expect(await transport.recordedSurfaceEventLaneRequest() == (merges ? "v1" : nil))
+        await client.disconnect()
+    }
+
     @Test
     func independentlyFramedEventsReachTheExistingListenerPipeline() async throws {
         let route = try irohRoute(hexBytePair: "ab")
@@ -127,6 +161,47 @@ struct MobileCoreRPCIndependentEventTests {
             JSONSerialization.jsonObject(with: payload) as? [String: String]
         )
         #expect(object["surface_id"] == "terminal-1")
+
+        await client.disconnect()
+    }
+
+    @Test
+    func anEventOnAnotherTerminalsLaneIsRefusedAndNeverReachesListeners() async throws {
+        let route = try irohRoute(hexBytePair: "ac")
+        let source = IndependentEventSource()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: FixedTransportFactory(transport: NeverConnectedTransport()),
+            independentEventByteStreamProvider: { _ in await source.makeStream() }
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: try ticket(route: route, deviceSuffix: "014")
+        )
+        let subscription = await client.subscribe(to: ["terminal.render_grid"])
+        var events = subscription.makeAsyncIterator()
+        #expect(await client.prepareIndependentServerEvents())
+
+        func event(_ surfaceID: String) throws -> Data {
+            try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: [
+                "kind": "event",
+                "topic": "terminal.render_grid",
+                "payload": ["surface_id": surfaceID],
+            ]))
+        }
+        // Terminal A's lane carries a frame naming B, then A's own frame.
+        var laneA = try event("terminal-b")
+        laneA.append(try event("terminal-a"))
+        await source.yield(MobileEventLaneScope().scoped(laneA, surfaceID: "terminal-a"))
+        // The shared lane is unscoped and delivers B's frame normally.
+        await source.yield(try event("terminal-b"))
+
+        let first = try #require(await events.next()?.payloadJSON)
+        let second = try #require(await events.next()?.payloadJSON)
+        let surfaces = try [first, second].map {
+            try #require(JSONSerialization.jsonObject(with: $0) as? [String: String])["surface_id"]
+        }
+        #expect(surfaces == ["terminal-a", "terminal-b"])
 
         await client.disconnect()
     }
@@ -223,6 +298,29 @@ struct MobileCoreRPCIndependentEventTests {
         #expect(await client.session.listeners.count == 1)
         _ = listener
 
+        await client.disconnect()
+    }
+
+    @Test
+    func underlyingTransportClosureFinishesEventListeners() async throws {
+        let route = try irohRoute(hexBytePair: "bc")
+        let transport = SubscribeRoundTripTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: FixedTransportFactory(transport: transport)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: try ticket(route: route, deviceSuffix: "007")
+        )
+        _ = try await client.sendRequest(
+            MobileCoreRPCClient.requestData(method: "mobile.host.status")
+        )
+        _ = await client.subscribe(to: ["workspace.updated"])
+
+        await transport.closeExternally()
+
+        #expect(await pollUntil { await client.session.listeners.isEmpty })
         await client.disconnect()
     }
 
@@ -430,10 +528,12 @@ private actor CloseTrackingNeverConnectedTransport: CmxByteTransport {
     func wasClosed() -> Bool { closed }
 }
 
-private actor SubscribeRoundTripTransport: CmxByteTransport {
+private actor SubscribeRoundTripTransport: CmxByteTransport, CmxByteTransportClosureObserving {
     private var replies: [Data] = []
     private var waiter: CheckedContinuation<Data?, Never>?
+    private var closeWaiters: [CheckedContinuation<Void, Never>] = []
     private var eventTransports: [String?] = []
+    private var surfaceEventLaneRequests: [String?] = []
     private var closed = false
 
     func connect() async throws {}
@@ -455,6 +555,7 @@ private actor SubscribeRoundTripTransport: CmxByteTransport {
         let params = request["params"] as? [String: Any]
         let eventTransport = params?["event_transport"] as? String
         eventTransports.append(eventTransport)
+        surfaceEventLaneRequests.append(params?["surface_event_lanes"] as? String)
         let response = try JSONSerialization.data(withJSONObject: [
             "id": request["id"] ?? NSNull(),
             "ok": true,
@@ -473,9 +574,30 @@ private actor SubscribeRoundTripTransport: CmxByteTransport {
     }
 
     func close() async {
+        closeExternally()
+    }
+
+    func closeExternally() {
+        guard !closed else { return }
         closed = true
         waiter?.resume(returning: nil)
         waiter = nil
+        let waiters = closeWaiters
+        closeWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func transportClosureObservation() async -> CmxTransportClosureObservation? {
+        CmxTransportClosureObservation(waitUntilClosed: { [weak self] in
+            await self?.waitUntilClosed()
+        }, cancel: { [weak self] in
+            Task { await self?.closeExternally() }
+        })
+    }
+
+    private func waitUntilClosed() async {
+        guard !closed else { return }
+        await withCheckedContinuation { closeWaiters.append($0) }
     }
 
     func recordedEventTransport() -> String? {
@@ -483,4 +605,8 @@ private actor SubscribeRoundTripTransport: CmxByteTransport {
     }
 
     func recordedEventTransports() -> [String?] { eventTransports }
+
+    func recordedSurfaceEventLaneRequest() -> String? {
+        surfaceEventLaneRequests.last ?? nil
+    }
 }

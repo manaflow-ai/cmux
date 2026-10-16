@@ -35,6 +35,9 @@ export async function loadMessages(locale: Locale): Promise<AbstractIntlMessages
   const localeMessages = (await import(`../messages/${locale}.json`)).default;
   if (locale === routing.defaultLocale) return localeMessages;
 
+  // Pricing is authored only in English and Japanese. Sparse catalogs for the
+  // other supported locales intentionally inherit the current English pricing
+  // policy through this deep merge, so they cannot retain stale VM limits.
   const defaultMessages = (await import(`../messages/${routing.defaultLocale}.json`)).default;
   return deepMergeMessages(defaultMessages, localeMessages);
 }

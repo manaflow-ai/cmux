@@ -1,18 +1,22 @@
 #if os(iOS)
+import CmuxMobileSupport
 import SwiftUI
 
-/// A value-driven terminal overlay that opens the visible-file gallery.
+/// A value-driven terminal overlay that opens the visible-file gallery, or,
+/// on an SSH terminal (`count == nil`), the computer's file browser.
 struct TerminalArtifactChipView: View {
-    let count: Int
+    /// Files in view, or `nil` for the SSH "Files" chip, which is always
+    /// available because it browses the server rather than paths on screen.
+    let count: Int?
     let onTap: @MainActor () -> Void
 
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 8) {
-                Image(systemName: "photo.on.rectangle")
+                Image(systemName: count == nil ? "folder" : "photo.on.rectangle")
                     .font(.subheadline.weight(.semibold))
 
-                Text(localizedCount)
+                Text(title)
                     .font(.subheadline.weight(.semibold))
                     .monospacedDigit()
 
@@ -28,17 +32,34 @@ struct TerminalArtifactChipView: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(String(
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(count == nil ? "" : title)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier(count == nil ? "ssh.files" : "MobileTerminalArtifactChip")
+    }
+
+    private var title: String {
+        guard let count else {
+            return L10n.string("mobile.ssh.files.chip", defaultValue: "Files")
+        }
+        return localizedCount(count)
+    }
+
+    private var accessibilityLabel: String {
+        guard count != nil else {
+            return L10n.string(
+                "mobile.ssh.files.chip.accessibilityLabel",
+                defaultValue: "Browse files in the current folder"
+            )
+        }
+        return String(
             localized: "terminal.artifact.chip.accessibility_label",
             defaultValue: "Open files in view",
             bundle: .module
-        ))
-        .accessibilityValue(localizedCount)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityIdentifier("MobileTerminalArtifactChip")
+        )
     }
 
-    private var localizedCount: String {
+    private func localizedCount(_ count: Int) -> String {
         let attributed = AttributedString(
             localized: "^[\(count) file](inflect: true)",
             bundle: .module

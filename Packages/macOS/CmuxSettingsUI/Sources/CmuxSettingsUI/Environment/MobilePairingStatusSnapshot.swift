@@ -3,14 +3,9 @@ import Foundation
 /// A point-in-time view of the Mac-side iOS pairing host, shown in the Mobile
 /// settings section.
 ///
-/// The configured port is only a *preference*: if it is already in use the
-/// listener binds an OS-assigned ephemeral port instead, and the iOS app is
-/// handed the actual ``boundPort``. The settings UI uses this snapshot to show
-/// the real bound port and warn when it differs from ``configuredPort`` so a
-/// configured port can never silently fail to take effect. ``boundPort`` and
-/// ``usesEphemeralFallback`` describe the TCP pairing listener; the Iroh
-/// endpoint's actual UDP socket addresses appear as Iroh entries in
-/// ``routes``.
+/// Reports the actual IROH UDP port and local addresses. A saved preference
+/// takes effect at the next pairing start; pending changes are distinguished
+/// from an unavailable port that required an automatic fallback.
 ///
 /// The host supplies the snapshot through
 /// ``SettingsHostActions/mobilePairingStatus()`` and pushes updates through
@@ -30,6 +25,9 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
     /// True when the listener is running on a different port than
     /// ``configuredPort`` because the configured port could not be bound.
     public let usesEphemeralFallback: Bool
+
+    /// A saved port will take effect at the next pairing start.
+    public let pendingPortChange: Bool
 
     /// Number of iOS devices currently connected.
     public let activeConnectionCount: Int
@@ -53,7 +51,8 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
         boundPort: Int?,
         usesEphemeralFallback: Bool,
         activeConnectionCount: Int,
-        routes: [MobilePairingRoute]
+        routes: [MobilePairingRoute],
+        pendingPortChange: Bool = false
     ) {
         self.isRunning = isRunning
         self.configuredPort = configuredPort
@@ -61,5 +60,6 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
         self.usesEphemeralFallback = usesEphemeralFallback
         self.activeConnectionCount = activeConnectionCount
         self.routes = routes
+        self.pendingPortChange = pendingPortChange
     }
 }

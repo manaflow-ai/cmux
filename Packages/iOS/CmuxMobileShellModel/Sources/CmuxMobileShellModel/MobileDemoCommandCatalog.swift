@@ -9,7 +9,9 @@ public import Foundation
 /// ``responders`` — no engine or per-terminal changes needed. Keep outputs
 /// realistic English developer content with no internal build-lane
 /// vocabulary, and end every line with `\r\n`.
-public enum MobileDemoCommandCatalog {
+public struct MobileDemoCommandCatalog: Sendable {
+    public init() {}
+
     /// What a responder knows about the invocation.
     public struct Context: Sendable {
         /// Everything after the command name, whitespace-trimmed ("" if none).
@@ -31,7 +33,7 @@ public enum MobileDemoCommandCatalog {
     public typealias Responder = @Sendable (Context) -> String
 
     /// The showcase command table. Add reviewer-facing commands here.
-    public static let responders: [String: Responder] = [
+    public let responders: [String: Responder] = [
         "echo": { context in
             context.arguments + "\r\n"
         },
@@ -51,7 +53,7 @@ public enum MobileDemoCommandCatalog {
             return formatter.string(from: context.now) + "\r\n"
         },
         "git": { context in
-            gitResponse(argument: context.arguments)
+            MobileDemoCommandCatalog.gitResponse(argument: context.arguments)
         },
         "help": { _ in
             "Available commands: ls, cd, pwd, cat, echo, git, date, whoami, clear\r\n"
@@ -59,7 +61,7 @@ public enum MobileDemoCommandCatalog {
     ]
 
     /// Resolves one showcase command, or `nil` for command-not-found.
-    static func response(command: String, context: Context) -> String? {
+    func response(command: String, context: Context) -> String? {
         responders[command]?(context)
     }
 

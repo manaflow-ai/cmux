@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CmuxMobileRPC
 import Foundation
 import Testing
 import UserNotifications
@@ -11,12 +12,14 @@ private actor LifecyclePushRegistration: PushRegistering {
     private(set) var enabledReconciliationGenerations: [UInt64] = []
     private(set) var syncCount = 0
     private let setEnabledGate: LifecycleSetEnabledGate?
+    private let reconcileGate: LifecycleSetEnabledGate?
     private let syncGate: LifecycleSyncGate?
 
     init(
         enabled: Bool = true,
         snapshot: PushRegistrationSnapshot? = nil,
         setEnabledGate: LifecycleSetEnabledGate? = nil,
+        reconcileGate: LifecycleSetEnabledGate? = nil,
         syncGate: LifecycleSyncGate? = nil
     ) {
         value = snapshot
@@ -27,6 +30,7 @@ private actor LifecyclePushRegistration: PushRegistering {
             )
             : .disabled)
         self.setEnabledGate = setEnabledGate
+        self.reconcileGate = reconcileGate
         self.syncGate = syncGate
     }
 
@@ -53,7 +57,8 @@ private actor LifecyclePushRegistration: PushRegistering {
         apply(enabled)
     }
 
-    func reconcileEnabledIntent(generation: UInt64) {
+    func reconcileEnabledIntent(generation: UInt64) async {
+        await reconcileGate?.pause()
         guard generation == intentGeneration, value.isEnabled else { return }
         enabledReconciliationGenerations.append(generation)
     }
@@ -253,12 +258,46 @@ private final class LifecyclePushURLProtocol: URLProtocol,
 
 @Suite struct MobilePushCoordinatorLifecycleTests {
     @MainActor
+    @Test func readinessForwardsSecurePushSetupFailure() async {
+        let registration = LifecyclePushRegistration(snapshot: PushRegistrationSnapshot(
+            isEnabled: true,
+            hasDeviceToken: true,
+            backendState: .registered
+        ))
+        let suiteName = "push-coordinator-secure-setup-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            phoneAPIOrigin: "https://cmux.com",
+            defaults: defaults,
+            authorizationStatus: { .authorized }
+        )
+        await coordinator.refreshReadiness()
+        let mac = MobileHostPhonePushStatus(
+            forwardingEnabled: true,
+            mode: .always,
+            admission: .allowed,
+            queuePersistence: .healthy,
+            apiOrigin: "https://cmux.com",
+            accountScope: .verifiedSameAccount
+        )
+
+        #expect(coordinator.readiness(macStatus: mac) == .ready(mode: .always))
+        let failed = coordinator.readiness(macStatus: mac, securePushSetupFailed: true)
+        #expect(failed == .blocked(.securePushSetupFailed))
+        #expect(failed.repair == .retrySecurePushSetup)
+    }
+
+    @MainActor
     @Test func callbackFailureOffersRetryAndSuccessfulTokenRecoversReadiness() async {
         let registration = LifecyclePushRegistration()
         var registrationRequests = 0
         let suiteName = "push-coordinator-callback-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
         let coordinator = MobilePushCoordinator(
             registration: registration,
             defaults: defaults,
@@ -267,6 +306,7 @@ private final class LifecyclePushURLProtocol: URLProtocol,
             registerForRemoteNotifications: { registrationRequests += 1 }
         )
         await coordinator.refreshReadiness()
+        #expect(registrationRequests == 1)
 
         await coordinator.handleDeviceTokenFailure()
 
@@ -280,7 +320,7 @@ private final class LifecyclePushURLProtocol: URLProtocol,
         )
 
         coordinator.retryDeviceTokenRegistration()
-        #expect(registrationRequests == 1)
+        #expect(registrationRequests == 2)
 
         await coordinator.handleDeviceToken(Data(repeating: 0xCD, count: 32))
         #expect(coordinator.registrationSnapshot.backendState == .registered)
@@ -288,13 +328,16 @@ private final class LifecyclePushURLProtocol: URLProtocol,
 
     @MainActor
     @Test func enableRegistersWithOSBeforeBackendSyncCompletes() async {
+        // Enabling commits the intent locally; backend sync starts when the
+        // coordinator reconciles it, so hold the sync there.
         let gate = LifecycleSetEnabledGate()
         let registration = LifecyclePushRegistration(
             enabled: false,
-            setEnabledGate: gate
+            reconcileGate: gate
         )
         let suiteName = "push-coordinator-enable-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         var registrationRequests = 0
         let coordinator = MobilePushCoordinator(
             registration: registration,
@@ -683,6 +726,7 @@ private final class LifecyclePushURLProtocol: URLProtocol,
         let suiteName = "push-coordinator-shared-retry-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
         let coordinator = MobilePushCoordinator(
             registration: registration,
             defaults: defaults,

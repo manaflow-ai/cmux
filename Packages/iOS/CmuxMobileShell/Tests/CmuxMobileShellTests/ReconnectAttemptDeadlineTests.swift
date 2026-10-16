@@ -228,6 +228,11 @@ extension ReconnectRouteSelectionTests {
         factory.setHangingKinds([.iroh])
         let dialsBeforeDrop = factory.attemptedKinds().count
 
+        // Drop the native transport first. Since #12411, recoverDeadConnection
+        // only redials when the transport reports itself closed; an ended event
+        // stream over a still-open transport resyncs in place instead.
+        let transport = try #require(box.get())
+        await transport.close()
         store.recoverDeadConnection(trigger: .eventStreamEnded, expectedClient: client)
 
         // Starvation-proof windows: under full-suite parallel load the

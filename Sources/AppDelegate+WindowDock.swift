@@ -2,6 +2,12 @@ import AppKit
 import CmuxTerminal
 
 extension AppDelegate.MainWindowContext {
+    /// Cancels work scoped to this context before the window owner releases it.
+    func teardownWindowOwnedWork() {
+        tabManager.workspaceSwitchCoordinator.cancel()
+        teardownWindowDock()
+    }
+
     /// The Dock for this window, created on first access and retained through
     /// context replacement. Session restore wins; otherwise global config seeds it.
     func windowDockStore(notificationStore: TerminalNotificationStore?) -> DockSplitStore {
@@ -68,12 +74,15 @@ extension AppDelegate.MainWindowContext {
     func windowDockSessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex?,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
+        downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool = false
     ) -> SessionSplitContainerSnapshot? {
         existingWindowDock()?.sessionSnapshot(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+            downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable:
+                downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable
         )
     }
 
@@ -155,7 +164,7 @@ extension AppDelegate {
         if let context = mainWindowContext(forWindowId: windowId) {
             return context.windowDockStore(notificationStore: notificationStore)
         }
-        return recoverableMainWindowRoute(windowId: windowId)?.windowDock
+        return recoverableMainWindowRoute(windowId: windowId)?.liveWindowDock
     }
 
     /// The Dock of `tabManager`'s window, created on first access for a live
@@ -174,7 +183,7 @@ extension AppDelegate {
         if let dock = mainWindowContext(forWindowId: windowId)?.existingWindowDock() {
             return dock
         }
-        return recoverableMainWindowRoute(windowId: windowId)?.windowDock
+        return recoverableMainWindowRoute(windowId: windowId)?.liveWindowDock
     }
 
     /// The `TabManager` owning the window Dock owner id `id` (== its window id),
@@ -246,9 +255,10 @@ extension AppDelegate {
     /// Deliberately unconditional: window close is the containing lifecycle,
     /// and a busy Dock panel does not veto it — exactly like the window's
     /// workspace surfaces, which get no per-process veto on this path either.
-    /// The menu close path shows the unconditional "Close window?" dialog, and
+    /// The Close Window command asks "Close window?" when a workspace or this
+    /// Dock needs close confirmation (see `closeWindowWithConfirmation`), and
     /// the last-window/quit path is gated by
-    /// `hasQuitConfirmationDirtyWorkspaces()`, which counts window Docks.
+    /// `hasQuitConfirmationDirtyWorkspaces()`, which also counts window Docks.
     func teardownWindowDock(forWindowId windowId: UUID) {
         mainWindowContext(forWindowId: windowId)?.teardownWindowDock()
     }

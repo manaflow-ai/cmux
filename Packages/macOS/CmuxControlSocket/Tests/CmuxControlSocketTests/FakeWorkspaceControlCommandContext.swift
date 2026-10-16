@@ -12,6 +12,9 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     var listResolution: ControlWorkspaceListResolution = .tabManagerUnavailable
     var currentResolution: ControlWorkspaceCurrentResolution = .tabManagerUnavailable
     var closeResolution: ControlWorkspaceCloseResolution = .tabManagerUnavailable
+    var closeForce = false
+    var reorderResolution: ControlWorkspaceReorderResolution = .notFound
+    var reorderCall: (workspaceID: UUID, index: Int?, before: UUID?, after: UUID?, dryRun: Bool)?
     var addWorkspaceToGroupResolution: ControlWorkspaceGroupAddResolution = .tabManagerUnavailable
     var addWorkspaceToGroupCall: (
         groupID: UUID,
@@ -89,7 +92,7 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         .tabManagerUnavailable
     }
     func controlFocusWindow(id: UUID) -> Bool { false }
-    func controlCreateWindowAndActivate() -> UUID? { nil }
+    func controlCreateWindowAndActivate(title: String?) -> UUID? { nil }
     func controlCloseWindow(id: UUID) -> Bool { false }
     func controlAvailableDisplays() -> [ControlDisplayInfo] { [] }
     func controlWindowExists(id: UUID) -> Bool { false }
@@ -100,11 +103,16 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         ControlWorkspaceStrings(
             closeProtected: "close protected",
             closeFailed: "close failed",
+            closeConfirmationRequired: "Workspace has a running process; retry with --force",
             reorderManyMissingOrder: "missing order",
             reorderManyDuplicateWorkspace: "duplicate workspace",
-            reorderManyWorkspaceNotFound: "workspace not found",
-            reorderManyInvalidWorkspace: "invalid workspace",
-            reorderManyTabManagerUnavailable: "tab manager unavailable"
+            workspaceNotFound: "workspace not found",
+            invalidWorkspaceRef: "invalid workspace",
+            reorderIndexNotAnInteger: "index not an integer",
+            reorderMissingWorkspaceID: "missing workspace_id",
+            reorderTargetRequired: "exactly one target",
+            reorderManyTabManagerUnavailable: "tab manager unavailable",
+            relayOwnerUnavailable: "relay owner workspace unavailable"
         )
     }
 
@@ -122,9 +130,11 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
 
     func controlCloseWorkspace(
         routing: ControlRoutingSelectors,
-        workspaceID: UUID
+        workspaceID: UUID,
+        force: Bool
     ) -> ControlWorkspaceCloseResolution {
-        closeResolution
+        closeForce = force
+        return closeResolution
     }
 
     func controlAddWorkspaceToGroup(
@@ -141,6 +151,18 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
             referenceWorkspaceID: referenceWorkspaceID
         )
         return addWorkspaceToGroupResolution
+    }
+
+    func controlReorderWorkspace(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID,
+        toIndex: Int?,
+        beforeWorkspaceID: UUID?,
+        afterWorkspaceID: UUID?,
+        dryRun: Bool
+    ) -> ControlWorkspaceReorderResolution {
+        reorderCall = (workspaceID, toIndex, beforeWorkspaceID, afterWorkspaceID, dryRun)
+        return reorderResolution
     }
 
     func controlWorkspaceRemoteTerminalSessionEnd(

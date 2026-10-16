@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "react", "react-dom"]
+  },
+  "include": [
+    "next-env.d.ts",
+    ".next/types/**/*.ts",
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "data/**/*.ts",
+    "db/**/*.ts",
+    "i18n/**/*.ts",
+    "messages/**/*.ts",
+    "orpc/**/*.ts",
+    "services/**/*.ts",
+    "types/**/*.ts",
+    "instrumentation.ts",
+    "proxy.ts",
+    "security-headers.ts",
+    "next.config.ts"
+  ],
+  "exclude": ["node_modules", "tests", "e2e", "scripts", "tools"]
+}

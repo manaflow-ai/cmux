@@ -86,13 +86,13 @@ struct MobileIrohCustomPrivatePathEditor: View {
                     )
                 } header: {
                     Text(L10n.string(
-                        "mobile.iroh.private.custom.addresses",
-                        defaultValue: "Numeric IP Addresses"
+                        "mobile.iroh.v2.private.addresses",
+                        defaultValue: "IP Addresses and Ports"
                     ))
                 } footer: {
                     Text(L10n.string(
-                        "mobile.iroh.private.custom.addresses.footer",
-                        defaultValue: "Enter one IPv4 or IPv6 address per line, without a port. cmux combines it with the Mac's current broker-authenticated Iroh UDP port."
+                        "mobile.iroh.v2.private.addresses.footer",
+                        defaultValue: "Enter one address and port per line, such as 192.168.1.5:58470 or [fd00::5]:58470. These addresses stay on this iPhone."
                     ))
                     if let mac = availableMacs.first(where: { $0.id == selectedMacDeviceID }),
                        !mac.supportsPrivatePaths {
@@ -143,7 +143,7 @@ struct MobileIrohCustomPrivatePathEditor: View {
         let canSave = !selectedMacDeviceID.isEmpty
             && !addresses.isEmpty
             && addresses.count <= CmxIrohCustomPrivatePathDraft.maximumAddressCount
-            && addresses.allSatisfy { (try? CmxIrohCustomPrivateAddress($0)) != nil }
+            && addresses.allSatisfy { (try? CmxIrohLocalSocketAddress($0)) != nil }
         return Validation(addresses: addresses, canSave: canSave)
     }
 

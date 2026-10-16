@@ -196,7 +196,9 @@ extension CmxIrohHostRuntime {
         try requireCurrent(revision)
         lastRegistrationRefreshState = CmxIrohRegistrationPublicationState(
             payload: payload,
-            now: now()
+            now: now(),
+            minimumPublicationSpacing: registration.minimumPublicationSpacingSeconds
+                ?? CmxIrohRegistrationPublicationState.defaultMinimumPublicationSpacing
         )
         return ResolvedPolicy(
             registration: registration,
@@ -446,6 +448,38 @@ extension CmxIrohHostRuntime {
         }
     }
 
+    /// Arms one refresh at the end of the publication spacing window. The
+    /// renewal task slot is reused: a later successful publication replaces
+    /// the deferral with a normal renewal, and sign-out cancels both.
+    func scheduleDeferredPublication(at deadline: Date, revision: UInt64) {
+        registrationRenewalTask?.cancel()
+        registrationRenewalTask = nil
+        guard lifecyclePhase.ownsNetworkOperation,
+              lifecycleRevision == revision else { return }
+        registrationRenewalTask = Task { [weak self] in
+            await self?.runDeferredPublication(
+                revision: revision,
+                deadline: deadline
+            )
+        }
+    }
+
+    private func runDeferredPublication(
+        revision: UInt64,
+        deadline: Date
+    ) async {
+        do {
+            try await registrationClock.sleep(until: deadline)
+        } catch {
+            return
+        }
+        guard lifecyclePhase == .active,
+              lifecycleRevision == revision,
+              !Task.isCancelled else { return }
+        scheduleRegistrationRefresh(revision: revision)
+        await registrationRefreshTask?.value
+    }
+
     private func runRegistrationRenewal(
         revision: UInt64,
         firstDeadline: Date
@@ -546,10 +580,20 @@ extension CmxIrohHostRuntime {
                     engine: connectivityEngine,
                     expectedEndpointID: endpointID
                 )
-                guard state.requiresPublication(
+                switch state.publicationDecision(
                     after: lastRegistrationRefreshState,
                     now: now()
-                ) else {
+                ) {
+                case .publish:
+                    break
+                case .unchanged:
+                    completedSuccessfully = true
+                    return
+                case let .deferred(until):
+                    // Reachability changed inside the spacing window. Publish
+                    // the latest snapshot once the window closes instead of
+                    // on every observed-address change.
+                    scheduleDeferredPublication(at: until, revision: revision)
                     completedSuccessfully = true
                     return
                 }

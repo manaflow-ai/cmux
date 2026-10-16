@@ -3,7 +3,7 @@
 
 Shards are packed greedily by weight. Weights are measured milliseconds from
 scripts/ci/cmux-unit-test-timings.json when present (regenerate it with
-scripts/ci/generate_test_timings.py from a green main run's shard logs).
+scripts/ci/generate_test_timings.py from a few recent green runs' shard logs).
 Suites and methods missing from the manifest fall back to a per-test estimate,
 so new or renamed tests never break sharding — they just pack less precisely
 until the manifest is refreshed.
@@ -34,14 +34,50 @@ XCTEST_METHOD_RE = re.compile(
 LARGE_SUITE_METHOD_THRESHOLD = 40
 DEFAULT_TIMINGS_PATH = Path(__file__).resolve().parent / "cmux-unit-test-timings.json"
 FALLBACK_TEST_MS = 200
+# Suites a strict ci.yml step runs in full. The tolerant batch leaves them out,
+# so each runs once per pull request. A suite that a strict step runs only
+# partly stays in the batch.
 FOCUSED_GATE_SELECTORS = {
-    "cmuxTests/BrowserSystemProxyMirrorTests",
-    "cmuxTests/CLISSHSessionAttachAnchorTests",
+    "cmuxTests/AgentJournalLifecycleCenterTests",
+    "cmuxTests/AgentNotificationRegressionTests",
+    "cmuxTests/BrowserOmnibarSuggestionClickRoutingTests",
+    "cmuxTests/BrowserPanelViewIdentityTests",
+    "cmuxTests/ClaudeBackgroundWorkNotifyTests",
+    "cmuxTests/CloudMachineDragSourceTests",
+    "cmuxTests/CloudMachineOrderingTests",
+    "cmuxTests/CloudOperationRecorderTests",
+    "cmuxTests/CloudReadRequestCoordinatorTests",
+    "cmuxTests/DeviceDirectoryLifecycleTests",
+    "cmuxTests/DeviceDirectoryMergeTests",
+    "cmuxTests/DeviceLinkReconnectPolicyTests",
+    "cmuxTests/DevicePresenceWireTests",
+    "cmuxTests/DeviceRegistryClientTests",
+    "cmuxTests/DeviceRouteSelectorTests",
+    "cmuxTests/DeviceTerminalMirrorTests",
+    "cmuxTests/DeviceWorkspaceProjectionTests",
+    "cmuxTests/DevicesCloudTreeBuilderTests",
+    "cmuxTests/DevicesSidebarModeTests",
+    "cmuxTests/FeedCoordinatorTests",
+    "cmuxTests/FeedWaiterRegistryTests",
+    "cmuxTests/GhosttyNumericLocaleTests",
+    "cmuxTests/GhosttyCopyModeScrollbackTests",
     "cmuxTests/GhosttyTerminalViewVisibilityPolicyTests",
-    "cmuxTests/GhosttyOptionAsAltModsTests",
+    "cmuxTests/GlobalSearchShortcutBehaviorTests",
     "cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests",
+    "cmuxTests/OpenCodeHookRegressionTests",
+    "cmuxTests/PiFeedDockOwnershipTests",
+    "cmuxTests/PiFeedOwnershipTests",
+    "cmuxTests/RemoteTmuxMirrorCloseDetachTests",
+    "cmuxTests/RemoteTmuxMirrorDedicatedPlacementTests",
+    "cmuxTests/RemoteTmuxMirrorFocusPolicyTests",
     "cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
+    "cmuxTests/RemoteTmuxWindowMirrorFocusSeedTests",
+    "cmuxTests/SidebarIssue8373StressTests",
     "cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests",
+    "cmuxTests/SocketACLReloadRegressionTests",
+    "cmuxTests/VMClientReadCoalescingTests",
+    "cmuxTests/SurfaceMachineIDDeviceEncodingTests",
+
 }
 # BrowserDeveloperToolsVisibilityPersistenceTests reliably crash-restarts the
 # app host on CI runners (its detached-inspector tests kill the host mid-run;
@@ -84,7 +120,10 @@ def xctest_methods(
 ) -> list[TestSelector]:
     return [
         TestSelector(
-            identifier=f"{suite_identifier}/{match.group(1)}",
+            # XCTest accepts the call suffix, while Swift Testing requires it.
+            # Migrated @Test methods retain test-prefixed names and are split
+            # here too; a bare method selector silently executes zero tests.
+            identifier=f"{suite_identifier}/{match.group(1)}()",
             path=relative_path,
             line=start_line + offset,
             weight=1,
@@ -101,6 +140,8 @@ def discover_selectors(root: Path) -> list[TestSelector]:
 
     declarations: list[SuiteDeclaration] = []
     extension_methods: dict[str, list[TestSelector]] = {}
+    extension_weights: dict[str, int] = {}
+    unsplit_suites: set[str] = set()
     for path in sorted(test_root.glob("**/*.swift")):
         relative = path.relative_to(root).as_posix()
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -126,11 +167,31 @@ def discover_selectors(root: Path) -> list[TestSelector]:
                 else len(lines) + 1
             )
             body = lines[line_number - 1 : next_line - 1]
-            weight = max(1, sum(1 for line in body if TEST_TOKEN_RE.search(line)))
+            weight = sum(1 for line in body if TEST_TOKEN_RE.search(line))
             suite_identifier = f"cmuxTests/{name}"
             methods = xctest_methods(suite_identifier, relative, line_number, body)
+            # Only split a Swift Testing suite when the existing method parser
+            # represents every @Test declaration. Inline attributes, modern
+            # non-test-prefixed names, or an unrecognized declaration keep the
+            # whole suite instead of silently dropping part of its coverage.
+            method_ids = {method.identifier for method in methods}
+            for test_declaration in re.split(r"@Test\b", "\n".join(body))[1:]:
+                function = re.search(r"\bfunc\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", test_declaration)
+                if function is None or f"{suite_identifier}/{function.group(1)}()" not in method_ids:
+                    unsplit_suites.add(name)
+            # A generated () selector is valid only for a no-argument method.
+            # Preserve the entire suite when a test signature has parameters or
+            # spans lines rather than guessing argument labels. This also sees
+            # inline @Test attributes and extension-declared test methods.
+            for body_line in body:
+                method_start = re.search(r"\bfunc\s+test[A-Za-z0-9_]*\s*\(", body_line)
+                if method_start and not re.match(r"\s*\)", body_line[method_start.end():]):
+                    unsplit_suites.add(name)
             if kind == "extension":
                 extension_methods.setdefault(name, []).extend(methods)
+                # Swift Testing containers often declare all their nested suites
+                # in extensions, without any XCTest-style method selectors.
+                extension_weights[name] = extension_weights.get(name, 0) + weight
                 continue
 
             declarations.append(
@@ -159,7 +220,7 @@ def discover_selectors(root: Path) -> list[TestSelector]:
         suite_identifier = f"cmuxTests/{declaration.name}"
         extension_selectors = extension_methods.get(declaration.name, [])
         methods = [*declaration.methods, *extension_selectors]
-        weight = declaration.weight + len(extension_selectors)
+        weight = max(1, declaration.weight + extension_weights.get(declaration.name, 0))
 
         if suite_identifier in FOCUSED_GATE_SELECTORS:
             continue
@@ -169,7 +230,7 @@ def discover_selectors(root: Path) -> list[TestSelector]:
         # smaller suites grouped so xcodebuild still has a compact selector
         # list and shared setup inside each suite. Include extension methods in
         # the split so extension-declared regressions remain covered.
-        if len(methods) >= LARGE_SUITE_METHOD_THRESHOLD:
+        if len(methods) >= LARGE_SUITE_METHOD_THRESHOLD and declaration.name not in unsplit_suites:
             selectors.extend(methods)
             continue
 
@@ -242,7 +303,9 @@ def reweight_selectors(
         parts = selector.identifier.split("/")
         if len(parts) == 3:
             _, suite, method = parts
-            ms = methods.get(f"{suite}/{method}")
+            # Timing receipts use method names without the no-argument suffix.
+            timing_method = method.removesuffix("()")
+            ms = methods.get(f"{suite}/{timing_method}")
             if ms is None and suite in suites:
                 ms = suites[suite] / methods_per_suite[suite]
             if ms is None:
@@ -260,8 +323,60 @@ def reweight_selectors(
     return reweighted, measured
 
 
+# How many seconds of measured test time one second of batch wall time holds.
+# Only balance depends on it. A batch runs its XCTest cases and then its Swift
+# Testing suites one at a time: in the app-host shard logs of green runs
+# 36043411778, 36056804560 and 36062245739, each batch's Swift Testing suite
+# walls add up to its "Test run ... passed after" total, and XCTest's summed
+# case times equal its "Executed" total. So a second of wall is a second of
+# measured time. The old 2.5 assumed parallel execution and made every
+# reserved worker give up 2.5 times its strict steps' wall time.
+BATCH_TEST_SECONDS_PER_WALL_SECOND = 1.0
+
+
+def parse_reservations(values: list[str], physical_total: int) -> dict[int, int]:
+    """Parse SHARD=WALL_SECONDS pairs into wall seconds per physical shard."""
+    reserved: dict[int, int] = {}
+    for value in values:
+        shard_text, separator, seconds_text = value.partition("=")
+        if not separator or not shard_text.isdigit() or not seconds_text.isdigit():
+            raise SystemExit(f"--reserve expects SHARD=WALL_SECONDS, got '{value}'")
+        shard = int(shard_text)
+        if shard < 1 or shard > physical_total:
+            raise SystemExit(f"--reserve shard {shard} is outside 1..{physical_total}")
+        if shard in reserved:
+            raise SystemExit(f"--reserve names shard {shard} twice")
+        reserved[shard] = int(seconds_text)
+    return reserved
+
+
+def initial_bucket_weights(
+    shard_total: int, physical_total: int, reserved_wall_seconds: dict[int, int]
+) -> list[int]:
+    """Weight each logical shard starts with, for work its worker runs outside the batch.
+
+    Logical shard n runs on physical worker ((n - 1) % physical_total) + 1, and a
+    worker's reservation is spread over its logical shards.
+    """
+    if shard_total < 1 or physical_total < 1:
+        raise SystemExit("--shard-total and --physical-shard-total must be >= 1")
+    if shard_total % physical_total != 0:
+        raise SystemExit("--shard-total must be a multiple of --physical-shard-total")
+    batches_per_worker = shard_total // physical_total
+    weights = []
+    for index in range(shard_total):
+        wall_seconds = reserved_wall_seconds.get(index % physical_total + 1, 0)
+        weights.append(
+            int(wall_seconds * 1000 * BATCH_TEST_SECONDS_PER_WALL_SECOND / batches_per_worker)
+        )
+    return weights
+
+
 def shard_selectors(
-    selectors: list[TestSelector], shard_index: int, shard_total: int
+    selectors: list[TestSelector],
+    shard_index: int,
+    shard_total: int,
+    initial_weights: list[int] | None = None,
 ) -> list[TestSelector]:
     if shard_total < 1:
         raise SystemExit("--shard-total must be >= 1")
@@ -274,7 +389,7 @@ def shard_selectors(
             group_by_suite[suite] = group_index
 
     buckets: list[list[TestSelector]] = [[] for _ in range(shard_total)]
-    bucket_weights = [0 for _ in range(shard_total)]
+    bucket_weights = list(initial_weights) if initial_weights else [0 for _ in range(shard_total)]
     # Which separated suites each bucket already holds, as (group, suite).
     bucket_separated: list[set[tuple[int, str]]] = [set() for _ in range(shard_total)]
     ordered = sorted(
@@ -329,6 +444,18 @@ def main() -> int:
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--validate", action="store_true")
     parser.add_argument("--timings", type=Path, default=DEFAULT_TIMINGS_PATH)
+    parser.add_argument(
+        "--physical-shard-total",
+        type=int,
+        help="Workers the logical shards run on; defaults to --shard-total.",
+    )
+    parser.add_argument(
+        "--reserve",
+        action="append",
+        default=[],
+        metavar="SHARD=WALL_SECONDS",
+        help="Wall time a worker spends outside the batch, so it gets less of the batch.",
+    )
     args = parser.parse_args()
 
     selectors = discover_selectors(args.root)
@@ -354,7 +481,13 @@ def main() -> int:
     if args.shard_index is None or args.shard_total is None or args.output is None:
         parser.error("--shard-index, --shard-total, and --output are required unless --list or --validate is used")
 
-    selected = shard_selectors(selectors, args.shard_index, args.shard_total)
+    physical_total = (
+        args.shard_total if args.physical_shard_total is None else args.physical_shard_total
+    )
+    initial_weights = initial_bucket_weights(
+        args.shard_total, physical_total, parse_reservations(args.reserve, physical_total)
+    )
+    selected = shard_selectors(selectors, args.shard_index, args.shard_total, initial_weights)
     if not selected:
         raise SystemExit(f"Shard {args.shard_index}/{args.shard_total} is empty")
 

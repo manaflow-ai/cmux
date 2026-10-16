@@ -1,6 +1,6 @@
-import { handleIrohRoute } from "../../../../../services/iroh/routeHandler";
+import { handleTaggedIrohRoute } from "../../../../../services/iroh/routeHandler";
 
 
 export async function POST(request: Request): Promise<Response> {
-  return handleIrohRoute(request, "pair_grant");
+  return handleTaggedIrohRoute(request, "pair_grant");
 }

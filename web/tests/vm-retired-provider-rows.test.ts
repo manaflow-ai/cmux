@@ -27,6 +27,7 @@ function row(overrides: Partial<CloudVmRow>): CloudVmRow {
     provider: "freestyle",
     providerVmId: "live-machine",
     displayName: null,
+    slug: null,
     imageId: "cmux-devbox",
     imageVersion: null,
     status: "running",
@@ -37,6 +38,11 @@ function row(overrides: Partial<CloudVmRow>): CloudVmRow {
     failureCode: null,
     failureMessage: null,
     providerMetadata: {},
+    networkPolicy: null,
+    networkPolicyStatus: null,
+    agentUpdates: null,
+    ownerTeamId: overrides.ownerTeamId ?? overrides.billingTeamId ?? USER_ID,
+    coderouterPoolId: null,
     ...overrides,
   };
 }

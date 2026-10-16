@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxIrxTransport
 import Foundation
 
 /// Thrown for Settings mutations the irx runtime does not support yet
@@ -22,11 +23,10 @@ struct MobileHostIrxSettingsUnsupportedError: LocalizedError {
 extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
     func irohSettingsSnapshot() async -> CmxIrohSettingsSnapshot {
         let phase = settingsPhase
+        let failureDescription = relayFailureDescription
         let hadLiveDiscovery = hadLiveDiscoveryThisRun
-        let broker = brokerService
+        let cache = cachedState
         let supervisor = endpointSupervisor
-        let trust = await broker?.cachedTrust()
-        let credentials = await broker?.cachedRelayCredentials() ?? []
         let endpointOnline = await supervisor?.isHealthy() ?? false
         let homeRelayURL = await supervisor?.homeRelayURL()
         return Self.settingsSnapshot(
@@ -34,10 +34,11 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
             forceRelayOnly: Self.forceRelayOnly,
             endpointOnline: endpointOnline,
             homeRelayURL: homeRelayURL,
-            relayFleet: trust?.relayFleet ?? [],
-            hasTrustSnapshot: trust != nil,
+            relayFleet: cache?.directory?.relayURLs ?? cache?.relayCredentials.map(\.relayURL) ?? [],
+            hasTrustSnapshot: cache?.directory != nil,
             hadLiveDiscovery: hadLiveDiscovery,
-            credentialExpiry: credentials.map(\.expiresAt).max()
+            credentialExpiry: cache?.relayCredentials.map { Date(timeIntervalSince1970: Double($0.expiresAt)) }.max(),
+            failureDescription: failureDescription
         )
     }
 
@@ -107,12 +108,12 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
     }
 
     func refreshIrohSettings() async {
-        guard let broker = brokerService else {
+        guard isNetworkingAllowed, let service = controlService else {
             publishIrxSettingsUpdate()
             return
         }
         // Force a live discovery so the fleet and policy source are current.
-        if (try? await broker.discover(maximumAge: 0)) != nil {
+        if (try? await service.refreshDirectory()) != nil {
             noteLiveDiscoverySucceeded()
         }
         publishIrxSettingsUpdate()
@@ -186,7 +187,8 @@ extension MobileHostIrxRuntime {
         relayFleet: [String],
         hasTrustSnapshot: Bool,
         hadLiveDiscovery: Bool,
-        credentialExpiry: Date?
+        credentialExpiry: Date?,
+        failureDescription: String? = nil
     ) -> CmxIrohSettingsSnapshot {
         let selectedPath = settingsSelectedPath(
             phase: phase,
@@ -222,7 +224,10 @@ extension MobileHostIrxRuntime {
             // until the autopilot mints again.
             policyExpiresAt: credentialExpiry,
             staleRelayIDs: [],
-            failureDescription: phase == .failed ? "irx-activation-failed" : nil,
+            failureDescription: failureDescription ?? (phase == .failed ? String(
+                localized: "connection.relay.unavailable",
+                defaultValue: "Unable to connect. Check your network and try again."
+            ) : nil),
             debugTransportVerificationMode: debugMode
         )
     }
@@ -247,8 +252,9 @@ extension MobileHostIrxRuntime {
         }
     }
 
-    /// Relay for now: direct paths are unwired in irx v1, so the only
-    /// attributable live path is the relay the endpoint homes on.
+    /// The control-plane status remains relay-attributed until Iroh reports a
+    /// selected direct path. Direct candidates are still advertised and
+    /// attempted by the transport in automatic mode.
     nonisolated static func settingsSelectedPath(
         phase: SettingsPhase,
         endpointOnline: Bool,

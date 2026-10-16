@@ -1,5 +1,14 @@
 blank_issues_enabled: false
 contact_links:
+  - name: First time contributing?
+    url: https://github.com/manaflow-ai/cmux/blob/main/docs/start-here.md
+    about: How to pick an issue, what you can fix without a Mac, and what happens to your pull request
   - name: Discussions
     url: https://github.com/manaflow-ai/cmux/discussions
     about: Ask questions and share ideas
+  - name: Discord
+    url: https://discord.gg/xsgFEVrWCZ
+    about: Quick questions, nightly bugs, and saying hello
+  - name: Report a security issue privately
+    url: https://github.com/manaflow-ai/cmux/blob/main/SECURITY.md
+    about: Email it. Do not open a public issue for a vulnerability

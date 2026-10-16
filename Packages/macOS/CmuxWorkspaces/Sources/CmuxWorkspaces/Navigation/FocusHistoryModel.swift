@@ -25,6 +25,10 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
     // and panes.
     private var focusHistory: [FocusHistoryRecord] = []
     private var historyIndex: Int = -1
+    // The position focus most recently moved away from. Focus Last returns
+    // here, and returning records the position it left, so repeated presses
+    // toggle between the two most recent positions.
+    private var lastLeftFocusEntry: FocusHistoryEntry?
     private var focusHistoryRecordingSuppressionDepth = 0
     private var focusHistorySuppressedSelectionSideEffectGenerations: Set<UInt64> = []
     private let maxHistorySize: Int
@@ -77,6 +81,7 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
     public func reset() {
         focusHistory.removeAll()
         historyIndex = -1
+        lastLeftFocusEntry = nil
         focusHistoryRecordingSuppressionDepth = 0
         focusHistorySuppressedSelectionSideEffectGenerations.removeAll()
     }
@@ -107,6 +112,10 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
            historyIndex < focusHistory.count,
            focusHistory[historyIndex].entry == entry {
             return
+        }
+
+        if let leavingEntry = recordedEntryLeft(for: entry) {
+            lastLeftFocusEntry = leavingEntry
         }
 
         var didMutateHistory = false
@@ -183,6 +192,14 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         recordFocusInHistory(workspaceId: workspaceId, panelId: panelId)
     }
 
+    /// The recorded position focus leaves when it moves to `newEntry`, or
+    /// `nil` when there is no recorded position or the move lands on it.
+    private func recordedEntryLeft(for newEntry: FocusHistoryEntry) -> FocusHistoryEntry? {
+        guard historyIndex >= 0, historyIndex < focusHistory.count else { return nil }
+        let leavingEntry = focusHistory[historyIndex].entry
+        return leavingEntry == newEntry ? nil : leavingEntry
+    }
+
     // MARK: - Invalidation
 
     public func invalidateFocusHistoryTarget(workspaceId: UUID, panelId: UUID?) {
@@ -192,6 +209,10 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
             }
             host?.focusHistoryRevisionDidChange()
             return
+        }
+
+        if lastLeftFocusEntry?.workspaceId == workspaceId {
+            lastLeftFocusEntry = nil
         }
 
         let oldCount = focusHistory.count
@@ -479,11 +500,15 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
             }
         }
 
+        let leavingEntry = recordedEntryLeft(for: entry)
         var didRestore = false
         withFocusHistoryRecordingSuppressed {
             didRestore = restoreFocusHistoryEntry(entry)
         }
         guard didRestore else { return false }
+        if let leavingEntry {
+            lastLeftFocusEntry = leavingEntry
+        }
         historyIndex = targetIndex
         didNavigate = true
         return true
@@ -566,6 +591,34 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
             host?.focusHistoryRevisionDidChange()
         }
         return false
+    }
+
+    /// Returns focus to the position it most recently left, recording the
+    /// move like any other focus change. Because the move records the
+    /// position it came from, a second call returns to the starting point:
+    /// repeated calls toggle between the two most recent positions instead
+    /// of walking further back through history.
+    @discardableResult
+    public func navigateToLastFocused() -> Bool {
+        guard let lastLeftFocusEntry else { return false }
+        let entry = navigationEntry(for: lastLeftFocusEntry)
+        let startEntry = currentFocusHistoryEntry
+        guard let resolvedEntry = resolvedFocusHistoryEntry(for: entry) else {
+            self.lastLeftFocusEntry = nil
+            return false
+        }
+        guard focusHistoryEntryIsNavigable(entry, currentEntry: startEntry) else { return false }
+
+        var didRestore = false
+        withFocusHistoryRecordingSuppressed {
+            didRestore = restoreFocusHistoryEntry(entry)
+        }
+        guard didRestore else { return false }
+        recordFocusInHistory(resolvedEntry)
+        if let startEntry, startEntry != resolvedEntry {
+            self.lastLeftFocusEntry = startEntry
+        }
+        return true
     }
 
     public var canNavigateBack: Bool {

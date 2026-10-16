@@ -20,6 +20,18 @@ public struct SSHPTYAttachOutputProgress: Sendable {
     private var validatedReplayOutput = Data()
     private var replayFingerprintHash = Self.fingerprintOffset
 
+    /// Declared replay bytes that actually arrived from the bridge.
+    public private(set) var deliveredReplayBytes = 0
+
+    /// Replay bytes withheld from the terminal for good as a duplicate of
+    /// what an earlier attempt rendered.
+    ///
+    /// A prefix candidate still awaiting validation is not counted: it is
+    /// either forwarded (validation failed) or counted once it is proven
+    /// duplicate. Downstream consumers that count replay bytes in the
+    /// forwarded stream advance their boundary by this amount.
+    public private(set) var suppressedReplayBytes = 0
+
     /// Whether any output arrived after the initial replay boundary.
     public private(set) var receivedLiveOutput = false
 
@@ -74,6 +86,7 @@ public struct SSHPTYAttachOutputProgress: Sendable {
         guard byteCount > 0 else { return }
         let replayBytes = min(byteCount, replayBytesRemaining)
         replayBytesRemaining -= replayBytes
+        deliveredReplayBytes += replayBytes
         if byteCount > replayBytes {
             receivedLiveOutput = true
         }
@@ -120,7 +133,9 @@ public struct SSHPTYAttachOutputProgress: Sendable {
             let candidate = replayPrefixCandidate
             replayPrefixCandidate.removeAll(keepingCapacity: false)
             replayBytesToSuppressRemaining = 0
-            if !matches {
+            if matches {
+                suppressedReplayBytes += candidate.count
+            } else {
                 // The bounded snapshot rolled over (or the session was
                 // replaced), so none of the new snapshot can be proven
                 // duplicate.
@@ -131,9 +146,11 @@ public struct SSHPTYAttachOutputProgress: Sendable {
                 data.dropFirst(candidateBytes)
                     .prefix(max(0, replayChunkBytes - candidateBytes))
             )
-            appendValidatedReplayBytes(replayRemainder)
             if !replayRemainder.isEmpty {
                 receivedLiveOutput = true
+            }
+            if let overflow = bufferValidatedReplayBytes(replayRemainder) {
+                return overflow + data.dropFirst(replayChunkBytes)
             }
             return flushValidatedReplayIfComplete(from: data, replayChunkBytes: replayChunkBytes)
         }
@@ -141,9 +158,11 @@ public struct SSHPTYAttachOutputProgress: Sendable {
         if suppressingReplay,
            expectedReplayFingerprint != nil,
            bufferingValidatedReplay {
-            appendValidatedReplayBytes(Data(data.prefix(replayChunkBytes)))
             if replayChunkBytes > 0 {
                 receivedLiveOutput = true
+            }
+            if let overflow = bufferValidatedReplayBytes(Data(data.prefix(replayChunkBytes))) {
+                return overflow + data.dropFirst(replayChunkBytes)
             }
             return flushValidatedReplayIfComplete(
                 from: data,
@@ -156,6 +175,7 @@ public struct SSHPTYAttachOutputProgress: Sendable {
             : 0
         if suppressingReplay {
             replayBytesToSuppressRemaining -= suppressBytes
+            suppressedReplayBytes += min(suppressBytes, replayChunkBytes)
             // A partially suppressed replay contains a suffix that was
             // produced after the previous attach. It is live from the pane's
             // perspective even though the daemon labels the whole snapshot
@@ -171,6 +191,31 @@ public struct SSHPTYAttachOutputProgress: Sendable {
         }
         guard suppressingReplay, suppressBytes > 0 else { return data }
         return Data(data.dropFirst(suppressBytes))
+    }
+
+    /// Ends the replay phase before the declared byte count arrived.
+    ///
+    /// The declared length comes from the remote peer. When it overstates the
+    /// bytes actually sent, the caller's replay deadline ends the phase so
+    /// input forwarding resumes; everything after this call is live output.
+    /// The completed fingerprint then covers only the delivered prefix.
+    ///
+    /// A reconnect prefix candidate shorter than the validated length is
+    /// still unproven here. Once this returns, the pending state is gone, so
+    /// ``finishPendingReplay(discarding:)`` can no longer drop it; the caller
+    /// passes the same retry decision now.
+    ///
+    /// - Parameter discarding: When another managed attempt will follow, drop
+    ///   an unvalidated prefix candidate, which repeats bytes an earlier
+    ///   attempt rendered. Output after a validated prefix is always
+    ///   returned: the replay state recorded after this call covers it, so no
+    ///   later attempt would render it.
+    /// - Returns: Buffered replay output that must still reach the terminal.
+    public mutating func endReplay(discarding: Bool = false) -> Data {
+        guard replayBytesRemaining > 0 else { return Data() }
+        replayBytesRemaining = 0
+        completedReplayFingerprint = replayFingerprintHash
+        return finishPendingReplay(discarding: discarding && !replayPrefixValidationComplete)
     }
 
     /// Finishes a buffered candidate when the bridge closes before replay ends.
@@ -200,16 +245,26 @@ public struct SSHPTYAttachOutputProgress: Sendable {
         }
     }
 
-    private mutating func appendValidatedReplayBytes(_ data: Data) {
-        guard !data.isEmpty else { return }
+    /// Buffers validated replay bytes until the replay completes.
+    ///
+    /// - Returns: `nil` while buffering. Once the buffer would exceed its bound,
+    ///   buffering stops and the buffered bytes plus `data` are returned for
+    ///   immediate forwarding, so an overflow never drops output.
+    private mutating func bufferValidatedReplayBytes(_ data: Data) -> Data? {
+        guard !data.isEmpty else { return nil }
         guard validatedReplayOutput.count <= Self.maximumBufferedReplayBytes - data.count else {
             // The daemon's replay is bounded to the same order of magnitude;
-            // if an older peer violates that contract, stop buffering rather
-            // than allowing reconnect validation to grow without bound.
+            // if a peer violates that contract, stop buffering rather than
+            // letting reconnect validation grow without bound, and forward
+            // what was held in stream order.
+            let overflow = validatedReplayOutput + data
+            validatedReplayOutput.removeAll(keepingCapacity: false)
             bufferingValidatedReplay = false
-            return
+            receivedLiveOutput = true
+            return overflow
         }
         validatedReplayOutput.append(data)
+        return nil
     }
 
     private mutating func flushValidatedReplayIfComplete(

@@ -33,6 +33,9 @@ struct VerifiedReplayPresentationTests {
         let delegate = ScrollDrainDelegate()
         let view = GhosttySurfaceView(runtime: runtime, delegate: delegate, fontSize: 10)
         defer { view.prepareForDismantle() }
+        // The display link flushes pending scroll every frame. Stop it so the
+        // drain is the only flush and a slow simulator cannot flush first.
+        view.stopDisplayLink()
 
         let beforeScrollGeneration = view.userViewportInteractionGeneration
         view.enqueueScrollMechanicsDelta(
@@ -125,6 +128,10 @@ struct VerifiedReplayPresentationTests {
         let delegate = ScrollDrainDelegate()
         let view = GhosttySurfaceView(runtime: runtime, delegate: delegate, fontSize: 10)
         defer { view.prepareForDismantle() }
+        // The display link flushes pending scroll every frame, which is not
+        // the drain's work. Stop it so a frame that fires while the drain
+        // awaits the local apply cannot deliver the producer's next batch.
+        view.stopDisplayLink()
 
         var remainingProducerEvents = 128
         delegate.onScroll = { [weak view] in

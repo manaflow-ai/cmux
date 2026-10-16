@@ -47,7 +47,7 @@ import Testing
         recoveryRenderGridFrame(surfaceID: surfaceID, seq: 12, text: "current"),
         recoveryRenderGridFrame(surfaceID: surfaceID, seq: 12, text: "current"),
     ])
-    store.requestTerminalReplay(surfaceID: surfaceID)
+    store.requestTerminalReplay(surfaceID: surfaceID, trigger: .coldAttach)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 1)
 
     store.terminalReplayBarrierTokensBySurfaceID[surfaceID] = UUID()

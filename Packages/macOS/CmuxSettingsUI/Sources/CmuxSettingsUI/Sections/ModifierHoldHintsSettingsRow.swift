@@ -13,9 +13,7 @@ struct ModifierHoldHintsSettingsRow: View {
         SettingsCardRow(
             configurationReview: .json("shortcuts.showModifierHoldHints"),
             title,
-            subtitle: showModifierHoldHints
-                ? String(localized: "settings.shortcuts.showModifierHoldHints.subtitleOn", defaultValue: "Holding Cmd or Control shows shortcut hint chips.")
-                : String(localized: "settings.shortcuts.showModifierHoldHints.subtitleOff", defaultValue: "Holding Cmd or Control does not show shortcut hint chips.")
+            subtitle: String(localized: "settings.shortcuts.showModifierHoldHints.subtitle", defaultValue: "Holding Command or Control shows shortcut hints.")
         ) {
             Toggle(isOn: $showModifierHoldHints) {
                 EmptyView()

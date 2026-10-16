@@ -18,6 +18,8 @@ public struct ControlSurfaceHealthEntry: Sendable, Equatable {
     /// Socket-to-runtime ownership for terminal surfaces. `nil` means the
     /// panel type does not use a terminal socket binding.
     public let socketBindingRawValue: String?
+    /// Renderer health for terminal surfaces, or `nil` for other panel types.
+    public let renderHealthRawValue: String?
 
     /// Creates a surface-health entry.
     ///
@@ -32,11 +34,13 @@ public struct ControlSurfaceHealthEntry: Sendable, Equatable {
         surfaceID: UUID,
         typeRawValue: String,
         inWindow: Bool?,
-        socketBindingRawValue: String? = nil
+        socketBindingRawValue: String? = nil,
+        renderHealthRawValue: String? = nil
     ) {
         self.surfaceID = surfaceID
         self.typeRawValue = typeRawValue
         self.inWindow = inWindow
         self.socketBindingRawValue = socketBindingRawValue
+        self.renderHealthRawValue = renderHealthRawValue
     }
 }

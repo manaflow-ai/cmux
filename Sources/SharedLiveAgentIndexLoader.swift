@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -22,9 +23,7 @@ struct SharedLiveAgentIndexLoader {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
         registry: CmuxVaultAgentRegistry? = nil,
-        processSnapshotProvider: @escaping () -> CmuxTopProcessSnapshot = {
-            CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-        },
+        processSnapshotProvider: @escaping () -> CmuxTopProcessSnapshot,
         capturedAtProvider: @escaping () -> TimeInterval = {
             Date().timeIntervalSince1970
         },
@@ -47,6 +46,23 @@ struct SharedLiveAgentIndexLoader {
         self.cachedAgentProcessValidator = cachedAgentProcessValidator
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    static func loadFreshResult() async -> LoadResult {
+        let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: true, includeResources: false)
+        return SharedLiveAgentIndexLoader(
+            processSnapshotProvider: { snapshot },
+            capturedAtProvider: { snapshot.sampledAt.timeIntervalSince1970 },
+            processArgumentsProvider: { pid in
+                guard let process = snapshot.process(pid: pid) else { return nil }
+                return CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process)
+            }
+        ).loadResultSynchronously()
+    }
+
     func loadSynchronously() -> RestorableAgentSessionIndex {
         loadResultSynchronously().index
     }
@@ -55,6 +71,17 @@ struct SharedLiveAgentIndexLoader {
         let resolvedRegistry = registry
             ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let processSnapshot = processSnapshotProvider()
+        guard processSnapshot.captureIsAvailable, processSnapshot.enumerationIsComplete, !Task.isCancelled else {
+#if DEBUG
+            cmuxDebugLog(
+                "liveAgentIndex.unavailable capture=\(processSnapshot.captureIsAvailable ? 1 : 0) " +
+                "complete=\(processSnapshot.enumerationIsComplete ? 1 : 0) " +
+                "missing=\(processSnapshot.enumerationMissingProcessCount) " +
+                "processes=\(processSnapshot.processesByPID.count)"
+            )
+#endif
+            return (.unavailable, [], [], [])
+        }
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: resolvedRegistry,
             fileManager: fileManager,
@@ -68,18 +95,35 @@ struct SharedLiveAgentIndexLoader {
                 agentProcessIDs: detected.agentProcessIDs
             )
         }
+        // Hook-backed agents such as Claude Code are never process-detected,
+        // so scope their recorded PID against the same process snapshot.
+        let scopedProcessIDsByPanelKey = processSnapshot.cmuxScopedProcessIDsByPanelKey()
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: resolvedRegistry,
             detectedSnapshots: detectedSnapshots,
             hibernationProcessScopes: hibernationProcessScopes,
+            hookProcessScopeProvider: { key, agentProcessID in
+                guard let panelProcessIDs = scopedProcessIDsByPanelKey[key],
+                      panelProcessIDs.contains(agentProcessID) else {
+                    return nil
+                }
+                return (
+                    processIDs: panelProcessIDs,
+                    scope: processSnapshot.agentHibernationProcessScope(
+                        panelProcessIDs: panelProcessIDs,
+                        agentProcessIDs: [agentProcessID]
+                    )
+                )
+            },
             processArgumentsProvider: processArgumentsProvider,
             processIdentityProvider: processIdentityProvider
         )
         return (
             index: index,
-            liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
+            liveAgentProcessFingerprint: index.liveAgentProcessFingerprint()
+                .union(index.liveSessionOwnerFingerprint),
             processScopeFingerprint: Self.processScopeFingerprint(
                 from: processSnapshot,
                 hibernationProcessScopes: hibernationProcessScopes

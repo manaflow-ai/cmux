@@ -8,6 +8,8 @@ extension TerminalImageTransferPreparedContent {
             return "fileURLs(count:\(fileURLs.count))"
         case .reject:
             return "reject"
+        case .rejectOversizedImage:
+            return "rejectOversizedImage"
         }
     }
 }

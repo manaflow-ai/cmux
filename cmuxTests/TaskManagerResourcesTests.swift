@@ -437,7 +437,7 @@ final class TaskManagerResourcesTests: XCTestCase {
         )
         XCTAssertTrue(CmuxTaskManagerCodingAgentDefinition.shouldReadArguments(
             processName: "2.1.140",
-            processPath: "/Users/lawrence/.local/share/claude/versions/2.1.140"
+            processPath: "/Users/dev/.local/share/claude/versions/2.1.140"
         ))
         XCTAssertTrue(CmuxTaskManagerCodingAgentDefinition.shouldReadArguments(
             processName: "2.1.140",
@@ -446,8 +446,8 @@ final class TaskManagerResourcesTests: XCTestCase {
         XCTAssertEqual(
             CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "2.1.140",
-                processPath: "/Users/lawrence/.local/share/claude/versions/2.1.140",
-                arguments: ["/Users/lawrence/.local/bin/claude", "--resume", "session-id"],
+                processPath: "/Users/dev/.local/share/claude/versions/2.1.140",
+                arguments: ["/Users/dev/.local/bin/claude", "--resume", "session-id"],
                 environment: [:]
             )?.id,
             "claude"
@@ -456,7 +456,7 @@ final class TaskManagerResourcesTests: XCTestCase {
             CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "2.1.140",
                 processPath: nil,
-                arguments: ["/Users/lawrence/.local/bin/claude", "--resume", "session-id"],
+                arguments: ["/Users/dev/.local/bin/claude", "--resume", "session-id"],
                 environment: [:]
             )?.id,
             "claude"
@@ -464,8 +464,8 @@ final class TaskManagerResourcesTests: XCTestCase {
         XCTAssertEqual(
             CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "2.1.140",
-                processPath: "/Users/lawrence/.local/share/claude/versions/2.1.140",
-                arguments: ["/Users/lawrence/.local/share/claude/versions/2.1.140", "--resume", "session-id"],
+                processPath: "/Users/dev/.local/share/claude/versions/2.1.140",
+                arguments: ["/Users/dev/.local/share/claude/versions/2.1.140", "--resume", "session-id"],
                 environment: [:]
             )?.id,
             "claude"

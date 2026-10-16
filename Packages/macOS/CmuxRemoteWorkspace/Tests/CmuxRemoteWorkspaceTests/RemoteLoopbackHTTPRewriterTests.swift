@@ -33,6 +33,20 @@ struct RemoteLoopbackHTTPRequestRewriterTests {
         #expect(String(decoding: rewritten, as: UTF8.self).contains("Host: app.localhost"))
     }
 
+    @Test("maps alias subdomains in Origin and Referer too, not just Host")
+    func rewritesAliasSubdomainAcrossURLHeaders() {
+        let request = "GET /demo HTTP/1.1\r\nHost: api.\(alias):3000\r\nOrigin: http://api.\(alias):3000\r\nReferer: http://api.\(alias):3000/app\r\n\r\n"
+        let rewritten = RemoteLoopbackHTTPRequestRewriter.rewriteIfNeeded(
+            data: Data(request.utf8),
+            aliasHost: alias
+        )
+        let text = String(decoding: rewritten, as: UTF8.self)
+        #expect(text.contains("Host: api.localhost:3000"))
+        #expect(text.contains("Origin: http://api.localhost:3000"))
+        #expect(text.contains("Referer: http://api.localhost:3000/app"))
+        #expect(!text.contains("api.\(alias)"))
+    }
+
     @Test("rewrites absolute-form request-line URLs")
     func rewritesRequestLineURL() {
         let request = "GET http://\(alias):8080/path HTTP/1.1\r\nHost: \(alias):8080\r\n\r\n"
@@ -96,6 +110,31 @@ struct RemoteLoopbackHTTPResponseRewriterTests {
         #expect(String(decoding: rewritten, as: UTF8.self).contains("Domain=.\(alias)"))
     }
 
+    @Test("maps localhost subdomains back to the matching alias subdomain")
+    func rewritesSubdomainURLHeadersAndCookieDomain() {
+        let response = "HTTP/1.1 302 Found\r\nLocation: http://api.localhost:3000/login\r\nAccess-Control-Allow-Origin: http://api.localhost:3000\r\nSet-Cookie: sid=1; Domain=api.localhost; Path=/\r\n\r\n"
+        let rewritten = RemoteLoopbackHTTPResponseRewriter.rewriteIfNeeded(
+            data: Data(response.utf8),
+            aliasHost: alias
+        )
+        let text = String(decoding: rewritten, as: UTF8.self)
+        #expect(text.contains("Location: http://api.\(alias):3000/login"))
+        #expect(text.contains("Access-Control-Allow-Origin: http://api.\(alias):3000"))
+        #expect(text.contains("Set-Cookie: sid=1; Domain=api.\(alias); Path=/"))
+    }
+
+    @Test("a leading-dot cookie domain keeps its dot on a subdomain too")
+    func rewritesLeadingDotSubdomainCookieDomain() {
+        let response = "HTTP/1.1 200 OK\r\nSet-Cookie: root=1; Domain=.localhost; Path=/\r\nSet-Cookie: api=1; Domain=.api.localhost; Path=/\r\n\r\n"
+        let rewritten = RemoteLoopbackHTTPResponseRewriter.rewriteIfNeeded(
+            data: Data(response.utf8),
+            aliasHost: alias
+        )
+        let text = String(decoding: rewritten, as: UTF8.self)
+        #expect(text.contains("Set-Cookie: root=1; Domain=.\(alias); Path=/"))
+        #expect(text.contains("Set-Cookie: api=1; Domain=.api.\(alias); Path=/"))
+    }
+
     @Test("non-HTTP payloads and headerless data pass through unchanged")
     func leavesNonResponsesAlone() {
         let raw = Data("not an http response".utf8)
@@ -127,5 +166,7 @@ struct RemoteLoopbackHTTPRequestStreamRewriterTests {
         let partial = Data("GET / HTTP/1.1\r\nHost: \(alias)\r\n".utf8)
         let flushed = rewriter.rewriteNextChunk(partial, eof: true)
         #expect(String(decoding: flushed, as: UTF8.self).contains("Host: localhost"))
+        // The buffer is drained, so a further EOF chunk emits nothing.
+        #expect(rewriter.rewriteNextChunk(Data(), eof: true).isEmpty)
     }
 }

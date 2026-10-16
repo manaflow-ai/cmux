@@ -7,19 +7,19 @@ import Testing
 /// remote entry explicitly opts into the official channel.
 struct MobileWhatsNewChannelPolicyTests {
     @Test func undeclaredChannelsDefaultToTeamLanesOnly() {
-        #expect(MobileWhatsNewChannelPolicy.isVisible(channelTokens: nil, buildType: .dev))
-        #expect(MobileWhatsNewChannelPolicy.isVisible(channelTokens: nil, buildType: .beta))
-        #expect(MobileWhatsNewChannelPolicy.isVisible(channelTokens: nil, buildType: .internal))
-        #expect(!MobileWhatsNewChannelPolicy.isVisible(channelTokens: nil, buildType: .demo))
-        #expect(!MobileWhatsNewChannelPolicy.isVisible(channelTokens: nil, buildType: .prod))
+        #expect(MobileWhatsNewChannelPolicy().isVisible(channelTokens: nil, buildType: .dev))
+        #expect(MobileWhatsNewChannelPolicy().isVisible(channelTokens: nil, buildType: .beta))
+        #expect(MobileWhatsNewChannelPolicy().isVisible(channelTokens: nil, buildType: .internal))
+        #expect(!MobileWhatsNewChannelPolicy().isVisible(channelTokens: nil, buildType: .demo))
+        #expect(!MobileWhatsNewChannelPolicy().isVisible(channelTokens: nil, buildType: .prod))
     }
 
     @Test func explicitProdTokenOptsIntoTheOfficialApp() {
-        #expect(MobileWhatsNewChannelPolicy.isVisible(
+        #expect(MobileWhatsNewChannelPolicy().isVisible(
             channelTokens: ["beta", "internal", "dev", "prod"],
             buildType: .prod
         ))
-        #expect(MobileWhatsNewChannelPolicy.isVisible(
+        #expect(MobileWhatsNewChannelPolicy().isVisible(
             channelTokens: ["prod"],
             buildType: .prod
         ))
@@ -28,11 +28,11 @@ struct MobileWhatsNewChannelPolicyTests {
     @Test func explicitListReplacesTheDefaultEntirely() {
         // Declaring channels narrows as well as widens: a prod-only entry is
         // hidden from team lanes.
-        #expect(!MobileWhatsNewChannelPolicy.isVisible(
+        #expect(!MobileWhatsNewChannelPolicy().isVisible(
             channelTokens: ["prod"],
             buildType: .beta
         ))
-        #expect(!MobileWhatsNewChannelPolicy.isVisible(
+        #expect(!MobileWhatsNewChannelPolicy().isVisible(
             channelTokens: ["prod"],
             buildType: .dev
         ))
@@ -40,14 +40,14 @@ struct MobileWhatsNewChannelPolicyTests {
 
     @Test func emptyAndUnknownTokensFailClosed() {
         for buildType in [MobileBuildType.dev, .beta, .internal, .demo, .prod] {
-            #expect(!MobileWhatsNewChannelPolicy.isVisible(
+            #expect(!MobileWhatsNewChannelPolicy().isVisible(
                 channelTokens: [],
                 buildType: buildType
             ))
         }
         // A typo ("official" is not a token; the canonical token is "prod")
         // hides rather than shows.
-        #expect(!MobileWhatsNewChannelPolicy.isVisible(
+        #expect(!MobileWhatsNewChannelPolicy().isVisible(
             channelTokens: ["official"],
             buildType: .prod
         ))

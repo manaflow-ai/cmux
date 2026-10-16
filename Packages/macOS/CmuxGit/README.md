@@ -44,7 +44,7 @@ let meta = await git.workspaceMetadata(for: checkoutPath)
 if meta.isRepository, meta.isDirty { showDirtyDot() }
 
 if let paths = await git.watchedPaths(for: checkoutPath) {
-    let watcher = RecursivePathWatcher(paths: paths) // CmuxFileWatch
+    let watcher = await RecursivePathWatcher(paths: paths) // CmuxFileWatch
 }
 
 let slugs = await git.repositorySlugs(forDirectory: checkoutPath)

@@ -6,36 +6,29 @@ import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { Callout } from "@/app/[locale]/components/callout";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 
-function renderRawRich(
-  message: string,
-  renderers: Record<string, (chunks: string, key: number) => ReactNode>
-): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  const tagPattern = /<([A-Za-z][A-Za-z0-9]*)>(.*?)<\/\1>/g;
-  let lastIndex = 0;
-  let key = 0;
+type Chunks = ReactNode;
+const code = (chunks: Chunks) => <code>{chunks}</code>;
+const strong = (chunks: Chunks) => <strong>{chunks}</strong>;
 
-  for (const match of message.matchAll(tagPattern)) {
-    const [fullMatch, tagName, chunks] = match;
-    const index = match.index ?? 0;
-    if (index > lastIndex) {
-      nodes.push(message.slice(lastIndex, index));
-    }
-    const render = renderers[tagName];
-    nodes.push(render ? render(chunks, key) : chunks);
-    key += 1;
-    lastIndex = index + fullMatch.length;
-  }
-
-  if (lastIndex < message.length) {
-    nodes.push(message.slice(lastIndex));
-  }
-
-  return nodes;
+/** Every listed tag renders as inline <code>. */
+function codeTags<const K extends string>(...names: K[]): Record<K, (chunks: Chunks) => ReactNode> {
+  return Object.fromEntries(names.map((name) => [name, code])) as Record<K, (chunks: Chunks) => ReactNode>;
 }
 
-function inlineCode(chunks: string, key: number) {
-  return <code key={key}>{chunks}</code>;
+/**
+ * Some messages embed literal JSON (curly braces) inside tags, which ICU
+ * formatting would try to parse as arguments. Split those on simple
+ * `<tag>text</tag>` pairs ourselves and wrap each tagged run in <code>.
+ */
+function renderCodeTagged(message: string): ReactNode[] {
+  return message
+    .split(/<([A-Za-z][A-Za-z0-9]*)>(.*?)<\/\1>/g)
+    .map((part, index) => {
+      // split() with two capture groups yields [text, tag, body, text, tag, body, ...].
+      const slot = index % 3;
+      if (slot === 1) return null;
+      return slot === 2 ? <code key={index}>{part}</code> : part;
+    });
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
@@ -59,147 +52,294 @@ export default function CustomCommandsPage() {
       <DocsHeading level={2} id="file-locations">{t("fileLocations")}</DocsHeading>
       <p>{t("fileLocationsDesc")}</p>
       <ul>
-        <li>
-          <strong>{t("localConfig")}</strong> <code>./.cmux/cmux.json</code> - {t("localConfigDesc")}
-        </li>
-        <li>
-          <strong>{t("fallbackLocal")}</strong> <code>./cmux.json</code> - {t("fallbackLocalDesc")}
-        </li>
-        <li>
-          <strong>{t("globalConfig")}</strong> <code>~/.config/cmux/cmux.json</code> - {t("globalConfigDesc")}
-        </li>
+        <li><strong>{t("localConfig")}</strong> <code>./.cmux/cmux.json</code> ({t("localConfigDesc")})</li>
+        <li><strong>{t("fallbackLocal")}</strong> <code>./cmux.json</code> ({t("fallbackLocalDesc")})</li>
+        <li><strong>{t("globalConfig")}</strong> <code>~/.config/cmux/cmux.json</code> ({t("globalConfigDesc")})</li>
       </ul>
       <Callout type="info">{t("precedenceNote")}</Callout>
-      <Callout type="info">
-        {t.rich("nightlyFeatureCallout", {
-          actions: (chunks) => <code>{chunks}</code>,
-          shortcut: (chunks) => <code>{chunks}</code>,
-          buttons: (chunks) => <code>{chunks}</code>,
-        })}
-      </Callout>
-      <Callout type="info">
-        {t("trustCallout")}
-      </Callout>
-      <Callout type="info">
-        {t.rich("schemaErrorCallout", {
-          title: (chunks) => <strong>{chunks}</strong>,
-        })}
-      </Callout>
       <p>{t("liveReload")}</p>
+      <Callout type="info">
+        {t.rich("schemaErrorCallout", { title: strong })}
+      </Callout>
+
+      <DocsHeading level={2} id="simple-commands">{t("simpleCommands")}</DocsHeading>
+      <p>{t("simpleCommandsDesc")}</p>
+      <CodeBlock title="cmux.json" lang="json">{`{
+  "commands": [
+    {
+      "name": "Format Changed Files",
+      "description": "Run the formatter on files that differ from main",
+      "keywords": [
+        "fmt",
+        "prettier",
+        "style"
+      ],
+      "command": "git diff --name-only main -- '*.ts' '*.tsx' | xargs npx prettier --write"
+    },
+    {
+      "name": "Reset Local Database",
+      "keywords": [
+        "db",
+        "wipe"
+      ],
+      "command": "cd \\"$(git rev-parse --show-toplevel)\\" && ./scripts/db-reset.sh",
+      "confirm": true
+    }
+  ]
+}`}</CodeBlock>
+      <DocsHeading level={3} id="simple-command-fields">{t("simpleCommandFields")}</DocsHeading>
+      <ul>
+        <li><code>name</code>: {t("fieldName")}</li>
+        <li><code>command</code>: {t("fieldCommand")}</li>
+        <li><code>description</code>: {t("fieldDescription")}</li>
+        <li><code>keywords</code>: {t("fieldKeywords")}</li>
+        <li><code>confirm</code>: {t("fieldConfirm")}</li>
+      </ul>
+      <p>
+        {t("simpleCommandCwdNote")} <code>{`cd "$(git rev-parse --show-toplevel)" &&`}</code>{" "}
+        {t("simpleCommandCwdRepoRoot")} <code>{"cd /some/folder &&"}</code> {t("simpleCommandCwdCustomPath")}
+      </p>
+
+      <DocsHeading level={2} id="workspace-commands">{t("workspaceCommands")}</DocsHeading>
+      <p>{t("workspaceCommandsDesc")}</p>
+      <CodeBlock title="cmux.json" lang="json">{`{
+  "commands": [
+    {
+      "name": "API Stack",
+      "keywords": [
+        "api",
+        "server",
+        "logs"
+      ],
+      "restart": "confirm",
+      "workspace": {
+        "name": "API",
+        "cwd": "./services/api",
+        "color": "#10b981",
+        "env": {
+          "PORT": "8080"
+        },
+        "layout": {
+          "direction": "vertical",
+          "split": 0.65,
+          "children": [
+            {
+              "direction": "horizontal",
+              "children": [
+                {
+                  "pane": {
+                    "surfaces": [
+                      {
+                        "type": "terminal",
+                        "name": "Server",
+                        "command": "go run ./cmd/api",
+                        "focus": true
+                      }
+                    ]
+                  }
+                },
+                {
+                  "pane": {
+                    "surfaces": [
+                      {
+                        "type": "terminal",
+                        "name": "Worker",
+                        "command": "go run ./cmd/worker",
+                        "env": {
+                          "QUEUE": "default"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "pane": {
+                "surfaces": [
+                  {
+                    "type": "terminal",
+                    "name": "Logs",
+                    "cwd": "/var/log",
+                    "command": "tail -F system.log"
+                  },
+                  {
+                    "type": "browser",
+                    "name": "Health",
+                    "url": "http://localhost:8080/healthz"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}`}</CodeBlock>
+      <DocsHeading level={3} id="workspace-fields">{t("workspaceFields")}</DocsHeading>
+      <ul>
+        <li><code>name</code>: {t("wsFieldName")}</li>
+        <li><code>cwd</code>: {t("wsFieldCwd")}</li>
+        <li><code>layout</code>: {t("wsFieldLayout")}</li>
+        <li><code>color</code>: {t("wsFieldColor")}</li>
+        <li><code>env</code>: {t("wsFieldEnv")}</li>
+        <li><code>setup</code>: {t("wsFieldSetup")}</li>
+      </ul>
+      <DocsHeading level={3} id="restart-behavior">{t("restartBehavior")}</DocsHeading>
+      <p>{t("restartBehaviorDesc")}</p>
+      <ul>
+        <li><code>&quot;new&quot;</code>: {t("restartNew")}</li>
+        <li><code>&quot;confirm&quot;</code>: {t("restartConfirm")}</li>
+        <li><code>&quot;recreate&quot;</code>: {t("restartRecreate")}</li>
+        <li><code>&quot;ignore&quot;</code>: {t("restartIgnore")}</li>
+      </ul>
+
+      <DocsHeading level={2} id="layout-tree">{t("layoutTree")}</DocsHeading>
+      <p>{t("layoutTreeDesc")}</p>
+      <DocsHeading level={3} id="split-node">{t("splitNode")}</DocsHeading>
+      <p>{t("splitNodeDesc")}</p>
+      <ul>
+        <li><code>direction</code>: <code>&quot;horizontal&quot;</code> {t("or")} <code>&quot;vertical&quot;</code></li>
+        <li><code>children</code>: {t("splitChildren")}</li>
+        <li><code>split</code>: {t("splitPosition")}</li>
+      </ul>
+      <DocsHeading level={3} id="pane-node">{t("paneNode")}</DocsHeading>
+      <p>{t("paneNodeDesc")}</p>
+
+      <DocsHeading level={2} id="surface-definition">{t("surfaceDefinition")}</DocsHeading>
+      <p>{t("surfaceDefinitionDesc")}</p>
+      <ul>
+        <li><code>type</code>: <code>&quot;terminal&quot;</code> {t("or")} <code>&quot;browser&quot;</code></li>
+        <li><code>name</code>: {t("surfaceName")}</li>
+        <li><code>focus</code>: {t("surfaceFocus")}</li>
+        <li><code>command</code>: {t("surfaceCommand")}</li>
+        <li><code>url</code>: {t("surfaceUrl")}</li>
+        <li><code>cwd</code>: {t("surfaceCwd")}</li>
+        <li><code>env</code>: {t("surfaceEnv")}</li>
+      </ul>
+      <DocsHeading level={3} id="cwd-resolution">{t("cwdResolution")}</DocsHeading>
+      <ul>
+        <li><code>~/path</code>: {t("cwdHome")}</li>
+        <li>{t("absolutePath")}: {t("cwdAbsolute")}</li>
+        <li><code>./subdir</code>: {t("cwdSubdir")}</li>
+        <li><code>.</code> {t("or")} {t("omitted")}: {t("cwdRelative")}</li>
+      </ul>
 
       <DocsHeading level={2} id="schema">{t("schema")}</DocsHeading>
-      <p>
-        {t.rich("schemaIntro", {
-          commands: (chunks) => <code>{chunks}</code>,
-          actions: (chunks) => <code>{chunks}</code>,
-        })}
-      </p>
+      <Callout type="info">
+        {t.rich("nightlyFeatureCallout", codeTags("actions", "shortcut", "buttons"))}
+      </Callout>
+      <p>{t.rich("schemaIntro", codeTags("commands", "actions"))}</p>
       <CodeBlock title="cmux.json" lang="json">{`{
   "actions": {
     "cmux.newTerminal": {
-      "type": "command",
-      "title": "Codex",
-      "subtitle": "Open Codex in a new terminal tab",
-      "command": "codex --yolo",
-      "target": "newTabInCurrentPane",
-      "shortcut": "cmd+t",
-      "icon": { "type": "image", "path": "./icons/codex.svg" }
-    },
-    "claude": {
-      "type": "command",
+      "type": "agent",
+      "agent": "claude",
       "title": "Claude Code",
-      "command": "claude --dangerously-skip-permissions",
-      "target": "newTabInCurrentPane",
-      "shortcut": "cmd+shift+c",
-      "icon": { "type": "image", "path": "./icons/claude.svg" }
+      "subtitle": "Start Claude Code in a new tab"
     },
-    "opencode": {
+    "lint": {
       "type": "command",
-      "title": "OpenCode",
-      "command": "opencode",
-      "target": "newTabInCurrentPane",
-      "palette": false,
-      "icon": { "type": "emoji", "value": "🧪", "scale": 0.9 }
+      "title": "Lint",
+      "subtitle": "Run the linter in a fresh tab",
+      "keywords": [
+        "eslint",
+        "check"
+      ],
+      "command": "npm run lint",
+      "shortcut": [
+        "cmd+k",
+        "cmd+l"
+      ],
+      "icon": {
+        "type": "symbol",
+        "name": "checkmark.seal"
+      }
     },
-    "web-dev": {
+    "scratch-dir": {
+      "type": "command",
+      "title": "Scratch Directory",
+      "command": "cd \\"$(mktemp -d)\\"",
+      "target": "currentTerminal",
+      "palette": false,
+      "icon": {
+        "type": "emoji",
+        "value": "📝",
+        "scale": 0.85
+      }
+    },
+    "api-stack": {
       "type": "workspaceCommand",
-      "title": "Web Dev",
-      "commandName": "Web Dev"
+      "title": "API Stack",
+      "commandName": "API Stack"
     }
   },
   "ui": {
     "surfaceTabBar": {
       "buttons": [
         "cmux.newTerminal",
-        "cmux.newBrowser",
         "cmux.splitRight",
-        "cmux.splitDown",
-        "claude"
+        "lint",
+        {
+          "action": "scratch-dir",
+          "tooltip": "cd into a new temp folder"
+        }
       ]
     }
   },
   "commands": [
     {
-      "name": "Web Dev",
-      "keywords": ["dev", "start"],
-      "workspace": { ... }
+      "name": "API Stack",
+      "keywords": [
+        "api"
+      ],
+      "workspace": {
+        "cwd": "./services/api",
+        "layout": {
+          "pane": {
+            "surfaces": [
+              {
+                "type": "terminal",
+                "name": "Server",
+                "command": "go run ./cmd/api"
+              }
+            ]
+          }
+        }
+      }
     }
   ]
 }`}</CodeBlock>
       <DocsHeading level={3} id="nightly-action-registry">{t("nightlyActionRegistry")}</DocsHeading>
       <p>
-        {t.rich("nightlyActionRegistryDesc", {
-          actions: (chunks) => <code>{chunks}</code>,
-          newTerminal: (chunks) => <code>{chunks}</code>,
-          newBrowser: (chunks) => <code>{chunks}</code>,
-          splitRight: (chunks) => <code>{chunks}</code>,
-          splitDown: (chunks) => <code>{chunks}</code>,
-        })}
+        {t.rich(
+          "nightlyActionRegistryDesc",
+          codeTags("actions", "newTerminal", "newBrowser", "splitRight", "splitDown"),
+        )}
       </p>
       <p>
-        {t.rich("paletteDesc", {
-          palette: (chunks) => <code>{chunks}</code>,
-          trueValue: (chunks) => <code>{chunks}</code>,
-          falseValue: (chunks) => <code>{chunks}</code>,
-          shortcut: (chunks) => <code>{chunks}</code>,
-          singleShortcut: (chunks) => <code>{chunks}</code>,
-          chordShortcut: (chunks) => <code>{chunks}</code>,
-        })}
+        {t.rich(
+          "paletteDesc",
+          codeTags("palette", "trueValue", "falseValue", "shortcut", "singleShortcut", "chordShortcut"),
+        )}
       </p>
-      <p>
-        {renderRawRich(t.raw("iconsDesc"), {
-          buttons: inlineCode,
-          symbolIcon: inlineCode,
-          emojiIcon: inlineCode,
-          imageIcon: inlineCode,
-          scale: inlineCode,
-          defaultScale: inlineCode,
-        })}
-      </p>
-      <p>
-        {t("buttonEntriesDesc")}
-      </p>
-      <p>
-        {t.rich("permissionFlagsDesc", {
-          target: (chunks) => <code>{chunks}</code>,
-        })}
-      </p>
+      <p>{renderCodeTagged(t.raw("iconsDesc"))}</p>
+      <p>{t("buttonEntriesDesc")}</p>
+      <p>{t.rich("permissionFlagsDesc", codeTags("target"))}</p>
+      <Callout type="info">{t("trustCallout")}</Callout>
 
       <DocsHeading level={2} id="custom-actions">{t("customActions")}</DocsHeading>
-      <p>
-        {t.rich("customActionsDesc", {
-          actions: (chunks) => <code>{chunks}</code>,
-          commands: (chunks) => <code>{chunks}</code>,
-          palette: (chunks) => <code>{chunks}</code>,
-        })}
-      </p>
+      <p>{t.rich("customActionsDesc", codeTags("actions", "commands", "palette"))}</p>
       <DocsHeading level={3} id="action-types">{t("actionTypes")}</DocsHeading>
       <ul>
-        <li><code>&quot;builtin&quot;</code>: {t("actionTypeBuiltin")}</li>
         <li><code>&quot;command&quot;</code>: {t("actionTypeCommand")}</li>
         <li><code>&quot;agent&quot;</code>: {t("actionTypeAgent")}</li>
+        <li><code>&quot;builtin&quot;</code>: {t("actionTypeBuiltin")} {t("actionTypeBuiltinCopy")} {t("actionTypeBuiltinCopyRemote")}</li>
         <li><code>&quot;workspaceCommand&quot;</code>: {t("actionTypeWorkspaceCommand")}</li>
         <li><code>&quot;workspace&quot;</code>: {t("actionTypeWorkspace")}</li>
+        <li><code>&quot;setting&quot;</code>: {t("actionTypeSetting")}</li>
+        <li><code>&quot;settingPreset&quot;</code>: {t("actionTypeSettingPreset")}</li>
       </ul>
       <DocsHeading level={3} id="action-fields">{t("actionFields")}</DocsHeading>
       <ul>
@@ -214,68 +354,91 @@ export default function CustomCommandsPage() {
       </ul>
       <DocsHeading level={3} id="command-palette-behavior">{t("commandPaletteBehavior")}</DocsHeading>
       <p>
-        {t.rich("commandPaletteBehaviorDesc", {
-          palette: (chunks) => <code>{chunks}</code>,
-          commands: (chunks) => <code>{chunks}</code>,
-          newTerminal: (chunks) => <code>{chunks}</code>,
-        })}
+        {t.rich("commandPaletteBehaviorDesc", codeTags("palette", "commands", "newTerminal"))}
+      </p>
+
+      <DocsHeading level={3} id="setting-actions">{t("settingActions")}</DocsHeading>
+      <p>
+        {t.rich("settingActionsDesc", codeTags("path", "set", "toggle", "cycle", "unset", "presets"))}
+      </p>
+      <CodeBlock title="~/.config/cmux/cmux.json" lang="json">{`{
+  "actions": {
+    "scroll.cycle": {
+      "type": "setting",
+      "title": "Cycle Scroll Speed",
+      "path": "terminal.scrollSpeed",
+      "cycle": [1.0, 1.4, 1.8]
+    },
+    "editor.wrap": {
+      "type": "setting",
+      "title": "Toggle Editor Word Wrap",
+      "path": "fileEditor.wordWrap",
+      "toggle": true
+    },
+    "sidebar.quiet": {
+      "type": "settingPreset",
+      "title": "Quiet Sidebar",
+      "preset": "sidebar.quiet"
+    }
+  },
+  "settingPresets": {
+    "sidebar.quiet": {
+      "sidebar": { "showPorts": false, "showPullRequests": false, "showLog": false }
+    }
+  }
+}`}</CodeBlock>
+      <p>
+        {t.rich("settingActionsCli", codeTags("set", "toggle", "preset"))}
+      </p>
+      <p>
+        {t.rich("settingActionsLimits", codeTags("confirm", "byCwd"))}
       </p>
 
       <DocsHeading level={2} id="new-workspace-button">{t("newWorkspaceButton")}</DocsHeading>
-      <p>
-        {renderRawRich(t.raw("newWorkspaceButtonDesc"), {
-          action: inlineCode,
-          contextMenu: inlineCode,
-          rightClick: inlineCode,
-          separator: inlineCode,
-        })}
-      </p>
+      <p>{renderCodeTagged(t.raw("newWorkspaceButtonDesc"))}</p>
       <CodeBlock title="cmux.json" lang="json">{`{
   "actions": {
     "worktree-agents": {
       "type": "workspaceCommand",
-      "title": "Worktree Agents",
-      "commandName": "Worktree Agents",
-      "icon": { "type": "symbol", "name": "folder.badge.plus" }
+      "title": "Agents in New Worktree",
+      "commandName": "Agents in New Worktree",
+      "icon": {
+        "type": "symbol",
+        "name": "arrow.triangle.branch"
+      }
     }
   },
   "ui": {
     "newWorkspace": {
       "action": "worktree-agents",
       "contextMenu": [
-        { "action": "worktree-agents", "title": "Worktree Agents" },
-        { "type": "separator" },
-        { "action": "cmux.newTerminal", "title": "New Terminal" },
-        { "action": "cmux.newBrowser", "title": "New Browser" }
+        "worktree-agents",
+        {
+          "type": "separator"
+        },
+        {
+          "action": "cmux.newWorkspace",
+          "title": "Blank Workspace"
+        },
+        {
+          "action": "cmux.newBrowser",
+          "title": "Browser"
+        }
       ]
     }
   },
   "commands": [
     {
-      "name": "Worktree Agents",
-      "description": "Create a fresh Git worktree and start Codex and Claude inside it",
+      "name": "Agents in New Worktree",
+      "description": "Branch off a new Git worktree, then run Codex and Claude Code in it side by side",
       "workspace": {
-        "name": "Worktree Agents",
-        "cwd": ".",
+        "name": "Worktree",
         "layout": {
-          "direction": "horizontal",
-          "split": 0.38,
+          "direction": "vertical",
+          "split": 0.7,
           "children": [
             {
-              "pane": {
-                "surfaces": [
-                  {
-                    "type": "terminal",
-                    "name": "Worktree",
-                    "command": "set -euo pipefail; state=\\"\${TMPDIR:-/tmp}/cmux-worktree-\${CMUX_WORKSPACE_ID:-manual}.dir\\"; rm -f \\"$state\\"; repo=$(git rev-parse --show-toplevel); mkdir -p \\"$repo/../worktrees\\"; slug=agents-$(date +%Y%m%d-%H%M%S); dir=\\"$repo/../worktrees/$slug\\"; git -C \\"$repo\\" worktree add -b \\"$slug\\" \\"$dir\\"; printf \\"%s\\\\n\\" \\"$dir\\" > \\"$state\\"; cd \\"$dir\\"; exec \\"\${SHELL:-/bin/zsh}\\" -l",
-                    "focus": true
-                  }
-                ]
-              }
-            },
-            {
-              "direction": "vertical",
-              "split": 0.5,
+              "direction": "horizontal",
               "children": [
                 {
                   "pane": {
@@ -283,7 +446,7 @@ export default function CustomCommandsPage() {
                       {
                         "type": "terminal",
                         "name": "Codex",
-                        "command": "state=\\"\${TMPDIR:-/tmp}/cmux-worktree-\${CMUX_WORKSPACE_ID:-manual}.dir\\"; echo \\"Waiting for worktree...\\"; while [ ! -s \\"$state\\" ]; do sleep 0.2; done; dir=$(cat \\"$state\\"); cd \\"$dir\\"; exec codex --yolo"
+                        "command": "marker=\\"\${TMPDIR:-/tmp}/cmux-wt-\${CMUX_WORKSPACE_ID:-local}\\"; echo \\"Waiting for the worktree...\\"; until [ -s \\"$marker\\" ]; do sleep 0.25; done; cd \\"$(cat \\"$marker\\")\\" && exec codex --yolo"
                       }
                     ]
                   }
@@ -294,12 +457,24 @@ export default function CustomCommandsPage() {
                       {
                         "type": "terminal",
                         "name": "Claude",
-                        "command": "state=\\"\${TMPDIR:-/tmp}/cmux-worktree-\${CMUX_WORKSPACE_ID:-manual}.dir\\"; echo \\"Waiting for worktree...\\"; while [ ! -s \\"$state\\" ]; do sleep 0.2; done; dir=$(cat \\"$state\\"); cd \\"$dir\\"; exec claude --dangerously-skip-permissions"
+                        "command": "marker=\\"\${TMPDIR:-/tmp}/cmux-wt-\${CMUX_WORKSPACE_ID:-local}\\"; echo \\"Waiting for the worktree...\\"; until [ -s \\"$marker\\" ]; do sleep 0.25; done; cd \\"$(cat \\"$marker\\")\\" && exec claude --dangerously-skip-permissions"
                       }
                     ]
                   }
                 }
               ]
+            },
+            {
+              "pane": {
+                "surfaces": [
+                  {
+                    "type": "terminal",
+                    "name": "Setup",
+                    "command": "marker=\\"\${TMPDIR:-/tmp}/cmux-wt-\${CMUX_WORKSPACE_ID:-local}\\"; rm -f \\"$marker\\"; root=$(git rev-parse --show-toplevel) || exit 1; branch=\\"wt-$(date +%m%d-%H%M%S)\\"; wt=\\"$root/../$(basename \\"$root\\")-$branch\\"; git -C \\"$root\\" worktree add -b \\"$branch\\" \\"$wt\\" && printf \\"%s\\\\n\\" \\"$wt\\" > \\"$marker\\" && cd \\"$wt\\" && exec \\"\${SHELL:-/bin/zsh}\\" -l",
+                    "focus": true
+                  }
+                ]
+              }
             }
           ]
         }
@@ -308,127 +483,37 @@ export default function CustomCommandsPage() {
   ]
 }`}</CodeBlock>
       <p>
-        {t.rich("newWorkspaceWorktreeNote", {
-          action: (chunks) => <code>{chunks}</code>,
-          commands: (chunks) => <code>{chunks}</code>,
-          worktree: (chunks) => <code>{chunks}</code>,
-          codex: (chunks) => <code>{chunks}</code>,
-        })}
+        {t.rich("newWorkspaceWorktreeNote", codeTags("action", "commands", "worktree", "codex"))}
       </p>
 
       <DocsHeading level={2} id="workspace-layouts">{t("workspaceActions")}</DocsHeading>
-      <p>
-        {t.rich("workspaceActionsDesc", {
-          workspace: (chunks) => <code>{chunks}</code>,
-          commands: (chunks) => <code>{chunks}</code>,
-          setup: (chunks) => <code>{chunks}</code>,
-        })}
-      </p>
+      <p>{t.rich("workspaceActionsDesc", codeTags("workspace", "commands", "setup"))}</p>
       <CodeBlock title="cmux.json" lang="json">{`{
   "actions": {
-    "review-setup": {
+    "pair-review": {
       "type": "workspace",
-      "title": "Review Setup",
-      "icon": { "type": "symbol", "name": "rectangle.stack.badge.plus" },
-      "restart": "confirm",
+      "title": "Pair Review",
+      "icon": {
+        "type": "symbol",
+        "name": "person.2.wave.2"
+      },
+      "restart": "ignore",
+      "newWorkspaceMenu": true,
       "workspace": {
         "name": "Review",
-        "cwd": "~/code/app",
-        "setup": "git fetch --all --prune",
+        "cwd": "~/src/app",
+        "setup": "git pull --ff-only",
         "layout": {
           "direction": "horizontal",
-          "split": 0.5,
-          "children": [
-            {
-              "pane": {
-                "surfaces": [
-                  { "type": "terminal", "name": "Claude", "command": "claude", "focus": true }
-                ]
-              }
-            },
-            {
-              "pane": {
-                "surfaces": [
-                  { "type": "terminal", "name": "OpenCode", "command": "opencode" }
-                ]
-              }
-            }
-          ]
-        }
-      }
-    }
-  }
-}`}</CodeBlock>
-      <p>
-        {t.rich("workspaceActionsMenuDesc", {
-          newWorkspaceMenu: (chunks) => <code>{chunks}</code>,
-          falseValue: (chunks) => <code>{chunks}</code>,
-          trueValue: (chunks) => <code>{chunks}</code>,
-        })}
-      </p>
-      <p>
-        {t.rich("workspaceActionsSaveDesc", {
-          saveLayout: (chunks) => <strong>{chunks}</strong>,
-          customize: (chunks) => <strong>{chunks}</strong>,
-          configPath: (chunks) => <code>{chunks}</code>,
-          actions: (chunks) => <code>{chunks}</code>,
-        })}
-      </p>
-      <DocsHeading level={3} id="default-workspace-layout">{t("workspaceActionsDefaultTitle")}</DocsHeading>
-      <p>
-        {t.rich("workspaceActionsDefaultDesc", {
-          defaultMenu: (chunks) => <strong>{chunks}</strong>,
-          checkbox: (chunks) => <strong>{chunks}</strong>,
-          action: (chunks) => <code>{chunks}</code>,
-          localConfig: (chunks) => <code>{chunks}</code>,
-          globalConfig: (chunks) => <code>{chunks}</code>,
-        })}
-      </p>
-
-      <DocsHeading level={2} id="simple-commands">{t("simpleCommands")}</DocsHeading>
-      <p>{t("simpleCommandsDesc")}</p>
-      <CodeBlock title="cmux.json" lang="json">{`{
-  "commands": [
-    {
-      "name": "Run Tests",
-      "keywords": ["test", "check"],
-      "command": "npm test",
-      "confirm": true
-    }
-  ]
-}`}</CodeBlock>
-
-      <DocsHeading level={3} id="simple-command-fields">{t("simpleCommandFields")}</DocsHeading>
-      <ul>
-        <li><code>name</code>: {t("fieldName")}</li>
-        <li><code>description</code>: {t("fieldDescription")}</li>
-        <li><code>keywords</code>: {t("fieldKeywords")}</li>
-        <li><code>command</code>: {t("fieldCommand")}</li>
-        <li><code>confirm</code>: {t("fieldConfirm")}</li>
-      </ul>
-      <p>{t("simpleCommandCwdNote")} <code>{"cd \"$(git rev-parse --show-toplevel)\" &&"}</code> {t("simpleCommandCwdRepoRoot")} <code>{"cd /your/path &&"}</code> {t("simpleCommandCwdCustomPath")}</p>
-
-      <DocsHeading level={2} id="workspace-commands">{t("workspaceCommands")}</DocsHeading>
-      <p>{t("workspaceCommandsDesc")}</p>
-      <CodeBlock title="cmux.json" lang="json">{`{
-  "commands": [
-    {
-      "name": "Dev Environment",
-      "keywords": ["dev", "fullstack"],
-      "workspace": {
-        "name": "Dev",
-        "cwd": ".",
-        "layout": {
-          "direction": "horizontal",
-          "split": 0.5,
+          "split": 0.55,
           "children": [
             {
               "pane": {
                 "surfaces": [
                   {
                     "type": "terminal",
-                    "name": "Frontend",
-                    "command": "npm run dev",
+                    "name": "Diff",
+                    "command": "git log -p -n 5",
                     "focus": true
                   }
                 ]
@@ -439,198 +524,9 @@ export default function CustomCommandsPage() {
                 "surfaces": [
                   {
                     "type": "terminal",
-                    "name": "Backend",
-                    "command": "cargo watch -x run",
-                    "cwd": "./server",
-                    "env": { "RUST_LOG": "debug" }
-                  }
-                ]
-              }
-            }
-          ]
-        }
-      }
-    }
-  ]
-}`}</CodeBlock>
-
-      <DocsHeading level={3} id="workspace-fields">{t("workspaceFields")}</DocsHeading>
-      <ul>
-        <li><code>name</code>: {t("wsFieldName")}</li>
-        <li><code>cwd</code>: {t("wsFieldCwd")}</li>
-        <li><code>color</code>: {t("wsFieldColor")}</li>
-        <li><code>env</code>: {t("wsFieldEnv")}</li>
-        <li><code>setup</code>: {t("wsFieldSetup")}</li>
-        <li><code>layout</code>: {t("wsFieldLayout")}</li>
-      </ul>
-
-      <DocsHeading level={3} id="restart-behavior">{t("restartBehavior")}</DocsHeading>
-      <p>{t("restartBehaviorDesc")}</p>
-      <ul>
-        <li><code>&quot;new&quot;</code>: {t("restartNew")}</li>
-        <li><code>&quot;ignore&quot;</code>: {t("restartIgnore")}</li>
-        <li><code>&quot;recreate&quot;</code>: {t("restartRecreate")}</li>
-        <li><code>&quot;confirm&quot;</code>: {t("restartConfirm")}</li>
-      </ul>
-
-      <DocsHeading level={2} id="layout-tree">{t("layoutTree")}</DocsHeading>
-      <p>{t("layoutTreeDesc")}</p>
-
-      <DocsHeading level={3} id="split-node">{t("splitNode")}</DocsHeading>
-      <p>{t("splitNodeDesc")}</p>
-      <ul>
-        <li><code>direction</code>: <code>&quot;horizontal&quot;</code> {t("or")} <code>&quot;vertical&quot;</code></li>
-        <li><code>split</code>: {t("splitPosition")}</li>
-        <li><code>children</code>: {t("splitChildren")}</li>
-      </ul>
-
-      <DocsHeading level={3} id="pane-node">{t("paneNode")}</DocsHeading>
-      <p>{t("paneNodeDesc")}</p>
-
-      <DocsHeading level={2} id="surface-definition">{t("surfaceDefinition")}</DocsHeading>
-      <p>{t("surfaceDefinitionDesc")}</p>
-      <ul>
-        <li><code>type</code>: <code>&quot;terminal&quot;</code> {t("or")} <code>&quot;browser&quot;</code></li>
-        <li><code>name</code>: {t("surfaceName")}</li>
-        <li><code>command</code>: {t("surfaceCommand")}</li>
-        <li><code>cwd</code>: {t("surfaceCwd")}</li>
-        <li><code>env</code>: {t("surfaceEnv")}</li>
-        <li><code>url</code>: {t("surfaceUrl")}</li>
-        <li><code>focus</code>: {t("surfaceFocus")}</li>
-      </ul>
-
-      <DocsHeading level={3} id="cwd-resolution">{t("cwdResolution")}</DocsHeading>
-      <ul>
-        <li><code>.</code> {t("or")} {t("omitted")}: {t("cwdRelative")}</li>
-        <li><code>./subdir</code>: {t("cwdSubdir")}</li>
-        <li><code>~/path</code>: {t("cwdHome")}</li>
-        <li>{t("absolutePath")}: {t("cwdAbsolute")}</li>
-      </ul>
-
-      <DocsHeading level={2} id="full-example">{t("fullExample")}</DocsHeading>
-      <CodeBlock title="cmux.json" lang="json">{`{
-  "actions": {
-    "web-dev": { "type": "workspaceCommand", "commandName": "Web Dev" },
-    "cmux.newTerminal": {
-      "type": "command",
-      "title": "Codex",
-      "command": "codex --yolo",
-      "target": "newTabInCurrentPane",
-      "shortcut": "cmd+t",
-      "icon": { "type": "image", "path": "./icons/codex.svg" }
-    },
-    "claude": {
-      "type": "command",
-      "title": "Claude Code",
-      "command": "claude --dangerously-skip-permissions",
-      "target": "newTabInCurrentPane",
-      "shortcut": "cmd+shift+c",
-      "icon": { "type": "image", "path": "./icons/claude.svg" }
-    },
-    "start-dev": {
-      "type": "command",
-      "command": "npm run dev",
-      "target": "newTabInCurrentPane",
-      "icon": { "type": "symbol", "name": "play.circle" }
-    }
-  },
-  "ui": {
-    "surfaceTabBar": {
-      "buttons": [
-        "cmux.newTerminal",
-        "cmux.newBrowser",
-        "cmux.splitRight",
-        "cmux.splitDown",
-        {
-          "action": "claude",
-          "title": "Claude Here"
-        },
-        "start-dev"
-      ]
-    }
-  },
-  "commands": [
-    {
-      "name": "Web Dev",
-      "description": "Docs site with live preview",
-      "keywords": ["web", "docs", "next", "frontend"],
-      "workspace": {
-        "name": "Web Dev",
-        "cwd": "./web",
-        "color": "#3b82f6",
-        "layout": {
-          "direction": "horizontal",
-          "split": 0.5,
-          "children": [
-            {
-              "pane": {
-                "surfaces": [
-                  {
-                    "type": "terminal",
-                    "name": "Next.js",
-                    "command": "npm run dev",
-                    "focus": true
-                  }
-                ]
-              }
-            },
-            {
-              "direction": "vertical",
-              "split": 0.6,
-              "children": [
-                {
-                  "pane": {
-                    "surfaces": [
-                      {
-                        "type": "browser",
-                        "name": "Preview",
-                        "url": "http://localhost:3777"
-                      }
-                    ]
-                  }
-                },
-                {
-                  "pane": {
-                    "surfaces": [
-                      {
-                        "type": "terminal",
-                        "name": "Shell",
-                        "env": { "NODE_ENV": "development" }
-                      }
-                    ]
-                  }
-                }
-              ]
-            }
-          ]
-        }
-      }
-    },
-    {
-      "name": "Debug Log",
-      "description": "Tail the debug event log from the running dev app",
-      "keywords": ["log", "debug", "tail", "events"],
-      "workspace": {
-        "name": "Debug Log",
-        "layout": {
-          "direction": "horizontal",
-          "split": 0.5,
-          "children": [
-            {
-              "pane": {
-                "surfaces": [
-                  {
-                    "type": "terminal",
-                    "name": "Events",
-                    "command": "tail -f /tmp/cmux-debug.log",
-                    "focus": true
-                  }
-                ]
-              }
-            },
-            {
-              "pane": {
-                "surfaces": [
+                    "name": "Codex",
+                    "command": "codex"
+                  },
                   {
                     "type": "terminal",
                     "name": "Shell"
@@ -641,25 +537,173 @@ export default function CustomCommandsPage() {
           ]
         }
       }
+    }
+  }
+}`}</CodeBlock>
+      <p>
+        {t.rich("workspaceActionsMenuDesc", codeTags("newWorkspaceMenu", "falseValue", "trueValue"))}
+      </p>
+      <p>
+        {t.rich("workspaceActionsSaveDesc", {
+          saveLayout: strong,
+          customize: strong,
+          ...codeTags("configPath", "actions"),
+        })}
+      </p>
+      <DocsHeading level={3} id="default-workspace-layout">{t("workspaceActionsDefaultTitle")}</DocsHeading>
+      <p>
+        {t.rich("workspaceActionsDefaultDesc", {
+          defaultMenu: strong,
+          checkbox: strong,
+          ...codeTags("action", "localConfig", "globalConfig"),
+        })}
+      </p>
+
+      <DocsHeading level={2} id="full-example">{t("fullExample")}</DocsHeading>
+      <CodeBlock title="cmux.json" lang="json">{`{
+  "actions": {
+    "cmux.newTerminal": {
+      "type": "command",
+      "title": "Codex",
+      "command": "codex --yolo",
+      "shortcut": "cmd+t",
+      "icon": {
+        "type": "image",
+        "path": "./icons/codex.svg"
+      }
+    },
+    "review": {
+      "type": "agent",
+      "agent": "claude",
+      "args": "--permission-mode plan",
+      "title": "Plan with Claude",
+      "shortcut": "cmd+shift+p",
+      "icon": {
+        "type": "symbol",
+        "name": "list.bullet.clipboard"
+      }
+    },
+    "storybook": {
+      "type": "workspaceCommand",
+      "commandName": "Storybook",
+      "newWorkspaceMenu": true
+    },
+    "typecheck": {
+      "type": "command",
+      "title": "Typecheck",
+      "command": "npx tsc --noEmit",
+      "target": "newTabInCurrentPane",
+      "confirm": false,
+      "icon": {
+        "type": "emoji",
+        "value": "🔎"
+      }
+    }
+  },
+  "ui": {
+    "surfaceTabBar": {
+      "buttons": [
+        "cmux.newTerminal",
+        "review",
+        {
+          "action": "typecheck",
+          "title": "tsc"
+        },
+        "cmux.newBrowser",
+        "cmux.splitDown"
+      ]
+    },
+    "newWorkspace": {
+      "contextMenu": [
+        "storybook",
+        {
+          "type": "separator"
+        },
+        "cmux.newTerminal",
+        "cmux.newBrowser"
+      ]
+    }
+  },
+  "commands": [
+    {
+      "name": "Storybook",
+      "description": "Component explorer with a live preview beside it",
+      "keywords": [
+        "ui",
+        "components",
+        "stories"
+      ],
+      "workspace": {
+        "name": "Storybook",
+        "cwd": "./packages/ui",
+        "color": "#a855f7",
+        "layout": {
+          "direction": "horizontal",
+          "split": 0.4,
+          "children": [
+            {
+              "direction": "vertical",
+              "split": 0.5,
+              "children": [
+                {
+                  "pane": {
+                    "surfaces": [
+                      {
+                        "type": "terminal",
+                        "name": "Storybook",
+                        "command": "npx storybook dev -p 6006 --no-open",
+                        "focus": true
+                      }
+                    ]
+                  }
+                },
+                {
+                  "pane": {
+                    "surfaces": [
+                      {
+                        "type": "terminal",
+                        "name": "Tests",
+                        "command": "npx vitest --watch",
+                        "env": {
+                          "CI": "false"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "pane": {
+                "surfaces": [
+                  {
+                    "type": "browser",
+                    "name": "Preview",
+                    "url": "http://localhost:6006"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
     },
     {
-      "name": "Setup",
-      "description": "Initialize submodules and build dependencies",
-      "keywords": ["setup", "init", "install"],
-      "command": "./scripts/setup.sh",
+      "name": "Install Dependencies",
+      "keywords": [
+        "install",
+        "deps"
+      ],
+      "command": "npm ci",
       "confirm": true
     },
     {
-      "name": "Reload",
-      "description": "Build and launch the debug app tagged to the current branch",
-      "keywords": ["reload", "build", "run", "launch"],
-      "command": "./scripts/reload.sh --tag $(git branch --show-current)"
-    },
-    {
-      "name": "Run Unit Tests",
-      "keywords": ["test", "unit"],
-      "command": "./scripts/test-unit.sh",
-      "confirm": true
+      "name": "Open Changelog",
+      "keywords": [
+        "changes",
+        "release"
+      ],
+      "command": "\${EDITOR:-vi} CHANGELOG.md"
     }
   ]
 }`}</CodeBlock>

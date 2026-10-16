@@ -1,13 +1,12 @@
 import {
   jsonResponse,
-  notFoundVm,
   resolveVmRouteAccountScope,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { isVmNotFoundError } from "../../../../../services/vms/errors";
-import { runVmWorkflow, snapshotVm } from "../../../../../services/vms/workflows";
-import { parseOptionalObjectBody } from "../../../../../services/vms/routeInput";
+import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
+import { snapshotVm } from "../../../../../services/vms/workflows";
+import { idempotencyKeyFromRequest, parseOptionalObjectBody } from "../../../../../services/vms/routeInput";
 
 // Snapshot duration scales with the machine's dirty memory; give it the same
 // long-provisioning budget as create (see app/api/vm/route.ts).
@@ -33,20 +32,19 @@ export async function POST(
       const { id } = await params;
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
-      setSpanAttributes(span, { "cmux.vm.id": id, "cmux.snapshot.named": !!name });
-      try {
-        const snapshot = await runVmWorkflow(snapshotVm({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-          name,
-        }));
-        return jsonResponse({ snapshotId: snapshot.id, id: snapshot.id, name: snapshot.name ?? null, createdAt: snapshot.createdAt });
-      } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
-        throw err;
-      }
+      const idempotencyKey = idempotencyKeyFromRequest(request);
+      setSpanAttributes(span, { "cmux.vm.id": id, "cmux.snapshot.named": !!name, "cmux.idempotency_key_set": !!idempotencyKey });
+      const run = await runVmRoute(snapshotVm({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+        name,
+        idempotencyKey,
+      }), { request, deadline: { operation: "snapshot" } });
+      if (!run.ok) return run.response;
+      const snapshot = run.value;
+      return jsonResponse({ snapshotId: snapshot.id, id: snapshot.id, name: snapshot.name ?? null, createdAt: snapshot.createdAt });
     },
   );
 }

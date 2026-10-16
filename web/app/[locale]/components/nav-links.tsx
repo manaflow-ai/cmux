@@ -2,12 +2,8 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "../../../i18n/navigation";
-import {
-  fallbackContentLocales,
-  jobsContentLocales,
-} from "../../../i18n/locale-availability";
+import { fallbackContentLocales } from "../../../i18n/locale-availability";
 import posthog from "posthog-js";
-import { ProUpgradeVisibility } from "./pro-upgrade-visibility";
 import { ContentLocaleLink } from "./content-locale-link";
 
 export function NavLinks() {
@@ -40,26 +36,16 @@ export function NavLinks() {
         {t("community")}
       </Link>
       <ContentLocaleLink
-        href="/jobs"
+        href="/pricing"
         currentLocale={locale}
-        contentLocales={jobsContentLocales}
+        contentLocales={fallbackContentLocales}
+        onClick={() =>
+          posthog.capture("cmuxterm_pricing_nav_clicked", { location: "nav" })
+        }
         className="hover:text-foreground transition-colors"
       >
-        {t("jobs")}
+        {t("pricing")}
       </ContentLocaleLink>
-      <ProUpgradeVisibility>
-        <ContentLocaleLink
-          href="/pricing"
-          currentLocale={locale}
-          contentLocales={fallbackContentLocales}
-          onClick={() =>
-            posthog.capture("cmuxterm_pricing_nav_clicked", { location: "nav" })
-          }
-          className="hover:text-foreground transition-colors"
-        >
-          {t("pricing")}
-        </ContentLocaleLink>
-      </ProUpgradeVisibility>
       <a
         href="https://github.com/manaflow-ai/cmux"
         target="_blank"

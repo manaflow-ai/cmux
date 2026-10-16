@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { trace, type Span } from "@opentelemetry/api";
 
 import * as analytics from "../services/coderouter/analytics";
 import {
   CODEROUTER_REQUEST_ID_HEADER,
+  CODEROUTER_SERVER_TIMING_HEADER,
   UNSCOPED_CODEROUTER_REQUEST_ID,
   classifyCoderouterFault,
   coderouterControlRoute,
@@ -13,6 +15,7 @@ import {
   recordCoderouterOutcome,
   recordCoderouterSpan,
   runWithCoderouterRequest,
+  spanned,
   traceEvents,
   withCoderouterRoute,
 } from "../services/coderouter/requestTelemetry";
@@ -62,6 +65,7 @@ describe("classifyCoderouterFault", () => {
     expect(classifyCoderouterFault({ outcome: "provider_unavailable", failureStage: "upstream_transport", status: 502 })).toBe("upstream");
     expect(classifyCoderouterFault({ outcome: "provider_unavailable", failureStage: "provider_config", status: 502 })).toBe("operator");
     expect(classifyCoderouterFault({ outcome: "no_usable_account", failureStage: "provider_config", status: 503 })).toBe("tenant");
+    expect(classifyCoderouterFault({ outcome: "no_usable_account", failureStage: "provider_config", status: 403 })).toBe("tenant");
     expect(classifyCoderouterFault({ outcome: "no_usable_account", failureStage: "account_selection", status: 503 })).toBe("tenant");
     expect(classifyCoderouterFault({ outcome: "no_usable_account", failureStage: "credential_refresh", status: 503 })).toBe("upstream");
     expect(classifyCoderouterFault({ outcome: "upstream_error", failureStage: "upstream_response", status: 529 })).toBe("upstream");
@@ -128,6 +132,9 @@ describe("traceEvents", () => {
     expect(exception.properties.$exception_level).toBe("error");
     expect(exception.properties.$exception_fingerprint).toBe("coderouter:provider_unavailable:account_selection:codex");
     expect(exception.properties.$ai_trace_id).toBe("req-2");
+    // Server exceptions are grouped by `operation` across cmux; coderouter's
+    // carry the surface so they are not an unlabeled bucket.
+    expect(exception.properties.operation).toBe("coderouter.responses");
     expect((exception.properties.$exception_list as Array<{ type: string }>)[0]!.type).toBe("coderouter_provider_unavailable");
     expect(operatorEvents[0]!.properties.$ai_is_error).toBe(true);
     expect(operatorEvents[0]!.properties.$ai_error).toBe("provider_unavailable/account_selection");
@@ -136,6 +143,29 @@ describe("traceEvents", () => {
     upstream.outcome = { outcome: "upstream_error", failureStage: "upstream_response", status: 529, provider: "claude" };
     const warning = traceEvents(upstream, { status: 529, durationMs: 50 }).find((entry) => entry.event === "$exception")!;
     expect(warning.properties.$exception_level).toBe("warning");
+  });
+
+  test("a tenant fault (no usable account) produces a trace but no $exception", () => {
+    const request = new Request("https://coderouter.dev/v1/messages", { method: "POST" });
+    for (const [surface, provider, failureStage] of [
+      ["messages", "claude", "provider_config"],
+      ["responses", "codex", "account_selection"],
+    ] as const) {
+      const context = newCoderouterRequestContext({ request, surface, route: "/v1/messages", requestId: `tenant-${provider}` });
+      context.outcome = { outcome: "no_usable_account", failureStage, status: 503, provider };
+      const events = traceEvents(context, { status: 503, durationMs: 5 });
+      // The team has no account or every one is cooling: its own account
+      // state, answered with a 503 and kept in the ClickHouse route row.
+      expect({ provider, events: events.map((entry) => entry.event) }).toEqual({ provider, events: ["$ai_trace"] });
+      expect(events[0]!.properties.coderouter_fault).toBe("tenant");
+      expect(events[0]!.properties.$ai_is_error).toBe(true);
+    }
+  });
+
+  test("a background failure exception carries an operation label", () => {
+    reportCoderouterFailure("usage_ledger", new Error("db down"), { provider: "codex" });
+    const exception = captured().find((entry) => entry.event === "$exception")!;
+    expect(exception.properties.operation).toBe("coderouter.background");
   });
 
   test("a caller fault produces a trace but no $exception", () => {
@@ -380,7 +410,35 @@ describe("withCoderouterRoute", () => {
     });
     const response = await route(new Request("https://cmux.com/api/coderouter/vm-usage"), undefined);
     expect(response.headers.get(CODEROUTER_REQUEST_ID_HEADER)).toBeTruthy();
+    expect(response.headers.get(CODEROUTER_SERVER_TIMING_HEADER)).toMatch(/^total;dur=\d+\.\d$/);
     expect(await response.text()).toBe("hello");
+  });
+
+  test("reports recorded phases as Server-Timing, summed by name", async () => {
+    const route = coderouterControlRoute("accounts", "/api/coderouter/claude-upstream", async () => {
+      await spanned("auth", async () => undefined);
+      await spanned("rds", async () => undefined);
+      await spanned("rds", async () => undefined);
+      recordCoderouterSpan({ name: "provider config", startedAt: 100, endedAt: 105 });
+      return new Response(null, { status: 204 });
+    });
+    const response = await route(new Request("https://cmux.com/api/coderouter/claude-upstream"), undefined);
+    const timing = response.headers.get(CODEROUTER_SERVER_TIMING_HEADER);
+    expect(response.headers.get("server-timing")).toBe(timing);
+    const names = timing!.split(", ").map((part) => part.split(";")[0]);
+    expect(names).toEqual(["auth", "rds", "provider_config", "total"]);
+    expect(timing).toContain("provider_config;dur=5.0");
+  });
+
+  test("keeps a route's own Server-Timing", async () => {
+    const own = "auth;dur=1.0, provider;dur=2.0, total;dur=3.0";
+    const route = coderouterControlRoute("accounts", "/api/coderouter/accounts", async () => {
+      await spanned("auth", async () => undefined);
+      return new Response(null, { headers: { "server-timing": own, [CODEROUTER_SERVER_TIMING_HEADER]: own } });
+    });
+    const response = await route(new Request("https://cmux.com/api/coderouter/accounts"), undefined);
+    expect(response.headers.get(CODEROUTER_SERVER_TIMING_HEADER)).toBe(own);
+    expect(response.headers.get("server-timing")).toBe(own);
   });
 });
 
@@ -410,6 +468,7 @@ describe("route token auth spans", () => {
     expect(context.identity).toEqual({ teamId: "team-1", stackUserId: "user-1", vmId: null });
     expect(context.spans.map((span) => span.name)).toEqual(["auth"]);
     expect(context.spans[0]!.attributes.outcome).toBe("accepted");
+    expect(context.spans[0]!.attributes.auth_mode).toBe("route_token");
 
     const rejected = newCoderouterRequestContext({ request, surface: "responses", route: "/v1/responses" });
     await runWithCoderouterRequest(rejected, async () => {
@@ -417,5 +476,107 @@ describe("route token auth spans", () => {
     });
     expect(rejected.identity).toBeUndefined();
     expect(rejected.spans[0]!.error).toBe("invalid_route_token");
+  });
+
+  test("records API key auth without exposing the key or its id", async () => {
+    const key = `crk_${"A".repeat(43)}`;
+    const request = new Request("https://coderouter.dev/v1/responses", {
+      headers: { authorization: `Bearer ${key}` },
+    });
+    const context = newCoderouterRequestContext({ request, surface: "responses", route: "/v1/responses" });
+    await runWithCoderouterRequest(context, async () => {
+      const result = await authenticateRequestRouteToken(request, async () => ({
+        teamId: "team-1",
+        stackUserId: "user-1",
+        vmId: null,
+        apiKeyId: "key-opaque-id",
+      }));
+      expect(result.ok).toBe(true);
+    });
+    expect(context.identity).toEqual({
+      teamId: "team-1",
+      stackUserId: "user-1",
+      vmId: null,
+      apiKeyId: "key-opaque-id",
+    });
+    expect(context.spans[0]!.attributes).toEqual({ outcome: "accepted", auth_mode: "api_key" });
+    const events = traceEvents(context, { status: 200, durationMs: 1 });
+    expect(events[0]!.properties.coderouter_auth_mode).toBe("api_key");
+    expect(JSON.stringify(events)).not.toContain(key);
+    expect(JSON.stringify(events)).not.toContain("key-opaque-id");
+  });
+
+  test("does not label browser control-plane auth as a route token", () => {
+    const request = new Request("https://coderouter.dev/api/coderouter/accounts");
+    const context = newCoderouterRequestContext({ request, surface: "accounts", route: "/api/coderouter/accounts" });
+    runWithCoderouterRequest(context, () => {
+      recordCoderouterIdentity({ teamId: "team-1", stackUserId: "user-1", vmId: null }, "control_plane");
+    });
+    expect(traceEvents(context, { status: 200, durationMs: 1 })[0]!.properties.coderouter_auth_mode)
+      .toBe("control_plane");
+  });
+
+  test("a rejected credential names a stable failure reason on the route span", async () => {
+    const cases: Array<[Record<string, string>, string, string]> = [
+      // A guest whose edge rule injected nothing sends only the public placeholder.
+      [{ authorization: "Bearer cmux-vm-edge-placeholder" }, "missing_route_token", "placeholder_only"],
+      [{}, "missing_route_token", "no_credential"],
+      [{ "x-cmux-authorization": "Bearer not-a-jwt" }, "invalid_route_token", "signed_unverified"],
+      [{ authorization: "Bearer crt_abcdefghijklmnopqrstuvwxyz0123456789" }, "invalid_route_token", "not_live"],
+    ];
+    for (const [headers, reason, detail] of cases) {
+      const request = new Request("https://coderouter.dev/api/vm/reflection/name", { headers });
+      const context = newCoderouterRequestContext({ request, surface: "vm_reflection_name", route: "/api/vm/reflection/name" });
+      const attributes: Record<string, unknown> = {};
+      const span = { setAttributes: (values: Record<string, unknown>) => Object.assign(attributes, values) } as unknown as Span;
+      const activeSpan = spyOn(trace, "getActiveSpan").mockImplementation(() => span);
+      try {
+        await runWithCoderouterRequest(context, () => authenticateRequestRouteToken(request, async () => null));
+      } finally {
+        activeSpan.mockRestore();
+      }
+      expect({ headers, reason: attributes["cmux.coderouter.auth_failure"], detail: attributes["cmux.coderouter.auth_failure_detail"] })
+        .toEqual({ headers, reason, detail });
+    }
+  });
+
+  test("a signed credential from another deployment's key names that key id", async () => {
+    // A dev backend signs with its own key id; its machines' edge still
+    // reached production, which knows no such key.
+    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "cmux-vm+jwt", kid: "dev-backend-1" })).toString("base64url");
+    const token = `${header}.${Buffer.from("{}").toString("base64url")}.${"A".repeat(43)}`;
+    const request = new Request("https://coderouter.dev/api/vm/reflection/name", { headers: { "x-cmux-authorization": `Bearer ${token}` } });
+    const context = newCoderouterRequestContext({ request, surface: "vm_reflection_name", route: "/api/vm/reflection/name" });
+    const attributes: Record<string, unknown> = {};
+    const span = { setAttributes: (values: Record<string, unknown>) => Object.assign(attributes, values) } as unknown as Span;
+    const activeSpan = spyOn(trace, "getActiveSpan").mockImplementation(() => span);
+    try {
+      await runWithCoderouterRequest(context, () => authenticateRequestRouteToken(request, async () => null));
+    } finally {
+      activeSpan.mockRestore();
+    }
+    expect(attributes).toMatchObject({
+      "cmux.coderouter.auth_failure": "invalid_route_token",
+      "cmux.coderouter.auth_failure_detail": "signed_unknown_key",
+      "cmux.coderouter.auth_key_id": "dev-backend-1",
+    });
+  });
+
+  test("exports control-plane auth consistently to the active trace and events", () => {
+    const request = new Request("https://coderouter.dev/api/coderouter/accounts");
+    const context = newCoderouterRequestContext({ request, surface: "accounts", route: "/api/coderouter/accounts" });
+    const attributes: Record<string, unknown> = {};
+    const span = { setAttributes: (values: Record<string, unknown>) => Object.assign(attributes, values) } as unknown as Span;
+    const activeSpan = spyOn(trace, "getActiveSpan").mockImplementation(() => span);
+    try {
+      runWithCoderouterRequest(context, () => {
+        recordCoderouterIdentity({ teamId: "team-1", stackUserId: "user-1", vmId: null }, "control_plane");
+      });
+      expect(attributes["cmux.coderouter.auth_mode"]).toBe("control_plane");
+      expect(traceEvents(context, { status: 200, durationMs: 1 })[0]!.properties.coderouter_auth_mode)
+        .toBe(attributes["cmux.coderouter.auth_mode"]);
+    } finally {
+      activeSpan.mockRestore();
+    }
   });
 });

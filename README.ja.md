@@ -152,7 +152,9 @@ cmuxの設定方法の詳細は、[ドキュメントをご覧ください](http
 
 | ショートカット | アクション |
 |----------|--------|
-| ⌘ N | 新規ワークスペース |
+| ⌘ N | 新規ローカルワークスペース |
+| ⌘ Y | 最後に利用できた Cloud コンテキストに新しい Cloud ワークスペースを作成し、利用できなければ New Cloud Machine を開く |
+| ⌘ ⇧ Y | 新規 Cloud マシン |
 | ⌘ 1–8 | ワークスペース1–8にジャンプ |
 | ⌘ 9 | 最後のワークスペースにジャンプ |
 | ⌃ ⌘ ] | 次のワークスペース |
@@ -367,7 +369,7 @@ cmuxは無料でオープンソースであり、今後もそうあり続けま�
 
 ### 機能リクエストがある、またはバグを見つけました？
 
-ぜひお聞かせください。GitHubで[issue](https://github.com/manaflow-ai/cmux/issues)や[プルリクエスト](https://github.com/manaflow-ai/cmux/pulls)を開くか、[メールでご連絡ください](mailto:founders@manaflow.com?subject=cmux%20feature%20request)。
+ぜひお聞かせください。GitHubで[issue](https://github.com/manaflow-ai/cmux/issues)や[プルリクエスト](https://github.com/manaflow-ai/cmux/pulls)を開くか、[メールでご連絡ください](mailto:founders@cmux.com?subject=cmux%20feature%20request)。
 
 ## Star History
 
@@ -418,6 +420,6 @@ cmuxは無料でオープンソースであり、今後もそうあり続けま�
 
 ## ライセンス
 
-cmuxは[GPL-3.0-or-later](LICENSE)の下でオープンソースです。
+cmuxは[GPL-3.0-or-later](LICENSE)の下でオープンソースです。cmuxのサーバーソフトウェア（`web/`、Cloudflare Worker、および[LICENSE](LICENSE)に記載されたリレーサービス）は、代わりに[Business Source License 1.1](web/LICENSE)で提供されます。非本番用途での閲覧・改変・実行は可能ですが、本番利用やセルフホスティングには商用ライセンスが必要です。
 
-GPLに準拠できない組織向けに、商用ライセンスもご用意しています。詳細は[founders@manaflow.com](mailto:founders@manaflow.com)までお問い合わせください。
+GPLに準拠できない組織向けに、商用ライセンスもご用意しています。詳細は[founders@cmux.com](mailto:founders@cmux.com)までお問い合わせください。

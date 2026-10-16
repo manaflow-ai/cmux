@@ -74,6 +74,19 @@ struct NotificationFeedRowPresentation: Equatable, Sendable {
     var computerStatusText: String {
         notificationFeedRowApplyingConnectionStatus(connectionStatus, to: computerName)
     }
+
+    func nestedContext(under parent: Self) -> NotificationFeedRowContext {
+        NotificationFeedRowContext(
+            isNested: true,
+            hidesHeadline: notificationFeedRowMatches(headline, parent.headline),
+            // Keep a title-only notification meaningful even without a body.
+            hidesSource: contentPreview != nil && sourceName.map { source in
+                parent.sourceName.map { notificationFeedRowMatches(source, $0) } ?? false
+            } == true,
+            hidesComputer: notificationFeedRowMatches(computerName, parent.computerName)
+                && connectionStatus == parent.connectionStatus
+        )
+    }
 }
 
 private func notificationFeedRowAccessibilityDetails(

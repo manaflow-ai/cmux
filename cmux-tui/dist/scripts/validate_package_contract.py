@@ -266,6 +266,7 @@ def _smoke_relay_launcher(
         '{"name":"smoke-machine","deviceId":"device-smoke","token":"token-smoke"}\n',
         encoding="utf-8",
     )
+    paired.chmod(0o600)
     paired_result = _run(
         [str(launcher), "--status", "--config", str(paired)],
         env=relay_env,
@@ -299,6 +300,7 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
     from package_contract import (
         NPM_LAUNCHER_FILES,
         NPM_RELAY_LAUNCHER_FILES,
+        NPM_SSH_MANIFEST,
     )
 
     if package_name == "cmux":
@@ -321,6 +323,7 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
                 "package.json",
                 f"bin/cmux-tui{extension}",
                 f"bin/cmux-tui-hook{extension}",
+                NPM_SSH_MANIFEST,
             }
         )
     expected_names = {f"package/{path}" for path in expected}

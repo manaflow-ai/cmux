@@ -1,6 +1,10 @@
 # Large directories
 ghostty/
-.git/
+# .git is deliberately not excluded. web/tools/vercel-ignore-build.sh decides
+# from Git history whether anything under web/ changed, so it needs a
+# repository. Whether Vercel applies this file to the clone it builds from is
+# undocumented, and the CLI strips .git from uploads regardless of this file,
+# so this is insurance rather than a proven fix -- see PR #13947.
 
 # Build artifacts
 build/
@@ -17,3 +21,4 @@ node_modules/
 *.xcframework/
 scripts/
 tests/
+captures/

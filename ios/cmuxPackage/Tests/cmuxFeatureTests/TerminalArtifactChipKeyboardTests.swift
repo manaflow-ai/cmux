@@ -27,6 +27,19 @@ private final class ArtifactChipKeyboardDelegate: NSObject, GhosttySurfaceViewDe
     }
 }
 
+/// The chip container's constraint-driven frame in its superview. The chip
+/// is scroll-revealed, so at rest it is hidden with a -8pt slide transform,
+/// and `frame` includes that transform. The anchor contract is about layout.
+@MainActor
+private func chipLayoutFrame(_ container: UIView) -> CGRect {
+    CGRect(
+        x: container.center.x - container.bounds.width / 2,
+        y: container.center.y - container.bounds.height / 2,
+        width: container.bounds.width,
+        height: container.bounds.height
+    )
+}
+
 @MainActor
 @Suite("Terminal files chip keyboard visibility", .serialized)
 struct TerminalArtifactChipKeyboardTests {
@@ -60,12 +73,13 @@ struct TerminalArtifactChipKeyboardTests {
         view.layoutIfNeeded()
         let container = try #require(chipContent.superview)
         let restingY = view.safeAreaInsets.top + 8
+        let layoutFrame = chipLayoutFrame(container)
         #expect(
-            abs(container.frame.minY - restingY) <= 1,
-            "resting chip must keep its top anchor; minY=\(container.frame.minY) expected=\(restingY)"
+            abs(layoutFrame.minY - restingY) <= 1,
+            "resting chip must keep its top anchor; minY=\(layoutFrame.minY) expected=\(restingY)"
         )
-        #expect(container.frame.height >= 44)
-        #expect(container.frame.width >= 88)
+        #expect(layoutFrame.height >= 44)
+        #expect(layoutFrame.width >= 88)
     }
 
     /// End-to-end through the real host: the chip's frame in HOST coordinates
@@ -106,7 +120,8 @@ struct TerminalArtifactChipKeyboardTests {
         host.layoutIfNeeded()
         let container = try #require(chipContent.superview)
         func chipFrameInHost() -> CGRect {
-            container.convert(container.bounds, to: host)
+            guard let superview = container.superview else { return .null }
+            return superview.convert(chipLayoutFrame(container), to: host)
         }
         await settle()
         let restingFrame = chipFrameInHost()

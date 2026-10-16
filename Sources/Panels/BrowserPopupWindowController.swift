@@ -1,6 +1,8 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
 import CmuxBrowser
+import CmuxCore
 import CmuxFoundation
 import CmuxSettings
 import ObjectiveC
@@ -24,6 +26,9 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
     let webView: CmuxWebView
     private let browserContext: BrowserPopupBrowserContext
+    var refusesProxyAuthenticationChallenges: Bool {
+        browserContext.refusesProxyAuthenticationChallenges
+    }
     private let panel: NSPanel
     private let urlLabel: NSTextField, urlLabelHeightConstraint: NSLayoutConstraint
     private weak var openerPanel: BrowserPanel?
@@ -63,7 +68,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         // Create popup web view with WebKit's supplied configuration after
         // overlaying the opener's browser context so OAuth popups keep cmux's
         // shared cookie/storage scope and opener linkage.
-        let webView = CmuxWebView(frame: .zero, configuration: configuration)
+        let webView = CmuxWebView(frame: .zero, configuration: configuration, host: CmuxWebViewAppHost())
         webView.allowsBackForwardNavigationGestures = true
         if #available(macOS 13.3, *) {
             webView.isInspectable = true
@@ -257,6 +262,11 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     }
 
     // MARK: - Child popup tracking
+
+    /// This popup's web view and those of its nested popups.
+    var webViewsIncludingChildPopups: [WKWebView] {
+        [webView] + childPopups.flatMap(\.webViewsIncludingChildPopups)
+    }
 
     func addChildPopup(_ child: BrowserPopupWindowController) {
         childPopups.append(child)
@@ -1153,6 +1163,14 @@ private final class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
+        if controller?.refusesProxyAuthenticationChallenges == true {
+            let disposition = ManagedProxySessionDelegate.disposition(for: challenge.protectionSpace)
+            if disposition == .cancelAuthenticationChallenge {
+                completionHandler(disposition, nil)
+                return
+            }
+        }
+
         if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
            let trust = challenge.protectionSpace.serverTrust,
            BrowserSSLTrustScope(protectionSpace: challenge.protectionSpace) != nil {

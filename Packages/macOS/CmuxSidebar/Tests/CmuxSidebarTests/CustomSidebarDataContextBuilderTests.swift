@@ -28,7 +28,8 @@ struct CustomSidebarDataContextBuilderTests {
     private func minimalWorkspace(
         id: UUID = UUID(),
         index: Int = 0,
-        surfaces: [CustomSidebarSurfaceSnapshot] = []
+        surfaces: [CustomSidebarSurfaceSnapshot] = [],
+        taskStatus: String = "todo"
     ) -> CustomSidebarWorkspaceSnapshot {
         CustomSidebarWorkspaceSnapshot(
             id: id,
@@ -50,7 +51,8 @@ struct CustomSidebarDataContextBuilderTests {
             latestConversationMessage: nil,
             latestSubmittedMessage: nil,
             latestSubmittedAt: nil,
-            remote: nil
+            remote: nil,
+            taskStatus: taskStatus
         )
     }
 
@@ -141,7 +143,8 @@ struct CustomSidebarDataContextBuilderTests {
             latestConversationMessage: nil,
             latestSubmittedMessage: nil,
             latestSubmittedAt: nil,
-            remote: nil
+            remote: nil,
+            taskStatus: "todo"
         )
 
         let value = builder.workspaceValue(workspace)
@@ -163,6 +166,38 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(value.member("pr") == nil)
         #expect(value.member("progress") == nil)
         #expect(value.member("remote") == nil)
+        #expect(value.member("emoji") == nil)
+    }
+
+    @Test("Workspace leading emoji is available to custom sidebars")
+    func workspaceEmoji() {
+        let builder = CustomSidebarDataContextBuilder()
+        let workspace = CustomSidebarWorkspaceSnapshot(
+            id: UUID(),
+            title: "🚀 Project",
+            isSelected: false,
+            isPinned: false,
+            index: 0,
+            directory: "/project",
+            listeningPorts: [],
+            unreadCount: 0,
+            surfaces: [],
+            surfaceCount: 0,
+            customDescription: nil,
+            customColor: nil,
+            gitBranch: nil,
+            gitIsDirty: false,
+            pullRequestValues: [],
+            progress: nil,
+            latestConversationMessage: nil,
+            latestSubmittedMessage: nil,
+            latestSubmittedAt: nil,
+            remote: nil,
+            taskStatus: "todo",
+            emoji: "🚀"
+        )
+
+        #expect(builder.workspaceValue(workspace).member("emoji") == .string("🚀"))
     }
 
     @Test("Empty optional strings are omitted like nil")
@@ -188,7 +223,8 @@ struct CustomSidebarDataContextBuilderTests {
             latestConversationMessage: "",
             latestSubmittedMessage: "",
             latestSubmittedAt: nil,
-            remote: nil
+            remote: nil,
+            taskStatus: "todo"
         )
 
         let value = builder.workspaceValue(workspace)
@@ -223,7 +259,8 @@ struct CustomSidebarDataContextBuilderTests {
             latestConversationMessage: "hi",
             latestSubmittedMessage: "do it",
             latestSubmittedAt: Date(timeIntervalSince1970: 100),
-            remote: .init(target: "host", stateRawValue: "connected", isConnected: true)
+            remote: .init(target: "host", stateRawValue: "connected", isConnected: true),
+            taskStatus: "todo"
         )
 
         let value = builder.workspaceValue(workspace)
@@ -268,7 +305,8 @@ struct CustomSidebarDataContextBuilderTests {
             latestConversationMessage: nil,
             latestSubmittedMessage: nil,
             latestSubmittedAt: nil,
-            remote: nil
+            remote: nil,
+            taskStatus: "todo"
         )
 
         let progress = builder.workspaceValue(workspace).member("progress")
@@ -449,7 +487,8 @@ struct CustomSidebarDataContextBuilderTests {
             latestSubmittedMessage: nil,
             latestSubmittedAt: nil,
             remote: nil,
-            agents: [minimal]
+            agents: [minimal],
+            taskStatus: "todo"
         )
         let agents = builder.workspaceValue(workspace).member("agents")
         #expect(agents?.iterationValues?.count == 1)
@@ -479,5 +518,78 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(value.member("anchorId") == .string(anchorId.uuidString))
         #expect(value.member("color") == .string("#FF8800"))
         #expect(value.member("icon") == nil)
+    }
+
+    @Test("Surface prompt and unread fields project per surface")
+    func surfacePromptFields() {
+        let builder = CustomSidebarDataContextBuilder()
+        let id = UUID()
+        let submittedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let waiting = CustomSidebarSurfaceSnapshot(
+            panelId: id,
+            title: "agent",
+            isFocused: false,
+            isPinned: false,
+            directory: nil,
+            gitBranch: nil,
+            gitIsDirty: false,
+            listeningPorts: [],
+            latestSubmittedMessage: "run the migration",
+            latestSubmittedAt: submittedAt,
+            hasUnreadNotification: true
+        )
+
+        let value = builder.surfaceValue(waiting)
+
+        #expect(value.member("latestPrompt") == .string("run the migration"))
+        #expect(value.member("latestAt") == .int(1_700_000_000))
+        #expect(value.member("hasUnread") == .bool(true))
+
+        let bare = builder.surfaceValue(minimalSurface(id: id))
+        #expect(bare.member("latestPrompt") == nil)
+        #expect(bare.member("latestAt") == nil)
+        #expect(bare.member("hasUnread") == .bool(false))
+    }
+
+    @Test("Empty surface prompt is omitted like the workspace-level field")
+    func surfaceEmptyPromptOmitted() {
+        let builder = CustomSidebarDataContextBuilder()
+        let blank = CustomSidebarSurfaceSnapshot(
+            panelId: UUID(),
+            title: "agent",
+            isFocused: false,
+            isPinned: false,
+            directory: nil,
+            gitBranch: nil,
+            gitIsDirty: false,
+            listeningPorts: [],
+            latestSubmittedMessage: "",
+            latestSubmittedAt: nil,
+            hasUnreadNotification: false
+        )
+
+        #expect(builder.surfaceValue(blank).member("latestPrompt") == nil)
+    }
+
+    @Test("Workspace status projects the resolved lane")
+    func workspaceStatusProjects() {
+        let builder = CustomSidebarDataContextBuilder()
+
+        for lane in ["todo", "working", "needs-attention", "review", "done"] {
+            let workspace = minimalWorkspace(taskStatus: lane)
+            #expect(builder.workspaceValue(workspace).member("status") == .string(lane))
+        }
+    }
+
+    // `status` is an always-present key, not an optional one: a sidebar reads
+    // it without `if let`, so it must survive a workspace that carries nothing
+    // else worth showing.
+    @Test("Workspace status is present even on an otherwise empty workspace")
+    func workspaceStatusAlwaysPresent() {
+        let builder = CustomSidebarDataContextBuilder()
+        let value = builder.workspaceValue(minimalWorkspace())
+
+        #expect(value.member("status") == .string("todo"))
+        #expect(value.member("branch") == nil)
     }
 }
