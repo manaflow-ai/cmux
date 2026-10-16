@@ -16,6 +16,7 @@ final class HomeTreeState {
     var header: ThreadHeaderContent?
     var popover: NSPopover?
     var commit: FieldCommit?
+    var field: NSTextField?
     /// The build's link scheme (`cmux`, `cmux-dev`, `cmux-dev-<tag>`); nil: no Copy Link.
     var linkScheme: String?
 }
@@ -75,11 +76,15 @@ extension HomeProjection {
     func presentRename(_ root: MessageID, anchor: CGRect) {
         let host = controller.host
         tree.popover?.close()
-        let field = NSTextField(string: shownItem(root)?.thread?.title ?? "")
+        let current = shownItem(root)?.thread?.title ?? ""
+        let field = NSTextField(string: current)
+        field.cell?.sendsActionOnEndEditing = false  // a click outside only closes the popover
         field.placeholderString = CmuxStrings.threadTitlePlaceholder
         field.frame = CGRect(x: 12, y: 12, width: 260, height: 24)
         let commit = FieldCommit { [weak self] text in
-            self?.updateThread(root, title: text.trimmingCharacters(in: .whitespacesAndNewlines))
+            // The owner takes at most 200 characters; an unchanged title sends nothing (as Channels).
+            let title = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
+            if title != current { self?.updateThread(root, title: title) }
             self?.tree.popover?.close()
         }
         field.target = commit
@@ -92,8 +97,9 @@ extension HomeProjection {
         popover.contentViewController = content
         tree.popover = popover
         tree.commit = commit
+        tree.field = field
         popover.show(relativeTo: hostRect(anchor), of: host, preferredEdge: .maxY)
-        host.window?.makeFirstResponder(field)
+        field.window?.makeFirstResponder(field)
     }
 
     /// The conversation's participants and "Unassigned" at the owner item.

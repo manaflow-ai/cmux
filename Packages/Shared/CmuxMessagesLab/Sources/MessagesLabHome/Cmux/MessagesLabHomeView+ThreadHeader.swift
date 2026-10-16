@@ -31,23 +31,23 @@ extension MessagesLabHomeView {
         case "rename", "assign":
             guard let root = controller.store?.state.ui.openThread, let mid = projection.shownItem(root.messageId)?.messageID else { return ["ok": "0"] }
             let value = args["value"] ?? ""
-            if action == "rename" { projection.updateThread(mid, title: value) } else { projection.updateThread(mid, owner: value) }
+            if action == "rename" {
+                // Through the popover: its field takes the text, Return commits (FieldCommit).
+                projection.presentRename(mid, anchor: .zero)
+                projection.tree.field?.stringValue = value
+                projection.tree.field.map { projection.tree.commit?.fire($0) }
+            } else {
+                projection.updateThread(mid, owner: value)
+            }
             return ["ok": "1"]
         case "copy_link":
-            guard let demo = controller.demo else { return ["ok": "0"] }
-            let b = controller.host.bounds
-            for y in stride(from: b.minY, to: b.maxY, by: 3) {
-                for x in stride(from: b.minX, to: b.maxX, by: 3) {
-                    guard let hit = demo.hit(CGPoint(x: x, y: y)), case let .text(shown, _) = hit.row.part, shown == args["text"],
-                          let menu = controller.menu(at: CGPoint(x: hit.body.midX, y: hit.body.midY)) else { continue }
-                    controller.menuHighlight?.discard(); controller.menuHighlight = nil // never shown
-                    guard let item = menu.items.first(where: { ($0 as? MenuAction)?.label == CmuxStrings.copyLink }),
-                          let run = item.action else { return ["ok": "0", "error": "no Copy Link"] }
-                    NSApp.sendAction(run, to: item.target, from: item)
-                    return ["ok": "1", "link": NSPasteboard.general.string(forType: .string) ?? ""]
-                }
-            }
-            return ["ok": "0"]
+            guard let hit = debugBubble(text: args["text"] ?? ""),
+                  let menu = controller.menu(at: CGPoint(x: hit.body.midX, y: hit.body.midY)) else { return ["ok": "0"] }
+            controller.menuHighlight?.discard(); controller.menuHighlight = nil // never shown
+            guard let item = menu.items.first(where: { ($0 as? MenuAction)?.label == CmuxStrings.copyLink }),
+                  let run = item.action else { return ["ok": "0", "error": "no Copy Link"] }
+            NSApp.sendAction(run, to: item.target, from: item)
+            return ["ok": "1", "link": NSPasteboard.general.string(forType: .string) ?? ""]
         default:
             return nil
         }

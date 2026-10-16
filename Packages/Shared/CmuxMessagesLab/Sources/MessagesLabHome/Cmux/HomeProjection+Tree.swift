@@ -31,9 +31,10 @@ extension HomeProjection {
 
     /// One older page toward the waiting permalink (its seq is below the window), or the end of the request.
     private func pageTowardReveal() {
-        let oldest = homeStore.oldestLoadedSeq(in: conversation)
-        let below = tree.target?.seq.map { seq in oldest.map { seq < $0 } ?? true } ?? (tree.pages < 50)
-        guard hasOlder, below else {
+        // The shown window (what revealIfLoaded reads), never the store's newer mirror; at most 50 pages.
+        let oldest = shown.compactMap(\.seq).min()
+        let below = tree.target?.seq.map { seq in oldest.map { seq < $0 } ?? true } ?? true
+        guard hasOlder, below, tree.pages < 50 else {
             if !shown.isEmpty { pendingReveal = nil }  // the history holds no such message
             return
         }
@@ -44,8 +45,8 @@ extension HomeProjection {
         // task-owner: one page read; the refresh it causes asks for the next one
         Task { [weak self] in
             await homeStore.loadOlder(conversation)
+            // The refresh this page causes calls revealIfLoaded (the page is not in `shown` yet here).
             self?.tree.paging = false
-            self?.revealIfLoaded()
         }
     }
 
@@ -64,7 +65,8 @@ extension HomeProjection {
         guard m.replyTo != nil || messages.contains(where: { $0.replyTo?.messageId == id && $0.id != id }) else { return }
         // The owner's path when every message on it is loaded, else the loaded parents' walk.
         let owned = (tree.target?.path ?? []).compactMap { pid in shown.first { $0.messageID == pid }.map { HomeMapping.id($0, aliases: aliases) } }
-        let path = tree.target.map { owned.count == $0.path.count && owned.count > 1 } == true
+        // A path the owner cut (`truncated`: it starts below the root) falls back to the loaded walk.
+        let path = tree.target.map { owned.count == $0.path.count && owned.count > 1 && $0.path.first == $0.threadRoot } == true
             ? owned.map { PartRef(messageId: $0, partIndex: 0) } : [root] + ThreadTree.path(to: ref, root: root, in: messages)
         tree.target = nil
         controller.dispatch(.openThreadPath(path))
