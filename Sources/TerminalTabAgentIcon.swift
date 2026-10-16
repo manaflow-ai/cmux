@@ -32,7 +32,9 @@ extension Workspace {
                 return knownKeys.compactMap { key in
                     if lifecycleStates[key] != nil { return key }
                     let remoteKey = RemoteAgentSidebarStatus.statusKeyPrefix + key
-                    return lifecycleStates[remoteKey] != nil ? key : nil
+                    if lifecycleStates[remoteKey] != nil { return key }
+                    let attentionKey = "cmux.feed.attention:" + key
+                    return lifecycleStates[attentionKey] != nil ? key : nil
                 }
             }
         let statusKeys = Set(pidStatusKeys).union(lifecycleStatusKeys).sorted()
@@ -57,7 +59,10 @@ extension Workspace {
 
     /// Reconciles a terminal tab's provider mark after agent lifecycle state changes.
     func syncTerminalTabAgentIconAsset(forPanelId panelId: UUID) {
-        guard panels[panelId] is TerminalPanel,
+        // Remote workspaces receive their authoritative icon from SurfaceCatalog;
+        // local lifecycle updates must not overwrite that projection.
+        guard !isRemoteWorkspace,
+              panels[panelId] is TerminalPanel,
               let tabID = surfaceIdFromPanelId(panelId),
               let tab = bonsplitController.tab(tabID) else { return }
         let asset = terminalTabAgentIconAsset(forPanelId: panelId)

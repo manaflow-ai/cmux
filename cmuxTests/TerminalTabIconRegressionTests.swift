@@ -101,6 +101,26 @@ struct TerminalTabIconRegressionTests {
     }
 
     @MainActor
+    @Test(arguments: ["claude", "codex"])
+    func feedAttentionAgentShowsAndClearsItsBrandMark(source: String) throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
+        let attentionKey = FeedCoordinator.attentionStatusKey(forSource: source)
+        let expectedAssets = [
+            "claude": "AgentIcons/Claude",
+            "codex": "AgentIcons/Codex",
+        ]
+
+        workspace.setAgentLifecycle(key: attentionKey, panelId: panel.id, lifecycle: .needsInput)
+        let markedTab = try #require(workspace.bonsplitController.tab(tabId))
+        #expect(markedTab.iconAsset == expectedAssets[source])
+
+        #expect(workspace.clearAgentLifecycle(key: attentionKey, panelId: panel.id))
+        try expectNoAgentMark(workspace: workspace, panel: panel, tabId: tabId)
+    }
+
+    @MainActor
     @Test func restoredAgentThatQuitToTheShellLeavesNoAgentMark() throws {
         let workspace = Workspace()
         let panel = try #require(workspace.focusedTerminalPanel)
