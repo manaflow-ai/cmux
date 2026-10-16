@@ -2786,7 +2786,23 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// fallback: a workspace that never fired a notification still carries a
     /// real timestamp instead of nothing.
     let createdAt = Date()
-    @Published var title: String
+    private let sidebarTitleDidChangeSubject: CurrentValueSubject<String, Never>
+    @Published var title: String {
+        didSet {
+            // Combine's @Published publisher emits from willSet. The sidebar
+            // snapshot reads the workspace after this property changes, so
+            // publish a second value from didSet for a committed title.
+            sidebarTitleDidChangeSubject.send(title)
+        }
+    }
+    /// Publishes the workspace title after the stored value has been updated.
+    ///
+    /// `@Published` emits from `willSet`; sidebar snapshots must read the
+    /// committed title so the first refresh after a rename cannot cache the
+    /// previous value.
+    var sidebarTitleDidChangePublisher: AnyPublisher<String, Never> {
+        sidebarTitleDidChangeSubject.eraseToAnyPublisher()
+    }
     @Published var customTitle: String?
     /// Provenance of `customTitle`: `.user` for manual renames (sidebar,
     /// CLI, command palette), `.auto` for AI auto-naming. `nil` when no
@@ -4257,6 +4273,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.portOrdinal = portOrdinal
         let admittedAutomaticTitle = AutomaticTerminalTitle(title)?.value ?? String(localized: "notification.desktop.defaultTerminalTitle", defaultValue: "Terminal")
         self.processTitle = admittedAutomaticTitle
+        self.sidebarTitleDidChangeSubject = CurrentValueSubject(admittedAutomaticTitle)
         self.title = admittedAutomaticTitle
         self.customTitle = nil
         self.customTitleSource = nil
