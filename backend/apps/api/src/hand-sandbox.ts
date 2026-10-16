@@ -34,7 +34,7 @@ export interface Sandbox {
 
 export const createSandbox = async (env: Env, caller: HandCaller, name: string, wanted?: string): Promise<HandReply<Sandbox>> => {
   const provider = sandboxProvider(env, wanted)
-  if (!provider) return unavailable(wanted ? `the sandbox provider ${wanted} is not set up on this deployment` : "sandboxes are off on this deployment")
+  if (!provider) return unavailable(wanted ? `the sandbox provider ${wanted} is not set up on this deployment (no key configured)` : "sandboxes are off on this deployment")
   // The deployment's own origin only (never a fallback to another environment): the sandbox pairs with it.
   const origin = (env.CLOUD_API_ORIGIN ?? "").replace(/\/$/, "")
   if (!/^https:\/\/[A-Za-z0-9.-]+$/.test(origin)) return unavailable("this deployment names no public https origin; a sandbox cannot reach it")

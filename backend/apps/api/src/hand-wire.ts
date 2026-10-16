@@ -53,6 +53,8 @@ export interface HandSummary {
   readonly sandbox?: boolean
   /** Its permission level (hand-levels.ts). */
   readonly level?: string
+  /** Requests waiting for the owner's answer (the app shows them; GET /v1/hands/<hand>/approvals). */
+  readonly pending_approvals?: number
 }
 
 export interface HandError {

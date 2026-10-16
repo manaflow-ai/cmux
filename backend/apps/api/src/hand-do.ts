@@ -4,7 +4,7 @@ import { PROVIDERS } from "./hand-providers.ts"
 import { revokeAgentSession } from "./model-gateway/run-token.ts"
 import { classify, requestSummary, type Classified } from "./hand-classify.ts"
 import { createVerdictTable, listVerdicts, recordVerdict } from "./hand-verdicts.ts"
-import { checkRaise, createLevelTables, defaultLevel, isLevel, issueChallenge, raises, READ_ACTIONS, type Level, type Proof } from "./hand-levels.ts"
+import { approvalMessage, checkApproval, checkRaise, createLevelTables, createPresenceTable, presenceKey, registerPresenceKey, defaultLevel, isLevel, issueChallenge, raises, READ_ACTIONS, type Level, type Proof } from "./hand-levels.ts"
 import { createIndexTables, indexDefaultLevel, indexSetDefaultLevel, handName, indexGrants, indexList, indexName, indexPut, indexSetGrant } from "./hand-index.ts"
 import { callerLabel, capJson, isHandAction, PAIR_TTL_MS, sameHex, type AgentEvent, type HandCaller, type HandError, type HandReply, type HandSummary, type Profile, type StoredEvent } from "./hand-wire.ts"
 
@@ -80,6 +80,7 @@ export class HandDO extends DurableObject<Env> {
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_event (seq INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT NOT NULL, at INTEGER NOT NULL, body TEXT NOT NULL)`)
     createIndexTables(sql)
     createLevelTables(sql)
+    createPresenceTable(sql)
     // The level column came after the first hands: add it to an existing table once.
     if (!sql.exec<{ name: string }>(`PRAGMA table_info(hand)`).toArray().some((c) => c.name === "level")) sql.exec(`ALTER TABLE hand ADD COLUMN level TEXT`)
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"))
@@ -96,7 +97,7 @@ export class HandDO extends DurableObject<Env> {
 
   private summary(r: HandRow): HandSummary {
     const sandbox = this.ctx.storage.sql.exec(`SELECT 1 FROM hand_sandbox WHERE id = 1`).toArray().length > 0
-    return { hand: r.hand, name: r.name, profile: (r.profile as Profile | null) ?? null, created_at: r.created_at, paired_at: r.paired_at, revoked_at: r.revoked_at, last_seen: r.last_seen, online: this.socket() !== undefined, sandbox, level: this.level(r) }
+    return { hand: r.hand, name: r.name, profile: (r.profile as Profile | null) ?? null, created_at: r.created_at, paired_at: r.paired_at, revoked_at: r.revoked_at, last_seen: r.last_seen, online: this.socket() !== undefined, sandbox, level: this.level(r), pending_approvals: this.ctx.storage.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM hand_approval WHERE answered_at IS NULL`).toArray()[0]?.n ?? 0 }
   }
 
   private index(user: string) {
@@ -350,7 +351,7 @@ export class HandDO extends DurableObject<Env> {
     if (!isLevel(to)) return refuse("request.invalid", "level is full, auto, ask or read-only")
     const from = this.level(r)
     if (raises(from, to)) {
-      const why = await checkRaise(this.env, this.ctx.storage.sql, caller, r.owner, r.hand, to, proof)
+      const why = await checkRaise(this.env, this.ctx.storage.sql, caller, r.owner, r.hand, to, proof, (i) => this.index(r.owner).presenceKeyOf(i))
       if (why) {
         this.audit(crypto.randomUUID(), "level", callerLabel(caller), `refused:${from}->${to}`, null)
         return refuse("hand.level_refused", why)
@@ -362,7 +363,18 @@ export class HandDO extends DurableObject<Env> {
     return { ok: true, value: { hand: r.hand, level: to, from } }
   }
 
-  // --- Owner index role: default levels for new hands ---
+  // --- Owner index role: presence keys and default levels for new hands ---
+
+  async presenceKeyOf(install: string): Promise<JsonWebKey | null> {
+    return presenceKey(this.ctx.storage.sql, install)
+  }
+
+  async registerPresence(caller: HandCaller, owner: string, install: string, jwk: unknown, signature: string): Promise<HandReply<{ install: string }>> {
+    const why = await registerPresenceKey(this.env, this.ctx.storage.sql, caller, owner, install, jwk, signature)
+    if (why) return refuse("hand.presence_refused", why)
+    this.audit(crypto.randomUUID(), "presence_key", callerLabel(caller), install, null)
+    return { ok: true, value: { install } }
+  }
 
   async ownerDefaultLevel(profile: Profile): Promise<Level | undefined> {
     const l = indexDefaultLevel(this.ctx.storage.sql, profile)
@@ -380,7 +392,7 @@ export class HandDO extends DurableObject<Env> {
     const from = (await this.ownerDefaultLevel(profile)) ?? defaultLevel(profile)
     if (caller.kind === "chief" && !indexGrants(this.ctx.storage.sql).includes(caller.agent ?? "")) return refuse("hand.no_grant", "this Chief has no hands grant")
     if (raises(from, to)) {
-      const why = await checkRaise(this.env, this.ctx.storage.sql, caller, owner, `default:${profile}`, to, proof)
+      const why = await checkRaise(this.env, this.ctx.storage.sql, caller, owner, `default:${profile}`, to, proof, async (i) => presenceKey(this.ctx.storage.sql, i))
       if (why) return refuse("hand.level_refused", why)
     }
     indexSetDefaultLevel(this.ctx.storage.sql, profile, to)
@@ -455,11 +467,15 @@ export class HandDO extends DurableObject<Env> {
     const r = this.row()
     if (!r || r.owner !== caller.user) return refuse("hand.not_found", "no such hand")
     const rows = this.ctx.storage.sql.exec<{ id: string; req: string; summary: string; at: number }>(`SELECT id, req, summary, at FROM hand_approval WHERE answered_at IS NULL ORDER BY at`).toArray()
-    return { ok: true, value: rows.map((a) => ({ ...a, summary: JSON.parse(a.summary) })) }
+    return { ok: true, value: rows.map((a) => ({ ...a, summary: JSON.parse(a.summary), sign: approvalMessage(this.env, r.hand, a.id) })) }
   }
 
-  /** The owner's answer; one answer per approval. */
-  async answer(caller: HandCaller, id: string, allow: boolean): Promise<HandReply<{ id: string; allow: boolean }>> {
+  /**
+   * The owner's answer; one answer per approval. A deny needs only the owner's session; an allow
+   * also needs the owner's app proof (a signature by an active Mac or iPhone install of the owner
+   * over approvalMessage), the same person proof as a level raise.
+   */
+  async answer(caller: HandCaller, id: string, allow: boolean, proof?: { install?: string; signature?: string }): Promise<HandReply<{ id: string; allow: boolean }>> {
     if (caller.kind !== "owner") return refuse("auth.forbidden", "only the owner answers approvals")
     const r = this.row()
     if (!r || r.owner !== caller.user) return refuse("hand.not_found", "no such hand")
@@ -467,9 +483,19 @@ export class HandDO extends DurableObject<Env> {
     const a = sql.exec<{ answered_at: number | null }>(`SELECT answered_at FROM hand_approval WHERE id = ?`, id).toArray()[0]
     if (!a) return refuse("hand.approval_not_found", "no such approval")
     if (a.answered_at !== null) return refuse("hand.approval_answered", "this approval was answered already")
+    if (allow) {
+      const why = await checkApproval(this.env, caller, r.owner, r.hand, id, proof?.install, proof?.signature)
+      if (why) {
+        this.audit(id, "approval", callerLabel(caller), "allow_refused", null)
+        return refuse("hand.approval_proof", why)
+      }
+    }
+    // Re-read after the await: another answer may have committed.
+    if (sql.exec<{ answered_at: number | null }>(`SELECT answered_at FROM hand_approval WHERE id = ?`, id).toArray()[0]?.answered_at != null) return refuse("hand.approval_answered", "this approval was answered already")
     sql.exec(`UPDATE hand_approval SET answered_at = ?, allow = ?, who = ? WHERE id = ?`, Date.now(), allow ? 1 : 0, callerLabel(caller), id)
     this.audit(id, "approval", callerLabel(caller), allow ? "allow" : "deny", null)
     this.socket()?.send(JSON.stringify({ t: "approval", id, allow }))
+    await this.publish(r)
     return { ok: true, value: { id, allow } }
   }
 
