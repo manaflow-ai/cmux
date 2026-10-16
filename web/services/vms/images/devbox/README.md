@@ -174,6 +174,15 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
   are the same account, so an app started from a terminal pane joins the
   session bus of the screen a person is watching; root gets `DISPLAY` but not
   that bus (it admits only its owner).
+- `agent-config.sh` registers `cua-driver mcp` in Claude Code's user config
+  (`cua-computer-use`), Codex's config (`cua-driver`), and OpenCode's config
+  (`cua-driver`, created on first launch). Existing servers and user settings
+  are preserved. Start agents as the desktop user from their normal working
+  directory so their MCP subprocesses inherit the display and accessibility bus.
+  Image acceptance checks the real client connections, then captures the screen
+  and clicks, types, and submits a visible browser form through MCP on a fresh
+  machine, a second clone, and after pause/resume. The image workflow retains
+  screenshots and probe results in its `devbox-cua-proof` artifact.
 - Readiness is signalled by its owners, never inferred from elapsed time:
   Xvnc reports its display on `-displayfd` once it accepts connections, the
   accessibility bus is awaited by name (`gdbus wait org.a11y.Bus`), the
