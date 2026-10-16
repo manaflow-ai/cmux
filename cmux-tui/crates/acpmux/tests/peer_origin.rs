@@ -149,6 +149,7 @@ async fn no_rpc_returns_the_peer_token_to_a_web_connection() {
         ("_acpmux/defaults", json!({})),
         ("_acpmux/presets", json!({})),
         ("_acpmux/schema", json!({})),
+        ("_acpmux/protocol", json!({})),
         ("_acpmux/import", json!({"path": "run/peer.token"})),
     ];
     let replies = session(port, "", &[(a, &b)], None, &reads).await.unwrap();

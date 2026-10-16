@@ -29,6 +29,8 @@ mod prompt_context;
 mod prompt_provenance;
 #[path = "hub_integration/prompt_withdraw.rs"]
 mod prompt_withdraw;
+#[path = "hub_integration/protocol_serve.rs"]
+mod protocol_serve;
 #[path = "hub_integration/questions.rs"]
 mod questions;
 #[path = "hub_integration/restart.rs"]

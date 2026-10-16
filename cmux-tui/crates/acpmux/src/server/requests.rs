@@ -696,6 +696,8 @@ async fn dispatch_request(
         method::MUX_SCHEMA => {
             Ok(serde_json::from_str(crate::schema::SCHEMA).unwrap_or(Value::Null))
         }
+        // Read-only and the same for every origin, like `_acpmux/schema`.
+        method::MUX_PROTOCOL => Ok(crate::protocol::served().clone()),
         method::MUX_HISTORY => {
             let s = hub.resolve(session_key(&params)?)?;
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
