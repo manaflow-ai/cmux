@@ -295,7 +295,9 @@ public struct MobilePaywallView: View {
             }
         } else {
             let config = context.config
-            if !config.bullets.isEmpty, effectiveLayout.showsBullets {
+            // At accessibility sizes the selling points give way so the plans
+            // and prices stay above the fold.
+            if !config.bullets.isEmpty, effectiveLayout.showsBullets, !dynamicTypeSize.isAccessibilitySize {
                 MobilePaywallBullets(bullets: config.bullets)
             }
             if showsGlobalPeriodPicker {
