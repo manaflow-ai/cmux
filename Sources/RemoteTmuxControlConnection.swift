@@ -529,7 +529,7 @@ final class RemoteTmuxControlConnection {
     /// Cap queued stdin bytes while the dedicated writer is backpressured. Above
     /// this, mutations are rejected and the connection reconnects instead of
     /// accepting unbounded user input that may never reach tmux.
-    private static let maxPendingStdinBytes = 256 * 1024
+    static let maxPendingStdinBytes = 256 * 1024
     /// Cap pending stdout between SSH's pipe callback and the main-actor parser.
     /// Initial attach can legitimately burst one `capture-pane -S 5000` block per
     /// mirrored pane, so the chunk cap absorbs pipe delivery jitter while the byte
