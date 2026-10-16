@@ -35,11 +35,25 @@ SHA = "a" * 40
 HARNESS = r"""
 const scenario = JSON.parse(process.env.SCENARIO);
 const guard = await import(process.env.GUARD);
-const calls = { runs: 0, jobs: 0, activityPages: 0, moves: 0, comparePages: 0 };
+const calls = { runs: 0, jobs: 0, activityPages: 0, moves: 0, comparePages: 0, trees: 0 };
 const pullsListCommits = Symbol('listCommits');
 const notices = [];
 const actions = { listWorkflowRuns: async () => ({ data: { workflow_runs: [] } }), listJobsForWorkflowRun: Symbol('jobs') };
 const commits = Object.fromEntries(scenario.commits.map((c) => [c.sha, c]));
+const trees = new Map();
+function treeOf(sha) {
+  if (trees.has(sha)) return trees.get(sha);
+  const c = commits[sha];
+  if (!c) throw new Error(`no tree for ${sha}`);
+  let tree;
+  if (c.tree) tree = { ...c.tree };
+  else {
+    tree = c.parents?.length ? { ...treeOf(c.parents[0].sha) } : {};
+    for (const f of c.files || []) tree[f.filename] = sha;
+  }
+  trees.set(sha, tree);
+  return tree;
+}
 const github = {
   rest: {
     actions,
@@ -49,6 +63,27 @@ const github = {
         if (ref === 'heads/nightly-next') return { data: { object: { sha: scenario.current } } };
         throw Object.assign(new Error('missing'), { status: 404 });
       },
+      // Git trees: each commit's tree is its first parent's tree plus its own
+      // files (blob = the commit that wrote it), unless the scenario gives an
+      // explicit tree (a merge that resolves a conflict).
+      getCommit: async ({ commit_sha }) => ({ data: { sha: commit_sha, tree: { sha: `T|${commit_sha}|` } } }),
+      getTree: async ({ tree_sha, recursive }) => {
+        const [, commitSha, dir] = tree_sha.split('|');
+        calls.trees += 1;
+        if (scenario.truncatedTree) return { data: { truncated: true, tree: [] } };
+        const tree = treeOf(commitSha);
+        const prefix = dir ? `${dir}/` : '';
+        const entries = [];
+        const subdirs = new Set();
+        for (const [path, blob] of Object.entries(tree)) {
+          if (!path.startsWith(prefix)) continue;
+          const rel = path.slice(prefix.length);
+          if (recursive || !rel.includes('/')) entries.push({ path: rel, type: 'blob', mode: '100644', sha: blob });
+          else subdirs.add(rel.split('/')[0]);
+        }
+        for (const sub of subdirs) entries.push({ path: sub, type: 'tree', mode: '040000', sha: `T|${commitSha}|${prefix}${sub}` });
+        return { data: { truncated: false, tree: entries } };
+      },
     },
     repos: {
       // A small commit graph: compare(base...head) lists every commit reachable
@@ -56,7 +91,8 @@ const github = {
       // files capped as GitHub caps them.
       compareCommitsWithBasehead: async ({ basehead, per_page = 250, page = 1 }) => {
         const [base, head] = basehead.split('...');
-        if (head === scenario.sourceHead && base !== scenario.current) {
+        // G1 asks sha...feat-cmux-next; the scenario states that answer.
+        if (base === scenario.sha && head === scenario.sourceHead && base !== head) {
           return { data: { status: scenario.onSource[base] || 'diverged' } };
         }
         if (!(head in commits) && head !== scenario.current) throw new Error(`unexpected compare ${basehead}`);
@@ -434,14 +470,38 @@ def test_a_diverged_or_behind_range_is_refused() -> None:
         assert "is not an ancestor" in out["decision"]["reason"]
 
 
-def test_a_truncated_file_list_is_refused() -> None:
+def test_a_truncated_surface_tree_is_refused() -> None:
+    out = run(scenario(truncatedTree=True))
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    assert "truncated" in out["decision"]["reason"]
+
+
+def test_a_large_commit_outside_the_surface_still_promotes() -> None:
     big = [f"Sources/G{i}.swift" for i in range(3000)]
     case = scenario(commits=[commit(SHA, [CURRENT], big), commit(CURRENT, [], [])],
                     activity=[{"before": CURRENT, "after": SHA, "actor": {"login": "lawrencecchen"}}],
                     commitPulls={})
     out = run(case)
-    assert out["decision"]["action"] == "refuse", out["decision"]
-    assert "truncated" in out["decision"]["reason"]
+    assert out["decision"]["action"] == "promote", out["decision"]
+
+
+def test_a_merge_that_drops_the_old_tips_surface_change_asks_for_an_ack() -> None:
+    # The old tip C changed nightly.yml; merge S (first parent M, second parent
+    # C) kept M's version. No commit's own diff lists nightly.yml, but the
+    # tree from C to the target differs there: it must not promote silently.
+    base0, mline, merge = "0" * 39 + "1", "e" * 40, "9" * 40
+    nightly = ".github/workflows/nightly.yml"
+    case = scenario(commits=[
+        commit(SHA, [merge], ["Sources/App.swift"], "teamleaderleo"),
+        dict(commit(merge, [mline, CURRENT], []), tree={nightly: base0, "Sources/M.swift": mline}),
+        commit(mline, [base0], ["Sources/M.swift"]),
+        commit(CURRENT, [base0], [nightly]),
+        commit(base0, [], [nightly]),
+    ], activity=[{"before": CURRENT, "after": SHA, "actor": {"login": "austinywang"}}], commitPulls={})
+    out = run(case)
+    assert out["decision"]["action"] == "needs-ack", out["decision"]
+    assert out["decision"]["surfaceFiles"] == [nightly]
+    assert "austinywang" in out["decision"]["landers"]
 
 
 def test_a_commit_list_the_api_cannot_cover_is_refused() -> None:

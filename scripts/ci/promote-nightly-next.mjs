@@ -109,25 +109,76 @@ async function admitted(github, owner, repo, sha, { attempts, delayMs, sleep, co
 // its first page (at most 300). Anything it cannot list in full is refused.
 const COMPARE_PAGE = 100;
 const MAX_RANGE_COMMITS = 1000;
-const COMPARE_FILE_CAP = 300;
 const COMMIT_FILE_CAP = 3000;
+
+// One compare request, memoized for the life of a decision: the guard reads
+// the same range several times and the job token's quota is shared.
+function comparer(github, owner, repo) {
+  const cache = new Map();
+  return async (basehead, page = 1, perPage = COMPARE_PAGE) => {
+    const key = `${basehead}#${page}#${perPage}`;
+    if (!cache.has(key)) {
+      cache.set(key, github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead, per_page: perPage, page }).then((r) => r.data));
+    }
+    return cache.get(key);
+  };
+}
 
 // Every commit in base...head (all parents, merges included), from the compare
 // API's paginated commit list. Returns null when the list cannot be read in full.
-async function rangeCommits(github, owner, repo, base, head) {
+async function rangeCommits(compare, base, head) {
   const commits = [];
   let total = null;
   for (let page = 1; page <= MAX_RANGE_COMMITS / COMPARE_PAGE + 1; page += 1) {
-    const { data } = await github.rest.repos.compareCommitsWithBasehead({
-      owner, repo, basehead: `${base}...${head}`, per_page: COMPARE_PAGE, page,
-    });
+    const data = await compare(`${base}...${head}`, page);
     total = data.total_commits;
     const batch = data.commits || [];
     commits.push(...batch);
     if (commits.length >= total || batch.length === 0) break;
   }
-  if (total === null || total > MAX_RANGE_COMMITS || commits.length !== total) return null;
+  if (typeof total !== 'number' || total > MAX_RANGE_COMMITS) return null;
+  if (commits.length !== total || new Set(commits.map((commit) => commit.sha)).size !== total) return null;
   return commits;
+}
+
+// The release surface blobs of a commit: path -> blob SHA for every path that
+// matches the surface, read from the git trees of the surface's directories
+// (an exact content view, no diff API). Returns null when a tree is truncated.
+function surfaceDirectories(globs) {
+  const dirs = new Set();
+  for (const glob of globs) {
+    const wildcard = glob.search(/[*?]/);
+    const literal = wildcard === -1 ? glob : glob.slice(0, wildcard);
+    const dir = literal.includes('/') ? literal.slice(0, literal.lastIndexOf('/')) : '';
+    dirs.add(dir);
+  }
+  const sorted = [...dirs].sort((x, y) => x.length - y.length);
+  return sorted.filter((dir, index) => !sorted.slice(0, index).some((parent) => parent === '' || dir.startsWith(`${parent}/`)));
+}
+
+async function surfaceBlobs(github, owner, repo, commitSha, dirs, matches) {
+  const { data: commit } = await github.rest.git.getCommit({ owner, repo, commit_sha: commitSha });
+  const blobs = new Map();
+  for (const dir of dirs) {
+    let tree = commit.tree.sha;
+    let found = true;
+    for (const part of dir ? dir.split('/') : []) {
+      const { data } = await github.rest.git.getTree({ owner, repo, tree_sha: tree });
+      if (data.truncated) return null;
+      const entry = (data.tree || []).find((item) => item.path === part && item.type === 'tree');
+      if (!entry) { found = false; break; }
+      tree = entry.sha;
+    }
+    if (!found) continue;
+    const { data } = await github.rest.git.getTree({ owner, repo, tree_sha: tree, recursive: 'true' });
+    if (data.truncated) return null;
+    for (const item of data.tree || []) {
+      if (item.type !== 'blob' && item.type !== 'commit') continue;
+      const path = dir ? `${dir}/${item.path}` : item.path;
+      if (matches(path)) blobs.set(path, `${item.mode}:${item.sha}`);
+    }
+  }
+  return blobs;
 }
 
 // One commit with its full file list. Returns null when GitHub truncates it.
@@ -146,7 +197,7 @@ async function commitWithFiles(github, owner, repo, sha) {
 
 // Map each commit to every actor whose push brought it: the commits a push
 // brought are compare(before...after). The activity API pages with a cursor.
-async function pushActors(github, owner, repo, wanted, rangeSet, boundary) {
+async function pushActors(github, owner, repo, compare, wanted, rangeSet, boundary) {
   const actors = new Map([...wanted].map((sha) => [sha, new Set()]));
   const unresolved = () => [...wanted].some((sha) => actors.get(sha).size === 0);
   let reachedBoundary = !boundary;
@@ -158,10 +209,22 @@ async function pushActors(github, owner, repo, wanted, rangeSet, boundary) {
     for (const event of response.data || []) {
       if (boundary && event.before === boundary) reachedBoundary = true;
       if (!rangeSet.has(event.after)) continue;
-      const brought = /^0+$/.test(event.before || '')
-        ? [event.after]
-        : ((await rangeCommits(github, owner, repo, event.before, event.after)) || []).map((commit) => commit.sha);
-      for (const sha of [event.after, ...brought]) {
+      if (!unresolved() && reachedBoundary) continue;
+      // A branch creation (before = zeros) credits only its tip; the other
+      // commits stay unresolved, which the caller treats as unknown.
+      let brought = [event.after];
+      if (!/^0+$/.test(event.before || '')) {
+        let range = null;
+        try { range = await rangeCommits(compare, event.before, event.after); } catch { range = null; }
+        if (!range) {
+          // This push's commits cannot be listed: its actor is unknown for
+          // every wanted commit, so no lander can drop out of the list.
+          for (const sha of wanted) actors.get(sha).add('');
+          continue;
+        }
+        brought = brought.concat(range.map((commit) => commit.sha));
+      }
+      for (const sha of brought) {
         if (actors.has(sha)) actors.get(sha).add(event.actor?.login || '');
       }
     }
@@ -240,9 +303,9 @@ export async function decide({
 
   // The current nightly-next must be an ancestor of the target: compare
   // status "ahead". "identical" was handled above; anything else refuses.
-  const force = false;
+  const compare = comparer(github, owner, repo);
   if (current) {
-    const { data } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${current}...${sha}`, per_page: 1 });
+    const data = await compare(`${current}...${sha}`);
     if (data.status !== 'ahead') {
       return refuse(`${current} (${TARGET}) is not an ancestor of ${sha} (compare status ${data.status}); nothing promoted`, { sha, current });
     }
@@ -257,55 +320,46 @@ export async function decide({
   }
   const matches = surfaceMatcher(parseSurface(surfaceText));
   if (!current) {
-    return { action: 'needs-ack', reason: `${TARGET} does not exist; the first promotion needs a release approver`, sha, current, force, surfaceFiles: ['*'], landers: [] };
+    return { action: 'needs-ack', reason: `${TARGET} does not exist; the first promotion needs a release approver`, sha, current, surfaceFiles: ['*'], landers: [] };
   }
   const touches = (file) => matches(file.filename) || Boolean(file.previous_filename && matches(file.previous_filename));
-  const surfaceOf = (files) => files.filter(touches).flatMap((file) => [file.filename, file.previous_filename]).filter(Boolean).filter(matches);
 
   // Every commit in the range, merges and second parents included.
-  const commits = await rangeCommits(github, owner, repo, current, sha);
+  const commits = await rangeCommits(compare, current, sha);
   if (!commits) {
     return refuse(`the range ${current}...${sha} has more than ${MAX_RANGE_COMMITS} commits or the compare API did not list them all`, { sha, current });
   }
   const rangeSet = new Set(commits.map((commit) => commit.sha));
-  // The range's own file list is complete only below the compare API's cap.
-  const { data: range } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${current}...${sha}`, per_page: 1 });
-  const rangeFiles = range.files || [];
-  let detailed = null;
-  const details = async () => {
-    if (detailed) return detailed;
-    const out = [];
-    for (const commit of commits) {
-      const full = await commitWithFiles(github, owner, repo, commit.sha);
-      if (!full) return null;
-      out.push(full);
-    }
-    detailed = out;
-    return detailed;
-  };
-  let surfaceFiles;
-  if (rangeFiles.length < COMPARE_FILE_CAP) {
-    surfaceFiles = [...new Set(surfaceOf(rangeFiles))].sort();
-  } else {
-    // Every file the range changes is changed by one of its commits.
-    if (!(await details())) {
-      return refuse(`the range ${current}...${sha} changes ${COMPARE_FILE_CAP} or more files and a commit's file list is truncated; the change cannot be listed`, { sha, current });
-    }
-    surfaceFiles = [...new Set(detailed.flatMap((commit) => surfaceOf(commit.files)))].sort();
+
+  // G3 from the trees, not from a diff API: compare every surface path's blob
+  // in nightly-next and in the target. This is exact for any history shape
+  // (a merge that drops the old tip's change included) and has no file cap.
+  const dirs = surfaceDirectories(parseSurface(surfaceText));
+  const before = await surfaceBlobs(github, owner, repo, current, dirs, matches);
+  const after = await surfaceBlobs(github, owner, repo, sha, dirs, matches);
+  if (!before || !after) {
+    return refuse(`a release surface directory's git tree is truncated; the surface of ${current}...${sha} cannot be compared`, { sha, current });
   }
+  const surfaceFiles = [...new Set([...before.keys(), ...after.keys()])].filter((path) => before.get(path) !== after.get(path)).sort();
   if (surfaceFiles.length === 0) {
-    return { action: 'promote', reason: 'no release surface file changed', sha, current, force, surfaceFiles, landers: [] };
+    return { action: 'promote', reason: 'no release surface file changed', sha, current, surfaceFiles, landers: [] };
   }
 
-  // G4: who landed the surface change.
-  if (!(await details())) {
-    return refuse(`a commit in ${current}...${sha} has a truncated file list; the landers cannot be listed`, { sha, current, surfaceFiles });
+  // G4: who landed the surface change: the commits whose own diff touches the
+  // surface (a commit whose file list GitHub truncates counts as touching).
+  // A change no single commit shows (a merge that kept the other side's
+  // version) is attributed to the range's merge commits.
+  const detailed = [];
+  for (const commit of commits) {
+    const full = await commitWithFiles(github, owner, repo, commit.sha);
+    detailed.push(full || { sha: commit.sha, truncated: true, files: [], parents: commit.parents || [] });
   }
-  const touching = detailed.filter((commit) => commit.files.some(touches));
+  let touching = detailed.filter((commit) => commit.truncated || commit.files.some(touches));
+  if (touching.length === 0) touching = detailed.filter((commit) => (commit.parents || []).length > 1);
   if (touching.length === 0) {
-    return refuse(`the range changes ${surfaceFiles.join(', ')} but no commit in it shows the change`, { sha, current, surfaceFiles });
+    return refuse(`the surface of ${current}...${sha} changed (${surfaceFiles.join(', ')}) but no commit in the range accounts for it`, { sha, current, surfaceFiles });
   }
-  const actors = await pushActors(github, owner, repo, new Set(touching.map((commit) => commit.sha)), rangeSet, current);
+  const actors = await pushActors(github, owner, repo, compare, new Set(touching.map((commit) => commit.sha)), rangeSet, current);
   const landers = new Set();
   const unresolved = [];
   for (const commit of touching) {
@@ -319,7 +373,7 @@ export async function decide({
   return {
     action: 'needs-ack',
     reason: `${surfaceFiles.length} release surface file(s) changed`,
-    sha, current, force, surfaceFiles, landers: [...landers].sort(),
+    sha, current, surfaceFiles, landers: [...landers].sort(),
     touching: touching.map((commit) => commit.sha),
   };
 }
@@ -352,7 +406,7 @@ export function ackDecision({ decision, approvers, triggeringActor, expectedCurr
 }
 
 export async function move({ writer, github = writer, owner, repo, decision }) {
-  const { sha, current, force } = decision;
+  const { sha, current } = decision;
   // Compare and swap: refuse when nightly-next moved after the decision.
   let now = null;
   try {
@@ -366,7 +420,8 @@ export async function move({ writer, github = writer, owner, repo, decision }) {
   if (!current) {
     await writer.rest.git.createRef({ owner, repo, ref: `refs/heads/${TARGET}`, sha });
   } else {
-    await writer.rest.git.updateRef({ owner, repo, ref: `heads/${TARGET}`, sha, force: Boolean(force) });
+    // Never a force update: GitHub refuses a non-fast-forward move as well.
+    await writer.rest.git.updateRef({ owner, repo, ref: `heads/${TARGET}`, sha, force: false });
   }
   return `Promoted ${TARGET} to ${sha}; its push run publishes it.`;
 }
@@ -379,9 +434,6 @@ export function summary(decision) {
     `- current nightly-next: \`${decision.current || 'none'}\``,
     `- reason: ${decision.reason}`,
   ];
-  if (decision.force) {
-    lines.push('- nightly-next is a hand-made baseline that this promotion replaces; the patches it drops are listed only when the compare shows them');
-  }
   if (decision.surfaceFiles?.length) {
     lines.push('- release surface files changed:', ...decision.surfaceFiles.map((file) => `  - \`${file}\``));
   }
