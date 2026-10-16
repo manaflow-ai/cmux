@@ -61,6 +61,13 @@ final class SectionHeaderRowView: SidebarRowView {
             statusTone = nil
             badgeText = nil
             themedToolTip = nil
+        case let .custom(custom):
+            // A document section's own title (sidebar-v2); Pinned draws no header.
+            symbol = custom.id == SidebarDocStore.pinnedSection ? .statePinned : .folder
+            title = custom.title ?? ""
+            statusTone = nil
+            badgeText = nil
+            themedToolTip = nil
         case let .machine(machine):
             switch machine.kind {
             case .local: symbol = .machineLocal
@@ -115,7 +122,7 @@ final class SectionHeaderRowView: SidebarRowView {
             themedToolTip = nil
             setAccessibilityHelp(nil)
         }
-        if section.kind == .pinned || row.titlesProjects { setAccessibilityLabel(title) }
+        if section.machine == nil || row.titlesProjects { setAccessibilityLabel(title) }
         glyph.image = NSImage.icon(symbol, size: .iconRowSize(forLabelPointSize: SidebarStyle.headerFont.pointSize))
         machineIcon.configure(icon: ownIcon)
         name.setString(title)

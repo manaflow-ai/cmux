@@ -1,6 +1,6 @@
 public import CoreGraphics
 public import CmuxNextDesign
-import Foundation
+public import Foundation
 public import Observation
 
 /// Input and UI state for one window's sidebar.
@@ -37,6 +37,18 @@ public final class SidebarModel {
     public var observedSectionsRevision: UInt64 {
         access(keyPath: \.sections)
         return sectionsRevision
+    }
+    /// `sectionsRevision` when the user last moved rows (a keyboard move, a drop): the next structural set may scroll to
+    /// the moved active row. Nil: no move of the user's waits. Changes from others never move the view (DESIGN.md
+    /// scroll reveal, cx-ml98q).
+    @ObservationIgnored public private(set) var userMoveRevision: UInt64?
+    /// The user moved rows: the structural set that shows the move may reveal the active row.
+    public func noteUserMove() { userMoveRevision = sectionsRevision }
+    /// True once: at the first structural set after the user's move.
+    public func takeUserMove() -> Bool {
+        guard let mark = userMoveRevision, mark != sectionsRevision else { return false }
+        userMoveRevision = nil
+        return true
     }
     /// Where each workspace sits in `sections`; rebuilt on the first patch after a set.
     @ObservationIgnored var rowIndex: SidebarRowIndex?
@@ -177,8 +189,17 @@ public final class SidebarModel {
     public var isFiltering: Bool { filterMatches != nil }
 
     /// Drag and keyboard reorder are off while the drawn order is not the
-    /// model's: filtering, or grouping by folder.
-    public var locksReorder: Bool { isFiltering || groupsByFolder }
+    /// model's: filtering, or grouping by folder. On the sidebar document a
+    /// drag moves next to the row it is dropped by (an anchor), so it also
+    /// works while filtering.
+    public var locksReorder: Bool { (isFiltering && docDrag == nil) || groupsByFolder }
+    /// The sidebar document's drag half (sidebar-v2 S5), set by the App
+    /// while the document is active.
+    @ObservationIgnored public var docDrag: SidebarDocDrag?
+    /// The favicon at a page icon address, when the App has it (it fetches a missing one); link rows draw it.
+    public static var itemFavicon: ((String) -> SidebarFavicon?)?
+    /// Posted when favicons arrived: every list draws its link rows again.
+    public static let itemFaviconsChanged = Notification.Name("cmux.sidebar.itemFaviconsChanged")
 
     /// Every workspace in visual order.
     public var allWorkspaces: [SidebarWorkspace] { sections.flatMap(\.workspaces) }
@@ -252,7 +273,8 @@ public final class SidebarModel {
     /// Shows `new` (the App's mapping of daemon state) with this window's
     /// collapsed sections applied; assigns only when something changed.
     public func setSections(_ new: [SidebarSection]) {
-        var shown = new
+        // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
+        var shown = docDrag.flatMap { drag in SidebarDocStore.current?.shown.map { $0.arrange(new, drag: drag) } } ?? new
         for index in shown.indices {
             let collapsed = collapsedSections.contains(shown[index].id)
             if shown[index].isCollapsed != collapsed { shown[index].isCollapsed = collapsed }
@@ -370,7 +392,13 @@ public final class SidebarModel {
     public func moveSelection(_ direction: KeyboardReorder.Direction) -> Bool {
         guard !locksReorder else { return false }
         let ids = orderedSelection
+        if isFiltering, let docDrag {
+            guard docDrag.keyboardMove(ids, up: direction == .up, model: self) else { return false }
+            noteUserMove()
+            return true
+        }
         guard let position = KeyboardReorder.target(moving: ids, direction: direction, in: sections) else { return false }
+        noteUserMove()
         send(.reorder(ids, to: position))
         return true
     }

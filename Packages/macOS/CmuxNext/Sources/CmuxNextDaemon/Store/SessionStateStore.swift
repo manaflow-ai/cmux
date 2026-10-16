@@ -17,6 +17,13 @@ public final class SessionStateStore {
     /// resources (a snapshot, or a stream it refused); reset on connect.
     public internal(set) var known = false
 
+    /// Sidebar document batches (`sidebar-doc-v1`), in stream order; the
+    /// sidebar's document store applies them to its mirror.
+    @ObservationIgnored public var onSidebarBatch: (@MainActor (SidebarDocBatch) -> Void)?
+    /// A fresh stream snapshot: the sidebar document refetches (`sidebar.get`),
+    /// since batches during the gap were lost.
+    @ObservationIgnored public var onSidebarResync: (@MainActor () -> Void)?
+
     public init() {}
 
     /// Recently closed tabs, screens, and workspaces, newest first.
@@ -35,7 +42,11 @@ public final class SessionStateStore {
         case .snapshot(let snapshot):
             if mirror != snapshot { mirror = snapshot }
             if !known { known = true }
+            onSidebarResync?()
         case .delta(let changes):
+            for case .sidebarBatch(let batch) in changes { onSidebarBatch?(batch) }
+            // A sidebar-only batch changes no record: skip the overlay walk.
+            guard changes.contains(where: { if case .sidebarBatch = $0 { false } else { true } }) else { return }
             guard var state = mirror else { return }
             state.apply(changes)
             // An unchanged mirror changes no record: nothing to lay over.

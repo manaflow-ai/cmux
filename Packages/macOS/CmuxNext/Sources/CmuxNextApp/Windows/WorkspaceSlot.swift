@@ -77,8 +77,14 @@ enum WorkspaceSlot: Hashable, Sendable {
         nodes.lazy.compactMap(\.group).first { $0.workspaces.contains { $0.id.rawValue == id } }
     }
 
+    /// The group's member rows (a group's index counts its link, tab and app items too), without `moving`.
     private static func members(_ group: SidebarGroup, _ moving: Set<String>) -> [String] {
-        group.workspaces.map(\.id.rawValue).filter { !moving.contains($0) }
+        group.members.map { member in
+            switch member {
+            case let .workspace(workspace): workspace.id.rawValue
+            case let .item(item): "item:" + item.id
+            }
+        }.filter { !moving.contains($0) }
     }
 }
 

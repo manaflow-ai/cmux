@@ -134,10 +134,13 @@ public final class SidebarRowFeed {
         inputsChanged = false
         for id in named {
             guard let entry = entries[id] else { continue }
-            if remap || !entry.armed { entry.row = arm(id, entry) }
+            // A row whose content changed since its last map (dirty) keeps that row here: the scheduled flush maps it
+            // and sends it as a patch. Mapped here, a tick's status would ride this pass as a structural set (hitch17:
+            // a sidebar reload and an anchored offset shift every 1-2 s under 50 ticking terminals).
+            if remap || (!entry.armed && !dirty.contains(id)) { entry.row = arm(id, entry) }
             rows.append(entry.row)
         }
-        dirty.subtract(named)
+        if remap { dirty.subtract(named) }
         return SidebarRowIndex.patching(rows, in: sections)
     }
 

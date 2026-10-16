@@ -63,7 +63,7 @@ export const createSandbox = async (env: Env, caller: HandCaller, name: string):
       snapshotId: env.HAND_SANDBOX_SNAPSHOT,
       idleTimeoutSeconds: IDLE_SECONDS,
       automaticRestart: false,
-      metadata: { cmux_hand: hand, cmux_owner: caller.user },
+      metadata: { cmux_hand: hand, cmux_owner: caller.user, cmux_deployment: origin },
       firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }
     })
   }).catch(() => null)

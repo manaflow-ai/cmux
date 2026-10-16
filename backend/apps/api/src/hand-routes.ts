@@ -21,6 +21,7 @@ import { chiefOwnedBy } from "./chief-brain/brain-io.ts"
  *   POST   /v1/hands/<hand>/call                     the person: {action, params, timeout_ms?}
  *   GET    /v1/hands/<hand>/audit                    the person: newest audit rows
  *   GET    /v1/hands/<hand>/events?session=&after_seq=&wait_ms=   the person: agent events (waits up to 30 s for the next)
+ *   GET    /v1/hands/<hand>/verdicts                 the person: the classifier's verdicts (mac hands), newest first
  *   GET    /v1/hands/<hand>/approvals                the person: requests waiting for them (mac hands)
  *   POST   /v1/hands/<hand>/approvals/<id>           the person: {allow: boolean}
  *
@@ -105,7 +106,7 @@ export const handleHands = async (request: Request, env: Env, path: string): Pro
     if (!(await chiefOwnedBy(env, grant[1]!, principal))) return fail(403, "auth.forbidden", "only the Chief's owner grants it hands")
     return ok({ grants: await indexStub(env, caller.user).setGrant(grant[1]!, b.on) })
   }
-  const m = path.match(/^\/v1\/hands\/(hand_[a-z2-7]{20})(?:\/(call|audit|events|approvals)(?:\/([0-9a-f-]{36}))?)?$/)
+  const m = path.match(/^\/v1\/hands\/(hand_[a-z2-7]{20})(?:\/(call|audit|events|verdicts|approvals)(?:\/([0-9a-f-]{36}))?)?$/)
   if (!m || !HAND_ID.test(m[1]!)) return fail(404, "not_found", "not found")
   const stub = handStub(env, m[1]!)
   const [, , sub, approval] = m
@@ -124,6 +125,7 @@ export const handleHands = async (request: Request, env: Env, path: string): Pro
     const q = new URL(request.url).searchParams
     return request.method === "GET" ? reply(await stub.events(caller, q.get("session") ?? "", Number(q.get("after_seq")) || 0, Number(q.get("wait_ms")) || 0)) : fail(405, "method_not_allowed", "GET")
   }
+  if (sub === "verdicts") return request.method === "GET" ? reply(await stub.verdicts(caller, Number(new URL(request.url).searchParams.get("limit")) || 100)) : fail(405, "method_not_allowed", "GET")
   if (sub === "audit") return request.method === "GET" ? reply(await stub.auditLog(caller, Number(new URL(request.url).searchParams.get("limit")) || 100)) : fail(405, "method_not_allowed", "GET")
   if (!approval) return request.method === "GET" ? reply(await stub.approvals(caller)) : fail(405, "method_not_allowed", "GET")
   if (request.method !== "POST") return fail(405, "method_not_allowed", "POST")

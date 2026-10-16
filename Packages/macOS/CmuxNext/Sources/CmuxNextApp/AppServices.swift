@@ -12,6 +12,7 @@ import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextBrowserImport
 import CmuxNextSettings
+import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextUpdater
 import os
@@ -117,6 +118,7 @@ final class AppServices {
         let service = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: self),
                                            onRefused: { [weak self] message in self?.registry.refuse(message) })
         service.start()
+        SidebarDocWiring.start(self, layout: service)
         return service
     }()
     /// Each pane's own Hide Tab Bar choice (`PaneTabBarChoices`).
@@ -209,6 +211,8 @@ final class AppServices {
     ///   hold for; the app-wide one by default.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared) {
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
+        // Before any connection: a build with the sidebar document orders rows from it only (placement-shift-v1).
+        DaemonCapabilities.echoesPlacementShift = SidebarMirror.isLinked
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared

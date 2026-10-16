@@ -14,4 +14,5 @@ extension KeyRouter {
               let window, undoToasts.takesUndoKey(in: window) else { return false }
         return undoToasts.runUndo(in: window)
     }
+
 }

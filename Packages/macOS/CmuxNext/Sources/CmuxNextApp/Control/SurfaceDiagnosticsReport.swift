@@ -1,5 +1,6 @@
 import CmuxNextPages
 import AppKit
+import CmuxNextBrowser
 import CmuxNextSettings
 import CmuxNextTerminal
 
@@ -37,6 +38,14 @@ enum SurfaceDiagnosticsReport {
                    let page = view.content as? PageWebView {
                     object["phase"] = .string(page.hasPainted ? "painted" : "loading")
                 }
+                #if DEBUG
+                // A web page tab's current address (the live engine's, else the tab record's), so a script can tell
+                // which page a pane shows.
+                if case .browser(let entry)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
+                    let address = entry.tab.state.url?.absoluteString ?? row.pane.selectedTab?.url
+                    object["url"] = address.map(JSONValue.string) ?? .null
+                }
+                #endif
                 if case .terminal(let entry)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
                     object["attach"] = .string(entry.io.attachPhase.journalName)
                     object["link"] = .string(Self.linkName(entry.session.model.connection))

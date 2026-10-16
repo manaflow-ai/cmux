@@ -16,6 +16,11 @@ extension SidebarModel {
         var options = SidebarLayoutOptions()
         options.filterMatches = filterMatches
         options.groupsByFolder = groupsByFolder
+        // The sidebar document draws its sections in the list: a block's items are stops where the block draws.
+        let listed = Set(sections.compactMap { section -> String? in if case let .custom(custom) = section.kind { custom.id } else { nil } })
+        let inBlock = Dictionary(grouping: top, by: { item in layout.sections.first { $0.items.contains(item) }?.id.rawValue ?? "" })
+        for id in listed { options.blockHeights[id] = 1 }
+        options.collapsedDocSections = Set(collapsedLayoutSections.map(\.rawValue))
         let selectable = Set(selectableWorkspaces.map(\.id))
         var rows: [SidebarItem] = []
         var stops: [WorkspaceID: SidebarItem] = [:]
@@ -23,6 +28,10 @@ extension SidebarModel {
             switch row.key {
             case let .workspace(id) where selectable.contains(id):
                 rows.append(.workspace(id))
+            case let .item(id):
+                rows.append(.topItem(LayoutItemID(id))) // a link, tab or app row is a stop like a band item
+            case let .block(id) where !collapsedLayoutSections.contains(LayoutSectionID(id)):
+                rows += (inBlock[id] ?? []).map { .topItem($0.id) }
             case let .group(id):
                 guard let group = group(id), group.isCollapsed else { continue }
                 let members = group.workspaces.map(\.id).filter(selectable.contains)
@@ -33,6 +42,7 @@ extension SidebarModel {
                 continue
             }
         }
-        return SidebarItemOrder(topItems: top.map { .topItem($0.id) }, rows: rows, stops: stops)
+        let topItems = top.filter { item in !listed.contains(inBlock.first { $0.value.contains(item) }?.key ?? "") }
+        return SidebarItemOrder(topItems: topItems.map { .topItem($0.id) }, rows: rows, stops: stops)
     }
 }
