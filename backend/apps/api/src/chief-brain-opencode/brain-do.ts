@@ -137,6 +137,8 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     if (this.get("agent") !== w.agent) return { skipped: "other_chief" }
     this.set("owner", w.owner)
     const cursor = this.sql.exec<{ seq: number }>(`SELECT seq FROM oc_cursor WHERE conversation = ?`, w.conversation).toArray()[0]?.seq
+    // A resent wake whose message a later turn already read is answered: nothing to do (MuxDO redelivery).
+    if (cursor !== undefined && w.seq <= cursor) return { queued: 0 }
     // A conversation this brain never answered starts just before the wake: older history is context, not a question.
     if (cursor === undefined) this.sql.exec(`INSERT INTO oc_cursor (conversation, seq) VALUES (?, ?)`, w.conversation, w.seq - 1)
     const fresh = this.sql.exec(`INSERT INTO oc_wake (wake_id, conversation, seq, reason) VALUES (?, ?, ?, ?) ON CONFLICT (wake_id) DO NOTHING RETURNING n`, `${w.conversation}:${w.seq}`, w.conversation, w.seq, w.reason).toArray()
