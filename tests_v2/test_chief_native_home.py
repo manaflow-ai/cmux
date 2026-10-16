@@ -16,6 +16,9 @@ def main():
         raise RuntimeError("Set CMUX_SOCKET_PATH to an isolated tagged development socket")
     with cmux(path) as client:
         before = client._call("workspace.list")["workspaces"]
+        local = next((row for row in before if row["title"] != "Home"), None)
+        assert local is not None, "Keep a local workspace for the Home navigation regression"
+        client._call("workspace.select", {"workspace_id": local["id"]})
         client._call("chief.open")
         after = client._call("workspace.list")["workspaces"]
         home = next((row for row in after if row["selected"] and row["title"] == "Home"), None)
