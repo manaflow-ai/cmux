@@ -19,7 +19,7 @@ struct SceneNodeViewRenderingTests {
     /// Sends a left click through AppKit so SwiftUI's native gesture routing
     /// is exercised instead of calling the scene event sink directly.
     private func postLeftClick(at point: NSPoint, in window: NSWindow) async {
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+        for (eventNumber, type) in [NSEvent.EventType.leftMouseDown, .leftMouseUp].enumerated() {
             guard let event = NSEvent.mouseEvent(
                 with: type,
                 location: point,
@@ -27,11 +27,11 @@ struct SceneNodeViewRenderingTests {
                 timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: window.windowNumber,
                 context: nil,
-                eventNumber: 0,
+                eventNumber: eventNumber + 1,
                 clickCount: 1,
                 pressure: 1
             ) else { continue }
-            NSApp.postEvent(event, atStart: false)
+            NSApp.sendEvent(event)
         }
         spinRunLoop()
         for _ in 0..<5 {
@@ -170,13 +170,12 @@ struct SceneNodeViewRenderingTests {
                 .environment(\.sceneEventSink, sink)
         )
         let window = NSWindow(
-            contentRect: NSRect(x: -4000, y: -4000, width: 320, height: 120),
+            contentRect: NSRect(x: 200, y: 200, width: 320, height: 120),
             styleMask: [.titled],
             backing: .buffered,
             defer: false
         )
         window.contentView = host
-        window.orderBack(nil)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         host.frame = window.contentView?.bounds ?? .zero
