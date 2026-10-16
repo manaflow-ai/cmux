@@ -42,6 +42,8 @@ async fn retry_behind_a_full_queue(resend: bool) {
         Some((reply, _)) => reply.unwrap(),
         None => retry.response(request).await.0.unwrap(),
     };
+    // A final turn drains the original queue and any accidental retry queued behind it.
+    c.request(method::SESSION_PROMPT, prompt_with_id(&id, "hi", "p-drained", false)).await.unwrap();
     let records = hub.events(&id, 0, 10_000).unwrap();
     let runs = records
         .iter()

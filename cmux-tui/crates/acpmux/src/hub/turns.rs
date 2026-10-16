@@ -94,9 +94,6 @@ impl Hub {
                 None => {
                     let outcome = Arc::new(tokio::sync::watch::channel(None).0);
                     ledger.push_back((prompt_id.clone(), outcome.clone()));
-                    if ledger.len() > PROMPT_LEDGER {
-                        ledger.pop_front();
-                    }
                     Ok(outcome)
                 }
             }
@@ -125,7 +122,9 @@ impl Hub {
             if let Some(f) = opts.on_accepted.take() {
                 f(duplicate(logged.clone()));
             }
+            let mut ledger = session.prompts.lock().unwrap();
             outcome.send_replace(Some(Ok(logged.clone())));
+            prompt_ledger::prune(&mut ledger);
             return Ok(logged);
         }
         // Remember the outcome only for a prompt that reached the session:
@@ -142,10 +141,12 @@ impl Hub {
             opts.on_accepted = Some(Box::new(move |_| accepted.store(true, Ordering::SeqCst)));
         }
         let result = self.run_prompt(session, blocks, client, steer, opts).await;
+        let mut ledger = session.prompts.lock().unwrap();
         if !accepted.load(Ordering::SeqCst) {
-            session.prompts.lock().unwrap().retain(|(id, _)| *id != prompt_id);
+            ledger.retain(|(id, _)| *id != prompt_id);
         }
         outcome.send_replace(Some(result.clone()));
+        prompt_ledger::prune(&mut ledger);
         result
     }
 
