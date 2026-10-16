@@ -29,6 +29,42 @@ const codexModelsLoading = new Set(["codex"]);
 const fixtureSha = (digit: string) => digit.repeat(64);
 const humanMandateRef = "user-request:orchestration-lab-gallery-prototype";
 
+type AdmissionCapability = { id: string; label: string; met: boolean };
+type AdmissionReservation = {
+  state: "none" | "held" | "pending" | "expired" | "released";
+  leaseId?: string;
+  expiresAt?: string;
+};
+type AdmissionDependency = {
+  state: "none" | "pending" | "failed" | "unknown";
+  ref?: string;
+  detail?: string;
+};
+type AdmissionAction = {
+  kind: "dispatch" | "wait" | "reconcile" | "repair" | "request_authorization" | "escalate" | "none";
+  detail: string;
+};
+type AdmissionProposal = {
+  kind: "dispatch" | "wait" | "request_authorization";
+  detail: string;
+};
+type AdmissionAuthorization = {
+  state: "pending" | "not_required";
+  detail: string;
+};
+type Admission = {
+  decision: "admit" | "hold" | "wait" | "reject";
+  displayLabel: string;
+  capacityReason: "available" | "reserved" | "dependency_blocked" | "capacity_unavailable" | "unknown";
+  reason: string;
+  requiredCapabilities: AdmissionCapability[];
+  reservation: AdmissionReservation;
+  dependency: AdmissionDependency;
+  nextSafeAction: AdmissionAction;
+  proposal: AdmissionProposal;
+  authorization: AdmissionAuthorization;
+};
+
 type OrchestrationStrategy = {
   id: string;
   label: string;
@@ -61,6 +97,7 @@ type OrchestrationStrategy = {
   artifacts: string;
   gap: string;
   nextAction: string;
+  admission: Admission;
 };
 
 const orchestrationStrategies: OrchestrationStrategy[] = [
@@ -96,6 +133,22 @@ const orchestrationStrategies: OrchestrationStrategy[] = [
     artifacts: "gallery.js",
     gap: "none",
     nextAction: "Run next bounded task",
+    admission: {
+      decision: "admit",
+      displayLabel: "Admit to local queue",
+      capacityReason: "available",
+      reason: "A local slot is available and the task stays within the bounded fixture budget.",
+      requiredCapabilities: [
+        { id: "loopback", label: "loopback transport", met: true },
+        { id: "active-slot", label: "4 active slots", met: true },
+        { id: "fixture-guidance", label: "fixture guidance", met: true },
+      ],
+      reservation: { state: "held", leaseId: "lease-local-01", expiresAt: "fixture+09:42" },
+      dependency: { state: "none" },
+      nextSafeAction: { kind: "dispatch", detail: "Run the next bounded task and record its receipt." },
+      proposal: { kind: "dispatch", detail: "Start orch-local-01 on the local supervisor" },
+      authorization: { state: "not_required", detail: "Fixture scope permits preview only; dispatch remains disabled." },
+    },
   },
   {
     id: "huge-blue",
@@ -129,6 +182,22 @@ const orchestrationStrategies: OrchestrationStrategy[] = [
     artifacts: "acpmux binary",
     gap: "dogfood gate held",
     nextAction: "Reconcile controller cleanup",
+    admission: {
+      decision: "hold",
+      displayLabel: "Hold for cleanup review",
+      capacityReason: "dependency_blocked",
+      reason: "The host is reserved, but the controller cleanup proof is still held.",
+      requiredCapabilities: [
+        { id: "enrolled-ssh", label: "enrolled SSH host", met: true },
+        { id: "linux-x86_64", label: "linux-x86_64", met: true },
+        { id: "rust-toolchain", label: "Rust toolchain", met: true },
+      ],
+      reservation: { state: "held", leaseId: "lease-huge-blue-07", expiresAt: "fixture+17:30" },
+      dependency: { state: "pending", ref: "controller-cleanup-receipt", detail: "Revised controller cleanup receipt" },
+      nextSafeAction: { kind: "reconcile", detail: "Reconcile cleanup evidence before requesting admission." },
+      proposal: { kind: "request_authorization", detail: "Request orch-huge-blue-07 after cleanup proof" },
+      authorization: { state: "pending", detail: "Proposal only; human authorization is required for admission." },
+    },
   },
   {
     id: "cloud-fair-share",
@@ -162,6 +231,22 @@ const orchestrationStrategies: OrchestrationStrategy[] = [
     artifacts: "pending",
     gap: "capacity unavailable",
     nextAction: "Proposal · human authorization required: Wait for fair-share slot",
+    admission: {
+      decision: "wait",
+      displayLabel: "Wait for fair-share capacity",
+      capacityReason: "capacity_unavailable",
+      reason: "No fair-share slot is available inside the current capacity budget.",
+      requiredCapabilities: [
+        { id: "durable-lease", label: "durable lease", met: true },
+        { id: "fair-share", label: "fair-share queue", met: false },
+        { id: "retry-budget", label: "retry budget", met: true },
+      ],
+      reservation: { state: "pending" },
+      dependency: { state: "unknown", detail: "Capacity unavailable" },
+      nextSafeAction: { kind: "wait", detail: "Keep the proposal queued and re-evaluate when a slot opens." },
+      proposal: { kind: "wait", detail: "Claim the next fair-share slot for orch-cloud-12" },
+      authorization: { state: "pending", detail: "Proposal only; human authorization is required to wait or claim." },
+    },
   },
 ];
 
@@ -174,6 +259,60 @@ function Section({ id, title, children }: { id: string; title: string; children:
     <section className="gallery-section" id={id}>
       <h2>{title}</h2>
       <div className="gallery-section-body">{children}</div>
+    </section>
+  );
+}
+
+function AdmissionDecision({ strategy }: { strategy: OrchestrationStrategy }) {
+  const { admission } = strategy;
+  return (
+    <section className="orchestration-admission" aria-label={`${strategy.label} admission decision`}>
+      <div className="orchestration-admission-heading">
+        <div>
+          <div className="orchestration-inspector-kicker">Admission decision · fixture preview</div>
+          <h4>{admission.displayLabel}</h4>
+        </div>
+        <span className={`orchestration-admission-badge orchestration-admission-${admission.decision}`}>
+          {admission.decision}
+        </span>
+      </div>
+      <p className="orchestration-admission-reason">{admission.reason}</p>
+      <dl className="orchestration-admission-fields">
+        <div>
+          <dt>Required capabilities</dt>
+          <dd><ul>{admission.requiredCapabilities.map((capability) => (
+            <li className={capability.met ? "met" : "missing"} key={capability.id}>
+              <span aria-hidden="true">{capability.met ? "✓" : "!"}</span> {capability.label}
+            </li>
+          ))}</ul></dd>
+        </div>
+        <div>
+          <dt>Capacity reason</dt>
+          <dd>{admission.capacityReason}</dd>
+        </div>
+        <div>
+          <dt>Reservation</dt>
+          <dd>{admission.reservation.state}{admission.reservation.leaseId ? ` · ${admission.reservation.leaseId}` : ""}{admission.reservation.expiresAt ? ` · ${admission.reservation.expiresAt}` : ""}</dd>
+        </div>
+        <div>
+          <dt>Blocking dependency</dt>
+          <dd>{admission.dependency.state}{admission.dependency.ref ? ` · ${admission.dependency.ref}` : ""}{admission.dependency.detail ? ` · ${admission.dependency.detail}` : ""}</dd>
+        </div>
+        <div>
+          <dt>Next safe action</dt>
+          <dd><span className="orchestration-action-kind">{admission.nextSafeAction.kind}</span> · {admission.nextSafeAction.detail}</dd>
+        </div>
+      </dl>
+      <div className="orchestration-proposal-grid">
+        <div className="orchestration-proposal">
+          <span className="orchestration-proposal-label">Proposal</span>
+          <strong><span className="orchestration-action-kind">{admission.proposal.kind}</span> · {admission.proposal.detail}</strong>
+        </div>
+        <div className="orchestration-authorization">
+          <span className="orchestration-proposal-label">Authorization · {admission.authorization.state}</span>
+          <strong>{admission.authorization.detail}</strong>
+        </div>
+      </div>
     </section>
   );
 }
@@ -249,6 +388,7 @@ function OrchestrationLab({ open }: { open: boolean }) {
           <div><dt>Evidence</dt><dd>{selectedStrategy.evidence}</dd></div>
           <div><dt>Next action</dt><dd>{selectedStrategy.nextAction}</dd></div>
         </dl>
+        <AdmissionDecision strategy={selectedStrategy} />
         <pre className="orchestration-receipt-preview" aria-label="Non-contract display sample: receipt-shaped fixture with context">{JSON.stringify({
           receipt: {
             schema_version: 1,

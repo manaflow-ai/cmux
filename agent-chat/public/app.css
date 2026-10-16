@@ -927,6 +927,37 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 .orchestration-receipt-summary > div { min-width: 0; }
 .orchestration-receipt-summary dt { color: var(--text-faint); font: calc(var(--font-size-code) - 1.5px) / 1.3 var(--font-mono); }
 .orchestration-receipt-summary dd { min-width: 0; margin: 2px 0 0; overflow-wrap: anywhere; color: var(--text-dim); font: calc(var(--font-size-code) - 1px) / 1.35 var(--font-mono); }
+.orchestration-admission {
+  display: flex; flex-direction: column; gap: 10px; padding: 12px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-raised) 65%, transparent);
+}
+.orchestration-admission-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.orchestration-admission h4 { margin: 3px 0 0; color: var(--text); font: 500 var(--font-size-base) var(--font-sans); }
+.orchestration-admission-badge {
+  flex: none; border-radius: 999px; padding: 3px 8px;
+  font: 600 calc(var(--font-size-code) - 1.5px) / 1.2 var(--font-mono); letter-spacing: .02em; text-transform: uppercase;
+}
+.orchestration-admission-admit { background: color-mix(in srgb, var(--accent) 17%, transparent); color: var(--accent); }
+.orchestration-admission-hold { background: color-mix(in srgb, #d9a441 18%, transparent); color: #d9a441; }
+.orchestration-admission-wait { background: color-mix(in srgb, var(--text-faint) 16%, transparent); color: var(--text-dim); }
+.orchestration-admission-reject { background: color-mix(in srgb, #d85b5b 17%, transparent); color: #d85b5b; }
+.orchestration-admission-reason { margin: 0; color: var(--text-dim); font: calc(var(--font-size-base) - 1px) / 1.4 var(--font-sans); }
+.orchestration-admission-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 9px 14px; margin: 0; }
+.orchestration-admission-fields > div { min-width: 0; }
+.orchestration-admission-fields dt { color: var(--text-faint); font: calc(var(--font-size-code) - 1.5px) / 1.3 var(--font-mono); }
+.orchestration-admission-fields dd { margin: 2px 0 0; overflow-wrap: anywhere; color: var(--text-dim); font: calc(var(--font-size-code) - 1px) / 1.35 var(--font-mono); }
+.orchestration-admission-fields ul { display: flex; flex-wrap: wrap; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.orchestration-admission-fields li { padding: 2px 6px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-dim); }
+.orchestration-admission-fields li.met { border-color: color-mix(in srgb, var(--accent) 38%, var(--border)); }
+.orchestration-admission-fields li.missing { border-color: color-mix(in srgb, #d9a441 45%, var(--border)); color: #d9a441; }
+.orchestration-action-kind { color: var(--text-faint); font-weight: 600; text-transform: uppercase; }
+.orchestration-proposal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+.orchestration-proposal, .orchestration-authorization { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 9px 10px; border-radius: 8px; background: color-mix(in srgb, var(--bg-input) 78%, transparent); }
+.orchestration-proposal { border-left: 2px solid color-mix(in srgb, var(--accent) 65%, transparent); }
+.orchestration-authorization { border-left: 2px solid color-mix(in srgb, #d9a441 65%, transparent); }
+.orchestration-proposal-label { color: var(--text-faint); font: 600 calc(var(--font-size-code) - 2px) / 1.2 var(--font-mono); letter-spacing: .03em; text-transform: uppercase; }
+.orchestration-proposal strong, .orchestration-authorization strong { color: var(--text-dim); font: 400 calc(var(--font-size-code) - 1px) / 1.4 var(--font-mono); overflow-wrap: anywhere; }
 .orchestration-receipt-preview {
   max-height: 270px; margin: 0; overflow: auto; padding: 11px 12px; border-radius: 8px;
   background: color-mix(in srgb, var(--bg-code) 88%, var(--bg-input)); color: var(--text-dim);
