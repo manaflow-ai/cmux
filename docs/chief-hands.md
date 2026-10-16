@@ -32,6 +32,8 @@ curl -fsSL https://<api>/hand/install.sh | sh -s -- --pair <code> [--profile mac
 - A Chief can only lower a level.
 - A raise needs the owner's presence proof. That is a signature over a single-use challenge (`POST /v1/hands/<hand>/level-challenge`), made by a Secure Enclave key with the `userPresence` access-control flag (Touch ID or Face ID) that the app registered for its install (`PUT /v1/hands/presence-key`, signed by the install key).
 - An approval answer (allow) uses the plain install key. A deny needs only the owner's session.
+- The shared trust rule: the owner's own device signs a per-request nonce with its key; the verifier holds only what it needs to check it. (acpmux's person key is a symmetric secret that stays on the Mac, so the Cloud uses the install key and the presence key, whose public halves it holds.)
+- The owner's app gets `hand-approval-pending {hand, id, summary, at, sign}` and `hand-approval-settled {hand, id, outcome}` on its user wire socket (no polling); `GET /v1/hands/<hand>/approvals` is the read at launch.
 
 ## Sandboxes and providers
 

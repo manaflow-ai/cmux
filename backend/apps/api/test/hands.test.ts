@@ -216,6 +216,16 @@ describe("Chief hands", { timeout: 60_000 }, () => {
       }
     })
     expect((await http("PUT", `/v1/hands/${hand}/level`, token, { level: "ask" })).json.value).toMatchObject({ level: "ask" })
+    // The owner's app socket (the user wire) gets the approval as it happens: no polling.
+    const wire = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+    const appFrames: Array<any> = []
+    wire.webSocket!.addEventListener("message", (e) => {
+      const f = JSON.parse(e.data as string)
+      if (String(f.t).startsWith("hand-approval")) appFrames.push(f)
+    })
+    wire.webSocket!.accept()
+    wire.webSocket!.send(JSON.stringify({ t: "subscribe" }))
+    await new Promise((r) => setTimeout(r, 100))
     const pending = http("POST", `/v1/hands/${hand}/call`, token, { action: "fs.write", params: { path: "/work/p/a", text: "x" }, timeout_ms: 5_000 })
     for (let i = 0; i < 50 && !approvalId; i++) await new Promise((r) => setTimeout(r, 20))
     const listed = (await http("GET", `/v1/hands/${hand}/approvals`, token)).json.value
@@ -225,6 +235,11 @@ describe("Chief hands", { timeout: 60_000 }, () => {
     expect((await http("POST", `/v1/hands/${hand}/approvals/${approvalId}`, token, { allow: false })).json).toMatchObject({ ok: true, value: { allow: false } })
     for (let i = 0; i < 50 && answers.length === 0; i++) await new Promise((r) => setTimeout(r, 20))
     expect(answers).toEqual([{ t: "approval", id: approvalId, allow: false }])
+    for (let i = 0; i < 50 && appFrames.length < 2; i++) await new Promise((r) => setTimeout(r, 20))
+    expect(appFrames).toEqual([
+      { t: "hand-approval-pending", hand, id: approvalId, summary: { action: "fs.write" }, at: expect.any(Number), sign: expect.stringContaining(`:${hand}:${approvalId}:allow`) },
+      { t: "hand-approval-settled", hand, id: approvalId, outcome: "denied" }
+    ])
     expect((await http("POST", `/v1/hands/${hand}/approvals/${approvalId}`, token, { allow: false })).json.error.code).toBe("hand.approval_answered")
     expect((await pending).json.error.code).toBe("policy.owner_denied")
   })
