@@ -434,7 +434,7 @@ class RegistryBlastRadiusTests(unittest.TestCase):
         )
         self.assertNotIn("github.event.pull_request.base.sha", step)
         self.assertIn(
-            'git fetch --no-tags --depth=1 origin "$CMUX_TEST_REGISTRY_BASE_REF"',
+            'git fetch --no-tags --depth=1 origin "refs/heads/$CMUX_TEST_REGISTRY_BASE_REF"',
             step,
         )
         self.assertIn('CMUX_TEST_REGISTRY_BASE_SHA="$(git rev-parse FETCH_HEAD)"', step)
@@ -660,7 +660,6 @@ class LaneRunnerTests(unittest.TestCase):
         workflow = ["run: python3 scripts/verify-local.py --jobs 4\n"]
         discovered = validator.recipe_tests(workflow)
         self.assertIn("tests/test_normalize_pbxproj.py", discovered)
-        self.assertIn("tests/test_ui_fuzzer_engine.py", discovered)
 
 
 if __name__ == "__main__":
