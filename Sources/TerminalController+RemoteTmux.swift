@@ -358,8 +358,24 @@ extension TerminalController {
         guard let sessionName = Self.remoteTmuxSessionName(from: params, transport: host.transport) else {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.sessionRequired", defaultValue: "session is required"))
         }
-        let remoteWorkingDirectory = (params["remote_cwd"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let remoteWorkingDirectory: String?
+        if let rawRemoteWorkingDirectory = params["remote_cwd"] {
+            guard let path = rawRemoteWorkingDirectory as? String,
+                  !path.isEmpty,
+                  !Self.remoteTmuxValueHasHiddenCharacter(path) else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.remoteTmux.remoteCwdInvalid",
+                        defaultValue: "remote_cwd must be a non-empty string"
+                    )
+                )
+            }
+            remoteWorkingDirectory = path
+        } else {
+            remoteWorkingDirectory = nil
+        }
         let activate = Self.remoteTmuxActivate(from: params)
         let workspaceName = Self.remoteTmuxWorkspaceName(from: params)
         let newWindow = (params["new_window"] as? Bool) == true
@@ -369,11 +385,15 @@ extension TerminalController {
             else {
                 throw RemoteTmuxError.unreachable("app not ready")
             }
+            let windowTarget = newWindow
+                ? RemoteTmuxAttachWindowTarget.dedicatedNewWindow
+                : await MainActor.run { self.remoteTmuxAttachWindowTarget(routing: routing) }
+            try await controller.validateAttachWindowTarget(windowTarget, host: host)
             do {
-                try await controller.createRemoteSession(
+                _ = try await controller.createRemoteSession(
                     host: host,
                     sessionName: sessionName,
-                    workingDirectory: remoteWorkingDirectory?.isEmpty == false ? remoteWorkingDirectory : nil
+                    workingDirectory: remoteWorkingDirectory
                 )
             } catch let error as RemoteTmuxError {
                 if case .commandFailed(_, let stderr) = error,
@@ -387,9 +407,6 @@ extension TerminalController {
                 }
                 throw error
             }
-            let windowTarget = newWindow
-                ? RemoteTmuxAttachWindowTarget.dedicatedNewWindow
-                : await MainActor.run { self.remoteTmuxAttachWindowTarget(routing: routing) }
             let outcome = try await controller.attachHost(
                 host: host,
                 windowTarget: windowTarget,
@@ -399,6 +416,7 @@ extension TerminalController {
             )
             switch outcome {
             case .mirrored(let windowId, let workspaceIds):
+                controller.completeRemoteSessionCreation(host: host, sessionName: sessionName)
                 return [
                     "host": host.destination,
                     "mirrored": true,

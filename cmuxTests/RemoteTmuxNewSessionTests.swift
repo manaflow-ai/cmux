@@ -10,6 +10,29 @@ import Testing
 /// Focused coverage for the strict remote `new` operation used by
 /// `cmux ssh-tmux <host> new <session>`.
 @Suite struct RemoteTmuxNewSessionTests {
+    @Test @MainActor func controllerDoesNotRecreatePendingNamedSession() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let environment = try FakeSSHEnvironment(exitCode: 0, stderr: "")
+            defer { environment.cleanUp() }
+            let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH(environment.executablePath)
+            defer { restoreSSH() }
+            let controller = RemoteTmuxController()
+            let host = RemoteTmuxHost(destination: "user@host")
+
+            #expect(try await controller.createRemoteSession(host: host, sessionName: "work"))
+            #expect(!(try await controller.createRemoteSession(host: host, sessionName: "work")))
+            let firstInvocations = try environment.invocations()
+            #expect(firstInvocations.count == 1)
+
+            // A successful mirror retires the pending marker, so a later explicit `new` request
+            // is allowed to issue another strict create operation.
+            controller.completeRemoteSessionCreation(host: host, sessionName: "work")
+            #expect(try await controller.createRemoteSession(host: host, sessionName: "work"))
+            let secondInvocations = try environment.invocations()
+            #expect(secondInvocations.count == 2)
+        }
+    }
+
     @Test func createSessionSendsNameAndRemoteWorkingDirectoryAsTmuxArguments() async throws {
         let environment = try FakeSSHEnvironment(exitCode: 0, stderr: "")
         defer { environment.cleanUp() }

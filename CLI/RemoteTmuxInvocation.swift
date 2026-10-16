@@ -83,10 +83,16 @@ struct RemoteTmuxInvocation: Equatable {
                 guard index + 1 < commandArgs.count,
                       !commandArgs[index + 1].isEmpty,
                       !commandArgs[index + 1].hasPrefix("-") else {
-                    throw CLIError(message: "ssh-tmux: -c requires a remote working directory")
+                    throw CLIError(message: String(
+                        localized: "cli.sshTmux.error.remoteCwdRequired",
+                        defaultValue: "ssh-tmux: -c requires a remote working directory"
+                    ))
                 }
                 guard workingDirectory == nil else {
-                    throw CLIError(message: "ssh-tmux: remote working directory was specified more than once")
+                    throw CLIError(message: String(
+                        localized: "cli.sshTmux.error.remoteCwdDuplicate",
+                        defaultValue: "ssh-tmux: remote working directory was specified more than once"
+                    ))
                 }
                 workingDirectory = commandArgs[index + 1]
                 index += 2
@@ -188,18 +194,27 @@ struct RemoteTmuxInvocation: Equatable {
                 throw CLIError(message: "ssh-tmux attach requires a session name")
             }
             guard workingDirectory == nil else {
-                throw CLIError(message: "ssh-tmux attach does not accept -c")
+                throw CLIError(message: String(
+                    localized: "cli.sshTmux.error.attachRemoteCwdUnsupported",
+                    defaultValue: "ssh-tmux attach does not accept -c"
+                ))
             }
             resolvedAction = .attach(session: requestedSession)
         case .new:
             guard let requestedSession = requestedSession?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !requestedSession.isEmpty else {
-                throw CLIError(message: "ssh-tmux new requires a session name")
+                throw CLIError(message: String(
+                    localized: "cli.sshTmux.error.newSessionRequired",
+                    defaultValue: "ssh-tmux new requires a session name"
+                ))
             }
             resolvedAction = .new(session: requestedSession, workingDirectory: workingDirectory)
         case .mirror:
             guard workingDirectory == nil else {
-                throw CLIError(message: "ssh-tmux -c is only valid with new <session>")
+                throw CLIError(message: String(
+                    localized: "cli.sshTmux.error.remoteCwdOnlyWithNew",
+                    defaultValue: "ssh-tmux -c is only valid with new <session>"
+                ))
             }
             resolvedAction = .mirror
         case nil:
@@ -209,7 +224,10 @@ struct RemoteTmuxInvocation: Equatable {
                     throw CLIError(message: "ssh-tmux: --session requires a session name")
                 }
                 guard workingDirectory == nil else {
-                    throw CLIError(message: "ssh-tmux attach does not accept -c")
+                    throw CLIError(message: String(
+                        localized: "cli.sshTmux.error.attachRemoteCwdUnsupported",
+                        defaultValue: "ssh-tmux attach does not accept -c"
+                    ))
                 }
                 resolvedAction = .attach(session: requestedSession)
                 return RemoteTmuxInvocation(

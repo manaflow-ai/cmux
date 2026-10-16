@@ -435666,6 +435666,65 @@
         }
       }
     },
+    "socket.remoteTmux.remoteCwdInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote_cwd must be a non-empty string"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote_cwd muss eine nicht leere Zeichenfolge sein"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote_cwd doit être une chaîne non vide"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون remote_cwd سلسلة غير فارغة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote_cwd debe ser una cadena no vacía"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote_cwd 必須是非空字串"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote_cwd 必须是非空字符串"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote_cwd는 비어 있지 않은 문자열이어야 합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote_cwd は空でない文字列である必要があります"
+          }
+        }
+      }
+    },
     "socket.remoteTmux.sessionRequired": {
       "extractionState": "manual",
       "localizations": {
@@ -643330,6 +643389,301 @@
     }
   }
 },
+    "cli.sshTmux.error.remoteCwdRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: -c requires a remote working directory"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: -c benötigt ein entferntes Arbeitsverzeichnis"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux : -c nécessite un répertoire de travail distant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: يتطلب ‎-c دليل عمل بعيدًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: -c requiere un directorio de trabajo remoto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux：-c 需要遠端工作目錄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux：-c 需要远程工作目录"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: -c에는 원격 작업 디렉터리가 필요합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: -c にはリモート作業ディレクトリが必要です"
+          }
+        }
+      }
+    },
+    "cli.sshTmux.error.remoteCwdDuplicate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: remote working directory was specified more than once"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: Das entfernte Arbeitsverzeichnis wurde mehr als einmal angegeben"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux : le répertoire de travail distant a été indiqué plusieurs fois"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: تم تحديد دليل العمل البعيد أكثر من مرة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: el directorio de trabajo remoto se especificó más de una vez"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux：遠端工作目錄指定了不只一次"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux：远程工作目录被指定了多次"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: 원격 작업 디렉터리가 두 번 이상 지정되었습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux: リモート作業ディレクトリが複数回指定されています"
+          }
+        }
+      }
+    },
+    "cli.sshTmux.error.attachRemoteCwdUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux attach does not accept -c"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux attach akzeptiert -c nicht"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux attach n’accepte pas -c"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux attach لا يقبل ‎-c"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux attach no acepta -c"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux attach 不接受 -c"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux attach 不接受 -c"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux attach는 -c를 지원하지 않습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux attach は -c を受け付けません"
+          }
+        }
+      }
+    },
+    "cli.sshTmux.error.newSessionRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux new requires a session name"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux new benötigt einen Sitzungsnamen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux new nécessite un nom de session"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux new يتطلب اسم جلسة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux new requiere un nombre de sesión"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux new 需要工作階段名稱"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux new 需要会话名称"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux new에는 세션 이름이 필요합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux new にはセッション名が必要です"
+          }
+        }
+      }
+    },
+    "cli.sshTmux.error.remoteCwdOnlyWithNew": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux -c is only valid with new <session>"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux -c ist nur mit new <session> gültig"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux -c est valide uniquement avec new <session>"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux -c صالح فقط مع new <session>"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux -c solo es válido con new <session>"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux -c 只能與 new <session> 搭配使用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux -c 只能与 new <session> 一起使用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux -c는 new <session>에서만 사용할 수 있습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux -c は new <session> でのみ使用できます"
+          }
+        }
+      }
+    },
     "socket.remoteTmux.routeConflict": {
   "extractionState": "manual",
   "localizations": {
@@ -653647,6 +654001,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "サブコマンド:\n  attach <session>                   既存の名前付きセッションをミラーリング（ない場合は失敗）\n  new <session> [-c <remote-cwd>]    名前付きの切り離しセッションを作成してミラーリング"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podkomande:\n  attach <session>                   Preslikaj jednu postojeću imenovanu sesiju (neuspješno ako nedostaje)\n  new <session> [-c <remote-cwd>]    Kreiraj imenovanu odvojenu sesiju, zatim je preslikaj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Underkommandoer:\n  attach <session>                   Spejl én eksisterende navngiven session (mislykkes hvis den mangler)\n  new <session> [-c <remote-cwd>]    Opret en navngiven frakoblet session, og spejl den"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sottocomandi:\n  attach <session>                   Esegui il mirroring di una sessione denominata esistente (fallisce se manca)\n  new <session> [-c <remote-cwd>]    Crea una sessione denominata scollegata, poi esegui il mirroring"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពាក្យបញ្ជារង៖\n  attach <session>                   ឆ្លុះបញ្ចាំងសម័យដែលមានឈ្មោះដែលមានស្រាប់ (បរាជ័យប្រសិនបើបាត់)\n  new <session> [-c <remote-cwd>]    បង្កើតសម័យផ្តាច់ដែលមានឈ្មោះ រួចឆ្លុះបញ្ចាំងវា"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Underkommandoer:\n  attach <session>                   Speil én eksisterende navngitt økt (mislykkes hvis den mangler)\n  new <session> [-c <remote-cwd>]    Opprett en navngitt frakoblet økt, og speil den"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podkomendy:\n  attach <session>                   Odbijaj jedną istniejącą nazwaną sesję (błąd, jeśli jej brakuje)\n  new <session> [-c <remote-cwd>]    Utwórz nazwaną odłączoną sesję, a następnie ją odbijaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subcomandos:\n  attach <session>                   Espelhar uma sessão nomeada existente (falha se estiver ausente)\n  new <session> [-c <remote-cwd>]    Criar uma sessão nomeada destacada e depois espelhá-la"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подкоманды:\n  attach <session>                   Отобразить существующий именованный сеанс (ошибка, если он отсутствует)\n  new <session> [-c <remote-cwd>]    Создать именованный отсоединённый сеанс и отобразить его"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำสั่งย่อย:\n  attach <session>                   มิเรอร์เซสชันที่มีชื่ออยู่แล้ว (ล้มเหลวหากไม่พบ)\n  new <session> [-c <remote-cwd>]    สร้างเซสชันแบบแยกที่มีชื่อ แล้วมิเรอร์เซสชันนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alt komutlar:\n  attach <session>                   Var olan adlandırılmış bir oturumu yansıt (yoksa başarısız olur)\n  new <session> [-c <remote-cwd>]    Adlandırılmış ayrık bir oturum oluştur ve ardından yansıt"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підкоманди:\n  attach <session>                   Віддзеркалити наявний іменований сеанс (помилка, якщо його немає)\n  new <session> [-c <remote-cwd>]    Створити іменований від’єднаний сеанс, а потім віддзеркалити його"
           }
         }
       }
