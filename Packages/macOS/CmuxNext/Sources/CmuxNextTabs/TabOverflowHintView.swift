@@ -29,7 +29,7 @@ public final class TabOverflowHintView: NSView {
         label.textColor = .secondaryLabelColor
         label.toolTip = Strings.overflowHint
         useButton.isBordered = false
-        useButton.contentTintColor = .controlAccentColor
+        useButton.contentTintColor = Palette.accent
         useButton.target = self
         useButton.action = #selector(useScrolling)
         dismissButton.isBordered = false
@@ -48,7 +48,7 @@ public final class TabOverflowHintView: NSView {
 
     func applyTokens() {
         label.font = Typography.caption
-        useButton.font = NSFont.systemFont(ofSize: Typography.caption.pointSize, weight: .medium)
+        useButton.font = NSFont.systemFont(ofSize: Typography.caption.pointSize, weight: TypeScale.emphasis)
         dismissButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: Strings.overflowHintDismiss)?
             .withSymbolConfiguration(.init(pointSize: Typography.caption.pointSize - 2, weight: .semibold))
         needsLayout = true
