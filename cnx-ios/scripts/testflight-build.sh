@@ -7,7 +7,8 @@
 # usage: cnx-ios/scripts/testflight-build.sh [--ref <git ref>] [--marketing-version X.Y.Z]
 #          [--build-number N] [--internal-only] [--allow-backend-down]
 #          [--allow-package-drift] [--unsigned] [--skip-validate] [--upload]
-#          [--no-asc] [--from-archive <CnxApp.xcarchive>]
+#          [--no-asc] [--from-archive <CnxApp.xcarchive>] [--config TestFlight|TestFlightStaging]
+#          [--what-to-test <text>]
 #
 #   --ref                 commit to build (default HEAD); the source is `git archive` of it
 #   --marketing-version   CFBundleShortVersionString (default: project.yml MARKETING_VERSION);
@@ -25,6 +26,10 @@
 #   --upload              upload the validated IPA to cmux INTERNAL (off by default)
 #   --no-asc              build host without App Store Connect access: skip every ASC
 #                         call; needs --unsigned, --marketing-version and --build-number
+#   --config              TestFlight (default: production) or TestFlightStaging (the same app
+#                         record and signing, with the development Stack project, the dev
+#                         cnx-ios-api Worker and cloud-api-staging; project.yml)
+#   --what-to-test        with --upload: the build's en-US "What to Test" note
 #   --from-archive        sign, check, validate (and with --upload, upload) an unsigned
 #                         CnxApp.xcarchive made on a build host with --unsigned --no-asc;
 #                         --ref must name the commit it was built from. Version and build
@@ -59,9 +64,8 @@ asc_key_id=RUML2V4CW7
 asc_issuer=94d76068-119d-45cd-8700-86eb7a1a6235
 profile_name=${CNX_PROFILE_NAME:-cmux Internal Distribution}
 prod_stack_project=9790718f-14cd-4f7e-824d-eaf527a82b82
-# The production Cloud service (Cloud Chief); same Stack project as above.
-cloud_api_base=https://cloud-api.cmux.dev
-config=TestFlight
+dev_stack_project=454ecd03-1db2-4050-845e-4ce5b0cd9895
+config=TestFlight what_to_test=""
 
 ref=HEAD marketing="" build_number="" internal_only=false allow_backend_down=0
 allow_drift=0 unsigned=0 skip_validate=0 upload=0 no_asc=0 from_archive=""
@@ -77,6 +81,8 @@ while [[ $# -gt 0 ]]; do
     --skip-validate) skip_validate=1; shift ;;
     --upload) upload=1; shift ;;
     --no-asc) no_asc=1; shift ;;
+    --config) config=$2; shift 2 ;;
+    --what-to-test) what_to_test=$2; shift 2 ;;
     --from-archive) from_archive=$2; shift 2 ;;
     -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -86,6 +92,13 @@ if [[ $upload == 1 && ( $allow_backend_down == 1 || $unsigned == 1 || $skip_vali
   echo "error: --upload cannot be combined with --allow-backend-down, --unsigned, --skip-validate or --allow-package-drift" >&2
   exit 2
 fi
+case "$config" in
+  TestFlight)        stack_project=$prod_stack_project cloud_api_base=https://cloud-api.cmux.dev
+                     api_key=CNX_PROD_API_BASE stack_env="" binary_mode=--shipping ;;
+  TestFlightStaging) stack_project=$dev_stack_project cloud_api_base=https://cloud-api-staging.cmux.dev
+                     api_key=CNX_STAGING_API_BASE stack_env=development binary_mode=--staging-shipping ;;
+  *) echo "error: --config must be TestFlight or TestFlightStaging" >&2; exit 2 ;;
+esac
 if [[ $no_asc == 1 && ( $unsigned == 0 || -z "$marketing" || -z "$build_number" || -n "$from_archive" ) ]]; then
   echo "error: --no-asc needs --unsigned, --marketing-version and --build-number, and no --from-archive" >&2
   exit 2
@@ -163,20 +176,30 @@ else
   notes+=("Built with --no-asc: version and build number were not checked against App Store Connect here; --from-archive checks them before upload.")
 fi
 
-# --- Production backend ----------------------------------------------------
-api_base=${CNX_PROD_API_BASE:-$(git -C "$repo" show "$sha:cnx-ios/project.yml" | awk '/^    CNX_PROD_API_BASE:/{print $2; exit}' | sed 's#\$()##')}
-log "production Worker $api_base"
+# --- Backend (production, or staging for TestFlightStaging) ----------------
+api_base=$(git -C "$repo" show "$sha:cnx-ios/project.yml" | awk -v k="    $api_key:" 'index($0,k)==1{print $2; exit}' | sed 's#\$()##')
+[[ $config != TestFlight || -z "${CNX_PROD_API_BASE:-}" ]] || api_base=$CNX_PROD_API_BASE
+[[ -n "$api_base" ]] || die "$sha has no $api_key in project.yml"
+log "$config Worker $api_base"
 health=$(curl -fsS -m 15 "$api_base/v1/health" 2>/dev/null || true)
 if echo "$health" | python3 -I -c '
 import json,sys
 d=json.load(sys.stdin)
-sys.exit(0 if d.get("ok") and d.get("stackProjects")==[sys.argv[1]] else 1)' "$prod_stack_project" 2>/dev/null; then
+p=d.get("stackProjects") or []
+ok=p==[sys.argv[1]] if sys.argv[2]=="TestFlight" else sys.argv[1] in p
+sys.exit(0 if d.get("ok") and ok else 1)' "$stack_project" "$config" 2>/dev/null; then
   echo "live: $health"
 elif [[ $allow_backend_down == 1 ]]; then
   echo "WARNING: $api_base/v1/health is not a live production Worker (${health:-no response}); continuing (--allow-backend-down)" >&2
   notes+=("The production Worker \`$api_base\` was not live at build time (\`/v1/health\`: ${health:-no response}). Do not distribute this build.")
 else
-  die "$api_base/v1/health is not a live production Worker with only Stack project $prod_stack_project (got: ${health:-no response}). Deploy cnx-ios-api-prod or set CNX_PROD_API_BASE."
+  die "$api_base/v1/health is not a live $config Worker for Stack project $stack_project (got: ${health:-no response})."
+fi
+cloud_health=$(curl -fsS -m 15 "$cloud_api_base/v1/health" 2>/dev/null || true)
+if [[ "$cloud_health" == *'"ok":true'* ]]; then
+  echo "Cloud service $cloud_api_base live: $cloud_health"
+else
+  [[ $allow_backend_down == 1 ]] || die "Cloud service $cloud_api_base/v1/health is not live (got: ${cloud_health:-no response})"
 fi
 
 # --- Shared packages must match upstream -----------------------------------
@@ -274,13 +297,14 @@ fi
 # --- Archive ----------------------------------------------------------------
 cd "$work/src/cnx-ios"
 xcodegen generate -q
-grep -q '^  TestFlight: release' project.yml || die "$sha has no TestFlight configuration"
+grep -q "^  $config: release" project.yml || die "$sha has no $config configuration"
 archive="$out/CnxApp.xcarchive"
 args=(-project CnxApp.xcodeproj -scheme CnxApp -configuration "$config"
       -destination 'generic/platform=iOS' -archivePath "$archive"
       -derivedDataPath "$work/dd" -clonedSourcePackagesDirPath "$cache/spm"
       MARKETING_VERSION="$marketing" CURRENT_PROJECT_VERSION="$build_number"
-      CNX_PROD_API_BASE="$api_base" CNX_SOURCE_COMMIT="$sha")
+      CNX_SOURCE_COMMIT="$sha")
+[[ $config != TestFlight ]] || args+=(CNX_PROD_API_BASE="$api_base")
 if [[ $unsigned == 1 ]]; then
   args+=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM=$team)
 else
@@ -292,11 +316,29 @@ xcodebuild archive "${args[@]}" > "$out/logs/archive.log" 2>&1 \
   || { grep -E "error:|ARCHIVE FAILED" "$out/logs/archive.log" | sort -u | head -20; die "archive failed (logs/archive.log)"; }
 fi
 archived_app="$archive/Products/Applications/CnxApp.app"
+if [[ -z "$from_archive" && -n "${CNX_SIMULATOR_APP:-}" ]]; then
+  # A simulator app of the same commit and configuration, for the fleet
+  # simulator check (scripts/verify-remote.sh ios --client-app). Unsigned:
+  # a simulator app keeps the linker's ad hoc signature.
+  log "xcodebuild build (iphonesimulator) -> $CNX_SIMULATOR_APP"
+  sim_args=(-project CnxApp.xcodeproj -scheme CnxApp -configuration "$config"
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath "$work/dd-sim"
+            -clonedSourcePackagesDirPath "$cache/spm"
+            MARKETING_VERSION="$marketing" CURRENT_PROJECT_VERSION="$build_number" CNX_SOURCE_COMMIT="$sha"
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM=$team)
+  [[ $config != TestFlight ]] || sim_args+=(CNX_PROD_API_BASE="$api_base")
+  xcodebuild build "${sim_args[@]}" > "$out/logs/simulator.log" 2>&1 \
+    || { grep -E "error:" "$out/logs/simulator.log" | sort -u | head -20; die "simulator build failed (logs/simulator.log)"; }
+  mkdir -p "$(dirname "$CNX_SIMULATOR_APP")"
+  rm -rf "$CNX_SIMULATOR_APP"
+  ditto "$work/dd-sim/Build/Products/$config-iphonesimulator/CnxApp.app" "$CNX_SIMULATOR_APP"
+fi
 
 # --- Checks on any app bundle ------------------------------------------------
 check_app() {  # <CnxApp.app>
   local app=$1 info="$1/Info.plist" bad=()
-  bash "$script_dir/check-production-binary.sh" "$app" "$bundle_id" --shipping
+  bash "$script_dir/check-production-binary.sh" "$app" "$bundle_id" "$binary_mode"
+  [[ "$(plutil -extract CNXStackEnvironment raw "$info" 2>/dev/null)" == "$stack_env" ]] || bad+=("CNXStackEnvironment (want '$stack_env')")
   [[ "$(plutil -extract CFBundleShortVersionString raw "$info")" == "$marketing" ]] || bad+=("CFBundleShortVersionString")
   [[ "$(plutil -extract CFBundleVersion raw "$info")" == "$build_number" ]] || bad+=("CFBundleVersion")
   [[ "$(plutil -extract CFBundleDisplayName raw "$info")" == "$app_name" ]] || bad+=("CFBundleDisplayName")
@@ -439,6 +481,11 @@ open(sys.argv[1],"w").write(k if k.endswith("\n") else k+"\n")' "$private/AuthKe
     log "wait for App Store Connect to process $build_number"
     asc_ builds wait --app "$app_id" --build-number "$build_number" --platform IOS --fail-on-invalid --timeout 45m --output json > "$out/logs/process.json" 2>&1 \
       || { tail -20 "$out/logs/process.json"; die "build $build_number did not finish processing"; }
+    if [[ -n "$what_to_test" ]]; then
+      asc_ builds test-notes create --app "$app_id" --build-number "$build_number" --platform IOS --locale en-US \
+        --whats-new "$what_to_test" --output json > "$out/logs/notes.json" 2>&1 \
+        || { tail -20 "$out/logs/notes.json"; die "could not set What to Test for $build_number"; }
+    fi
     notes+=("Uploaded to $app_name at $(date -u +%Y-%m-%dT%H:%M:%SZ); processed. Add What to Test notes from cnx-ios/verify/testflight-metadata.md.")
   fi
 fi
@@ -454,7 +501,7 @@ fi
 | Built | $(date -u +%Y-%m-%dT%H:%M:%SZ) on $(scutil --get LocalHostName 2>/dev/null || hostname), $(xcodebuild -version | head -1) |
 | App Store Connect | "$app_name", app id $app_id, bundle \`$bundle_id\` |
 | Version | $marketing ($build_number); $app_name had up to $max_marketing ($max_build) |
-| Configuration | $config: -O, \`CNX_PRODUCTION CNX_TESTFLIGHT\`, no DEBUG; production Stack project \`$prod_stack_project\` |
+| Configuration | $config: -O, \`CNX_PRODUCTION CNX_TESTFLIGHT\`, no DEBUG; Stack project \`$stack_project\`; Cloud \`$cloud_api_base\` |
 | Service | \`$api_base\` |
 | Signing | $signing |
 | Internal-only | $internal_only |

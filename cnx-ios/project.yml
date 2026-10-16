@@ -21,6 +21,13 @@ configs:
   # with Apple. Built only by scripts/testflight-build.sh. See
   # verify/testflight-readiness.md.
   TestFlight: release
+  # TestFlightStaging: the TestFlight build (same app record, bundle, signing,
+  # push and Sign in with Apple) pointed at staging: the development Stack
+  # project, the dev cnx-ios-api Worker and the staging Cloud service
+  # (cloud-api-staging, where Cloud Chief brains are on). Built only by
+  # `scripts/testflight-build.sh --config TestFlightStaging`; production
+  # (TestFlight) stays the default.
+  TestFlightStaging: release
 options:
   bundleIdPrefix: dev.cmux.cnx
   deploymentTarget:
@@ -46,6 +53,12 @@ settings:
     CNX_PROD_CLOUD_API_BASE: https:/$()/cloud-api.cmux.dev
     CNX_STAGING_CLOUD_API_BASE: https:/$()/cloud-api-staging.cmux.dev
     CNX_CLOUD_API_BASE: $(CNX_STAGING_CLOUD_API_BASE)
+    # The dev cnx-ios-api Worker (backend/wrangler.jsonc env "dev"; accepts the
+    # development and production Stack projects).
+    CNX_STAGING_API_BASE: https:/$()/cnx-ios-api-dev.debussy.workers.dev
+    # The Stack project of a non-DEBUG build (CNXStackEnvironment): empty is
+    # production; "development" is the development project (staging).
+    CNX_STACK_ENVIRONMENT: ""
     # User-facing version. Must stay at or above the highest version ever
     # uploaded to cmux INTERNAL (TestFlight orders builds by it first);
     # testflight-build.sh checks this against App Store Connect. The build
@@ -80,6 +93,14 @@ settings:
       CNX_DISPLAY_NAME: cmux INTERNAL
       CNX_API_BASE: $(CNX_PROD_API_BASE)
       CNX_CLOUD_API_BASE: $(CNX_PROD_CLOUD_API_BASE)
+    TestFlightStaging:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: CNX_PRODUCTION CNX_TESTFLIGHT
+      SWIFT_OPTIMIZATION_LEVEL: -O
+      CNX_TAG: ""
+      CNX_DISPLAY_NAME: cmux INTERNAL
+      CNX_API_BASE: $(CNX_STAGING_API_BASE)
+      CNX_CLOUD_API_BASE: $(CNX_STAGING_CLOUD_API_BASE)
+      CNX_STACK_ENVIRONMENT: development
 packages:
   CnxKit:
     path: CnxKit
@@ -142,6 +163,17 @@ targets:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
           PROVISIONING_PROFILE_SPECIFIER: cmux Internal Distribution
+        TestFlightStaging:
+          PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.app.internal
+          # Push (production APNs), Sign in with Apple, and its own keychain
+          # group. The "cmux Internal Distribution" App Store profile
+          # authorizes each key; testflight-build.sh signs manually with it.
+          CODE_SIGN_ENTITLEMENTS: App/CnxApp-TestFlight.entitlements
+          CNX_PUSH: "YES"
+          CNX_APPLE_SIGN_IN: "YES"
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: cmux Internal Distribution
     info:
       path: App/Info.plist
       properties:
@@ -155,6 +187,7 @@ targets:
         CNXTag: $(CNX_TAG)
         CNXAPIBase: $(CNX_API_BASE)
         CNXCloudAPIBase: $(CNX_CLOUD_API_BASE)
+        CNXStackEnvironment: $(CNX_STACK_ENVIRONMENT)
         # The commit an archive was built from (testflight-build.sh sets it;
         # --from-archive refuses an archive of another commit).
         CNXSourceCommit: $(CNX_SOURCE_COMMIT)
