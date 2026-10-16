@@ -85,6 +85,7 @@ extension NewTabPage {
                 for await located in ObservationStream({ services.locateTab(key) != nil }) where located { break }
             }
             guard case let (tab, pane)? = services.locateTab(key) else { return nil }
+            guard let source else { return nil }
             let axis: SplitAxis = edge == .left || edge == .right ? .horizontal : .vertical
             let sizing = source.workspace?.layoutModel.splitSizingChanges(splitting: source.layoutPaneID, axis: axis) ?? []
             TabMoves.toNewSplit(tab, pane: pane, edge: edge, services: services) { moved in
