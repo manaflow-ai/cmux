@@ -20,12 +20,17 @@ public nonisolated enum SidebarPriorityBucket: Int, Hashable, Sendable {
     case idle
 }
 
+/// A workspace paired with the attention bucket used for ordering.
 public nonisolated struct SidebarPriorityItem: Identifiable, Hashable, Sendable {
+    /// The workspace represented by this item.
     public let workspace: SidebarWorkspace
+    /// The workspace's current attention bucket.
     public let bucket: SidebarPriorityBucket
 
+    /// The stable workspace identity.
     public var id: WorkspaceID { workspace.id }
 
+    /// Creates a priority item from a workspace snapshot.
     public init(workspace: SidebarWorkspace) {
         self.workspace = workspace
         self.bucket = Self.bucket(for: workspace)
@@ -45,6 +50,7 @@ public nonisolated struct SidebarPriorityItem: Identifiable, Hashable, Sendable 
 
 /// Computes the dynamic attention order used by the workspace sidebar.
 public nonisolated struct SidebarPriority: Sendable {
+    /// Creates a stateless priority calculator.
     public init() {}
 
     /// Sorts actionable rows before working, finished and idle rows.
