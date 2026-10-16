@@ -134,8 +134,8 @@ public final class NativeSSHConnectionBroker {
     public func retainWorkspace(_ configuration: WorkspaceRemoteConfiguration) -> WorkspaceRemoteConfiguration {
         guard let ownerWorkspaceID = configuration.ownerWorkspaceID else { return configuration }
         guard configuration.transport == .ssh else { return configuration }
-        let effectiveOptions = sharingOptions.mergingDefaults(
-            into: configuration.sshOptions,
+        let effectiveOptions = configuration.mergingConnectionSharingDefaults(
+            sharingOptions,
             routeSensitiveOptions: configuration.identityFile.map { ["IdentityFile=\($0)"] } ?? []
         )
         guard sharingOptions.cmuxOwnedControlPath(

@@ -21,6 +21,10 @@ import {
   AGENT_PIN_ARGS,
   DEVBOX_SOURCE_SCHEMA,
   DEVBOX_TEMPLATE_FILES,
+  CMUX_TUI_STATE_MOUNT_HELPER_PATH,
+  CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
+  CMUX_TUI_STATE_RESERVATION_BYTES,
+  CMUX_TUI_STATE_MAX_BYTES,
   agentPinDrift,
   devboxAgentPins,
   devboxCuaDriverVersion,
@@ -110,9 +114,12 @@ describe("devbox image template", () => {
     expect(readdirSync(templateDir).sort()).toEqual([
       "Dockerfile",
       "README.md",
+      "agent-auth.sh",
       "agent-config.sh",
       "chrome-managed-policy.json",
       "cmux-bashrc",
+      "cmux-claude",
+      "cmux-codex",
       "cmux-devbox-boot",
       "cmux-motd",
       "cmux-opencode",
@@ -121,6 +128,7 @@ describe("devbox image template", () => {
       "cmux-python-completion.bash",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
+      "cmux-tui-state-mount",
       "codex-managed.toml",
       // The desktop layer (Freestyle only); pinned by vm-devbox-desktop.test.ts.
       "desktop",
@@ -129,9 +137,12 @@ describe("devbox image template", () => {
     // The bake scripts' preflight covers the same set (minus the README).
     expect([...DEVBOX_TEMPLATE_FILES].sort()).toEqual([
       "Dockerfile",
+      "agent-auth.sh",
       "agent-config.sh",
       "chrome-managed-policy.json",
       "cmux-bashrc",
+      "cmux-claude",
+      "cmux-codex",
       "cmux-devbox-boot",
       "cmux-motd",
       "cmux-opencode",
@@ -139,6 +150,7 @@ describe("devbox image template", () => {
       "cmux-python-completion.bash",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
+      "cmux-tui-state-mount",
       "codex-managed.toml",
       "seed-history",
     ]);
@@ -186,10 +198,49 @@ describe("devbox image template", () => {
       const result = await runChild("/bin/bash", ["-n", path.join(templateDir, name)]);
       expect({ name, status: result.status }).toEqual({ name, status: 0 });
     }
-    for (const name of ["cmux-devbox-boot", "cmux-motd"]) {
+    for (const name of ["cmux-devbox-boot", "cmux-tui-state-mount", "cmux-motd"]) {
       const result = await runChild("sh", ["-n", path.join(templateDir, name)]);
       expect({ name, status: result.status }).toEqual({ name, status: 0 });
     }
+  });
+
+  test("reserves an isolated, preallocated cmux-tui state filesystem with bounded growth", () => {
+    const mount = read("cmux-tui-state-mount");
+    const freestyle = readScript("build-devbox-freestyle.ts");
+    const upgrade = readScript("upgrade-fleet-cmux-tui.ts");
+    expect(mount).toContain(`STATE_SIZE_BYTES=${CMUX_TUI_STATE_RESERVATION_BYTES}`);
+    expect(mount).toContain(`STATE_MAX_BYTES=${CMUX_TUI_STATE_MAX_BYTES}`);
+    expect(mount).toContain("grow_if_needed");
+    expect(mount).toContain("STATE_LOCK=/var/lib/cmux/cmux-tui-state.lock");
+    expect(mount).toContain("flock -x 9");
+    expect(mount).toContain("losetup -c");
+    expect(mount).toContain("resize2fs");
+    expect(mount).toContain('resize2fs "$loop_device"');
+    expect(mount).toContain("ensure_locked");
+    expect(mount).toContain("ROOT_MIN_FREE_KB");
+    expect(upgrade).toContain('writeFileCommand(`${runDir}/state-mount.sh`, stateMountScript)');
+    expect(upgrade).toContain("CMUX_TUI_STATE_MOUNT_HELPER_PATH");
+    expect(mount).toContain("fallocate -l \"$STATE_SIZE_BYTES\"");
+    expect(mount).toContain("mkfs.ext4 -F -m 0");
+    expect(mount).toContain("mount -o loop");
+    expect(mount).toContain("[ -f \"$STATE_IMAGE\" ] || return 0");
+    expect(read("cmux-devbox-boot")).toContain("cmux-tui state reservation is unavailable");
+    expect(read("cmux-devbox-boot")).toContain(`STATE_RESERVATION_MARKER=${CMUX_TUI_STATE_RESERVATION_MARKER_PATH}`);
+    expect(read("cmux-devbox-boot")).toContain("[ ! -x \"$STATE_MOUNT\" ] || [ ! -f \"$STATE_IMAGE\" ]");
+    expect(freestyle).toContain(`await put("cmux-tui-state-mount", "${CMUX_TUI_STATE_MOUNT_HELPER_PATH}", 0o755);`);
+    expect(freestyle).toContain('"cmux-tui-state-reservation"');
+    expect(freestyle).toContain("stat -c %s ${CMUX_TUI_STATE_IMAGE_PATH}");
+    expect(freestyle).toContain("printf 'cmux-tui-state-v1");
+    expect(freestyle).toContain("> ${CMUX_TUI_STATE_RESERVATION_MARKER_PATH}");
+    expect(mount).toContain('if [ -d "$state" ]; then');
+    expect(mount).toContain('cp -a "$state/." "$seed/"');
+    expect(mount).toContain('cp -a "$seed/." "$state/"');
+    expect(mount).not.toContain('cp -a "$state/." "$seed/" 2>/dev/null || true');
+    expect(mount).not.toContain('cp -a "$seed/." "$state/" 2>/dev/null || true');
+    // The resource ladder remains the source of the VM's provisioned disk;
+    // this fix must not smuggle in a larger storageMb or a new image size.
+    expect(freestyle).not.toContain("storageMb: 65536");
+    expect(freestyle).not.toContain("CMUX_VM_DISK_MB");
   });
 
   test("the login banner is cmux's, offline, and installed everywhere the base motd was", () => {
@@ -541,6 +592,9 @@ describe("devbox image template", () => {
     expect(devboxBoot).toContain('BIN="$CMUX_TUI_BIN"');
     expect(devboxBoot).toContain('if [ -x "$BIN" ]');
     expect(dockerfile).toContain("COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot");
+    expect(dockerfile).toContain("COPY cmux-tui-state-mount /usr/local/bin/cmux-tui-state-mount");
+    expect(dockerfile).toContain("    e2fsprogs \\");
+    expect(readScript("build-devbox-freestyle.ts")).toContain('await put("cmux-tui-state-mount", "/usr/local/bin/cmux-tui-state-mount", 0o755);');
     // A Freestyle snapshot is a memory image: the supervisor keys the daemon
     // identity on the platform instance id and holds the daemon on the
     // builder. A fork or checkpoint of a running machine carries its parent's
@@ -581,6 +635,51 @@ describe("devbox image template", () => {
       expect({ name, installsCmuxd: readScript(name).includes("/usr/local/bin/cmuxd-remote") })
         .toEqual({ name, installsCmuxd: false });
     }
+  });
+
+  test("the daemon supervisor replaces a live but unresponsive cmux-tui", () => {
+    // Process liveness alone misses the incident this image is meant to
+    // recover from: cmux-tui can consume a vCPU while never answering its
+    // local lifecycle socket. Keep this contract close to the image source so
+    // a future supervisor edit cannot silently remove the recovery fence.
+    expect(devboxBoot).toContain("server status --session cloud");
+    expect(devboxBoot).toContain('timeout --signal=TERM --kill-after=1s');
+    expect(devboxBoot).toContain("DAEMON_HEALTH_FAILURE_LIMIT=3");
+    expect(devboxBoot).toContain("DAEMON_HEALTH_STARTUP_GRACE=48");
+    // Recovery uses the existing lifecycle functions, which do not delete the
+    // daemon's state directory or its remote terminal hosts.
+    expect(devboxBoot).toContain('REMOTE_STATE_DIR="$CMUX_TUI_HOME/.local/state/cmux/remote"');
+  });
+
+  test("the health fence waits through startup and then restarts after consecutive failures", async () => {
+    // Exercise the actual POSIX functions from the image in isolation. The
+    // fixture replaces only process start/stop and the probe, so this proves
+    // the startup grace and consecutive-failure state machine without booting
+    // a VM or touching the host daemon.
+    const announceMarker = devboxBoot.indexOf("\nannounce_loop &");
+    expect(announceMarker).toBeGreaterThanOrEqual(0);
+    const prefix = devboxBoot.slice(0, announceMarker);
+    const fixture = `${prefix}
+set -e
+DAEMON_HEALTH_STARTUP_GRACE=6
+daemon_health_grace=6
+daemon_pid=fixture
+restart_count=0
+daemon_health_probe() { return 1; }
+stop_daemon() { daemon_pid=""; }
+start_daemon() { restart_count=$((restart_count + 1)); daemon_pid=fixture; daemon_health_ticks=0; daemon_health_failures=0; daemon_health_grace=$DAEMON_HEALTH_STARTUP_GRACE; }
+    for i in $(seq 1 44); do check_daemon_health; done
+test "$restart_count" = 0
+test "$daemon_pid" = fixture
+    check_daemon_health
+test "$restart_count" = 1
+test "$daemon_pid" = fixture
+`;
+    const result = await runChild("/bin/sh", ["-c", fixture], { timeout: 20_000 });
+    expect({ status: result.status, stderr: result.stderr }).toEqual({
+      status: 0,
+      stderr: "cmux-devbox-boot: cmux-tui health probe failed 3 times; restarting daemon\n",
+    });
   });
 
   test("the Freestyle boot path supervises the daemon through systemd", () => {
@@ -731,7 +830,7 @@ describe("devbox image template", () => {
     expect(dockerfile).toContain("    bubblewrap \\");
     expect(dockerfile).toContain("bwrap --version");
     const bake = readScript("build-devbox-freestyle.ts");
-    expect(bake).toContain("util-linux bubblewrap");
+    expect(bake).toContain("util-linux e2fsprogs bubblewrap");
     expect(bake).toContain("bwrap --version");
     // The verifier launches the real claude (root) and codex (root and the
     // work user) TUIs and requires the ready composer with no first-run gate text.
@@ -751,6 +850,19 @@ describe("devbox image template", () => {
 
   test("agent PTY readiness handles output, gates, exit, timeout and cancellation", async () => {
     const result = await runChild("python3", [fileURLToPath(new URL("./devbox-agent-launch-test.py", import.meta.url))], {
+      timeout: 30_000,
+    });
+    expect({ status: result.status, output: result.stderr }).toEqual({ status: 0, output: expect.stringContaining("OK") });
+  }, 35_000);
+
+  test("codex's own hook-trust verdict gates a daemon pane's codex launch", async () => {
+    // Codex draws its composer before "Hooks need review", so the PTY probes
+    // above cannot see a cmux-tui codex wrapper whose injected trust codex
+    // ignores (#20482); the verifier asks codex's hooks/list instead.
+    const verify = readScript("verify-devbox-image.ts");
+    expect(verify).toContain('codexHookTrustCheck(DEVBOX_WORK_USER, DEVBOX_WORK_HOME, "codex-pane-hooks-trusted"');
+    expect(verify).toContain("Hooks need review");
+    const result = await runChild("python3", [fileURLToPath(new URL("./devbox-codex-hook-trust-test.py", import.meta.url))], {
       timeout: 30_000,
     });
     expect({ status: result.status, output: result.stderr }).toEqual({ status: 0, output: expect.stringContaining("OK") });
@@ -1000,7 +1112,7 @@ describe("devbox image template", () => {
       // claude: env only, nothing generated.
       expect(existsSync(path.join(home, ".claude"))).toBe(false);
       // opencode config is lazy; a normal shell never contacts the endpoint.
-      expect(existsSync(path.join(home, ".config/opencode/opencode.json"))).toBe(false);
+      expect(existsSync(path.join(home, ".config/cmux/opencode-team.json"))).toBe(false);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -1033,7 +1145,7 @@ describe("devbox image template", () => {
       await sourceAgentConfig(home, server.origin, true);
       // The guest sends only the placeholder; the edge adds the route token.
       expect(authorization).toBe("Bearer cmux-vm-edge-placeholder");
-      const configPath = path.join(home, ".config/opencode/opencode.json");
+      const configPath = path.join(home, ".config/cmux/opencode-team.json");
       const written = readFileSync(configPath, "utf8");
       // A route token the endpoint inlined is swapped for a runtime env
       // reference (as is the placeholder itself), so no token lands on disk.
@@ -1076,7 +1188,7 @@ describe("devbox image template", () => {
         if (++started === 4) releaseResponse();
       })));
       expect(requests).toBe(1);
-      const config = path.join(home, ".config/opencode/opencode.json");
+      const config = path.join(home, ".config/cmux/opencode-team.json");
       expect(JSON.parse(readFileSync(config, "utf8")).provider.go.options.apiKey).toBe("{env:OPENAI_API_KEY}");
       writeFileSync(config, '{"provider":{"mine":{}}}');
       await sourceAgentConfig(home, server.origin, true);
@@ -1101,7 +1213,7 @@ describe("devbox image template", () => {
       await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
       await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
       expect(requests).toBe(1);
-      expect(existsSync(path.join(home, ".config/opencode/opencode.json"))).toBe(false);
+      expect(existsSync(path.join(home, ".config/cmux/opencode-team.json"))).toBe(false);
     } finally {
       await server.close();
       rmSync(home, { recursive: true, force: true });
@@ -1118,7 +1230,7 @@ describe("devbox image template", () => {
       response.end(body);
     });
     try {
-      const configPath = path.join(home, ".config/opencode/opencode.json");
+      const configPath = path.join(home, ".config/cmux/opencode-team.json");
       // 503 no_usable_account: nothing written, the shell exits clean.
       await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
       expect(existsSync(configPath)).toBe(false);
@@ -1128,6 +1240,28 @@ describe("devbox image template", () => {
       status = 200;
       await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
       expect(existsSync(configPath)).toBe(false);
+    } finally {
+      await server.close();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("opencode config names the way out when the team has no OpenCode account", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-opencode-403-"));
+    const message = "No OpenCode account is shared with this Cloud machine's team. Or use your own provider sign-in on this machine: run `cr use own opencode`.";
+    const server = await listen((_request, response) => {
+      response.statusCode = 403;
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ error: { message, type: "invalid_request_error", code: "no_account_configured" } }));
+    });
+    try {
+      const result = await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; cmux_ensure_opencode_config`], {
+        env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: home, CMUX_CODEROUTER_URL: server.origin, OPENAI_API_KEY: "cmux-vm-edge-placeholder" },
+      });
+      expect(result.status).toBe(78);
+      expect(result.stderr).toBe(`cmux: ${message}\n`);
+      expect(result.stderr).not.toContain("retry");
+      expect(existsSync(path.join(home, ".config/cmux/opencode-team.json"))).toBe(false);
     } finally {
       await server.close();
       rmSync(home, { recursive: true, force: true });

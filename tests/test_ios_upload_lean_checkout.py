@@ -165,7 +165,7 @@ class WorkflowPolicyTests(unittest.TestCase):
 
                 self.assertEqual(steps[zig].get("if"), PREBUILT_IF)
                 zig_run = run_text(steps[zig])
-                init = zig_run.index("git submodule update --init --depth 1 ghostty")
+                init = zig_run.index("scripts/ci/init-submodule.sh ghostty")
                 self.assertLess(init, zig_run.index("./scripts/install-zig-ci.sh"))
 
                 self.assertEqual(steps[build].get("if"), PREBUILT_IF)
@@ -181,6 +181,7 @@ class WorkflowPolicyTests(unittest.TestCase):
                     self.assertNotIn("install-zig-ci.sh", text, step.get("name"))
                     self.assertNotIn("ensure-ghosttykit.sh", text, step.get("name"))
                     self.assertNotIn("git submodule", text, step.get("name"))
+                    self.assertNotIn("init-submodule.sh", text, step.get("name"))
 
     def test_download_step_reports_availability(self):
         name = "ios-appstore-upload.yml"

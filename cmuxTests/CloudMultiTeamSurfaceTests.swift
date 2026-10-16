@@ -77,6 +77,44 @@ struct CloudMultiTeamSurfaceTests {
         #expect(session.stopReason == .signedOut)
     }
 
+    @Test("Another team's pane that lost access survives the selected team's poll and recovers on its own team's read")
+    func foreignLostAccessRecoversOnOwnTeamRead() async throws {
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
+        var activeTeam = "team-a"
+        var statusTeams: [String] = []
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: { VMListPage(vms: activeTeam == "team-a" ? [Self.machine("vm-a")] : [Self.machine("vm-b")], limits: nil) },
+            activeTeamID: { activeTeam },
+            loadMachineStatus: { machineID, teamID in
+                statusTeams.append(teamID)
+                return Self.machine(machineID)
+            },
+            refreshProvider: { _, _ in true }
+        )
+        registry.start(catalog: catalog)
+        #expect(await registry.refresh(force: true))
+        let providerA = try #require(registry.provider(machineID: "vm-a"))
+        catalog.record(SurfaceProjection(
+            resource: SurfaceResourceID(machine: .cloud("vm-a"), kind: .terminal, key: "term_a"),
+            workspaceID: live.id(), panelID: UUID()
+        ))
+        providerA.noteAccessLost(.forbidden)
+
+        activeTeam = "team-b"
+        await registry.teamScopeDidChange()
+        // Team B's page does not list vm-a; that says nothing about team A.
+        #expect(registry.provider(machineID: "vm-a") === providerA)
+        #expect(await registry.refresh(force: true))
+
+        #expect(registry.provider(machineID: "vm-a") === providerA)
+        #expect(statusTeams.contains("team-a"))
+        #expect(!providerA.hasLostAccess)
+        await registry.accessDidEnd()
+    }
+
     @Test("A restored pane of a team that is not selected reconnects with its own team")
     func restoredForeignTeamPaneReconnectsWithOwnTeam() async throws {
         defer { live.tearDown() }
@@ -172,6 +210,85 @@ struct CloudMultiTeamSurfaceTests {
         #expect(await links.connectCount == 1)
     }
 
+    @Test("An authorized read clears a machine-scoped loss and dialing resumes")
+    func authorizedReadClearsAccessLoss() async throws {
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
+        let links = AccessDeniedLinks(answer: .httpStatus(403, #"{"error":"forbidden"}"#))
+        let provider = CmuxTuiSurfaceProvider(
+            summary: .ssh(Self.sshConnection()), ownerTeamID: "team-a", links: links, catalog: catalog
+        )
+        catalog.register(provider)
+        let panelID = UUID()
+        provider.manualMirrorSessions[panelID] = CloudTuiManualMirrorSession(
+            machineID: provider.machineID, terminalID: "term_a", remoteSurfaceID: 1, onNeedsReconnect: {}
+        )
+        provider.materializedPanels.insert(panelID)
+
+        #expect(await provider.refreshCurrentGraph(force: true) == false)
+        #expect(provider.accessLoss == .forbidden)
+        #expect(await provider.refreshCurrentGraph(force: true) == false)
+        #expect(await links.connectCount == 1)
+
+        provider.noteAccessConfirmed()
+
+        #expect(!provider.hasLostAccess)
+        #expect(catalog.machines[provider.machine]?.linkError == nil)
+        // The ended pane is rebuilt by the next refresh's reprojection.
+        #expect(!provider.materializedPanels.contains(panelID))
+        _ = await provider.refreshCurrentGraph(force: true)
+        #expect(await links.connectCount == 2)
+    }
+
+    @Test("A revoked Mac sign-in shows the sign-in card and outlives an authorized read")
+    func revokedSignInAsksForSignIn() async throws {
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
+        let links = AccessDeniedLinks(answer: .httpStatus(
+            403, #"{"error":"vm_access_revoked","phase":"network"}"#
+        ))
+        let provider = CmuxTuiSurfaceProvider(
+            summary: .ssh(Self.sshConnection()), ownerTeamID: "team-a", links: links, catalog: catalog
+        )
+        catalog.register(provider)
+        let session = CloudTuiManualMirrorSession(
+            machineID: provider.machineID, terminalID: "term_a", remoteSurfaceID: 1, onNeedsReconnect: {}
+        )
+        provider.manualMirrorSessions[UUID()] = session
+
+        #expect(await provider.refreshCurrentGraph(force: true) == false)
+
+        #expect(provider.accessLoss == .signInRevoked)
+        #expect(session.stopReason == .signInRevoked)
+        let detail = CloudTuiManualMirrorStopReason.signInRevoked.endedPresentation?.detail
+        #expect(detail?.contains("sign in again") == true)
+        #expect(catalog.machines[provider.machine]?.linkError == detail)
+        // Listing machines does not use this Mac's network enrollment, so it
+        // cannot prove the revoked sign-in works again.
+        provider.noteAccessConfirmed()
+        #expect(provider.accessLoss == .signInRevoked)
+        #expect(await provider.refreshCurrentGraph(force: true) == false)
+        #expect(await links.connectCount == 1)
+    }
+
+    @Test("A billing-team 403 keeps the machine and keeps retrying")
+    func billingTeamForbiddenIsNotAccessLoss() async throws {
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
+        let links = AccessDeniedLinks(answer: .httpStatus(
+            403, #"{"error":"vm_billing_team_not_found"}"#
+        ))
+        let provider = CmuxTuiSurfaceProvider(
+            summary: .ssh(Self.sshConnection()), ownerTeamID: "team-a", links: links, catalog: catalog
+        )
+        catalog.register(provider)
+
+        _ = await provider.refreshCurrentGraph(force: true)
+        #expect(!provider.hasLostAccess)
+        _ = await provider.refreshCurrentGraph(force: true)
+        #expect(await links.connectCount == 2)
+    }
+
     @Test("A stopped attachment leaves its card until a new attachment binds")
     func endedPresentationOutlivesSession() {
         let overlay = CloudTerminalOverlayCoordinator()
@@ -246,13 +363,17 @@ struct CloudMultiTeamSurfaceTests {
 private actor AccessDeniedLinks: RemoteTuiLinkManaging {
     nonisolated let operations: CloudOperationRecorder? = nil
     private(set) var connectCount = 0
+    private let answer: VMClientError
+    init(answer: VMClientError = .httpStatus(404, #"{"error":"vm_not_found"}"#)) {
+        self.answer = answer
+    }
     func connected(machineID: String) async throws -> CloudMachineLink.Connected {
         connectCount += 1
-        throw VMClientError.httpStatus(404, #"{"error":"vm_not_found"}"#)
+        throw answer
     }
     func link(machineID: String) async -> CloudMachineLink? { nil }
     func status(machineID: String) async -> CloudMachineLinkManager.LinkStatus? { nil }
     func privateAddresses(for machineID: String) async -> [String] { [] }
     func setPrivateAddresses(_ addresses: [String], for machineID: String) async {}
-    func browserProxy(machineID: String) async throws -> CloudBrowserProxyEndpoint { throw URLError(.cannotConnectToHost) }
+    func browserProxy(machineID: String, remoteNetwork: Bool) async throws -> CloudBrowserProxyEndpoint { throw URLError(.cannotConnectToHost) }
 }

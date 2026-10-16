@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import OSLog
+import CmuxMemoryPressure
 
 @MainActor
 @Observable
@@ -57,7 +58,15 @@ final class MemoryPressureMonitor {
     init(
         registry: MemoryPressureResponderRegistry? = nil,
         footprintSampler: any MemoryPressureFootprintSampling = TaskVMInfoMemoryPressureFootprintSampler(),
-        aggregateSampler: any MemoryPressureAggregateSampling = DarwinMemoryPressureAggregateSampler(),
+        aggregateSampler: any MemoryPressureAggregateSampling = DarwinMemoryPressureAggregateSampler(
+            snapshotProvider: {
+                await CmuxTopProcessSnapshot.captureCached(
+                    includeProcessDetails: false,
+                    includeCMUXScope: false,
+                    maximumAge: 15
+                )
+            }
+        ),
         aggregatePolicy: MemoryPressureAggregatePolicy = .default,
         thresholds: MemoryPressureFootprintThresholds = .default,
         criticalPersistenceDuration: TimeInterval = 60,

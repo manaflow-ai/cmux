@@ -17,8 +17,7 @@ export function retainCloudServerError(input: VmErrorResponseInput, context: VmR
     build: context.client.build?.match(/^[0-9]{1,20}$/)?.[0] ?? "0",
     revision: context.client.revision ?? "unknown", osVersion: "0", architecture: "unknown",
   };
-  const operation = cloudOperations.includes(context.operation as CloudTelemetrySpan["operation"])
-    ? context.operation as CloudTelemetrySpan["operation"] : "unknown";
+  const operation = canonicalCloudTelemetryOperation(context.operation);
   const span: CloudTelemetrySpan = {
     eventId: randomUUID(), operationId: context.operationId ?? randomUUID(),
     traceId: context.traceId, spanId: context.spanId, operation, phase: "request",
@@ -40,6 +39,14 @@ export function retainCloudServerError(input: VmErrorResponseInput, context: VmR
   } catch {
     // Outside a web request, the caller's existing error sink remains responsible.
   }
+}
+
+/** Map route-specific operation names to the canonical Cloud telemetry catalog. */
+export function canonicalCloudTelemetryOperation(value: string | undefined): CloudTelemetrySpan["operation"] {
+  const canonical = value === "open_session" ? "open" : value;
+  return cloudOperations.includes(canonical as CloudTelemetrySpan["operation"])
+    ? canonical as CloudTelemetrySpan["operation"]
+    : "unknown";
 }
 
 function safeVersion(value: string | undefined): string {

@@ -25,6 +25,7 @@ extension ControlCommandCoordinator {
             return surfaceCurrent(request.params, context: context)
         case "surface.focus":
             return surfaceFocus(request.params)
+        case "surface.jump_to_last_prompt": return surfaceJumpToLastPrompt()
         case "surface.split":
             return surfaceSplit(request.params)
         case "surface.respawn":
@@ -297,33 +298,7 @@ extension ControlCommandCoordinator {
         }
         let resolution = context?.controlSurfaceFocus(routing: routing, surfaceID: surfaceID)
             ?? .tabManagerUnavailable
-        switch resolution {
-        case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        case .workspaceNotFound:
-            return .err(code: "not_found", message: "Workspace not found", data: nil)
-        case .surfaceNotFound(let id):
-            return .err(
-                code: "not_found",
-                message: "Surface not found",
-                data: .object(["surface_id": .string(id.uuidString)])
-            )
-        case .dockUnavailable(let message):
-            return .err(
-                code: "unavailable",
-                message: message,
-                data: .object(["surface_id": .string(surfaceID.uuidString)])
-            )
-        case .focused(let windowID, let workspaceID, let focusedSurfaceID):
-            return .ok(.object([
-                "workspace_id": .string(workspaceID.uuidString),
-                "workspace_ref": ref(.workspace, workspaceID),
-                "surface_id": .string(focusedSurfaceID.uuidString),
-                "surface_ref": ref(.surface, focusedSurfaceID),
-                "window_id": orNull(windowID?.uuidString),
-                "window_ref": ref(.window, windowID),
-            ]))
-        }
+        return surfaceFocusResult(resolution, requestedSurfaceID: surfaceID)
     }
 
     // MARK: - split
@@ -669,6 +644,12 @@ extension ControlCommandCoordinator {
                 code: "confirmation_required",
                 message: context.controlSurfaceCloseStrings().confirmationRequired,
                 data: .object(["surface_id": .string(id.uuidString)])
+            )
+        case .denied(let id, let message):
+            return .err(
+                code: "denied",
+                message: message,
+                data: .object(["surface_id": .string(id.uuidString), "reason": .string("browser_repl_tab")])
             )
         case .closeFailed(let id):
             return .err(

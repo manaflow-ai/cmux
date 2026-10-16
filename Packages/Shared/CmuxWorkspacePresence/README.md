@@ -15,7 +15,9 @@ An invisible row releases its session unless it is still the active workspace.
 The transport talks to `/v1/workspace-presence`. Every frame is a full, bounded
 snapshot scoped to one workspace. A connection starts passive, renews active
 viewing every 15 seconds, and expires after 45 seconds without renewal. The
-model clears participants on close, decode failure, scope mismatch, or teardown.
+snapshot keeps live passive viewers with `active: false`, so clients can show
+an open but unfocused workspace as dimmed presence. The model clears
+participants on close, decode failure, scope mismatch, or teardown.
 The Worker never changes terminal access or device reachability.
 
 Tests inject `WorkspacePresenceConnecting` and a `Clock<Duration>`; no AppKit,

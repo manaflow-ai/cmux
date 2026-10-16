@@ -247,8 +247,6 @@ struct SurfaceSocketCommandTests {
     private static func withFixture(device: Bool = false, _ body: (Fixture) async throws -> Void) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-            let flag = CmuxFeatureFlags.cloudMachinesFlag
-            let previousOverride = CmuxFeatureFlags.shared.overrideValue(for: flag)
             let betaKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
             let previousBeta = UserDefaults.standard.object(forKey: betaKey)
             let app = try VaultPaneAppFixture()
@@ -264,10 +262,8 @@ struct SurfaceSocketCommandTests {
                 app.tearDown()
                 TerminalController.shared.setActiveTabManager(previousManager)
                 UserDefaults.standard.set(previousBeta, forKey: betaKey)
-                CmuxFeatureFlags.shared.setOverride(previousOverride, for: flag)
             }
             UserDefaults.standard.set(true, forKey: betaKey)
-            CmuxFeatureFlags.shared.setOverride(true, for: flag)
             let fixture = Fixture(manager: app.manager, device: device)
             defer { fixture.tearDown() }
             try await body(fixture)

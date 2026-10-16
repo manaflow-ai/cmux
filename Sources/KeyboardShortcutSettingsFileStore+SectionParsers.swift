@@ -10,48 +10,73 @@ extension CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        // One section value for every toggle below. A `SettingCatalog()` per call is a whole
+        // catalog per stack slot in a debug build, which is enough to overflow a worker thread.
+        let betaFeatures = BetaFeaturesCatalogSection()
         if let integrations = root["integrations"] as? [String: Any] {
             parseIntegrationsSection(integrations, sourcePath: sourcePath, snapshot: &snapshot)
         } else if root.keys.contains("integrations") {
             logInvalid("integrations", sourcePath: sourcePath)
         }
 
-        // Build only the section each parser reads. In -Onone builds every
-        // `SettingCatalog()` temporary takes a whole-catalog stack slot, and a
-        // dozen of them overflowed a 512 KB cooperative thread in app-host tests.
-        let beta = BetaFeaturesCatalogSection()
+        // Read every beta toggle from the single section value above. In -Onone builds a
+        // `SettingCatalog()` temporary takes a whole-catalog stack slot, and a dozen of them
+        // overflowed a 512 KB cooperative thread in app-host tests.
         parseBetaToggle(
             root["rightSidebar"] as? [String: Any],
             nestedPath: ["beta", "feed", "enabled"],
-            setting: beta.rightSidebarFeed,
+            setting: betaFeatures.rightSidebarFeed,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
-        parseBetaToggle(
-            root["extensions"] as? [String: Any],
-            nestedPath: ["beta", "enabled"],
-            setting: beta.extensions,
-            sourcePath: sourcePath,
-            snapshot: &snapshot
-        )
+        parseBetaToggle(root["extensions"] as? [String: Any], nestedPath: ["beta", "enabled"], setting: betaFeatures.extensions, sourcePath: sourcePath, snapshot: &snapshot)
+        parseBetaToggle(root["windowHints"] as? [String: Any], nestedPath: ["beta", "enabled"], setting: betaFeatures.windowHints, sourcePath: sourcePath, snapshot: &snapshot)
         parseBetaToggle(
             root["customSidebars"] as? [String: Any],
             nestedPath: ["beta", "enabled"],
-            setting: beta.customSidebars,
+            setting: betaFeatures.customSidebars,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         parseBetaToggle(
             root["cloud"] as? [String: Any],
             nestedPath: ["beta", "machines", "enabled"],
-            setting: beta.cloudMachines,
+            setting: betaFeatures.cloudMachines,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         parseBetaToggle(
             root["remoteTmux"] as? [String: Any],
             nestedPath: ["beta", "enabled"],
-            setting: beta.remoteTmux,
+            setting: betaFeatures.remoteTmux,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseBetaToggle(
+            root["remoteTmux"] as? [String: Any],
+            nestedPath: ["multiplexer", "beta", "enabled"],
+            setting: betaFeatures.remoteTmuxMultiplexer,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseBetaToggle(
+            root["remoteTmux"] as? [String: Any],
+            nestedPath: ["beta", "newWorkspaceOnHost", "enabled"],
+            setting: betaFeatures.remoteTmuxNewWorkspaceOnHost,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseBetaToggle(
+            root["remoteTmux"] as? [String: Any],
+            nestedPath: ["beta", "originColors", "enabled"],
+            setting: betaFeatures.remoteTmuxOriginColors,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+        parseBetaToggle(
+            root["remoteTmux"] as? [String: Any],
+            nestedPath: ["beta", "originHostTitles", "enabled"],
+            setting: betaFeatures.remoteTmuxOriginHostTitles,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
