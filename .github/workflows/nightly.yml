@@ -217,6 +217,7 @@ jobs:
       sign_channel: ${{ steps.decide.outputs.sign_channel }}
       profile_channel: ${{ steps.decide.outputs.profile_channel }}
       variants: ${{ steps.decide.outputs.variants }}
+      compile_archs: ${{ steps.decide.outputs.compile_archs }}
       feeds: ${{ steps.decide.outputs.feeds }}
       legacy_variant: ${{ steps.decide.outputs.legacy_variant }}
       fast_build: ${{ steps.decide.outputs.fast_build }}
@@ -325,10 +326,15 @@ jobs:
             // runs 37648507383 and 37667249069. Its x86_64, universal and legacy feeds keep
             // their last build, so an Intel Mac is never offered an arm64-only app.
             const variants = fastBuild || track === 'nightly-next' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
+            // Compile only the slices these variants consume. nightly-next
+            // ships arm64 only; compiling Intel here still paid for a second
+            // whole-module Swift compile and both slices of the Rust helpers.
+            const compileArchs = variants.includes('universal') ? ['arm64', 'x86_64'] : variants;
             const feeds = track === 'nightly-next'
               ? ['appcast-arm64.xml']
               : ['appcast-arm64.xml', 'appcast-x86_64.xml', 'appcast-universal.xml', 'appcast.xml'];
             core.setOutput('variants', JSON.stringify(variants));
+            core.setOutput('compile_archs', compileArchs.join(' '));
             core.setOutput('feeds', feeds.join(' '));
             core.setOutput('legacy_variant', 'universal');
             const channelIdentity = {
@@ -1301,6 +1307,7 @@ jobs:
     timeout-minutes: 20
     env:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
+      NIGHTLY_COMPILE_ARCHS: ${{ needs.decide.outputs.compile_archs }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -1332,7 +1339,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p nightly-helper
-          if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then
+          if [[ "$NIGHTLY_COMPILE_ARCHS" == "arm64" ]]; then
             ./scripts/build-ghostty-cli-helper.sh --target aarch64-macos --output nightly-helper/ghostty
             lipo nightly-helper/ghostty -verify_arch arm64
           else
@@ -1450,6 +1457,7 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
+      NIGHTLY_COMPILE_ARCHS: ${{ needs.decide.outputs.compile_archs }}
       CHANNEL_ICON_NAME: ${{ needs.decide.outputs.icon_name }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -1577,7 +1585,7 @@ jobs:
 
       - name: Build in-tree acpmux for the compilation cache
         env:
-          CMUX_NEXT_ACPMUX_ARCHS: arm64,x86_64
+          CMUX_NEXT_ACPMUX_ARCHS: ${{ needs.decide.outputs.compile_archs }}
         run: |
           set -euo pipefail
           acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
@@ -1596,9 +1604,8 @@ jobs:
         if: needs.decide.outputs.track == 'nightly-next'
         run: |
           set -euo pipefail
-          if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then archs=arm64; else archs=arm64,x86_64; fi
           chief_bin="$RUNNER_TEMP/cmux-next-optchat-chief/optchat-chief"
-          CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="$archs" scripts/cmux-next/build-optchat-chief.sh --output "$chief_bin"
+          CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="$NIGHTLY_COMPILE_ARCHS" scripts/cmux-next/build-optchat-chief.sh --output "$chief_bin"
           echo "CMUX_NEXT_OPTCHAT_CHIEF_BIN=$chief_bin" >> "$GITHUB_ENV"
           echo "CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1" >> "$GITHUB_ENV"
           # The built-in full uBlock Origin must be in every nightly-next build (bundle-ublock.sh).
@@ -1720,7 +1727,7 @@ jobs:
             # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
             notary_test_flags=("OTHER_SWIFT_FLAGS=\$(inherited) $SWIFT_IMPORT_FLAGS" build)
           fi
-          if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then
+          if [[ "$NIGHTLY_COMPILE_ARCHS" == "arm64" ]]; then
             archs="arm64"
             only_active="YES"
           else
