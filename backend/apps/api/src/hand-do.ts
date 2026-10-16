@@ -313,10 +313,11 @@ export class HandDO extends DurableObject<Env> {
     return { ok: true, value: this.ctx.storage.sql.exec(`SELECT seq, at, req, action, who, verdict, reason, model, ms, summary FROM hand_verdict ORDER BY seq DESC LIMIT ?`, Math.min(Math.max(limit, 1), 1000)).toArray() }
   }
 
-  /** The sweep (hand-sweep.ts): "live" (keep), "gone" (this hand no longer holds it: delete), or "unknown" (no such hand here: keep). */
+  /** The sweep (hand-sweep.ts): "live" (keep) or "gone" (no live hand holds it: delete); the sweep keeps it when this call fails. */
   async ownsVm(vm: string): Promise<"live" | "gone" | "unknown"> {
     const r = this.row()
-    if (!r) return "unknown"
+    // No row: the hand's code expired or its install failed (the VM carries this deployment's tag).
+    if (!r) return "gone"
     return r.revoked_at === null && this.sandboxVm() === vm ? "live" : "gone"
   }
 
