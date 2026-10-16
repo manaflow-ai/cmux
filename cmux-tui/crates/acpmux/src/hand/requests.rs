@@ -96,7 +96,14 @@ where
                 ));
             }
         };
-    match decide(ctx.cfg, action, &paths) {
+    let argv: Option<Vec<String>> = (action == "exec")
+        .then(|| {
+            p.get("argv")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
+        })
+        .flatten();
+    match decide(ctx.cfg, action, &paths, opt_s(p, "_verdict"), argv.as_deref()) {
         Decision::Allow => {}
         Decision::Deny(why) => return Err(HandError::new("policy.denied", why)),
         Decision::Ask => {
