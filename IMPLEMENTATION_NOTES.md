@@ -1,3 +1,23 @@
+## 2026-10-15 preview launch and localization repair
+
+- Exact-head fleet job `f98592121ff41df8f60fc473` built `0a3eac2b25e`
+  successfully as `issue-21063-chief-home-v9`. Published through HQ, verified
+  the archive and installed bundle identity, launched the tagged app, and
+  confirmed its socket responds. Opened Chief Settings and verified the
+  accessible `ChiefSettingsDangerousPermissions` checkbox is visible and off.
+  Screenshot: `.chief-work/shots/chief-home-v9-permissions.png`. The user's
+  stable cmux was not changed.
+- Reproduced localization parity failure (738 diagnostics), then removed 90
+  unused English-only app-catalog duplicates whose strings are resolved from
+  translated package catalogs with `bundle: .module`. No app/CLI source uses
+  those keys. Added the three missing memory-edit translations for all eight
+  non-English required locales and updated translated dispatch help to match
+  the opt-in permission bypass. The same localization command now passes all
+  11 catalogs and nine required locales; affected verification passes 4/4.
+- Updated the existing PR guide to distinguish earlier package-test evidence
+  from exact-head compilation, and to state the remaining editable Home
+  workspace gap. Native test execution and final CI still need completion.
+
 ## 2026-10-15 tagged build compile fix
 
 - Read every unique compiler diagnostic from the fleet logs: corrected the
