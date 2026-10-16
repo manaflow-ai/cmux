@@ -242,7 +242,11 @@ pub struct Frozen {
 pub fn frozen_text(f: &Frozen, store: &dyn Store) -> String {
     let mut text = String::from("<chat>\n");
     for part in &f.parts {
-        let body = if f.unbuilt.contains(part) { None } else { store.node(*part) };
+        let body = if f.unbuilt.contains(part) {
+            None
+        } else {
+            store.node(*part)
+        };
         text.push_str(&view_line(*part, body.as_deref()));
         text.push('\n');
     }
@@ -269,7 +273,12 @@ pub fn delta_line(i: u64, kind: crate::Kind, text: &str) -> String {
     format!("{}|{}: {}", NodeId::new(0, i).name(), kind.as_str(), body)
 }
 
-fn delta_blocks(memory: &Memory, store: &dyn Store, front: u64, new_from: u64) -> (Vec<String>, usize) {
+fn delta_blocks(
+    memory: &Memory,
+    store: &dyn Store,
+    front: u64,
+    new_from: u64,
+) -> (Vec<String>, usize) {
     let mut blocks: Vec<String> = Vec::new();
     let mut last_user: Option<bool> = None;
     let mut bytes = 0;
@@ -302,21 +311,52 @@ fn delta_blocks(memory: &Memory, store: &dyn Store, front: u64, new_from: u64) -
 /// returned `frozen` and passes it to the next turn; the turn's `new` messages (the last `new`
 /// of the log) are logged before this call, and a re-render never shows them in the view (spec 7
 /// anchoring: they are delta lines only).
-pub fn turn_input(memory: &Memory, store: &dyn Store, frozen: Option<&Frozen>, new: u64) -> TurnInput {
+pub fn turn_input(
+    memory: &Memory,
+    store: &dyn Store,
+    frozen: Option<&Frozen>,
+    new: u64,
+) -> TurnInput {
     let new_from = memory.len().saturating_sub(new);
     if let Some(f) = frozen.filter(|f| f.front <= new_from) {
         let (delta, bytes) = delta_blocks(memory, store, f.front, new_from);
         // A fold past the front: a built view line above level 0 now covers the front message, so a
         // re-render is shorter than view + delta (a short message built at pump alone does not count).
-        let built_past = f.front < memory.len() && memory.view().iter().any(|p| p.l > 0 && p.start() <= f.front && f.front < p.end() && memory.is_built(*p));
+        let built_past = f.front < memory.len()
+            && memory.view().iter().any(|p| {
+                p.l > 0 && p.start() <= f.front && f.front < p.end() && memory.is_built(*p)
+            });
         if !(bytes > DELTA_HARD || (bytes > DELTA_MAX && built_past)) {
-            return TurnInput { view: frozen_text(f, store), frozen: f.clone(), rerendered: false, delta };
+            return TurnInput {
+                view: frozen_text(f, store),
+                frozen: f.clone(),
+                rerendered: false,
+                delta,
+            };
         }
     }
-    let shown: Vec<NodeId> = render_view(memory, store).parts.into_iter().take_while(|p| p.end() <= new_from).collect();
+    let shown: Vec<NodeId> = render_view(memory, store)
+        .parts
+        .into_iter()
+        .take_while(|p| p.end() <= new_from)
+        .collect();
     let v = render_parts(&shown, store);
     let front = v.parts.last().map_or(0, |p| p.end());
     let (delta, _) = delta_blocks(memory, store, front, new_from);
-    let unbuilt = v.parts.iter().copied().filter(|p| !memory.is_built(*p) || store.node(*p).is_none()).collect();
-    TurnInput { frozen: Frozen { parts: v.parts, front, unbuilt }, rerendered: true, view: v.text, delta }
+    let unbuilt = v
+        .parts
+        .iter()
+        .copied()
+        .filter(|p| !memory.is_built(*p) || store.node(*p).is_none())
+        .collect();
+    TurnInput {
+        frozen: Frozen {
+            parts: v.parts,
+            front,
+            unbuilt,
+        },
+        rerendered: true,
+        view: v.text,
+        delta,
+    }
 }
