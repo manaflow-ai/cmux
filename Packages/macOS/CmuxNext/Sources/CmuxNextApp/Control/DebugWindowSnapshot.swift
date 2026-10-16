@@ -2,9 +2,6 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextSettings
-import Darwin
-import ImageIO
-import UniformTypeIdentifiers
 import WebKit
 
 /// `debug.window_snapshot`: one of this app's own windows as the window
@@ -49,7 +46,7 @@ enum DebugWindowSnapshot {
             ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-window-\(kind)-\(window.windowNumber).png")
         do {
             let snapshot = try window.snapshotImage()
-            _ = try await encodePNG(snapshot.image, to: URL(fileURLWithPath: path))
+            _ = try await NSWindow.encodeSnapshotPNG(snapshot.image, to: URL(fileURLWithPath: path))
             let children = window.visibleChildWindows.count
             return .object([
                 "path": .string(path), "width": JSONValue(snapshot.image.width), "height": JSONValue(snapshot.image.height),
@@ -141,11 +138,9 @@ enum DebugWindowSnapshot {
             let floating = window.floatingWindowsSnapshot()
             if let floating { layers.append(.window(floating.image)) }
             let output = composite(base: base.image, window: window, layers: layers) ?? base.image
-            // AppKit/WebKit capture and compositing stay on the main actor. PNG
-            // compression and the potentially blocking file write run on the
-            // concurrent executor so a large screenshot cannot trip the main
-            // thread watchdog.
-            _ = try await encodePNG(output, to: URL(fileURLWithPath: path))
+            // AppKit/WebKit capture and compositing stay on the main actor;
+            // PNG compression and the file write run off-main.
+            _ = try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path))
             return .object([
                 "path": .string(path), "width": JSONValue(output.width), "height": JSONValue(output.height),
                 "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(base.method.rawValue),
@@ -160,23 +155,6 @@ enum DebugWindowSnapshot {
         } catch {
             return .object(["error": .string("snapshot failed: \(error.localizedDescription)")])
         }
-    }
-
-    /// Encodes an immutable capture and writes it atomically away from the
-    /// main actor. `CGImage` is safe to pass across this boundary; no AppKit
-    /// or WebKit objects are touched here. The return value records the
-    /// executor invariant for the focused regression test.
-    static func encodePNG(_ image: CGImage, to url: URL) async throws -> Bool {
-        try await Task.detached(priority: .userInitiated) {
-            let data = NSMutableData()
-            guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else {
-                throw CocoaError(.fileWriteUnknown)
-            }
-            CGImageDestinationAddImage(destination, image, nil)
-            guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
-            try (data as Data).write(to: url, options: .atomic)
-            return pthread_main_np() == 0
-        }.value
     }
 
     /// The refusal HUD's message while it shows, else null.

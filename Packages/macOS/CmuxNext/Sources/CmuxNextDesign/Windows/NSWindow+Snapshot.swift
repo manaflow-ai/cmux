@@ -1,5 +1,7 @@
 public import AppKit
 import Darwin
+import ImageIO
+import UniformTypeIdentifiers
 
 /// How ``NSWindow/writeSnapshot(to:)`` captured a window.
 public nonisolated enum WindowSnapshotMethod: String, Sendable {
@@ -11,6 +13,21 @@ public nonisolated enum WindowSnapshotMethod: String, Sendable {
 }
 
 extension NSWindow {
+    /// Encodes an immutable capture and writes it atomically off the main
+    /// actor. The Bool lets the regression test verify executor placement.
+    public static func encodeSnapshotPNG(_ image: CGImage, to url: URL) async throws -> Bool {
+        try await Task.detached(priority: .userInitiated) {
+            let data = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            CGImageDestinationAddImage(destination, image, nil)
+            guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+            try (data as Data).write(to: url, options: .atomic)
+            return pthread_main_np() == 0
+        }.value
+    }
+
     /// This window as AppKit draws it, without screen capture (no Screen
     /// Recording permission): the frame view (titlebar, traffic lights and
     /// content) rendered through `cacheDisplay(in:to:)` at the backing scale.
