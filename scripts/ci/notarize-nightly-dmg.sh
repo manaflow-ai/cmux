@@ -183,9 +183,10 @@ fi
 # create-dmg, LZMA, sign. create-keychain makes the signing keychain just
 # before the signature (the DMG around the stapled app, after Apple's wait).
 package_signed_dmg() {
-  local app="$1" out="$2" work="$3" keychain="${4:-}" created format
+  local app="$1" out="$2" work="$3" keychain="${4:-}" created format saved_umask
   # create-dmg copies the app with the process umask. The notary sidecar
   # writers set 077, and an app copied under it is readable only by its owner.
+  saved_umask="$(umask)"
   umask 022
   "$CREATE_DMG_TOOL" --no-code-sign "$app" "$work"
   created="$(find "$work" -maxdepth 1 -name '*.dmg' -print -quit)"
@@ -215,6 +216,7 @@ package_signed_dmg() {
     --sign "$APPLE_SIGNING_IDENTITY" \
     "$out"
   "$CODESIGN_TOOL" --verify --verbose=2 "$out"
+  umask "$saved_umask"
 }
 
 if [ -z "$CONTINUE_STATE" ]; then
@@ -349,6 +351,10 @@ if [ -n "$CONTINUE_STATE" ]; then
     echo "Apple submission $CONTINUE_SUBMISSION_ID is still in progress; publication awaits Accepted" >&2
     if [ -n "${GITHUB_OUTPUT:-}" ]; then
       echo "submission_pending=true" >> "$GITHUB_OUTPUT"
+      if [ "${CONTINUE_STAPLED_APP:-}" = true ]; then
+        # The first DMG was accepted; its stapled-app DMG is still queued.
+        echo "stapled_app_pending=true" >> "$GITHUB_OUTPUT"
+      fi
     fi
     exit 0
   fi
@@ -485,6 +491,8 @@ elif [ "$STAPLE_APP_IN_DMG" = true ]; then
         # Hand off the second submission itself: the DMG around the stapled
         # app takes the release path, and the state names its submission, so
         # a later run asks Apple about it instead of submitting a new one.
+        # The accepted first DMG is dropped: if Apple later refuses this one,
+        # the build is not published.
         /bin/mv -f "$FINAL_DMG" "$DMG_RELEASE"
         DMG_SUBMIT_ID="$restaple_id"
         DMG_STATUS="In Progress"
@@ -500,6 +508,7 @@ elif [ "$STAPLE_APP_IN_DMG" = true ]; then
       fi
       if [ -n "${GITHUB_OUTPUT:-}" ]; then
         echo "submission_pending=true" >> "$GITHUB_OUTPUT"
+        echo "stapled_app_pending=true" >> "$GITHUB_OUTPUT"
       fi
       exit 0
     fi

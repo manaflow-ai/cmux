@@ -3871,7 +3871,7 @@ jobs:
               echo "::endgroup::"; continue
             fi
             if grep -Fxq "submission_pending=true" "$pending"; then
-              if grep -Fxq "notary_status=Accepted" "$pending"; then
+              if grep -Fxq "stapled_app_pending=true" "$pending"; then
                 # Apple accepted it; the DMG around the stapled app is still
                 # queued. A later run continues this build, not an older one.
                 echo "::notice::run $run_id: submission $SUBMISSION_ID is accepted and the DMG around the stapled app is still in Apple's queue; a later run continues it"
@@ -5241,7 +5241,8 @@ jobs:
           if grep -Eq '"status" *: *"(Invalid|Rejected)"' "$RUNNER_TEMP/legacy.notarization.log" 2>/dev/null; then
             apple=refused
           elif grep -Eq '"status" *: *"Accepted"' "$RUNNER_TEMP/legacy.notarization.log" 2>/dev/null \
-             || { [ -d "legacy-app/cmux NIGHTLY.app" ] && xcrun stapler validate "legacy-app/cmux NIGHTLY.app" >/dev/null 2>&1; }; then
+             || { [ -d "legacy-app/cmux NIGHTLY.app" ] && ! grep -Fxq stapled_app=true "$RUNNER_TEMP/legacy.notarization.state" 2>/dev/null \
+                  && xcrun stapler validate "legacy-app/cmux NIGHTLY.app" >/dev/null 2>&1; }; then
             apple=accepted
           fi
           refused=false

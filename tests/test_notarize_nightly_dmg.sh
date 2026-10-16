@@ -392,6 +392,7 @@ handed_dmg_sha="$(shasum -a 256 "$DMG" | awk '{print $1}')"
 # The second submission itself is handed off: its DMG takes the release path
 # and the state names it, so a later run continues it without a new one.
 if ! grep -Fxq "submission_pending=true" "$STAPLED_GITHUB_OUTPUT" \
+  || ! grep -Fxq "stapled_app_pending=true" "$STAPLED_GITHUB_OUTPUT" \
   || ! grep -Fxq "submission_id=fixture-stapled-id" "$DMG.notarization.state" \
   || ! grep -Fxq "status=In Progress" "$DMG.notarization.state" \
   || ! grep -Fxq "stapled_app=true" "$DMG.notarization.state" \
@@ -627,6 +628,22 @@ if grep -q '^xcrun notarytool submit' "$LOG" || grep -q '^create-dmg ' "$LOG" ||
   || [ ! -e "$CONTINUE_IMMUTABLE" ]; then
   echo "FAIL: a handed-off stapled-app submission must be stapled and shipped without a new DMG" >&2
   cat "$LOG" >&2
+  exit 1
+fi
+
+# A handed-off stapled-app submission still in Apple's queue says so, so the
+# recovery job does not move on to an older build.
+reset_continue
+printf 'stapled_app=true\n' >> "$CONTINUE_STATE"
+if ! CMUX_TEST_NOTARY_STATUS="In Progress" CMUX_STAPLE_APP_IN_DMG=true CMUX_SIGNING_KEYCHAIN_TOOL="$FAKE_BIN/keychain" \
+  APPLE_SIGNING_IDENTITY='Developer ID Application: Fixture' \
+  APPLE_CERTIFICATE_BASE64=fixture APPLE_CERTIFICATE_PASSWORD=fixture \
+  run_continue >/dev/null 2>"$TMP_DIR/continue-stapled-pending.err" \
+  || ! grep -Fxq "submission_pending=true" "$CONTINUE_GITHUB_OUTPUT" \
+  || ! grep -Fxq "stapled_app_pending=true" "$CONTINUE_GITHUB_OUTPUT" \
+  || grep -q '^xcrun stapler staple' "$LOG"; then
+  echo "FAIL: a queued handed-off stapled-app submission must stay pending and say stapled_app_pending" >&2
+  cat "$TMP_DIR/continue-stapled-pending.err" "$LOG" >&2
   exit 1
 fi
 
