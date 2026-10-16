@@ -103,15 +103,20 @@ import CmuxMobileSSH
     @Test func staleGenerationCannotClearOrAdmitNewSnapshot() {
         var gate = MobileSSHCmuxTUITopologyGate()
         gate.generationChanged(to: 1)
-        #expect(gate.admit(.treeChanged, generation: 1))
+        let admittedFirst = gate.admit(.treeChanged, generation: 1)
+        #expect(admittedFirst)
         gate.generationChanged(to: 2)
         gate.listed(generation: 1)
-        #expect(!gate.admit(.surfaceExited(surface: 7), generation: 1))
-        #expect(!gate.forceSnapshotIfNeeded(generation: 2))
+        let admittedStale = gate.admit(.surfaceExited(surface: 7), generation: 1)
+        #expect(!admittedStale)
+        let snapshotBeforeListing = gate.forceSnapshotIfNeeded(generation: 2)
+        #expect(!snapshotBeforeListing)
 
         gate.listed(generation: 2)
         gate.generationChanged(to: 3)
-        #expect(gate.forceSnapshotIfNeeded(generation: 3))
-        #expect(!gate.admit(.treeChanged, generation: 2))
+        let snapshotAfterGap = gate.forceSnapshotIfNeeded(generation: 3)
+        #expect(snapshotAfterGap)
+        let admittedOld = gate.admit(.treeChanged, generation: 2)
+        #expect(!admittedOld)
     }
 }
