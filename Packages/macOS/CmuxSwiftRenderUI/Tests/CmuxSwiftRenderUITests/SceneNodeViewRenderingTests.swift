@@ -31,7 +31,7 @@ struct SceneNodeViewRenderingTests {
                 clickCount: 1,
                 pressure: 1
             ) else { continue }
-            NSApp.postEvent(event, atStart: false)
+            NSApp.sendEvent(event)
         }
         spinRunLoop()
         for _ in 0..<5 { await Task.yield() }
