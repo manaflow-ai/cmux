@@ -167,7 +167,7 @@ public actor MockHomeSource: HomeSource {
             replay.replayed = true
             return replay
         }
-        if case .sendMessage(_, let parts, _) = intent.op {
+        if case .sendMessage(_, let parts, _, _) = intent.op {
             for case .attachment(let ref) in parts {
                 guard let left = forgetOnSubmit[ref.hash] else { continue }
                 blobs[ref.hash] = nil
@@ -182,7 +182,7 @@ public actor MockHomeSource: HomeSource {
             throw rejection
         }
         ledger[intent.key] = (intent.op, .success(result))
-        if case .sendMessage(let conversation, _, _) = intent.op { scheduleReplies(in: conversation) }
+        if case .sendMessage(let conversation, _, _, _) = intent.op { scheduleReplies(in: conversation) }
         return result
     }
 
@@ -448,7 +448,7 @@ public actor MockHomeSource: HomeSource {
 
     private func apply(_ intent: HomeIntent) throws -> HomeOpResult {
         switch intent.op {
-        case .sendMessage(let conversation, let parts, let threadRoot):
+        case .sendMessage(let conversation, let parts, let threadRoot, let parent):
             let text = parts.map(\.plainText).joined()
             guard !text.isEmpty, text.utf8.count <= 65_536 else { throw HomeRejection.invalid("invalid_parts") }
             // The owner's checkAttachments: a recorded hash, and the part's
@@ -469,10 +469,16 @@ public actor MockHomeSource: HomeSource {
                     throw HomeRejection.invalid("attachment_mismatch")
                 }
             }
-            if let threadRoot, stored[conversation]?.contains(where: { $0.id == threadRoot }) != true {
+            // The root, and a parent of the thread at any depth, must be stored messages of the conversation.
+            if let threadRoot, [threadRoot, parent ?? threadRoot].contains(where: { id in stored[conversation]?.contains { $0.id == id } != true }) {
                 throw HomeRejection.invalid("unknown_reply_target")
             }
-            let rev = try commitMessage(in: conversation, author: me.id, parts: parts, key: intent.key, threadRoot: threadRoot)
+            // The owner's rule (conversation-tree-v1): a parent is the root or a reply in the root's thread.
+            if let threadRoot, let parent, parent != threadRoot,
+               stored[conversation]?.first(where: { $0.id == parent })?.threadRoot != threadRoot {
+                throw HomeRejection.invalid("invalid_thread_root")
+            }
+            let rev = try commitMessage(in: conversation, author: me.id, parts: parts, key: intent.key, threadRoot: threadRoot, parent: parent)
             return HomeOpResult(rev: rev, conversation: conversation)
         case .editMessage(let messageID, let conversation, let parts):
             return try updateOwnMessage(messageID, in: conversation) {
@@ -609,12 +615,12 @@ public actor MockHomeSource: HomeSource {
     }
 
     private func commitMessage(in conversation: ConversationID, author: ParticipantID, parts: [MessagePart], key: IdempotencyKey,
-                               threadRoot: MessageID? = nil) throws -> Revision {
+                               threadRoot: MessageID? = nil, parent: MessageID? = nil) throws -> Revision {
         guard var summary = conversations[conversation] else { throw HomeRejection.invalid("unknown_conversation") }
         guard summary.participants.contains(where: { $0.id == author }) else { throw HomeRejection.notAuthorized }
         let message = Message(id: MessageID("msg_\(mintID())"), conversation: conversation, seq: summary.lastSeq + 1,
                               clientMessageID: key, author: author, parts: parts, createdAt: Date(),
-                              replyTo: threadRoot.map { PartRef(message: $0) }, threadRoot: threadRoot)
+                              replyTo: threadRoot.map { PartRef(message: parent ?? $0) }, threadRoot: threadRoot)
         stored[conversation, default: []].append(message)
         summary.lastSeq = message.seq
         summary.lastMessage = message
