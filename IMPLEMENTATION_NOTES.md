@@ -10,7 +10,9 @@
   as a local source and the corrected head is ready for another fleet build.
   The subsequent compile also required the SwiftUI binding to be explicit and
   a DEBUG drag log interpolation to be split into a local value; both are now
-  fixed before the next tagged submission.
+  fixed before the next tagged submission. Fleet's SwiftUI type checker still
+  rejected the interpolation passed through its autoclosure, so the debug line
+  now passes a prebuilt `String` value.
 
 ## 2026-10-15 Chief Home pane drag
 

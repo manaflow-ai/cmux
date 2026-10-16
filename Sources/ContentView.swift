@@ -12212,7 +12212,8 @@ struct VerticalTabsSidebar: View, Equatable {
         .onChange(of: dragState.draggedTabId) { newDraggedTabId in
 #if DEBUG
             let shortDraggedTabID = sidebarShortTabId(newDraggedTabId)
-            cmuxDebugLog("sidebar.dragState.sidebar tab=\(shortDraggedTabID)")
+            let dragStateLogMessage = "sidebar.dragState.sidebar tab=" + shortDraggedTabID
+            cmuxDebugLog(dragStateLogMessage)
 #endif
             guard newDraggedTabId == nil else { return }
             dragAutoScrollController.stop()
