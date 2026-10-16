@@ -772,7 +772,7 @@ describe("billing checkout route", () => {
     expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
   });
 
-  test("sends an active Pro subscriber who asks for Max to the portal plan switch", async () => {
+  test("keeps a yearly Pro subscriber on the yearly Max interval through the dashboard switch", async () => {
     stripeConfigured = true;
     stripeCustomerRows = [{ id: "cus_pro" }];
     stripeSubscriptionRows = [{
@@ -789,9 +789,7 @@ describe("billing checkout route", () => {
       new NextRequest("https://cmux.test/api/billing/checkout?plan=max"),
     );
 
-    expect(response.headers.get("location")).toBe(
-      "https://cmux.test/api/billing/portal?flow=switch_plan&plan=max",
-    );
+    expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing?change=max");
     expect(createStripeSession).not.toHaveBeenCalled();
   });
 

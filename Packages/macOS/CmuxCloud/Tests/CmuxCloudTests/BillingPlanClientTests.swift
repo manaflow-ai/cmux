@@ -36,12 +36,13 @@ struct BillingPlanClientTests {
     // The Settings plan row names who bills the plan; App Store and granted
     // plans must not read as a Stripe-managed subscription.
     @Test("billing source decodes", arguments: [
-        ("\"billingSource\":\"apple\",", BillingSource.apple),
-        ("\"billingSource\":\"stripe\",", BillingSource.stripe),
-        ("\"billingSource\":\"none\",", BillingSource.unbilled),
-        ("", BillingSource.unbilled),
+        ("\"billingSource\":\"apple\",", BillingSource.apple as BillingSource?),
+        ("\"billingSource\":\"stripe\",", BillingSource.stripe as BillingSource?),
+        ("\"billingSource\":\"none\",", BillingSource.unbilled as BillingSource?),
+        ("\"billingSource\":\"unknown\",", nil),
+        ("", nil),
     ])
-    func billingSourceDecodes(field: String, expected: BillingSource) async throws {
+    func billingSourceDecodes(field: String, expected: BillingSource?) async throws {
         let client = BillingPlanClient(session: BillingPlanStubURLProtocol.session(body: """
         {"authenticated":true,"planId":"pro","subscriptionPlanId":"pro",\(field)
          "isPro":true,"billingManagement":"external","teamPlanId":"free","teamBillingManagement":"none"}

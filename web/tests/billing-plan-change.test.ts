@@ -15,6 +15,7 @@ let subscription: Record<string, unknown>;
 let preview: Record<string, unknown>;
 /** The next renewal invoice at the new price (proration_behavior "none"). */
 let renewalPreview: Record<string, unknown>;
+let renewalLines: Record<string, unknown>[];
 let updateError: unknown;
 const calls: { method: string; args: unknown[] }[] = [];
 const synced: unknown[] = [];
@@ -57,6 +58,10 @@ const deps: PlanChangeDependencies = {
         const details = (args[0] as { subscription_details?: { proration_behavior?: string } }).subscription_details;
         return details?.proration_behavior === "none" ? renewalPreview : preview;
       },
+      listLineItems: async (...args: unknown[]) => {
+        calls.push({ method: "listLineItems", args });
+        return { data: renewalLines, has_more: false };
+      },
     },
   }) as never,
   syncSubscription: async (updated) => {
@@ -78,6 +83,7 @@ beforeEach(() => {
   subscription = subscriptionOn("cmux-pro-monthly-50");
   preview = { currency: "usd", amount_due: 10_000, lines: { data: [] } };
   renewalPreview = { currency: "usd", amount_due: 20_000, lines: { data: [] } };
+  renewalLines = [];
   updateError = null;
   calls.length = 0;
   synced.length = 0;
@@ -269,5 +275,18 @@ describe("personal plan change", () => {
         proration_behavior: "none",
       },
     });
+  });
+
+  test("loads the complete renewal lines before quoting a plan price", async () => {
+    renewalPreview = { id: "upcoming_1", currency: "usd", amount_due: 11_500, lines: { data: [], has_more: true } };
+    renewalLines = [{
+      amount: 20_000,
+      parent: { subscription_item_details: { subscription_item: "si_1", proration: false } },
+      discount_amounts: [{ amount: 2_000 }],
+      taxes: [{ amount: 900, tax_behavior: "exclusive" }],
+    }];
+    const result = await previewPersonalPlanChange({ userId: "u1", target: "max" }, deps);
+    expect(result.nextInvoiceAmount).toBe(18_900);
+    expect(calls.find((call) => call.method === "listLineItems")?.args).toEqual(["upcoming_1", { limit: 100 }]);
   });
 });
