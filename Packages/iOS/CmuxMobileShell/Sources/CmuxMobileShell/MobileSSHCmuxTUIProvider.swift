@@ -74,8 +74,10 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
 
     private func openControl() async throws -> CmuxTUIControl {
         let control = switch route {
-        case .ensure: try await remote.connect(on: connection, session: session)
-        case .socket(let socket): try await remote.connect(on: connection, socket: socket)
+        case .ensure:
+            try await remote.connect(on: connection, session: session, clientName: "cmux-ios", handshakeTimeout: .seconds(30))
+        case .socket(let socket):
+            try await remote.connect(on: connection, socket: socket, clientName: "cmux-ios", handshakeTimeout: .seconds(10))
         }
         if case .socket(let socket) = route, socket.name == nil {
             session = await control.session
