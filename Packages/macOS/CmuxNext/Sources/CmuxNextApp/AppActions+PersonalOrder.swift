@@ -12,6 +12,7 @@ extension AppActions {
         let visible = sidebar.model.selectableWorkspaces.map(\.id)
         guard let position = visible.firstIndex(of: SidebarWorkspaceID(workspace.id)), visible.indices.contains(position + offset) else { return }
         let target = visible[position + offset]
+        sidebar.model.noteUserMove() // the structural set that shows this move may reveal the moved row
         let machines = services.machines
         // The sidebar document: one move next to the row the person sees above or below (no personal order).
         if let store = SidebarDocStore.current, SidebarDocWiring.isActive,

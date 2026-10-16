@@ -93,6 +93,11 @@ fn destructive_exec(argv: &[String], home: Option<&Path>) -> Option<String> {
     None
 }
 
+/// `p` with symlinks resolved when it exists (the form `resolve` gives).
+fn canon(p: PathBuf) -> PathBuf {
+    std::fs::canonicalize(&p).unwrap_or(p)
+}
+
 /// Folders and files of the hand itself and of the agent daemon it drives:
 /// a request that changes them could switch off this policy.
 fn self_paths() -> Vec<PathBuf> {
@@ -105,7 +110,7 @@ fn self_paths() -> Vec<PathBuf> {
     if let Ok(exe) = std::env::current_exe() {
         out.push(exe);
     }
-    out
+    out.into_iter().map(canon).collect()
 }
 
 /// Paths a write may never touch on a person's Mac: raw disks, the system
@@ -122,43 +127,61 @@ fn destructive_path(action: &str, p: &Path) -> Option<String> {
     None
 }
 
+/// Credential, startup and profile places under the home folder.
+const UNDER_HOME: &[&str] = &[
+    ".ssh",
+    ".aws",
+    ".gnupg",
+    ".netrc",
+    ".docker/config.json",
+    ".kube",
+    ".config/gh",
+    ".config/gcloud",
+    ".azure",
+    ".npmrc",
+    ".pypirc",
+    ".gitconfig",
+    ".git-credentials",
+    ".zshrc",
+    ".zprofile",
+    ".zshenv",
+    ".bashrc",
+    ".bash_profile",
+    ".profile",
+    "Library/Keychains",
+    "Library/LaunchAgents",
+    "Library/Cookies",
+    "Library/Application Support/Google/Chrome",
+    "Library/Application Support/Firefox",
+    "Library/Application Support/BraveSoftware",
+    "Library/Safari",
+];
+
 /// Paths that always need the owner's answer on a mac hand, whatever the
 /// host's verdict: credentials, keychains, shell startup files, launch agents,
 /// git config and hooks.
 fn sensitive_path(p: &Path) -> bool {
-    let Some(home) = dirs::home_dir() else { return false };
-    const UNDER_HOME: &[&str] = &[
-        ".ssh",
-        ".aws",
-        ".gnupg",
-        ".netrc",
-        ".docker/config.json",
-        ".kube",
-        ".config/gh",
-        ".config/gcloud",
-        ".azure",
-        ".npmrc",
-        ".pypirc",
-        ".gitconfig",
-        ".git-credentials",
-        ".zshrc",
-        ".zprofile",
-        ".zshenv",
-        ".bashrc",
-        ".bash_profile",
-        ".profile",
-        "Library/Keychains",
-        "Library/LaunchAgents",
-        "Library/Cookies",
-        "Library/Application Support/Google/Chrome",
-        "Library/Application Support/Firefox",
-        "Library/Application Support/BraveSoftware",
-        "Library/Safari",
-    ];
-    UNDER_HOME.iter().any(|rel| p.starts_with(home.join(rel)))
+    let Some(home) = dirs::home_dir().map(canon) else { return false };
+    UNDER_HOME
+        .iter()
+        .any(|rel| p.starts_with(home.join(rel)) || p.starts_with(canon(home.join(rel))))
         || p.to_string_lossy().contains("/.git/hooks")
         || p.starts_with("/Library/LaunchAgents")
         || p.starts_with("/Library/LaunchDaemons")
+}
+
+/// Whether `root` contains a sensitive or own path (a walk from it reaches one).
+fn holds_protected(root: &Path, own: &[PathBuf]) -> bool {
+    if own.iter().any(|o| o.starts_with(root)) {
+        return true;
+    }
+    let Some(home) = dirs::home_dir().map(canon) else { return false };
+    home.starts_with(root)
+        || UNDER_HOME
+            .iter()
+            .any(|d| canon(home.join(d)).starts_with(root) || home.join(d).starts_with(root))
+        || Path::new("/Library/LaunchAgents").starts_with(root)
+        || Path::new("/Library/LaunchDaemons").starts_with(root)
 }
 
 /// An exec whose words name a sensitive or protected path (best effort: a
@@ -259,6 +282,18 @@ pub fn decide(
             }
             if argv.is_some_and(|a| a.join(" ").contains(".cmux-hand")) {
                 return Decision::Deny("the command touches the hand's own files".into());
+            }
+            // Nothing runs in, reads or lists the hand's own files (its key is there).
+            let own = self_paths();
+            if paths.iter().any(|p| own.iter().any(|o| p.starts_with(o))) {
+                return Decision::Deny("the hand's own files".into());
+            }
+            // A search, list or program run over a folder that holds credentials or the
+            // hand's files asks first: it would walk into them.
+            if matches!(action, "fs.grep" | "fs.glob" | "fs.list" | "exec" | "agent.start")
+                && paths.iter().any(|root| holds_protected(root, &own))
+            {
+                return Decision::Ask;
             }
             // Always the owner's answer, whatever the host says.
             if paths.iter().any(|p| sensitive_path(p)) || argv.is_some_and(sensitive_exec) {

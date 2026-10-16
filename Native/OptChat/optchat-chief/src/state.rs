@@ -727,6 +727,8 @@ pub struct FrozenRecord {
     pub unbuilt: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cuts: Vec<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub starts: Vec<u64>,
 }
 
 fn node_names(parts: &[optchat_core::NodeId]) -> Vec<String> {
@@ -751,6 +753,7 @@ impl FrozenRecord {
             front: frozen.front,
             unbuilt: node_names(&frozen.unbuilt),
             cuts: frozen.cuts.clone(),
+            starts: frozen.starts.clone(),
         }
     }
 
@@ -762,6 +765,7 @@ impl FrozenRecord {
             front: self.front,
             unbuilt: parse_nodes(&self.unbuilt)?,
             cuts: self.cuts.clone(),
+            starts: self.starts.clone(),
         })
     }
 }

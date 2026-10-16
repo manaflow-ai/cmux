@@ -137,6 +137,11 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
                 .and_then(Value::as_array)
                 .map(|a| a.iter().filter_map(Value::as_u64).collect())
                 .unwrap_or_default(),
+            starts: d
+                .get("starts")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_u64).collect())
+                .unwrap_or_default(),
         };
         Some(chat.turn_input_at(&frozen, n("new_from"), n("end")))
     });

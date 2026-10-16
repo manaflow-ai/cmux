@@ -86,6 +86,23 @@ for name in shipping:
         tooling = re.search(r"ref: \$\{\{ github\.sha \}\}\n\s+path: \.publish-tooling\n", body)
         check(tooling is not None, "publish-nightly must check out its publication tooling at github.sha into .publish-tooling")
         body = body.replace(tooling.group(0), "") if tooling else body
+    if name in {"build-nightly-app", "build-sign-notarize-nightly"}:
+        # Unsigned recovery restores bytes instead of compiling them, using
+        # this workflow's controls. Its separate source checkout stays pinned.
+        control_name = ("Checkout trusted unsigned-resume controls" if name == "build-nightly-app"
+                        else "Checkout trusted signing controls for unsigned resume")
+        control = re.search(rf"^      - name: {re.escape(control_name)}\n.*?(?=^      - name:|\Z)",
+                            body, re.MULTILINE | re.DOTALL)
+        check(control is not None, f"{name} must keep its explicit unsigned-recovery controls checkout")
+        if control:
+            check("if: inputs.nightly_next_unsigned_run != ''" in control.group(0),
+                  f"{name} control checkout must run only during unsigned recovery")
+            refs = re.findall(r"^\s+ref: (.*)$", control.group(0), re.MULTILINE)
+            check(refs == ["${{ github.sha }}"], f"{name} recovery controls must come from this workflow's commit")
+            if name == "build-sign-notarize-nightly":
+                check("path: .nightly-signing-control" in control.group(0),
+                      "signing controls must not replace the original source checkout")
+            body = body.replace(control.group(0), "")
     for ref in re.findall(r"^\s+ref: (.*)$", body, re.MULTILINE):
         check(ref.strip() in allowed, f"{name} checks out {ref.strip()}, not the resolved build commit")
     for line in body.splitlines():

@@ -296,6 +296,8 @@ impl OptChat {
             unbuilt: Vec<(u32, u64)>,
             #[serde(default)]
             cuts: Vec<u64>,
+            #[serde(default)]
+            starts: Vec<u64>,
         }
         #[derive(Serialize)]
         struct Out<'a> {
@@ -327,6 +329,7 @@ impl OptChat {
                     front: f.front,
                     unbuilt: ids(&f.unbuilt),
                     cuts: f.cuts.clone(),
+                    starts: f.starts.clone(),
                 })
             }
         };
@@ -339,6 +342,7 @@ impl OptChat {
                 front: t.frozen.front,
                 unbuilt: t.frozen.unbuilt.iter().map(|p| (p.l, p.i)).collect(),
                 cuts: t.frozen.cuts.clone(),
+                starts: t.frozen.starts.clone(),
             },
             rerendered: t.rerendered,
             view: core::block_pieces(&t.view),
