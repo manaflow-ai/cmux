@@ -6,6 +6,7 @@ import CmuxAppKitSupportUI
 import CmuxBrowser
 import CmuxCore
 import CmuxFoundation
+import CmuxHomeCore
 import CmuxNotifications
 import CmuxSettings
 import CmuxTerminal
@@ -655,7 +656,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool? = nil,
         allowsExternalBrowserFallback: Bool = true,
-        websiteDataStore: WKWebsiteDataStore? = nil
+        websiteDataStore: WKWebsiteDataStore? = nil,
+        conversationID: ConversationID? = nil
     ) -> UUID? {
         guard !isRetired, kind != .browser || acceptsUnownedBrowserURL(initialRequest?.url ?? url) else { return nil }
         ensureLoaded()
@@ -691,7 +693,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             transparentBackground: transparentBackground,
             bypassRemoteProxy: bypassRemoteProxy,
             allowsExternalBrowserFallback: allowsExternalBrowserFallback,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            conversationID: conversationID
         ) else { return nil }
         let previousFocus = focus ? nil : focusedDockPaneSelection()
         guard let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: paneId) else {
@@ -738,7 +741,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         bypassRemoteProxy: Bool? = nil,
         allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil,
-        focus: Bool = true
+        focus: Bool = true,
+        conversationID: ConversationID? = nil
     ) -> UUID? {
         guard !isRetired, kind != .browser || acceptsUnownedBrowserURL(initialRequest?.url ?? url) else { return nil }
         ensureLoaded()
@@ -773,7 +777,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             transparentBackground: transparentBackground,
             bypassRemoteProxy: bypassRemoteProxy,
             allowsExternalBrowserFallback: allowsExternalBrowserFallback,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            conversationID: conversationID
         ) else { return nil }
 
         guard let source, let sourcePaneId = paneId(forPanelId: source) else {
@@ -804,6 +809,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         let newTab = Bonsplit.Tab(
             title: panel.displayTitle,
             icon: panel.displayIcon,
+            iconAsset: kind == .chief ? ChiefPanel.iconAssetName : nil,
             kind: tabKindRaw(kind),
             isDirty: panel.isDirty,
             isPinned: false
@@ -1041,7 +1047,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool? = nil,
         allowsExternalBrowserFallback: Bool = true,
-        websiteDataStore: WKWebsiteDataStore? = nil
+        websiteDataStore: WKWebsiteDataStore? = nil,
+        conversationID: ConversationID? = nil
     ) -> (any Panel)? {
         guard !isRetired else { return nil }
         switch kind {
@@ -1078,6 +1085,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 bypassRemoteProxy: bypassRemoteProxy,
                 websiteDataStore: websiteDataStore
             )
+        case .chief:
+            return ChiefPanel(conversationID: conversationID)
         }
     }
 
@@ -1101,6 +1110,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 url: def.url.flatMap { URL(string: $0) },
                 chromeVisibility: def.showsBrowserChrome ? .visible : .chromeless
             )
+        case .chief:
+            return ChiefPanel()
         }
     }
 
@@ -1166,6 +1177,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         switch kind {
         case .terminal: return "terminal"
         case .browser: return "browser"
+        case .chief: return SurfaceKind.chief.rawValue
         }
     }
 
@@ -1184,6 +1196,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         guard let tabId = bonsplitController.createTab(
             title: title,
             icon: panel.displayIcon,
+            iconAsset: kind == .chief ? ChiefPanel.iconAssetName : nil,
             kind: tabKindRaw(kind),
             isDirty: panel.isDirty,
             isPinned: false,

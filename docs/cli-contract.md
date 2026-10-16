@@ -85,6 +85,16 @@ Environment:
 | `import` | Import font, colors, cursor, Option-as-Alt, padding, opacity/blur and scrollback from iTerm2, Terminal, Alacritty, Kitty, WezTerm or a Warp theme into cmux's own Ghostty config and a generated theme. With no terminal, lists detected terminals (and prompts in a TTY). `--dry-run` prints the diff without writing; writing asks for confirmation in a TTY and otherwise (scripts, pipes, `--json`) requires `--yes`; `--path <file>` overrides detection; `--json` prints the plan. Never writes `~/.config/ghostty/config` or the source terminal's files. Works without a running app. |
 | `claude-teams` | Launch Claude Code with cmux/tmux-style agent team integration. |
 | `codex-teams` | Launch Codex with cmux-managed subagent panes. |
+| `chief` | Chief, the home agent. `home` and `memory` are file-only (work without the app or a socket): `home` prints the Chief home; `memory add <text\|->` saves one fact (refuses secret-looking text), `memory list`, `memory forget <id>`, and `memory path` print or change `<home>/memory/memory.jsonl` and name `person.md` and `instructions.md`. The home is `CMUX_CHIEF_HOME`, else `~/.cmux/chief/<bundle id>` from `CMUX_BUNDLE_ID` or the app that contains the CLI. All support `--json`. |
+| `chief open` | Show Chief Home in the caller's window, or `--window <id\|ref>` (`chief.open`, an explicit focus-intent method like `workspace.select`). |
+| `chief dispatch` | Start one coding agent on one task in one new workspace (`workspace.create`, then `surface.wait_text_change` with `--wait-working`). `--agent codex\|claude` (default `codex`, run as `codex --yolo`; `claude` runs as `claude`; `--agent-arg <arg>` appends, repeatable), `--name <title>` (default: the task's first line; the description stays empty), `--cwd <dir>`, or `--worktree <repo> [--branch <name>]`, which first runs `git -C <repo> worktree add -b <branch> -- <repo>-<slug>` without a shell (slug and default branch from the title; refuses an existing path). The task is the words after `--`, or `--prompt-file <path\|->` (`-` reads stdin); it is written to a 0600 file in a fresh private temp directory, and the new terminal types only ` /bin/sh '<dir>/launch.sh'`, which reads the task, deletes the directory and `exec`s the agent with the task as one argv word, so quotes, `$` and newlines are never shell-parsed. Being argv, the task is visible to `ps` while the agent runs. Focus follows `--focus`/`--no-focus`, else `defaultFocusForUserOpen` (background when run by an agent). `--wait-working [--timeout <s>]` (default 60, max 600; `--timeout` implies it) waits on the terminal's output (no polling) until Codex's `Working (…)` row or a Claude Code spinner row with a timer or "esc to interrupt"; a trust, bypass-mode or sign-in screen is reported, never answered. Prints `OK <workspace ref> <status> [reason]`; `--json` gives `workspace_id`, `workspace_ref`, `surface_id`, `surface_ref`, `agent`, `title`, `cwd`, `worktree`, `branch`, `status` (`working`, `started` when not waited for, `failed`), `evidence` and `reason` (`timeout`, `trust_prompt`, `sign_in`, `agent_not_found`). A failed wait exits 1 after printing. |
+| `chief send` | Send a message to Chief (`chief.send`). Without `--from` it is the user's message, sent through the same store path as typing in Home; with `--from <name>` it posts a report from an agent of that name, which Chief answers unless `--no-reply`. `--conversation <id>` picks a conversation (default: the default Chief's); `-` reads the text from stdin. Prints `OK <message id>`, or `Queued` when Chief is not connected yet. |
+| `chief status` | Harness, model, effort, unread count, conversation count, working conversations and the Chief home (`chief.status`). `--json` for the payload. |
+| `chief conversations` | List Chief conversations, pinned first, then newest (`chief.conversations`): id, unread, flags, title, preview. |
+| `chief read` | Print the newest messages of a conversation as `<time> <author>: <text>` (`chief.read`, `--limit <n>`, default 20, max 200); `--json` gives `author`, `author_kind`, `text`, `at` and `parts` kinds. |
+| `chief stop` | Stop Chief's running reply in a conversation (`chief.stop`). |
+| `chief approve` | Answer Chief's approval card (`chief.approve`): `[<request id>]` (default: the newest waiting card), `--deny`, or `--choice <option>`; default Allow. Prints `OK <request id> <choice>`. The same answer as the card's buttons. DEBUG builds only: a release build returns `not_available`, so no socket client (the Chief's own shell included) can answer the cards that gate the Chief's commands. |
+| `chief answer` | Answer Chief's question card (`chief.answer`) with the same answer its button sends: `[<message id>]` (default: the newest waiting card), `--choice <option>` once per item (an option's label or id, case-insensitive), `--text <text>` for an Other field. An item no choice names keeps its preselected first option. Prints `OK <message id>` and the answer lines. DEBUG builds only: a release build returns `not_available`. |
 | `omo` | Launch OpenCode with oh-my-openagent integration. |
 | `omx` | Launch Oh My Codex with cmux pane integration. |
 | `omc` | Launch Oh My Claude Code with cmux pane integration. |
@@ -166,7 +176,7 @@ Environment:
 | `tab-action` | Run horizontal tab context-menu actions. |
 | `rename-tab` | Rename a tab. Compatibility wrapper for `tab-action rename`. |
 | `drag-surface-to-split` | Move a surface into a split direction. |
-| `canvas` | Canvas layout namespace: `info`, `mode`, `set-frame`, `align`, `reveal`, `overview`, `zoom`, `join`, `break`, `select-tab`, `set-viewport`, `new-pane`. Most take a required argument: `mode`, `align`, and `zoom` a direction or mode word, `set-frame` numeric `--x --y --width --height`, `set-viewport` numeric `--x --y` and an optional numeric `--zoom`, `join` a target. `set-frame`, `join`, `break`, and `select-tab` need a surface, positionally or with `--surface <id\|ref>`; `reveal` takes one optionally, and `align` takes none, because its positional is the align command. `new-pane` takes an optional `--type terminal\|browser\|simulator`. `--workspace <ref>` scopes the whole namespace. |
+| `canvas` | Canvas layout namespace: `info`, `mode`, `set-frame`, `align`, `reveal`, `overview`, `zoom`, `join`, `break`, `select-tab`, `set-viewport`, `new-pane`. Most take a required argument: `mode`, `align`, and `zoom` a direction or mode word, `set-frame` numeric `--x --y --width --height`, `set-viewport` numeric `--x --y` and an optional numeric `--zoom`, `join` a target. `set-frame`, `join`, `break`, and `select-tab` need a surface, positionally or with `--surface <id\|ref>`; `reveal` takes one optionally, and `align` takes none, because its positional is the align command. `new-pane` takes an optional `--type terminal\|browser\|simulator\|chief`. `--workspace <ref>` scopes the whole namespace. |
 | `refresh-surfaces` | Ask the app to refresh terminal surfaces. |
 | `surface-resume` | Read or change a surface's agent resume binding: `show` (the default, alias `get`), `set`, `clear`. `set` requires the command to run, as `--shell <command>` or `-- <argv...>`; a bare word after `--shell` is rejected rather than appended. Also spelled `surface resume`. |
 | `reload-config` | Ask cmux to reload configuration. |
@@ -304,6 +314,17 @@ go through. Surfaces without an agent are never blocked. A refusal writes nothin
 and exits non-zero. `--force`, before the text or key, skips the check. When
 the app can't answer `surface.input_state` (an older build, or a `cmux ssh`
 relay, which doesn't forward it) the commands write as before.
+
+`surface.wait_text_change` is a v2 worker-lane socket method that waits for a
+terminal's text to change. It takes the `surface.read_text` params, plus
+`after_revision` (a `revision` from an earlier reply) and `timeout_ms` (0 to
+600000, default 30000). Without `after_revision` it answers at once. Otherwise
+it answers when the text differs from that revision or the timeout passes,
+with the `surface.read_text` payload plus `revision` and `changed` (`false`
+only at the timeout). The app wakes the wait on the terminal's own output, so
+a caller loops read, decide, wait without sleeping. A terminal that is not
+running yet is waited for rather than reported. A `cmux ssh` relay does not
+forward it.
 
 `surface.input_state` is a v2 worker-lane socket method. It takes
 `surface_id`, or the usual workspace selectors for that workspace's focused
@@ -1000,6 +1021,7 @@ the expected text without connecting to a cmux socket.
 - `cmux comments --help` -> `Usage: cmux comments <subcommand> [options]`
 - `cmux review --help` -> `Usage: cmux review <subcommand> [options]`
 - `cmux vault --help` -> `Usage: cmux vault <subcommand> [options]`
+- `cmux chief --help` -> `Usage: cmux chief <subcommand> [options]`
 - `cmux help --help` -> `Usage: cmux help`
 - `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|capture|agents|workflows|dock|managed-policies]`
 - `cmux docs` -> `Topics:`

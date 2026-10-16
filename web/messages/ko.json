@@ -2258,6 +2258,13 @@
               "enabled": "원격 tmux 작업 공간을 선택하면 새 작업 공간이 해당 작업 공간의 호스트에서 tmux 세션을 시작합니다."
             }
           }
+        },
+        "chief": {
+          "description": "홈 에이전트 Chief: 표시 여부와 사용할 하네스, 모델, 추론 강도.",
+          "enabled": "홈 행과 Chief 진입점을 표시합니다. false이면 홈 행, Chief 열기 단축키, 메뉴 항목, 명령 팔레트 항목이 숨겨집니다.",
+          "harness": "Chief가 실행되는 에이전트 하네스: claude(Claude Code) 또는 codex(Codex).",
+          "model": "하네스에 전달할 모델. 비워 두면 하네스 기본값을 사용합니다.",
+          "effort": "하네스에 전달할 추론 강도(예: low, medium, high). 비워 두면 하네스 기본값을 사용합니다."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
