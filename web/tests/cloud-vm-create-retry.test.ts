@@ -1,8 +1,46 @@
 import { describe, expect, test } from "bun:test";
 
-import { createVmWithRetry } from "../scripts/cloud-vm/smokeCreate.mjs";
+import { createVmRequest, createVmWithRetry } from "../scripts/cloud-vm/smokeCreate.mjs";
 
 describe("Cloud VM smoke create retry", () => {
+  test("caller preserves the idempotency key and payload across retries", async () => {
+    const responses = [
+      { status: 503, body: { error: "vm_operation_in_progress", phase: "create", retryable: true } },
+      { status: 409, body: { error: "vm_create_in_progress" } },
+      { status: 200, body: { id: "vm-1", provider: "freestyle" } },
+    ];
+    const requests: Array<{ url: string; init: RequestInit }> = [];
+    const send = createVmRequest({
+      targetUrl: "https://cmux.test",
+      authHeaders: { authorization: "Bearer test" },
+      provider: "default",
+      image: undefined,
+      fetchWithTimeout: async (url: string, init: RequestInit) => {
+        requests.push({ url, init });
+        const response = responses.shift()!;
+        return { status: response.status, text: async () => JSON.stringify(response.body) };
+      },
+    });
+
+    await createVmWithRetry({
+      idempotencyKey: "smoke-key",
+      send,
+      sleep: async () => {},
+      now: (() => {
+        let current = 0;
+        return () => current++;
+      })(),
+    });
+
+    expect(requests).toHaveLength(3);
+    expect(requests.map(({ init }) => new Headers(init.headers).get("idempotency-key"))).toEqual([
+      "smoke-key", "smoke-key", "smoke-key",
+    ]);
+    expect(requests.map(({ init }) => init.body)).toEqual([
+      "{}", "{}", "{}",
+    ]);
+  });
+
   test("retries an in-progress create with the same idempotency key until it is ready", async () => {
     const responses = [
       { status: 503, body: { error: "vm_operation_in_progress", phase: "create", retryable: true, retryAfterSeconds: 15 } },
@@ -62,5 +100,22 @@ describe("Cloud VM smoke create retry", () => {
     })).rejects.toThrow("remained in progress for 1000 ms");
     expect(sends).toBe(1);
     expect(sleeps).toEqual([1_000]);
+  });
+
+  test("cancellation stops the retry wait before another request", async () => {
+    const controller = new AbortController();
+    let sends = 0;
+    const pending = createVmWithRetry({
+      idempotencyKey: "smoke-key",
+      send: async () => {
+        sends += 1;
+        return { status: 503, body: { error: "vm_operation_in_progress", phase: "create", retryable: true, retryAfterSeconds: 60 } };
+      },
+      signal: controller.signal,
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    controller.abort(new Error("test cancellation"));
+    await expect(pending).rejects.toThrow("aborted");
+    expect(sends).toBe(1);
   });
 });

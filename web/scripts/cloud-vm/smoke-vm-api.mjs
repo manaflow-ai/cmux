@@ -13,7 +13,7 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 import { classifyCodexCanaryOutcome, edgeCanaryProblems } from "./canaryOutcome.mjs";
-import { createVmWithRetry } from "./smokeCreate.mjs";
+import { CREATE_VM_RETRY_BUDGET_MS, createVmRequest, createVmWithRetry } from "./smokeCreate.mjs";
 
 const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--snapshot-check] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>] [--result-file <path>]";
 const args = process.argv.slice(2);
@@ -322,27 +322,22 @@ try {
     stage = "create";
     const createStartedAt = performance.now();
     const createIdempotencyKey = `smoke-${suffix}`;
-    const created = await createVmWithRetry({
-      idempotencyKey: createIdempotencyKey,
-      send: async (idempotencyKey) => {
-        const response = await fetchWithTimeout(`${targetUrl}/api/vm`, {
-          method: "POST",
-          headers: { ...authHeaders, "content-type": "application/json", "idempotency-key": idempotencyKey },
-          body: JSON.stringify({
-            ...(provider === "default" ? {} : { provider }),
-            ...(image ? { image } : {}),
-          }),
-        });
-        const text = await response.text();
-        let body;
-        try {
-          body = JSON.parse(text);
-        } catch {
-          body = null;
-        }
-        return { status: response.status, body, text };
-      },
-    });
+    const createAbortController = new AbortController();
+    const abortCreate = () => createAbortController.abort(new Error("Cloud VM smoke create interrupted"));
+    process.once("SIGINT", abortCreate);
+    process.once("SIGTERM", abortCreate);
+    let created;
+    try {
+      created = await createVmWithRetry({
+        idempotencyKey: createIdempotencyKey,
+        send: createVmRequest({ targetUrl, authHeaders, provider, image, fetchWithTimeout }),
+        signal: createAbortController.signal,
+        budgetMs: CREATE_VM_RETRY_BUDGET_MS,
+      });
+    } finally {
+      process.off("SIGINT", abortCreate);
+      process.off("SIGTERM", abortCreate);
+    }
     const createDurationMs = Math.round(performance.now() - createStartedAt);
     if (provider !== "default" && created.provider !== provider) {
       throw new Error(`POST /api/vm returned provider ${created.provider}, expected ${provider}`);
