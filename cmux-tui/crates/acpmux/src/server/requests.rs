@@ -269,6 +269,13 @@ async fn dispatch_request(
             let policy = pick("policy")
                 .map(|p| p.parse::<PermissionPolicy>().map_err(RpcError::invalid_params))
                 .transpose()?;
+            let env = crate::session_env::parse(meta)?;
+            let route = pick("route");
+            if let Some(r) = &route
+                && !crate::routes::is_route_id(r)
+            {
+                return Err(RpcError::invalid_params(format!("route {r:?} is not a route id")));
+            }
             let req = crate::hub::NewRequest {
                 harness: pick("harness"),
                 preset: pick("preset"),
@@ -278,10 +285,12 @@ async fn dispatch_request(
                 model: pick("model"),
                 effort: pick("effort"),
                 adopt,
-                env: crate::session_env::parse(meta)?,
+                workspace_id: crate::session_env::workspace_id(meta, &env)?,
+                env,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
                 keep_harness_mode: false,
+                route,
             };
             let s = hub.new_session(req).await?;
             if conn.origin.web_class() {
@@ -406,8 +415,9 @@ async fn dispatch_request(
                 .or_else(|| params.get("name").and_then(Value::as_str))
                 .map(str::to_owned);
             let env = crate::session_env::parse(mux_meta(&params))?;
+            let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
-            let new = hub.fork(&s, name, cwd, env, through).await?;
+            let new = hub.fork(&s, name, cwd, env, workspace_id, through).await?;
             attach(hub, conn, &new.id);
             let meta = new.meta();
             Ok(

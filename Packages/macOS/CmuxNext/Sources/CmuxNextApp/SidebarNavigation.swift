@@ -14,15 +14,17 @@ enum SidebarNavigation {
     /// `creationRow` is the row of the Cloud creation the window shows
     /// (cx-lu8f): selected in place of the workspace under it. `home` is the
     /// docked Home's workspace (`HomeService.dockedHomeID`): the Home item
-    /// stands for it (cx-ebm.59.5).
+    /// stands for it (cx-ebm.59.5), and the Channels entry while `channels`
+    /// (its dock shows Channels, cx-frn2y).
     static func selectedItem(page: TopPageRoute?, workspace: String?, creationRow: String? = nil, layout: SidebarLayoutDocument,
-                             room: String? = nil, refs: WorkspaceLayoutRefs? = nil, home: String? = nil) -> SidebarItem? {
+                             room: String? = nil, refs: WorkspaceLayoutRefs? = nil, home: String? = nil, channels: Bool = false) -> SidebarItem? {
         let topItem = { (route: TopPageRoute) in
             layout.sections.filter { $0.region == .top }.flatMap(\.items).first { TopPageRoute.route(for: $0.ref) == route }
         }
         if let page { return topItem(page).map { .topItem($0.id) } }
         if let creationRow { return .workspace(WorkspaceID(creationRow)) }
         guard let workspace else { return nil }
+        if workspace == home, channels { return .topItem(SidebarTransientItem.channelsID) }
         if workspace == home, let item = topItem(.home) { return .topItem(item.id) }
         if let ref = refs?.ref(forWorkspace: workspace), let item = layout.topItem(for: ref, room: room) { return .topItem(item.id) }
         return .workspace(WorkspaceID(workspace))
@@ -44,7 +46,7 @@ enum SidebarNavigation {
         let current = selectedItem(page: window.state.page, workspace: window.state.workspaceID,
                                    creationRow: window.state.cloudCreation.flatMap { services.cloud.creations.creation($0)?.rowID }, layout: model.layout,
                                    room: window.state.profileID.rawValue, refs: WorkspaceLayoutRefs(machines: services.machines),
-                                   home: services.home.dockedHomeID)
+                                   home: services.home.dockedHomeID, channels: services.home.dockShowsChannels)
         guard let item = model.itemOrder.step(from: current, by: offset, settings(services)) else { return }
         activate(item, in: window, services)
     }

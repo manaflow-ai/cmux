@@ -120,7 +120,7 @@ final class GroupHeaderRowView: SidebarRowView {
         guard needsConfigure(content) else { return }
         thin = row.isThinHeader
         tint = group.tint
-        isEmpty = group.workspaces.isEmpty
+        isEmpty = group.workspaces.isEmpty && group.items.isEmpty
         name.stringValue = group.name
         pinned = group.isPinned
         hasIcon = group.icon != nil

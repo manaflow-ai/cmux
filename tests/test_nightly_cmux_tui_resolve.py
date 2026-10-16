@@ -80,6 +80,12 @@ for name in shipping:
     needs = re.search(r"^    needs: (.*)$", body, re.MULTILINE)
     check(bool(needs) and RESOLVE in needs.group(1), f"{name} must need {RESOLVE}")
     allowed = {BUILD_SHA, SELECTED_SHA} if name == "publish-nightly" else {BUILD_SHA}
+    if name == "publish-nightly":
+        # The publication tooling (not shipped source) comes from the workflow's
+        # own commit, so a recovered older build runs this workflow's scripts.
+        tooling = re.search(r"ref: \$\{\{ github\.sha \}\}\n\s+path: \.publish-tooling\n", body)
+        check(tooling is not None, "publish-nightly must check out its publication tooling at github.sha into .publish-tooling")
+        body = body.replace(tooling.group(0), "") if tooling else body
     for ref in re.findall(r"^\s+ref: (.*)$", body, re.MULTILINE):
         check(ref.strip() in allowed, f"{name} checks out {ref.strip()}, not the resolved build commit")
     for line in body.splitlines():

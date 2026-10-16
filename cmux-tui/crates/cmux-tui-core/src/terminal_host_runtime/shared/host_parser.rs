@@ -152,7 +152,14 @@ pub(crate) fn run_host_parser(
                     let normalized =
                         crate::prompt_mode_reset::write_output(&mut term, &bytes, &mut shell_marks)
                             .into_owned();
-                    parser_host.terminal_metadata.lock().unwrap().observe_output(&bytes);
+                    {
+                        let mut metadata = parser_host.terminal_metadata.lock().unwrap();
+                        metadata.observe_output(&bytes);
+                        // Whether a running command took the terminal for
+                        // interaction, so an adopting daemon still reads it
+                        // `in_use` (cx-6so.59).
+                        metadata.observe_modes(|| crate::terminal_activity::terminal_modes(&term));
+                    }
                     let title = title_changed
                         .swap(false, Ordering::AcqRel)
                         .then(|| term.title().unwrap_or_default());

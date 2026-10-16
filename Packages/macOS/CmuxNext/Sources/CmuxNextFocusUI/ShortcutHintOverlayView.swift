@@ -21,11 +21,14 @@ public final class ShortcutHintOverlayView: NSView {
         public var text: String
         public var rect: CGRect
         public var row: Row
+        /// What the chip's shortcut selects (`workspace:<id>`), for debug readback; nil when unnamed.
+        public var target: String?
 
-        public init(text: String, rect: CGRect, row: Row = .target) {
+        public init(text: String, rect: CGRect, row: Row = .target, target: String? = nil) {
             self.text = text
             self.rect = rect
             self.row = row
+            self.target = target
         }
     }
 
