@@ -820,23 +820,15 @@ impl Brain {
         self.post_notices();
     }
 
-    /// cx-1hpt: one failure notice in the conversation at a time, across
-    /// host starts (the state file keeps it); a good probe retracts it.
+    /// cx-oqnw3: a compactor fault is a system notice (the app reads
+    /// `state/compactor.json`), never a Chief message; a good probe removes
+    /// it, and retracts a notice an older build posted as a message (cx-1hpt).
     fn compactor_status(&mut self, status: Result<(), String>) {
+        if let Some(settle) = &self.settle_status {
+            settle.compactor_fault(status.as_ref().err().map(String::as_str));
+        }
         match status {
-            Err(text) => {
-                if self.state.compactor_notice.is_some() {
-                    (self.log)(&text);
-                    return;
-                }
-                let key = format!("notice:optchat:compactor:{}", now_ms());
-                self.state.compactor_notice = Some(crate::state::PostedNotice {
-                    key: key.clone(),
-                    message_id: None,
-                });
-                self.save();
-                self.notice(key, text);
-            }
+            Err(text) => (self.log)(&text),
             Ok(()) => {
                 let Some(posted) = self.state.compactor_notice.take() else {
                     return;

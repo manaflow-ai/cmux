@@ -601,6 +601,8 @@ pub struct AcpmuxCompactor {
     alternate: Option<String>,
     exhausted_until: Mutex<Option<Instant>>,
     reaped: AtomicBool,
+    /// Probe sessions this host started: each gets its own name (cx-oqnw3).
+    probes: std::sync::atomic::AtomicU64,
     /// This compactor, when shared (`shared`): a warm session then starts on
     /// its own thread after the node returns.
     me: std::sync::Weak<AcpmuxCompactor>,
@@ -640,6 +642,7 @@ impl AcpmuxCompactor {
             exhausted_until: Mutex::new(None),
             warm: 0,
             reaped: AtomicBool::new(false),
+            probes: std::sync::atomic::AtomicU64::new(0),
             me: std::sync::Weak::new(),
             log: None,
             trace: crate::trace::Trace::off(),
@@ -872,7 +875,12 @@ impl AcpmuxCompactor {
 
     fn session_name(&self, node: NodeId) -> String {
         if node == PROBE_NODE {
-            format!("{}-probe", self.spec.name)
+            // Its own name per host and probe (cx-oqnw3): after a brain restart on
+            // the same Chief home the fixed `<name>-probe` was still taken in the
+            // shared acpmux, and the compactor stopped. The session is purged when
+            // the probe ends; a host that stops ends its acpmux sessions.
+            let n = self.probes.fetch_add(1, Ordering::SeqCst);
+            format!("{}-probe-{}-{n}", self.spec.name, std::process::id())
         } else {
             format!("{}-{}", self.spec.name, node.name())
         }

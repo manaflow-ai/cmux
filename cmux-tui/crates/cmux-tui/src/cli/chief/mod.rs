@@ -65,6 +65,8 @@ pub(super) struct Args {
     pub help: bool,
     /// `chief engine …` or `chief stop`.
     pub control: Option<control::Control>,
+    /// `--chief ID` with `engine` or `stop`: that Chief (chief-brains-v1), not the default (cx-mbbee).
+    pub chief: Option<String>,
     /// `cmux chief shutdown` (shutdown.rs).
     pub shutdown: bool,
     /// `--no-wait-agents`: pipe mode ends with the turn that answers the
@@ -136,6 +138,13 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
                 parsed.timeout_secs = (secs > 0).then_some(secs);
             }
             "--chief-home" => parsed.chief_home = Some(value()?.into()),
+            "--chief" => {
+                let id = value()?;
+                if parsed.control.is_none() {
+                    return Err("--chief goes with `cmux chief engine` or `cmux chief stop`".into());
+                }
+                parsed.chief = Some(id);
+            }
             "--no-wait-agents" => parsed.no_wait_agents = true,
             "--history" => {
                 let text = value()?;
@@ -187,7 +196,13 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         return shutdown::run(&global, args.chief_home.as_deref());
     }
     if let Some(control) = &args.control {
-        return control::run(&global, args.chief_home.as_deref(), control, global.output);
+        return control::run(
+            &global,
+            args.chief_home.as_deref(),
+            control,
+            args.chief.as_deref(),
+            global.output,
+        );
     }
     // cx-tgf4h: with agents off in this build session no Chief turn can
     // run; refuse before anything starts or is sent (a send would wait for
