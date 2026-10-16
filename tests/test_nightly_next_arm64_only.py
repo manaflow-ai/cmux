@@ -91,11 +91,17 @@ else:
         "pin-cmux-tui.sh fetch" not in fetch_step
         or "CMUX_TUI_TREE_KEY" not in fetch_step
         or "CMUX_TUI_TREE_TARGET: aarch64-apple-darwin" not in fetch_step
-        or "inputs.fast_build != 'true'" not in fetch_step
-        or "inputs.build_only != 'true'" not in fetch_step
+        or "pin-cmux-tui.sh acpmux-path" not in fetch_step
+        or "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" not in fetch_step
+        or "needs.decide.outputs.fast_build != 'true'" not in fetch_step
+        or "needs.decide.outputs.build_only != 'true'" not in fetch_step
         or "inputs.nightly_next_unsigned_run == ''" not in fetch_step
     ):
-        failures.append("resolved tree companion fetch must select the resolver's attested tree key")
+        failures.append("resolved tree companion fetch must hand its verified acpmux path to the app build")
+
+build_step = app_job[acpmux_at:]
+if "Reusing the attested same-tree acpmux companion" not in build_step or "CMUX_NEXT_ACPMUX_BIN:-" not in build_step:
+    failures.append("acpmux build step must reuse a verified companion before its Cargo fallback")
 
 
 def build_env(body, outputs):

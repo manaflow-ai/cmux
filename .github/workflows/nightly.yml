@@ -1697,6 +1697,25 @@ jobs:
           shared-key: nightly-next-rust-helpers
           cache-all-crates: true
 
+      # The resolved cmux-tui publication carries an attested, checksum-verified
+      # acpmux companion for this exact tree. Fetch it before the existing helper
+      # step so build-acpmux.sh seeds its commit-addressed cache and only invokes
+      # Cargo when the publication predates acpmux or lacks the requested slice.
+      # Fast and build-only runs do not resolve a published tree and keep their
+      # existing local-build paths.
+      - name: Fetch the resolved cmux-tui tree companions
+        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true'
+        env:
+          CMUX_TUI_TREE_KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.key }}
+          CMUX_TUI_TREE_TARGET: aarch64-apple-darwin
+        run: |
+          set -euo pipefail
+          scripts/cmux-next/pin-cmux-tui.sh fetch
+          acpmux_bin="$(scripts/cmux-next/pin-cmux-tui.sh acpmux-path)"
+          [[ -x "$acpmux_bin" ]] || { echo "error: fetched tree has no executable acpmux companion" >&2; exit 1; }
+          echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
+          echo "Using attested same-tree acpmux companion: $acpmux_bin"
+
       - name: Build in-tree acpmux for the compilation cache
         if: inputs.nightly_next_unsigned_run == ''
         env:
@@ -1704,7 +1723,12 @@ jobs:
         run: |
           set -euo pipefail
           acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
-          scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
+          if [[ -n "${CMUX_NEXT_ACPMUX_BIN:-}" && -x "$CMUX_NEXT_ACPMUX_BIN" ]]; then
+            acpmux_bin="$CMUX_NEXT_ACPMUX_BIN"
+            echo "Reusing the attested same-tree acpmux companion: $acpmux_bin"
+          else
+            scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
+          fi
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
 
       # The Home Chief's brain host (Native/OptChat/optchat-chief) ships in the
