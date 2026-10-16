@@ -953,15 +953,20 @@ export function vmModelPlaneErrorResponse(
  * the create-family errors need plan and operation copy only the route knows.
  */
 /**
- * Whether the signed-in caller of this VM request is on the iOS Pro free
- * trial (internally the Go entitlement). Read lazily, only when a Go limit
- * answers the request.
+ * When the signed-in caller's iOS Pro free trial ends (full Pro starts), or
+ * null when the caller is not on the trial. Read lazily, only when a size
+ * limit answers the request.
  */
 async function vmCallerTrialEndsAt(): Promise<Date | null> {
   const userId = currentVmRequestContext()?.userId;
   return userId ? await goTrialEndsAt(userId) : null;
 }
 
+/**
+ * Whether the signed-in caller of this VM request is on the iOS Pro free
+ * trial (internally the Go entitlement). Read lazily, only when a Go limit
+ * answers the request.
+ */
 async function vmCallerOnGoTrial(): Promise<boolean> {
   const userId = currentVmRequestContext()?.userId;
   return userId ? await isGoTrialUser(userId) : false;

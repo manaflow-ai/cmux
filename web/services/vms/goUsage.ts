@@ -1,5 +1,6 @@
 import { and, count, eq, gt, inArray, isNull, lt, or } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
+import { activeAppleEntitlementForUser } from "../billing/apple/entitlement";
 import { cloudVms, cloudVmRuntimeIntervals } from "../../db/schema";
 import { personalBillingPeriod, runtimeSecondsWithinPeriod, subscriptionPeriodStart } from "./planUsage";
 
@@ -94,7 +95,10 @@ export async function isGoTrialUser(userId: string, now = new Date()): Promise<b
 export async function goTrialEndsAt(userId: string, now = new Date()): Promise<Date | null> {
   try {
     const subscription = await personalBillingPeriod(userId, { now, stripeStatuses: ["active", "trialing"] });
-    return subscription?.planId === "go" && subscription.trial === true ? subscription.period?.end ?? null : null;
+    if (subscription?.planId !== "go" || subscription.trial !== true) return null;
+    // The trial's own expiry, not a grace period after it. With no usable
+    // period yet (a reconcile is pending), read the expiry from the entitlement.
+    return subscription.period?.billedEnd ?? (await activeAppleEntitlementForUser(userId, { now }))?.expiresAt ?? null;
   } catch {
     return null;
   }
