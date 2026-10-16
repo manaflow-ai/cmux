@@ -194,14 +194,15 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
       const owner = b.config().owner ?? ""
       // Step marks (Run.timing *_at): the paid-turn count, the route's auth, pi open; the count and pi open run at the same time.
       const mark = (m: string) => void b.sql.exec(`INSERT INTO cb_marks (turn, mark, at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, id, m, Date.now())
-      const piRoot = b.harness.pi().then((pi) => pi.root(BACKGROUND_CONTEXT))
-      piRoot.catch(() => undefined)
+      // Only pi itself opens beside the check; its root context is made once the model is known.
+      const piOpen = b.harness.pi()
+      piOpen.catch(() => undefined)
       const picked = await pickTurnModel(row.model, b.doEnv.CHIEF_BRAIN_FALLBACK_MODEL, (m) => b.turns(owner).claudeTurn(owner, m).then((v) => (mark("count"), v !== "ok" || !isClaude(m) ? v : claudeAuthFor(b.doEnv, b.holder).then(() => (mark("auth"), "ok"), () => "auth_failed"))).catch(() => "holder_unreachable"))
       mark("paid")
       if (picked.reason) console.warn(picked.reason.includes("auth_failed") ? AUTH_FAILED : JSON.stringify({ msg: "chief_brain.paid_model_refused", reason: picked.reason }))
-      if (picked.model === null || picked.model !== row.model) [b.announce(id, [upsertStep(b.sql, id, { id: "note:model", kind: "note", text: picked.model === null ? `No model ran: ${picked.reason}` : `${picked.reason}; b turn runs on ${picked.model}` }, Date.now())]), picked.model === null ? (() => { throw new Error(`paid model refused (${picked.reason})`) })() : [(row.model = picked.model), b.sql.exec(`UPDATE cb_turn SET model = ? WHERE id = ?`, row.model, id)]]
+      if (picked.model === null || picked.model !== row.model) [b.announce(id, [upsertStep(b.sql, id, { id: "note:model", kind: "note", text: picked.model === null ? `No model ran: ${picked.reason}` : `${picked.reason}; this turn runs on ${picked.model}` }, Date.now())]), picked.model === null ? (() => { throw new Error(`paid model refused (${picked.reason})`) })() : [(row.model = picked.model), b.sql.exec(`UPDATE cb_turn SET model = ? WHERE id = ?`, row.model, id)]]
       const model = b.models.model(row.model)
-      const root = await piRoot
+      const root = await (await piOpen).root(BACKGROUND_CONTEXT)
       mark("pi")
       await root.configure({ model: { provider: model.provider, modelId: model.id }, thinkingLevel: b.models.thinking(row.model) }, BACKGROUND_CONTEXT)
       // A fresh context every turn: the model sees the view, the new messages and its own tool loop.

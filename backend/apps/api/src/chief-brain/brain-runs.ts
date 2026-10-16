@@ -42,7 +42,8 @@ export interface Run {
   readonly usage?: { readonly input: number; readonly output: number; readonly cache_read: number; readonly cache_write: number; readonly calls: number }
   readonly cost_usd?: number
   /** ms epoch: first model request, first token (with started_at: wake path vs. model time). */
-  readonly timing?: { readonly regions?: ReadonlyArray<string>; readonly wake_at?: number; readonly admitted_at?: number; readonly settled_at?: number; readonly request_at?: number; readonly first_token_at?: number }
+  /** Step marks of the turn's start (brain-turn.ts): count_at, auth_at, paid_at, pi_at, submit_at. */
+  readonly timing?: { readonly regions?: ReadonlyArray<string>; readonly count_at?: number; readonly auth_at?: number; readonly paid_at?: number; readonly pi_at?: number; readonly submit_at?: number; readonly wake_at?: number; readonly admitted_at?: number; readonly settled_at?: number; readonly request_at?: number; readonly first_token_at?: number }
 }
 
 /**

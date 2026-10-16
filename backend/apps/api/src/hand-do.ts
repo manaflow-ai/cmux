@@ -173,6 +173,7 @@ export class HandDO extends DurableObject<Env> {
     // A sandbox lives at most SANDBOX_LIFETIME_MS; any other hand needs no alarm.
     if (this.sandboxVm()) await this.ctx.storage.setAlarm(r.created_at + SANDBOX_LIFETIME_MS)
     else await this.ctx.storage.deleteAlarm()
+    await this.rearm()
     await this.publish(this.row()!)
     return { ok: true, value: { hand: r.hand, owner: r.owner } }
   }
@@ -197,6 +198,7 @@ export class HandDO extends DurableObject<Env> {
       return true
     }
     await this.ctx.storage.setAlarm(Date.now() + SANDBOX_DELETE_RETRY_MS)
+    await this.rearm()
     return false
   }
 
@@ -524,6 +526,8 @@ export class HandDO extends DurableObject<Env> {
     const r = this.row()
     if (caller.kind !== "owner" || !r || r.owner !== caller.user) return refuse("hand.not_found", "no such hand")
     this.ctx.storage.sql.exec(`UPDATE hand SET revoked_at = ?, key_sha = NULL WHERE id = 1`, Date.now())
+    // A revoked hand's unsent agent outcomes go (decision 1f-S: no delivery after revoke).
+    this.ctx.storage.sql.exec(`DELETE FROM hand_outcome`)
     for (const ws of this.ctx.getWebSockets()) ws.close(4403, "revoked")
     for (const req of [...this.pending.keys()]) this.settle(req, refuse("hand.revoked", "the hand was removed"))
     this.audit(crypto.randomUUID(), "revoke", why === "owner" ? callerLabel(caller) : why, "ok", null)
@@ -541,7 +545,7 @@ export class HandDO extends DurableObject<Env> {
   /**
    * The outcome of a Chief agent session's latest turn (its events since the last turn_start) to the brain
    * object that started it (`<chief>/<conversation>`, a spawn child included): `agentOutcome` there posts it
-   * only when the Chief's own agent call did not already see it. Best effort, tried twice.
+   * only when the Chief's own agent call did not already see it. Kept in hand_outcome until the brain acks it (sendOutcomes).
    */
   private async agentOutcome(session: string): Promise<void> {
     const sql = this.ctx.storage.sql
@@ -593,9 +597,12 @@ export class HandDO extends DurableObject<Env> {
   private async rearm(): Promise<void> {
     const r = this.row()
     const next = this.ctx.storage.sql.exec<{ at: number | null }>(`SELECT MIN(next_at) AS at FROM hand_outcome`).one().at
-    const wants = [next === null ? null : Number(next), r && r.paired_at === null ? r.created_at + PAIR_TTL_MS : null, r && r.revoked_at === null && this.sandboxVm() ? r.created_at + SANDBOX_LIFETIME_MS : null]
+    const now = Date.now()
+    // A pairing expiry or lifetime already past was just handled (or its work failed): it waits the delete retry, never loops.
+    const later = (at: number) => (at <= now ? now + SANDBOX_DELETE_RETRY_MS : at)
+    const wants = [next === null ? null : Number(next), r && r.paired_at === null ? later(r.created_at + PAIR_TTL_MS) : null, r && r.revoked_at === null && this.sandboxVm() ? later(r.created_at + SANDBOX_LIFETIME_MS) : null]
     const cur = await this.ctx.storage.getAlarm()
-    const at = Math.min(...[...wants, cur !== null && cur > Date.now() ? cur : null].filter((v): v is number => v !== null))
+    const at = Math.min(...[...wants, cur !== null && cur > now ? cur : null].filter((v): v is number => v !== null))
     if (Number.isFinite(at) && at !== cur) await this.ctx.storage.setAlarm(at)
   }
 
