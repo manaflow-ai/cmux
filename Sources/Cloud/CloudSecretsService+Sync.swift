@@ -116,11 +116,14 @@ extension CloudSecretsService {
                 let result = try await transport.exec(machineID, Self.envRemoveCommand(names: plan.toRemove))
                 try Self.requireShimSuccess(result, machineID: machineID)
             }
-            if routesMachine, routing.hasUserProviderKey {
+            if routesMachine,
+               routing.hasUserProviderKey || routing.releasesEndpoint || routing.usesUserEndpoint {
                 // Run once after delivery as well. A fresh machine has no user key
                 // for the protecting pass to inspect, so this is where Claude's
                 // approval suffix and other per-key config can be derived locally.
-                // The guard still receives names and constants only.
+                // When the last provider key is removed, this pass also releases
+                // the endpoint cmux previously added beside it. The guard still
+                // receives names and constants only.
                 let result = try await applyProviderRouting(routing, machineID: machineID)
                 routed = routed && result.isRouted
                 if routed, heldBack.isEmpty {
