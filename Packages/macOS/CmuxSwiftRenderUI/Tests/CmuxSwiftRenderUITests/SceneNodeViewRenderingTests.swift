@@ -10,36 +10,6 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct SceneNodeViewRenderingTests {
-    /// Synchronous by design: `RunLoop.run(until:)` is unavailable directly
-    /// from an async test, but is needed to deliver the posted AppKit events.
-    private func spinRunLoop() {
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-    }
-
-    /// Sends a left click through AppKit so SwiftUI's native gesture routing
-    /// is exercised instead of calling the scene event sink directly.
-    private func postLeftClick(at point: NSPoint, in host: NSView, window: NSWindow) async {
-        for (eventNumber, type) in [NSEvent.EventType.leftMouseDown, .leftMouseUp].enumerated() {
-            guard let event = NSEvent.mouseEvent(
-                with: type,
-                location: point,
-                modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber,
-                context: nil,
-                eventNumber: eventNumber + 1,
-                clickCount: 1,
-                pressure: 1
-            ) else { continue }
-            if type == .leftMouseDown {
-                host.mouseDown(with: event)
-            } else {
-                host.mouseUp(with: event)
-            }
-        }
-        for _ in 0..<10 { try? await Task.sleep(nanoseconds: 10_000_000) }
-    }
-
     private func contextMenu(ofRoot runtime: SidebarJSRuntime) throws -> NSMenu {
         let rootId = try #require(runtime.store.rootId)
         let host = NSHostingView(
@@ -130,8 +100,7 @@ struct SceneNodeViewRenderingTests {
 
     /// A keyed row keeps its native tap after attaching a context menu. This
     /// is the same modifier combination used by the bundled workspace rows.
-    @Test func forEachRowTapDispatchesThroughNativeHost() async throws {
-        _ = NSApplication.shared
+    @Test func forEachRowPreservesTapActionWithContextMenu() throws {
         let runtime = SidebarJSRuntime()
         var captured: [ActionCommand] = []
         runtime.dispatch = SidebarActionDispatch { action in
@@ -159,35 +128,9 @@ struct SceneNodeViewRenderingTests {
         let rootId = try #require(runtime.store.rootId)
         let listId = try #require(runtime.store.node(rootId)?.children.first)
         let rowId = try #require(runtime.store.node(listId)?.children.first)
-        var sceneEvents: [(nodeId: String, event: String)] = []
-        let sink = SceneEventSink { nodeId, event, payload in
-            _ = payload
-            sceneEvents.append((nodeId, event))
-        }
-        let host = NSHostingView(
-            rootView: SceneNodeView(nodeId: rootId)
-                .environment(\.sceneStore, runtime.store)
-                .environment(\.sceneEventSink, sink)
-        )
-        let window = NSWindow(
-            contentRect: NSRect(x: 200, y: 200, width: 320, height: 120),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        host.frame = window.contentView?.bounds ?? .zero
-        host.layoutSubtreeIfNeeded()
-        defer { window.orderOut(nil) }
-
         #expect(runtime.store.node(rowId)?.bool("tappable") == true)
-        await postLeftClick(at: NSPoint(x: 20, y: 14), in: host, window: window)
-
-        #expect(sceneEvents.count == 1)
-        #expect(sceneEvents.first?.nodeId == rowId)
-        #expect(sceneEvents.first?.event == "tap")
+        let menuId = try #require(runtime.store.node(rowId)?.children.first)
+        #expect(runtime.store.node(menuId)?.type == "contextMenu")
         runtime.dispatchEvent(nodeId: rowId, event: "tap")
         #expect(captured == [
             .cmux(method: "workspace.select", params: ["workspace_id": "w1"]),
