@@ -14617,7 +14617,7 @@ mod tests {
 
         let colors = Arc::new(TerminalColors::default());
         assert!(
-            try_merge_attach_output(&mut current, AttachFrame::ColorsChanged(colors.clone()))
+            try_merge_attach_output(&mut current, AttachFrame::ColorsChanged(colors))
                 .is_err()
         );
         assert_eq!(current, AttachFrame::Output(vec![1, 2, 3, 4]));
