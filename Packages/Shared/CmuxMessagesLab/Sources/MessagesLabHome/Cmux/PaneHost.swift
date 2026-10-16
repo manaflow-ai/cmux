@@ -389,6 +389,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         let store = Store(conversation: conv, baseDate: Date(), windowStart: lo, total: total)
         self.store = store
         store.responder = nil
+        // Nested threads (host-hooks-b): the daemon's replies have a parent at any depth (conversation-tree-v1).
+        store.setThreadMode(.tree)
         start = CACurrentMediaTime()
         let demo = MessagesWindowView(store: store)
         self.demo = demo

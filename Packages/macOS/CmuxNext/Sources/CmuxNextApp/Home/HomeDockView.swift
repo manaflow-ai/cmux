@@ -43,14 +43,15 @@ final class HomeDockView: HomeDockSwitchView {
         }
     }
 
-    /// The native view's conversation (and its open thread's root message), or the page's answer.
+    /// The native view's conversation (and the message its open thread view shows: the drilled branch's,
+    /// else the root), or the page's answer.
     override func selection(in mode: Mode) async -> Selection? {
         switch mode {
         case .messages:
             guard let shown = messages?.shown else { return nil }
             // A Cloud conversation's message link has no resolver in the page yet (hq-ec G4): the conversation only.
             let cloud = services?.home.isCloudConversation(shown) ?? false
-            let thread = cloud ? nil : messages?.host.flatMap { HomePageTab.transcript(in: $0) }?.openThreadRoot
+            let thread = cloud ? nil : messages?.host.flatMap { HomePageTab.transcript(in: $0) }?.openThreadMessage
             return Selection(conversation: shown.rawValue, message: thread)
         case .channels:
             guard let channels, let ask = channelsSelection else { return nil }
@@ -58,11 +59,11 @@ final class HomeDockView: HomeDockSwitchView {
         }
     }
 
-    /// The native list selects the conversation (no message highlight yet: MessagesLab C4); the
-    /// page follows its hash.
+    /// The native list selects the conversation and opens the message's thread at its branch (tree
+    /// threads; no highlight of the message itself yet); the page follows its hash.
     override func open(_ selection: Selection, in mode: Mode) {
         switch mode {
-        case .messages: messages?.show(ConversationID(selection.conversation))
+        case .messages: messages?.show(ConversationID(selection.conversation), message: selection.message)
         case .channels: open(route: selection.route)
         }
     }

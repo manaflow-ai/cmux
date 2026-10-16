@@ -55,6 +55,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     static func drive(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         if params["action"]?.stringValue == "list" { return DebugHome.driveDockList(params, services: services) }
         if params["action"]?.stringValue == "legacy_pins" { return DebugHome.legacyPins(params, services: services) }
+        if params["action"]?.stringValue == "permalink" { return DebugHome.drivePermalink(params, services: services) }
         let view: HomeNativeTranscriptView?
         if let tab = params["tab"]?.stringValue {
             view = (services.pages.provider(.homeTab) as? HomePageTab)?.tabs.first { $0.key == tab }?.view.host
@@ -174,11 +175,17 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             case "post_escape": view.debugPostEscape(outside: params["outside"]?.boolValue ?? false)
             default: break
             }
-            return .object(["ok": .bool(true), "open_thread": view.debugOpenThread.map { .string($0) } ?? .null])
+            return DebugHome.treeReply(view, ok: true)
+        case "reply_text", "branch":
+            // Nested threads: "reply_text": Reply… on the shown bubble whose text is `text`; "branch": a click on
+            // "N Replies" under it in the open thread view. Both answer with the drill path (owner ids, root first).
+            let text = params["text"]?.stringValue ?? ""
+            let path = params["action"]?.stringValue == "branch" ? view.debugOpenBranch(text: text) : view.debugReply(text: text)
+            return DebugHome.treeReply(view, ok: path != nil)
         case "tapback": ok = view.debugTapbackNewestIncoming(mine: params["mine"]?.boolValue ?? false)
         case "video": ok = view.debugToggleNewestVideo()
         case "scroll": view.debugScroll(by: CGFloat(params["dy"]?.doubleValue ?? -400)); ok = true
-        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link, texts, typing, nudge, thread, escape, reply, post_escape or thread_state")])
+        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link, texts, typing, nudge, thread, escape, reply, post_escape, thread_state, reply_text, branch or permalink")])
         }
         return .object(["ok": .bool(ok)])
     }

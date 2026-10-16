@@ -83,9 +83,12 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private(set) var stopped = false
     /// Return was pressed while only the cache knew this conversation: the
     /// send goes once the owner confirms it (`refresh`), in the thread that
-    /// was open at the Return (`deferredThreadRoot`, nil: the conversation).
+    /// was open at the Return (`deferredThread`, nil root: the conversation), answering the
+    /// branch message that was open (nil parent: the root).
     private var sendWhenConfirmed = false
-    private var deferredThreadRoot: MessageID?
+    private var deferredThread: (root: MessageID?, parent: MessageID?) = (nil, nil)
+    /// A permalink's message waiting for the window that holds it (`reveal`, HomeProjection+Tree.swift).
+    var pendingReveal: MessageID?
     /// Rebuilds and applied (changed) updates, for tests.
     private(set) var rebuilds = 0
     private(set) var appliedUpdates = 0
@@ -128,8 +131,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if sendWhenConfirmed, homeStore.isConfirmed(conversation) {
             sendWhenConfirmed = false
             sendNotice = nil
-            _ = send(root: .some(deferredThreadRoot))
-            deferredThreadRoot = nil
+            _ = send(thread: deferredThread)
+            deferredThread = (nil, nil)
         }
         // A running Chief run (`chief-live-v1`) owns the Chief's bubble: its typing dots until text comes.
         let live = homeStore.liveRun(in: conversation)
@@ -138,6 +141,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
               hasOlder: homeStore.hasOlderMessages(in: conversation), draft: live.map(\.turnDraft) ?? homeStore.drafts[conversation])
         // The line closes one display frame after the reply took the bubble's place, never with it (cx-zz30r).
         if let activity = live?.activity { liveLine.show(activity) } else { liveLine.hide(after: controller) }
+        revealIfLoaded()
     }
 
     /// The whole current value; unchanged values return before any work.
@@ -266,10 +270,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// at the reconnect, or fails "Not Delivered" at the deadline, never
     /// silently). Else why nothing was sent; the text stays in the field.
     @discardableResult
-    func send() -> String? { send(root: nil) }
+    func send() -> String? { send(thread: nil) }
 
-    /// `deferred`: the thread a held send was made in (`refresh`); nil reads the open view.
-    private func send(root deferred: MessageID??) -> String? {
+    /// `deferred`: the thread (root, parent) a held send was made in (`refresh`); nil reads the open view.
+    private func send(thread deferred: (root: MessageID?, parent: MessageID?)?) -> String? {
         guard let store = controller.store else { return noteSend("refused: transcript_not_ready") }
         let draft = store.state.ui.draft
         let text = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -278,11 +282,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // no .send, no flash, no jump, nothing to HomeStore); then a chip whose attachment is not prepared.
         guard Reducer.canSend(draft), !text.isEmpty || !attachments.isEmpty else { return noteSend("refused: empty_draft") }
         // The open thread or reply view: the send is a reply in that thread (HomeStore's root id).
-        let threadRoot: MessageID?
+        let threadRoot: MessageID?, parent: MessageID?
         if let deferred {
-            threadRoot = deferred
-        } else if let resolved = self.threadRoot(of: draft.replyTo ?? store.state.ui.openThread) {
-            threadRoot = resolved
+            (threadRoot, parent) = deferred
+        } else if let resolved = self.threadRoot(of: draft.replyTo ?? store.state.ui.openThread), let answered = treeParent(of: store.state) {
+            (threadRoot, parent) = (resolved, resolved == nil ? nil : answered)
         } else {
             // The root has no message id yet (my send still going) or is not loaded: the view
             // closes with a notice; the text stays, and the next Return sends to the conversation.
@@ -296,7 +300,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // owner's conversation (and carries the text there) once it answers.
         if homeStore.isCacheOnly(conversation) {
             sendWhenConfirmed = true
-            deferredThreadRoot = threadRoot
+            deferredThread = (threadRoot, parent)
             let chief = homeStore.summary(conversation)?.participants.contains(where: \.isChief) == true
             sendNotice = chief ? CmuxStrings.waitingForChief : CmuxStrings.waitingToConnect
             return noteSend("waiting_for_owner: sends once the owner confirms this conversation")
@@ -338,14 +342,14 @@ final class HomeProjection: @preconcurrency ChatIntents {
                     let files: [MessagePart] = attachments.map { .attachment($0.ref) }
                     let plain = files + [.text(text)]
                     try await homeStore.send(conversation: conversation, parts: plain, uploads: attachments, key: key,
-                                             threadRoot: threadRoot) {
+                                             threadRoot: threadRoot, parent: parent) {
                         guard let filled = await links.parts(shown) else { return (plain, []) }
                         return (files + filled.parts, filled.uploads)
                     }
                 } else if attachments.isEmpty {
-                    _ = try await homeStore.perform(.sendMessage(conversation: conversation, parts: [.text(text)], threadRoot: threadRoot), key: key)
+                    _ = try await homeStore.perform(.sendMessage(conversation: conversation, parts: [.text(text)], threadRoot: threadRoot, parent: parent), key: key)
                 } else {
-                    try await homeStore.send(conversation: conversation, text: text, attachments: attachments, key: key, threadRoot: threadRoot)
+                    try await homeStore.send(conversation: conversation, text: text, attachments: attachments, key: key, threadRoot: threadRoot, parent: parent)
                 }
             } catch let refusal as HomeAttachmentError {
                 self?.sendRefused(key, text: text, attachments: attachments, notice: refusal)
@@ -471,6 +475,17 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let found = item(ref.messageId)
             ?? homeStore.transcript(for: conversation).first { HomeMapping.id($0, aliases: aliases) == ref.messageId }
         return found.flatMap { $0.threadRoot ?? $0.messageID }.map { Optional.some($0) }
+    }
+
+    /// ThreadMode.tree: the HomeStore message a send from the open view answers, the drilled
+    /// branch's message (MessagesLab's `.send` makes it the local reply's `parent`, ThreadHost.swift):
+    /// `.some(nil)` for the root (no branch open); nil when that message has no message id yet
+    /// (my send still going), so the reply is never moved to another parent.
+    private func treeParent(of state: AppState) -> MessageID?? {
+        guard state.ui.threadMode == .tree, state.ui.openThread != nil, let branch = state.ui.threadPath.last else { return .some(nil) }
+        let found = item(branch.messageId)
+            ?? homeStore.transcript(for: conversation).first { HomeMapping.id($0, aliases: aliases) == branch.messageId }
+        return found?.messageID.map { Optional.some($0) }
     }
 
     func pickAttachments() { onPickAttachments() }

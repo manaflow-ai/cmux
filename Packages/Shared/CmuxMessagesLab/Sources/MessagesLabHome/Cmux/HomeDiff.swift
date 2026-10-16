@@ -57,8 +57,9 @@ struct HomeDiff: Equatable {
 
         for item in new.dropFirst(head) { // // crash program: no range subscripts
             if let oi = oldIndex[item.key], let was = old[checked: oi] {
-                // A shown reply whose thread changed (its root paged in or out, or was retracted): MessagesLab has no action for it.
-                guard HomeMapping.replyTo(was, roots: oldRoots) == HomeMapping.replyTo(item, roots: roots) else { d.rebuild = true; return d }
+                // A shown reply whose thread or parent changed (its root or parent paged in or out, or was retracted): MessagesLab has no action for it.
+                guard HomeMapping.replyTo(was, roots: oldRoots) == HomeMapping.replyTo(item, roots: roots),
+                      HomeMapping.parent(was, roots: oldRoots) == HomeMapping.parent(item, roots: roots) else { d.rebuild = true; return d }
                 guard changes(from: was, to: item, oldSummary: oldSummary, newSummary: newSummary, me: me, id: id(item), into: &d) else {
                     d.rebuild = true; return d
                 }

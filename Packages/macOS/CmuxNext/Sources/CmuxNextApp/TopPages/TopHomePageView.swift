@@ -1,3 +1,11 @@
+
+    /// Shows `id` and opens a permalink's `message` in it (`#/conversation/<id>/message/<message>`):
+    /// the message's thread at its branch, any depth (MessagesLab tree threads).
+    func show(_ id: ConversationID, message: String?) {
+        show(id)
+        guard let message, let host else { return }
+        HomePageTab.transcript(in: host)?.reveal(message: message)
+    }
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions

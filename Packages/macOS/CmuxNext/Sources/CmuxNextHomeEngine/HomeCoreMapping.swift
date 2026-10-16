@@ -138,11 +138,12 @@ public nonisolated enum HomeCoreMapping {
     /// The owner op of a Home intent, or nil when the local owner has no such op.
     static func op(_ op: HomeOp, key: IdempotencyKey) -> (conversation: String, op: ConversationOp)? {
         switch op {
-        case .sendMessage(let conversation, let parts, let threadRoot):
-            // `thread_root` is the thread. The reply to the root's first part
-            // keeps the thread on a daemon from before threads, which drops the field.
+        case .sendMessage(let conversation, let parts, let threadRoot, let parent):
+            // `thread_root` is the thread; `reply_to` the message answered (conversation-tree-v1:
+            // any depth), the root's first part without a parent, which also keeps the thread on a
+            // daemon from before threads (it drops `thread_root`).
             return (conversation.rawValue, .send(clientMsgID: key.rawValue, parts: Self.parts(parts),
-                                                 replyTo: threadRoot.map { ConversationPartRef(messageID: $0.rawValue, partIndex: 0) },
+                                                 replyTo: threadRoot.map { ConversationPartRef(messageID: (parent ?? $0).rawValue, partIndex: 0) },
                                                  threadRoot: threadRoot?.rawValue))
         case .editMessage(let message, let conversation, let parts):
             return (conversation.rawValue, .edit(messageID: message.rawValue, parts: Self.parts(parts)))
