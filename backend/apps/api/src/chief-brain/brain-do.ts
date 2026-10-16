@@ -83,7 +83,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
         name: "chief",
         sections: [section("chief", () => (this.childOf() ? childPrompt(this.childOf()!) : systemPrompt(this.config())), { tag: false })],
         // A child (subagent) gets hands only: no memory, no Chief management, no spawn (one level deep).
-        tools: this.childOf() ? [...this.hands()] : [...memoryTools(() => this.memory), ...chiefsTools(this.env, () => this.config()), ...this.hands(), spawnTool(this.spawnHost())],
+        // Hands come from the "chief-hands" extension (installHands): full, or a compact entry until a hand exists.
+        tools: this.childOf() ? [] : [...memoryTools(() => this.memory), ...chiefsTools(this.env, () => this.config()), spawnTool(this.spawnHost())],
         hooks: [
           hook(GenerationTask, {
             beforeRequest: async ({ messages }, api) => {
@@ -104,6 +105,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
           })
         ]
       })
+      this.installHands()
       return Harness.open(
         storage,
         {
@@ -493,6 +495,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
         }
         await this.harness.session().reset()
         this.sql.exec(`UPDATE cb_turn SET submitted = 1 WHERE id = ?`, id)
+        // Off the turn's path: a hand found now gives the full tools from the next model request.
+        void this.refreshHands().catch(() => undefined)
         await this.harness.submit(blocks.map((text) => ({ type: "text" as const, text })), { operationId: id })
       }
       // A child's bound runs from its start, across restarts (its slot frees after SLOT_STALE_MS).
@@ -598,6 +602,25 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   /** The hands tools; a child's caller and agent tokens name its own object (`<conversation>:spawn:<n>`), so a hand's session-end revoke reaches it. */
+  /**
+   * The hands tools as their own extension: the full `hands` + `agent` pair when the Chief has a hand (or is a
+   * child, which works on hands), else one compact `hands` entry (list, pair_code, new_sandbox): about 1.8k fewer
+   * input tokens per request for a Chief with no hand, without losing the way to get one. pi-durable sends the
+   * change as a tool update on the next request, so after new_sandbox the next step has the full tools.
+   */
+  private installHands(): void {
+    const full = this.childOf() !== null || this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = 'hands_full'`).toArray()[0]?.value === "1"
+    this.registry.install({ name: "chief-hands", tools: full ? [...this.hands()] : [handsEntryTool(this.env, () => ({ ...this.config() }), () => void this.refreshHands())] })
+  }
+
+  /** Checks for a hand (one list call) and offers the full tools once there is one; it stays on after that. */
+  private async refreshHands(): Promise<void> {
+    if (this.childOf() !== null || this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = 'hands_full'`).toArray()[0]?.value === "1") return
+    if (!(await hasHand(this.env, () => ({ ...this.config() })))) return
+    writeConfig(this.sql, { hands_full: "1" })
+    this.installHands()
+  }
+
   private hands() {
     const c = this.childOf()
     return handsTools(this.env, () => ({ ...this.config(), run: this.turnId, conversation: c ? childKey(c.conversation, c.n) : this.turnConversation, ledger: (jti: string, o: LedgerOp) => runLedger(this.sql, this.turnId ?? "", jti, 0, o) }), (r) => (r.type === "run.activity" ? liveOf(this.ctx).activity(r.line) : this.turnId && this.announce(this.turnId, [upsertStep(this.sql, this.turnId, r.step, Date.now())])))

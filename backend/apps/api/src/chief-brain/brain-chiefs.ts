@@ -22,10 +22,11 @@ import type { BrainConfig } from "./brain-store.ts"
 const Args = Type.Object({
   action: Type.Union([Type.Literal("list"), Type.Literal("get"), Type.Literal("create"), Type.Literal("update")]),
   chief: Type.Optional(Type.String({ description: "The Chief's id (agent_...) or its name; for get and update." })),
-  display_name: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
-  role: Type.Optional(Type.String({ maxLength: 200 })),
-  personality: Type.Optional(Type.String({ maxLength: 4000 })),
-  instructions: Type.Optional(Type.String({ maxLength: 32000 })),
+  // Lengths are checked where they are stored (chief.create/update, configure's patchError), not in the schema the model reads.
+  display_name: Type.Optional(Type.String()),
+  role: Type.Optional(Type.String()),
+  personality: Type.Optional(Type.String()),
+  instructions: Type.Optional(Type.String()),
   model: Type.Optional(Type.String())
 })
 type ArgsT = { action: "list" | "get" | "create" | "update"; chief?: string; display_name?: string; role?: string; personality?: string; instructions?: string; model?: string }
