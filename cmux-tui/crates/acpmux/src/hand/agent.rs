@@ -26,18 +26,69 @@ struct Session {
     client: Arc<Client>,
     /// The one-run gateway route of this chat (gateway.rs), if it has one.
     route: Option<String>,
+    /// Where its events go (for the idle stop's session_end).
+    sink: EventSink,
+    /// The last prompt or event, for the idle stop.
+    last: std::time::Instant,
 }
+
+/// Asks the owner (the Cloud approval flow, link.rs) and answers true when allowed.
+pub type Ask = Arc<
+    dyn Fn(Value) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>>
+        + Send
+        + Sync,
+>;
 
 /// Sessions this hand started, by acpmux session id. A hand drives only these.
 #[derive(Clone, Default)]
 pub struct Agents {
     sessions: Arc<Mutex<HashMap<String, Session>>>,
+    /// The owner approval round trip, for an agent's permission prompt (set by link.rs).
+    ask: Arc<Mutex<Option<Ask>>>,
+}
+
+/// A session with no prompt and no event for this long is stopped (its model access ends with it).
+/// CMUX_HAND_AGENT_IDLE_MINUTES overrides (0: never).
+fn idle_limit() -> Option<std::time::Duration> {
+    let minutes = std::env::var("CMUX_HAND_AGENT_IDLE_MINUTES")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(30);
+    (minutes > 0).then(|| std::time::Duration::from_secs(minutes * 60))
 }
 
 /// One outbound frame: `{"t":"event","session","seq","event"}`.
 pub type EventSink = mpsc::Sender<Value>;
 
 impl Agents {
+    pub fn set_ask(&self, ask: Ask) {
+        *self.ask.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(ask);
+    }
+
+    fn touch(&self, session: &str) {
+        if let Some(s) =
+            self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_mut(session)
+        {
+            s.last = std::time::Instant::now();
+        }
+    }
+
+    /// Stops every session idle past the limit (called each minute by link.rs).
+    pub async fn stop_idle(&self) {
+        let Some(limit) = idle_limit() else { return };
+        let idle: Vec<(String, EventSink)> = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .filter(|(_, s)| s.last.elapsed() > limit)
+            .map(|(id, s)| (id.clone(), s.sink.clone()))
+            .collect();
+        for (id, sink) in idle {
+            let _ = self.stop(&id, &sink).await;
+        }
+    }
+
     /// The folder a session runs in (the path its requests are checked on).
     pub fn cwd_of(&self, session: &str) -> Result<PathBuf, HandError> {
         self.sessions
@@ -72,6 +123,7 @@ impl Agents {
         &self,
         api: &str,
         model_route: Option<ModelRoute>,
+        level: super::policy::Level,
         policy: &str,
         harness: &str,
         cwd: PathBuf,
@@ -92,9 +144,10 @@ impl Agents {
                 format!("{} is not a folder", cwd.display()),
             ));
         }
-        let client = crate::daemon::connect(true)
-            .await
-            .map_err(|e| HandError::new("agent.daemon", format!("{e:#}")))?;
+        let (client, proven) = super::daemon::connect().await?;
+        // At level full (every sandbox by default) the agent never stops on a prompt; at the other
+        // levels its prompts go to the owner (the Cloud approval flow), answered on this connection.
+        let policy = if level == super::policy::Level::Full { "approve-all" } else { policy };
         let mut meta = json!({ "harness": harness, "policy": policy });
         // A per-run model route: this chat talks to the Cloud's model gateway
         // with a short-lived token (gateway.rs); the route is bound before the
@@ -150,7 +203,13 @@ impl Agents {
             .map_err(|e| HandError::new("agent.start_failed", format!("attach: {e:#}")))?;
         self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(
             session.clone(),
-            Session { cwd: cwd.clone(), client: client.clone(), route: route.clone() },
+            Session {
+                cwd: cwd.clone(),
+                client: client.clone(),
+                route: route.clone(),
+                sink: sink.clone(),
+                last: std::time::Instant::now(),
+            },
         );
         // Pump: daemon events -> summaries -> the Cloud.
         let sid = session.clone();
@@ -167,6 +226,15 @@ impl Agents {
                     Message::Notification { method: m, params: Some(params) }
                         if m == method::MUX_EVENT =>
                     {
+                        agents.touch(&sid);
+                        if params.get("dir").and_then(Value::as_str) == Some("mux")
+                            && matches!(
+                                params.get("kind").and_then(Value::as_str),
+                                Some("permission_request" | "permission_reissued")
+                            )
+                        {
+                            agents.route_permission(&sid, &params, proven);
+                        }
                         forward(&sid, &params, &mut text, &sink).await;
                     }
                     Message::Notification { method: m, .. } if m == method::MUX_DISCONNECTED => {
@@ -206,6 +274,7 @@ impl Agents {
     /// Queues a prompt; the turn's events arrive on the event stream.
     pub fn prompt(&self, session: &str, text: &str) -> Result<String, HandError> {
         let client = self.client(session)?;
+        self.touch(session);
         let prompt_id = uuid::Uuid::now_v7().to_string();
         let params = json!({
             "sessionId": session,
@@ -240,6 +309,49 @@ impl Agents {
             .send(json!({ "t": "event", "session": session, "seq": 0, "event": { "kind": "session_end", "reason": "stopped" } }))
             .await;
         Ok(json!({ "session": session, "stopped": true }))
+    }
+
+    /// An agent's permission prompt: ask the owner, then answer on this hand's
+    /// person connection (an allow needs it); no owner answer, no approval
+    /// flow, or a daemon that refused the hand's key is a refusal.
+    fn route_permission(&self, session: &str, event: &Value, proven: bool) {
+        let msg = event.get("msg").cloned().unwrap_or(Value::Null);
+        let Some(permission) = msg.get("permissionId").and_then(Value::as_str).map(str::to_owned)
+        else {
+            return;
+        };
+        let options =
+            msg.pointer("/request/options").and_then(Value::as_array).cloned().unwrap_or_default();
+        let allow_option = options
+            .iter()
+            .find(|o| o.get("kind").and_then(Value::as_str) == Some("allow_once"))
+            .or_else(|| {
+                options.iter().find(|o| {
+                    o.get("kind").and_then(Value::as_str).is_some_and(|k| k.starts_with("allow"))
+                })
+            })
+            .and_then(|o| o.get("optionId").and_then(Value::as_str))
+            .map(str::to_owned);
+        let summary = json!({
+            "action": "agent.permission",
+            "session": session,
+            "title": msg.pointer("/request/toolCall/title"),
+            "tool_kind": msg.pointer("/request/toolCall/kind"),
+        });
+        let ask = self.ask.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        let Ok(client) = self.client(session) else { return };
+        let session = session.to_owned();
+        tokio::spawn(async move {
+            let allowed = match (&ask, proven, &allow_option) {
+                (Some(ask), true, Some(_)) => ask(summary).await,
+                _ => false,
+            };
+            let mut params = json!({ "sessionId": session, "permissionId": permission });
+            if allowed {
+                params["optionId"] = json!(allow_option);
+            }
+            let _ = client.request(method::MUX_PERMISSION_RESPOND, params).await;
+        });
     }
 
     pub async fn cancel(&self, session: &str) -> Result<Value, HandError> {

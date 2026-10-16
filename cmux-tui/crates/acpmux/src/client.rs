@@ -14,6 +14,9 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 pub struct Client {
     /// Build id the daemon reported at initialize, for mismatch hints.
     daemon_build: std::sync::Mutex<Option<String>>,
+    /// The person challenge `{nonce, connection}` of this connection, when the
+    /// daemon offered one at initialize (`hub/person.rs`).
+    person_challenge: std::sync::Mutex<Option<(String, String)>>,
     out: mpsc::Sender<String>,
     next_id: AtomicI64,
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>>,
@@ -84,6 +87,7 @@ impl Client {
         }
         let client = Arc::new(Self {
             daemon_build: std::sync::Mutex::new(None),
+            person_challenge: std::sync::Mutex::new(None),
             out,
             next_id: AtomicI64::new(1),
             pending,
@@ -99,7 +103,27 @@ impl Client {
             .await?;
         *client.daemon_build.lock().unwrap() =
             init.pointer("/_meta/acpmux/build").and_then(Value::as_str).map(str::to_owned);
+        if let (Some(n), Some(c)) = (
+            init.pointer("/_meta/acpmux/personChallenge/nonce").and_then(Value::as_str),
+            init.pointer("/_meta/acpmux/personChallenge/connection").and_then(Value::as_str),
+        ) {
+            *client.person_challenge.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                Some((n.to_owned(), c.to_owned()));
+        }
         Ok(client)
+    }
+
+    /// Proves this connection is the person (`_acpmux/person_prove`) with the
+    /// key the daemon was started with; must be the request right after
+    /// initialize. True when the daemon accepted the proof.
+    pub async fn prove_person(&self, key: &str) -> bool {
+        let challenge =
+            self.person_challenge.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        let Some((nonce, connection)) = challenge else { return false };
+        let Some(proof) = crate::hub::person::person_proof(key, "unix", &nonce, &connection) else {
+            return false;
+        };
+        self.request(method::MUX_PERSON_PROVE, json!({ "proof": proof })).await.is_ok()
     }
 
     /// The daemon's build id, as reported at initialize.
