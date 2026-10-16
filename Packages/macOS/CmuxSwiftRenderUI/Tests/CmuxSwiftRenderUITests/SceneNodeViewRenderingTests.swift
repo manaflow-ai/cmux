@@ -173,6 +173,7 @@ struct SceneNodeViewRenderingTests {
         window.contentView = host
         window.orderBack(nil)
         window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
         host.frame = window.contentView?.bounds ?? .zero
         host.layoutSubtreeIfNeeded()
         defer { window.orderOut(nil) }
