@@ -23,6 +23,13 @@
 //! to run `security` and `codex login status` with a keychain login) up to a
 //! chat with a stand-in agent, then a second start that finds a login-shell
 //! cache naming a secret (the Claude sign-in check at start).
+//!
+//! A remote chain (cx-hh0vu follow-up, chief): its Claude Code gets this
+//! Mac's Claude login from the keychain only while the cmux setting
+//! `agents.remoteChains.claudeKeychainLogin` is on (default off), so a
+//! remote party never causes a keychain read on its own. The test binary
+//! runs itself again with the interposer and a settings file, once with the
+//! setting absent and once on, and runs a remote chain in process.
 #![cfg(target_os = "macos")]
 
 #[path = "support/daemon_env.rs"]
@@ -84,6 +91,9 @@ static void put(const char *kind, const char *name, char *const argv[]) {
 __attribute__((constructor)) static void loaded(void) {
   const char *path = getenv("KEYCHAIN_CALL_LOG");
   if (path && strlen(path) < sizeof log_path) strcpy(log_path, path);
+  /* Only this process: its children (platform arm64e programs such as
+     /bin/bash) cannot load this arm64 dylib. */
+  if (getenv("KEYCHAIN_LOG_SELF_ONLY")) unsetenv("DYLD_INSERT_LIBRARIES");
   put("loaded", getprogname(), NULL);
 }
 
@@ -581,5 +591,135 @@ async fn the_daemon_start_and_a_chat_start_make_no_keychain_call() {
     drop(rpc);
     shutdown(&dir, daemon);
     assert_no_keychain(&log, &["acpmux"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Set in the copy of this test binary that runs the remote chain.
+const REMOTE_CHILD: &str = "NO_KEYCHAIN_REMOTE_CHAIN_CHILD";
+const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+
+/// The remote chain itself, in the child: a hub in process, a Web
+/// connection, a new session in `<dir>/work` and one prompt to the
+/// stand-in Claude Code, which answers with its argv.
+async fn remote_chain(dir: &Path) {
+    use acpmux::config::{Config, StoreMode};
+    use acpmux::rpc::Message;
+    use acpmux::server::{Origin, serve_connection_with};
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fakeclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"}},
+        "defaultHarness": "fakeclaude",
+        "permissionPolicy": "ask",
+        "webRoots": [dir.join("work")],
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let hub = acpmux::hub::Hub::new(cfg, store);
+    let (in_tx, in_rx) = tokio::sync::mpsc::channel(64);
+    let (out_tx, mut out_rx) = tokio::sync::mpsc::channel(4096);
+    tokio::spawn(serve_connection_with(hub, in_rx, out_tx, Origin::Web));
+    let mut next = 0;
+    let mut call = async |m: &str, params: Value| {
+        next += 1;
+        in_tx.send(Message::request(next, m, params).to_line()).await.unwrap();
+        loop {
+            let line = tokio::time::timeout(Duration::from_secs(60), out_rx.recv())
+                .await
+                .expect("the hub answered in time")
+                .unwrap();
+            let v: Value = serde_json::from_str(&line).unwrap();
+            if v.get("id") == Some(&json!(next)) {
+                assert!(v.get("error").is_none(), "{m} failed: {v}");
+                return v["result"].clone();
+            }
+        }
+    };
+    let created = call("session/new", json!({"cwd": dir.join("work"), "mcpServers": []})).await;
+    let session = created["sessionId"].as_str().unwrap().to_owned();
+    call(
+        "session/prompt",
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": "argv"}]}),
+    )
+    .await;
+}
+
+/// The child's log after a remote chain with `settings` as the cmux
+/// settings file.
+fn remote_chain_log(dir: &Path, dylib: &Path, name: &str, settings: Value) -> String {
+    let settings_file = dir.join(format!("{name}-cmux-next.json"));
+    std::fs::write(&settings_file, settings.to_string()).unwrap();
+    let log = dir.join(format!("{name}.log"));
+    let out = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "a_remote_chain_reads_the_keychain_only_with_the_setting_on",
+            "--exact",
+            "--nocapture",
+        ])
+        .env(REMOTE_CHILD, dir)
+        .env("CMUX_NEXT_CONFIG_FILE", &settings_file)
+        .env("DYLD_INSERT_LIBRARIES", dylib)
+        .env("KEYCHAIN_CALL_LOG", &log)
+        // The sandbox canary's /bin/bash is arm64e: only the hub's own
+        // process is watched, which is where the keychain read would run.
+        .env("KEYCHAIN_LOG_SELF_ONLY", "1")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "the remote chain ({name}) failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = std::fs::read_to_string(&log).unwrap_or_default();
+    // The interposer saw this process's program starts: the sandbox canary
+    // and the sandboxed Claude Code.
+    assert!(text.contains("spawn /usr/bin/sandbox-exec"), "no sandbox-exec start logged:\n{text}");
+    text
+}
+
+/// Whether the log shows the keychain read of Claude's login.
+fn reads_claude_login(text: &str) -> bool {
+    text.lines().any(|l| {
+        l.starts_with("spawn ")
+            && l.split('\u{1f}').any(|f| f == "find-generic-password")
+            && l.contains("Claude Code-credentials")
+    })
+}
+
+/// A remote chain's Claude Code spawn reads the keychain only while the
+/// cmux setting `agents.remoteChains.claudeKeychainLogin` is on.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_remote_chain_reads_the_keychain_only_with_the_setting_on() {
+    if let Some(dir) = std::env::var_os(REMOTE_CHILD) {
+        remote_chain(Path::new(&dir)).await;
+        return;
+    }
+    let dir = scratch("c");
+    std::fs::create_dir_all(dir.join("work")).unwrap();
+    let dir = std::fs::canonicalize(&dir).unwrap();
+    let dylib = interposer(&dir);
+    // Off by default: no file key, and a value that is not `true`.
+    for (name, settings) in [
+        ("absent", json!({})),
+        ("off", json!({"agents": {"remoteChains": {"claudeKeychainLogin": false}}})),
+        ("string", json!({"agents.remoteChains.claudeKeychainLogin": "true"})),
+    ] {
+        let text = remote_chain_log(&dir, &dylib, name, settings);
+        assert!(!reads_claude_login(&text), "a remote chain read the keychain ({name}):\n{text}");
+        let calls: Vec<&str> = text.lines().filter(|l| l.starts_with("call ")).collect();
+        assert!(calls.is_empty(), "keychain calls ({name}): {calls:?}");
+    }
+    // On (either form the settings owner writes): the read happens.
+    for (name, settings) in [
+        ("on", json!({"agents": {"remoteChains": {"claudeKeychainLogin": true}}})),
+        ("flat", json!({"agents.remoteChains.claudeKeychainLogin": true})),
+    ] {
+        let text = remote_chain_log(&dir, &dylib, name, settings);
+        assert!(
+            reads_claude_login(&text),
+            "no keychain read with the setting on ({name}):\n{text}"
+        );
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
