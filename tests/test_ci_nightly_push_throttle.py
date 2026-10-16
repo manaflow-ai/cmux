@@ -448,7 +448,22 @@ def test_schedule_dispatch_and_rc_are_not_throttled() -> None:
     )
 
 
-NEXT_ENV = {"NIGHTLY_NEXT_FEED_BASE": "https://files-next.cmux.com/nightly-next/next"}
+NEXT_ENV = {"NIGHTLY_NEXT_FEED_BASE": "https://files-next.cmux.com/nightly-next/next", "NIGHTLY_NEXT_WRITER": "mac"}
+
+
+def test_nightly_next_builds_for_publication_only_as_the_mac_writer() -> None:
+    # cx-f76kf: one writer, NIGHTLY_NEXT_WRITER (mac, linux or none). A
+    # nightly-next run that publishes builds only while it is mac; the main
+    # track ignores it. publish-nightly reads it again live.
+    for writer in ("linux", "none", "", " mac-mini"):
+        result = run_decide(event="push", ref="refs/heads/nightly-next", tag_age_hours=0.1,
+                            extra_env=dict(NEXT_ENV, NIGHTLY_NEXT_WRITER=writer))
+        assert not should_build(result), writer
+    padded = run_decide(event="push", ref="refs/heads/nightly-next", tag_age_hours=0.1,
+                        extra_env=dict(NEXT_ENV, NIGHTLY_NEXT_WRITER=" mac\n"))
+    assert should_build(padded)
+    main_track = run_decide(event="push", tag_age_hours=2.5, extra_env=dict(NEXT_ENV, NIGHTLY_NEXT_WRITER="linux"))
+    assert should_build(main_track)
 
 
 def test_nightly_next_publishes_its_own_track() -> None:
