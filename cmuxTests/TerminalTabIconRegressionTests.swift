@@ -59,6 +59,27 @@ struct TerminalTabIconRegressionTests {
     }
 
     @MainActor
+    @Test(arguments: ["claude_code", "codex", "grok", "agy"])
+    func lifecycleOnlyAgentShowsAndClearsItsBrandMark(statusKey: String) throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
+        let expectedAssets = [
+            "claude_code": "AgentIcons/Claude",
+            "codex": "AgentIcons/Codex",
+            "grok": "AgentIcons/Grok",
+            "agy": "AgentIcons/Antigravity",
+        ]
+
+        workspace.setAgentLifecycle(key: statusKey, panelId: panel.id, lifecycle: .running)
+        let runningTab = try #require(workspace.bonsplitController.tab(tabId))
+        #expect(runningTab.iconAsset == expectedAssets[statusKey])
+
+        #expect(workspace.clearAgentLifecycle(key: statusKey, panelId: panel.id))
+        try expectNoAgentMark(workspace: workspace, panel: panel, tabId: tabId)
+    }
+
+    @MainActor
     @Test func restoredAgentThatQuitToTheShellLeavesNoAgentMark() throws {
         let workspace = Workspace()
         let panel = try #require(workspace.focusedTerminalPanel)
