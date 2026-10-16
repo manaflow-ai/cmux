@@ -175,6 +175,11 @@ describe("Chief hands tools by hand", { timeout: 120_000 }, () => {
     expect(runs[0]).toMatchObject({ status: "done", reply: { state: "posted" } })
     // Within each pi turn the tools list stayed the same; the continuation had the full tools.
     const calls = fakeCalls.filter((c) => c.kind === "turn" && c.tools.length > 0 && c.firstUser.join("\n").includes("make a sandbox and start an agent"))
-    expect(calls.some((c) => c.tools.some((t) => t.name === "agent")), "the continuation had no agent tool").toBe(true)
+    const root = calls.filter((c) => !c.laterUsers.join("\n").includes("Your new hand is ready")).map((c) => JSON.stringify(c.tools))
+    const cont = calls.filter((c) => c.laterUsers.join("\n").includes("Your new hand is ready"))
+    expect(new Set(root).size, `the tools changed inside the first pi turn: ${JSON.stringify(root)}`).toBe(1)
+    expect(root[0]).not.toContain('"agent"')
+    expect(cont.length, "no continuation").toBeGreaterThanOrEqual(1)
+    expect(cont.every((c) => c.tools.some((t) => t.name === "agent")), "the continuation had no agent tool").toBe(true)
   })
 })

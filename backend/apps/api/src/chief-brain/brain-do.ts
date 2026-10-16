@@ -520,17 +520,23 @@ export class ChiefBrainDO extends DurableObject<Env> {
       // The turn made or found the Chief's first hand: one continuation in the same run, with the full tools (the
       // tools list changes only between pi turns; the finished turn's thinking stays valid). At most one per run.
       const cont = this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `hands_cont:${id}`).toArray()[0]?.value
+      const steeredBefore = this.steered.length
       if (!child && result !== "timeout" && result.status === "done" && (cont === "pending" || cont === "submitted")) {
         if (cont === "pending") writeConfig(this.sql, { [`hands_cont:${id}`]: "submitted" })
         this.startTurnHands()
         // pi takes a repeated operation id once, so a resumed turn submits again safely.
         await this.harness.submit([{ type: "text" as const, text: HANDS_CONTINUE }], { operationId: `${id}:hands` })
         result = await Promise.race([this.harness.wait(`${id}:hands`), limit])
+        // Messages that joined during the continuation: wait for them too.
+        for (let i = steeredBefore; i < this.steered.length && result !== "timeout"; i++) {
+          const joined = await Promise.race([this.harness.wait(this.steered[i]!), limit])
+          if (joined === "timeout" || joined.status !== "done") result = joined
+        }
       }
       // No message joins from here on: the next one starts its own turn.
       this.turnLive = false
       if (result === "timeout") {
-        for (const op of [id, ...this.steered]) void this.harness.abort({ operationId: op }).catch(() => undefined)
+        for (const op of [id, `${id}:hands`, ...this.steered]) void this.harness.abort({ operationId: op }).catch(() => undefined)
         reason = "timeout"
       } else {
         ok = result.status === "done"
@@ -628,7 +634,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     // The tools are fixed for a whole turn (a model signs its thinking for the tools list; a change inside the
     // turn makes the next request a 400). The running turn's mode wins, also when the object opens again mid-turn.
     const full = this.childOf() !== null || (v("hands_turn_mode") ?? v("hands_full")) === "1"
-    this.registry.install({ name: "chief-hands", tools: full ? [...this.hands()] : [handsEntryTool(this.env, () => ({ ...this.config() }), () => this.handFoundInTurn())] })
+    this.registry.install({ name: "chief-hands", tools: full ? [...this.hands()] : [handsEntryTool(this.env, () => ({ ...this.config() }), (action) => this.handFoundInTurn(action))] })
   }
 
   /** At a turn boundary only: this turn's hands mode (full once a hand was found), recorded for the whole turn. */
@@ -647,9 +653,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   /** The entry tool made or found the first hand during a turn: the turn continues once with the full tools (runTurn). */
-  private async handFoundInTurn(): Promise<void> {
+  private async handFoundInTurn(action: string): Promise<void> {
     const turn = this.turnId
-    await this.refreshHands()
+    const foundNow = await this.refreshHands()
+    // A list continues the run only when this call found the first hand; new_sandbox also when the turn-start check did.
+    if (action === "list" && !foundNow) return
     const v = (k: string) => this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, k).toArray()[0]?.value
     // A hand exists now while this turn runs with the compact tools (also when the turn-start check found it first).
     if (turn && v("hands_full") === "1" && v("hands_turn_mode") === "0" && v(`hands_cont:${turn}`) === undefined) writeConfig(this.sql, { [`hands_cont:${turn}`]: "pending" })
