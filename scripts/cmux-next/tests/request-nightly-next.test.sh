@@ -90,7 +90,9 @@ request() { # <args...> -> output in $out, exit in $status
   out=$(cd "$src" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_TREE_DISPATCH PATH="$TMP/bin:$PATH" \
     bash scripts/cmux-next/request-nightly-next.sh --repo o/r "$@" 2>&1) || status=$?
 }
-dispatched() { grep -qx "workflow run nightly.yml --repo o/r --ref main -f promote_nightly_next_sha=$1" "$TMP/gh.log"; }
+dispatched() {
+  grep -qx "workflow run nightly.yml --repo o/r --ref main -f promote_nightly_next_sha=$1 -f promote_nightly_next_debounce=true" "$TMP/gh.log"
+}
 
 # A cmux-tui change whose tree is still building is never promoted, even with
 # a green Release compile: the nightly would have no daemon for it.

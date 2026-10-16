@@ -2412,10 +2412,11 @@ jobs:
   # request waits for that job and for nothing else: an unrelated red job never
   # holds the promotion. (Requested after the Linux checks instead, it ran
   # before the Release compile finished and every promotion was refused.)
-  # Every green head is promoted, with no debounce: nightly.yml's concurrency
-  # group lets the running nightly-next build finish and replaces only the
-  # pending one, so the feed rolls forward to the newest green head without
-  # dropping the last one. Only main's job, in the `release` environment,
+  # Every green head requests promotion. Automatic requests carry the
+  # nightly.yml two-hour floor, so the feed rolls forward to the newest green
+  # head without rebuilding unchanged tips; a manual main dispatch remains
+  # unthrottled. A later green tip retries after a failed publication. Only
+  # main's job, in the `release` environment,
   # holds the release App key and checks this push run's Release compile; this
   # job only needs actions: write to request it.
   # The request also waits for this commit's cmux-tui tree: the nightly builds

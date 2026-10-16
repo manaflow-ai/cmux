@@ -7,7 +7,9 @@
 #      (Xcode 26)" job (main's promote job checks this again), and
 #   3. its generated page strings are fresh (gen-strings --check, on the commit
 #      requested; a stale one is passed over for an older green one).
-# Both finish asynchronously, so each side asks when its half completes:
+# Both finish asynchronously, so each side asks when its half completes. Automatic
+# requests use main's two-hour promotion floor; a later green tip retries a
+# failed publication, while a manual Run workflow request remains unthrottled:
 #
 #   --sha <sha> --release-compile-green
 #       cmux-next.yml, after the Release compile of <sha> passed. Requests <sha>
@@ -141,7 +143,9 @@ request() { # <sha>
     echo "not promoting ${1:0:12}: its generated page strings are stale (node webviews/scripts/pages/gen-strings.mjs --check); an older or later commit with fresh strings is promoted"
     return 1
   fi
-  if ! gh workflow run nightly.yml --repo "$repo" --ref main -f promote_nightly_next_sha="$1"; then
+  if ! gh workflow run nightly.yml --repo "$repo" --ref main \
+      -f promote_nightly_next_sha="$1" \
+      -f promote_nightly_next_debounce=true; then
     echo "error: could not request the nightly-next promotion of $1" >&2
     return 2
   fi
