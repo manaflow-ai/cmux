@@ -385,6 +385,64 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(value.member("pid") == .int(4242))
         // No children -> the key is omitted entirely.
         #expect(value.member("children") == nil)
+        // No background tasks -> the key is omitted entirely.
+        #expect(value.member("backgroundTasks") == nil)
+    }
+
+    @Test("Agent background tasks project the in-flight task list")
+    func agentBackgroundTasksProject() {
+        let builder = CustomSidebarDataContextBuilder()
+        let agent = CustomSidebarAgentSnapshot(
+            sessionId: "sess-4",
+            kind: "claude",
+            name: "Claude",
+            status: "idle",
+            stateSince: nil,
+            lastActivityAt: Date(timeIntervalSince1970: 200),
+            title: nil,
+            panelId: nil,
+            surfaceId: nil,
+            workingDirectory: nil,
+            transcriptPath: nil,
+            pid: nil,
+            backgroundTasks: [
+                CustomSidebarAgentBackgroundTaskSnapshot(
+                    id: "task-001",
+                    type: "shell",
+                    status: "running",
+                    description: "tail logs",
+                    command: "tail -f /var/log/syslog",
+                    agentType: nil,
+                    name: nil
+                ),
+                CustomSidebarAgentBackgroundTaskSnapshot(
+                    id: "task-002",
+                    type: "subagent",
+                    status: "running",
+                    description: "Audit tests",
+                    command: nil,
+                    agentType: "Explore",
+                    name: nil
+                ),
+            ]
+        )
+
+        let value = builder.agentValue(agent)
+        guard case let .array(tasks)? = value.member("backgroundTasks") else {
+            Issue.record("backgroundTasks missing")
+            return
+        }
+        #expect(tasks.count == 2)
+        #expect(tasks[0].member("id") == .string("task-001"))
+        #expect(tasks[0].member("type") == .string("shell"))
+        #expect(tasks[0].member("status") == .string("running"))
+        #expect(tasks[0].member("description") == .string("tail logs"))
+        #expect(tasks[0].member("command") == .string("tail -f /var/log/syslog"))
+        #expect(tasks[0].member("agentType") == nil)
+        #expect(tasks[0].member("name") == nil)
+        #expect(tasks[1].member("type") == .string("subagent"))
+        #expect(tasks[1].member("command") == nil)
+        #expect(tasks[1].member("agentType") == .string("Explore"))
     }
 
     @Test("Agent children project running and settled runs")
