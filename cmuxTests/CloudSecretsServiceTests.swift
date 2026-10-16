@@ -296,6 +296,24 @@ struct CloudSecretsServiceTests {
         ])
     }
 
+    @Test func directProviderKeysRunTheRoutingGuardAgainAfterDelivery() async throws {
+        let recorder = RecordingTransport()
+        let service = makeService(recorder)
+        try await service.set([
+            CloudSecretInput(name: "OPENAI_API_KEY", value: "sk-openai-user"),
+            CloudSecretInput(name: "ANTHROPIC_API_KEY", value: "sk-ant-user"),
+        ], scope: .all, source: .manual, sync: false)
+
+        _ = await service.sync(machineID: "m1")
+
+        let routing = CloudSecretsProviderRouting(openAI: .direct, anthropic: .direct)
+        #expect(recorder.events == [
+            "exec:" + routing.command,
+            "deliver:ANTHROPIC_API_KEY,OPENAI_API_KEY",
+            "exec:" + routing.command,
+        ])
+    }
+
     @Test func aGuardThatFailsKeepsTheKeyOffTheMachine() async throws {
         let recorder = RecordingTransport()
         recorder.execExitCode = { command in command.contains("cmux-provider-routing") ? 1 : 0 }
