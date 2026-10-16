@@ -150,28 +150,30 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// The whole current value; unchanged values return before any work.
     func apply(items: [TranscriptItem], summary: ConversationSummary?, typing wantedTyping: Set<ParticipantID>,
                hasOlder newHasOlder: Bool, draft: HomeTurnDraft? = nil) {
-        // The agent whose running reply shows has its bubble instead of the typing dots.
-        let typing = wantedTyping.subtracting(core.draftAuthors(draft))
+        // MessagesLab hides a sender's typing dots while its stream has text (ask 11).
+        let typing = wantedTyping
         guard let store = controller.store else {
             install(items: items, summary: summary, typing: typing, hasOlder: newHasOlder)
             restoreDraft()
+            // A reply already running when the view opens shows as its stream at once.
+            if let store = controller.store { for a in core.stream(draft, state: store.state) { controller.dispatch(a) } }
             return
         }
         let typingChanged = Set(store.state.ui.typing) != Set(typing.filter { $0 != me }.map(\.rawValue))
         guard items != shown || summary != shownSummary || typingChanged || newHasOlder != hasOlder
-                || core.draftDiffers(draft) else { return }
+                || core.streamDiffers(draft) else { return }
         appliedUpdates += 1
         if newHasOlder != hasOlder { olderRequested = false }
         hasOlder = newHasOlder
         let titleChanged = HomeMapping.title(summary, me: me) != HomeMapping.title(shownSummary, me: me)
         let summaryChanged = summary != shownSummary
         let diff = core.step(items: items, summary: summary)
-        let drafted = core.draft(draft, state: store.state)
+        let streamed = core.stream(draft, state: store.state)
         // MessagesLab bd65bbf: a keystroke goes first. Statuses and typing that arrive in a
         // keystroke frame are committed at the start of the next display frame; anything
         // else (a message, a tapback, a page) is committed now, in order.
         let typingActions = core.typing(store.state, wanted: typing)
-        let ambient = !diff.rebuild && drafted.isEmpty && (diff.actions + typingActions).allSatisfy {
+        let ambient = !diff.rebuild && streamed.isEmpty && (diff.actions + typingActions).allSatisfy {
             switch $0 { case .status, .typing: return true; default: return false }
         }
         if ambient, controller.inKeystrokeFrame, !(diff.actions + typingActions).isEmpty {
@@ -184,13 +186,16 @@ final class HomeProjection: @preconcurrency ChatIntents {
                 self.onRowsChange()
             }
         } else {
-            for a in diff.actions {
+            // The running reply's stream goes after the new messages (it stays the newest bubble), or
+            // where its posted reply is among them (`.streamEnd(replacedBy:)`, in transcript order).
+            let cut = diff.handOffAt ?? diff.actions.count
+            for (i, a) in diff.actions.enumerated() {
+                if i == cut { for s in streamed { controller.dispatch(s) } }
                 if case .prependPage = a { olderRequested = false }
                 controller.dispatchTimingTapback(a) // my tapback chosen in the menu: from its input (MessagesLab 7518134)
             }
-            // After the new messages, so the running reply stays the newest bubble.
-            for a in drafted.actions { controller.dispatch(a) }
-            if diff.rebuild || drafted.rebuild { rebuild() }
+            if cut >= diff.actions.count { for s in streamed { controller.dispatch(s) } }
+            if diff.rebuild { rebuild() }
             for a in core.typing(store.state, wanted: typing) { controller.dispatch(a) }
         }
         if titleChanged { applyHeader() }
@@ -647,8 +652,8 @@ struct ProjectionCore {
     var media: HomeMapping.Media = { _ in nil }
     /// Link previews already fetched (`LinkPreviews.cached`); none in the harness.
     var links: HomeMapping.Links = { _ in nil }
-    /// The agent's running reply on screen (`draft(_:state:)`).
-    var shownDraft: ShownDraft?
+    /// The agent's running reply on screen (`stream(_:state:)`, MessagesLab ask 11).
+    var shownStream: ShownStream?
 
     init(me: ParticipantID) { self.me = me }
 
@@ -656,6 +661,7 @@ struct ProjectionCore {
     mutating func install(_ id: ConversationID, items: [TranscriptItem], summary: ConversationSummary?)
         -> (Conversation, (start: Int, total: Int)) {
         shown = items
+        shownStream = nil // a new projection store has no stream: the next update begins it again
         self.summary = summary
         let roots = HomeMapping.roots(in: items, aliases: aliases, summary: summary, media: media, links: links)
         let conv = Conversation(id: id.rawValue, title: HomeMapping.title(summary, me: me),
@@ -666,7 +672,8 @@ struct ProjectionCore {
 
     /// The actions from the shown snapshot to this one.
     mutating func step(items: [TranscriptItem], summary new: ConversationSummary?) -> HomeDiff {
-        let d = HomeDiff.plan(old: shown, new: items, oldSummary: summary, newSummary: new, aliases: aliases, me: me, media: media, links: links)
+        let d = HomeDiff.plan(old: shown, new: items, oldSummary: summary, newSummary: new, aliases: aliases, me: me, media: media, links: links,
+                              handOff: streamingTurn)
         shown = items
         summary = new
         return d

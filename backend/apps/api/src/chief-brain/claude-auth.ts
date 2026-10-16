@@ -19,7 +19,7 @@ const DEFAULT_REFRESH_URL = "https://api.stack-auth.com/api/v1/auth/sessions/cur
 const DEFAULT_PROJECT = "9790718f-14cd-4f7e-824d-eaf527a82b82"
 /** Refresh when the access token has less than this left: one streamed request is signed at a time. */
 const MAX_MARGIN_MS = 3 * 60_000
-/** Claude turns of all Chiefs per UTC day on this deployment (default): the whole spend bound beside each Chief's cap. */
+/** Paid-model turns per owner per UTC day (default; CHIEF_BRAIN_CLAUDE_DAILY_TURNS). */
 const DEFAULT_DAILY_CLAUDE_TURNS = 500
 
 export class ClaudeAuthError extends Error {
@@ -72,10 +72,20 @@ export type TurnVerdict = "ok" | "owner_not_allowed" | "model_not_offered" | "da
 export const holderTurn = (env: Env, sql: SqlStorage, owner: string, model: string = OPUS, now = Date.now()): TurnVerdict => {
   if (!meteredOwner(env, owner)) return "owner_not_allowed"
   if (!offers(env, model)) return "model_not_offered"
-  const key = `claude.turns:${new Date(now).toISOString().slice(0, 10)}`
-  const used = Number(row(sql, key) ?? 0)
-  if (used >= (Number(env.CHIEF_BRAIN_CLAUDE_DAILY_TURNS) || DEFAULT_DAILY_CLAUDE_TURNS)) return "daily_cap"
-  put(sql, key, String(used + 1))
+  // Per owner (CHIEF_BRAIN_CLAUDE_DAILY_TURNS, default 500): one person's busy Chiefs never use up
+  // another person's turns. CHIEF_BRAIN_CLAUDE_DAILY_TURNS_TOTAL (unset = no limit) bounds the deployment.
+  const day = new Date(now).toISOString().slice(0, 10)
+  const mine = `claude.turns:${owner}:${day}`
+  const all = `claude.turns:${day}`
+  const usedMine = Number(row(sql, mine) ?? 0)
+  const usedAll = Number(row(sql, all) ?? 0)
+  if (usedMine >= (Number(env.CHIEF_BRAIN_CLAUDE_DAILY_TURNS) || DEFAULT_DAILY_CLAUDE_TURNS)) return "daily_cap"
+  const total = Number(env.CHIEF_BRAIN_CLAUDE_DAILY_TURNS_TOTAL)
+  if (Number.isFinite(total) && total > 0 && usedAll >= total) return "daily_cap"
+  // A new UTC day: the old days' counters go (one row per owner per day otherwise stays forever).
+  if (usedAll === 0) sql.exec(`DELETE FROM cb_config WHERE name LIKE 'claude.turns:%' AND name NOT LIKE ?`, `%:${day}`)
+  put(sql, mine, String(usedMine + 1))
+  put(sql, all, String(usedAll + 1))
   return "ok"
 }
 

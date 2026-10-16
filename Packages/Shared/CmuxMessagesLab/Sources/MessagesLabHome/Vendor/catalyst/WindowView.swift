@@ -655,8 +655,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// The last rows derived for a width change and what they were derived from. The messages
     /// array is kept (a copy): while this copy shares its buffer, the store's array cannot have
     /// changed in place, so the same buffer means the same messages.
-    private var widthDerived: (messages: [Message], me: ID, atNewest: Bool, typing: [ID], day: DateInterval?,
-                               strings: ObjectIdentifier, rows: [RowSpec])?
+    private var widthDerived: (messages: [Message], me: ID, atNewest: Bool, typing: [ID], notice: String?, streams: [StreamBubble],
+                               day: DateInterval?, strings: ObjectIdentifier, rows: [RowSpec])?
 
     /// The rows at the new width: re-measured from the last width change's rows when the state,
     /// the day and the strings are the same (RowBuilder.rewidth: the derivation over every loaded
@@ -665,13 +665,15 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let msgs = st.conversation.messages
         let day = Format.dayInterval(now), strings = ObjectIdentifier(MessagesLabLocalization.bundle)
         if let d = widthDerived, d.messages.count == msgs.count, d.me == st.me, d.atNewest == st.atNewest,
-           d.typing == st.ui.typing, d.day == day, d.strings == strings,
+           d.typing == st.ui.typing, d.notice == st.ui.notice, d.streams == st.ui.streams, d.day == day, d.strings == strings,
            d.messages.withUnsafeBufferPointer({ $0.baseAddress }) == msgs.withUnsafeBufferPointer({ $0.baseAddress }),
-           let rows = RowBuilder.rewidth(d.rows, messages: msgs, width: bounds.width, exact: near, scale: renderScale) {
+           // A streaming bubble's rows (ask 11) name its message after the loaded ones.
+           let rows = RowBuilder.rewidth(d.rows, messages: st.ui.streams.isEmpty ? msgs : msgs + st.ui.streams.map(\.message),
+                                         width: bounds.width, exact: near, scale: renderScale) {
             return rows
         }
         let rows = RowBuilder.rows(st, messages: msgs, now: now, width: bounds.width, exact: near, scale: renderScale)
-        widthDerived = (msgs, st.me, st.atNewest, st.ui.typing, day, strings, rows)
+        widthDerived = (msgs, st.me, st.atNewest, st.ui.typing, st.ui.notice, st.ui.streams, day, strings, rows)
         return rows
     }
 
@@ -818,6 +820,13 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         case let .typing(_, on): return on ? Springs.typing : Springs.receive
         // The host's status line (ask 9) comes and goes as the typing indicator leaves.
         case .setNotice: return Springs.receive
+        // Ask 11 (HostHooks.swift): a stream begins as the typing indicator does; its text arrives and grows as a
+        // received text arrives (the rows make room on Messages' receive curve, shared by every non-send row move);
+        // it ends as the typing indicator leaves, or as its final message is received (no motion when the final
+        // message takes the bubble's rows: commit renames them first).
+        case .streamBegin: return Springs.typing
+        case .streamSet, .streamAppend, .streamEnd(_, nil): return Springs.receive
+        case let .streamEnd(_, m?): return element(for: .receive(m), me: me, old: old)
         case let .status(_, s):
             if case .read = s { return Springs.read }
             return Springs.delivered
@@ -873,6 +882,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     }
     func commit(_ action: Action, at t: Double, old: AppState, new state: AppState) {
         if case .setScroll = action { return }
+        // Ask 11: the final message takes its streaming bubble's rows before the rows are compared (HostHooks.swift).
+        if case let .streamEnd(id, m?) = action { renameStreamRows(StreamBubble.messageID(id), to: m.id) }
         defer { hostSelectionAfter(action) } // HostHooks.swift (ask 10): nothing runs without the hook but an id compare
         // My message is delivered (or read, or failed): its sent row takes the soft resting edge with this update
         // (RowCell.crispEdge). `.sending` and `.sent` (the send itself) keep the crisp edge.
@@ -1100,14 +1111,14 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         guard from > 0, let first = msgs[checked: from] else { return (0, RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width, scale: renderScale)) }
         let firstID = Substring(first.id)
         // Rows of `firstID` and later messages are at the tail: scan back over the live rows from
-        // the end (the trailing typing row and the host's status line under it are always re-derived), without allocating.
+        // the end (the trailing typing row, the host's streaming bubbles and status line are always re-derived), without allocating.
         var cut = model.liveCount, live = model.liveCount, i = model.count, found = false, trailing = true
         while i > 0 {
             i -= 1
             guard let r = model.rows[checked: i] else { continue } // checked
             if r.ghost { continue }
             live -= 1
-            if trailing { if r.spec.key == "typing" || r.spec.key == "notice" { cut = live; continue }; trailing = false }
+            if trailing { if RowBuilder.isTrailing(r.spec.key) { cut = live; continue }; trailing = false }
             if RowBuilder.owner(r.spec.key) == firstID { found = true; cut = live } else if found { break }
         }
         // The live row above the cut (its kind decides the first new row's spacing).
@@ -1139,12 +1150,14 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             if let i = index(String(r.spec.key.dropFirst("receipt:".count))) { idx.append(i) }
         }
         switch action {
-        case .send, .receive:
+        case .send, .receive, .streamEnd(_, _?):
             idx.append(max(0, old.conversation.messages.count - 1))
             // A reply re-derives its root and the message above it: a root's first reply moves the root into its
             // own thread (RowBuilder: the gap above the root, and the tail of the bubble above).
             if let m = msgs.last, let r = m.replyTo, let i = index(r.messageId) { idx.append(i); idx.append(max(0, i - 1)) }
         case .typing, .setNotice: idx.append(max(0, msgs.count - 1))
+        // A stream's rows follow the newest loaded message (which may lose its tail to it); a final message is new.
+        case .streamBegin, .streamSet, .streamAppend, .streamEnd: idx.append(max(0, old.conversation.messages.count - 1))
         case let .status(id, _): if let i = index(id) { idx.append(i) }
         case let .cmuxSetAttachment(id, _): if let i = index(id) { idx.append(i) }  // cmux
         case let .react(ref, _, _):
@@ -1188,8 +1201,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             var i = 0
             // the rows from the end, no index math.
             for row in rows.reversed() {
-                // The typing indicator and the host's status line (ask 9) belong to the newest message's tail.
-                guard row.spec.key == "typing" || row.spec.key == "notice" || owner(row.spec.key).map({ ids.contains($0) }) == true else { break }
+                // The typing indicator, the host's streaming bubbles and status line belong to the newest message's tail.
+                guard RowBuilder.isTrailing(row.spec.key) || owner(row.spec.key).map({ ids.contains($0) }) == true else { break }
                 i += 1
             }
             return i
@@ -1204,7 +1217,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             return (rows.count, prepared ?? RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width, scale: renderScale), 0, [])
         case let .prependPage(page):
             guard msgs.count > page.count else { return nil }
-            let head = prepared ?? derive(0..<(page.count + 1)).filter { $0.key != "typing" && $0.key != "notice" }
+            let head = prepared ?? derive(0..<(page.count + 1)).filter { !RowBuilder.isTrailing($0.key) }
             guard let firstNew = msgs[checked: page.count] else { return nil } // checked (msgs.count > page.count)
             return (countHead([Substring(firstNew.id)]), head, 0, [])
         case let .appendPage(page):
@@ -1220,7 +1233,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             var tailIDs = Set(o.suffix(bottom).map { Substring($0.id) })
             if top > 0 { headIDs.insert(Substring(first.id)) }
             if bottom > 0 { tailIDs.insert(Substring(last.id)) }
-            let head = top > 0 ? derive(0..<1).filter { $0.key != "typing" && $0.key != "notice" } : []
+            let head = top > 0 ? derive(0..<1).filter { !RowBuilder.isTrailing($0.key) } : []
             let dropTail = bottom > 0 ? countTail(tailIDs) : 0
             let above = rows.dropLast(dropTail).last?.spec.kind // no index math
             let tail = bottom > 0 ? RowBuilder.rows(state, messages: msgs, now: now, range: (msgs.count - 1)..<msgs.count, previousRow: above, width: bounds.width, scale: renderScale) : []
@@ -1314,7 +1327,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         // The first inline reply to the last message (transcript.receiveThreadRoot): Messages first closes the gap
         // above the new thread root (the rows above drop by Springs.threadRootDip) and then opens the change-of-thread
         // gap, one curve from the first frame (lossless typing-unfocused-take1: 881 -> 888 -> 859.5 pt).
-        if el.name == "transcript.receiveThreadRoot", case let .receive(m) = action, let r = m.replyTo,
+        if el.name == "transcript.receiveThreadRoot", let m = Self.received(action), let r = m.replyTo,
            let rootIndex = model.index["part:\(r.messageId):\(r.partIndex)"] {
             for i in band where i < rootIndex {
                 guard let key = model.rows[checked: i]?.spec.key, let d = deltas[key], d > 0.01 else { continue } // checked
@@ -1371,10 +1384,11 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             if r.ghost, r.removedAt == t {
                 // A received message replaces the typing bubble: Messages fades it out with the same
                 // curve as a received text's fade-in (ANIMATIONS.md section 3).
+                // A streaming bubble that ends without a message leaves as the typing indicator does (ask 11).
                 let out: SpringElement
-                if key != "typing" { out = Springs.ghostOut }
-                else if case .receive = action { out = Springs.typingOutOnReceive }
-                else { out = Springs.typingOut }
+                if key == "typing" { out = Self.receives(action) ? Springs.typingOutOnReceive : Springs.typingOut }
+                else if case .streamEnd(_, nil) = action, RowBuilder.owner(key).map(StreamBubble.isStream) == true { out = Springs.typingOut }
+                else { out = Springs.ghostOut }
                 ledger.add(key, .content, "opacity", from: 1, to: 0, later(out), begin: begin)
                 continue
             }
@@ -1431,7 +1445,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 ledger.add(key, .content, "position.x", from: (1 - s0) * dx, to: 0, grow, begin: begin)
                 ledger.add(key, .content, "position.y", from: (1 - s0) * dy, to: 0, grow, begin: begin)
             case let .part(p):
-                if case .receive = action {
+                if Self.receives(action) {
                     // An outgoing insert's opacity follows the scroll's
                     // progress (measured on both 120 fps inserts).
                     // A received photo's opacity follows the scroll too (send-typed-media take: 0.02 ->
@@ -1461,13 +1475,55 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             }
         }
     }
+    /// A received message, or a streaming bubble's text or final message (ask 11): new rows fade in as a received
+    /// text, and the typing indicator they replace fades as on a receive.
+    /// The message a receive or a stream's final message (ask 11) brings.
+    private static func received(_ action: Action) -> Message? {
+        if case let .receive(m) = action { return m }
+        if case let .streamEnd(_, m?) = action { return m }
+        return nil
+    }
+    private static func receives(_ action: Action) -> Bool {
+        switch action {
+        case .receive, .streamSet, .streamAppend, .streamEnd(_, _?): return true
+        default: return false
+        }
+    }
+
+    /// Ask 11 (HostHooks.swift): the final message `to` takes the rows of streaming bubble `from` in place: their keys,
+    /// cells, live motions and fades move to the final message's keys, so the commit that follows finds the same rows
+    /// (no remove, no insert, no receive motion) and only draws the final message's spec into the same cells.
+    private func renameStreamRows(_ from: ID, to: ID) {
+        let renamed = model.renameOwner(from, to: to)
+        guard !renamed.isEmpty else { return }
+        var map: [String: String] = [:]
+        for (a, b) in renamed {
+            map.updateValue(b, forKey: a)
+            ledger.rename(a, to: b)
+            if let r = deferredReveals.removeValue(forKey: a) { deferredReveals.updateValue(r, forKey: b) }
+            if RowCell.deferredKeys.remove(a) != nil { RowCell.deferredKeys.insert(b) }
+        }
+        // Live container motions keep covering the rows (else a later decorate would add the opposite motion to them).
+        containerMotions = containerMotions.map { m in
+            var m = m
+            for (a, b) in renamed where m.4.remove(a) != nil { m.4.insert(b) }
+            return m
+        }
+        (collection as? RowRecycler)?.renameKeys(renamed)
+        for case let cell as RowCell in collection.visibleCells {
+            if let b = map[cell.key] { cell.renameRow(to: b) }
+        }
+    }
+
     /// Live container motions: (displacement, spring, begin, end, rows it covered). A row that
     /// shows up while one runs (inserted later, or outside its band) gets the opposite motion,
     /// so it moves as it did with per-row springs.
     private var containerMotions: [(Double, SpringElement, CFTimeInterval, CFTimeInterval, Set<String>)] = []
+    /// The live container motions' displacements and spring names (self-tests).
+    var containerMotionSprings: [(delta: Double, spring: String, begin: CFTimeInterval)] { containerMotions.map { ($0.0, $0.1.name, $0.2) } }
     /// Bumped by each new container motion (RowCell.motionChecked: the cell's row was checked against all
     /// motions up to this one).
-    private var containerMotionSerial = 0
+    private(set) var containerMotionSerial = 0
     private func cancelContainerMotion(for key: String) {
         guard !containerMotions.isEmpty else { return }
         let now = Animate.now(layer)
@@ -1588,7 +1644,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         case .send:
             guard let m = state.conversation.messages.last, m.senderId == state.me, let (key, _) = morphRow(m) else { return }
             deferRow(key, until: .infinity)
-        case .receive:
+        case .receive, .streamEnd(_, _?):
             let band = model.range(newOffset - layout.rowsTop - 600, newOffset - layout.rowsTop + cvHeight + 600)
             for i in band.reversed() {
                 guard let r = model.rows[checked: i], r.insertedAt == t else { continue } // checked
@@ -2148,7 +2204,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             return nil
         }
         for case let cell as RowCell in collection.visibleCells {
-            guard let spec = cell.spec, case let .part(row) = spec.kind else { continue }
+            // A streaming bubble (ask 11) takes no click, menu or selection: it is a message being written, as the
+            // typing indicator (its final message does).
+            guard let spec = cell.spec, case let .part(row) = spec.kind, !StreamBubble.isStream(row.ref.messageId) else { continue }
             let body = cell.convert(RowDraw.bodyRect(spec), to: self)
             let outline = cell.convert(RowDraw.balloon(RowDraw.bodyRect(spec), row: row, scale: renderScale), to: self)
             if body.insetBy(dx: -4, dy: -4).contains(p) { return Hit(row: row, body: body, key: spec.key, outline: outline) }
