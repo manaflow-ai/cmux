@@ -190,6 +190,7 @@ import { PullRequestDock } from "./summary/PullRequestDock";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
+import { configureSidebarPreviewVariant } from "./sidebarPreview";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
@@ -3546,6 +3547,8 @@ function AcpmuxPane() {
         if (customization.layout) {
           configureDictation(customization.layout);
           configureQuickActions(customization.layout);
+          if ("sidebarPreviewVariant" in customization.layout)
+            configureSidebarPreviewVariant(customization.layout.sidebarPreviewVariant);
           window.cmuxAcpmuxRegistry?.configure(customization.layout);
         }
       },

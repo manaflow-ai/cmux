@@ -282,6 +282,16 @@ const entry = componentEntry<Props>({
       props: { ...baseProps, groupProjects: false },
       play: hoverPreview,
     },
+    "hover-preview-quiet": {
+      note: "Debug layout sidebarPreviewVariant=quiet: a narrower, flatter latest-reply card keeps metadata readable with less elevation.",
+      props: { ...baseProps, groupProjects: false, previewVariant: "quiet" },
+      play: hoverPreview,
+    },
+    "hover-preview-outline": {
+      note: "Debug layout sidebarPreviewVariant=outline: a lightly tinted rim keeps the latest-reply card distinct without a drop shadow.",
+      props: { ...baseProps, groupProjects: false, previewVariant: "outline" },
+      play: hoverPreview,
+    },
     "focus-preview": {
       note: "Keyboard focus opens the same preview without changing the sidebar row geometry.",
       props: { ...baseProps, groupProjects: false },

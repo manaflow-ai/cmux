@@ -684,3 +684,7 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
 .acpmux-session-preview-status,.acpmux-session-preview-place{display:inline-flex;align-items:center;gap:4px;min-width:0;}
 .acpmux-session-preview-status.acpmux-session-mark-input{color:var(--agent-warning,var(--agent-accent));}
 .acpmux-session-preview-status.acpmux-session-mark-running{color:var(--agent-accent);}
+.ui-card.acpmux-session-preview-quiet{min-width:204px;max-width:270px;gap:4px;padding:8px 10px;border:0.5px solid color-mix(in srgb,currentColor 14%,transparent);background:color-mix(in srgb,var(--surface-popup) 88%,var(--agent-page-bg));box-shadow:none;}
+.acpmux-session-preview-quiet .acpmux-session-preview-title{font-size:var(--text-control);line-height:var(--text-control--line-height);}
+.acpmux-session-preview-quiet .acpmux-session-preview-copy{max-width:30ch;}
+.ui-card.acpmux-session-preview-outline{min-width:220px;max-width:300px;padding:10px 12px;border:0.5px solid color-mix(in srgb,var(--agent-accent) 34%,transparent);background:color-mix(in srgb,var(--agent-page-bg) 92%,var(--agent-text) 8%);box-shadow:none;}
