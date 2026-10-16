@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Main-thread time of a structural sidebar rebuild in the sidebar-document mode (bead cx-x5jpp).
 
-  scripts/cmux-next/sidebar-mirror-rebuild-perf.py --tag <tag> [--count 1000] [--rebuilds 20] [--out DIR]
+  nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA \
+    -- python3 scripts/cmux-next/sidebar-mirror-rebuild-perf.py --label before --out "$NX_ARTIFACTS"
+  scripts/cmux-next/sidebar-mirror-rebuild-perf.py --tag <tag> [--count 1000] [--rebuilds 20]   (a running tagged app)
 
-Attaches to a running tagged app (it never launches or quits one; run it on a GUI lane host, never
-the laptop). It makes `--count` empty workspaces (`perf-NNNN`, the names
+Inside an nx-remote GUI job (NX_APP set) it launches $NX_APP with an empty config and quits it with
+$NX_APP_STOP at the end; with --tag it attaches to a running tagged app and quits nothing. Never on
+the laptop. It makes `--count` empty workspaces (`perf-NNNN`, the names
 sidebar-rows-perf-live.py uses, so either script reuses the other's), then `--rebuilds` times
 creates one workspace and closes it again. Each create and each close changes the live workspace
 set, so the sidebar asks the Rust mirror for its rows again (one `view` FFI call) and lays out the
@@ -18,19 +21,22 @@ It reports the time per `view` call and per rebuild. It fails when the build has
 counter, when the sidebar document mode is not active, or when no `view` call happened.
 """
 
-import argparse, json, os, socket, subprocess, sys, time
+import argparse, atexit, json, os, socket, subprocess, sys, tempfile, time
 from concurrent.futures import ThreadPoolExecutor
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--tag", required=True)
+parser.add_argument("--tag", default=os.environ.get("NX_APP_TAG"))
 parser.add_argument("--count", type=int, default=1000)
 parser.add_argument("--rebuilds", type=int, default=20)
 parser.add_argument("--label", default="run")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
 opts = parser.parse_args()
-SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
+if not opts.tag:
+    sys.exit("--tag is required outside an nx-remote --app-from-fleet job")
+APP, STOP = os.environ.get("NX_APP"), os.environ.get("NX_APP_STOP")
+SOCKET = os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{opts.tag}.sock"
 HERE = os.path.dirname(os.path.abspath(__file__))
-CLI = os.path.join(HERE, "..", "cmux-debug-cli.sh")
+CLI = os.environ.get("NX_APP_CLI") or os.path.join(HERE, "..", "cmux-debug-cli.sh")
 
 
 def rpc(method, params=None, timeout=60):
@@ -53,7 +59,7 @@ def rpc(method, params=None, timeout=60):
 
 
 def cli(*args, timeout=60):
-    env = dict(os.environ, CMUX_TAG=opts.tag)
+    env = dict(os.environ, CMUX_TAG=opts.tag, CMUX_QUIET="1")
     return subprocess.run([CLI, "--app-socket", SOCKET, *args], env=env, capture_output=True, text=True, timeout=timeout)
 
 
@@ -79,7 +85,24 @@ def wait(predicate, seconds):
     return predicate()
 
 
+def launch():
+    scratch = tempfile.mkdtemp(prefix="mirror-rebuild-")
+    config, ghostty = os.path.join(scratch, "cmux.json"), os.path.join(scratch, "ghostty")
+    open(config, "w").write("{}")
+    open(ghostty, "w").write("")
+    if os.path.exists(SOCKET):
+        os.unlink(SOCKET)
+    env = ["CMUX_NEXT_NO_ACTIVATE=1", "CMUX_NEXT_SOCKET_MODE=automation", "CMUX_NEXT_TEST_WINDOW_SCREEN=last",
+           f"CMUX_NEXT_CONFIG_FILE={config}", f"CMUX_NEXT_GHOSTTY_CONFIG={ghostty}", "CMUX_NEXT_TEST_WINDOW_FRAME=40,40,1100,720"]
+    subprocess.run(["open", "-n", APP, *[arg for pair in env for arg in ("--env", pair)]], check=True)
+    atexit.register(lambda: STOP and subprocess.run([STOP]))
+    if not wait(lambda: os.path.exists(SOCKET) and (rows().get("doc") or {}).get("active"), 120):
+        sys.exit(f"FAIL the tagged app did not come up with the sidebar document active ({rows().get('doc')})")
+
+
 def main():
+    if APP:
+        launch()
     doc = rows().get("doc") or {}
     if "error" in rows() or not doc.get("active"):
         sys.exit(f"no tagged app with the sidebar document active on {SOCKET} ({doc})")
