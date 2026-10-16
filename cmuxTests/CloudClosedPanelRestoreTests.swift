@@ -281,6 +281,57 @@ struct CloudClosedPanelRestoreTests {
         }
     }
 
+    @Test("The Cloud row and a second browser view follow the native document", arguments: [false, true])
+    func cloudSidebarFollowsNativeDocument(daemonBrowser: Bool) throws {
+        try withCloudBrowser(daemonBrowser: daemonBrowser) { workspace, browser, provider, resource in
+            let catalog = SurfaceCatalog.shared
+            browser.cloudAccess.retainResource(resource.id)
+            catalog.record(SurfaceProjection(
+                resource: resource.id, workspaceID: workspace.id, panelID: browser.id,
+                remoteWorkspaceID: "ws-browser-restore",
+                remoteTabID: daemonBrowser ? "tab-browser-restore" : nil
+            ))
+            let document = try #require(URL(string: "https://search.example.test/results?q=test#page"))
+            let originalWebView = browser.webView
+            browser.showCloudAddress(document)
+            // A subsequent daemon refresh still contains the creation URL.
+            catalog.upsert(resource, from: provider)
+            let row = try #require(catalog.snapshot.resources.first { $0.id == resource.id })
+            if !daemonBrowser {
+                #expect(row.url == resource.url, "Port previews cannot publish unrelated local navigation")
+                return
+            }
+            #expect(row.url == document.absoluteString)
+            #expect(CloudTreeResourceName(resource: row, remoteView: row.remoteViews?.first).browserName == document.absoluteString)
+            let target = try #require(provider.cloudBrowserOriginURL(for: resource))
+            #expect(target == document)
+            let viewer = BrowserPanel(workspaceId: workspace.id, websiteDataStore: .nonPersistent())
+            defer { viewer.close() }
+            #expect(provider.configureBrowser(viewer, url: target, resourceID: resource.id))
+            #expect(viewer.cloudAccess.remoteURL == document)
+            #expect(viewer.cloudAccess.resourceID == resource.id)
+            #expect(viewer.cloudAccess.model?.usesRemoteNetwork == true)
+            #expect(browser.webView === originalWebView, "Publishing metadata must not reload the source")
+            catalog.endProjections(panelID: browser.id, reason: .replaced)
+            #expect(catalog.snapshot.resources.first { $0.id == resource.id }?.url == resource.url)
+        }
+    }
+
+    @Test("An untouched daemon browser opens as a blank browser instead of a port failure")
+    func blankDaemonBrowserDoesNotNeedAPort() throws {
+        try withCloudBrowser { workspace, _, provider, resource in
+            let target = try #require(provider.cloudBrowserOriginURL(for: resource))
+            #expect(target == SurfacePaneFactory.blankURL)
+            let viewer = BrowserPanel(workspaceId: workspace.id, websiteDataStore: .nonPersistent())
+            defer { viewer.close() }
+            #expect(provider.configureBrowser(viewer, url: target, resourceID: resource.id))
+            #expect(viewer.cloudAccess.resourceID == resource.id)
+            #expect(viewer.cloudAccess.model == nil)
+            #expect(viewer.cloudAccess.error == nil)
+            #expect(!viewer.shouldRenderWebView)
+        }
+    }
+
     private func withCloudBrowser(
         daemonBrowser: Bool = true,
         _ body: (Workspace, BrowserPanel, CmuxTuiSurfaceProvider, SurfaceResource) throws -> Void
