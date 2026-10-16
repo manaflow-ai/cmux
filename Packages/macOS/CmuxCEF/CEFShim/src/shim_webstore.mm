@@ -9,6 +9,7 @@
 #include "include/cef_resource_request_handler.h"
 #include "include/cef_parser.h"
 #include "shim_internal.h"
+#include "webstore_policy.h"
 
 namespace cmux_shim {
 
@@ -40,16 +41,15 @@ class WebStoreHeaders : public CefResourceRequestHandler {
 bool IsWebStoreURL(const std::string& url) {
   CefURLParts parts;
   if (!CefParseURL(url, parts)) return false;
-  return CefString(&parts.scheme).ToString() == "https" &&
-         CefString(&parts.host).ToString() == "chromewebstore.google.com";
+  return IsWebStoreURLParts(CefString(&parts.scheme).ToString(), CefString(&parts.host).ToString(),
+                            CefString(&parts.path).ToString());
 }
 
 bool IsWebStoreCrxURL(const std::string& url) {
   CefURLParts parts;
   if (!CefParseURL(url, parts)) return false;
-  return CefString(&parts.scheme).ToString() == "https" &&
-         CefString(&parts.host).ToString() == "clients2.google.com" &&
-         CefString(&parts.path).ToString() == "/service/update2/crx";
+  return IsWebStoreCrxURLParts(CefString(&parts.scheme).ToString(), CefString(&parts.host).ToString(),
+                               CefString(&parts.path).ToString());
 }
 
 CefRefPtr<CefResourceRequestHandler> WebStoreRequestHandler(const std::string& url) {

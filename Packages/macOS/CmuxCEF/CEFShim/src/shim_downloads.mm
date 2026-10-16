@@ -10,6 +10,7 @@
 
 #include "download_state.h"
 #include "shim_internal.h"
+#include "webstore_policy.h"
 
 namespace cmux_shim {
 
@@ -45,8 +46,10 @@ class Handler : public CefDownloadHandler {
     // as a temporary sibling in Downloads and move it on completion, so the
     // installer's copy found no file (FAILED_TO_COPY_EXTENSION_FILE_TO_TEMP_
     // DIRECTORY). Not handled here: CEF passes it to Chrome's delegate, which
-    // keeps the forced path, and it is not a download the person sees.
-    if (IsWebStoreCrxURL(item->GetOriginalUrl().ToString())) return false;
+    // keeps the forced path, and it is not a download the person sees. Check
+    // both URLs because redirects can change the current URL while CEF keeps
+    // the original Web Store URL on the item.
+    if (ShouldDeferToCEFExtensionInstaller(item->GetOriginalUrl().ToString(), item->GetURL().ToString())) return false;
     const int token = downloads().Begin(ContextOf(browser), item->GetId(), callback);
     Emit(CMUX_SHIM_DOWNLOAD_STARTED, browser ? browser->GetIdentifier() : 0, token, item->GetTotalBytes(), 0,
          item->GetOriginalUrl().ToString(), suggested_name.ToString());
