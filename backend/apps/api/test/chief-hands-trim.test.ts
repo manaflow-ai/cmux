@@ -8,8 +8,8 @@ import { fireAlarm } from "./setup/alarm.ts"
 /**
  * The P brain's hands tools by whether the Chief has a hand, through the product boundary (POST /v1/ops,
  * /v1/hands routes): a Chief with no hand is offered one compact `hands` tool (list, pair_code, new_sandbox)
- * and no `agent`; once a hand is paired, the next model request of the turn in which the Chief lists its
- * hands carries the full `hands` and `agent` tools, and later turns keep them.
+ * and no `agent`; a hand found during a turn changes nothing inside that turn (a model signs its thinking for the
+ * tools list; the fake model refuses a changed list with Anthropic's 400), and the next turn has the full tools.
  */
 const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace; CONVERSATION_DO: DurableObjectNamespace; CHIEF_BRAIN_DO: DurableObjectNamespace; MUX_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default

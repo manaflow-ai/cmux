@@ -162,7 +162,7 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
     }
   }
   // A turn whose text holds "SIGNED" answers every step with a thinking block signed for the current tools.
-  const signed = !compact && blocksOf(firstUser?.content).join("\n").includes("SIGNED");
+  const signed = !compact && (blocksOf(firstUser?.content).at(-1) ?? "").includes("SIGNED");
   const withThinking = (r: ReturnType<typeof fauxAssistantMessage>) => {
     if (!signed) return r;
     const t = fauxThinking("checking the tools");
