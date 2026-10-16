@@ -114,6 +114,7 @@ on:
       - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
       - scripts/cmux-next/stale-pcm-retry-needed.sh
+      - scripts/cmux-next/release-derived-data-path.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
       - scripts/cmux-next/ips-crash-summary.py
@@ -261,6 +262,7 @@ on:
       - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
       - scripts/cmux-next/stale-pcm-retry-needed.sh
+      - scripts/cmux-next/release-derived-data-path.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
       - scripts/cmux-next/ips-crash-summary.py
@@ -2292,7 +2294,9 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       - name: Release compile
-        run: scripts/cmux-next/check-release-compile.sh "$RUNNER_TEMP/cmux-next-release-compile"
+        run: |
+          derived_data="$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)"
+          scripts/cmux-next/check-release-compile.sh "$derived_data"
 
       # On a mini, the CEF glue (CEF's C++ wrapper, the CEFShim dylib and the
       # helper binary) is also compiled against the pinned Chromium engine
@@ -2623,7 +2627,7 @@ jobs:
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha || github.sha }}
         run: |
           set -euo pipefail
-          release_derived_data="$RUNNER_TEMP/cmux-next-dev-daily-release"
+          release_derived_data="$(scripts/cmux-next/release-derived-data-path.sh dev-daily-release Release)"
           scripts/cmux-next/check-cmux-scheme-compile.sh "$release_derived_data"
           app="$(find "$release_derived_data/Build/Products/Release" -maxdepth 1 -type d -name 'cmux NEXT DEV.app' -print -quit)"
           test -d "$app"
