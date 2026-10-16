@@ -97,6 +97,12 @@ extension HostAccountFlow {
         _ = teamObservationRevision
         let team = activeTeamDisplayName
             ?? String(localized: "sidebar.account.noTeam", defaultValue: "No team")
+        if proTrial != nil {
+            return String(
+                format: String(localized: "sidebar.account.teamWithProTrial", defaultValue: "%1$@ · Pro trial"),
+                team
+            )
+        }
         switch planTier {
         case .max:
             return String(

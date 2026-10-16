@@ -53,6 +53,7 @@ extension TerminalController {
                     payload["limits"] = [
                         "maxActiveVms": limits.maxActiveVms.map { $0 as Any } ?? NSNull(),
                         "planId": limits.planId,
+                        "trial": limits.isProTrial,
                         "freeAccessWindowDays": limits.freeAccessWindowDays,
                         "freeAccessExpiresAt": limits.freeAccessExpiresAt.map { $0 as Any } ?? NSNull(),
                         "imageKinds": limits.imageKinds.map { ["kind": $0.kind.rawValue, "image": $0.image] },

@@ -436,8 +436,10 @@ public struct VMPlanLimits: Sendable {
         vcpusByMemoryMb: [String: Int]? = nil,
         activeVmCount: Int? = nil,
         imageKinds: [VMImageKindOption] = [],
-        resourcePool: CloudVMResourcePool? = nil
+        resourcePool: CloudVMResourcePool? = nil,
+        isProTrial: Bool = false
     ) {
+        self.isProTrial = isProTrial
         self.maxActiveVms = maxActiveVms
         self.planId = planId
         self.freeAccessWindowDays = freeAccessWindowDays
@@ -486,6 +488,10 @@ public struct VMPlanLimits: Sendable {
     /// The vCPU and memory pool every active machine shares, with what is in
     /// use; nil for plans without a pool (Go, free) and older control planes.
     public var resourcePool: CloudVMResourcePool? = nil
+    /// The plan is a Pro free trial (`limits.trial`). The server reports it as
+    /// `planId: "go"` because the trial runs on that allowance; people see
+    /// "Pro trial" and are offered no upgrade.
+    public var isProTrial: Bool = false
 }
 
 public struct VMListPage: Sendable {

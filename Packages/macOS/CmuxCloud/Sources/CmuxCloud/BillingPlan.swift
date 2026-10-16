@@ -11,6 +11,8 @@ public struct BillingPlanState: Sendable, Equatable {
     public let canManageBilling: Bool
     /// The known account's effective tier, or `nil` while unknown.
     public let tier: CmuxPlanTier?
+    /// The Pro free trial that sets the tier, or `nil` when there is none.
+    public let proTrial: CmuxProTrial?
 
     /// Creates an entitlement snapshot.
     ///
@@ -20,11 +22,19 @@ public struct BillingPlanState: Sendable, Equatable {
     ///   - canManageBilling: Whether billing can be managed in the hosted portal.
     ///   - tier: The effective tier. Defaults to Pro or Free from `isPro`
     ///     for callers that only know the legacy flag.
-    public init(accountID: String?, isPro: Bool, canManageBilling: Bool, tier: CmuxPlanTier? = nil) {
+    ///   - proTrial: The Pro free trial that sets the tier, if any.
+    public init(
+        accountID: String?,
+        isPro: Bool,
+        canManageBilling: Bool,
+        tier: CmuxPlanTier? = nil,
+        proTrial: CmuxProTrial? = nil
+    ) {
         self.accountID = accountID
         self.isPro = isPro
         self.canManageBilling = canManageBilling
         self.tier = accountID == nil ? nil : (tier ?? (isPro ? .pro : .free))
+        self.proTrial = accountID == nil ? nil : proTrial
     }
 
     /// An unknown entitlement that must not be treated as a free plan.
@@ -35,9 +45,10 @@ public struct BillingPlanState: Sendable, Equatable {
         for accountID: String,
         isPro: Bool,
         canManageBilling: Bool,
-        tier: CmuxPlanTier? = nil
+        tier: CmuxPlanTier? = nil,
+        proTrial: CmuxProTrial? = nil
     ) -> Self {
-        Self(accountID: accountID, isPro: isPro, canManageBilling: canManageBilling, tier: tier)
+        Self(accountID: accountID, isPro: isPro, canManageBilling: canManageBilling, tier: tier, proTrial: proTrial)
     }
 
     /// Retains an existing answer for the same account and clears other answers.
@@ -54,12 +65,16 @@ public struct BillingPlanDetails: Sendable, Equatable {
     public let canManageBilling: Bool
     /// The effective tier: the higher of the personal and active-team plans.
     public let tier: CmuxPlanTier
+    /// The personal Pro free trial, or `nil` when there is none or a team
+    /// plan of Pro or higher sets the tier instead.
+    public let proTrial: CmuxProTrial?
 
     /// Creates decoded billing details.
-    public init(isPro: Bool, canManageBilling: Bool, tier: CmuxPlanTier? = nil) {
+    public init(isPro: Bool, canManageBilling: Bool, tier: CmuxPlanTier? = nil, proTrial: CmuxProTrial? = nil) {
         self.isPro = isPro
         self.canManageBilling = canManageBilling
         self.tier = tier ?? (isPro ? .pro : .free)
+        self.proTrial = proTrial
     }
 }
 
@@ -117,7 +132,14 @@ public struct BillingPlanClient: Sendable {
             teamPlanID: decoded.teamPlanId,
             isPro: decoded.isPro == true
         )
-        return BillingPlanDetails(isPro: isPro, canManageBilling: canManageBilling, tier: tier)
+        // A Pro free trial is reported as `subscriptionPlanId: "pro"` with a
+        // `trial` object. It names the tier only when no team plan of Pro or
+        // higher outranks it; the team plan is then what the person has.
+        let teamTier = CmuxPlanTier(planID: decoded.teamPlanId) ?? .free
+        let proTrial = decoded.trial.flatMap { trial in
+            teamTier.includesPro ? nil : CmuxProTrial(endsAt: CmuxProTrial.endDate(fromISO8601: trial.endsAt))
+        }
+        return BillingPlanDetails(isPro: isPro, canManageBilling: canManageBilling, tier: tier, proTrial: proTrial)
     }
 
     private let session: URLSession
@@ -130,5 +152,12 @@ public struct BillingPlanClient: Sendable {
         let billingManagement: String?
         let teamPlanId: String?
         let teamBillingManagement: String?
+        let trial: Trial?
+    }
+
+    /// `trial` of the plan response; `limits` is not read because every
+    /// surface states the fixed trial allowance in its own copy.
+    private struct Trial: Decodable {
+        let endsAt: String?
     }
 }

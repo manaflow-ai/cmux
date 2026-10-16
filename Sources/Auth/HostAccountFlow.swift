@@ -24,9 +24,15 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     var isProActive: Bool { billingPlanState.isPro }
     /// The signed-in account's tier, or nil while it is unknown.
     var planTier: CmuxPlanTier? { hasLoadedBillingPlan ? billingPlanState.tier : nil }
-    /// The tier every upgrade entrypoint offers, or nil to hide them.
+    /// The signed-in account's Pro free trial, or nil while the plan is
+    /// unknown or there is no trial.
+    var proTrial: CmuxProTrial? { hasLoadedBillingPlan ? billingPlanState.proTrial : nil }
+    /// The tier every upgrade entrypoint offers, or nil to hide them. A Pro
+    /// free trial is offered nothing: a second subscription would bill twice,
+    /// and full Pro starts when the trial converts.
     var upgradeOffer: CmuxPlanTier? {
-        CmuxPlanTier.upgradeOffer(isSignedIn: currentIdentity != nil, knownTier: planTier)
+        if proTrial != nil { return nil }
+        return CmuxPlanTier.upgradeOffer(isSignedIn: currentIdentity != nil, knownTier: planTier)
     }
     /// The Settings plan row renders for every tier; it picks its own copy
     /// and actions from ``planTier``. Menus gate on ``upgradeOffer`` instead.
@@ -308,7 +314,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
                 for: identityID,
                 isPro: details.isPro,
                 canManageBilling: details.canManageBilling,
-                tier: details.tier
+                tier: details.tier,
+                proTrial: details.proTrial
             )
             analytics.notePlan(accountID: identityID, isPaid: details.isPro)
             return true

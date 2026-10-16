@@ -87,6 +87,11 @@ public protocol AccountFlow: AccountTeamManagement {
     /// know the legacy flag.
     var planTier: CmuxPlanTier? { get }
 
+    /// The signed-in account's Pro free trial, or `nil` when there is none
+    /// or the plan is unknown. A trial is named "Pro trial" and offered no
+    /// upgrade. Defaults to `nil` for hosts that do not know trials.
+    var proTrial: CmuxProTrial? { get }
+
     /// Whether the current Pro entitlement can be managed through the hosted
     /// Stripe billing portal.
     var canManageBilling: Bool { get }
@@ -96,4 +101,6 @@ extension AccountFlow {
     public func prefetchProUpgrade() {}
 
     public var planTier: CmuxPlanTier? { isProActive ? .pro : nil }
+
+    public var proTrial: CmuxProTrial? { nil }
 }

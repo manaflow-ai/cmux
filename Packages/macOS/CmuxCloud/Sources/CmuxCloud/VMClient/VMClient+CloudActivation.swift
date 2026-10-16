@@ -45,7 +45,8 @@ extension VMClient {
                     vcpusByMemoryMb: Self.decodePositiveIntMap(rawLimits["vcpusByMemoryMb"]),
                     activeVmCount: rawLimits["activeVmCount"] as? Int,
                     imageKinds: Self.decodeImageKinds(rawLimits["imageKinds"]),
-                    resourcePool: CloudVMResourcePool(limits: rawLimits)
+                    resourcePool: CloudVMResourcePool(limits: rawLimits),
+                    isProTrial: (rawLimits["trial"] as? Bool) == true
                 )
             }
             let vms = try items.enumerated().map { index, dict in

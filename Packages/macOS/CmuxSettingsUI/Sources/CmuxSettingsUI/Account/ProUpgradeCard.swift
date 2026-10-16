@@ -21,7 +21,8 @@ struct ProUpgradeCard: View {
             tier: flow?.planTier,
             isProActive: flow?.isProActive == true,
             canManageBilling: flow?.canManageBilling == true,
-            isSignedIn: flow?.currentIdentity != nil
+            isSignedIn: flow?.currentIdentity != nil,
+            proTrial: flow?.proTrial
         )
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
@@ -66,7 +67,8 @@ struct ProUpgradeCard: View {
 /// What the Settings plan row says and offers for the account's tier.
 ///
 /// The upgrade always names the next tier: Free and Go are offered Pro, Pro
-/// is offered Max, and Max is offered nothing.
+/// is offered Max, and Max is offered nothing. A Pro free trial is offered
+/// nothing: full Pro starts when it converts.
 struct ProUpgradeCardModel: Equatable {
     enum Action: Hashable {
         case upgradeToPro
@@ -99,10 +101,23 @@ struct ProUpgradeCardModel: Equatable {
     ///   - isSignedIn: Whether an account is signed in. A signed-in account
     ///     whose plan is still unknown is offered nothing, so a Max
     ///     subscriber never sees a Pro upgrade while the plan loads.
-    init(tier: CmuxPlanTier?, isProActive: Bool, canManageBilling: Bool, isSignedIn: Bool = false) {
+    ///   - proTrial: The account's Pro free trial, if any.
+    init(
+        tier: CmuxPlanTier?,
+        isProActive: Bool,
+        canManageBilling: Bool,
+        isSignedIn: Bool = false,
+        proTrial: CmuxProTrial? = nil
+    ) {
         // A host that only knows the legacy flag still reads as Pro.
         let tier = tier ?? (isProActive ? .pro : nil)
         self.tier = tier
+        if let proTrial, tier == .pro {
+            title = String(localized: "settings.account.proTrial.title", defaultValue: "cmux Pro trial", bundle: .module)
+            subtitle = proTrial.summaryText
+            actions = []
+            return
+        }
         switch tier {
         case .max:
             title = String(localized: "settings.account.max.title", defaultValue: "cmux Max", bundle: .module)

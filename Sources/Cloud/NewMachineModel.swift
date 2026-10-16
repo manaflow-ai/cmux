@@ -291,6 +291,8 @@ final class NewMachineModel {
     private let defaults: UserDefaults
 
     func upgradePlan(for memoryMb: Int) -> String? {
+        // A Pro free trial keeps its size; it is not sold a larger plan.
+        if plan?.isProTrial == true { return nil }
         if let memoryUpgradePlansByMb { return memoryUpgradePlansByMb[String(memoryMb)] }
         guard memoryUpgradePlanId != nil else { return nil }
         if Self.normalizedPlanId(plan?.planId) == "go", memoryMb <= Self.standardPlanMaxMemoryMb { return "pro" }
