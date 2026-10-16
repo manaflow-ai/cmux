@@ -683,6 +683,109 @@ class ContinueStepTests(unittest.TestCase):
         self.assertIn("accepted=false", result.output)
 
 
+FAKE_GH = """#!/usr/bin/env bash
+# gh api repos/R/actions/variables/NAME --jq .value, answered from $FAKE_VARS.
+name="${2##*/}"
+if [ -e "$FAKE_VARS/$name.error" ]; then echo "HTTP 500: server error" >&2; exit 1; fi
+if [ ! -e "$FAKE_VARS/$name" ]; then echo "HTTP 404: Not Found" >&2; exit 1; fi
+cat "$FAKE_VARS/$name"
+"""
+
+
+def run_gate(variables: dict, *, token: str = "app-token", track: str = "nightly-next", source: str = "own"):
+    """Run the real Final publication gate against a fake gh: each key of
+    variables is a live cmux variable; the value None makes it unreadable."""
+    gate = step(workflow()["jobs"]["publish-nightly"], "Final publication gate")
+    with tempfile.TemporaryDirectory() as temp:
+        work = Path(temp)
+        (work / "bin").mkdir()
+        (work / "vars").mkdir()
+        gh = work / "bin" / "gh"
+        gh.write_text(FAKE_GH)
+        gh.chmod(0o755)
+        for name, value in variables.items():
+            (work / "vars" / (name if value is not None else f"{name}.error")).write_text(value or "")
+        output = work / "output"
+        output.touch()
+        env = dict(
+            os.environ,
+            PATH=f"{work / 'bin'}:{os.environ['PATH']}",
+            FAKE_VARS=str(work / "vars"),
+            TRACK=track,
+            SOURCE=source,
+            NIGHTLY_BUILD="49801",
+            BUILD_SHA="a" * 40,
+            WRITER_TOKEN=token,
+            GITHUB_REPOSITORY=REPO,
+            CHANNEL_RELEASE_TAG="nightly-next",
+            GITHUB_OUTPUT=str(output),
+            GITHUB_STEP_SUMMARY=str(work / "summary"),
+            RUNNER_TEMP=str(work),
+            PUBLISH_TOOLING=str(ROOT / "scripts"),
+        )
+        result = subprocess.run(["bash", "-c", gate["run"]], cwd=ROOT, env=env, capture_output=True, text=True)
+        result.output = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)  # type: ignore[attr-defined]
+        return result
+
+
+class WriterGateTests(unittest.TestCase):
+    """cx-f76kf: one explicit writer, NIGHTLY_NEXT_WRITER (mac, linux or none).
+    The Mac pipeline publishes nightly-next only while it reads mac live right
+    before the first write; anything else refuses (refused=true, exit 0, not a
+    failure). For the transition week NIGHTLY_NEXT_HOLD=1 also refuses."""
+
+    def assert_refused(self, result, why: str):
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.output.get("refused"), "true", result.stdout)
+        self.assertIn(why, result.stdout)
+
+    def test_mac_publishes(self):
+        for hold in ("0", "", "anything"):
+            with self.subTest(hold=hold):
+                result = run_gate({"NIGHTLY_NEXT_WRITER": "mac", "NIGHTLY_NEXT_HOLD": hold})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("refused", result.output)
+        result = run_gate({"NIGHTLY_NEXT_WRITER": "mac\n"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("refused", result.output, "a deleted NIGHTLY_NEXT_HOLD does not hold")
+
+    def test_any_other_writer_refuses(self):
+        for writer in ("linux", "none", "", "Mac", "macos"):
+            with self.subTest(writer=writer):
+                self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": writer, "NIGHTLY_NEXT_HOLD": "0"}), "not mac")
+
+    def test_an_unset_or_unreadable_writer_refuses(self):
+        self.assert_refused(run_gate({"NIGHTLY_NEXT_HOLD": "0"}), "'<unset>', not mac")
+        self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": None, "NIGHTLY_NEXT_HOLD": "0"}), "NIGHTLY_NEXT_WRITER read live is unreadable")
+        self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": "mac"}, token=""), "could not be minted")
+
+    def test_the_transition_hold_still_refuses(self):
+        self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": "mac", "NIGHTLY_NEXT_HOLD": "1"}), "NIGHTLY_NEXT_HOLD read live is 1")
+        self.assert_refused(run_gate({"NIGHTLY_NEXT_WRITER": "mac", "NIGHTLY_NEXT_HOLD": None}), "NIGHTLY_NEXT_HOLD read live is unreadable")
+
+    def test_a_recovered_build_is_refused_before_its_lineage_check(self):
+        result = run_gate({"NIGHTLY_NEXT_WRITER": "linux"}, source="recovered")
+        self.assert_refused(result, "not mac")
+        self.assertNotIn("Recovered build not checked", result.stdout)
+
+    def test_the_main_track_reads_no_writer(self):
+        result = run_gate({}, token="", track="nightly")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("refused", result.output)
+
+    def test_decide_builds_nightly_next_only_for_the_mac_writer(self):
+        decide = workflow()["jobs"]["decide"]
+        text = json.dumps(decide)
+        self.assertIn("${{ vars.NIGHTLY_NEXT_WRITER || '' }}", text)
+        self.assertIn("track === 'nightly-next' && shouldPublish && !notaryDispatchInput && nextWriter !== 'mac'", text)
+        self.assertIn("!nextNotWriter && !nextHold", text)
+
+    def test_the_token_mint_cannot_fail_the_run(self):
+        mint = step(workflow()["jobs"]["publish-nightly"], "Mint release App token")
+        self.assertTrue(mint["continue-on-error"])
+        self.assertIn("needs.decide.outputs.track == 'nightly-next'", mint["if"])
+
+
 class ShellSnippetTests(unittest.TestCase):
     """Run 37876356169: a `python3 -c '...'` one-liner in these jobs had
     backslash-escaped quotes, which bash single quotes keep, so Python raised
