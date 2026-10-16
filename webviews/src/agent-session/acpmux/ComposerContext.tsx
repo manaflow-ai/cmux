@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
 import { Popover } from "../../ui/Popover";
@@ -11,6 +11,7 @@ import { isAgentHome, projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
+import { focusAfterEscape } from "../../ui/escapeFocus";
 
 export const CONTEXT_LABELS = {
   computer: "composer.computer",
@@ -427,6 +428,7 @@ function LocationPicker({
   const [query, setQuery] = useState("");
   const { control, anchor, open, setOpen, side } = useLocationPopover();
   const press = usePopoverTrigger(open, setOpen);
+  const trigger = useRef<HTMLButtonElement>(null);
   useLocationOpener(disabled ? undefined : menu, () => setOpen(true));
   // A folder list names duplicates apart by a short suffix, its path only on hover (projectSuffix.ts).
   const suffixes = useMemo(
@@ -512,6 +514,7 @@ function LocationPicker({
   return (
     <span ref={control} className="acpmux-location-picker">
       <button
+        ref={trigger}
         type="button"
         className="acpmux-location-button ui-ghost ui-ghost-sm"
         aria-label={label}
@@ -538,6 +541,10 @@ function LocationPicker({
           onQuery={setQuery}
           onSubmit={(path) => (path ? pick(path) : setOpen(false))}
           onCancel={() => setOpen(false)}
+          // Escape closes back onto the folder chip (escapeFocus.ts).
+          onCommand={(event) => {
+            if (event.key === "Escape") focusAfterEscape(trigger.current);
+          }}
           label={label}
           placeholder={t(CONTEXT_LABELS.folderSearch)}
           inputClassName="acpmux-location-search block h-8 w-full min-w-60 appearance-none border-0 bg-transparent px-2 font-[inherit] text-fg outline-none placeholder:text-muted"

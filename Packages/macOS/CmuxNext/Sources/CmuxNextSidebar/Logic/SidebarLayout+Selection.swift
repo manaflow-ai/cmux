@@ -14,7 +14,10 @@ extension SidebarLayout {
                 if case let .group(group) = node, group.isCollapsed, group.workspaces.contains(where: { $0.id == id }) { group.id } else { nil }
             }.first
             return group.flatMap { row(for: .group($0)) == nil ? nil : .group($0) }
-        case .topItem?, nil:
+        case let .topItem(id)?:
+            // A document item the list draws as a row (a link in a machine list).
+            return row(for: .item(id.rawValue)) == nil ? nil : .item(id.rawValue)
+        case nil:
             return nil
         }
     }

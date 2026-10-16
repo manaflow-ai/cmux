@@ -65,10 +65,11 @@ pub enum HandCmd {
         /// API origin, for example https://cloud-api.cmux.dev.
         #[arg(long)]
         api: String,
-        /// sandbox (the whole machine is the hand's) or mac (approved folders, no exec, owner approval).
+        /// sandbox (the whole machine is the hand's) or mac (the home folder, a Cloud classifier per
+        /// request, hard denies here, owner approval for anything not routine).
         #[arg(long, default_value = "sandbox")]
         profile: String,
-        /// A folder the hand may touch. Repeat for more. Default for sandbox: /.
+        /// A folder the hand may touch. Repeat for more. Default: / (sandbox), the home folder (mac).
         #[arg(long = "root")]
         roots: Vec<PathBuf>,
         /// acpmux permission policy for agents: ask, approve-reads, approve-edits, deny-all.

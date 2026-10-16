@@ -66,6 +66,7 @@ import { type StringKey, type Translate, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
 import { ChromeArea } from "../../ui/HideableChrome";
 import { useComposerChrome } from "./composerChrome";
+import { useMenuPressGuard } from "./menuPressGuard";
 import { useRowFit } from "./composerRowFit";
 import { usePromptHistory } from "./composer/promptHistory";
 import type { SendBlock } from "./useFolderTrustAsk";
@@ -262,6 +263,8 @@ export function Composer({
 }: Props) {
   const t = useT();
   const chrome = useComposerChrome();
+  // A press outside an open chip menu only closes it (menuPressGuard.ts).
+  useMenuPressGuard();
   // The native action map is replaced on reconnect while the session stays the same. Subscribe
   // so a durable read retries as soon as that map is available again.
   const draftActionsVersion = useDraftActionsVersion();
