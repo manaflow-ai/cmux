@@ -1,4 +1,5 @@
 import CmuxCloud
+import CMUXMobileCore
 import CmuxSettingsUI
 import Foundation
 

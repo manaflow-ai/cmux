@@ -114,7 +114,7 @@ struct ProUpgradeCardModel: Equatable {
         self.tier = tier
         if let proTrial, tier == .pro {
             title = String(localized: "settings.account.proTrial.title", defaultValue: "cmux Pro trial", bundle: .module)
-            subtitle = proTrial.summaryText
+            subtitle = proTrial.detailText
             actions = []
             return
         }

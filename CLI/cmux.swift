@@ -7217,7 +7217,11 @@ struct CMUXCLI {
                     print("\(pad(row.0, nameWidth))  \(labelCell)\(pad(row.2, stateWidth))  \(pad(row.3, providerWidth))  \(row.4)")
                 }
                 if let limits = response["limits"] as? [String: Any],
-                   let planId = limits["planId"] as? String {
+                   let rawPlanId = limits["planId"] as? String {
+                    // A Pro free trial runs on the Go allowance; it is named Pro trial.
+                    let planId = (limits["trial"] as? Bool) == true
+                        ? String(localized: "cli.vm.list.plan.proTrial", defaultValue: "Pro trial")
+                        : rawPlanId
                     // The cap counts running and provisioning machines; paused
                     // ones are listed above but do not hold a slot.
                     let activeCount = (limits["activeVmCount"] as? Int) ?? vms.count(where: { vm in

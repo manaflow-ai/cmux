@@ -263,9 +263,17 @@ private struct NativeBillingPlanResponse: Decodable {
     /// Present while the account is on a Pro free trial (`subscriptionPlanId`
     /// is then "pro"). The trial is named "Pro trial" and sold nothing.
     let trial: Trial?
+    let teamPlanId: String?
 
     struct Trial: Decodable {
         let endsAt: String?
+    }
+
+    /// The personal trial, unless a team plan of Pro or higher outranks it
+    /// (the same rule as the account's billing plan in Settings).
+    var proTrial: CmuxProTrial? {
+        guard let trial, !(CmuxPlanTier(planID: teamPlanId) ?? .free).includesPro else { return nil }
+        return CmuxProTrial(endsAt: CmuxProTrial.endDate(fromISO8601: trial.endsAt))
     }
 
     /// The plan the pricing cards mark as current.
@@ -387,7 +395,7 @@ private final class NativePricingPlanStore: ObservableObject {
                 planId: decoded.resolvedPlanId,
                 isPro: decoded.isPro,
                 email: decoded.user?.primaryEmail,
-                proTrial: decoded.trial.map { CmuxProTrial(endsAt: CmuxProTrial.endDate(fromISO8601: $0.endsAt)) }
+                proTrial: decoded.proTrial
             ))
         } catch is CancellationError {
             return .idle
@@ -584,7 +592,7 @@ private struct NativePricingPlansView: View {
                 period: String(localized: "pricing.native.period.userMonth", defaultValue: "/user/month"),
                 isCurrent: false,
                 actionTitle: String(localized: "pricing.native.team.cta", defaultValue: "Get Teams"),
-                action: { NSWorkspace.shared.open(AuthEnvironment.websiteOrigin) },
+                action: snapshot.isProTrial ? nil : { NSWorkspace.shared.open(AuthEnvironment.websiteOrigin) },
                 features: [
                     String(localized: "pricing.native.team.feature.billing", defaultValue: "Unified billing for the whole team"),
                     String(localized: "pricing.native.team.feature.seats", defaultValue: "Centralized seat management"),

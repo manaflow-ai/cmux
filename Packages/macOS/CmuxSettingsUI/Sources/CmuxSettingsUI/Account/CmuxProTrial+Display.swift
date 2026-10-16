@@ -34,4 +34,15 @@ public extension CmuxProTrial {
             endsAt.formatted(date: .abbreviated, time: .omitted)
         )
     }
+
+    /// "1 machine with 2 vCPU and 4 GB RAM, and 20 VM-hours. Ends Oct 22, 2026."
+    /// for a surface whose title already names the trial.
+    var detailText: String {
+        guard let endsAt else { return Self.allowanceText }
+        return String(
+            format: String(localized: "plan.proTrial.detailEnds", defaultValue: "%1$@. Ends %2$@.", bundle: .module),
+            Self.allowanceText,
+            endsAt.formatted(date: .abbreviated, time: .omitted)
+        )
+    }
 }
