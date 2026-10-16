@@ -272,8 +272,12 @@ describe("Chief hands", { timeout: 60_000 }, () => {
       expect((await read(shape)).json, shape).toMatchObject({ ok: true })
       expect(seen.at(-1).params, shape).toMatchObject({ _verdict: "ask" })
     }
+    // A credential path asks by rule, before any model call (a model may refuse to judge it).
+    expect((await read(".ssh/config")).json).toMatchObject({ ok: true })
+    expect(seen.at(-1).params).toMatchObject({ _verdict: "ask" })
     const log = (await http("GET", `/v1/hands/${hand}/verdicts`, token)).json.value as Array<any>
-    expect(log.map((v) => v.verdict).sort()).toEqual(["allow", "allow", "allow", "ask", "ask", "ask", "deny", "deny"])
+    expect(log.map((v) => v.verdict).sort()).toEqual(["allow", "allow", "allow", "ask", "ask", "ask", "ask", "deny", "deny"])
+    expect(log.find((v) => v.model === "rule")).toMatchObject({ action: "fs.read", verdict: "ask", reason: "it names a credential or key location: the person decides" })
     expect(log.find((v) => v.reason === "the classifier gave more than one verdict")).toBeTruthy()
     expect(log.find((v) => v.reason === "injection")).toMatchObject({ verdict: "deny" })
     expect(log.find((v) => String(v.reason).startsWith("the classifier reply had no readable")).reason).toBe("the classifier reply had no readable verdict (22 chars, stop stop, text)")

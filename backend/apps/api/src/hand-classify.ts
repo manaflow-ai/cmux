@@ -120,10 +120,18 @@ export const parseVerdict = (text: string): { verdict: Verdict; reason: string }
   return { verdict: "ask", reason: reasonOf(j) || "the classifier was not sure" }
 }
 
+/**
+ * Credential and key locations: always the person's call, decided here without the model (the
+ * model's own safety layer refuses some of these, for example a read of ~/.ssh/config, which
+ * would leave no verdict). The hand asks for the same paths on its side (policy.rs).
+ */
+const CREDENTIAL_PATH = /(^|[\/"\s~])\.(ssh|aws|gnupg|kube|docker|azure|config\/gcloud)([\/"\s]|$)|Library\/Keychains|\.netrc\b|\.git-credentials\b|\bid_(rsa|dsa|ecdsa|ed25519)\b|\.pem\b/
+
 export const classify = async (env: Env, hand: string, owner: string, agent: string | undefined, request: string, summary: { text: string; whole: boolean }): Promise<Classified> => {
   const started = Date.now()
   // Too long to show whole: a part the classifier cannot see is never allowed.
   if (!summary.whole) return { verdict: "ask", reason: "the request is too long to classify whole", model: "none", ms: 0 }
+  if (CREDENTIAL_PATH.test(summary.text)) return { verdict: "ask", reason: "it names a credential or key location: the person decides", model: "rule", ms: 0 }
   const holder = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(HOLDER)) as unknown as { claudeAuth(): Promise<string>; claudeInvalidate(): Promise<void> }
   const models = brainModels(env, `hand:${hand}`, {
     claude: { auth: () => holder.claudeAuth(), refused: () => holder.claudeInvalidate() },
