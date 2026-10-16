@@ -214,17 +214,20 @@ struct ChromiumBrowserPageAutomationTests {
         #expect(cleared == nil)
         #expect(page.methods() == [
             "Emulation.setGeolocationOverride", "Network.emulateNetworkConditions",
-            "Page.addScriptToEvaluateOnNewDocument",
+            "Network.setBlockedURLs", "Page.addScriptToEvaluateOnNewDocument",
             "Emulation.clearGeolocationOverride", "Network.emulateNetworkConditions",
+            "Network.setBlockedURLs",
             "Page.removeScriptToEvaluateOnNewDocument",
         ])
         #expect((page.calls[0].params["latitude"] as? NSNumber)?.doubleValue == 37.77)
         #expect(page.calls[1].params["offline"] as? Bool == true)
+        #expect(page.calls[2].params["urlPatterns"] as? [String] == ["*"])
         // New documents get WebKit's emulation page script, so geolocation
         // answers from the override without a permission prompt.
-        #expect(page.calls[2].params["source"] as? String == overrides.pageScript(dispatchesChangeEvents: false))
-        #expect(page.calls[4].params["offline"] as? Bool == false)
-        #expect(page.calls[5].params["identifier"] as? String == "7")
+        #expect(page.calls[3].params["source"] as? String == overrides.pageScript(dispatchesChangeEvents: false))
+        #expect(page.calls[5].params["offline"] as? Bool == false)
+        #expect(page.calls[6].params["urlPatterns"] as? [String] == [])
+        #expect(page.calls[7].params["identifier"] as? String == "7")
         // The loaded document gets it too, both times (the second resets it).
         #expect(page.evaluations.map(\.script) == [
             overrides.pageScript(dispatchesChangeEvents: true),
