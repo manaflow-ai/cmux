@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import CmuxCEF
@@ -229,6 +230,23 @@ import Testing
 
             host.setFrameSize(NSSize(width: 220, height: 140))
             host.setFrameOrigin(NSPoint(x: 30, y: 40))
+        }
+    }
+
+    @MainActor @Test func reparentingNotifiesTheChromiumTrackerEvenAtTheSameFrame() async {
+        let host = CEFHostView(frame: CGRect(x: 10, y: 20, width: 100, height: 80))
+        let firstParent = NSView(frame: .zero)
+        let secondParent = NSView(frame: .zero)
+        await confirmation("reparenting notifies the tracker", expectedCount: 2) { confirm in
+            let token = NotificationCenter.default.addObserver(
+                forName: CEFHostView.geometryDidChange,
+                object: host,
+                queue: .main
+            ) { _ in confirm() }
+            defer { NotificationCenter.default.removeObserver(token) }
+
+            firstParent.addSubview(host)
+            secondParent.addSubview(host)
         }
     }
 }
