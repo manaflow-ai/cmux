@@ -233,7 +233,7 @@ if ! awk '
   exit 1
 fi
 
-if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}" \
+if ! awk -v helper_runner="runs-on: \${{ inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'macos-15' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}" \
        '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
@@ -638,7 +638,7 @@ if ! awk '
   step == "bound" && /cache_kib=\$\(du -sk "\$cache_path"/ { measure[job]=NR }
   step == "bound" && /echo "save=/ && /GITHUB_OUTPUT/ { verdict[job]=1 }
   step == "save" && /uses: (actions\/cache\/save@|\.\/\.github\/actions\/cache-save$)/ { save_action[job]=1 }
-  step == "save" && /^        if: (needs\.decide\.outputs\.track != '\''nightly-next'\'' && )?steps\.compilation-cache-restore\.outputs\.cache-hit != '\''true'\'' && steps\.compilation-cache-bound\.outputs\.save == '\''true'\''$/ { save_gate[job]=1 }
+  step == "save" && /steps\.compilation-cache-restore\.outputs\.cache-hit != '\''true'\'' && steps\.compilation-cache-bound\.outputs\.save == '\''true'\''$/ { save_gate[job]=1 }
   step == "save" && /hashFiles/ { rescan[job]=1 }
   END {
     n = split("refresh app", jobs, " ")
@@ -835,9 +835,9 @@ if ! awk '
   job == "app" && /^      - name: Upload unsigned nightly app/ { step="upload"; next }
   job == "app" && /^      - name:/ { step="" }
   step == "restore" && /needs\.decide\.outputs\.cold_cache != '\''true'\''/ { saw_cold_gate=1 }
-  step == "dsym" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_dsym_gate=1 }
-  step == "archive" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_archive_gate=1 }
-  step == "upload" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_upload_gate=1 }
+  step == "dsym" && /needs\.decide\.outputs\.build_only != '\''true'\''/ { saw_dsym_gate=1 }
+  step == "archive" && /needs\.decide\.outputs\.build_only != '\''true'\''/ { saw_archive_gate=1 }
+  step == "upload" && /needs\.decide\.outputs\.build_only != '\''true'\''/ { saw_upload_gate=1 }
   END { exit !(saw_cold_gate && saw_dsym_gate && saw_archive_gate && saw_upload_gate) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: build-only must allow a cold cache and skip dSYMs plus unused app archive/upload"

@@ -84,10 +84,17 @@ def compile_commands(outputs):
     with tempfile.TemporaryDirectory(prefix="nightly-compile-archs-") as directory:
         root = Path(directory)
         stubs = {
-            "bin/python3": 'while [ "$1" != -- ]; do shift; done; shift; exec "$@"',
+            # The recorder invokes the workflow snippets without running a
+            # compiler.  Keep the state replay/record bookkeeping a no-op,
+            # while still forwarding the helper's `python3 -- command`
+            # shape to the command recorder.  The old loop assumed every
+            # Python invocation had `--`; the retained-state workflow now
+            # also calls `python3 scripts/ci/nightly_build_state.py ...`.
+            "bin/python3": 'case "${1:-}" in scripts/ci/nightly_build_state.py) exit 0;; scripts/ci/run-with-helper-prebuild.py) script="$1"; shift; exec "$script" "$@";; --) shift; exec "$@";; *) exec /usr/bin/python3 "$@";; esac',
             "bin/xcodebuild": 'printf "%s\\n" "$@" > "$CAPTURE/app"',
             "bin/lipo": 'exit 0',
             "scripts/ci/run-xcodebuild-with-diagnostics.sh": 'shift; exec "$@"',
+            "scripts/ci/run-with-helper-prebuild.py": 'while [ "${1:-}" != -- ]; do shift; done; shift; exec "$@"',
             "scripts/cmux-next/build-acpmux.sh": 'printf "%s" "$CMUX_NEXT_ACPMUX_ARCHS" > "$CAPTURE/acpmux"',
             "scripts/cmux-next/build-optchat-chief.sh": 'printf "%s" "$CMUX_NEXT_OPTCHAT_CHIEF_ARCHS" > "$CAPTURE/chief"',
             "scripts/build-ghostty-cli-helper.sh": 'printf "%s\\n" "$@" > "$CAPTURE/ghostty"',

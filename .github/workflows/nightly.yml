@@ -1635,7 +1635,7 @@ jobs:
         id: compilation-cache-restore
         # A cold measurement run skips the restore; every gate below treats the
         # missing output like a cache miss, so the cold build still saves.
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.cold_cache != 'true')
+        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next' && (needs.decide.outputs.cold_cache != 'true')
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -1758,9 +1758,8 @@ jobs:
           PY
 
       - name: Cache Swift packages
-        if: inputs.nightly_next_unsigned_run == ''
+        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next'
         id: swift-packages-restore
-        if: steps.persistent-release.outputs.enabled != 'true'
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -1931,7 +1930,7 @@ jobs:
           echo "save=${save}" >> "$GITHUB_OUTPUT"
 
       - name: Save Xcode compilation cache
-        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next' && steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true' 
+        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next' && steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
@@ -1945,7 +1944,7 @@ jobs:
           key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
 
       - name: Save Swift packages
-        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next' && steps.swift-packages-restore.outputs.cache-hit != 'true' 
+        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track != 'nightly-next' && steps.swift-packages-restore.outputs.cache-hit != 'true'
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
