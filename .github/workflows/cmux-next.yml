@@ -1471,15 +1471,15 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
 
-      # Checkout clean removes package .build directories. Link a per-mini
-      # scratch directory so successive canaries reuse its SwiftPM artifacts.
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      # Checkout removes .build. Link the owned Mac's kept build after Xcode
+      # selection so its fingerprint uses the compiler that runs this job.
       - name: Keep Swift package builds on this owned Mac
         if: ${{ contains(runner.name, '-glaeda') }}
         continue-on-error: true
         run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
-
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
 
       - name: Type-check changed CmuxNext targets
         working-directory: Packages/macOS/CmuxNext
@@ -1563,13 +1563,15 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
 
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      # Checkout removes .build. Link the owned Mac's kept build after Xcode
+      # selection so its fingerprint uses the compiler that runs this job.
       - name: Keep Swift package builds on this owned Mac
         if: ${{ contains(runner.name, '-glaeda') }}
         continue-on-error: true
         run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
-
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
 
       - name: Set up pinned cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -1672,6 +1674,13 @@ jobs:
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
+
+      # Checkout removes .build. Link the owned Mac's kept build after Xcode
+      # selection so its fingerprint uses the compiler that runs this job.
+      - name: Keep Swift package builds on this owned Mac
+        if: ${{ contains(runner.name, '-glaeda') }}
+        continue-on-error: true
+        run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
 
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -1906,6 +1915,13 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # Checkout removes .build. Link the owned Mac's kept build after Xcode
+      # selection so its fingerprint uses the compiler that runs this job.
+      - name: Keep Swift package builds on this owned Mac
+        if: ${{ contains(runner.name, '-glaeda') }}
+        continue-on-error: true
+        run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
         uses: ./.github/actions/setup-cmux-tui-rust
 
@@ -2108,6 +2124,13 @@ jobs:
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
+
+      # Checkout removes .build. Link the owned Mac's kept build after Xcode
+      # selection so its fingerprint uses the compiler that runs this job.
+      - name: Keep Swift package builds on this owned Mac
+        if: ${{ contains(runner.name, '-glaeda') }}
+        continue-on-error: true
+        run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
 
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
         uses: ./.github/actions/setup-cmux-tui-rust
