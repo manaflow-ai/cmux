@@ -260,15 +260,57 @@ const run = <A>(env: Env, caller: HandCaller | null, program: Effect.Effect<A, H
  * The `hands` and `agent` tools for a brain whose `who()` names its chief and owner. `report` sends
  * activity and step updates of the current run (the brain hook maps them to BrainEvents).
  */
+const HandsEntryArgs = Type.Object({
+  action: Type.Union([Type.Literal("list"), Type.Literal("pair_code"), Type.Literal("new_sandbox")]),
+  name: Type.Optional(Type.String({ description: "new_sandbox (required) / pair_code: the hand's name." })),
+  profile: Type.Optional(Type.Union([Type.Literal("sandbox"), Type.Literal("mac")]))
+})
+
+type Who = () => { agent: string | null; owner: string | null; run?: string | undefined; conversation?: string | undefined; ledger?: (jti: string, o: LedgerOp) => unknown }
+const callerOf = (who: Who) => (): HandCaller | null => {
+  const { agent, owner, conversation } = who()
+  return agent && owner ? { kind: "chief", user: owner, agent, ...(conversation ? { conversation } : {}) } : null
+}
+
+/**
+ * The compact `hands` tool of a Chief with no hand yet (about 1.8k fewer tokens per request than the full
+ * `hands` + `agent` pair): list, a pairing code for a machine, or a new cloud sandbox. Once a hand exists the
+ * brain offers the full tools (from the next model step after new_sandbox, or the next turn after pairing).
+ */
+export const handsEntryTool = (env: Env, who: Who, onHand: () => Promise<void>): ToolRegistration<typeof HandsEntryArgs> => ({
+  name: "hands",
+  description: "You have no hand yet (a machine for files, programs and coding agents). list: your hands. pair_code: a code + install line for a machine (name, profile). new_sandbox: a cloud sandbox with its hand (name). Then the full hands and agent tools appear.",
+  parameters: HandsEntryArgs,
+  replay: "unsafe",
+  execute: async (args) => {
+    const text = await run(env, callerOf(who)(), handsProgram(args as HandsArgsT))
+    // Before the result goes back: the next model request sees the full tools when a hand exists now.
+    if ((args.action === "new_sandbox" || args.action === "list") && !text.startsWith("hands error")) await onHand().catch(() => undefined)
+    return { content: [{ type: "text", text }] }
+  }
+})
+
+/** Whether the Chief has at least one hand (one list call; false when it cannot tell). */
+export const hasHand = (env: Env, who: Who): Promise<boolean> => {
+  const caller = callerOf(who)()
+  if (caller === null) return Promise.resolve(false)
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      return yield* (yield* Hands).list()
+    }).pipe(
+      Effect.map((list) => list.length > 0),
+      Effect.catch(() => Effect.succeed(false)),
+      Effect.provide(handsLayer(env, caller))
+    )
+  )
+}
+
 export const handsTools = (
   env: Env,
   who: () => { agent: string | null; owner: string | null; run?: string | undefined; conversation?: string | undefined; ledger?: (jti: string, o: LedgerOp) => unknown },
   report: HandsReporter = () => undefined
 ): [ToolRegistration<typeof HandsArgs>, ToolRegistration<typeof AgentArgs>] => {
-  const caller = (): HandCaller | null => {
-    const { agent, owner, conversation } = who()
-    return agent && owner ? { kind: "chief", user: owner, agent, ...(conversation ? { conversation } : {}) } : null
-  }
+  const caller = callerOf(who)
   return [
     {
       name: "hands",
