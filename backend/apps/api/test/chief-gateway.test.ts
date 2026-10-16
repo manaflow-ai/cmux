@@ -237,6 +237,11 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
     expect(ccBody.context_management).toBeUndefined()
     expect(ccBody.metadata).toBeUndefined()
     expect(ccBody.thinking).toEqual({ type: "enabled", budget_tokens: 1024 })
+    // Claude Code's dated and small/fast model names map to the family's 5.5 model, or to a model the route serves.
+    const small = await call({ authorization: `Bearer ${token}` }, { ...body, model: "claude-haiku-4-5-20251001" })
+    expect(small.status, await small.clone().text()).toBe(200)
+    await small.text()
+    expect(seen.at(-1)!.body.model).toBe("global.anthropic.claude-opus-5-5")
     // A refusal of the route reaches the caller with its reason (Claude Code shows it), not a bare status.
     const refused = await call({ authorization: `Bearer ${token}` }, { ...body, messages: [{ role: "user", content: "FORCE_400" }] })
     expect(refused.status).toBe(400)
@@ -247,14 +252,14 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
     expect((await call({ authorization: `Bearer ${await sessionToken("brain-gateway-http")}` })).status).toBe(401)
     expect((await call({ authorization: `Bearer ${token}` }, { ...body, model: "gpt-5" })).status).toBe(400)
     expect((await call({ authorization: `Bearer ${token}` }, { ...body, stream: false })).status).toBe(400)
-    expect(seen).toHaveLength(3)
+    expect(seen).toHaveLength(4)
     // Spend cap: a token minted with a tiny budget is refused (429) before the route, the run still running.
     const tiny = (await mintRunToken(testEnv as any, { team, chief: chief.id, owner: ownerId, run: "run_500", conversation: chief.main_conversation }, { capUsd: 0.0001 })).token
     expect((await call({ authorization: `Bearer ${tiny}` })).status).toBe(429)
     // Revoke: the run ends, and the same token stops working at once (401), long before its expiry.
     await runState(chief.id, chief.main_conversation, "run_500", "done")
     expect((await call({ authorization: `Bearer ${token}` })).status).toBe(401)
-    expect(seen).toHaveLength(3)
+    expect(seen).toHaveLength(4)
   })
 
   it("keeps an agent token working while its agent session lives, past the Chief's turn, and stops it when the session ends", async () => {

@@ -3,7 +3,7 @@ import { HOLDER, signedFetch } from "../chief-brain/claude-auth.ts"
 import { claudeModel } from "../chief-brain/models.ts"
 import { Credits, CreditsLive, creditsRequired, maxCallCostUsd, payerTeam, type Reservation } from "../credits.ts"
 import type { Env } from "../env.ts"
-import { claudeRoute, isClaude, meteredOwner, offers } from "./routes.ts"
+import { claudeRoute, HAIKU, isClaude, meteredOwner, offers, OPUS, SONNET } from "./routes.ts"
 import { verifyRunToken, type RunGrant } from "./run-token.ts"
 import type { LedgerAnswer, LedgerOp } from "./run-ledger.ts"
 
@@ -92,6 +92,19 @@ export const handleModelGateway = async (request: Request, env: Env, ctx?: { wai
   return gatewayMessages(env, who, request, ctx)
 }
 
+/**
+ * The model a request runs on: Claude Code names dated or older ids (claude-haiku-4-5-20251001,
+ * claude-sonnet-4-5[1m], its small/fast model) — each family maps to its 5.5 model, and a family
+ * the route does not serve maps to the route's first model (staging's session route serves Opus only).
+ */
+const gatewayModel = (env: Env, raw: string): string => {
+  const m = raw.toLowerCase().replace(/\[1m\]$/, "")
+  if (!m.startsWith("claude-") && !m.includes("anthropic.claude-")) return raw
+  const family = m.includes("haiku") ? HAIKU : m.includes("sonnet") ? SONNET : m.includes("opus") ? OPUS : null
+  if (!family) return raw
+  return offers(env, family) ? family : (claudeRoute(env).models.find((x) => offers(env, x)) ?? family)
+}
+
 /** Upstream statuses worth one more try (throttled or overloaded route; Bedrock throttles per region). */
 const RETRY_STATUS = new Set([429, 503, 529])
 
@@ -108,8 +121,8 @@ export const gatewayMessages = async (env: Env, who: Who, request: Request, ctx?
   } catch {
     return err(400, "invalid_request_error", "the body is a Messages request (JSON)")
   }
-  const name = typeof body.model === "string" ? body.model.replace(/\[1m\]$/, "") : ""
-  if (!isClaude(name)) return err(400, "invalid_request_error", "this gateway serves claude-opus-5-5, claude-sonnet-5-5 and claude-haiku-5-5")
+  const name = gatewayModel(env, typeof body.model === "string" ? body.model : "")
+  if (!isClaude(name)) return err(400, "invalid_request_error", "this gateway serves Claude models (opus, sonnet, haiku)")
   if (body.stream !== true) return err(400, "invalid_request_error", "stream must be true")
   if (!offers(env, name) || !meteredOwner(env, who.owner)) return err(403, "permission_error", `${name} is not available for this account here`)
   const model = claudeModel(name, claudeRoute(env).url)
