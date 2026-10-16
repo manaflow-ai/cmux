@@ -70,8 +70,8 @@ concurrency:
   # A live provider bake must finish even if a normal contract run starts on
   # the same ref. Ordinary contract runs keep the existing cancel-on-new-push
   # behavior; explicit promotions use a separate non-canceling lane.
-  group: cloud-vm-image-contract-${{ inputs.promote == true && 'promote' || github.ref }}
-  cancel-in-progress: ${{ inputs.promote != true }}
+  group: cloud-vm-image-contract-${{ inputs.promote == true && 'promote' || inputs.verify_image != '' && format('verify-{0}', inputs.verify_image) || github.ref }}
+  cancel-in-progress: ${{ inputs.promote != true && inputs.verify_image == '' }}
 
 jobs:
   contract:
