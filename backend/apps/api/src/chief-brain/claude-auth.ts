@@ -82,6 +82,8 @@ export const holderTurn = (env: Env, sql: SqlStorage, owner: string, model: stri
   if (usedMine >= (Number(env.CHIEF_BRAIN_CLAUDE_DAILY_TURNS) || DEFAULT_DAILY_CLAUDE_TURNS)) return "daily_cap"
   const total = Number(env.CHIEF_BRAIN_CLAUDE_DAILY_TURNS_TOTAL)
   if (Number.isFinite(total) && total > 0 && usedAll >= total) return "daily_cap"
+  // A new UTC day: the old days' counters go (one row per owner per day otherwise stays forever).
+  if (usedAll === 0) sql.exec(`DELETE FROM cb_config WHERE name LIKE 'claude.turns:%' AND name NOT LIKE ?`, `%:${day}`)
   put(sql, mine, String(usedMine + 1))
   put(sql, all, String(usedAll + 1))
   return "ok"

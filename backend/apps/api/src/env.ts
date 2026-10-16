@@ -237,7 +237,7 @@ export interface Env {
   readonly CHIEF_BRAIN_CLAUDE_OWNERS?: string
   /** Secret: more such owners, changed without a deploy (a demo's test user changes on every reset). */
   readonly CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA?: string
-  /** Claude turns of all Chiefs per UTC day (default 500). */
+  /** Paid-model turns per owner per UTC day (default 500). */
   readonly CHIEF_BRAIN_CLAUDE_DAILY_TURNS?: string
   /** Paid-model turns of the whole deployment per UTC day (unset: no deployment limit; the per-owner limit applies). */
   readonly CHIEF_BRAIN_CLAUDE_DAILY_TURNS_TOTAL?: string

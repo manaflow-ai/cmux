@@ -67,16 +67,18 @@ export const TURN_FAILED_NOTICE = "I could not reach the model, so I stopped her
  * A failed turn is never silent: one short notice as the chief in the turn's conversation (once per
  * run, by its idempotency key). Not for a credits refusal: that has its own notice (the gateway's).
  */
-export const turnFailedNotice = async (env: Env, config: BrainConfig, conversation: string, run: string, reason: string, error: string | undefined): Promise<void> => {
+export const turnFailedNotice = async (env: Env, sql: SqlStorage, config: BrainConfig, conversation: string, run: string, reason: string, error: string | undefined): Promise<void> => {
   if (/credits/i.test(`${reason} ${error ?? ""}`) || !config.agent || !config.owner) return
   const principal = chiefPrincipal(config.agent, config.owner)
-  const postText = (e: Env, p: typeof principal, c: string, text: string, key: string) => postNotice(e, p, c, text, key)
-  // Over today's model limit: say why, once per conversation per UTC day; later refused turns stay quiet.
+  // Over today's model limit: say why, once per conversation per UTC day (a marker in this brain object,
+  // since a retry after the loop guard posts under another key); later refused turns stay quiet.
   if (/daily_cap/.test(reason)) {
-    const day = new Date().toISOString().slice(0, 10)
-    return void (await postText(env, principal, conversation, DAILY_CAP_NOTICE, `daily-cap:${config.agent}:${conversation}:${day}`).catch(() => undefined))
+    const marker = `notice.daily-cap:${conversation}:${new Date().toISOString().slice(0, 10)}`
+    if (sql.exec(`SELECT 1 FROM cb_config WHERE name = ?`, marker).toArray().length > 0) return
+    sql.exec(`INSERT INTO cb_config (name, value) VALUES (?, '1') ON CONFLICT (name) DO NOTHING`, marker)
+    return void (await postNotice(env, principal, conversation, DAILY_CAP_NOTICE, marker).catch(() => undefined))
   }
-  await postText(env, principal, conversation, TURN_FAILED_NOTICE, `turn-failed:${config.agent}:${run}`).catch(() => undefined)
+  await postNotice(env, principal, conversation, TURN_FAILED_NOTICE, `turn-failed:${config.agent}:${run}`).catch(() => undefined)
 }
 
 /** The loop guard refuses a Chief that spoke under 2 s ago (agent_rate): a notice right after a reply waits that gap, twice at most. */
