@@ -1125,7 +1125,10 @@ jobs:
 
       - name: Validate universal nightly workflow
         if: ${{ matrix.group == 'release-notary' }}
-        run: bash ./tests/test_nightly_universal_build.sh
+        run: |
+          bash ./tests/test_nightly_universal_build.sh
+          python3 tests/test_nightly_trusted_routing.py
+          python3 tests/test_nightly_build_state.py
 
       - name: Validate feat-cmux-next runs these release guards
         if: ${{ matrix.group == 'release-notary' }}
@@ -1189,6 +1192,10 @@ jobs:
           python3 tests/test_nightly_promotion_admission.py
           python3 tests/test_ci_nightly_push_throttle.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
+
+      - name: Validate unsigned nightly resume provenance and routing
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_unsigned_resume.py
 
       - name: Validate test compilation cache seeding
         if: ${{ matrix.group == 'quality-sharding' }}

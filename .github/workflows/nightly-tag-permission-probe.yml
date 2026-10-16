@@ -42,30 +42,50 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ inputs.target_sha || github.sha }}
-          fetch-depth: 2
+          ref: ${{ github.sha }}
+          fetch-depth: 0
 
       - name: Validate workflow-changing target and choose scratch tag
         id: probe-inputs
         env:
-          TARGET_SHA: ${{ inputs.target_sha || github.sha }}
+          TARGET_SPEC: ${{ inputs.target_sha || '' }}
+          REQUESTED_MODE: ${{ inputs.mode || 'both' }}
         run: |
           set -euo pipefail
-          if [[ ! "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+          target_sha="$TARGET_SPEC"
+          mode="$REQUESTED_MODE"
+          if [[ "$TARGET_SPEC" == *@* ]]; then
+            mode="${TARGET_SPEC%@*}"
+            target_sha="${TARGET_SPEC#*@}"
+          elif [[ ! "$TARGET_SPEC" =~ ^[0-9a-f]{40}$ ]]; then
+            mode="$TARGET_SPEC"
+            target_sha="$GITHUB_SHA"
+          fi
+          case "$mode" in
+            both|github-token|app-token) ;;
+            *) echo "mode must be both, github-token or app-token" >&2; exit 1 ;;
+          esac
+          if [[ -z "$target_sha" ]]; then
+            target_sha="$GITHUB_SHA"
+          fi
+          git fetch --no-tags origin "$target_sha"
+          git checkout --detach "$target_sha"
+          if [[ ! "$target_sha" =~ ^[0-9a-f]{40}$ ]]; then
             echo "target_sha must be a full commit SHA" >&2
             exit 1
           fi
-          git cat-file -e "$TARGET_SHA^{commit}"
-          if ! git diff-tree --root --no-commit-id --name-only -r "$TARGET_SHA" | grep -q '^\.github/workflows/'; then
+          git cat-file -e "$target_sha^{commit}"
+          if ! git diff-tree --root --no-commit-id --name-only -r "$target_sha" | grep -q '^\.github/workflows/'; then
             echo "target_sha must directly change a workflow file" >&2
             exit 1
           fi
-          echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
+          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
           echo "probe_tag=nightly-probe-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
 
       - name: Expect github.token to reject the workflow-changing ref
         id: github-token-probe
-        if: inputs.mode != 'app-token'
+        if: steps.probe-inputs.outputs.mode != 'app-token'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -88,7 +108,7 @@ jobs:
 
       - name: Mint probe tag app token
         id: probe-tag-token
-        if: inputs.mode != 'github-token'
+        if: steps.probe-inputs.outputs.mode != 'github-token'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
@@ -99,7 +119,7 @@ jobs:
           permission-workflows: write
 
       - name: Verify app token moves the workflow-changing ref
-        if: inputs.mode != 'github-token'
+        if: steps.probe-inputs.outputs.mode != 'github-token'
         env:
           GH_TOKEN: ${{ steps.probe-tag-token.outputs.token || github.token }}
           REPO: ${{ github.repository }}

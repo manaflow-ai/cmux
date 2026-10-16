@@ -118,3 +118,18 @@ export const sameHex = (a: string, b: string): boolean => {
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
   return diff === 0
 }
+
+/**
+ * JSON of `v` within `max` characters, always parseable: long string fields are cut first, and a
+ * value that still does not fit is replaced by a marker.
+ */
+export const capJson = (v: unknown, max: number): string => {
+  const whole = JSON.stringify(v ?? null)
+  if (whole.length <= max) return whole
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    const cut = Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, typeof x === "string" && x.length > max / 4 ? `${x.slice(0, max / 4)}…[cut]` : x]))
+    const again = JSON.stringify({ ...cut, truncated: true })
+    if (again.length <= max) return again
+  }
+  return JSON.stringify({ kind: (v as { kind?: unknown } | null)?.kind ?? null, truncated: true })
+}

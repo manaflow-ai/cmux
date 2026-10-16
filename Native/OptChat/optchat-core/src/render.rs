@@ -236,6 +236,14 @@ pub struct Frozen {
     /// Parts that were unbuilt at the render: they keep showing the placeholder until the next
     /// re-render, even after the compactor builds them, so the frozen bytes never change.
     pub unbuilt: Vec<NodeId>,
+    /// Log indexes where an earlier request's delta ended, ascending: each starts a block, so a
+    /// block once sent is sent again byte for byte (spec 5a.2) even when the next entry has the same
+    /// kind (an approval answer, a resume note, a steer logged after the turn's messages).
+    pub cuts: Vec<u64>,
+    /// Log indexes where a turn's new messages began (a forced block start), ascending. Kept apart
+    /// from `cuts` (request ends) so a block sent once keeps its start even when a user entry that is
+    /// not new (an approval answer) came right before the new messages.
+    pub starts: Vec<u64>,
 }
 
 /// The frozen view's text: the parts as rendered at the freeze (unbuilt ones as the placeholder).
@@ -267,10 +275,55 @@ pub struct TurnInput {
 }
 
 /// One delta line: `<i>+1|<kind>: <text>` (newlines as spaces, at most `CAP` characters of text).
+/// A note that edits, retracts or deletes an earlier line reads as spec 5a.2 writes it:
+/// `<i>+1|edit of <target>: <text>`, `<i>+1|retracted <target>`, `<i>+1|deleted <target>`.
 pub fn delta_line(i: u64, kind: crate::Kind, text: &str) -> String {
     let flat = flatten(text);
     let body: String = flat.chars().take(crate::CAP).collect();
+    if kind == crate::Kind::Note && changes_a_line(text) {
+        return format!("{}|{}", NodeId::new(0, i).name(), body);
+    }
     format!("{}|{}: {}", NodeId::new(0, i).name(), kind.as_str(), body)
+}
+
+/// Whether `text` is a note that changes an earlier line (`edit_of`, `retracted`, `deleted`).
+fn changes_a_line(text: &str) -> bool {
+    let id_then = |rest: &str| {
+        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+        digits > 0 && (rest.len() == digits || rest[digits..].starts_with(':'))
+    };
+    ["edit of ", "retracted ", "deleted "]
+        .iter()
+        .any(|head| text.strip_prefix(head).is_some_and(id_then))
+}
+
+/// The text of a note that edits message `target` (spec 5a.2).
+pub fn edit_of(target: u64, text: &str) -> String {
+    format!("edit of {target}: {text}")
+}
+
+/// The text of a note that retracts message `target`.
+pub fn retracted(target: u64) -> String {
+    format!("retracted {target}")
+}
+
+/// The text of a note that deletes message `target`.
+pub fn deleted(target: u64) -> String {
+    format!("deleted {target}")
+}
+
+/// The delta blocks of the entries `front..end` as a turn whose new messages start at `new_from`
+/// built them (a traced turn's, shown again by an inspector).
+pub fn delta_range(
+    memory: &Memory,
+    store: &dyn Store,
+    front: u64,
+    new_from: u64,
+    end: u64,
+    cuts: &[u64],
+    starts: &[u64],
+) -> Vec<String> {
+    delta_blocks(memory, store, front, new_from, end, cuts, starts).0
 }
 
 fn delta_blocks(
@@ -278,23 +331,37 @@ fn delta_blocks(
     store: &dyn Store,
     front: u64,
     new_from: u64,
+    end: u64,
+    cuts: &[u64],
+    starts: &[u64],
 ) -> (Vec<String>, usize) {
     let mut blocks: Vec<String> = Vec::new();
     let mut last_user: Option<bool> = None;
     let mut bytes = 0;
-    for i in front..memory.len() {
-        // An unbuilt imported message stays out, as in the view (zoom opens it).
-        if memory.is_imported(i) && !memory.is_built(NodeId::new(0, i)) {
+    let mut prev: Option<u64> = None;
+    for i in front..end.min(memory.len()) {
+        // An imported message stays out of the delta, built or not: its build state changes later,
+        // and a block once sent must not change (spec 5a.2). The view shows it after a re-render,
+        // and zoom opens it.
+        if memory.is_imported(i) {
             continue;
         }
-        // The turn's new messages always start a block, so the previous turn's end stays a block end.
-        if i == new_from {
+        // The turn's new messages always start a block, and so does the entry after an earlier
+        // request's end (also when the entry at the cut was left out), so those ends stay block ends.
+        let cut = prev.is_some_and(|p| cuts.iter().any(|c| p < *c && *c <= i));
+        let start = prev.is_some_and(|p| starts.iter().any(|s| p < *s && *s <= i));
+        if i == new_from || cut || start {
             last_user = None;
         }
+        prev = Some(i);
         let (kind, text) = store.message(i);
         let user = kind == crate::Kind::User;
         let line = delta_line(i, kind, &text);
-        bytes += line.len() + 1;
+        // Only what earlier turns added counts toward a re-render: a turn's own new messages (a long
+        // paste) never force one, or every turn with a big message would render again (spec 5a.4).
+        if i < new_from {
+            bytes += line.len() + 1;
+        }
         match blocks.last_mut() {
             Some(b) if last_user == Some(user) => {
                 b.push_str(&line);
@@ -319,7 +386,15 @@ pub fn turn_input(
 ) -> TurnInput {
     let new_from = memory.len().saturating_sub(new);
     if let Some(f) = frozen.filter(|f| f.front <= new_from) {
-        let (delta, bytes) = delta_blocks(memory, store, f.front, new_from);
+        let (delta, bytes) = delta_blocks(
+            memory,
+            store,
+            f.front,
+            new_from,
+            memory.len(),
+            &f.cuts,
+            &f.starts,
+        );
         // A fold past the front: a built view line above level 0 now covers the front message, so a
         // re-render is shorter than view + delta (a short message built at pump alone does not count).
         let built_past = f.front < memory.len()
@@ -327,9 +402,19 @@ pub fn turn_input(
                 p.l > 0 && p.start() <= f.front && f.front < p.end() && memory.is_built(*p)
             });
         if !(bytes > DELTA_HARD || (bytes > DELTA_MAX && built_past)) {
+            let mut next = f.clone();
+            if memory.len() > f.front && next.cuts.last() != Some(&memory.len()) {
+                next.cuts.push(memory.len());
+            }
+            if new_from > f.front
+                && new_from < memory.len()
+                && next.starts.last() != Some(&new_from)
+            {
+                next.starts.push(new_from);
+            }
             return TurnInput {
                 view: frozen_text(f, store),
-                frozen: f.clone(),
+                frozen: next,
                 rerendered: false,
                 delta,
             };
@@ -342,7 +427,7 @@ pub fn turn_input(
         .collect();
     let v = render_parts(&shown, store);
     let front = v.parts.last().map_or(0, |p| p.end());
-    let (delta, _) = delta_blocks(memory, store, front, new_from);
+    let (delta, _) = delta_blocks(memory, store, front, new_from, memory.len(), &[], &[]);
     let unbuilt = v
         .parts
         .iter()
@@ -354,6 +439,16 @@ pub fn turn_input(
             parts: v.parts,
             front,
             unbuilt,
+            cuts: if memory.len() > front {
+                vec![memory.len()]
+            } else {
+                Vec::new()
+            },
+            starts: if new_from > front && new_from < memory.len() {
+                vec![new_from]
+            } else {
+                Vec::new()
+            },
         },
         rerendered: true,
         view: v.text,

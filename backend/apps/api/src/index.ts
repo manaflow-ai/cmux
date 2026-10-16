@@ -256,7 +256,10 @@ export default {
       if (compare.status === "rejected") throw compare.reason
       return
     }
-    const report = await sweepFeedText(sweepDeps(env))
-    console.log(JSON.stringify({ msg: "feed.sweep", ...report }))
+    const [report, hands] = await Promise.allSettled([sweepFeedText(sweepDeps(env)), (async () => (await import("./hand-sweep.ts")).sweepSandboxVms(env))()])
+    if (hands.status === "fulfilled") console.log(JSON.stringify({ msg: "hand.sandbox_sweep", ...hands.value }))
+    else console.error(JSON.stringify({ msg: "hand.sandbox_sweep.failed", error: String(hands.reason).slice(0, 200) }))
+    if (report.status === "rejected") throw report.reason
+    console.log(JSON.stringify({ msg: "feed.sweep", ...report.value }))
   }
 } satisfies ExportedHandler<Env>

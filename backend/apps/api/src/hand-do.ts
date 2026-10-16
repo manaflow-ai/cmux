@@ -2,8 +2,10 @@ import { DurableObject } from "cloudflare:workers"
 import type { Env } from "./env.ts"
 import { deleteSandboxVm } from "./hand-sandbox.ts"
 import { revokeAgentSession } from "./model-gateway/run-token.ts"
+import { classify, requestSummary, type Classified } from "./hand-classify.ts"
+import { createVerdictTable, listVerdicts, recordVerdict } from "./hand-verdicts.ts"
 import { createIndexTables, handName, indexGrants, indexList, indexName, indexPut, indexSetGrant } from "./hand-index.ts"
-import { callerLabel, isHandAction, PAIR_TTL_MS, sameHex, type AgentEvent, type HandCaller, type HandError, type HandReply, type HandSummary, type Profile, type StoredEvent } from "./hand-wire.ts"
+import { callerLabel, capJson, isHandAction, PAIR_TTL_MS, sameHex, type AgentEvent, type HandCaller, type HandError, type HandReply, type HandSummary, type Profile, type StoredEvent } from "./hand-wire.ts"
 
 /**
  * HandDO: one object per installed hand (`h:<hand id>`), holding that hand's one hibernating
@@ -47,19 +49,11 @@ type HandRow = {
   last_seen: number | null
 }
 
-/**
- * JSON of `v` within `max` characters, always parseable: long string fields are cut first, and a
- * value that still does not fit is replaced by a marker.
- */
-const capJson = (v: unknown, max: number): string => {
-  const whole = JSON.stringify(v ?? null)
-  if (whole.length <= max) return whole
-  if (v && typeof v === "object" && !Array.isArray(v)) {
-    const cut = Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, typeof x === "string" && x.length > max / 4 ? `${x.slice(0, max / 4)}…[cut]` : x]))
-    const again = JSON.stringify({ ...cut, truncated: true })
-    if (again.length <= max) return again
-  }
-  return JSON.stringify({ kind: (v as { kind?: unknown } | null)?.kind ?? null, truncated: true })
+/** Mac hands take Cloud requests only where HANDS_MAC_ENABLED is "1" and, when HANDS_MAC_OWNERS lists owners, only for them. */
+const macEnabledFor = (env: Env, owner: string): boolean => {
+  if (env.HANDS_MAC_ENABLED !== "1") return false
+  const only = (env.HANDS_MAC_OWNERS ?? "").split(",").map((x) => x.trim()).filter(Boolean)
+  return only.length === 0 || only.includes(owner)
 }
 
 const refuse = (code: string, message: string): { readonly ok: false; readonly error: HandError } => ({ ok: false, error: { code, message } })
@@ -77,6 +71,7 @@ export class HandDO extends DurableObject<Env> {
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_grant (agent TEXT PRIMARY KEY)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_audit (seq INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, req TEXT NOT NULL, action TEXT NOT NULL, who TEXT NOT NULL, outcome TEXT NOT NULL, ms INTEGER)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_approval (id TEXT PRIMARY KEY, req TEXT NOT NULL, summary TEXT NOT NULL, at INTEGER NOT NULL, answered_at INTEGER, allow INTEGER, who TEXT)`)
+    createVerdictTable(sql)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_agent (session TEXT PRIMARY KEY, chief TEXT NOT NULL, conversation TEXT NOT NULL, at INTEGER NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_sandbox (id INTEGER PRIMARY KEY CHECK (id = 1), vm TEXT NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_event (seq INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT NOT NULL, at INTEGER NOT NULL, body TEXT NOT NULL)`)
@@ -132,10 +127,11 @@ export class HandDO extends DurableObject<Env> {
   // --- Hand role (`h:<hand>`) ---
 
   /** A new pairing code's hand: unpaired until `redeem`, deleted at expiry when nobody redeemed it. */
-  async mint(hand: string, owner: string, mintedBy: string, codeSha: string, name: string): Promise<{ expires_at: number }> {
+  /** `profile` is fixed here, by the owner (or Chief) who mints: the hand cannot pick another later. */
+  async mint(hand: string, owner: string, mintedBy: string, codeSha: string, name: string, profile: Profile = "sandbox"): Promise<{ expires_at: number }> {
     const now = Date.now()
     if (this.row()) throw new Error("hand id already used")
-    this.ctx.storage.sql.exec(`INSERT INTO hand (id, hand, owner, name, minted_by, created_at, code_sha) VALUES (1, ?, ?, ?, ?, ?, ?)`, hand, owner, name, mintedBy, now, codeSha)
+    this.ctx.storage.sql.exec(`INSERT INTO hand (id, hand, owner, name, minted_by, created_at, code_sha, profile) VALUES (1, ?, ?, ?, ?, ?, ?, ?)`, hand, owner, name, mintedBy, now, codeSha, profile)
     const grants = await this.index(owner).listGrants()
     this.setGrantsLocal(grants)
     await this.ctx.storage.setAlarm(now + PAIR_TTL_MS)
@@ -150,7 +146,11 @@ export class HandDO extends DurableObject<Env> {
     if (!r || !r.code_sha || r.paired_at !== null || now > r.created_at + PAIR_TTL_MS || !sameHex(r.code_sha, codeSha)) {
       return { ok: false, error: { code: "hand.pair_invalid", message: "the pairing code is wrong, used or expired" } }
     }
-    this.ctx.storage.sql.exec(`UPDATE hand SET code_sha = NULL, key_sha = ?, paired_at = ?, name = ?, profile = ? WHERE id = 1`, keySha, now, info.name || r.name, info.profile)
+    // The minted profile wins: a code made for a mac hand never pairs a hand that says sandbox.
+    if ((r.profile ?? "sandbox") !== info.profile) {
+      return { ok: false, error: { code: "hand.pair_profile", message: `this code is for a ${r.profile ?? "sandbox"} hand; pair with --profile ${r.profile ?? "sandbox"}` } }
+    }
+    this.ctx.storage.sql.exec(`UPDATE hand SET code_sha = NULL, key_sha = ?, paired_at = ?, name = ? WHERE id = 1`, keySha, now, info.name || r.name)
     // A sandbox lives at most SANDBOX_LIFETIME_MS; any other hand needs no alarm.
     if (this.sandboxVm()) await this.ctx.storage.setAlarm(r.created_at + SANDBOX_LIFETIME_MS)
     else await this.ctx.storage.deleteAlarm()
@@ -242,7 +242,7 @@ export class HandDO extends DurableObject<Env> {
       if (!granted) return "hand.no_grant"
     }
     // The Mac trust post (#13742) comes first: until then a mac hand takes no Cloud request.
-    if (r.profile === "mac" && this.env.HANDS_MAC_ENABLED !== "1") return "hand.mac_disabled"
+    if (r.profile === "mac" && !macEnabledFor(this.env, r.owner)) return "hand.mac_disabled"
     return null
   }
 
@@ -260,16 +260,23 @@ export class HandDO extends DurableObject<Env> {
     const r = this.row()
     const denied = this.authorize(caller, r) ?? (isHandAction(action) ? null : "hand.bad_action")
     const ws = this.socket()
+    // A caller never sets the verdict: it is the host classifier's alone.
+    const { _verdict: _ignored, ...own } = ((params && typeof params === "object" && !Array.isArray(params) ? params : {}) as Record<string, unknown>)
+    // A mac hand: the auto-mode classifier's verdict first (hand-classify.ts); every verdict is kept.
+    const verdict = !denied && ws && r?.profile === "mac" ? await this.verdict(req, caller, r.owner, action, own) : null
+    const forwarded = verdict ? { ...own, _verdict: verdict.verdict } : own
     const result: HandReply = denied
       ? refuse(denied, denied === "hand.mac_disabled" ? "Cloud requests to a Mac hand are off until the trust review" : `refused: ${denied}`)
       : !ws
         ? refuse("hand.offline", "the hand is not connected")
-        : await new Promise<HandReply>((resolve) => {
+        : verdict?.verdict === "deny"
+          ? refuse("hand.classifier_denied", `refused as destructive: ${verdict.reason}`)
+          : await new Promise<HandReply>((resolve) => {
             const ms = Math.min(Math.max(timeoutMs ?? DEFAULT_TIMEOUT_MS, 1_000), MAX_TIMEOUT_MS)
             const timer = setTimeout(() => this.settle(req, refuse("hand.timeout", `no answer in ${ms} ms`)), ms)
             this.pending.set(req, { resolve, timer })
             try {
-              ws.send(JSON.stringify({ t: "req", id: req, action, params: params ?? {} }))
+              ws!.send(JSON.stringify({ t: "req", id: req, action, params: forwarded ?? {} }))
             } catch {
               this.settle(req, refuse("hand.offline", "the hand socket closed"))
             }
@@ -281,6 +288,27 @@ export class HandDO extends DurableObject<Env> {
       this.ctx.storage.sql.exec(`INSERT INTO hand_agent (session, chief, conversation, at) VALUES (?, ?, ?, ?) ON CONFLICT(session) DO NOTHING`, session, caller.agent, caller.conversation, Date.now())
     }
     return result
+  }
+
+  /** The classifier's verdict for one request, logged with the request (hand-verdicts.ts). */
+  private async verdict(req: string, caller: HandCaller, owner: string, action: string, params: unknown): Promise<Classified> {
+    const v = await classify(this.env, this.row()?.hand ?? "", owner, caller.agent, req, requestSummary(action, params))
+    recordVerdict(this.ctx.storage.sql, req, action, callerLabel(caller), v, requestSummary(action, params, true).text)
+    return v
+  }
+
+  async verdicts(caller: HandCaller, limit = 100): Promise<HandReply<Array<Record<string, unknown>>>> {
+    const r = this.row()
+    if (caller.kind !== "owner" || !r || r.owner !== caller.user) return refuse("hand.not_found", "no such hand")
+    return { ok: true, value: listVerdicts(this.ctx.storage.sql, limit) }
+  }
+
+  /** The sweep (hand-sweep.ts): "live" (keep) or "gone" (no live hand holds it: delete); the sweep keeps it when this call fails. */
+  async ownsVm(vm: string): Promise<"live" | "gone" | "unknown"> {
+    const r = this.row()
+    // No row: the hand's code expired or its install failed (the VM carries this deployment's tag).
+    if (!r) return "gone"
+    return r.revoked_at === null && this.sandboxVm() === vm ? "live" : "gone"
   }
 
   private settle(req: string, reply: HandReply) {
@@ -411,8 +439,15 @@ export class HandDO extends DurableObject<Env> {
         return
       }
       case "hello": {
-        const profile = f.profile === "mac" ? "mac" : "sandbox"
-        sql.exec(`UPDATE hand SET hello = ?, profile = ?, last_seen = ? WHERE id = 1`, capJson(f, 16_000), profile, now)
+        // The profile is the paired one; a hand that says another (an edited config) is cut off.
+        const said = f.profile === "mac" ? "mac" : "sandbox"
+        const paired = this.row()?.profile ?? "sandbox"
+        if (said !== paired) {
+          this.audit(crypto.randomUUID(), "hello", "hand", `profile_mismatch:${said}`, null)
+          _ws.close(4403, "profile mismatch")
+          return
+        }
+        sql.exec(`UPDATE hand SET hello = ?, last_seen = ? WHERE id = 1`, capJson(f, 16_000), now)
         const r = this.row()
         for (const wake of [...this.helloWaiters]) wake()
         if (r) await this.publish(r)

@@ -28,15 +28,15 @@ public final class DaemonSidebarDocRemote: SidebarDocRemote {
 
     public func move(_ items: [String], to target: SidebarDocTarget, key: String) async throws -> SidebarDocReply {
         let to = try await SidebarDocWire.json(JSONValue.self, from: JSONEncoder().encode(target))
-        return try Self.reply(try await client().move(items: items, to: to, idempotencyKey: key))
+        return try await Self.answered { try Self.reply(try await client().move(items: items, to: to, idempotencyKey: key)) }
     }
 
     public func pin(_ items: [String], key: String) async throws -> SidebarDocReply {
-        try Self.reply(try await client().pin(items: items, idempotencyKey: key))
+        try await Self.answered { try Self.reply(try await client().pin(items: items, idempotencyKey: key)) }
     }
 
     public func unpin(_ items: [String], key: String) async throws -> SidebarDocReply {
-        try Self.reply(try await client().unpin(items: items, idempotencyKey: key))
+        try await Self.answered { try Self.reply(try await client().unpin(items: items, idempotencyKey: key)) }
     }
 
     public func adopt(_ refs: [SidebarDocWorkspaceRef], key: String) async throws -> SidebarDocReply {
@@ -46,7 +46,21 @@ public final class DaemonSidebarDocRemote: SidebarDocRemote {
 
     public func apply(ops: Data, key: String) async throws -> SidebarDocReply {
         let values = try await SidebarDocWire.json([JSONValue].self, from: ops)
-        return try Self.reply(try await client().apply(ops: values, idempotencyKey: key))
+        return try await Self.answered { try Self.reply(try await client().apply(ops: values, idempotencyKey: key)) }
+    }
+
+    /// A mutation that got no answer (no reply in time, the connection closed) is `SidebarDocUnsettled`: the daemon
+    /// may have applied it, so the store asks again under the same key instead of dropping its intent.
+    private static func answered(_ body: @MainActor () async throws -> SidebarDocReply) async throws -> SidebarDocReply {
+        do {
+            return try await body()
+        } catch let error as DaemonError {
+            switch error {
+            // No connection yet (between asks, a reconnect): an earlier ask may still have reached the daemon.
+            case .timedOut, .connectionClosed, .daemonShutdown, .notConnected, .connectFailed: throw SidebarDocUnsettled()
+            default: throw error
+            }
+        }
     }
 
     private static func reply(_ mutation: SidebarDocMutation) throws -> SidebarDocReply {
