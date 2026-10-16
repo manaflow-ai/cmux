@@ -58,6 +58,18 @@ public struct BrowserPageAutomation {
         }
     }
 
+    /// Registers `source` to run at the start of every later Chromium document.
+    ///
+    /// CEF's DevTools agent only accepts document-start scripts reliably after
+    /// the Page domain has been enabled. Keeping that handshake beside the
+    /// registration prevents callers from observing an acknowledgement while
+    /// the next document still misses the script.
+    public func addScriptOnNewDocument(_ source: String) async throws(BrowserAutomationPageError) {
+        guard speaksDevTools else { throw .unsupported("document-start scripts") }
+        _ = try await devTools("Page.enable", [:])
+        _ = try await devTools("Page.addScriptToEvaluateOnNewDocument", ["source": source])
+    }
+
     // MARK: - Screenshot
 
     /// PNG bytes of the visible viewport.

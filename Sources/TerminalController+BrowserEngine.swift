@@ -154,15 +154,7 @@ extension TerminalController {
     ) -> V2CallResult? {
         let outcome: Result<Void, any Error>? = v2AwaitEnginePage(timeout: 5.0) {
             do {
-                // CEF's DevTools agent does not create the Page domain until
-                // it is enabled. Without this handshake the add-script call
-                // can acknowledge successfully while the next document never
-                // receives the source (init scripts, console and error hooks).
-                _ = try await BrowserPageAutomation(page: page).devTools("Page.enable", [:])
-                _ = try await BrowserPageAutomation(page: page).devTools(
-                    "Page.addScriptToEvaluateOnNewDocument",
-                    ["source": source]
-                )
+                try await BrowserPageAutomation(page: page).addScriptOnNewDocument(source)
                 return .success(())
             } catch {
                 return .failure(error)

@@ -95,6 +95,19 @@ struct ChromiumBrowserPageAutomationTests {
         #expect(page.calls.isEmpty)
     }
 
+    @Test("Document-start scripts enable the Page domain before registration")
+    func documentStartScriptEnablesPageDomain() async throws {
+        let page = ScriptedChromiumPage()
+        let automation = BrowserPageAutomation(page: page)
+
+        try await automation.addScriptOnNewDocument("window.__dfbInit = true;")
+
+        #expect(page.methods() == [
+            "Page.enable", "Page.addScriptToEvaluateOnNewDocument",
+        ])
+        #expect(page.calls[1].params["source"] as? String == "window.__dfbInit = true;")
+    }
+
     @Test("A script exception keeps its message")
     func scriptException() async {
         let page = ScriptedChromiumPage()
