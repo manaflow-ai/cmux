@@ -71,24 +71,6 @@ fn require_attached(attached: bool, operation: &str, session_id: &str) -> Result
         .with_data(json!({"reason": "session_not_attached", "sessionId": session_id})))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::require_attached;
-    #[test]
-    fn unbound_mailbox_rpc_is_rejected() {
-        let error = require_attached(false, "ack", "session-b").expect_err("unbound ack must fail");
-        assert_eq!(error.code, -32002);
-        assert_eq!(
-            error.data.as_ref().map(|data| &data["reason"]),
-            Some(&serde_json::json!("session_not_attached"))
-        );
-    }
-    #[test]
-    fn attached_mailbox_rpc_is_allowed() {
-        assert!(require_attached(true, "read", "session-b").is_ok());
-    }
-}
-
 fn required_string(params: &Value, name: &str) -> Result<String, RpcError> {
     params
         .get(name)
@@ -108,5 +90,23 @@ fn map_error(error: MailboxError) -> RpcError {
             "the recipient cannot acknowledge mailbox message {id}"
         )),
         other => RpcError::invalid_params(other.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::require_attached;
+    #[test]
+    fn unbound_mailbox_rpc_is_rejected() {
+        let error = require_attached(false, "ack", "session-b").expect_err("unbound ack must fail");
+        assert_eq!(error.code, -32002);
+        assert_eq!(
+            error.data.as_ref().map(|data| &data["reason"]),
+            Some(&serde_json::json!("session_not_attached"))
+        );
+    }
+    #[test]
+    fn attached_mailbox_rpc_is_allowed() {
+        assert!(require_attached(true, "read", "session-b").is_ok());
     }
 }
