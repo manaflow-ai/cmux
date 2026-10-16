@@ -88,6 +88,7 @@ function ActiveTeam({ teams }: { teams: AccountsTeams }) {
               type="radio"
               name="accounts-active-team"
               value={team.id}
+              aria-label={team.name}
               checked={team.active}
               onChange={() => void store.runAccounts({ action: "selectTeam", team: team.id })}
             />
