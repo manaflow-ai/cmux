@@ -3,7 +3,7 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { runInDurableObject } from "cloudflare:test"
 import { fireAlarm } from "./setup/alarm.ts"
-import { gatewayBaseUrl, mintRunToken } from "../src/model-gateway/run-token.ts"
+import { gatewayBaseUrl, mintRunToken, revokeAgentSession } from "../src/model-gateway/run-token.ts"
 
 /**
  * The model gateway (model-gateway/gateway.ts) at the product boundary: a person writes to a Cloud
@@ -236,6 +236,27 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
     await runState(chief.id, chief.main_conversation, "run_500", "done")
     expect((await call({ authorization: `Bearer ${token}` })).status).toBe(401)
     expect(seen).toHaveLength(2)
+  })
+
+  it("keeps an agent token working while its agent session lives, past the Chief's turn, and stops it when the session ends", async () => {
+    const seen = fakeRoute()
+    const { chief, team } = await owner("brain-gateway-agent", 5, "claude-opus-5-5", "low", "user")
+    const ownerId = (await op(await sessionToken("brain-gateway-agent"), "user.ensure", {})).value.id as string
+    await runState(chief.id, chief.main_conversation, "run_600", "running")
+    const minted = await mintRunToken(testEnv as any, { team, chief: chief.id, owner: ownerId, run: "run_600", conversation: chief.main_conversation }, { agent: true })
+    const brain = testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName(`${chief.id}/${chief.main_conversation}`))
+    await brain.runToken("run_600", minted.jti, 0, { op: "open" })
+    await brain.runToken("run_600", minted.jti, 0, { op: "bind", hand: "hand_1", session: "ses_1" })
+    const call = () => worker.fetch("https://api.test/v1/model-gateway/v1/messages", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${minted.token}` }, body: JSON.stringify({ model: "claude-opus-5-5", max_tokens: 100, stream: true, messages: [{ role: "user", content: "hi" }] }) })
+    // The Chief's turn ends; the agent session still runs, so its token still works.
+    await runState(chief.id, chief.main_conversation, "run_600", "done")
+    const r1 = await call()
+    expect(r1.status, await r1.clone().text()).toBe(200)
+    await r1.text()
+    // The session ends (the hand's hook, or the Chief cancels it): the token stops at once.
+    await revokeAgentSession(testEnv as any, chief.id, chief.main_conversation, "hand_1", "ses_1")
+    expect((await call()).status).toBe(401)
+    expect(seen).toHaveLength(1)
   })
 
   it("refuses a run token whose team has no credits (402) without calling the route", async () => {
