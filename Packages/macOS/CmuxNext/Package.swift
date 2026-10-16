@@ -821,7 +821,8 @@ let package = Package(
             resources: [
                 .process("Resources"),
             ],
-            swiftSettings: uiSwiftSettings
+            // The pinned FFI has the sidebar document mirror (cmux_sidebar_mirror_*, sidebar-doc-v1).
+            swiftSettings: uiSwiftSettings + [.define("CMUX_SIDEBAR_MIRROR_FFI")]
         ),
         .target(
             name: "CmuxNextPalette",

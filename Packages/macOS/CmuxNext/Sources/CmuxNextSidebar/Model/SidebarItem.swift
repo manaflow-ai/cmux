@@ -53,6 +53,17 @@ public nonisolated struct SidebarItemOrder: Hashable, Sendable {
         return settings.cmd9 == .last ? last : nil
     }
 
+    /// The digit whose Cmd-`digit` selects `item` (the inverse of ``pick(_:_:)``, so a shortcut hint
+    /// shows the digit that really selects its row: Home and the App Store count first with
+    /// `allItems`). Its place when 1...8 (or 9 with `ninth`); 9 for the last item past the eighth
+    /// with `last`; nil for an item no digit selects.
+    public func number(for item: SidebarItem, _ settings: SidebarNavigationSettings) -> Int? {
+        let list = items(settings.numbering)
+        guard let index = list.firstIndex(of: item) else { return nil }
+        if index < 8 || (index == 8 && settings.cmd9 == .ninth) { return index + 1 }
+        return settings.cmd9 == .last && index == list.count - 1 ? 9 : nil
+    }
+
     /// The item `offset` steps from `selected` (Cmd-Ctrl-] is +1). From an
     /// item outside the walked list (or none), +1 starts at the first and -1
     /// at the last. Past an end: wraps, or nil when wrapping is off.

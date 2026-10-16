@@ -144,6 +144,21 @@ describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }
       expect(s.beta).toBeNull()
       expect(JSON.stringify(s.body)).not.toContain(REFRESH)
     }
+    // Cache-stable input (OptChat 5a): the second turn's prompt starts with every block of the first
+    // turn's, byte for byte (frozen view, then the delta only grows at the end); the frozen view's
+    // "</chat>" block carries a 1 h cache mark, and the new message is a delta line, not in the view.
+    const blocksOf = (s: Seen) => (s.body.messages.find((m: { role: string }) => m.role === "user").content as Array<{ text: string; cache_control?: { ttl?: string } }>)
+    const [b1, b2] = [blocksOf(route.seen[0]!), blocksOf(route.seen[1]!)]
+    expect(b2.length).toBeGreaterThan(b1.length)
+    expect(b2.slice(0, b1.length - 1).map((b) => b.text)).toEqual(b1.slice(0, b1.length - 1).map((b) => b.text))
+    expect(b2[b1.length - 1]!.text).toBe(b1[b1.length - 1]!.text)
+    const viewEnd = b2.find((b) => b.text.endsWith("</chat>"))!
+    // Turn 1 marks the view's end; turn 2 marks where turn 1 ended (its user block), so it reads all of turn 1's input.
+    expect(b1.find((b) => b.text.endsWith("</chat>"))!.cache_control).toMatchObject({ type: "ephemeral", ttl: "1h" })
+    const turn1End = b2.find((b) => b.text === b1.at(-1)!.text)!
+    expect(turn1End.cache_control).toMatchObject({ type: "ephemeral", ttl: "1h" })
+    expect(viewEnd.text).not.toContain("second question")
+    expect(b2.at(-1)!.text).toMatch(/\|user: .*second question/)
     // The expired configured token was refreshed once; the second turn used the stored one.
     expect(route.refreshes()).toBe(1)
     expect(route.refreshHeaders).toEqual([REFRESH])
