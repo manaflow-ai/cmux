@@ -1585,6 +1585,138 @@
         }
       }
     },
+    "hands.install.notLinked": {
+      "comment": "Shown in a Chief hand banner, and as the reason a level raise fails, when this Mac has no registered Cloud install, so Allow or a raise cannot be signed. Uses the localized name of the Sign In to cmux command.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهاز Mac هذا غير مُعد للسحابة، لذا لا يمكنه تأكيد ذلك. اختر \"تسجيل الدخول إلى cmux\"، ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac nije postavljen za Cloud, pa ovo ne može potvrditi. Odaberite „Prijava u cmux”, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac er ikke sat op til Cloud, så den kan ikke bekræfte dette. Vælg “Log ind på cmux”, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac ist nicht für Cloud eingerichtet und kann das daher nicht bestätigen. Wähle „Bei cmux anmelden“ und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is not set up for Cloud, so it cannot confirm this. Choose Sign In to cmux, then try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac no está configurado para Cloud, así que no puede confirmarlo. Elige «Iniciar sesión en cmux» y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac n’est pas configuré pour Cloud et ne peut donc pas confirmer cela. Choisissez « Se connecter à cmux », puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Mac non è configurato per Cloud, quindi non può confermarlo. Scegli “Accedi a cmux”, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac は Cloud 用に設定されていないため、確認できません。「cmux にサインイン」を選んでから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះមិនទាន់បានរៀបចំសម្រាប់ Cloud ទេ ដូច្នេះវាមិនអាចបញ្ជាក់រឿងនេះបានទេ។ ជ្រើស “ចូល cmux” រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac은 Cloud용으로 설정되지 않아 확인할 수 없습니다. 'cmux에 로그인'을 선택한 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Macen er ikke satt opp for Cloud, så den kan ikke bekrefte dette. Velg «Logg inn på cmux», og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac nie jest skonfigurowany dla Cloud, więc nie może tego potwierdzić. Wybierz „Zaloguj się do cmux”, a potem spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac não está configurado para o Cloud, então não pode confirmar isso. Escolha “Entrar no cmux” e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот Mac не настроен для Cloud, поэтому не может это подтвердить. Выберите «Войти в cmux» и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้ยังไม่ได้ตั้งค่าสำหรับ Cloud จึงยืนยันรายการนี้ไม่ได้ เลือก “ลงชื่อเข้าใช้ cmux” แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac Cloud için ayarlanmamış, bu yüzden bunu onaylayamaz. “cmux'a giriş yap”ı seçin, sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей Mac не налаштовано для Cloud, тому він не може це підтвердити. Виберіть «Увійти в cmux» і спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Mac này chưa được thiết lập cho Cloud nên không thể xác nhận việc này. Hãy chọn “Đăng nhập cmux” rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 尚未设置 Cloud，因此无法确认此操作。请选择“登录 cmux”，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 尚未設定 Cloud，因此無法確認此操作。請選擇「登入 cmux」，然後再試一次。"
+          }
+        }
+      }
+    },
     "agentPane.addFiles.prompt": {
       "extractionState": "manual",
       "localizations": {
