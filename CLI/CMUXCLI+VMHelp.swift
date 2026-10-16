@@ -81,7 +81,7 @@ extension CMUXCLI {
         let status = """
         Usage: cmux vm status <id>
 
-        Print the machine's provider, status, and image.
+        \(String(localized: "cli.vm.help.status", defaultValue: "Print the machine's ID and status; --json includes provider and image."))
         """
         let stats = """
         Usage: cmux vm stats <id>

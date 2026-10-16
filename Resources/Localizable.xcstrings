@@ -694587,6 +694587,65 @@
           }
         }
       }
+    },
+    "cli.vm.help.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Print the machine's ID and status; --json includes provider and image."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اعرض معرّف الجهاز وحالته؛ يتضمن --json المزوّد والصورة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maschinen-ID und Status ausgeben; --json enthält Anbieter und Image."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra el ID y el estado de la máquina; --json incluye el proveedor y la imagen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’identifiant et l’état de la machine ; --json inclut le fournisseur et l’image."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンの ID と状態を表示します。--json にはプロバイダーとイメージが含まれます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신 ID와 상태를 표시합니다. --json에는 제공자와 이미지가 포함됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示机器 ID 和状态；--json 包含提供商和映像。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示機器 ID 與狀態；--json 會包含提供者與映像檔。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
