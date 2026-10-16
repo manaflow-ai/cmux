@@ -20,6 +20,7 @@ extension SidebarDocStore {
             }
         }
         func move(_ moving: [String], to target: SidebarDocTarget, title: String) {
+            // main-actor-ok: one SidebarDocTarget (section, parent, before, after, index), fixed size.
             guard !adopt.isEmpty, let to = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(target)) else {
                 return self.move(moving, to: target, title: title)
             }

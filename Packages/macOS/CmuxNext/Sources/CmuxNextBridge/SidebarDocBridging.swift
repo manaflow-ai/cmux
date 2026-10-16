@@ -27,7 +27,7 @@ public final class DaemonSidebarDocRemote: SidebarDocRemote {
     public func get() async throws -> Data { try JSONEncoder().encode(try await client().get()) }
 
     public func move(_ items: [String], to target: SidebarDocTarget, key: String) async throws -> SidebarDocReply {
-        let to = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(target))
+        let to = try await SidebarDocWire.json(JSONValue.self, from: JSONEncoder().encode(target))
         return try Self.reply(try await client().move(items: items, to: to, idempotencyKey: key))
     }
 
@@ -40,12 +40,13 @@ public final class DaemonSidebarDocRemote: SidebarDocRemote {
     }
 
     public func adopt(_ refs: [SidebarDocWorkspaceRef], key: String) async throws -> SidebarDocReply {
-        let values = try JSONDecoder().decode([JSONValue].self, from: JSONEncoder().encode(refs))
+        let values = try await SidebarDocWire.json([JSONValue].self, from: JSONEncoder().encode(refs))
         return try Self.reply(try await client().adopt(refs: values, idempotencyKey: key))
     }
 
     public func apply(ops: Data, key: String) async throws -> SidebarDocReply {
-        try Self.reply(try await client().apply(ops: try JSONDecoder().decode([JSONValue].self, from: ops), idempotencyKey: key))
+        let values = try await SidebarDocWire.json([JSONValue].self, from: ops)
+        return try Self.reply(try await client().apply(ops: values, idempotencyKey: key))
     }
 
     private static func reply(_ mutation: SidebarDocMutation) throws -> SidebarDocReply {
@@ -140,5 +141,13 @@ public final class SidebarDocSections {
         let model = WorkspaceGroupModel(document: snapshot)
         groups[group.id] = model
         return model
+    }
+}
+
+/// The wire values of `DaemonSidebarDocRemote`, decoded off the main actor:
+/// `apply`'s ops and `adopt`'s refs grow with the workspaces one drop moves.
+nonisolated enum SidebarDocWire {
+    @concurrent static func json<T: Decodable & Sendable>(_ type: T.Type, from data: Data) async throws -> T {
+        try JSONDecoder().decode(type, from: data)
     }
 }
