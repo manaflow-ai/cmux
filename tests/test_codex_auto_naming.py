@@ -17,14 +17,14 @@ import uuid
 from claude_teams_test_utils import FIXTURE_SOCKET_PASSWORD, accept_fixture_socket_authentication
 
 
-def run_case(cli, custom_home, trigger):
+def run_case(cli, custom_home, trigger, codex=None):
     with tempfile.TemporaryDirectory(prefix="codex-naming-", dir="/tmp") as temporary:
         root = Path(temporary)
         workspace, surface = str(uuid.uuid4()).upper(), str(uuid.uuid4()).upper()
         session = str(uuid.uuid4())
         codex_home = root / ("custom-codex-home" if custom_home else ".codex")
         codex_home.mkdir(mode=0o700)
-        config = 'model = "fixture-model"\n'
+        config = 'model = "fixture-model"\ncli_auth_credentials_store = "auto"\n'
         (codex_home / "config.toml").write_text(config)
         credentials = '{"OPENAI_API_KEY":"fixture-key"}\n'
         auth = codex_home / "auth.json"
@@ -34,7 +34,7 @@ def run_case(cli, custom_home, trigger):
         binary = root / "codex"
         binary.write_text(
             "#!/usr/bin/python3\n"
-            "import json, os, pathlib, stat, sys\n"
+            "import json, os, pathlib, stat, subprocess, sys\n"
             "home = pathlib.Path(os.environ['CODEX_HOME'])\n"
             "auth = home / 'auth.json'\n"
             "args = sys.argv[1:]\n"
@@ -46,7 +46,24 @@ def run_case(cli, custom_home, trigger):
             "}))\n"
             "sys.stdin.read()\n"
             f"if not auth.is_file() or auth.read_text() != {credentials!r}: sys.exit(1)\n"
-            "auth.write_text('refreshed-fixture-login\\n')\n"
+            "store = 'auto'\n"
+            "for flag, value in zip(args, args[1:]):\n"
+            "    if flag == '-c' and value.startswith('cli_auth_credentials_store='):\n"
+            "        store = json.loads(value.split('=', 1)[1])\n"
+            f"codex = {codex!r}\n"
+            "if codex:\n"
+            "    # Never let this probe access the real OS keyring. Login and\n"
+            "    # OAuth refresh share Codex's credential storage backend.\n"
+            "    if store != 'file': sys.exit('Linked credentials must use file storage')\n"
+            "    subprocess.run([codex, 'login', '-c', 'cli_auth_credentials_store=\\\"file\\\"',\n"
+            "                    '--with-api-key'], input='refreshed-fixture-login\\n',\n"
+            "                   text=True, env=os.environ, check=True, timeout=10)\n"
+            "elif store == 'file':\n"
+            "    auth.write_text('refreshed-fixture-login\\n')\n"
+            "else:\n"
+            "    # auto can load the file, then save to the keyring and remove\n"
+            "    # the fallback link, leaving the original credentials stale.\n"
+            "    auth.unlink()\n"
             "output = pathlib.Path(args[args.index('--output-last-message') + 1])\n"
             "output.write_text('Repair Codex Naming')\n"
         )
@@ -171,7 +188,8 @@ def run_case(cli, custom_home, trigger):
         assert record["autoNameLastTitle"] == "Repair Codex Naming", record
         assert not record.get("autoNameInFlightAt"), record
         assert not Path(invocation["home"]).exists(), "Temporary credentials were not cleaned up"
-        assert auth.read_text() == "refreshed-fixture-login\n", "Refreshed login was discarded"
+        saved = json.loads(auth.read_text())["OPENAI_API_KEY"] if codex else auth.read_text().strip()
+        assert saved == "refreshed-fixture-login", "Refreshed login was discarded"
         assert (codex_home / "config.toml").read_text() == config
         print(f"PASS Codex {trigger} ({'custom CODEX_HOME' if custom_home else 'default home'})")
 
@@ -179,9 +197,11 @@ def run_case(cli, custom_home, trigger):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cli", default=os.environ.get("CMUX_CLI_BIN"))
+    parser.add_argument("--codex", help="Use a real Codex login storage backend with fixture credentials")
     args = parser.parse_args()
     if not args.cli:
         parser.error("--cli or CMUX_CLI_BIN is required")
     for trigger in ("auto-name", "stop"):
         for custom_home in (False, True):
-            run_case(str(Path(args.cli).resolve()), custom_home, trigger)
+            run_case(str(Path(args.cli).resolve()), custom_home, trigger,
+                     str(Path(args.codex).resolve()) if args.codex else None)
