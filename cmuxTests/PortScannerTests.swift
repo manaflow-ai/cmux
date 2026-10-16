@@ -213,6 +213,67 @@ struct PortScannerProcessCaptureTests {
         #expect(scan.completeness == .complete)
     }
 
+    @Test("Only loopback ephemeral listeners are suppressed", arguments: [
+        "*:49152", "0.0.0.0:50000", "192.168.1.2:65535",
+        "[::]:50000", "[2001:db8::1]:65535",
+    ])
+    func nonLoopbackEphemeralListenersRemainVisible(endpoint: String) async {
+        let runner = StubCommandRunner(result: CommandResult(
+            stdout: "p123\nf3\nn\(endpoint)\n",
+            stderr: "", exitStatus: 0, timedOut: false, executionError: nil
+        ))
+        let scan = await PortScanner(
+            commandRunner: runner,
+            processIdentityProvider: {
+                AgentPIDProcessIdentity(pid: $0, startSeconds: 1, startMicroseconds: 0)
+            }
+        ).runLsof(pidsCsv: "123")
+
+        let port = Int(endpoint.split(separator: ":").last!)!
+        #expect(scan.values == [123: [port]])
+        #expect(scan.completeness == .complete)
+    }
+
+    @Test("Filtered loopback listeners are complete evidence", arguments: [
+        "127.0.0.1:49152", "127.0.0.2:65535", "[::1]:50000",
+        "[0:0:0:0:0:0:0:1]:50000", "[::ffff:127.0.0.1]:50000",
+    ])
+    func filteredLoopbackListenersRemainComplete(endpoint: String) async {
+        let runner = StubCommandRunner(result: CommandResult(
+            stdout: "p123\nf3\nn\(endpoint)\n",
+            stderr: "", exitStatus: 0, timedOut: false, executionError: nil
+        ))
+        let scan = await PortScanner(
+            commandRunner: runner,
+            processIdentityProvider: {
+                AgentPIDProcessIdentity(pid: $0, startSeconds: 1, startMicroseconds: 0)
+            }
+        ).runLsof(pidsCsv: "123")
+
+        #expect(scan.values.isEmpty)
+        #expect(scan.completeness == .complete)
+    }
+
+    @Test("Invalid lsof ports preserve PID-scoped incomplete evidence", arguments: [
+        "", "http", "0", "-1", "+3000", "65536", "999999999999999999999999999",
+    ])
+    func invalidLsofPortsRemainIncomplete(port: String) async {
+        let runner = StubCommandRunner(result: CommandResult(
+            stdout: "p123\nf3\nn*:3000\nn127.0.0.1:\(port)\np456\nf3\nn*:5173\n",
+            stderr: "", exitStatus: 0, timedOut: false, executionError: nil
+        ))
+        let scan = await PortScanner(
+            commandRunner: runner,
+            processIdentityProvider: {
+                AgentPIDProcessIdentity(pid: $0, startSeconds: 1, startMicroseconds: 0)
+            }
+        ).runLsof(pidsCsv: "123,456")
+
+        #expect(scan.values == [123: [3000], 456: [5173]])
+        #expect(scan.completeness(for: [123]) == .incomplete)
+        #expect(scan.completeness(for: [456]) == .complete)
+    }
+
     @Test("lsof diagnostics preserve valid ports but make the scan incomplete")
     func lsofDiagnosticsAreIncomplete() async {
         let runner = StubCommandRunner(result: CommandResult(
