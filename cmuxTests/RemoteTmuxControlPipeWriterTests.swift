@@ -132,6 +132,12 @@ import Testing
         private let lock = NSLock()
         private var entries: [Entry] = []
 
+        /// How many times a timer was armed.
+        var armCount: Int {
+            lock.lock(); defer { lock.unlock() }
+            return entries.count
+        }
+
         func schedule(_ delay: Duration, _ action: @escaping @Sendable () -> Void) -> @Sendable () -> Void {
             lock.lock(); defer { lock.unlock() }
             entries.append(Entry(delay: delay, action: action))
@@ -220,6 +226,7 @@ import Testing
         }
         #expect(finished.wait(timeout: .now() + 10) == .success)
         #expect(scheduler.armed == [.seconds(30)], "the first write returned at 25 s and re-armed for a full limit")
+        #expect(scheduler.armCount == 2, "armed when bytes started waiting, then again when a write returned")
 
         clock.set(.seconds(50))
         scheduler.fireArmed()
