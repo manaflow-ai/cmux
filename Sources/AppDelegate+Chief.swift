@@ -42,11 +42,10 @@ extension AppDelegate {
         service.start()
     }
 
-    /// Clears a legacy Home page selection before creating workspace content.
-    /// Native Home keeps its selection so terminal and browser splits join its layout.
+    /// Leaves Chief Home before creating workspace content.
     func leaveChiefHome(in tabManager: TabManager?) {
         guard let tabManager, let context = mainWindowContext(for: tabManager) else { return }
-        ChiefHomeNavigation(sidebarSelectionState: context.sidebarSelectionState, tabManager: tabManager).leave()
+        ChiefHomeNavigation(sidebarSelectionState: context.sidebarSelectionState).leave()
     }
 
     /// A first-run row: a new workspace (leaving Home), with the user's agent

@@ -15,8 +15,6 @@ struct ChiefHomeRepresentable: NSViewRepresentable {
     var isActive: Bool
 
     func makeNSView(context: Context) -> ChiefHomeView {
-        // SwiftUI may unmount and mount the window's one Home again.
-        home.resumeIfTornDown()
         home.isActive = isActive
         return home
     }
@@ -24,12 +22,6 @@ struct ChiefHomeRepresentable: NSViewRepresentable {
     func updateNSView(_ view: ChiefHomeView, context: Context) {
         // Focus follows `cmuxChiefHomeDidActivate` (ChiefHomeView), first entry included.
         view.isActive = isActive
-    }
-
-    /// Home left the window (window closed, Chief turned off): stop streaming
-    /// now rather than whenever, and on whichever thread, the view is freed.
-    static func dismantleNSView(_ view: ChiefHomeView, coordinator: ()) {
-        view.teardown()
     }
 }
 
@@ -60,34 +52,21 @@ struct ChiefConversationListRepresentable: NSViewRepresentable {
 /// default Chief's), focused when the panel asks.
 struct ChiefPanelView: NSViewRepresentable {
     @ObservedObject var panel: ChiefPanel
-    let tabManager: TabManager?
-    let isFocused: Bool
-    let isVisibleInUI: Bool
 
-    init(panel: ChiefPanel, tabManager: TabManager? = nil, isFocused: Bool, isVisibleInUI: Bool) {
+    init(panel: ChiefPanel) {
         self.panel = panel
-        self.tabManager = tabManager
-        self.isFocused = isFocused
-        self.isVisibleInUI = isVisibleInUI
     }
 
     func makeNSView(context: Context) -> ChiefPanelHostView {
-        let view = ChiefPanelHostView(conversation: panel.conversationID)
+        let view = ChiefPanelHostView(conversation: panel.conversationID, focusGeneration: panel.focusRequestGeneration)
         // The panel remembers the conversation (session restore); the next update shows it.
-        view.onOpenConversation = { [weak tabManager, weak panel] id in
-            if let tabManager {
-                _ = ChiefHomeNavigation.openConversation(id, in: tabManager)
-            } else if panel?.isHome != true {
-                panel?.conversationID = id
-            }
-        }
-        view.updatePresentation(visible: isVisibleInUI, focused: isFocused, generation: panel.focusRequestGeneration)
+        view.onOpenConversation = { [weak panel] id in panel?.conversationID = id }
         return view
     }
 
     func updateNSView(_ view: ChiefPanelHostView, context: Context) {
         view.show(panel.conversationID)
-        view.updatePresentation(visible: isVisibleInUI, focused: isFocused, generation: panel.focusRequestGeneration)
+        view.requestFocus(generation: panel.focusRequestGeneration)
     }
 
     static func dismantleNSView(_ view: ChiefPanelHostView, coordinator: ()) {
@@ -103,15 +82,12 @@ final class ChiefPanelHostView: NSView {
     private(set) var transcript: ChiefTranscriptView?
     private var conversation: ConversationID?
     private var focusGeneration: Int
-    private var pendingFocus = false
-    private var canTakeFocus = false
-    private var isPresented = false
     private var stopped = false
     /// A new conversation was started from this tab's settings panel.
     var onOpenConversation: (ConversationID) -> Void = { _ in }
 
-    init(conversation: ConversationID?) {
-        self.focusGeneration = -1
+    init(conversation: ConversationID?, focusGeneration: Int) {
+        self.focusGeneration = focusGeneration
         super.init(frame: .zero)
         place(conversation)
     }
@@ -131,22 +107,15 @@ final class ChiefPanelHostView: NSView {
         place(conversation)
     }
 
-    /// Visibility drives read receipts; focus requests survive the initial mount.
-    func updatePresentation(visible: Bool, focused: Bool, generation: Int) {
-        isPresented = visible
-        canTakeFocus = visible && focused
-        transcript?.isActive = visible
-        if generation != focusGeneration {
-            focusGeneration = generation
-            pendingFocus = generation > 0
-        }
-        if canTakeFocus && pendingFocus { focusComposer() }
+    /// Focuses the message box when `generation` is a new request.
+    func requestFocus(generation: Int) {
+        guard generation != focusGeneration else { return }
+        focusGeneration = generation
+        focusComposer()
     }
 
-    /// Puts the keyboard in the message box once this pane has joined its window.
+    /// Puts the keyboard in the message box.
     func focusComposer() {
-        guard window != nil else { pendingFocus = true; return }
-        pendingFocus = false
         transcript?.focusComposer()
     }
 
@@ -161,8 +130,7 @@ final class ChiefPanelHostView: NSView {
         transcript?.stop()
         transcript?.removeFromSuperview()
         let view = ChiefTranscriptView(conversation: conversation)
-        view.isActive = isPresented
-        // A new conversation opens a native workspace through the host action.
+        // A new conversation started from this tab's settings opens in this tab.
         view.onOpenConversation = { [weak self] id in self?.onOpenConversation(id) }
         view.frame = bounds
         view.autoresizingMask = [.width, .height]
@@ -173,6 +141,6 @@ final class ChiefPanelHostView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // The pane appeared: a pending focus request lands now.
-        if window != nil, (canTakeFocus && pendingFocus) || window?.firstResponder === self { focusComposer() }
+        if window != nil, window?.firstResponder === self { focusComposer() }
     }
 }

@@ -248,12 +248,7 @@ struct PanelContentView: View {
             }
         case .chief:
             if let chiefPanel = panel as? ChiefPanel {
-                ChiefPanelView(
-                    panel: chiefPanel,
-                    tabManager: customSidebarTabManager,
-                    isFocused: isFocused,
-                    isVisibleInUI: isVisibleInUI
-                )
+                ChiefPanelView(panel: chiefPanel)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .simultaneousGesture(TapGesture().onEnded { onRequestPanelFocus() })
             }
