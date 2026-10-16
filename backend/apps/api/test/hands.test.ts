@@ -244,4 +244,32 @@ describe("Chief hands", { timeout: 60_000 }, () => {
     expect((await pending).json.error.code).toBe("policy.owner_denied")
   })
 
+  it("at level auto, reads the classifier's verdict from Haiku and Opus reply shapes and names the reason when it cannot", async () => {
+    const { token } = await owner("hands-auto")
+    const { hand, key } = await pairHand(token)
+    const seen: Array<any> = []
+    await dial(hand, key, "sandbox", (f, send) => {
+      if (f.t !== "req") return
+      seen.push(f)
+      send({ t: "res", id: f.id, ok: true, value: { ran: f.action } })
+    })
+    expect((await http("PUT", `/v1/hands/${hand}/level`, token, { level: "auto" })).json.value).toMatchObject({ level: "auto" })
+    const read = (name: string) => http("POST", `/v1/hands/${hand}/call`, token, { action: "fs.read", params: { path: `/work/p/${name}.txt` } })
+    for (const shape of ["shape-haiku", "shape-opus", "shape-braces"]) {
+      expect((await read(shape)).json, shape).toMatchObject({ ok: true })
+      expect(seen.at(-1).params, shape).toMatchObject({ _level: "auto", _verdict: "allow" })
+    }
+    // A deny after a thought is refused in the Cloud: the hand never sees it.
+    const before = seen.length
+    expect((await read("shape-thinking")).json.error.code).toBe("hand.classifier_denied")
+    expect(seen.length).toBe(before)
+    // Prose with no verdict fails closed to ask, and the log says why (size and shape, never the text).
+    expect((await read("shape-prose")).json).toMatchObject({ ok: true })
+    expect(seen.at(-1).params).toMatchObject({ _verdict: "ask" })
+    const log = (await http("GET", `/v1/hands/${hand}/verdicts`, token)).json.value as Array<any>
+    expect(log.map((v) => v.verdict).sort()).toEqual(["allow", "allow", "allow", "ask", "deny"])
+    expect(log.find((v) => v.verdict === "ask").reason).toBe("the classifier reply had no readable verdict (22 chars, stop stop, text)")
+    expect(log.find((v) => v.verdict === "deny").reason).toBe("removes the home folder")
+  })
+
 })

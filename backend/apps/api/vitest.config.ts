@@ -46,6 +46,8 @@ export default defineConfig({
       miniflare: {
         bindings: {
           ENVIRONMENT: "test",
+          // The hand classifier answers from the fake model (its reply shapes: chief-brain/fake.ts).
+          HAND_CLASSIFIER_MODEL: "fake",
           // Automation hard cap ceiling per team per month (USD); tests set it explicitly.
           AUTOMATION_CAP_CEILING_USD: "25",
           STACK_TEST_JWKS: JSON.stringify({ keys: [stackPublic] }),
