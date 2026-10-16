@@ -416,7 +416,9 @@ extension TerminalController {
             )
             switch outcome {
             case .mirrored(let windowId, let workspaceIds):
-                controller.completeRemoteSessionCreation(host: host, sessionName: sessionName)
+                await MainActor.run {
+                    controller.completeRemoteSessionCreation(host: host, sessionName: sessionName)
+                }
                 return [
                     "host": host.destination,
                     "mirrored": true,
