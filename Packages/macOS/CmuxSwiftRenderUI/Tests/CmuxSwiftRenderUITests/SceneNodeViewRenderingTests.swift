@@ -34,7 +34,10 @@ struct SceneNodeViewRenderingTests {
             NSApp.sendEvent(event)
         }
         spinRunLoop()
-        for _ in 0..<5 { await Task.yield() }
+        for _ in 0..<5 {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+            spinRunLoop()
+        }
     }
 
     private func contextMenu(ofRoot runtime: SidebarJSRuntime) throws -> NSMenu {
