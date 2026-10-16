@@ -9,14 +9,16 @@ import Testing
 
 /// A host with many windows mounts every pane of every mirrored workspace in one
 /// main-actor turn. Each pane seed is about a dozen commands and a capture of up to
-/// 5,000 lines of history, so seeding them all at once queues more stdin than the
-/// control writer allows, and the stream reconnects only to do it again.
+/// 5,000 lines of history, so the seeds are started a few at a time and their captures
+/// do not all arrive at once.
 @MainActor
 @Suite struct RemoteTmuxQueuedPaneSeedTests {
     /// The control writer's real stdin budget.
-    private static let stdinBudget = 256 * 1024
+    private static let stdinBudget = RemoteTmuxControlConnection.maxPendingStdinBytes
 
-    @Test func seedingEveryPaneAtOnceOverflowsTheControlWriter() {
+    /// The commands alone, for every pane at once, still fit through a draining pipe: a big
+    /// burst is not a dead pipe, so it must not reconnect.
+    @Test func seedingEveryPaneAtOnceKeepsTheStreamUp() {
         let fixture = Self.attachedConnection()
         defer { fixture.close() }
 
@@ -24,8 +26,8 @@ import Testing
             fixture.connection.seedPane(paneId: paneId, clearScrollback: true)
         }
 
-        #expect(fixture.connection.connectionState != .connected)
-        #expect(fixture.connection.snapshot().recentEvents.contains("stdin-write-backpressure"))
+        #expect(fixture.connection.connectionState == .connected)
+        #expect(!fixture.connection.snapshot().recentEvents.contains("stdin-write-backpressure"))
     }
 
     @Test func mountingManyPanesStartsOnlyAFewSeedsAtOnce() {
@@ -136,8 +138,7 @@ import Testing
             host: RemoteTmuxHost(destination: "queued-seed.test"),
             sessionName: "work")
         let pipe = Pipe()
-        // Drain like ssh would, so a write never blocks on a full pipe. The writer still
-        // only frees budget on the main actor, which a synchronous burst never yields.
+        // Drain like ssh would, so a write never blocks on a full pipe.
         pipe.fileHandleForReading.readabilityHandler = { _ = $0.availableData }
         let writer = RemoteTmuxControlPipeWriter(
             handle: pipe.fileHandleForWriting,

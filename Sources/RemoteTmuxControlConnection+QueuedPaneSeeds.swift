@@ -4,10 +4,10 @@ import Foundation
 ///
 /// A mirror seeds each pane when its surface mounts. On a host with hundreds of windows
 /// every pane of every workspace mounts in the same main-actor turn, and each seed is about
-/// a dozen commands plus a capture of the pane's history. Sent together they queue more
-/// stdin than the control writer allows, which reconnects the stream, and the reconnect
-/// mounts them all again. Their captures would also arrive together and overrun the seed
-/// byte budget. So mounted panes wait here and start as earlier seeds finish, the same way
+/// a dozen commands plus a capture of the pane's history. Sent together, their captures
+/// arrive together and overrun the seed byte budget, and every other command waits behind
+/// megabytes of history on a slow link. So mounted panes wait here and start as earlier
+/// seeds finish, the same way
 /// a reconnect's reseed is paced (``pumpReconnectPaneSeeds()``).
 @MainActor
 extension RemoteTmuxControlConnection {
