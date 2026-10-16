@@ -3438,13 +3438,14 @@ jobs:
           path: nightly-out
 
       # Inside the publication lock: a run that published meanwhile may have
-      # moved a feed above the recovered build.
+      # moved a feed above either this run's own nightly-next build or a
+      # recovered build. The early check precedes signing and notarization.
       # Two runs can take the same recovered build; the later one finds it
       # already on the feed and publishes nothing (run 38689026338). A build
       # below any feed still fails.
       - name: Recheck the recovered build against both feeds
         id: recheck
-        if: steps.source.outputs.source == 'recovered'
+        if: needs.decide.outputs.track == 'nightly-next' || steps.source.outputs.source == 'recovered'
         run: |
           set -euo pipefail
           feeds=()
@@ -4766,7 +4767,7 @@ jobs:
   # and GitHub skips a job with no status check below any skipped job (cx-urd.28).
   sign-release-notes:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly]
-    if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.source != 'recovered'"
+    if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.source != 'recovered'"
     environment: content-signing
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
@@ -4878,7 +4879,7 @@ jobs:
 
   publish-release-notes:
     needs: [decide, publish-nightly, sign-release-notes, resolve-nightly-cmux-tui-client]
-    if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.sign-release-notes.result == 'success'"
+    if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.sign-release-notes.result == 'success'"
     environment: ${{ needs.decide.outputs.environment }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
