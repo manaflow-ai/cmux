@@ -657,7 +657,7 @@ jobs:
             }
             const nextHold = track === 'nightly-next' && process.env.NIGHTLY_NEXT_HOLD === '1';
             if (nextHold) {
-              core.warning('nightly-next is on hold (repository variable NIGHTLY_NEXT_HOLD=1): no build, nothing published. Clear it with: gh variable set NIGHTLY_NEXT_HOLD --body 0 --repo manaflow-ai/cmux');
+              core.warning('nightly-next is on hold (repository variable NIGHTLY_NEXT_HOLD=1): the 2026-10-10 hold followed a feat-cmux-next launch SIGTRAP; no build or publication runs until the signed app passes the 15-second launch smoke and crash-report check. Clear it with: gh variable set NIGHTLY_NEXT_HOLD --body 0 --repo manaflow-ai/cmux');
             }
             core.setOutput('should_build', shouldBuild && !pushThrottled && !nextNotWriter && !nextHold ? 'true' : 'false');
             core.setOutput('head_sha', headSha);
@@ -742,6 +742,17 @@ jobs:
             if (notaryPaused && appBuildSelected) {
               core.notice('nightly-next notarization is paused (repository variable NIGHTLY_NEXT_NOTARY_PAUSED=1) for a build that includes the browser import: this run builds and signs, stops before the notary submission and publishes nothing.');
             }
+            const nightlyNextSafetyRows = track === 'nightly-next' ? [
+              [{data: 'publication hold', header: true}, nextHold
+                ? 'ACTIVE — set after the 2026-10-10 feat-cmux-next launch SIGTRAP (69be4c7e0c5); no build or publication.'
+                : 'inactive'],
+              [{data: 'required hold smoke', header: true}, 'Signed app must stay alive for 15 seconds; any app .ips/.crash report written during launch fails the run before notarization.'],
+              [{data: 'NIGHTLY_NEXT_NOTARY_PAUSED', header: true}, process.env.NIGHTLY_NEXT_NOTARY_PAUSED === '1'
+                ? browserDataOut
+                  ? 'set, but bypassed for this compiled-out browser-import build; this lane may notarize and publish.'
+                  : 'ACTIVE — set after Apple status 7000 on 2026-10-07 (a2eec8e6848); builds with browser import stop before submission.'
+                : 'inactive'],
+            ] : [];
             core.summary
               .addHeading(`${channelIdentity.releaseName} build decision`)
               .addTable([
@@ -763,6 +774,7 @@ jobs:
                 [{data: 'build-only measurement', header: true}, String(buildOnly)],
                 [{data: 'cold compilation cache', header: true}, String(coldCache)],
                 [{data: 'variants', header: true}, variants.join(', ')],
+                ...nightlyNextSafetyRows,
               ])
               .write();
 
