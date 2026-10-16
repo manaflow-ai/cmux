@@ -1472,6 +1472,28 @@ class Nightly(unittest.TestCase):
         for why, payload in cases.items():
             self.assertIsInstance(rescue.target_from_event(payload, "manaflow-ai/cmux"), str, why)
 
+    def test_next_push_is_watched_and_superseded_only_by_next(self):
+        payload = nightly_event(head_branch="nightly-next")
+        target = rescue.target_from_event(payload, "manaflow-ai/cmux")
+        self.assertIsInstance(target, rescue.Target)
+        self.assertEqual(target.push_branch, "nightly-next")
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(), newer=[RUN_ID + 7])
+        _, summary = run_main(api, clock, payload=payload, env_extra={"RESCUE_SECONDS": "30"})
+        self.assertIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("newer:nightly-next", api.calls)
+        self.assertNotIn("newer:main", api.calls)
+        self.assertIn("a newer nightly run on nightly-next", summary)
+
+    def test_next_refusal_moves_failed_jobs_to_blacksmith(self):
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(refused_at=60), finished=lambda s: s >= 200)
+        code, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertEqual(code, 0)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertIn("Blacksmith", summary)
+
     def test_the_trusted_pool_is_an_owned_label_only_here(self):
         self.assertEqual(rescue.job_pool({"labels": [TRUSTED]}), TRUSTED)
         # nightly.yml asks for the pool and one runner's own label together.
@@ -2086,6 +2108,9 @@ class Workflow(unittest.TestCase):
                      "github.event.workflow_run.path != '.github/workflows/nightly.yml'",
                      "github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml'",
                      "github.event.workflow_run.path == '.github/workflows/nightly.yml'",
+                     "github.event.workflow_run.head_branch == 'nightly-next' && github.event.workflow_run.event == 'push' && "
+                     "startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, 'glaeda-trusted-') && "
+                     "startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-')",
                      "github.event.workflow_run.head_repository.full_name == github.repository",
                      "github.event_name != 'workflow_run' || github.event.action != 'completed' || github.event.workflow_run.conclusion == 'failure'"):
             self.assertIn(part, condition)

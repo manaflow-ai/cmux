@@ -11,8 +11,9 @@
 //   G3  the files changed from the current nightly-next to the SHA. If none
 //       matches the release surface the promotion goes ahead ("promote");
 //       otherwise it needs a release approver ("needs-ack");
-//   G4  for "needs-ack", the landers of every first-parent commit in the range
-//       that touches the surface: the push actor (repository activity), the
+//   G4  for "needs-ack", the landers of every commit in the range (all parents,
+//       from the compare API) that touches the surface: the push actor
+//       (repository activity, compare before...after of each push), the
 //       PR author and merger, and the commit author and committer. With the
 //       policy line `@require_non_lander_approver on` the approval must come
 //       from someone who is not a lander (ackDecision()); off, any approval in
@@ -27,7 +28,6 @@ export const GATE_WORKFLOW = '.github/workflows/cmux-next.yml';
 export const GATE_JOB = 'cmux-next Release compile (Xcode 26)';
 export const ACK_ENVIRONMENT = 'release-surface-ack';
 const BOT_LOGINS = new Set(['web-flow', 'github-actions[bot]', 'GitHub']);
-const MAX_FIRST_PARENT_COMMITS = 200;
 const MAX_ACTIVITY_PAGES = 20;
 
 export function parseSurface(text) {
@@ -105,42 +105,101 @@ async function admitted(github, owner, repo, sha, { attempts, delayMs, sleep, co
   return false;
 }
 
-async function firstParentChain(github, owner, repo, from, to) {
-  // Commits from `from` back to (not including) `to` along first parents.
-  const chain = [];
-  let cursor = from;
-  while (cursor !== to) {
-    if (chain.length >= MAX_FIRST_PARENT_COMMITS) return null;
-    const { data } = await github.rest.repos.getCommit({ owner, repo, ref: cursor, per_page: 100, page: 1 });
-    // getCommit pages its file list; read every page (GitHub caps it at 3000).
-    let files = data.files || [];
-    let last = files.length;
-    let page = 2;
-    // Keep reading while a page came back full (100, or more if per_page is ignored).
-    for (; last >= 100 && page <= 30; page += 1) {
-      const { data: more } = await github.rest.repos.getCommit({ owner, repo, ref: cursor, per_page: 100, page });
-      last = (more.files || []).length;
-      files = files.concat(more.files || []);
+// The compare API returns at most this many commits per page and files only on
+// its first page (at most 300). Anything it cannot list in full is refused.
+const COMPARE_PAGE = 100;
+const MAX_RANGE_COMMITS = 1000;
+const COMMIT_FILE_CAP = 3000;
+
+// One compare request, memoized for the life of a decision: the guard reads
+// the same range several times and the job token's quota is shared.
+function comparer(github, owner, repo) {
+  const cache = new Map();
+  return async (basehead, page = 1, perPage = COMPARE_PAGE) => {
+    const key = `${basehead}#${page}#${perPage}`;
+    if (!cache.has(key)) {
+      cache.set(key, github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead, per_page: perPage, page }).then((r) => r.data));
     }
-    data.files = files;
-    data.filesTruncated = files.length >= 3000 || (last >= 100 && page > 30);
-    chain.push(data);
-    const parent = data.parents?.[0]?.sha;
-    if (!parent) return null;
-    cursor = parent;
-  }
-  return chain;
+    return cache.get(key);
+  };
 }
 
-async function pushActors(github, owner, repo, chainShas, boundary) {
-  // Map each first-parent commit to every actor whose push brought it. The
-  // activity API pages with a cursor (Link header), so read it through
-  // github.paginate.iterator; stop once every commit has an actor.
-  const order = new Map(chainShas.map((sha, index) => [sha, index]));
-  const actors = new Map(chainShas.map((sha) => [sha, new Set()]));
-  const unresolved = () => chainShas.some((sha) => actors.get(sha).size === 0);
-  // Read back to the push that started from the range's base, so an earlier
-  // push of the same commits (before a force push) adds its actor too.
+// Every commit in base...head (all parents, merges included), from the compare
+// API's paginated commit list. Returns null when the list cannot be read in full.
+async function rangeCommits(compare, base, head) {
+  const commits = [];
+  let total = null;
+  for (let page = 1; page <= MAX_RANGE_COMMITS / COMPARE_PAGE + 1; page += 1) {
+    const data = await compare(`${base}...${head}`, page);
+    total = data.total_commits;
+    const batch = data.commits || [];
+    commits.push(...batch);
+    if (commits.length >= total || batch.length === 0) break;
+  }
+  if (typeof total !== 'number' || total > MAX_RANGE_COMMITS) return null;
+  if (commits.length !== total || new Set(commits.map((commit) => commit.sha)).size !== total) return null;
+  return commits;
+}
+
+// The release surface blobs of a commit: path -> blob SHA for every path that
+// matches the surface, read from the git trees of the surface's directories
+// (an exact content view, no diff API). Returns null when a tree is truncated.
+function surfaceDirectories(globs) {
+  const dirs = new Set();
+  for (const glob of globs) {
+    const wildcard = glob.search(/[*?]/);
+    const literal = wildcard === -1 ? glob : glob.slice(0, wildcard);
+    const dir = literal.includes('/') ? literal.slice(0, literal.lastIndexOf('/')) : '';
+    dirs.add(dir);
+  }
+  const sorted = [...dirs].sort((x, y) => x.length - y.length);
+  return sorted.filter((dir, index) => !sorted.slice(0, index).some((parent) => parent === '' || dir.startsWith(`${parent}/`)));
+}
+
+async function surfaceBlobs(github, owner, repo, commitSha, dirs, matches) {
+  const { data: commit } = await github.rest.git.getCommit({ owner, repo, commit_sha: commitSha });
+  const blobs = new Map();
+  for (const dir of dirs) {
+    let tree = commit.tree.sha;
+    let found = true;
+    for (const part of dir ? dir.split('/') : []) {
+      const { data } = await github.rest.git.getTree({ owner, repo, tree_sha: tree });
+      if (data.truncated) return null;
+      const entry = (data.tree || []).find((item) => item.path === part && item.type === 'tree');
+      if (!entry) { found = false; break; }
+      tree = entry.sha;
+    }
+    if (!found) continue;
+    const { data } = await github.rest.git.getTree({ owner, repo, tree_sha: tree, recursive: 'true' });
+    if (data.truncated) return null;
+    for (const item of data.tree || []) {
+      if (item.type !== 'blob' && item.type !== 'commit') continue;
+      const path = dir ? `${dir}/${item.path}` : item.path;
+      if (matches(path)) blobs.set(path, `${item.mode}:${item.sha}`);
+    }
+  }
+  return blobs;
+}
+
+// One commit with its full file list. Returns null when GitHub truncates it.
+async function commitWithFiles(github, owner, repo, sha) {
+  const { data } = await github.rest.repos.getCommit({ owner, repo, ref: sha, per_page: 100, page: 1 });
+  let files = data.files || [];
+  let last = files.length;
+  for (let page = 2; last >= 100 && page <= COMMIT_FILE_CAP / 100 + 1; page += 1) {
+    const { data: more } = await github.rest.repos.getCommit({ owner, repo, ref: sha, per_page: 100, page });
+    last = (more.files || []).length;
+    files = files.concat(more.files || []);
+  }
+  if (files.length >= COMMIT_FILE_CAP) return null;
+  return { ...data, files };
+}
+
+// Map each commit to every actor whose push brought it: the commits a push
+// brought are compare(before...after). The activity API pages with a cursor.
+async function pushActors(github, owner, repo, compare, wanted, rangeSet, boundary) {
+  const actors = new Map([...wanted].map((sha) => [sha, new Set()]));
+  const unresolved = () => [...wanted].some((sha) => actors.get(sha).size === 0);
   let reachedBoundary = !boundary;
   let pages = 0;
   for await (const response of github.paginate.iterator('GET /repos/{owner}/{repo}/activity', {
@@ -149,13 +208,24 @@ async function pushActors(github, owner, repo, chainShas, boundary) {
     pages += 1;
     for (const event of response.data || []) {
       if (boundary && event.before === boundary) reachedBoundary = true;
-      if (!order.has(event.after)) continue;
-      // Every chain commit from `after` back to `before` arrived in this push
-      // (to the end of the chain when `before` is outside it, a force push).
-      for (let index = order.get(event.after); index < chainShas.length; index += 1) {
-        const sha = chainShas[index];
-        if (sha === event.before) break;
-        actors.get(sha).add(event.actor?.login || '');
+      if (!rangeSet.has(event.after)) continue;
+      if (!unresolved() && reachedBoundary) continue;
+      // A branch creation (before = zeros) credits only its tip; the other
+      // commits stay unresolved, which the caller treats as unknown.
+      let brought = [event.after];
+      if (!/^0+$/.test(event.before || '')) {
+        let range = null;
+        try { range = await rangeCommits(compare, event.before, event.after); } catch { range = null; }
+        if (!range) {
+          // This push's commits cannot be listed: its actor is unknown for
+          // every wanted commit, so no lander can drop out of the list.
+          for (const sha of wanted) actors.get(sha).add('');
+          continue;
+        }
+        brought = brought.concat(range.map((commit) => commit.sha));
+      }
+      for (const sha of brought) {
+        if (actors.has(sha)) actors.get(sha).add(event.actor?.login || '');
       }
     }
     if ((!unresolved() && reachedBoundary) || pages >= MAX_ACTIVITY_PAGES) break;
@@ -231,23 +301,13 @@ export async function decide({
   }
   if (current === sha) return { action: 'skip', reason: `${TARGET} is already at ${sha}.`, sha, current };
 
-  let force = false;
-  let mergeBase = current;
+  // The current nightly-next must be an ancestor of the target: compare
+  // status "ahead". "identical" was handled above; anything else refuses.
+  const compare = comparer(github, owner, repo);
   if (current) {
-    const { data } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${current}...${sha}` });
-    if (data.status === 'diverged') {
-      // A hand-made baseline (a feat-cmux-next commit plus patches) may be
-      // replaced when the point where it left feat-cmux-next is on
-      // feat-cmux-next; `sha` descends from it, so history never moves back.
-      const base = data.merge_base_commit?.sha;
-      mergeBase = base || null;
-      if (base) {
-        const { data: baseOnSource } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${base}...${sourceHead}` });
-        force = baseOnSource.status === 'ahead' || baseOnSource.status === 'identical';
-      }
-    }
-    if (data.status !== 'ahead' && !force) {
-      return { action: 'skip', reason: `${sha} does not move ${TARGET} forward from ${current} (compare status ${data.status}); nothing promoted.`, sha, current };
+    const data = await compare(`${current}...${sha}`);
+    if (data.status !== 'ahead') {
+      return refuse(`${current} (${TARGET}) is not an ancestor of ${sha} (compare status ${data.status}); nothing promoted`, { sha, current });
     }
   }
 
@@ -260,46 +320,54 @@ export async function decide({
   }
   const matches = surfaceMatcher(parseSurface(surfaceText));
   if (!current) {
-    return { action: 'needs-ack', reason: `${TARGET} does not exist; the first promotion needs a release approver`, sha, current, force, surfaceFiles: ['*'], landers: [] };
+    return { action: 'needs-ack', reason: `${TARGET} does not exist; the first promotion needs a release approver`, sha, current, surfaceFiles: ['*'], landers: [] };
   }
   const touches = (file) => matches(file.filename) || Boolean(file.previous_filename && matches(file.previous_filename));
-  // The compare API lists at most 300 files for the whole range.
-  const { data: range } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${current}...${sha}`, per_page: 1 });
-  const rangeFiles = range.files || [];
-  // Walk the first-parent history only when it is needed: a range too large
-  // for the compare API, or a surface change whose landers must be found.
-  let chain = null;
-  const walk = async () => {
-    chain = chain || (mergeBase ? await firstParentChain(github, owner, repo, sha, mergeBase) : null);
-    return chain;
-  };
-  const commitTouches = (commit) => commit.filesTruncated || (commit.files || []).some(touches);
-  let surfaceFiles;
-  if (rangeFiles.length < 300) {
-    surfaceFiles = [...new Set(rangeFiles.filter(touches).flatMap((file) => [file.filename, file.previous_filename]).filter(Boolean).filter(matches))].sort();
-  } else if (!force) {
-    // Every changed file was changed by a first-parent commit of the range.
-    if (!(await walk())) {
-      return refuse(`the range ${current}...${sha} changes 300 or more files and its first-parent history is longer than ${MAX_FIRST_PARENT_COMMITS} commits`);
-    }
-    surfaceFiles = [...new Set(chain.flatMap((commit) => (commit.files || []).filter(touches).map((file) => file.filename)))].sort();
-    if (chain.some((commit) => commit.filesTruncated)) surfaceFiles.push('<a commit with 3000 or more files>');
-  } else {
-    return refuse(`the replaced baseline ${current} and ${sha} differ in 300 or more files; the change cannot be listed`);
+
+  // Every commit in the range, merges and second parents included.
+  const commits = await rangeCommits(compare, current, sha);
+  if (!commits) {
+    return refuse(`the range ${current}...${sha} has more than ${MAX_RANGE_COMMITS} commits or the compare API did not list them all`, { sha, current });
   }
+  const rangeSet = new Set(commits.map((commit) => commit.sha));
+
+  // G3 from the trees, not from a diff API: compare every surface path's blob
+  // in nightly-next and in the target. This is exact for any history shape
+  // (a merge that drops the old tip's change included) and has no file cap.
+  const dirs = surfaceDirectories(parseSurface(surfaceText));
+  const before = await surfaceBlobs(github, owner, repo, current, dirs, matches);
+  const after = await surfaceBlobs(github, owner, repo, sha, dirs, matches);
+  if (!before || !after) {
+    return refuse(`a release surface directory's git tree is truncated; the surface of ${current}...${sha} cannot be compared`, { sha, current });
+  }
+  const surfaceFiles = [...new Set([...before.keys(), ...after.keys()])].filter((path) => before.get(path) !== after.get(path)).sort();
   if (surfaceFiles.length === 0) {
-    return { action: 'promote', reason: 'no release surface file changed', sha, current, force, surfaceFiles, landers: [] };
-  }
-  if (!(await walk())) {
-    return refuse(`cannot walk the first-parent history from ${sha} back to ${current} within ${MAX_FIRST_PARENT_COMMITS} commits`);
+    return { action: 'promote', reason: 'no release surface file changed', sha, current, surfaceFiles, landers: [] };
   }
 
-  // G4: who landed the surface change.
-  const touching = chain.filter(commitTouches);
-  if (touching.length === 0 && !force) {
-    return refuse(`the range changes ${surfaceFiles.join(', ')} but no first-parent commit shows it`);
+  // G4: who landed the surface change: the commits whose own diff touches the
+  // surface (a commit whose file list GitHub truncates counts as touching).
+  // A change no single commit shows (a merge that kept the other side's
+  // version) is attributed to the range's merge commits.
+  const detailed = [];
+  for (const commit of commits) {
+    const full = await commitWithFiles(github, owner, repo, commit.sha);
+    detailed.push(full || { sha: commit.sha, truncated: true, files: [], parents: commit.parents || [] });
   }
-  const actors = await pushActors(github, owner, repo, chain.map((commit) => commit.sha), mergeBase);
+  const touching = detailed.filter((commit) => commit.truncated || commit.files.some(touches));
+  // A surface path that no commit's own diff lists changed through a merge
+  // resolution: every merge commit in the range is a lander for it.
+  const listed = new Set(touching.flatMap((commit) => commit.files.flatMap((file) => [file.filename, file.previous_filename]).filter(Boolean)));
+  const anyTruncated = touching.some((commit) => commit.truncated);
+  if (!anyTruncated && surfaceFiles.some((path) => !listed.has(path))) {
+    for (const commit of detailed) {
+      if ((commit.parents || []).length > 1 && !touching.includes(commit)) touching.push(commit);
+    }
+  }
+  if (touching.length === 0) {
+    return refuse(`the surface of ${current}...${sha} changed (${surfaceFiles.join(', ')}) but no commit in the range accounts for it`, { sha, current, surfaceFiles });
+  }
+  const actors = await pushActors(github, owner, repo, compare, new Set(touching.map((commit) => commit.sha)), rangeSet, current);
   const landers = new Set();
   const unresolved = [];
   for (const commit of touching) {
@@ -313,7 +381,7 @@ export async function decide({
   return {
     action: 'needs-ack',
     reason: `${surfaceFiles.length} release surface file(s) changed`,
-    sha, current, force, surfaceFiles, landers: [...landers].sort(),
+    sha, current, surfaceFiles, landers: [...landers].sort(),
     touching: touching.map((commit) => commit.sha),
   };
 }
@@ -346,7 +414,7 @@ export function ackDecision({ decision, approvers, triggeringActor, expectedCurr
 }
 
 export async function move({ writer, github = writer, owner, repo, decision }) {
-  const { sha, current, force } = decision;
+  const { sha, current } = decision;
   // Compare and swap: refuse when nightly-next moved after the decision.
   let now = null;
   try {
@@ -360,7 +428,8 @@ export async function move({ writer, github = writer, owner, repo, decision }) {
   if (!current) {
     await writer.rest.git.createRef({ owner, repo, ref: `refs/heads/${TARGET}`, sha });
   } else {
-    await writer.rest.git.updateRef({ owner, repo, ref: `heads/${TARGET}`, sha, force: Boolean(force) });
+    // Never a force update: GitHub refuses a non-fast-forward move as well.
+    await writer.rest.git.updateRef({ owner, repo, ref: `heads/${TARGET}`, sha, force: false });
   }
   return `Promoted ${TARGET} to ${sha}; its push run publishes it.`;
 }
@@ -373,9 +442,6 @@ export function summary(decision) {
     `- current nightly-next: \`${decision.current || 'none'}\``,
     `- reason: ${decision.reason}`,
   ];
-  if (decision.force) {
-    lines.push('- nightly-next is a hand-made baseline that this promotion replaces; the patches it drops are listed only when the compare shows them');
-  }
   if (decision.surfaceFiles?.length) {
     lines.push('- release surface files changed:', ...decision.surfaceFiles.map((file) => `  - \`${file}\``));
   }
