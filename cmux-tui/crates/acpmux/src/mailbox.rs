@@ -333,19 +333,14 @@ impl Mailbox {
                 return Ok(page);
             }
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-            if remaining.is_zero()
-                || tokio::time::timeout(remaining, notified).await.is_err()
-            {
+            if remaining.is_zero() || tokio::time::timeout(remaining, notified).await.is_err() {
                 return self.page(recipient, after, limit);
             }
         }
     }
 
     pub fn flush(&self) -> Result<()> {
-        let inner = self
-            .inner
-            .lock()
-            .map_err(|_| anyhow::anyhow!("mailbox state lock poisoned"))?;
+        let inner = self.inner.lock().map_err(|_| anyhow::anyhow!("mailbox state lock poisoned"))?;
         persist(&inner).map_err(|e| anyhow::anyhow!(e))
     }
 
@@ -360,11 +355,7 @@ impl Mailbox {
 
     #[cfg(test)]
     fn run_wait_page_hook(&self) {
-        let hook = self
-            .wait_page_hook
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take();
+        let hook = self.wait_page_hook.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
         if let Some(hook) = hook {
             hook();
         }
