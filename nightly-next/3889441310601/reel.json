@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "3889441310601",
+  "notes": "notes/3889441310601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 21170,
+      "title": "nightly: refuse recovery or publication of a build off the served lineage",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21179,
+      "title": "ci: reuse attested nightly acpmux companions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21167,
+      "title": "ci: retain NEXT Release builds on a trusted nightly worker",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21168,
+      "title": "ci: add exact-run SwiftPM test product transport",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21165,
+      "title": "ci: measure cmux-next SwiftPM test builds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21164,
+      "title": "ci: prevent older own nightly-next builds from replacing newer feeds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21163,
+      "title": "ci: retain cmux-next Release compilation between owned-worker jobs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21156,
+      "title": "ci: retain cmux-next Swift test builds between jobs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21161,
+      "title": "ci: resume saved unsigned nightly-next builds without recompiling",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21155,
+      "title": "ci: run exact Release admission for nightly control fixes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21020,
+      "title": "webviews: gallery reads Swift backslashes in WebTheme.bootstrapScript (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21144,
+      "title": "nightly: run publication tooling from the workflow commit, not the recovered build",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
