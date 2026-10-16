@@ -9039,6 +9039,57 @@
           }
         }
       }
+    },
+    "remote.update.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update available on %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のアップデートがあります"
+          }
+        }
+      }
+    },
+    "remote.update.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ runs an older cmux-tui. Agents or chats run there now, so cmux does not update it by itself. Update installs cmux-tui %2$@ at %3$@; terminals and agents keep running."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ では古い cmux-tui が動いています。いまエージェントやチャットが動いているため、cmux は自動ではアップデートしません。アップデートすると cmux-tui %2$@ を %3$@ にインストールします。ターミナルとエージェントは動き続けます。"
+          }
+        }
+      }
+    },
+    "remote.button.update": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデート"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

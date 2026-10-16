@@ -36,7 +36,19 @@ export interface Run {
   readonly error?: string
   /** Where the reply went: posted (with its message id), no_reply (NO_REPLY or empty), refused (with the code), none (failed turn). */
   readonly reply?: { readonly state: string; readonly message?: string }
+  /** Model tokens of the run (cache_read / (input + cache_read + cache_write) = cache hit) and its provider cost. */
+  readonly usage?: { readonly input: number; readonly output: number; readonly cache_read: number; readonly cache_write: number; readonly calls: number }
+  readonly cost_usd?: number
+  /** ms epoch: first model request, first token (with started_at: wake path vs. model time). */
+  readonly timing?: { readonly request_at?: number; readonly first_token_at?: number }
 }
+
+/** Adds one model call's usage to its run. */
+export const addUsage = (sql: SqlStorage, turn: string, u: { input: number; output: number; cache_read: number; cache_write: number; cost_usd: number }): void =>
+  void sql.exec(
+    `INSERT INTO cb_usage (turn, calls, input, output, cache_read, cache_write, cost_usd) VALUES (?, 1, ?, ?, ?, ?, ?) ON CONFLICT (turn) DO UPDATE SET calls = calls + 1, input = input + excluded.input, output = output + excluded.output, cache_read = cache_read + excluded.cache_read, cache_write = cache_write + excluded.cache_write, cost_usd = cost_usd + excluded.cost_usd`,
+    turn, Math.round(u.input), Math.round(u.output), Math.round(u.cache_read), Math.round(u.cache_write), u.cost_usd
+  )
 
 /** A step change: fields to set on the step with this id (created at the next seq when new). */
 export type StepPatch = Omit<Step, "seq" | "at"> & { readonly at?: number }
@@ -89,6 +101,8 @@ export const readRun = (sql: SqlStorage, agent: string, id: string): Run | null 
   const counts = sql.exec<{ n: number; last: number | null }>(`SELECT COUNT(*) AS n, MAX(seq) AS last FROM cb_step WHERE turn = ?`, id).one()
   const answers = sql.exec<{ message: string }>(`SELECT message FROM cb_inbox WHERE turn = ? ORDER BY n`, id).toArray().map((r) => String(r.message))
   const status = String(t.status)
+  const u = sql.exec<{ calls: number; input: number; output: number; cache_read: number; cache_write: number; cost_usd: number }>(`SELECT calls, input, output, cache_read, cache_write, cost_usd FROM cb_usage WHERE turn = ?`, id).toArray()[0]
+  const tm = sql.exec<{ request_at: number | null; first_token_at: number | null }>(`SELECT request_at, first_token_at FROM cb_timing WHERE turn = ?`, id).toArray()[0]
   const kind = String(t.trigger_kind)
   const threadRoot = kind === "chief" || kind === "dm" ? (t.trigger_thread_root === null ? undefined : String(t.trigger_thread_root)) : String(t.trigger_thread_root ?? t.trigger_message)
   return {
@@ -107,7 +121,9 @@ export const readRun = (sql: SqlStorage, agent: string, id: string): Run | null 
     harness: "pi-durable",
     session: { kind: "pi", id, host: "cloud" },
     ...(status === "failed" && t.reason !== null ? { error: String(t.reason).slice(0, 2000) } : {}),
-    ...(t.post === null ? {} : { reply: { state: String(t.post), ...(t.posted_message === null ? {} : { message: String(t.posted_message) }) } })
+    ...(t.post === null ? {} : { reply: { state: String(t.post), ...(t.posted_message === null ? {} : { message: String(t.posted_message) }) } }),
+    ...(tm ? { timing: { ...(tm.request_at === null ? {} : { request_at: Number(tm.request_at) }), ...(tm.first_token_at === null ? {} : { first_token_at: Number(tm.first_token_at) }) } } : {}),
+    ...(u ? { usage: { input: Number(u.input), output: Number(u.output), cache_read: Number(u.cache_read), cache_write: Number(u.cache_write), calls: Number(u.calls) }, cost_usd: Number(u.cost_usd) } : {})
   }
 }
 
