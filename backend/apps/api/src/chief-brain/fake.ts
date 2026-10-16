@@ -35,6 +35,8 @@ export interface FakeCall {
   readonly laterUsers: ReadonlyArray<string>;
   readonly reasoning: string | undefined;
   readonly maxTokens: number | undefined;
+  /** The tools offered with the request: name and JSON size of its parameters. */
+  readonly tools: ReadonlyArray<{ readonly name: string; readonly size: number }>;
 }
 
 export const fakeCalls: FakeCall[] = [];
@@ -99,6 +101,7 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
     laterUsers: messages.filter((m) => m.role === "user" && m !== firstUser).map((m) => textOf(m.content)),
     reasoning: (options as { reasoning?: string } | undefined)?.reasoning,
     maxTokens: options?.maxTokens,
+    tools: ((context as { tools?: Array<{ name: string; parameters?: unknown }> }).tools ?? []).map((t) => ({ name: t.name, size: JSON.stringify(t.parameters ?? {}).length })),
   });
   // A step containing "HANG_COMPACT" answers only after 45 s (a rate-limited or slow compactor).
   if (compact && (blocksOf(firstUser?.content).at(-1) ?? "").includes("HANG_COMPACT")) await new Promise((r) => setTimeout(r, 45_000));

@@ -18,6 +18,7 @@ import { brainModels, compactorDefault, compactorModel, creditsCanStart, credits
 import { clipReply, formatMessage, isNoReply, replyTarget, systemFirst, textParts } from "./brain-text.ts"
 import { AGENT, systemPrompt } from "./prompts.ts"
 import { handsTools, memoryTools } from "./brain-tools.ts"
+import { handsEntryTool, hasHand } from "./brain-hands.ts"
 import { chiefsTools } from "./brain-chiefs.ts"
 import { type ChildStart, childInput, childKey, childObject, childPrompt, childRunId, postReports, readChild, slotCounts, slotEnqueue, slotPump, SPAWN_SCHEMA, CHILD_LOST_MS, spawnMax, spawnTool, subagentActivity, takeReport, turnThread } from "./brain-spawn.ts"
 
