@@ -117,6 +117,8 @@ public final class SidebarMirror {
         return decoded.ops
     }
 
+    // Main-actor baseline (chief-approved raise, 3 hits: rows, acceptance, Reply.init): structural rebuild /
+    // drag start only, not per tick; JSON decode of Rust mirror view; removal bead cx-x5jpp; expires 2026-10-20.
     /// The flat rows the sidebar draws, in order.
     public func rows(_ request: SidebarViewRequest) -> [SidebarDocRow]? {
         guard let body = try? JSONEncoder().encode(request), let reply = view(raw: body) else { return nil }
