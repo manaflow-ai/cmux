@@ -135,13 +135,14 @@ function hogqlString(value: string): string {
   return `'${value}'`;
 }
 
-/** The client's view event may be stamped slightly before the server's assignment record. */
+/** The client's view event may be stamped slightly before the assignment record. */
 const VIEW_CLOCK_SKEW_SECONDS = 300;
 
 /**
- * Each exposed person once: the server-assigned variant (first assignment;
- * assignment is sticky) joined to the person's first exposure event after
- * it. `first_at` is the exposure time. A person who was assigned but never
+ * Each exposed person once: the assigned variant from the first
+ * `paywall_assigned` (iOS: sent by the server; web: sent by the browser for
+ * the proxy cookie's arm; assignment is sticky) joined to the person's first
+ * exposure event after it. `first_at` is the exposure time. A person who was assigned but never
  * saw the paywall is not exposed.
  */
 function exposureSubquery(definition: ExperimentDefinition): string {
@@ -679,13 +680,19 @@ function percent(numerator: number, denominator: number): string {
   return denominator > 0 ? `${((numerator / denominator) * 100).toFixed(1)}%` : "n/a";
 }
 
+/** Where each platform's `paywall_assigned` comes from, for the report. */
+const ASSIGNMENT_SOURCE: Readonly<Record<ExperimentDefinition["platform"], string>> = {
+  ios: "the server's assignment (`paywall_assigned` sent by the server)",
+  web: "the proxy cookie's assignment (`paywall_assigned` sent by the browser)",
+};
+
 export function optimizerReport(definition: ExperimentDefinition, snapshot: OptimizerSnapshot, changes: readonly PaywallChange[], now: Date): string {
   const { decision } = snapshot;
   const lines = [
     `# ${definition.key} optimizer report, ${now.toISOString().slice(0, 10)}`,
     "",
     `Platform: ${definition.platform} (never pooled with other platforms). Flag: ${definition.flagKey}${snapshot.flagFound ? "" : " (NOT FOUND: using the seed definition)"}. Mode: ${snapshot.dryRun ? "dry run, nothing written" : "live"}.`,
-    `Primary metric: ${definition.primary.label}, per exposed person after first exposure. Exposure: first \`${definition.exposureEvent}\` after the server assignment, in the server-assigned arm; since ${definition.startDate}, excluding internal, synthetic and non-production.`,
+    `Primary metric: ${definition.primary.label}, per exposed person after first exposure. Exposure: first \`${definition.exposureEvent}\` after ${ASSIGNMENT_SOURCE[definition.platform]}, in that assigned arm; since ${definition.startDate}, excluding internal, synthetic and non-production.`,
     `People whose app reported a different arm than the server assigned: ${snapshot.clientVariantMismatches}.`,
     "",
     `| Variant | Status | Traffic now | Traffic next | Exposed | Converted | Rate | P(best) | ${definition.secondary.map((metric) => metric.key).join(" | ")} | ${definition.guardrails.map((metric) => metric.key).join(" | ")} |`,
