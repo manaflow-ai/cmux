@@ -290,7 +290,7 @@ def _is_ghostty_init(words: list[str]) -> bool:
     if (
         len(script_words) == 2
         and script_words[0] in INIT_SUBMODULE_PATHS
-        and script_words[1] == "ghostty"
+        and script_words[1] in GHOSTTY_SUBMODULES
     ):
         return True
     return (

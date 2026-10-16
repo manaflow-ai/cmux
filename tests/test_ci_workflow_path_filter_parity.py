@@ -35,9 +35,18 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
     # pull-request side.
     "cmux-next.yml": (
         "paths",
-        frozenset({"Packages/macOS/**", "Packages/Shared/**", "Packages/iOS/**"}),
+        frozenset({
+            "Packages/macOS/**", "Packages/Shared/**", "Packages/iOS/**",
+            ".github/workflows/nightly.yml", "scripts/apple-developer-id-certs/**",
+            "scripts/ci/*nightly*", "scripts/ci/download-run-artifact.py",
+            "scripts/ci/finalize-release.py", "scripts/ci/publish-release-assets.py",
+            "scripts/ci/signing-keychain.sh", "scripts/ci/update-release-tag.py",
+            "scripts/ci/upload-r2-object.py", "scripts/import-apple-developer-id-intermediates.sh",
+            "scripts/prune_nightly_release_assets.py",
+        }),
         "base pushes keep full side coverage for every package; pull requests send "
-        "packages outside CmuxNext to the focused package lane",
+        "packages outside CmuxNext to the focused package lane, while nightly "
+        "publication controls run only on trusted branch pushes",
     ),
     # Production promotion controls are intentionally push-only: a pull
     # request may validate the backend, but it must never queue a production

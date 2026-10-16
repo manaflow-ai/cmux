@@ -754,7 +754,7 @@ jobs:
       - name: Move nightly-next
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          PROMOTION_REQUEST: ${{ inputs.promote_nightly_next_sha }}
+          REQUESTED_SHA: ${{ inputs.promote_nightly_next_sha }}
           DEBOUNCE: ${{ contains(inputs.promote_nightly_next_sha, ':debounce') && 'true' || 'false' }}
           MIN_INTERVAL_HOURS: ${{ vars.NIGHTLY_NEXT_MIN_INTERVAL_HOURS || '2' }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -764,7 +764,7 @@ jobs:
             const source = 'feat-cmux-next';
             const target = 'nightly-next';
             const requiredJob = 'cmux-next Release compile (Xcode 26)';
-            const request = (process.env.PROMOTION_REQUEST || '').trim();
+            const request = (process.env.REQUESTED_SHA || '').trim();
             const sha = request.split(':', 1)[0];
             if (!/^[0-9a-f]{40}$/.test(sha)) {
               core.setFailed(`promote_nightly_next_sha must be 40 lowercase hex characters, got ${sha}`);
@@ -1294,7 +1294,7 @@ jobs:
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.continue_only != 'true'
     # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
     # release workflow by building and verifying it on macOS 15 instead.
-    runs-on: ${{ inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'macos-15' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 20
     env:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
@@ -1431,7 +1431,7 @@ jobs:
     # NEXT retains only its own local Release state, without shared restores.
     # Rescue on main watches both refs; retries and dispatches take Blacksmith.
     # Fast dogfood keeps the dedicated Blacksmith image. Signing stays hosted.
-    runs-on: ${{ inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && (github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && vars.CI_NIGHTLY_NEXT_TRUSTED_POOL != '' && vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER != '' && fromJSON(format('["{0}", "{1}", "glaeda-trusted-next-nightly"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))) || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && 'ubuntu-24.04' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && (github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && vars.CI_NIGHTLY_NEXT_TRUSTED_POOL != '' && vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER != '' && fromJSON(format('["{0}", "{1}", "glaeda-trusted-next-nightly"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))) || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # The Blacksmith cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
@@ -4448,11 +4448,11 @@ jobs:
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "could not resolve CMUXCommit $short" >&2; exit 1; }
           for required in $REQUIRED; do
             status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$required...$sha" --jq .status)"
-            case "$status" in
-              ahead|identical) ;;
-              *) echo "build commit $sha lacks required commit $required ($status); refusing before any Apple submission" >&2
-                 : > "$RUNNER_TEMP/legacy-requirement-refused"; exit 1 ;;
-            esac
+            if [[ "$status" != ahead && "$status" != identical ]]; then
+              echo "build commit $sha lacks required commit $required ($status); refusing before any Apple submission" >&2
+              : > "$RUNNER_TEMP/legacy-requirement-refused"
+              exit 1
+            fi
           done
           git fetch --no-tags --depth=1 origin "$sha"
           git worktree add --detach "$RUNNER_TEMP/build-src" "$sha"
