@@ -31,7 +31,7 @@ struct SceneNodeViewRenderingTests {
                 clickCount: 1,
                 pressure: 1
             ) else { continue }
-            NSApp.sendEvent(event)
+            NSApp.postEvent(event, atStart: false)
         }
         spinRunLoop()
         for _ in 0..<5 {
@@ -159,8 +159,10 @@ struct SceneNodeViewRenderingTests {
         let rootId = try #require(runtime.store.rootId)
         let listId = try #require(runtime.store.node(rootId)?.children.first)
         let rowId = try #require(runtime.store.node(listId)?.children.first)
+        var sceneEvents: [(nodeId: String, event: String)] = []
         let sink = SceneEventSink { nodeId, event, payload in
-            runtime.dispatchEvent(nodeId: nodeId, event: event, payload: payload)
+            _ = payload
+            sceneEvents.append((nodeId, event))
         }
         let host = NSHostingView(
             rootView: SceneNodeView(nodeId: rootId)
@@ -188,6 +190,10 @@ struct SceneNodeViewRenderingTests {
         )
         await postLeftClick(at: clickPoint, in: window)
 
+        #expect(sceneEvents.count == 1)
+        #expect(sceneEvents.first?.nodeId == rowId)
+        #expect(sceneEvents.first?.event == "tap")
+        runtime.dispatchEvent(nodeId: rowId, event: "tap")
         #expect(captured == [
             .cmux(method: "workspace.select", params: ["workspace_id": "w1"]),
         ])
