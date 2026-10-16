@@ -12194,39 +12194,36 @@ struct VerticalTabsSidebar: View, Equatable {
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         // The AppKit NSTableView sidebar is opt-in while it soaks; default stays
         // on the SwiftUI list. The flag key is declared only in FeatureFlags.swift.
-        VStack(spacing: 0) {
-            // Reserve real layout space above the workspace table. A padding on
-            // the AppKit table moves its host view without changing the table's
-            // viewport, which can leave the rows clipped; a stack gives the
-            // local workspaces a full viewport directly below Home's list.
+        Group {
+            if featureFlags.isAppKitSidebarListEnabled {
+                AnyView(
+                    appKitWorkspaceScrollArea(renderContext: renderContext)
+                        // Push the flag value into the portal from its single
+                        // evaluation site (feature-flag lint one-file rule).
+                        .onAppear { WindowTerminalPortal.usesCoalescedAnchorFailsafe = true }
+                )
+            } else {
+                AnyView(
+                    SidebarUnreadSnapshotReader(source: sidebarUnread) { unreadSnapshot in
+                        legacyWorkspaceScrollArea(
+                            renderContext: renderContext,
+                            unreadSnapshot: unreadSnapshot
+                        )
+                    }
+                    .onAppear { WindowTerminalPortal.usesCoalescedAnchorFailsafe = false }
+                )
+            }
+        }
+        // Reserve real layout space above the workspace list. Safe-area inset
+        // changes the table's viewport as well as its origin, so local cmux
+        // workspaces remain visible directly below Home's conversation list.
+        .safeAreaInset(edge: .top, spacing: 0) {
             if isChiefHomeSelected {
                 Color.clear
                     .frame(height: Self.chiefHomeConversationListTopPadding)
                     .allowsHitTesting(false)
             }
-            Group {
-                if featureFlags.isAppKitSidebarListEnabled {
-                    AnyView(
-                        appKitWorkspaceScrollArea(renderContext: renderContext)
-                            // Push the flag value into the portal from its single
-                            // evaluation site (feature-flag lint one-file rule).
-                            .onAppear { WindowTerminalPortal.usesCoalescedAnchorFailsafe = true }
-                    )
-                } else {
-                    AnyView(
-                        SidebarUnreadSnapshotReader(source: sidebarUnread) { unreadSnapshot in
-                            legacyWorkspaceScrollArea(
-                                renderContext: renderContext,
-                                unreadSnapshot: unreadSnapshot
-                            )
-                        }
-                        .onAppear { WindowTerminalPortal.usesCoalescedAnchorFailsafe = false }
-                    )
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         // Workspace publisher observations and the snapshot refresh feed BOTH
         // list implementations, so they live on the shared parent. Both use one snapshot cache; material updates publish a generation,
         // never a second retained copy of every workspace snapshot.
