@@ -38,14 +38,8 @@ pub(super) async fn handle_notification(
             // Notifications have no response channel, but they still cross
             // the same origin/ownership boundary as request-form cancels.
             if conn.origin != Origin::Local
-                && let Err(e) = super::remote_guard::check(
-                    hub,
-                    conn.origin,
-                    conn.auth,
-                    m,
-                    &mut params,
-                )
-                .await
+                && let Err(e) =
+                    super::remote_guard::check(hub, conn.origin, conn.auth, m, &mut params).await
             {
                 tracing::debug!(conn = %conn.id, "cancel refused: {e}");
                 return;
