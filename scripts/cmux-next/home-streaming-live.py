@@ -321,7 +321,11 @@ def live_frames(conversation, session):
         brain.request("conversation-live-publish", conversation=conversation,
                       frame={**frame, "conversation": conversation, "run": run})
 
-    def talk(text, step="talk:0", final=False):
+    # Step ids as the Cloud brain makes them (`talk:<generation task id>`, cx-5ylym): no number in
+    # them, and their text order is not the segment order. Home orders by the rows' Step.seq.
+    s0, s1, s2 = "talk:gen_q7", "talk:gen_c2", "talk:gen_k5"
+
+    def talk(text, step=s0, final=False):
         seq = seqs.get(step, -1) + 1
         seqs[step] = seq
         frame = {"type": "step.delta", "step": step, "kind": "talk", "seq": seq, "text": text}
@@ -345,8 +349,8 @@ def live_frames(conversation, session):
     # Two reply segments end before the join (final frame, then the step row with the whole text,
     # which frees the owner's live text), as a Chief that called a tool between them (cx-kdm25).
     segments = []
-    for step, pieces in (("talk:0", ("Live frames reach ", "the native ", "Messages view.")),
-                         ("talk:1", ("Ended segments ", "come from ", "the run rows."))):
+    for step, pieces in ((s0, ("Live frames reach ", "the native ", "Messages view.")),
+                         (s1, ("Ended segments ", "come from ", "the run rows."))):
         seg = ""
         for i, piece in enumerate(pieces):
             talk(piece, step=step, final=i == len(pieces) - 1)
@@ -359,7 +363,7 @@ def live_frames(conversation, session):
     # A third segment streams when the view joins.
     seg = ""
     for piece in ("The open segment ", "streams on"):
-        talk(piece, step="talk:2")
+        talk(piece, step=s2)
         seg += piece
     text = "\n\n".join(segments + [seg])
     check("stream-open", lambda: (drive("texts", limit=1).get("texts") or [""])[-1] == text)
@@ -372,7 +376,7 @@ def live_frames(conversation, session):
     # The bubble as it stands with the line under it, before the step's final frame.
     before = chief_bubble()
     incoming_before = len([r for r in drive("rows").get("rows", []) if r.get("kind") == "text" and not r.get("outgoing")])
-    talk(" in place.", step="talk:2", final=True)
+    talk(" in place.", step=s2, final=True)
     text += " in place."
     check("after-join", lambda: (drive("texts", limit=1).get("texts") or [""])[-1] == text)
     # The producer's order (spec: final frame, run end, reply), with the gap a real turn can leave

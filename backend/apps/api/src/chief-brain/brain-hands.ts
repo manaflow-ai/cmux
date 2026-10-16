@@ -4,6 +4,8 @@ import { Effect, Layer } from "effect"
 import type { Env } from "../env.ts"
 import { apiOrigin, handStub, listHands, mintPairCode, resolveHand } from "../hand-api.ts"
 import { createSandbox } from "../hand-sandbox.ts"
+import { payerTeam } from "../credits.ts"
+import { mintRunToken } from "../model-gateway/run-token.ts"
 import { HandsError, type AgentEvent, type HandCaller, type HandReply } from "../hand-wire.ts"
 import { Hands } from "./contract.ts"
 import type { StepPatch } from "./brain-runs.ts"
@@ -24,11 +26,24 @@ const rpc = <A>(f: () => Promise<HandReply<A>>) =>
   Effect.flatMap(Effect.tryPromise({ try: f, catch: (e) => new HandsError("hand.unreachable", e instanceof Error ? e.message : String(e)) }), unwrap)
 
 /** The live service for one Chief of one owner. */
-export const handsLayer = (env: Env, caller: HandCaller) =>
+/** `turn`: the brain run the call works for; a run token names it (revoked when that run ends). */
+export const handsLayer = (env: Env, caller: HandCaller, turn?: { readonly run?: string; readonly conversation?: string }) =>
   Layer.succeed(Hands)(
     Hands.of({
       list: () => rpc(() => listHands(env, caller)),
       pairCode: (name, profile) => rpc(() => mintPairCode(env, caller, name, apiOrigin(env), profile)),
+      runToken: (run) =>
+        Effect.tryPromise({
+          // The hand reads seconds.
+          try: async () => {
+            if (!caller.agent || !turn?.run || !turn.conversation) throw new Error("a run token is for a Chief's running turn")
+            // The token names the brain's run (not the tool call), so the run's end revokes it; `run` is the call's label only.
+            void run
+            const t = await mintRunToken(env, { team: payerTeam(caller.user), chief: caller.agent, owner: caller.user, run: turn.run, conversation: turn.conversation })
+            return { token: t.token, expires_at: Math.floor(t.expires_at / 1000) }
+          },
+          catch: (e) => new HandsError("hand.gateway_unavailable", e instanceof Error ? e.message : String(e))
+        }),
       newSandbox: (name) => rpc(() => createSandbox(env, caller, name, apiOrigin(env))),
       resolve: (hand) => rpc(() => resolveHand(env, caller, hand)),
       call: (hand, action, params, timeoutMs) => rpc(() => handStub(env, hand).call(caller, action, params, timeoutMs)),
@@ -179,7 +194,11 @@ export const agentProgram = (a: AgentArgsT, report: HandsReporter, callId: strin
     const budget = Math.min(Math.max(a.wait_seconds ?? 120, 0), 600) * 1000
     const harness = a.harness ?? "agent"
     if (a.action === "start") {
-      const started = (yield* hands.call(hand, "agent.start", { harness: yield* need(a.harness, "harness"), cwd: yield* need(a.cwd, "cwd"), prompt: yield* need(a.prompt, "prompt"), model: a.model, effort: a.effort }, 60_000)) as { session: string }
+      const harnessName = yield* need(a.harness, "harness")
+      // Claude reaches models through the Cloud gateway with a token for this run only (never a raw key).
+      const run = `${callId}`.replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 128)
+      const model_route = harnessName === "claude" ? { kind: "anthropic", ...(yield* hands.runToken(run)) } : undefined
+      const started = (yield* hands.call(hand, "agent.start", { harness: harnessName, cwd: yield* need(a.cwd, "cwd"), prompt: yield* need(a.prompt, "prompt"), model: a.model, effort: a.effort, model_route }, 60_000)) as { session: string }
       if (budget === 0) return started
       return yield* followTurn(hand, handName, harness, started.session, 0, budget, report, callId)
     }
@@ -187,7 +206,9 @@ export const agentProgram = (a: AgentArgsT, report: HandsReporter, callId: strin
     // Follow from where the session is now, so an earlier turn's end is not read again.
     const head = a.after_seq ?? (yield* hands.events(hand, session, 0, 0)).head_seq
     if (a.action === "send") {
-      const sent = yield* hands.call(hand, "agent.send", { session, prompt: yield* need(a.prompt, "prompt") })
+      // A claude chat on the gateway gets a fresh run token per prompt (the hand renews its route; others ignore it).
+      const model_route = a.harness === "claude" ? { kind: "anthropic", ...(yield* hands.runToken(`${callId}`.replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 128))) } : undefined
+      const sent = yield* hands.call(hand, "agent.send", { session, prompt: yield* need(a.prompt, "prompt"), model_route })
       if (budget === 0) return sent
       return yield* followTurn(hand, handName, harness, session, head, budget, report, callId)
     }
@@ -198,14 +219,14 @@ export const agentProgram = (a: AgentArgsT, report: HandsReporter, callId: strin
   })
 
 const asText = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v, null, 2))
-const run = <A>(env: Env, caller: HandCaller | null, program: Effect.Effect<A, HandsError, Hands>): Promise<string> =>
+const run = <A>(env: Env, caller: HandCaller | null, program: Effect.Effect<A, HandsError, Hands>, turn?: { readonly run?: string; readonly conversation?: string }): Promise<string> =>
   caller === null
     ? Promise.resolve("hands: this brain has no chief yet")
     : Effect.runPromise(
         program.pipe(
           Effect.map(asText),
           Effect.catch((e: HandsError) => Effect.succeed(`hands error ${e.code}: ${e.message}`)),
-          Effect.provide(handsLayer(env, caller))
+          Effect.provide(handsLayer(env, caller, turn))
         )
       )
 
@@ -215,7 +236,7 @@ const run = <A>(env: Env, caller: HandCaller | null, program: Effect.Effect<A, H
  */
 export const handsTools = (
   env: Env,
-  who: () => { agent: string | null; owner: string | null },
+  who: () => { agent: string | null; owner: string | null; run?: string | undefined; conversation?: string | undefined },
   report: HandsReporter = () => undefined
 ): [ToolRegistration<typeof HandsArgs>, ToolRegistration<typeof AgentArgs>] => {
   const caller = (): HandCaller | null => {
@@ -237,7 +258,7 @@ export const handsTools = (
         "Coding agents (claude, codex, opencode) on a hand, through acpmux with the hand's own permission policy. start returns when the turn ends or wait_seconds passes, with the agent's last text, its tool calls and any permission it waits for; continue with wait (after_seq = last_seq).",
       parameters: AgentArgs,
       replay: "unsafe",
-      execute: async (args, api) => ({ content: [{ type: "text", text: await run(env, caller(), agentProgram(args as AgentArgsT, report, api.callId)) }] })
+      execute: async (args, api) => ({ content: [{ type: "text", text: await run(env, caller(), agentProgram(args as AgentArgsT, report, api.callId), { run: who().run, conversation: who().conversation }) }] })
     }
   ]
 }

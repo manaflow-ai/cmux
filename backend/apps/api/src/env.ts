@@ -231,9 +231,12 @@ export interface Env {
   readonly CHIEF_BRAIN_CLAUDE_DAILY_TURNS?: string
   /** Overrides of the Claude route, its sign-in refresh URL and project (tests). */
   readonly CHIEF_BRAIN_CLAUDE_URL?: string
-  /** The Claude route's auth: "stack" (default, X-Stack-Auth) or "bearer" (secret CHIEF_BRAIN_CLAUDE_TOKEN); model-routes.ts. */
+  /** The Claude route's auth: "stack-session" (default), "service-key" (secret CHIEF_BRAIN_CLAUDE_SERVICE_KEY) or "bearer" (secret CHIEF_BRAIN_CLAUDE_TOKEN); model-gateway/routes.ts. */
   readonly CHIEF_BRAIN_CLAUDE_AUTH?: string
   readonly CHIEF_BRAIN_CLAUDE_TOKEN?: string
+  readonly CHIEF_BRAIN_CLAUDE_SERVICE_KEY?: string
+  /** Spend cap of one per-run gateway token, USD (default 5; model-gateway/run-token.ts). */
+  readonly CHIEF_RUN_TOKEN_CAP_USD?: string
   /** Claude names the route serves, comma separated (default "claude-opus-5-5"). */
   readonly CHIEF_BRAIN_CLAUDE_MODELS?: string
   /** "1": send effort + thinking display in the Claude route's Bedrock body ("0" off; default on only for a bearer route). */

@@ -83,9 +83,16 @@ const fakeRoute = (refresh: "ok" | "fail") => {
 }
 afterEach(() => vi.restoreAllMocks())
 
+/** Prepaid credits for the owner's personal team (Claude turns hold and charge credits; model-gateway/gateway.ts). */
+const grant = async (team: string, usd: number) => {
+  const meters = (env as unknown as { USAGE_METER_DO: DurableObjectNamespace }).USAGE_METER_DO
+  await (meters.get(meters.idFromName(team)) as unknown as { creditAdd(e: string, k: string, kind: string, m: number, a: string, r: string | null): Promise<unknown> }).creditAdd(team, `grant-${team}`, "grant", Math.round(usd * 1e6), "test", "claude test")
+}
 const ownerWithClaudeChief = async (sub: string) => {
   const token = await sessionToken(sub)
-  const user = (await op(token, "user.ensure", {})).value.id as string
+  const ensured = (await op(token, "user.ensure", {})).value
+  const user = ensured.id as string
+  await grant(ensured.personal_team as string, 5)
   const chief = (await op(token, "chief.create", { display_name: "Opus Chief" }, `chief-${sub}`)).value as { id: string; main_conversation: string }
   const userDO = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
   let on = { status: 0, json: {} as any, text: "" }
@@ -176,6 +183,8 @@ describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }
     expect(route.refreshes()).toBeGreaterThanOrEqual(1)
     const run = await http("GET", `/v1/chiefs/${chief.id}/runs/${reply.parts[1].session}?conversation=${chief.main_conversation}`, token)
     expect(run.json.value.run.model).toBe("fake")
+    // The fallback's reason is on the run (a note step), not only in the Worker log.
+    expect(run.json.value.steps.find((s: { id: string }) => s.id === "note:model")?.text).toContain("claude-opus-5-5: auth_failed")
     expect(logs).toContain("claude-david auth failed")
     for (const body of [...logs, run.text, JSON.stringify(reply)]) expect(body).not.toContain(REFRESH)
   })
