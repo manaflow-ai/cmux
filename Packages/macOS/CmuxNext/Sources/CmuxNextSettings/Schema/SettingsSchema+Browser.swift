@@ -34,10 +34,10 @@ nonisolated enum BrowserSettingsSchema {
                 kind: .toggle, default: .bool(false), keywords: ["bookmarks", "favorites", "bar"]
             ),
             SettingDescriptor(
-                BuiltInAdBlockerSetting.configPath, section: .browser, group: extensions,
+                BuiltInAdBlockerSetting().configPath, section: .browser, group: extensions,
                 title: SettingsText.keyed("settings.browser.builtInAdBlocker", "Built-in uBlock Origin"),
                 help: SettingsText.keyed("settings.browser.builtInAdBlocker.help", "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts."),
-                kind: .toggle, default: .bool(BuiltInAdBlockerSetting.fallback), keywords: ["ublock", "ad blocker", "adblock", "extensions", "trackers"]
+                kind: .toggle, default: .bool(BuiltInAdBlockerSetting().fallback), keywords: ["ublock", "ad blocker", "adblock", "extensions", "trackers"]
             ),
             SettingDescriptor(
                 BrowserHibernationSetting.configPath, section: .browser, group: memory,

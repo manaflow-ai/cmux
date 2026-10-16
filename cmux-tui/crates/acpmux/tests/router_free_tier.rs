@@ -24,7 +24,13 @@ use std::time::{Duration, Instant};
 const PURPOSE: &str = "cmux.free-tier.v1";
 
 fn scratch(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("amxf-{tag}-{}", std::process::id()));
+    // The pid alone is not unique: rbx lanes share TMPDIR but each has its own PID namespace,
+    // so two lanes' test processes can have the same pid, and one test's relay drop then
+    // shuts down the other's relay. The start time keeps two runs apart.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos());
+    let dir = std::env::temp_dir().join(format!("amxf-{tag}-{}-{nanos:x}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
@@ -82,9 +88,23 @@ fn serve_one(mut stream: TcpStream, api: &Mutex<Api>) {
     let mut body = vec![0u8; length];
     reader.read_exact(&mut body).unwrap();
     let body: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    // The real token route decodes proofs as base64url only (home-core b64u): refuse '+', '/', '='.
+    let not_url = ["attestation", "assertion"]
+        .iter()
+        .any(|f| body.get(*f).and_then(Value::as_str).is_some_and(|v| v.contains(['+', '/', '='])));
     let (status, answer) = {
         let mut api = api.lock().unwrap();
         api.seen.push((path.clone(), auth, body));
+        if not_url {
+            drop(api);
+            let text = json!({"error": {"code": "validation.invalid"}}).to_string();
+            let _ = write!(
+                stream,
+                "HTTP/1.1 400 X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{text}",
+                text.len()
+            );
+            return;
+        }
         if path == "/v1/inference/free/challenge" {
             api.challenges += 1;
             (
@@ -143,7 +163,7 @@ fn start_relay(dir: &Path, test_origin: &str) -> Relay {
 }
 
 fn admin(dir: &Path, request: Value) -> std::io::Result<Value> {
-    let mut stream = UnixStream::connect(dir.join("router").join("router.sock"))?;
+    let mut stream = UnixStream::connect(cmux_coderouter::admin_socket_path(dir))?;
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     stream.write_all(format!("{request}\n").as_bytes())?;
     let mut line = String::new();
@@ -190,7 +210,7 @@ type Asked = Arc<Mutex<Vec<(String, String, Vec<u8>, Option<bool>)>>>;
 /// A stand-in app provider: registers, then answers every request with
 /// fixed proof strings. Returns the connection (dropping it ends the provider).
 fn provider(dir: &Path, origin: &str, has_key: bool, asked: Asked) -> UnixStream {
-    provider_with(dir, origin, has_key, false, asked, None)
+    provider_with(dir, origin, has_key, false, asked, None, false)
 }
 
 fn provider_with(
@@ -200,8 +220,23 @@ fn provider_with(
     signed_in: bool,
     asked: Asked,
     gate: Option<Gate>,
+    fail_store: bool,
 ) -> UnixStream {
-    let stream = UnixStream::connect(dir.join("router").join("router.sock")).unwrap();
+    provider_full(dir, origin, has_key, signed_in, asked, gate, fail_store, false)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn provider_full(
+    dir: &Path,
+    origin: &str,
+    has_key: bool,
+    signed_in: bool,
+    asked: Asked,
+    gate: Option<Gate>,
+    fail_store: bool,
+    std_b64: bool,
+) -> UnixStream {
+    let stream = UnixStream::connect(cmux_coderouter::admin_socket_path(dir)).unwrap();
     let mut write = stream.try_clone().unwrap();
     let register = json!({"op": "attest_provider", "version": 1, "platform": "mac", "origin": origin, "enabled": true, "managed": false, "has_key": has_key, "signed_in": signed_in});
     write.write_all(format!("{register}\n").as_bytes()).unwrap();
@@ -231,10 +266,15 @@ fn provider_with(
                 let _ = release.recv();
             }
             let key = "a2V5LWlkLWZvci10aGUtdGVzdC1kZXZpY2UtMDEyMzQ1Ng";
-            let reply = if req == "attest" {
-                json!({"id": id, "key_id": key, "attestation": "YXR0ZXN0YXRpb24", "device_token": "ZGV2aWNlLXRva2Vu"})
+            let reply = if fail_store {
+                json!({"id": id, "error": "store_failed"})
+            } else if req == "attest" {
+                // Standard base64 as Foundation writes it ('+', '/', padding) when std_b64.
+                let attestation = if std_b64 { "+/+/YXR0ZXN0YXRpb24=" } else { "YXR0ZXN0YXRpb24" };
+                json!({"id": id, "key_id": key, "attestation": attestation, "device_token": "ZGV2aWNlLXRva2Vu"})
             } else {
-                json!({"id": id, "key_id": key, "assertion": "YXNzZXJ0aW9u"})
+                let assertion = if std_b64 { "+/+/YXNzZXJ0aW9u==" } else { "YXNzZXJ0aW9u" };
+                json!({"id": id, "key_id": key, "assertion": assertion})
             };
             if write.write_all(format!("{reply}\n").as_bytes()).is_err() {
                 return;
@@ -406,7 +446,8 @@ fn free_tier_a_provider_for_an_unknown_origin_is_refused() {
     for origin in
         ["https://api.example.com", "http://127.0.0.1:2", "https://cloud-api.cmux.dev.example.com"]
     {
-        let mut stream = UnixStream::connect(dir.join("router").join("router.sock")).unwrap();
+        let mut stream =
+            UnixStream::connect(cmux_coderouter::admin_socket_path(dir.as_ref())).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         let register = json!({"op": "attest_provider", "version": 1, "platform": "mac", "origin": origin, "enabled": true});
         stream.write_all(format!("{register}\n").as_bytes()).unwrap();
@@ -428,7 +469,7 @@ fn free_tier_a_signed_in_app_never_takes_a_free_lease() {
     let (key, port) = mint(&dir);
     let asked: Asked = Arc::default();
     // Signed in, but the account bearer has not reached this relay yet (a restart).
-    let _held = provider_with(&dir, &origin, true, true, asked.clone(), None);
+    let _held = provider_with(&dir, &origin, true, true, asked.clone(), None, false);
 
     let (status, body) = chat(port, &key);
     assert_eq!(status, 503, "{body}");
@@ -464,6 +505,7 @@ fn free_tier_a_lease_in_flight_stores_no_token_after_the_setting_turns_off_or_an
             false,
             asked.clone(),
             Some((arrived_tx, release_rx)),
+            false,
         );
 
         let request = std::thread::spawn(move || chat(port, &key));
@@ -488,4 +530,174 @@ fn free_tier_a_lease_in_flight_stores_no_token_after_the_setting_turns_off_or_an
         held.shutdown(std::net::Shutdown::Both).unwrap();
         drop(relay);
     }
+}
+
+#[test]
+fn free_tier_a_lost_attest_reply_is_followed_by_an_assertion_not_a_second_attestation() {
+    let api = Arc::new(Mutex::new(Api::default()));
+    api.lock().unwrap().answers = vec![
+        // The server stored the grant, but the reply never arrives (a gateway error here).
+        (
+            "/v1/inference/free/attest".into(),
+            vec![(502, json!({"error": {"code": "bad_gateway"}}))],
+        ),
+        ("/v1/inference/free/token".into(), vec![token_answer("free-token-after-loss")]),
+        ("/v1/inference/chat/completions".into(), vec![(200, json!({"served": true}))]),
+    ];
+    let origin = start_api(api.clone());
+    let dir = scratch("lost");
+    let relay = start_relay(&dir, &origin);
+    let (key, port) = mint(&dir);
+    let asked: Asked = Arc::default();
+    let _held = provider(&dir, &origin, false, asked.clone());
+
+    let (status, _) = chat(port, &key);
+    assert_ne!(status, 200);
+    // Wait on the relay's state, with a deadline: the backoff ends when its retry time passes
+    // and the next request may lease again (never a fixed sleep on until_ms).
+    let free = admin(&dir, json!({"op": "status"})).unwrap()["free"].clone();
+    assert_eq!(free["state"], "backoff", "{free}");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let (status, body) = loop {
+        let (status, body) = chat(port, &key);
+        if status == 200 || Instant::now() >= deadline {
+            break (status, body);
+        }
+        assert_eq!(body["error"]["code"], "free.unavailable", "still in backoff: {body}");
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert_eq!(status, 200, "{body}");
+    let kinds: Vec<_> =
+        asked.lock().unwrap().iter().map(|(req, _, _, fresh)| (req.clone(), *fresh)).collect();
+    assert_eq!(kinds, vec![("attest".to_owned(), Some(false)), ("assert".to_owned(), None)]);
+    let api = api.lock().unwrap();
+    assert_eq!(api.seen.iter().filter(|(p, _, _)| p == "/v1/inference/free/attest").count(), 1);
+    let chat_call = api.seen.iter().find(|(p, _, _)| p.ends_with("chat/completions")).unwrap();
+    assert_eq!(chat_call.1, "Bearer free-token-after-loss");
+    drop(relay);
+}
+
+#[test]
+fn free_tier_a_refused_keychain_stops_leases_until_the_app_registers_again() {
+    let api = Arc::new(Mutex::new(Api::default()));
+    let origin = start_api(api.clone());
+    let dir = scratch("store");
+    let relay = start_relay(&dir, &origin);
+    let (key, port) = mint(&dir);
+    let asked: Asked = Arc::default();
+    let held = provider_with(&dir, &origin, true, false, asked.clone(), None, true);
+
+    let (status, body) = chat(port, &key);
+    assert_eq!(status, 401, "{body}");
+    assert_eq!(body["error"]["code"], "free.store_failed");
+    assert_eq!(admin(&dir, json!({"op": "status"})).unwrap()["free"]["state"], "store_failed");
+    // No second lease: the app is not asked again, so its Keychain is not asked again.
+    assert_eq!(chat(port, &key).1["error"]["code"], "free.store_failed");
+    assert_eq!(asked.lock().unwrap().len(), 1);
+
+    // The app registers again (a relaunch): the relay may lease again.
+    held.shutdown(std::net::Shutdown::Both).unwrap();
+    let _again = provider_with(&dir, &origin, true, false, Arc::default(), None, false);
+    assert_eq!(admin(&dir, json!({"op": "status"})).unwrap()["free"]["state"], "idle");
+    drop(relay);
+}
+
+#[test]
+fn free_tier_proofs_reach_the_api_as_base64url_even_when_the_app_writes_standard_base64() {
+    let api = Arc::new(Mutex::new(Api::default()));
+    api.lock().unwrap().answers = vec![
+        ("/v1/inference/free/attest".into(), vec![token_answer("free-token-url-1")]),
+        ("/v1/inference/free/token".into(), vec![token_answer("free-token-url-2")]),
+        ("/v1/inference/chat/completions".into(), vec![(200, json!({"served": true}))]),
+    ];
+    let origin = start_api(api.clone());
+    let dir = scratch("b64u");
+    let relay = start_relay(&dir, &origin);
+    let (key, port) = mint(&dir);
+    let asked: Asked = Arc::default();
+    // has_key: the lease asserts first (the renewal path), then attests on the first lease of a run.
+    let _held = provider_full(&dir, &origin, true, false, asked.clone(), None, false, true);
+
+    let (status, body) = chat(port, &key);
+    assert_eq!(status, 200, "{body}");
+    let api = api.lock().unwrap();
+    let token = api.seen.iter().find(|(p, _, _)| p == "/v1/inference/free/token").unwrap();
+    assert_eq!(token.2["assertion"], "-_-_YXNzZXJ0aW9u");
+    assert!(
+        api.seen.iter().all(|(p, _, _)| p != "/v1/inference/free/attest"),
+        "the renewal needed no new key"
+    );
+    drop(relay);
+}
+
+#[test]
+fn free_tier_a_first_attestation_reaches_the_api_as_base64url() {
+    let api = Arc::new(Mutex::new(Api::default()));
+    api.lock().unwrap().answers = vec![
+        ("/v1/inference/free/attest".into(), vec![token_answer("free-token-url-3")]),
+        ("/v1/inference/chat/completions".into(), vec![(200, json!({"served": true}))]),
+    ];
+    let origin = start_api(api.clone());
+    let dir = scratch("b64a");
+    let relay = start_relay(&dir, &origin);
+    let (key, port) = mint(&dir);
+    let _held = provider_full(&dir, &origin, false, false, Arc::default(), None, false, true);
+
+    let (status, body) = chat(port, &key);
+    assert_eq!(status, 200, "{body}");
+    let api = api.lock().unwrap();
+    let attest = api.seen.iter().find(|(p, _, _)| p == "/v1/inference/free/attest").unwrap();
+    assert_eq!(attest.2["attestation"], "-_-_YXR0ZXN0YXRpb24");
+    drop(relay);
+}
+
+#[test]
+fn free_tier_an_app_that_leaves_before_the_provider_line_leaves_no_provider_and_no_token() {
+    let api = Arc::new(Mutex::new(Api::default()));
+    api.lock().unwrap().answers = vec![
+        ("/v1/inference/free/attest".into(), vec![token_answer("free-token-early")]),
+        ("/v1/inference/chat/completions".into(), vec![(200, json!({"served": true}))]),
+    ];
+    let origin = start_api(api.clone());
+    let dir = scratch("early");
+    let relay = start_relay(&dir, &origin);
+    let (key, port) = mint(&dir);
+    // A live provider first, with a free token.
+    let held = provider(&dir, &origin, false, Arc::default());
+    assert_eq!(chat(port, &key).0, 200);
+    assert_eq!(admin(&dir, json!({"op": "status"})).unwrap()["free"]["state"], "active");
+
+    // A new app registers and ends its side before it reads the provider line (it quit at that
+    // moment). It half-closes: a fully closed peer fails the relay's peer check on macOS
+    // (getpeereid on a dead socket), so that close would test the refusal, not this rule. The
+    // stream drops only after the relay ended the provider, and nothing is ever read from it.
+    let mut early = UnixStream::connect(cmux_coderouter::admin_socket_path(dir.as_ref())).unwrap();
+    let register = json!({"op": "attest_provider", "version": 1, "platform": "mac", "origin": origin, "enabled": true});
+    early.write_all(format!("{register}\n").as_bytes()).unwrap();
+    early.shutdown(std::net::Shutdown::Write).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let free = loop {
+        let free = admin(&dir, json!({"op": "status"})).unwrap()["free"].clone();
+        if free["provider"] == false || Instant::now() >= deadline {
+            break free;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    drop(early);
+    assert_eq!(free["provider"], false, "{free}");
+    assert_eq!(free["state"], "off", "{free}");
+    // The old token went with its provider: the next request is not forwarded with it.
+    let forwarded =
+        api.lock().unwrap().seen.iter().filter(|(p, _, _)| p.ends_with("chat/completions")).count();
+    let (status, body) = chat(port, &key);
+    assert_eq!(status, 503, "{body}");
+    assert_eq!(body["error"]["code"], "router.no_upstream");
+    assert_eq!(
+        api.lock().unwrap().seen.iter().filter(|(p, _, _)| p.ends_with("chat/completions")).count(),
+        forwarded
+    );
+    // The relay closed the replaced provider already; on macOS a shutdown of it is ENOTCONN.
+    drop(held);
+    drop(relay);
 }

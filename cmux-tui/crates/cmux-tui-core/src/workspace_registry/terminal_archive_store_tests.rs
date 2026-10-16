@@ -22,11 +22,17 @@ fn terminal(index: usize) -> String {
     format!("term_{index:032x}")
 }
 
-/// A closed group whose tab record names `terminals`.
+/// A closed group whose tab records name `terminals`.
 fn close_group(registry: &WorkspaceRegistry, closed_id: &str, terminals: &[String]) {
-    let tabs =
-        terminals.iter().map(|id| serde_json::json!({"terminal_id": id})).collect::<Vec<_>>();
-    let record = serde_json::json!({"kind": "tab", "screens": [{"tabs": tabs}]});
+    let tabs = terminals
+        .iter()
+        .map(|id| serde_json::json!({"kind": "terminal", "terminal_id": id}))
+        .collect::<Vec<_>>();
+    let record = serde_json::json!({
+        "id": closed_id,
+        "kind": "tab",
+        "members": [{"kind": "tab", "screens": [{"tabs": tabs}]}],
+    });
     registry
         .connection
         .get()
@@ -50,6 +56,7 @@ fn archive(registry: &mut WorkspaceRegistry, terminal_id: &str, at: u64) {
                 screen: Some(b"old screen"),
             }],
             at,
+            ARCHIVE_BLOB_BUDGET_BYTES,
         )
         .unwrap();
 }
@@ -141,6 +148,7 @@ fn an_oversized_screen_is_not_stored_and_a_program_name_is_cleaned() {
                 screen: Some(&huge),
             }],
             1,
+            ARCHIVE_BLOB_BUDGET_BYTES,
         )
         .unwrap();
     let stored = registry.registry.terminal_archive(&id).unwrap().expect("stored");
@@ -157,6 +165,55 @@ fn an_archive_without_a_closed_group_is_not_stored() {
     archive(&mut registry.registry, &terminal(7), 1);
     assert_eq!(count(&registry.registry), 0);
     assert!(!registry.registry.closed_history_mentions_terminal(&terminal(7)).unwrap());
+}
+
+/// The byte budget across archives: past it the oldest archive loses its
+/// screen (the reopened tab keeps its program line), and its closed-history
+/// row says the scrollback was not kept.
+#[test]
+fn archives_past_the_byte_budget_lose_the_oldest_screen() {
+    let mut registry = open("budget");
+    let (old, new) = (terminal(1), terminal(2));
+    close_group(&registry.registry, "closed_old", std::slice::from_ref(&old));
+    close_group(&registry.registry, "closed_new", std::slice::from_ref(&new));
+    // Noise does not compress: each gzip screen is just over 4 KiB.
+    let mut seed = 1_u32;
+    let screen = (0..4096)
+        .map(|_| {
+            seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+            seed.to_be_bytes()[0]
+        })
+        .collect::<Vec<_>>();
+    for (id, at) in [(&old, 1), (&new, 2)] {
+        let row = ArchiveRow {
+            terminal_id: id,
+            generation: "g1",
+            program: Some("sleep"),
+            cols: 80,
+            rows: 24,
+            screen: Some(&screen),
+        };
+        registry.registry.put_terminal_archives(&[row], at, 6 * 1024).unwrap();
+    }
+
+    let evicted = registry.registry.terminal_archive(&old).unwrap().expect("the row stays");
+    assert_eq!(evicted.screen, None, "the oldest screen goes first");
+    assert_eq!(evicted.program.as_deref(), Some("sleep"));
+    let kept = registry.registry.terminal_archive(&new).unwrap().expect("kept");
+    assert_eq!(kept.screen.as_deref(), Some(&screen[..]));
+
+    let items = crate::state::closed_history_query::closed_items_in(
+        &registry.registry.connection.get(),
+        None,
+        10,
+    )
+    .unwrap();
+    let not_kept = |closed_id: &str| {
+        let item = items.iter().find(|item| item["id"] == closed_id).expect("listed");
+        item["members"][0]["screens"][0]["tabs"][0]["scrollback_not_kept"].clone()
+    };
+    assert_eq!(not_kept("closed_old"), serde_json::json!(true));
+    assert_eq!(not_kept("closed_new"), serde_json::Value::Null);
 }
 
 #[test]

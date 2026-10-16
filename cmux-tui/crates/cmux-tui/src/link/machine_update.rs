@@ -11,7 +11,12 @@
 //!    (another build that lacks one of those verbs); a machine that serves
 //!    them all is left alone. (A newer build that lacks one, say without
 //!    acpmux configured, is not told apart: there is no version order to
-//!    compare yet.) It
+//!    compare yet.) With `--to-bundled` (Update Everything, cx-1mbnu) any
+//!    machine whose daemon reports another build than this client's own (or
+//!    none) is updated, so every machine runs the build the app bundles.
+//!    Two apps of different builds that share a machine therefore each move
+//!    it to their own build, also back to an older one; accepted, as Update
+//!    Everything only runs when a person asks for it in that app. It
 //!    must serve `fs-v1` and `detached-terminals-v1`, and run the daemon from
 //!    `<home>/.cmux/bin/cmux-tui`, the binary its supervisor restarts.
 //! 2. The new build is this client's own Linux build, pinned by the signed
@@ -43,7 +48,7 @@ use serde_json::{Value, json};
 
 use super::machine_gate;
 
-const USAGE: &str = "usage: cmux link machine update --socket MACHINE_DAEMON_SOCKET";
+const USAGE: &str = "usage: cmux link machine update --socket MACHINE_DAEMON_SOCKET [--to-bundled]";
 /// Every Cloud image bakes an x86_64 machine (images/cmux-vm inputs.lock.json).
 const CLOUD_ARCH: &str = "x86_64";
 /// The verbs whose absence makes a machine worth updating.
@@ -76,14 +81,21 @@ pub(super) fn run(args: &[String]) -> i32 {
         println!("{USAGE}");
         return 0;
     }
-    let socket = match args {
-        [action, flag, socket] if action == "update" && flag == "--socket" => PathBuf::from(socket),
+    let (socket, to_bundled) = match args {
+        [action, flag, socket] if action == "update" && flag == "--socket" => {
+            (PathBuf::from(socket), false)
+        }
+        [action, flag, socket, bundled] | [action, bundled, flag, socket]
+            if action == "update" && flag == "--socket" && bundled == "--to-bundled" =>
+        {
+            (PathBuf::from(socket), true)
+        }
         _ => {
             eprintln!("{USAGE}");
             return 64;
         }
     };
-    match update(&socket) {
+    match update(&socket, to_bundled) {
         Ok(mut line) => {
             line["ok"] = json!(true);
             println!("{line}");
@@ -96,11 +108,19 @@ pub(super) fn run(args: &[String]) -> i32 {
     }
 }
 
-fn update(socket: &Path) -> Result<Value, Failed> {
+/// `to_bundled`: update whenever the machine runs another build than this
+/// client's own, not only when it lacks one of [`NEEDED`] (also to an older
+/// build: two apps that share a machine each move it to their own).
+fn update(socket: &Path, to_bundled: bool) -> Result<Value, Failed> {
     let before = machine_gate::identify(socket)
         .ok_or_else(|| Failed::new("machine_unreachable", "the machine daemon did not answer"))?;
     let previous = machine_gate::build_id(&before).map(str::to_owned);
-    if machine_gate::outdated_identity(&before, &NEEDED).is_none() {
+    let current = if to_bundled {
+        previous.as_deref() == Some(cmux_build_identity::BUILD_IDENTITY)
+    } else {
+        machine_gate::outdated_identity(&before, &NEEDED).is_none()
+    };
+    if current {
         return Ok(json!({"updated": false, "build": previous}));
     }
     let served = machine_gate::served(&before).unwrap_or_default();

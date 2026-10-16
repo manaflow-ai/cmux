@@ -101,6 +101,38 @@
   background: color-mix(in srgb, var(--agent-text) 13%, var(--acpmux-base));
 }
 
+/* The images a prompt sent, above its bubble: thumbnails on a checker, so a dark screenshot reads. */
+.cv-user__images {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 70%;
+  margin-bottom: 6px;
+}
+.cv-user__images button {
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  cursor: zoom-in;
+}
+.cv-user__images img {
+  display: block;
+  width: auto;
+  height: 72px;
+  max-width: 160px;
+  object-fit: cover;
+  border-radius: 10px;
+  outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
+  outline-offset: -1px;
+  background: repeating-conic-gradient(
+      color-mix(in srgb, var(--agent-text) 10%, transparent) 0 25%,
+      transparent 0 50%
+    )
+    0 0 / 12px 12px;
+}
+
 /* A Chief subagent's first message: the Chief's view as one collapsed line above the task. */
 .cv-user__context {
   box-sizing: border-box;
@@ -792,15 +824,18 @@ pre.cv-math-source {
 :root[data-borders="none"] .acpmux-ask { border-color: transparent; }
 .acpmux-ask-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 2px 8px;
   min-inline-size: 0;
   min-height: 28px;
 }
+/* The command keeps at least 10rem on the answers' line; in a narrower pane the answers take a
+   line of their own under it, so none of them is cut off (cx-ncc.111). */
 .acpmux-ask-toggle {
   all: unset;
   display: flex;
-  flex: 1;
+  flex: 1 1 10rem;
   align-items: center;
   gap: 6px;
   min-inline-size: 0;
@@ -844,7 +879,10 @@ pre.cv-math-source {
 .acpmux-ask-actions {
   display: flex;
   flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 4px;
+  max-inline-size: 100%;
   margin-inline-start: auto;
 }
 .acpmux-ask-action {

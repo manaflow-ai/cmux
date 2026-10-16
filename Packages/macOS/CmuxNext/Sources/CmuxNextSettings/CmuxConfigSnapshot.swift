@@ -36,9 +36,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `browser.showBookmarksBar`; off when unset.
     public var browserShowBookmarksBar = false
     /// `browser.builtInAdBlocker`; on when unset.
-    public var browserBuiltInAdBlocker = BuiltInAdBlockerSetting.fallback
-    /// `home.attachments.keepLocation`; off (strip location) when unset.
-    public var homeKeepLocation = false
+    public var browserBuiltInAdBlocker = BuiltInAdBlockerSetting().fallback
+    /// `home.attachments.keepLocation` (off: strip location) and `home.channelsEnabled`; off when unset.
+    public var homeKeepLocation = false, homeChannelsEnabled = false
     /// `labs.previewFeatures` and `labs.classicHome`; off when unset.
     public var previewFeatures = CmuxConfigSnapshot.previewFeaturesDefault, classicHome = CmuxConfigSnapshot.classicHomeDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`.
@@ -67,6 +67,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var sidebarSections = SidebarSectionsPreferences.defaults
     /// `sidebar.hoverCards.*`: hover cards on, and their delay.
     public var hoverCards = HoverCardSettings()
+    /// `appearance.colorTransition.*` (cx-3rf4z).
+    public var colorTransition = ColorTransitionSetting()
     /// `layout.splitSizing`, `layout.newColumnWidth`, docked defaults and the
     /// minimum pane size (`ColumnLayoutSettings`).
     public var splitSizing: SplitSizing = ColumnLayoutSettings.splitSizingFallback
@@ -143,10 +145,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
     /// `tabs.cmdWClosesPinnedTabs`; off when unset or invalid.
     public var cmdWClosesPinnedTabs: Bool = CmdWClosesPinnedTabsSetting.fallback
+    /// `tabs.overflow`; shrink when unset or invalid.
+    public var tabOverflow: TabOverflow = TabOverflowSetting.fallback
     /// `tabs.swapCmdTAndCmdN`; off when unset or invalid.
     public var swapCmdTAndCmdN: Bool = SwapCmdTAndCmdNSetting.fallback
-    /// `tabs.tabBar.<kind>`; Automatic when unset or invalid.
-    public var paneTabBars = PaneTabBarDefaults()
     /// `palette.scopes.<scope>.prefix`: user-assigned palette scope prefixes.
     public var paletteScopePrefixes = PaletteScopePrefixes()
     /// `tasks.layout`; "inbox" when unset or invalid.
@@ -223,8 +225,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.browserNewTabPage = newTabPage
         if let newTabPageDiagnostic { snapshot.diagnostics.append(newTabPageDiagnostic) }
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
-        snapshot.take(BuiltInAdBlockerSetting.parse(root), \.browserBuiltInAdBlocker)
-        snapshot.take(HomeKeepLocationSetting.parse(root), \.homeKeepLocation)
+        snapshot.take(BuiltInAdBlockerSetting().parse(root), \.browserBuiltInAdBlocker)
+        snapshot.takeHome(root)
         snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
         snapshot.take(Self.parseLabsToggle(root, path: classicHomePath, fallback: classicHomeDefault), \.classicHome)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
@@ -251,6 +253,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.defaultColumnWidth = DefaultColumnWidthSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sidebarSections = SidebarSectionsSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.hoverCards = HoverCardSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.colorTransition = ColorTransitionSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.chromeStyle = ChromeStyleSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sidebarBorder = SidebarBorderSetting.parse(root, defaultShows: snapshot.chromeStyle.sidebarBorder ?? false,
                                                             diagnostics: &snapshot.diagnostics)
@@ -305,12 +308,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (cmdWClosesPinnedTabs, cmdWClosesPinnedTabsDiagnostic) = CmdWClosesPinnedTabsSetting.parse(root)
         snapshot.cmdWClosesPinnedTabs = cmdWClosesPinnedTabs
         if let cmdWClosesPinnedTabsDiagnostic { snapshot.diagnostics.append(cmdWClosesPinnedTabsDiagnostic) }
+        snapshot.take(TabOverflowSetting.parse(root), \.tabOverflow)
         let (swapCmdTAndCmdN, swapCmdTAndCmdNDiagnostic) = SwapCmdTAndCmdNSetting.parse(root)
         snapshot.swapCmdTAndCmdN = swapCmdTAndCmdN
         if let swapCmdTAndCmdNDiagnostic { snapshot.diagnostics.append(swapCmdTAndCmdNDiagnostic) }
-        let (paneTabBars, paneTabBarDiagnostics) = PaneTabBarDefaults.parse(root)
-        snapshot.paneTabBars = paneTabBars
-        snapshot.diagnostics += paneTabBarDiagnostics
         let (prefixes, prefixDiagnostics) = PaletteScopePrefixes.parse(root)
         snapshot.paletteScopePrefixes = prefixes
         snapshot.diagnostics += prefixDiagnostics

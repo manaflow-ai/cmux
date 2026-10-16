@@ -515,6 +515,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           DEV_DAILY: ${{ inputs.dev_daily || false }}
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha }}
+          SAME_TREE_SHA: ${{ inputs.same_tree_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -540,10 +541,17 @@ jobs:
               echo "error: dev_daily runs on refs/heads/feat-cmux-next, got $GITHUB_REF" >&2
               exit 1
             }
-            [[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]] || {
-              echo "error: dev_daily asked for $DEV_DAILY_SHA but feat-cmux-next moved to $GITHUB_SHA; the next dispatcher tick takes the new tip" >&2
-              exit 1
-            }
+            if [[ -n "$SAME_TREE_SHA" ]]; then
+              [[ "$DEV_DAILY_SHA" == "$SAME_TREE_SHA" ]] || {
+                echo "error: deferred dev_daily asked for $DEV_DAILY_SHA but same-tree mode is $SAME_TREE_SHA" >&2
+                exit 1
+              }
+            else
+              [[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]] || {
+                echo "error: dev_daily asked for $DEV_DAILY_SHA but feat-cmux-next moved to $GITHUB_SHA; the next dispatcher tick takes the new tip" >&2
+                exit 1
+              }
+            fi
             {
               echo 'native=false'
               echo 'swift_canary=false'
@@ -2459,11 +2467,19 @@ jobs:
         if: inputs.dev_daily == true
         env:
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha }}
+          SAME_TREE_SHA: ${{ inputs.same_tree_sha }}
         run: |
-          [[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]] || {
-            echo "error: dev_daily asked for $DEV_DAILY_SHA but this run checked out $GITHUB_SHA; the next dispatcher tick takes the new tip" >&2
-            exit 1
-          }
+          if [[ -n "$SAME_TREE_SHA" ]]; then
+            [[ "$DEV_DAILY_SHA" == "$SAME_TREE_SHA" ]] || {
+              echo "error: deferred dev_daily asked for $DEV_DAILY_SHA but same-tree mode is $SAME_TREE_SHA" >&2
+              exit 1
+            }
+          else
+            [[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]] || {
+              echo "error: dev_daily asked for $DEV_DAILY_SHA but this run checked out $GITHUB_SHA; the next dispatcher tick takes the new tip" >&2
+              exit 1
+            }
+          fi
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -2593,7 +2609,7 @@ jobs:
       # replace the existing PR artifact.
       - name: Compile the cmux NEXT DEV Release app
         id: compile-cmux-next-dev-release
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true') || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && inputs.dev_daily_sha == github.sha && (needs.push-head-preflight.outputs.current == 'true' || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')))
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true') || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready')))
         env:
           CMUX_NEXT_CONFIGURATION: Release
           CMUX_NEXT_PRODUCT_NAME: cmux NEXT DEV
@@ -2601,7 +2617,7 @@ jobs:
           CMUX_NEXT_CODE_SIGN_ENTITLEMENTS: cmux.next-dev.entitlements
           CMUX_NEXT_AUTH_CALLBACK_SCHEME: cmux-next-dev
           CMUX_NEXT_TUI_MODE: tree
-          DEV_DAILY_SHA: ${{ github.sha }}
+          DEV_DAILY_SHA: ${{ inputs.dev_daily_sha || github.sha }}
         run: |
           set -euo pipefail
           release_derived_data="$RUNNER_TEMP/cmux-next-dev-daily-release"

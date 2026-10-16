@@ -22,6 +22,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(cloud_conversations::APP_ONLY_LEASE_CAPABILITY);
         capabilities.push(cloud_conversations::WS_CLOUD_CAPABILITY);
         capabilities.push(cloud_conversations::CLOUD_RUNS_CAPABILITY);
+        capabilities.push(cloud_conversations::CLOUD_LIVE_CAPABILITY);
         capabilities.push(cloud_attachments::CAPABILITY);
     }
     if mux.serves_ws_listen() {
@@ -44,6 +45,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_START_KEYED_REASON_CAPABILITY);
     }
     #[cfg(unix)]
+    if mux.serves_agent_update() {
+        capabilities.push(agent_transfer::agent_update::AGENT_UPDATE_CAPABILITY);
+    }
+    #[cfg(unix)]
     if mux.serves_agent_transfer() {
         capabilities.push(agent_transfer::AGENT_TRANSFER_CAPABILITY);
     }
@@ -56,6 +61,9 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     }
     if daemon_build::installed() {
         capabilities.push(DAEMON_BUILD_CAPABILITY);
+    }
+    if crate::chief_brains::taken().is_some() {
+        capabilities.push(chief_control::CAPABILITY);
     }
     #[cfg(debug_assertions)]
     capabilities
@@ -79,6 +87,29 @@ fn test_hidden_capabilities() -> &'static [String] {
             .map(str::to_owned)
             .collect()
     })
+}
+
+/// cx-3r9mt: the daemon capabilities this build serves on any machine, for
+/// the remote update rule (`cmux_remote::update_need`, `remote-probe`'s
+/// `daemon_capabilities`). The static set without the ones a host decides
+/// (apps, file ops, browser runtime, image paste, the clear-history fallback,
+/// and every capability `identify` adds at runtime), so the same source gives
+/// the same set on a Mac, a Linux machine and Windows. A capability never
+/// leaves this set once shipped (keep a retired name listed): a build without
+/// it is not comparable with older ones, which stops their automatic updates.
+pub fn build_capabilities() -> Vec<&'static str> {
+    let host_dependent = [crate::apps::CAPABILITY, crate::apps::CANCEL_REQUEST_CAPABILITY];
+    let mut capabilities = advertised_capabilities(false);
+    capabilities.retain(|capability| !host_dependent.contains(capability));
+    #[cfg(unix)]
+    capabilities.retain(|capability| {
+        *capability != crate::fs_ops::FS_CAPABILITY && *capability != BROWSER_RUNTIME_CAPABILITY
+    });
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+    capabilities.retain(|capability| *capability != crate::image_paste::CAPABILITY);
+    capabilities.sort_unstable();
+    capabilities.dedup();
+    capabilities
 }
 
 pub(super) fn advertised_capabilities(
@@ -178,6 +209,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_INBOX_STATE_CAPABILITY,
         conversations::HOME_INBOX_CAPABILITY,
         conversation_runs::CONVERSATION_RUNS_CAPABILITY,
+        conversation_live::CHIEF_LIVE_CAPABILITY,
         conversations::LINK_PREVIEW_CAPABILITY,
         conversations::CONVERSATION_PERSON_CREDENTIALS_CAPABILITY,
         participant_avatars::PARTICIPANT_AVATARS_CAPABILITY,
