@@ -69,5 +69,14 @@ export const TURN_FAILED_NOTICE = "I could not reach the model, so I stopped her
  */
 export const turnFailedNotice = async (env: Env, config: BrainConfig, conversation: string, run: string, reason: string, error: string | undefined): Promise<void> => {
   if (/credits/i.test(`${reason} ${error ?? ""}`) || !config.agent || !config.owner) return
-  await postText(env, chiefPrincipal(config.agent, config.owner), conversation, TURN_FAILED_NOTICE, `turn-failed:${config.agent}:${run}`).catch(() => undefined)
+  const principal = chiefPrincipal(config.agent, config.owner)
+  // Over today's model limit: say why, once per conversation per UTC day; later refused turns stay quiet.
+  if (/daily_cap/.test(reason)) {
+    const day = new Date().toISOString().slice(0, 10)
+    return void (await postText(env, principal, conversation, DAILY_CAP_NOTICE, `daily-cap:${config.agent}:${conversation}:${day}`).catch(() => undefined))
+  }
+  await postText(env, principal, conversation, TURN_FAILED_NOTICE, `turn-failed:${config.agent}:${run}`).catch(() => undefined)
 }
+
+/** The notice for a Chief over today's model limit (no vendor names). */
+export const DAILY_CAP_NOTICE = "I reached today's model limit for this account, so I cannot answer until 00:00 UTC. Ask an admin to raise it if you need more today."
