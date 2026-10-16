@@ -32,6 +32,7 @@
               "tabs.plusButton",
               "tabs.barPosition",
               "tabs.barOrder",
+              "tabs.overflow",
               "appearance.metrics.tabMaxWidth",
               "appearance.metrics.tabMinActiveWidth",
               "appearance.metrics.tabMinInactiveWidth",
@@ -2065,6 +2066,74 @@
     },
     {
       "accepts" : [
+        "shrink",
+        "scroll"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.tabOverflowShrink",
+            "text" : "Shrink"
+          },
+          "value" : "shrink"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.tabOverflowScroll",
+            "text" : "Scroll"
+          },
+          "value" : "scroll"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "shrink",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.overflow.help",
+        "text" : "Shrink narrows every tab to the minimum width before the strip scrolls. Scroll keeps tabs wide and scrolls sooner."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.overflow",
+      "keywords" : [
+        "tab",
+        "tabs",
+        "overflow",
+        "scroll",
+        "scrolling",
+        "shrink",
+        "crowded",
+        "width",
+        "many"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "overflow"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.overflow",
+        "text" : "Tab Overflow"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         120,
         320,
         220
@@ -2171,7 +2240,7 @@
       "range" : {
         "max" : 200,
         "min" : 32,
-        "placeholder" : 56,
+        "placeholder" : 96,
         "step" : 1,
         "unit" : "points"
       },
@@ -2235,7 +2304,7 @@
       "range" : {
         "max" : 120,
         "min" : 16,
-        "placeholder" : 32,
+        "placeholder" : 76,
         "step" : 1,
         "unit" : "points"
       },
@@ -24822,7 +24891,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "125782c2442ca3f57090ec4fe98832eada612ecbecd17a4b755a3088da5098d3",
+  "schema_hash" : "9e5f4aab05be7c2800bd6b615b47533eac1d8b1a9f63d945924246a9af2ee7a6",
   "sections" : [
     {
       "id" : "general",
