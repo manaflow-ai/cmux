@@ -27,7 +27,14 @@ public enum RemoteInstallError: Error, Hashable, Sendable {
         static let checksum: Int32 = 15
         static let unrunnable: Int32 = 16
         static let notWritable: Int32 = 17
+        /// Another install or handoff holds the machine's install lock (cx-3r9mt).
+        static let busy: Int32 = 18
+        /// The machine's binary is no longer the build the update was decided for (cx-3r9mt).
+        static let changed: Int32 = 19
     }
+
+    /// The status of a refusal because another install holds the machine (cx-3r9mt).
+    public static let busyStatus = Code.busy
 
     public static func fromScript(status: Int32, stderr: String) -> RemoteInstallError {
         let lines = stderr.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
@@ -77,9 +84,15 @@ public struct RemoteInstallPlan: Hashable, Sendable {
     public let sha256: String
     public let url: URL
     public let remoteBinary: String
+    /// This install's hold on the machine's install lock (cx-3r9mt): one install or handoff per
+    /// machine at a time, from any Mac; the fetch and the upload script of one install share it.
+    public let lockToken: String
+    /// The `build_identity` the automatic update was decided for (cx-3r9mt): the script refuses
+    /// when the machine's binary changed since (another Mac installed meanwhile). Nil: no check.
+    public var expectedRemoteIdentity: String?
 
     public init(commit: String, platform: RemotePlatform, manifest: CmuxTUIManifest, remoteBinary: String,
-                base: URL = RemoteInstallPlan.base) throws(RemoteInstallError) {
+                base: URL = RemoteInstallPlan.base, lockToken: String = RemoteInstallPlan.newLockToken()) throws(RemoteInstallError) {
         guard Self.isHex(commit, count: 40) else { throw .badCommit }
         guard manifest.sourceCommit.lowercased() == commit.lowercased() else {
             throw .commitMismatch(expected: commit, found: manifest.sourceCommit)
@@ -92,6 +105,27 @@ public struct RemoteInstallPlan: Hashable, Sendable {
         sha256 = digest.lowercased()
         url = base.appendingPathComponent(commit.lowercased()).appendingPathComponent(artifact)
         self.remoteBinary = remoteBinary
+        self.lockToken = lockToken
+    }
+
+    /// 32 hex characters, fresh per install.
+    public static func newLockToken() -> String {
+        (0..<4).map { _ in String(format: "%08x", UInt32.random(in: .min ... .max)) }.joined()
+    }
+
+    /// The machine's install lock: a directory next to the binary (one binary, one lock), owned by
+    /// one install's token. A lock older than 40 minutes (longer than the slowest upload) is from an install that never finished.
+    private static func lockPath(remoteBinary: String) -> String {
+        "$(dirname \(RemotePath.shellWord(remoteBinary)))/.cmux-tui-install.lock"
+    }
+
+    /// Gives the lock back (only this install's own); run after the daemon handoffs.
+    public static func releaseLockScript(remoteBinary: String, token: String) -> String {
+        """
+        lock="\(lockPath(remoteBinary: remoteBinary))"
+        [ "$(cat "$lock/owner" 2>/dev/null)" = '\(token)' ] && rm -rf "$lock"
+        echo cmux-install-unlocked
+        """
     }
 
     public static func manifestURL(commit: String, base: URL = RemoteInstallPlan.base) -> URL {
@@ -113,6 +147,17 @@ public struct RemoteInstallPlan: Hashable, Sendable {
         stage="$dir/.cmux-tui-\(commit.prefix(12)).partial"
         want='\(sha256)'
         mkdir -p "$dir" 2>/dev/null && [ -w "$dir" ] || { echo "cmux-install-notwritable cannot write $dir" >&2; exit \(RemoteInstallError.Code.notWritable); }
+        lock="\(Self.lockPath(remoteBinary: remoteBinary))"
+        token='\(lockToken)'
+        if mkdir "$lock" 2>/dev/null; then echo "$token" > "$lock/owner"
+        elif [ "$(cat "$lock/owner" 2>/dev/null)" = "$token" ]; then :
+        elif [ -n "$(find "$lock" -maxdepth 0 -mmin +40 2>/dev/null)" ] && mv "$lock" "$lock.stale.$token" 2>/dev/null && rm -rf "$lock.stale.$token" && mkdir "$lock" 2>/dev/null; then echo "$token" > "$lock/owner"
+        else echo "cmux-install-busy another install or handoff runs on this machine" >&2; exit \(RemoteInstallError.Code.busy); fi
+        expect='\(expectedRemoteIdentity.map { $0.filter { $0.isHexDigit || $0.isLetter || $0.isNumber } } ?? "")'
+        if [ -n "$expect" ] && [ -x "$dest" ]; then
+          cur=$("$dest" remote-probe --json 2>/dev/null | tr ',' '\\n' | sed -n 's/.*"build_identity" *: *"\\([^"]*\\)".*/\\1/p' | head -n 1)
+          if [ -n "$cur" ] && [ "$cur" != "$expect" ]; then echo "cmux-install-changed the machine now runs $cur" >&2; exit \(RemoteInstallError.Code.changed); fi
+        fi
         digest() {
           if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
           elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1
@@ -132,6 +177,7 @@ public struct RemoteInstallPlan: Hashable, Sendable {
           exit \(RemoteInstallError.Code.checksum)
         fi
         chmod 755 "$stage"
+        touch "$lock" 2>/dev/null || true
         if ! out=$("$stage" remote-probe --json 2>&1); then
           echo "cmux-install-unrunnable $out" >&2
           exit \(RemoteInstallError.Code.unrunnable)
@@ -151,7 +197,7 @@ public struct RemoteInstallPlan: Hashable, Sendable {
           elif command -v wget >/dev/null 2>&1; then fetch() { wget -c -q -T 60 -O "$stage" "$url"; }
           else echo "cmux-install-nodownloader" >&2; exit \(RemoteInstallError.Code.noDownloader); fi
           n=0
-          until fetch; do
+          until touch "$lock" 2>/dev/null; fetch; do
             n=$((n + 1))
             if [ "$n" -ge 6 ]; then echo "cmux-install-download failed after $n attempts" >&2; exit \(RemoteInstallError.Code.downloadFailed); fi
             sleep "$n"
@@ -196,8 +242,9 @@ public struct RemoteInstallPlan: Hashable, Sendable {
     /// (from its `identify`) still runs that session's cmux-tui. A daemon
     /// hands its terminal hosts off on SIGTERM (docs/cloud-guest-upgrades.md),
     /// and the next link starts the new build, which adopts them. Terminal
-    /// hosts are never signalled; `server stop` (which ends terminals) is
-    /// never used.
+    /// hosts are never signalled; `--end-terminals` is never used. The
+    /// machine's acpmux is handed over by the app after this script
+    /// (`SSHService.handOffAgentDaemonAfterInstall`).
     public static func restartScript(host: SSHHost, daemonPID: Int32?) -> String {
         var script = """
         B=\(RemotePath.shellWord(host.remoteBinary))
@@ -207,8 +254,12 @@ public struct RemoteInstallPlan: Hashable, Sendable {
         if let daemonPID, daemonPID > 1 {
             script += """
             args=$(ps -o args= -p \(daemonPID) 2>/dev/null || true)
+            # A daemon that re-executed itself shows `/proc/self/exe` as its argv[0]: its
+            # executable (Linux /proc, else lsof's text file) names cmux-tui, also once replaced
+            # ("(deleted)").
+            exe=$(readlink /proc/\(daemonPID)/exe 2>/dev/null || lsof -a -p \(daemonPID) -d txt -Fn 2>/dev/null | sed -n 's/^n//p' || true)
             case "$args" in
-              *cmux-tui*"--session \(host.session)"*) kill -TERM \(daemonPID) 2>/dev/null || true ;;
+              *"--session \(host.session)"|*"--session \(host.session) "*) case "$exe $args" in *cmux-tui*) kill -TERM \(daemonPID) 2>/dev/null || true ;; esac ;;
             esac
 
             """

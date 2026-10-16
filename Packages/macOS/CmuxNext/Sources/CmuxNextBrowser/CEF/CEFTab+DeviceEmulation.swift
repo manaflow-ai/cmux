@@ -6,6 +6,7 @@ extension CEFTab: BrowserEmulating {
         guard emulation != deviceEmulation else { return }
         deviceEmulation = emulation
         deviceEmulationViewport = nil
+        container.updateFitFrame()
         applyDeviceEmulation()
     }
 
@@ -24,16 +25,24 @@ extension CEFTab: BrowserEmulating {
             while let self, self.deviceEmulationDirty, !self.isClosed, let browserID = self.browserID {
                 self.deviceEmulationDirty = false
                 let emulation = self.deviceEmulation
-                let viewport = emulation?.viewport(in: self.container.pageViewportFrame.size)
+                let viewport = emulation.flatMap { $0.viewport(in: $0.layoutArea(in: self.container.pageViewportFrame).size) }
                 self.deviceEmulationViewport = viewport
                 self.deviceEmulationApplied = emulation != nil
+                // The scale Chromium applies once the calls went through (the metrics call
+                // failed: none); rounded, so a pane drag does not re-announce every frame.
+                var inputScale = (Double(viewport?.scale ?? 1) * 10_000).rounded() / 10_000
                 for (method, params) in CEFDeviceEmulation.calls(emulation, viewport: viewport) {
+                    let metrics = method.hasSuffix("DeviceMetricsOverride")
                     do {
                         _ = try await runtime.devTools(browserID, method: method, params: params)
                     } catch {
+                        if metrics { inputScale = 1 }
                         runtime.logger.error("device emulation \(method, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                     }
+                    // As soon as the metrics call answered (set or cleared), not after the other calls.
+                    if metrics, self.emulationInputScale != inputScale { self.emulationInputScale = inputScale }
                 }
+                if self.emulationInputScale != inputScale { self.emulationInputScale = inputScale }
             }
             self?.deviceEmulationTask = nil
         }
@@ -43,7 +52,8 @@ extension CEFTab: BrowserEmulating {
     /// now fits better), or resize a fit's layout (no reload).
     func deviceEmulationViewDidResize() {
         guard let emulation = deviceEmulation else { return }
-        guard emulation.viewport(in: container.pageViewportFrame.size) != deviceEmulationViewport else { return }
+        container.needsLayout = true // a fit's page rect and frame follow the pane
+        guard emulation.viewport(in: emulation.layoutArea(in: container.pageViewportFrame).size) != deviceEmulationViewport else { return }
         applyDeviceEmulation()
     }
 }

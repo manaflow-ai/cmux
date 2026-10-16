@@ -16,6 +16,7 @@ enum AgentPaneTheme {
     /// `motion` leaves out live resize: the page keeps these tokens after a drag ends.
     static func values(_ tokens: ThemeTokens, motion: MotionPolicy = MotionPolicy(speed: Motion.speed, reduceMotion: Motion.reduceMotion),
                        surface: SurfaceKind = .agentPane) -> [String: any Sendable] {
+        AgentPaneTunables.followCodexToolRuns()
         let page = pageColor(tokens, surface: surface)
         var opaquePage = tokens.contentBackground
         opaquePage.alpha = 1
@@ -34,6 +35,10 @@ enum AgentPaneTheme {
             // The page's own edges (composer, menus, code and tool cards) are
             // mixed from the text color, so it also gets the mode itself.
             "borders": Borders.current.mode.rawValue,
+            // Debug Settings agent.chatWidth; AppServices.observeBorders pushes it again on a change.
+            "chatWidth": AgentPaneTunables.chatWidth.value.rawValue,
+            // Debug Settings agentPane.debug.codexToolRuns, pushed again on a change as chatWidth is.
+            "codexToolRuns": AgentPaneTunables.codexToolRuns.value,
             "text": css(tokens.textPrimary),
             "mutedText": css(tokens.textSecondary),
             "softText": css(tokens.textTertiary),

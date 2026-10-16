@@ -205,6 +205,12 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.tabState": self = .tabState(refresh: params?["refresh"] as? Bool == true)
+        case "pane.tabRowTools":
+            if let width = (params?["width"] as? NSNumber)?.doubleValue, width.isFinite, (0...2000).contains(width) {
+                self = .tabRowTools(width: width)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.setQuickActions":
             if let list = AgentPaneQuickAction.list(params?["quickActions"]) { self = .setQuickActions(list) }
             else { self = .unsupported(method) }

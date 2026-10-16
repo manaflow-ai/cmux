@@ -17,7 +17,7 @@ import PackageDescription
 //     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
 //   CmuxNextWakeups -> system frameworks only (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger; plans/cmux-next/idle-wakeups.md)
-//   CmuxNextDesign, CmuxNextActions -> system frameworks only; CmuxNextDaemon -> Wakeups
+//   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix); CmuxNextActions -> system frameworks only; CmuxNextDaemon -> Wakeups
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
 //   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
@@ -121,8 +121,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-601d6ff77283df1f875a152059ffa06ad38f8258/CCmuxAppFFI.xcframework.zip",
-    checksum: "6350ccfe1bf7bfbec6ef5ae0e7737a3231574de7fff94a016109ab2fc31d01ea"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-f7b5c60a2b4b6978c523fafcc3d88c4cba6c32c2/CCmuxAppFFI.xcframework.zip",
+    checksum: "3cb306515995724a477bcf1dd849da45cba339c40a8f3d15d771d4c2a1b2bcb0"
 )
 
 let package = Package(
@@ -706,6 +706,8 @@ let package = Package(
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
+                // cmux-motion's curves and color mix for ColorTransition (cx-3rf4z).
+                "CCmuxAppFFI",
             ],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings

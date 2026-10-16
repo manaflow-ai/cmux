@@ -57,15 +57,17 @@ impl Inner {
         deadline: Instant,
     ) -> Result<(), DriverError> {
         let mouse = |kind: &str, (x, y): (f64, f64), buttons: i64| {
+            self.set_mouse(&session.target_id, (x, y), buttons);
+            let (x, y) = self.input_point((x, y));
             let mut event = json!({"type": kind, "x": x, "y": y, "modifiers": modifiers,
                 "buttons": buttons, "button": if kind == "mouseMoved" && buttons == 0 { "none" } else { button }});
             if kind != "mouseMoved" {
                 event["clickCount"] = json!(1);
             }
-            self.set_mouse(&session.target_id, (x, y), buttons);
             self.send_until(session, "Input.dispatchMouseEvent", event, deadline)
         };
         let drag = |kind: &str, (x, y): (f64, f64), data: &Value| {
+            let (x, y) = self.input_point((x, y));
             self.send_until(
                 session,
                 "Input.dispatchDragEvent",

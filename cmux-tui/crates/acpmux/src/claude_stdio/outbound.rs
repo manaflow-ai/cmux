@@ -291,6 +291,7 @@ impl Translator {
                 let Some(ctl_id) = ctl else { return Outbound::Lines(vec![]) };
                 self.control_out.lock().await.remove(&ctl_id);
                 let suggested = self.suggestions.lock().await.remove(&ctl_id);
+                let asked = self.inputs.lock().await.remove(&ctl_id);
                 let outcome =
                     result.as_ref().and_then(|r| r.get("outcome")).cloned().unwrap_or(Value::Null);
                 let selected = outcome.get("optionId").and_then(Value::as_str).unwrap_or("");
@@ -302,13 +303,19 @@ impl Translator {
                 let response = if !allowed {
                     json!({"behavior": "deny", "message": "The user rejected this action."})
                 } else {
-                    // allow / allow_always: pass the (possibly answered) input back.
-                    let updated =
-                        result.as_ref().and_then(|r| r.pointer("/_meta/updatedInput")).cloned();
-                    let mut allow = match updated {
-                        Some(u) => json!({"behavior": "allow", "updatedInput": u}),
-                        None => json!({"behavior": "allow"}),
-                    };
+                    // allow / allow_always: pass the input back, as the hub
+                    // answered it (AskUserQuestion) or else as Claude sent it.
+                    // Claude Code refuses an allow without `updatedInput`
+                    // (its reply schema: allow + updatedInput, or deny +
+                    // message), so it is always there.
+                    let updated = result
+                        .as_ref()
+                        .and_then(|r| r.pointer("/_meta/updatedInput"))
+                        .filter(|v| v.is_object())
+                        .cloned()
+                        .or(asked.filter(Value::is_object))
+                        .unwrap_or_else(|| json!({}));
+                    let mut allow = json!({"behavior": "allow", "updatedInput": updated});
                     // "Allow for this session": Claude keeps the rules it
                     // suggested, for this session only (a suggestion may
                     // name a settings file; the option promises no more

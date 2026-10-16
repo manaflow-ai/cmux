@@ -12,6 +12,10 @@ public protocol CloudConversationCommands: Sendable {
     func subscribeInbox() async throws -> CloudSubscription
     func subscribe(_ conversation: String) async throws -> CloudSubscription
     func unsubscribe(_ conversation: String) async throws
+    /// `cloud-conversation-live`: asks the owner for its `run.live` snapshot (it comes as an event).
+    func requestLive(_ conversation: String) async throws
+    /// `cloud-conversation-run`: the steps of a Cloud Chief's run (nil: no such read).
+    func runRows(_ conversation: String, agent: String, run: String) async throws -> ConversationRunRows?
 }
 
 /// Cloud conversations (`cloud-conversations-v1`, plans/cmux-next/home-cloud-proxy.md)
@@ -91,9 +95,33 @@ public struct CloudConversationClient: CloudConversationCommands {
     public func unsubscribe(_ conversation: String) async throws {
         _ = try await local(CloudConversationUnsubscribeRequest(conversation: conversation))
     }
+
+    public func requestLive(_ conversation: String) async throws {
+        guard await connection.identity?.supports(DaemonCapabilities.shared.cloudChiefLive) == true else { return }
+        _ = try await local(CloudConversationLiveRequest(conversation: conversation))
+    }
+
+    public func runRows(_ conversation: String, agent: String, run: String) async throws -> ConversationRunRows? {
+        guard await connection.identity?.supports(DaemonCapabilities.shared.cloudConversationRuns) == true else { return nil }
+        var all = try await network(CloudConversationRunRequest(conversation: conversation, agent: agent, run: run))
+        var pages = 1
+        while all.hasMore == true, pages < 8, let last = all.steps.compactMap(\.seq).max() {
+            let next = try await network(CloudConversationRunRequest(conversation: conversation, agent: agent, run: run, afterSeq: last))
+            all.steps += next.steps
+            all.hasMore = next.hasMore
+            pages += 1
+        }
+        return all
+    }
 }
 
 extension CloudConversationCommands {
+    /// Fakes and daemons without live frames: nothing to ask.
+    public func requestLive(_ conversation: String) async throws {}
+
+    /// Fakes and daemons without run reads.
+    public func runRows(_ conversation: String, agent: String, run: String) async throws -> ConversationRunRows? { nil }
+
     /// Fakes and daemons without the read: the caller falls back to history.
     public func thread(_ conversation: String, root: String, after seq: UInt64, limit: Int) async throws -> ConversationThread {
         throw DaemonError.missingCapabilities([DaemonCapabilities.shared.conversationThread])

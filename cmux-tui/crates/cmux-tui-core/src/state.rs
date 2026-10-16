@@ -18,6 +18,7 @@ pub(crate) mod agent_message_policy;
 pub(crate) mod agent_message_release;
 pub(crate) mod agent_message_schema;
 pub(crate) mod agent_message_store;
+pub(crate) mod agent_message_unsend;
 pub(crate) mod agent_messages;
 pub(crate) mod agent_start;
 pub(crate) mod app_workspaces;
@@ -32,6 +33,7 @@ pub(crate) mod closed_history_query;
 pub(crate) mod closed_history_store;
 #[cfg(test)]
 mod closed_history_tests;
+mod closed_pane_split;
 #[cfg(test)]
 mod closed_relaunch_tests;
 mod closed_tab_groups;

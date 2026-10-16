@@ -89,6 +89,23 @@ impl Mux {
         )
     }
 
+    /// [`Self::commit_state`]'s replay or refusal before anything is
+    /// applied (`WorkspaceRegistry::state_mutation_replay`).
+    pub(crate) fn state_commit_replay(
+        &self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        expected_revision: Option<u64>,
+    ) -> anyhow::Result<Option<StateCommit>> {
+        self.workspace_registry.lock().unwrap_or_else(|e| e.into_inner()).state_mutation_replay(
+            mutation,
+            operation,
+            fingerprint,
+            expected_revision,
+        )
+    }
+
     /// Read the registry under its lock.
     pub(crate) fn read_registry_state<T>(
         &self,

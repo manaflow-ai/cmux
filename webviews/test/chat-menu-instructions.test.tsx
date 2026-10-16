@@ -39,8 +39,11 @@ beforeAll(() => {
   doc = window.document;
 });
 
-afterAll(() => {
-  act(() => root?.unmount());
+afterAll(async () => {
+  // Unmount and let React's scheduled work run while the window is still there: a task left for
+  // after teardown reads `window.event` and fails the file (seen under CI load).
+  await act(async () => root?.unmount());
+  await new Promise((resolve) => setTimeout(resolve, 0));
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
