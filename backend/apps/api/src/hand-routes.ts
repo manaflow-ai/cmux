@@ -64,7 +64,7 @@ const pair = async (request: Request, env: Env): Promise<Response> => {
   if (!b || !m || !keySha) return fail(400, "validation.invalid", "body is {code, key_sha256 (64 hex), name, profile}")
   const profile = b.profile === "mac" ? "mac" : "sandbox"
   const name = typeof b.name === "string" ? b.name.slice(0, 80) : ""
-  return reply(await handStub(env, m[1]!).redeem(await sha256Hex(m[2]!), keySha, { name, profile }))
+  return reply(await handStub(env, m[1]!).redeem(await sha256Hex(m[2]!), keySha, { name, profile, os: typeof b.os === "string" ? b.os : undefined }))
 }
 
 const socket = async (request: Request, env: Env, hand: string): Promise<Response> => {

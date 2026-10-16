@@ -20,12 +20,12 @@ export const sweepSandboxVms = async (env: Env): Promise<{ seen: number; deleted
   let deleted = 0
   let kept = 0
   if (!SANDBOX_PREFIX.test(prefix) || !origin) return { seen, deleted, kept }
-  for (const provider of Object.values(PROVIDERS).filter((p) => p.ready(env))) {
+  for (const provider of Object.values(PROVIDERS).filter((p) => p.canManage(env))) {
     for (const m of await provider.list(env, prefix)) {
       if (!m.hand || !HAND_ID.test(m.hand) || m.deployment !== origin) continue
       seen++
       if (!Number.isFinite(m.created_at) || Date.now() - m.created_at < MIN_AGE_MS) continue
-      const state = await handStub(env, m.hand).ownsVm(m.id).catch(() => "unknown" as const)
+      const state = await handStub(env, m.hand).ownsVm(m.id, provider.id).catch(() => "unknown" as const)
       if (state !== "gone") {
         kept++
         continue

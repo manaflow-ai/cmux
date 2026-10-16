@@ -147,7 +147,7 @@ export class HandDO extends DurableObject<Env> {
   }
 
   /** Single use: the first valid redeem sets the key hash and clears the code. */
-  async redeem(codeSha: string, keySha: string, info: { name: string; profile: Profile }): Promise<HandReply<{ hand: string; owner: string }>> {
+  async redeem(codeSha: string, keySha: string, info: { name: string; profile: Profile; os?: string }): Promise<HandReply<{ hand: string; owner: string }>> {
     const r = this.row()
     const now = Date.now()
     if (!r || !r.code_sha || r.paired_at !== null || now > r.created_at + PAIR_TTL_MS || !sameHex(r.code_sha, codeSha)) {
@@ -156,6 +156,10 @@ export class HandDO extends DurableObject<Env> {
     // The minted profile wins: a code made for a mac hand never pairs a hand that says sandbox.
     if ((r.profile ?? "sandbox") !== info.profile) {
       return { ok: false, error: { code: "hand.pair_profile", message: `this code is for a ${r.profile ?? "sandbox"} hand; pair with --profile ${r.profile ?? "sandbox"}` } }
+    }
+    // A sandbox code a Chief made never pairs a Mac: that would be a full-permission hand on a person's computer without them.
+    if (info.profile === "sandbox" && info.os === "macos" && r.minted_by.startsWith("agent:")) {
+      return { ok: false, error: { code: "hand.pair_profile", message: "a Chief's sandbox code does not pair a Mac; the person mints a mac code" } }
     }
     this.ctx.storage.sql.exec(`UPDATE hand SET code_sha = NULL, key_sha = ?, paired_at = ?, name = ? WHERE id = 1`, keySha, now, info.name || r.name)
     // A sandbox lives at most SANDBOX_LIFETIME_MS; any other hand needs no alarm.
@@ -174,7 +178,13 @@ export class HandDO extends DurableObject<Env> {
     const row = this.ctx.storage.sql.exec<{ vm: string; provider: string | null }>(`SELECT vm, provider FROM hand_sandbox WHERE id = 1`).toArray()[0]
     if (!row) return true
     const provider = PROVIDERS[row.provider ?? "freestyle"]
-    if (provider && (await provider.remove(this.env, row.vm))) {
+    if (!provider) {
+      // A provider this deployment no longer knows: nothing can delete it from here; say so once.
+      console.error(JSON.stringify({ msg: "hand.sandbox_provider_unknown", provider: row.provider, vm: row.vm }))
+      this.ctx.storage.sql.exec(`DELETE FROM hand_sandbox WHERE id = 1`)
+      return true
+    }
+    if (await provider.remove(this.env, row.vm)) {
       this.ctx.storage.sql.exec(`DELETE FROM hand_sandbox WHERE id = 1`)
       return true
     }
@@ -269,10 +279,13 @@ export class HandDO extends DurableObject<Env> {
     const denied = this.authorize(caller, r) ?? (isHandAction(action) ? null : "hand.bad_action")
     const ws = this.socket()
     // A caller never sets the verdict: it is the host classifier's alone.
-    const { _verdict: _ignored, ...own } = ((params && typeof params === "object" && !Array.isArray(params) ? params : {}) as Record<string, unknown>)
+    const { _verdict: _ignored, _level: _ignoredLevel, ...own } = ((params && typeof params === "object" && !Array.isArray(params) ? params : {}) as Record<string, unknown>)
     // A mac hand: the auto-mode classifier's verdict first (hand-classify.ts); every verdict is kept.
     const level = r ? this.level(r) : "read-only"
     const reading = READ_ACTIONS.has(action)
+    // A hand from before levels ignores _level: only full and read-only hold there (the Cloud enforces read-only).
+    const knowsLevels = (JSON.parse(r?.hello ?? "{}") as { caps?: unknown }).caps instanceof Array && (JSON.parse(r?.hello ?? "{}") as { caps: Array<unknown> }).caps.includes("levels")
+    const stale = !knowsLevels && (level === "ask" || level === "auto") && r?.profile !== "mac"
     // auto: the classifier's verdict first; ask: every write, run and session asks (no classifier); full: neither.
     const verdict = !denied && ws && r && level === "auto" ? await this.verdict(req, caller, r.owner, action, own) : level === "ask" && !reading ? { verdict: "ask" as const, reason: "level ask" } : null
     const forwarded = { ...own, _level: level, ...(verdict ? { _verdict: verdict.verdict } : {}) }
@@ -282,6 +295,8 @@ export class HandDO extends DurableObject<Env> {
         ? refuse("hand.offline", "the hand is not connected")
         : level === "read-only" && !reading
           ? refuse("hand.read_only", `this hand is read-only (${action})`)
+          : stale && !reading
+            ? refuse("hand.update_needed", `this hand's version cannot apply level ${level}; reinstall it`)
           : verdict?.verdict === "deny"
           ? refuse("hand.classifier_denied", `refused as destructive: ${verdict.reason}`)
           : await new Promise<HandReply>((resolve) => {
@@ -369,12 +384,15 @@ export class HandDO extends DurableObject<Env> {
       if (why) return refuse("hand.level_refused", why)
     }
     indexSetDefaultLevel(this.ctx.storage.sql, profile, to)
+    this.audit(crypto.randomUUID(), `default_level:${profile}`, callerLabel(caller), `${from}->${to}`, null)
     return { ok: true, value: { profile, level: to } }
   }
 
   /** The sweep (hand-sweep.ts): "live" (keep) or "gone" (no live hand holds it: delete); the sweep keeps it when this call fails. */
-  async ownsVm(vm: string): Promise<"live" | "gone" | "unknown"> {
+  async ownsVm(vm: string, provider = "freestyle"): Promise<"live" | "gone" | "unknown"> {
     const r = this.row()
+    const held = this.ctx.storage.sql.exec<{ provider: string | null }>(`SELECT provider FROM hand_sandbox WHERE id = 1`).toArray()[0]
+    if (held && (held.provider ?? "freestyle") !== provider) return "gone"
     // No row: the hand's code expired or its install failed (the VM carries this deployment's tag).
     if (!r) return "gone"
     return r.revoked_at === null && this.sandboxVm() === vm ? "live" : "gone"

@@ -11,6 +11,10 @@ import type { HandCaller, Profile } from "./hand-wire.ts"
  *   ask        every write, program run and agent session asks.
  *   read-only  reads only.
  *
+ * The integrity guard on the hand only stops mistakes and plain attempts (a path check and an argv
+ * word check); at `full` a program the person allowed can still read the hand's files. The real
+ * boundary is the person's choice of level.
+ *
  * Raising a level (to a looser one) needs the OWNER's person proof: a signature by one of the
  * owner's app installs (kind mac or ios, active) over a single-use challenge. A person's session alone
  * does not raise, and a Chief never does. Lowering needs no proof. An owner default per profile
@@ -24,7 +28,8 @@ export const isLevel = (v: unknown): v is Level => typeof v === "string" && (LEV
 const RANK: Readonly<Record<Level, number>> = { "read-only": 0, ask: 1, auto: 2, full: 3 }
 export const raises = (from: Level, to: Level) => RANK[to] > RANK[from]
 export const defaultLevel = (profile: Profile | null): Level => (profile === "mac" ? "auto" : "full")
-export const READ_ACTIONS: ReadonlySet<string> = new Set(["fs.read", "fs.list", "fs.glob", "fs.grep", "agent.events"])
+/** Reads, and the controls that only stop or refuse agent work (they never need an approval). */
+export const READ_ACTIONS: ReadonlySet<string> = new Set(["fs.read", "fs.list", "fs.glob", "fs.grep", "agent.events", "agent.cancel", "agent.stop", "agent.deny"])
 
 const CHALLENGE_TTL_MS = 5 * 60_000
 

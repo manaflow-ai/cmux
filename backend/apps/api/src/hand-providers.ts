@@ -32,8 +32,10 @@ export interface CreateInput {
 
 export interface SandboxProvider {
   readonly id: string
-  /** The provider's key and image are set on this deployment. */
+  /** The provider's key and image are set on this deployment (it can make sandboxes). */
   ready(env: Env): boolean
+  /** The provider's key is set (it can list and delete what was made, even with no image now). */
+  canManage(env: Env): boolean
   create(env: Env, input: CreateInput): Promise<{ id: string } | null>
   /** Runs `command` as root; the exit code, or null when the provider did not answer. */
   exec(env: Env, id: string, command: string, timeoutMs: number): Promise<number | null>
@@ -56,6 +58,7 @@ const freestyle = (env: Env, method: string, path: string, body?: unknown, ms = 
 export const freestyleProvider: SandboxProvider = {
   id: "freestyle",
   ready: (env) => Boolean(env.HAND_FREESTYLE_API_KEY && env.HAND_SANDBOX_SNAPSHOT),
+  canManage: (env) => Boolean(env.HAND_FREESTYLE_API_KEY),
   async create(env, input) {
     const res = await freestyle(env, "POST", "/v5/vms", {
       slug: input.name,
@@ -88,7 +91,7 @@ export const freestyleProvider: SandboxProvider = {
     for (let page = 0; page < 20; page++) {
       const res = await freestyle(env, "GET", `/v5/vms?limit=100&offset=${page * 100}`)
       if (!res?.ok) break
-      const vms = ((await res.json()) as { vms?: Array<{ id?: string; slug?: string | null; createdAt?: string; metadata?: Record<string, unknown> | null }> }).vms ?? []
+      const vms = ((await res.json().catch(() => ({}))) as { vms?: Array<{ id?: string; slug?: string | null; createdAt?: string; metadata?: Record<string, unknown> | null }> }).vms ?? []
       // A list that ignores the offset gives the same page again: stop there.
       if (vms.every((v) => !v.id || done.has(v.id))) break
       for (const v of vms) {

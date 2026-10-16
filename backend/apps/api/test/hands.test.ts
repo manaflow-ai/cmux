@@ -163,6 +163,8 @@ describe("Chief hands", { timeout: 60_000 }, () => {
     expect(await chief({ action: "set_level", hand, level: "read-only" })).toMatchObject({ level: "read-only", from: "full" })
     const before = seen.length
     expect((await http("POST", `/v1/hands/${hand}/call`, token, { action: "fs.write", params: { path: "/work/p/a", text: "x" } })).json.error.code).toBe("hand.read_only")
+    // A caller's own _level never counts: the Cloud writes the hand's level.
+    expect((await http("POST", `/v1/hands/${hand}/call`, token, { action: "exec", params: { argv: ["true"], cwd: "/work/p", _level: "full" } })).json.error.code).toBe("hand.read_only")
     expect(seen.length).toBe(before)
     expect((await http("POST", `/v1/hands/${hand}/call`, token, { action: "fs.read", params: { path: "/work/p/a" } })).json.ok).toBe(true)
     // The Chief cannot raise it back; the person's session alone cannot either.
