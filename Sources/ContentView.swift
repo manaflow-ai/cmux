@@ -12085,30 +12085,7 @@ struct VerticalTabsSidebar: View, Equatable {
             }
         }
         .overlay(alignment: .top) {
-            // Pinned above every list implementation, in the band
-            // SidebarWorkspaceListMetrics reserves below the titlebar.
-            if isPresented && showsChiefHome {
-                ZStack(alignment: .top) {
-                    if isChiefHomeSelected, let chiefHome {
-                        // Home selected: show the conversation list in the upper part of the
-                        // sidebar, while the normal cmux workspace rows remain directly below.
-                        // Conversations stay owned by Chief Home and never become duplicate
-                        // native workspaces.
-                        ChiefConversationListRepresentable(home: chiefHome, accent: tabItemSettings.accentColor)
-                            .padding(.top, SidebarWorkspaceListMetrics.firstRowTopOffset
-                                + SidebarWorkspaceListMetrics.homeRowBottomGap)
-                            .frame(maxWidth: .infinity, height: Self.chiefHomeConversationListHeight, alignment: .top)
-                    }
-                    SidebarChiefHomeRow(
-                        isSelected: isChiefHomeSelected,
-                        settings: tabItemSettings,
-                        globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
-                        onSelect: { selection = selection == .home ? .tabs : .home },
-                        onNewConversation: chiefHome.map { home -> () -> Void in { home.newConversation() } }
-                    )
-                    .padding(.top, SidebarWorkspaceListMetrics.homeRowTopOffset)
-                }
-            }
+            chiefHomeSidebarOverlay
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
@@ -12183,6 +12160,33 @@ struct VerticalTabsSidebar: View, Equatable {
             sidebarDisplayAccessibility = options
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var chiefHomeSidebarOverlay: some View {
+        Group {
+            if isPresented && showsChiefHome {
+                ZStack(alignment: .top) {
+                    if isChiefHomeSelected, let chiefHome {
+                        // Home selected: show the conversation list in the upper part of the
+                        // sidebar, while the normal cmux workspace rows remain directly below.
+                        // Conversations stay owned by Chief Home and never become duplicate
+                        // native workspaces.
+                        ChiefConversationListRepresentable(home: chiefHome, accent: tabItemSettings.accentColor)
+                            .padding(.top, SidebarWorkspaceListMetrics.firstRowTopOffset
+                                + SidebarWorkspaceListMetrics.homeRowBottomGap)
+                            .frame(maxWidth: .infinity, height: Self.chiefHomeConversationListHeight, alignment: .top)
+                    }
+                    SidebarChiefHomeRow(
+                        isSelected: isChiefHomeSelected,
+                        settings: tabItemSettings,
+                        globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
+                        onSelect: { selection = selection == .home ? .tabs : .home },
+                        onNewConversation: chiefHome.map { home -> () -> Void in { home.newConversation() } }
+                    )
+                    .padding(.top, SidebarWorkspaceListMetrics.homeRowTopOffset)
+                }
+            }
+        }
     }
 
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
