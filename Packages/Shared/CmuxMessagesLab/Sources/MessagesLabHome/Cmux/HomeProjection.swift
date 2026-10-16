@@ -141,7 +141,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         apply(items: homeStore.transcript(for: conversation), summary: homeStore.summary(conversation),
               typing: (homeStore.typing[conversation] ?? []).union(live.map { [$0.participant] } ?? []),
               hasOlder: homeStore.hasOlderMessages(in: conversation), draft: live.map(\.turnDraft) ?? homeStore.drafts[conversation])
-        // The line closes one display frame after the reply took the bubble's place, never with it (cx-zz30r).
+        // The line closes on the frame after the one that shows the reply in the bubble's place (cx-zz30r, cx-06vn1).
         if let activity = live?.activity { liveLine.show(activity) } else { liveLine.hide(after: controller) }
         revealIfLoaded()
         refreshThreadHeader()

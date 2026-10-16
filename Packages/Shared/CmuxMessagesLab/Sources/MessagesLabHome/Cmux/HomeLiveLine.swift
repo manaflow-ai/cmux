@@ -13,6 +13,8 @@ final class HomeLiveLine {
     private var shown: String?
     private var clock: Timer?
     private var hiding = false
+    /// Counts hide requests: a close scheduled for an earlier one does not close a later one early.
+    private var hides = 0
     private let now: () -> Date
 
     init(now: @escaping () -> Date = Date.init) {
@@ -37,17 +39,26 @@ final class HomeLiveLine {
         tick()
     }
 
-    /// The line closes on the next display frame (after the commit that lands the reply);
-    /// a line shown again before then stays.
+    /// The line closes on the display frame after the one that presents the commit that lands the reply;
+    /// a line shown again before then stays (a later hide starts its own count).
     func hide(after controller: ChatController) {
         guard activity != nil, !hiding else { return }
         hiding = true
+        hides += 1
+        let hide = hides
         let asked = controller.frameTick.fires
+        // The first display link fire after the hand-off commit starts the frame that presents it: a change
+        // there joins that same frame (cx-06vn1, the real turn's line closed with the hand-off). The line
+        // keeps its row through that frame and closes on the next one.
         controller.nextFrame { [weak self, weak controller] in
-            guard let self, self.hiding else { return }
-            self.hiding = false
-            self.show(nil)
-            self.closeFrames = controller.map { $0.frameTick.fires - asked }
+            guard let self, self.hiding, self.hides == hide else { return }
+            let close = { [weak self, weak controller] in
+                guard let self, self.hiding, self.hides == hide else { return }
+                self.hiding = false
+                self.show(nil)
+                self.closeFrames = controller.map { $0.frameTick.fires - asked }
+            }
+            if let controller { controller.nextFrame(close) } else { close() }
         }
     }
 
