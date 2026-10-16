@@ -29,7 +29,7 @@ extension WindowManager {
             pendingPlacements[id] = nil
             guard let window = pending.window ?? registry.value.owner(of: id), let bridge = controller(for: window)?.sidebar,
                   let machine = services.machines.daemon(forWorkspace: id)?.machineID else { continue }
-            let sections = PendingWorkspaceRows.withoutPlaceholders(bridge.model.sections)
+            let sections = SidebarRowSection.withoutPlaceholders(bridge.model.sections)
             let section = SectionID.machine(MachineID(machine))
             let slot = pending.slot ?? pending.byDefault?.slot(for: id, section: section, in: sections, home: NewWorkspacePlacements.home(services.machines))
             if let position = slot?.position(moving: [id], section: section, in: sections) {

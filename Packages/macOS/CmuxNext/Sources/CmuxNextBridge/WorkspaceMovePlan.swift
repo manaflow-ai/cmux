@@ -1,5 +1,4 @@
-import CmuxNextBridge
-import CmuxNextSidebar
+public import CmuxNextSidebar
 
 /// A sidebar reorder as daemon commands. The sidebar names a slot in one
 /// window's filtered tree (`DropPosition`, counted after the moved rows are
@@ -13,14 +12,27 @@ import CmuxNextSidebar
 /// also ungroups a workspace dragged out of a group. The slot maps to the
 /// daemon by neighbor: before the window's row that follows it, else after
 /// the window's last row there, so workspaces of other windows keep theirs.
-enum WorkspaceMovePlan {
-    /// One workspace in the daemon's durable order.
-    struct Entry: Hashable {
-        var id: String
-        var group: String?
+/// (Moved from CmuxNextApp, SW14: the plan is pure; the app sends its commands.)
+public struct WorkspaceMovePlan {
+    /// The window's sidebar before the move.
+    public let window: [SidebarRowSection]
+
+    public init(window: [SidebarRowSection]) {
+        self.window = window
     }
 
-    enum Command: Hashable {
+    /// One workspace in the daemon's durable order.
+    public struct Entry: Hashable, Sendable {
+        public var id: String
+        public var group: String?
+
+        public init(id: String, group: String?) {
+            self.id = id
+            self.group = group
+        }
+    }
+
+    public enum Command: Hashable, Sendable {
         /// `move-workspace`: insertion `index` in the durable order, counted
         /// with the moved workspace still in place (daemons without
         /// `workspace-groups-v1`, which have no groups).
@@ -38,11 +50,10 @@ enum WorkspaceMovePlan {
     }
 
     /// The commands, in order, that put `moving` (tree order) at `position`.
-    /// `window` is the window's sidebar before the move; `daemon` is the
+    /// `daemon` is the
     /// machine's durable order. With `groups` false the daemon has no
     /// groups and gets `move-workspace`. Nil when the position names nothing.
-    static func commands(for position: DropPosition, moving: [SidebarWorkspaceID], window: [SidebarRowSection],
-                         daemon: [Entry], groups: Bool = true) -> [Command]? {
+    public func commands(for position: DropPosition, moving: [SidebarWorkspaceID], daemon: [Entry], groups: Bool = true) -> [Command]? {
         guard let section = window.first(where: { $0.id == position.section }),
               let anchor = anchor(for: position, moving: Set(moving.map(\.rawValue)), in: section)
         else { return nil }
@@ -60,7 +71,7 @@ enum WorkspaceMovePlan {
             case .after(let last): index = others.firstIndex(of: last).map { $0 + 1 } ?? others.count
             case .end: index = others.count
             }
-            let new = place(&order, from: old, group: group, index: index)
+            let new = Self.place(&order, from: old, group: group, index: index)
             commands.append(groups ? .place(id: id, group: group, index: index) : .move(id: id, index: new > old ? new + 1 : new))
             previous = id
         }
@@ -70,15 +81,19 @@ enum WorkspaceMovePlan {
     /// A slot the sidebar resolved with `moving`'s rows still shown (a tab
     /// dragged onto a gap, `SidebarTabDrop.newWorkspace`) as the slot
     /// `commands` takes, counted after those rows are removed.
-    static func excluding(_ moving: Set<String>, from position: DropPosition, in window: [SidebarRowSection]) -> DropPosition {
+    public func excluding(_ moving: Set<String>, from position: DropPosition) -> DropPosition {
         guard let section = window.first(where: { $0.id == position.section }) else { return position }
         let before: [String?]
         if let group = position.group {
+            // A group's index counts its member rows (`SidebarGroup.members`): workspaces and link, tab and app items.
             let members = section.nodes.lazy.compactMap { node -> SidebarGroup? in
                 if case let .group(value) = node, value.id == group { return value }
                 return nil
-            }.first?.workspaces ?? []
-            before = members.prefix(max(position.index, 0)).map(\.id.rawValue)
+            }.first?.members ?? []
+            before = members.prefix(max(position.index, 0)).map { member in
+                if case let .workspace(workspace) = member { return workspace.id.rawValue }
+                return nil
+            }
         } else {
             // Top-level slots count group headers too; only loose rows can move.
             before = section.nodes.prefix(max(position.index, 0)).map { node in
@@ -93,7 +108,7 @@ enum WorkspaceMovePlan {
 
     /// The window's neighbor of the slot: its row after the slot, else its
     /// last row in the destination, else the destination's end.
-    private static func anchor(for position: DropPosition, moving: Set<String>, in section: SidebarRowSection) -> Anchor? {
+    private func anchor(for position: DropPosition, moving: Set<String>, in section: SidebarRowSection) -> Anchor? {
         let local: [String]
         let slot: Int
         if let group = position.group {
@@ -102,8 +117,19 @@ enum WorkspaceMovePlan {
                 return nil
             }.first
             guard let node else { return nil }
-            local = node.workspaces.map(\.id.rawValue).filter { !moving.contains($0) }
-            slot = min(max(position.index, 0), local.count)
+            // A group's index counts its member rows (`SidebarGroup.members`): workspaces and link, tab and app items.
+            let kept = node.members.filter { member in
+                if case let .workspace(workspace) = member { return !moving.contains(workspace.id.rawValue) }
+                return true
+            }
+            local = kept.compactMap { member in
+                if case let .workspace(workspace) = member { return workspace.id.rawValue }
+                return nil
+            }
+            slot = kept.prefix(max(position.index, 0)).count { member in
+                if case .workspace = member { return true }
+                return false
+            }
         } else {
             // Top-level slots count group headers too; ungrouped rows are
             // the only ones in the ungrouped section.

@@ -30,6 +30,8 @@ import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
 import { useEscapingPopup } from "../../ui/popupHost";
 import { usePopupHost } from "../../ui/UiProvider";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
+import { isMousePress } from "../../ui/pressRelease";
+import { focusAfterEscape } from "../../ui/escapeFocus";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -1014,20 +1016,25 @@ export function Picker({
       if (!root.current?.contains(event.target as Node)) setOpen(false);
     };
     const blur = () => setOpen(false);
-    document.addEventListener("pointerdown", away);
+    // In the capture phase, as Base UI's menus close: a press outside only closes the menu, and
+    // nothing under it sees the press (menuPressGuard.ts).
+    document.addEventListener("pointerdown", away, true);
     window.addEventListener("blur", blur);
     return () => {
-      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("pointerdown", away, true);
       window.removeEventListener("blur", blur);
     };
   }, [open]);
 
+  // A mouse press is opening it (cg-composer click polish): the focus it moves here is not drawn.
+  const byPointer = useRef(false);
   const show = () => {
     const current = rows.findIndex((row) => row.choice.id === sections[row.section].current);
     setActive(Math.max(current, 0));
     setOpen(true);
-    // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt.
-    trigger.current?.focus();
+    // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt. After a
+    // key was typed WebKit draws a programmatic focus as keyboard focus, so a press says it is not.
+    trigger.current?.focus(byPointer.current ? { focusVisible: false } : undefined);
   };
   const showRef = useRef(show);
   showRef.current = show;
@@ -1063,7 +1070,11 @@ export function Picker({
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
-      close();
+      setOpen(false);
+      // Back on the button with its ring, though a press opened the menu without one: the button
+      // already has the focus, so it takes it again (escapeFocus.ts).
+      trigger.current?.blur();
+      focusAfterEscape(trigger.current);
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
@@ -1111,6 +1122,11 @@ export function Picker({
         onKeyDown={keyDown}
         onKeyUp={keyUp}
         {...press}
+        onPointerDown={(event) => {
+          byPointer.current = isMousePress(event);
+          press.onPointerDown(event);
+          byPointer.current = false;
+        }}
       >
         {button}
       </button>
