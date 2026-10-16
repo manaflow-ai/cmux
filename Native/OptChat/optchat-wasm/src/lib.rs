@@ -284,9 +284,10 @@ impl OptChat {
 
     /// The turn input of spec 5a as JSON `{frozen: {parts: [[l, i]], front}, rerendered, view: [piece],
     /// delta: [block]}`: the frozen view cut into its 4-line blocks (`block_pieces`), then the delta
-    /// blocks. `frozen` is the JSON this returned last turn, or "" for none.
+    /// blocks. `frozen` is the JSON this returned last turn, or "" for none; `new` is how many of the
+    /// log's last messages are this turn's new ones (never shown in a re-rendered view).
     #[wasm_bindgen(js_name = turnInput)]
-    pub fn turn_input(&self, store: &JsStore, frozen: &str) -> Result<String, JsError> {
+    pub fn turn_input(&self, store: &JsStore, frozen: &str, new: f64) -> Result<String, JsError> {
         #[derive(Serialize, serde::Deserialize)]
         struct FrozenJson {
             parts: Vec<(u32, u64)>,
@@ -309,7 +310,7 @@ impl OptChat {
             Some(core::Frozen { parts: f.parts.iter().map(|(l, i)| core::NodeId::new(*l, *i)).collect(), front: f.front })
         };
         let host = Host::new(store);
-        let t = core::turn_input(&self.memory, &host, prior.as_ref());
+        let t = core::turn_input(&self.memory, &host, prior.as_ref(), new.max(0.0) as u64);
         host.check()?;
         let out = Out {
             frozen: FrozenJson { parts: t.frozen.parts.iter().map(|p| (p.l, p.i)).collect(), front: t.frozen.front },

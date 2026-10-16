@@ -192,10 +192,10 @@ export class Memory {
    * blocks, then the delta blocks (every message after the view's front, the new ones included). The
    * frozen view is kept here and given back next turn; the core decides when to render it again.
    */
-  turnInput(): string[] {
+  turnInput(newMessages: number): string[] {
     this.sql.exec(`CREATE TABLE IF NOT EXISTS oc_frozen (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL)`);
     const prior = this.sql.exec<{ json: string }>(`SELECT json FROM oc_frozen WHERE id = 1`).toArray()[0]?.json ?? "";
-    const out = JSON.parse(this.core.turnInput(this.store, prior)) as { frozen: unknown; rerendered: boolean; view: string[]; delta: string[] };
+    const out = JSON.parse(this.core.turnInput(this.store, prior, newMessages)) as { frozen: unknown; rerendered: boolean; view: string[]; delta: string[] };
     this.sql.exec(`INSERT INTO oc_frozen (id, json) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET json = excluded.json`, JSON.stringify(out.frozen));
     return [...out.view, ...out.delta];
   }

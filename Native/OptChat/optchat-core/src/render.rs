@@ -276,16 +276,20 @@ fn delta_blocks(memory: &Memory, store: &dyn Store, front: u64) -> (Vec<String>,
 }
 
 /// The turn input of spec 5a for `frozen` (None: no view frozen yet). The caller stores the
-/// returned `frozen` and passes it to the next turn; the new messages are logged before this call.
-pub fn turn_input(memory: &Memory, store: &dyn Store, frozen: Option<&Frozen>) -> TurnInput {
-    if let Some(f) = frozen.filter(|f| f.front <= memory.len()) {
+/// returned `frozen` and passes it to the next turn; the turn's `new` messages (the last `new`
+/// of the log) are logged before this call, and a re-render never shows them in the view (spec 7
+/// anchoring: they are delta lines only).
+pub fn turn_input(memory: &Memory, store: &dyn Store, frozen: Option<&Frozen>, new: u64) -> TurnInput {
+    let new_from = memory.len().saturating_sub(new);
+    if let Some(f) = frozen.filter(|f| f.front <= new_from) {
         let (delta, bytes) = delta_blocks(memory, store, f.front);
         let built_past = f.front < memory.len() && memory.is_built(NodeId::new(0, f.front));
         if !(bytes > DELTA_HARD || (bytes > DELTA_MAX && built_past)) {
             return TurnInput { view: render_parts(&f.parts, store).text, frozen: f.clone(), rerendered: false, delta };
         }
     }
-    let v = render_view(memory, store);
+    let shown: Vec<NodeId> = render_view(memory, store).parts.into_iter().take_while(|p| p.end() <= new_from).collect();
+    let v = render_parts(&shown, store);
     let front = v.parts.last().map_or(0, |p| p.end());
     let (delta, _) = delta_blocks(memory, store, front);
     TurnInput { frozen: Frozen { parts: v.parts, front }, rerendered: true, view: v.text, delta }

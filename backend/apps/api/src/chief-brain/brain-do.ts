@@ -361,7 +361,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
         this.memory.append("user", r.text)
         this.sql.exec(`UPDATE cb_inbox SET state = 'running', turn = ? WHERE n = ?`, id, r.n)
       }
-      input = JSON.stringify(this.memory.turnInput())
+      input = JSON.stringify(this.memory.turnInput(rows.length))
       this.sql.exec(
         `INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, trigger_thread_root, last_seq, status, model, started, input) VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
         id, conversation, trigger.message, trigger.kind, trigger.thread_root, Math.max(...rows.map((r) => r.seq)), this.config().model, Date.now(), input

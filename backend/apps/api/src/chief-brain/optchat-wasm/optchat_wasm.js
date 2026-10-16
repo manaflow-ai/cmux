@@ -204,18 +204,20 @@ export class OptChat {
     /**
      * The turn input of spec 5a as JSON `{frozen: {parts: [[l, i]], front}, rerendered, view: [piece],
      * delta: [block]}`: the frozen view cut into its 4-line blocks (`block_pieces`), then the delta
-     * blocks. `frozen` is the JSON this returned last turn, or "" for none.
+     * blocks. `frozen` is the JSON this returned last turn, or "" for none; `new` is how many of the
+     * log's last messages are this turn's new ones (never shown in a re-rendered view).
      * @param {any} store
      * @param {string} frozen
+     * @param {number} _new
      * @returns {string}
      */
-    turnInput(store, frozen) {
+    turnInput(store, frozen, _new) {
         let deferred3_0;
         let deferred3_1;
         try {
             const ptr0 = passStringToWasm0(frozen, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
             const len0 = WASM_VECTOR_LEN;
-            const ret = wasm.optchat_turnInput(this.__wbg_ptr, store, ptr0, len0);
+            const ret = wasm.optchat_turnInput(this.__wbg_ptr, store, ptr0, len0, _new);
             var ptr2 = ret[0];
             var len2 = ret[1];
             if (ret[3]) {
