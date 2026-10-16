@@ -459,7 +459,7 @@ async fn a_web_prompt_for_an_unresolved_key_is_refused_and_one_for_a_peer_sessio
 #[tokio::test]
 async fn a_web_notification_cancel_forwarded_by_a_peer_keeps_web_control() {
     let mut cfg_b = config(PermissionPolicy::Ask);
-    cfg_b.web_roots = vec![std::env::temp_dir()];
+    cfg_b.web_roots = vec![std::env::temp_dir().to_string_lossy().into_owned()];
     cfg_b.web_asking_modes.insert("fake".into(), vec!["normal".into()]);
     let b = hub(cfg_b).await;
     let (b_in, b_rx) = mpsc::channel(64);
@@ -489,7 +489,7 @@ async fn a_web_notification_cancel_forwarded_by_a_peer_keeps_web_control() {
     let policy = cb
         .call(method::MUX_SET_POLICY, json!({"sessionId": remote_id, "policy": "approve-all"}))
         .await;
-    assert!(policy["error"].is_null(), "{policy}");
+    assert!(policy.is_ok(), "{policy:?}");
     cb.next += 1;
     cb.tx
         .send(
