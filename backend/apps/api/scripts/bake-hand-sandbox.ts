@@ -22,9 +22,12 @@ const STEPS: Array<[string, string]> = [
   ["apt", "export DEBIAN_FRONTEND=noninteractive && apt-get update -qq && apt-get install -y -qq ca-certificates curl git xz-utils python3 >/dev/null"],
   ["node", "set -e; ver=$(curl -fsSL https://nodejs.org/dist/latest-v24.x/ | grep -o 'node-v[0-9.]*-linux-x64.tar.xz' | head -1); curl -fsSL https://nodejs.org/dist/latest-v24.x/$ver -o /tmp/node.tar.xz; mkdir -p /opt/node && tar -xJf /tmp/node.tar.xz -C /opt/node --strip-components 1 && rm /tmp/node.tar.xz; for b in node npm npx; do ln -sf /opt/node/bin/$b /usr/local/bin/$b; done; node --version"],
   ["agents", "set -e; npm install -g --no-fund --no-audit @anthropic-ai/claude-code opencode-ai >/dev/null; for b in claude opencode; do ln -sf /opt/node/bin/$b /usr/local/bin/$b; done"],
+  // The base image's login shell puts an older nvm Node (with its own old claude) first on PATH:
+  // remove those copies, so every shell finds the ones above.
+  ["old agents", "for d in /usr/local/nvm/versions/node/*/bin; do rm -f \"$d/claude\" \"$d/opencode\"; done; true"],
   ["opencode first run", "timeout 120 opencode models >/dev/null 2>&1; echo rc=$?"],
   ["record", `printf 'image=${slug}\\nbaked_at=%s\\nnode=%s\\nclaude=%s\\nopencode=%s\\n' "$(date -u +%FT%TZ)" "$(node --version)" "$(claude --version | head -1)" "$(opencode --version)" > /etc/cmux-hand-image; rm -f /root/.bash_history; cat /etc/cmux-hand-image`],
-  ["verify", "set -e; command -v curl git node claude opencode; bash -lc 'command -v claude opencode node' >/dev/null"]
+  ["verify", "set -e; command -v curl git node claude opencode; test \"$(bash -lc 'command -v claude')\" = /usr/local/bin/claude; test \"$(bash -lc 'command -v opencode')\" = /usr/local/bin/opencode; bash -lc 'claude --version'"]
 ]
 const created = await call("POST", "/v5/vms", { idleTimeoutSeconds: 900, automaticRestart: false, firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }, metadata: { purpose: "hand-sandbox-bake", image: slug } })
 const vm = (created.json.vmId ?? created.json.id) as string | undefined
