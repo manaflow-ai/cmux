@@ -121,14 +121,18 @@ public final class SidebarMirror {
     // drag start only, not per tick; JSON decode of Rust mirror view; removal bead cx-x5jpp; expires 2026-10-20.
     /// The flat rows the sidebar draws, in order.
     public func rows(_ request: SidebarViewRequest) -> [SidebarDocRow]? {
-        guard let body = try? JSONEncoder().encode(request), let reply = view(raw: body) else { return nil }
-        return try? JSONDecoder().decode([SidebarDocRow].self, from: reply) // an array (CONTRACT amendments)
+        SidebarPerfCounters.timedMirror {
+            guard let body = try? JSONEncoder().encode(request), let reply = view(raw: body) else { return nil }
+            return try? JSONDecoder().decode([SidebarDocRow].self, from: reply) // an array (CONTRACT amendments)
+        }
     }
 
     /// What a drop of `items` may do next to each row, by row key (one call per drag).
     public func acceptance(dragging items: [String]) -> [String: SidebarDocAcceptance] {
-        guard let body = try? JSONEncoder().encode(["items": items]), let reply = dragBegin(raw: body) else { return [:] }
-        return (try? JSONDecoder().decode([String: SidebarDocAcceptance].self, from: reply)) ?? [:] // the table itself
+        SidebarPerfCounters.timedMirror {
+            guard let body = try? JSONEncoder().encode(["items": items]), let reply = dragBegin(raw: body) else { return [:] }
+            return (try? JSONDecoder().decode([String: SidebarDocAcceptance].self, from: reply)) ?? [:] // the table itself
+        }
     }
 
     /// A reply's common fields: `ok`, `stale`, `refetch`, `refusal`, `revision`, `error`.
