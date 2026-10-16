@@ -131,13 +131,21 @@ def analyse(frames, dragged, dropped_key=None, refused=False, hz=120):
                     continue
                 f0 = frames[i - 2]["views"].get(key) if i >= 2 else None
                 if f0 is not None:
-                    kink = max(abs((fb[j] - fa[j]) - (fa[j] - f0[j])) for j in (0, 3))
+                    # The kink is the change of velocity, in pt per 120 Hz frame (as a jump is a step per frame): a late
+                    # sample (a Debug build under 1,000 rows: 90-130 ms between samples) of a spring that settles is
+                    # not a kink, a change the echo makes in one frame is (cx-8quut).
+                    n1 = max(1.0, (frames[i - 1]["t"] - frames[i - 2]["t"]) * 1000 / FRAME_MS)
+                    n2 = max(1.0, (frames[i]["t"] - frames[i - 1]["t"]) * 1000 / FRAME_MS)
+
+                    def bend(d0, d1):
+                        return abs(d1 / n2 - d0 / n1)
+                    kink = max(bend(fa[j] - f0[j], fb[j] - fa[j]) for j in (0, 3))
                     # The vertical kink in the list or on screen (minus `scroll`), the smaller: an anchored shift is no kink.
                     s0, s1, s2 = scroll_of(frames, i - 2), scroll_of(frames, i - 1), scroll_of(frames, i)
                     sl = scroll_of(frames, i - 3)
-                    kink = max(kink, min(abs((fb[1] - fa[1]) - (fa[1] - f0[1])),
-                                         abs(((fb[1] - s2) - (fa[1] - s1)) - ((fa[1] - s1) - (f0[1] - s0))),
-                                         abs(((fb[1] - s1) - (fa[1] - s0)) - ((fa[1] - s0) - (f0[1] - sl)))))
+                    kink = max(kink, min(bend(fa[1] - f0[1], fb[1] - fa[1]),
+                                         bend((fa[1] - s1) - (f0[1] - s0), (fb[1] - s2) - (fa[1] - s1)),
+                                         bend((fa[1] - s0) - (f0[1] - sl), (fb[1] - s1) - (fa[1] - s0))))
                     if kink > 1:
                         kinks.append({"key": key, "t": round(frames[i]["t"] - frames[0]["t"], 3), "kink": round(kink, 1)})
             for key, fa in frames[i - 1]["views"].items():
