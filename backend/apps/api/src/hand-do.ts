@@ -414,7 +414,10 @@ export class HandDO extends DurableObject<Env> {
     const p = this.pending.get(req)
     if (!p) return
     // An approval nobody answered ends with its request: it never shows as waiting again.
+    const open = this.ctx.storage.sql.exec<{ id: string }>(`SELECT id FROM hand_approval WHERE req = ? AND answered_at IS NULL`, req).toArray()
     this.ctx.storage.sql.exec(`UPDATE hand_approval SET answered_at = ?, allow = 0, who = 'expired' WHERE req = ? AND answered_at IS NULL`, Date.now(), req)
+    const r = open.length > 0 ? this.row() : undefined
+    if (r) for (const a of open) this.ownerFrame(r.owner, { t: "hand-approval-settled", hand: r.hand, id: a.id, outcome: "expired" })
     clearTimeout(p.timer)
     this.pending.delete(req)
     p.resolve(reply)
@@ -495,6 +498,7 @@ export class HandDO extends DurableObject<Env> {
     sql.exec(`UPDATE hand_approval SET answered_at = ?, allow = ?, who = ? WHERE id = ?`, Date.now(), allow ? 1 : 0, callerLabel(caller), id)
     this.audit(id, "approval", callerLabel(caller), allow ? "allow" : "deny", null)
     this.socket()?.send(JSON.stringify({ t: "approval", id, allow }))
+    this.ownerFrame(r.owner, { t: "hand-approval-settled", hand: r.hand, id, outcome: allow ? "allowed" : "denied" })
     await this.publish(r)
     return { ok: true, value: { id, allow } }
   }
@@ -509,6 +513,12 @@ export class HandDO extends DurableObject<Env> {
     await this.dropSandbox()
     await this.publish(this.row()!)
     return { ok: true, value: { hand: r.hand } }
+  }
+
+  /** An ephemeral frame to the owner's own sockets (UserDO.handFrame); best effort. */
+  private ownerFrame(owner: string, frame: { readonly t: "hand-approval-pending" | "hand-approval-settled" } & Record<string, unknown>) {
+    const user = this.env.USER_DO.get(this.env.USER_DO.idFromName(owner)) as unknown as { handFrame(entity: string, f: typeof frame): Promise<void> }
+    this.ctx.waitUntil(user.handFrame(owner, frame).catch(() => undefined))
   }
 
   /** The hand says an agent session ended: its agent tokens stop now (model-gateway/run-token.ts). */
@@ -571,6 +581,13 @@ export class HandDO extends DurableObject<Env> {
         const req = String(f.req ?? "")
         if (!id) return
         sql.exec(`INSERT INTO hand_approval (id, req, summary, at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`, id, req, capJson(f.summary ?? {}, 16_000), now)
+        {
+          const owner = this.row()
+          if (owner) {
+            this.ownerFrame(owner.owner, { t: "hand-approval-pending", hand: owner.hand, id, summary: JSON.parse(capJson(f.summary ?? {}, 16_000)), at: now, sign: approvalMessage(this.env, owner.hand, id) })
+            await this.publish(owner)
+          }
+        }
         // The request now waits for a person, not for the machine.
         const p = this.pending.get(req)
         if (p) {

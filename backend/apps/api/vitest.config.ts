@@ -29,8 +29,17 @@ const fakeJwt = (exp: number) => ["e30", Buffer.from(JSON.stringify({ exp })).to
 const kek = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64")
 
 export default defineConfig({
-  // Loads the Worker once per test file before any test runs (test/setup/warm-worker.ts).
-  test: { setupFiles: ["./test/setup/warm-worker.ts"] },
+  test: {
+    // Loads the Worker once per test file before any test runs (test/setup/warm-worker.ts).
+    setupFiles: ["./test/setup/warm-worker.ts"],
+    // The full parallel run of every file (309 s on a 32 vCPU Freestyle VM, 2026-10-16) makes each case about 9x
+    // slower than when its file runs alone: cases of 0.5 s alone took 4.5 to 5.8 s, past the 5 s default. 20 s keeps
+    // over 3x headroom over the slowest case without its own timeout. It hides nothing: the slow-tests reporter lists
+    // every case over 2 s, and a case over 2 s alone has a slow part to fix (fixed waits, serial setup, big fixtures).
+    testTimeout: 20_000,
+    // An explicit list drops the reporter vitest adds on GitHub Actions (failure annotations), so it is named here.
+    reporters: ["default", "./test/setup/slow-tests-reporter.ts", ...(process.env.GITHUB_ACTIONS === "true" ? ["github-actions"] : [])]
+  },
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
