@@ -9,6 +9,8 @@ export type ChiefDockProps = {
   onSelect(sessionId: string): void;
   onNewChat(): void;
   onMoveToTab(sessionId: string): void;
+  queueCounts?: ReadonlyMap<string, number>;
+  steeringIds?: ReadonlySet<string>;
 };
 
 const MAX_CARDS = 4;
@@ -41,7 +43,15 @@ function StatusDot({ value }: { value: ReturnType<typeof status> }) {
 /// A small, intentionally session-only dock. The native host can later make this a window-level
 /// overlay; keeping the card model here means the first pass is useful in the Quick Composer and
 /// in the component gallery without inventing a second session store.
-export function ChiefDock({ sessions, currentId, onSelect, onNewChat, onMoveToTab }: ChiefDockProps) {
+export function ChiefDock({
+  sessions,
+  currentId,
+  onSelect,
+  onNewChat,
+  onMoveToTab,
+  queueCounts,
+  steeringIds,
+}: ChiefDockProps) {
   const t = useT();
   const [attached, setAttached] = useState(true);
   const [expanded, setExpanded] = useState(true);
@@ -107,11 +117,14 @@ export function ChiefDock({ sessions, currentId, onSelect, onNewChat, onMoveToTa
           {cards.map((session, index) => {
             const selected = session.sessionId === currentId;
             const title = sessionTitle(session);
+              const queued = queueCounts?.get(session.sessionId) ?? 0;
+              const steering = steeringIds?.has(session.sessionId) === true;
             return (
               <article
                 className="acpmux-chief-card"
                 data-selected={selected}
                 data-status={status(session)}
+                  data-steering={steering || queued > 0 ? "true" : undefined}
                 data-depth={index}
                 key={session.sessionId}
               >
@@ -126,6 +139,7 @@ export function ChiefDock({ sessions, currentId, onSelect, onNewChat, onMoveToTa
                     <strong>{title}</strong>
                     <small>{session.preview || session.branch || session.cwd || t("sidebar.sessions")}</small>
                   </span>
+                    {queued > 0 && <span className="acpmux-chief-card-queue">{queued}</span>}
                 </button>
                 <button
                   type="button"

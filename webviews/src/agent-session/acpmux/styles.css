@@ -458,11 +458,13 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-chief-dock-header{display:flex;align-items:center;gap:7px;padding:3px 7px 6px;color:var(--agent-muted);font-size:var(--text-detail);text-transform:uppercase;letter-spacing:.06em}
 .acpmux-chief-dock-title{display:inline-flex;align-items:center;gap:5px;color:var(--agent-text);font-weight:650}
 .acpmux-chief-dock-count{margin-left:auto;min-width:18px;padding:0 5px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 9%,transparent);text-align:center}
-.acpmux-chief-dock-stack{display:flex;flex-direction:column;gap:4px;min-height:0;overflow:auto;overscroll-behavior:contain}
+.acpmux-chief-dock-stack{display:flex;flex-direction:column;gap:0;min-height:0;overflow:auto;overscroll-behavior:contain}
 .acpmux-chief-dock-empty{margin:8px 7px;color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-chief-card{display:flex;align-items:center;min-width:0;overflow:hidden;border-radius:11px;background:color-mix(in srgb,var(--agent-text) 5%,transparent);box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--agent-text) 7%,transparent);transition:background-color 150ms var(--agent-ease-out,ease-out),box-shadow 150ms var(--agent-ease-out,ease-out),transform 180ms var(--agent-ease-out,ease-out)}
+.acpmux-chief-card+.acpmux-chief-card{margin-top:-3px}
 .acpmux-chief-card:hover{transform:translateX(-2px)}
 .acpmux-chief-card[data-status=attention]{box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--agent-warning) 32%,transparent)}
+.acpmux-chief-card[data-steering=true]{background:color-mix(in srgb,var(--agent-accent) 8%,transparent)}
 .acpmux-chief-card[data-selected=true]{background:color-mix(in srgb,var(--agent-accent) 13%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent) 36%,transparent)}
 .acpmux-chief-card-main{display:flex;align-items:center;gap:9px;min-width:0;flex:1;height:44px;padding:5px 7px;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
 .acpmux-chief-card-main:hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
@@ -470,6 +472,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-chief-card-copy strong,.acpmux-chief-card-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-chief-card-copy strong{font-size:var(--text-control);font-weight:600}
 .acpmux-chief-card-copy small{color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-chief-card-queue{flex:none;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:color-mix(in srgb,var(--agent-accent) 18%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:17px;text-align:center;font-variant-numeric:tabular-nums}
 .acpmux-chief-dock-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--agent-muted)}
 .acpmux-chief-dock-dot[data-status=streaming]{background:var(--agent-accent);animation:acpmux-floating-breathe 1.4s var(--agent-ease-out,ease-out) infinite alternate}
 .acpmux-chief-dock-dot[data-status=attention]{background:var(--agent-warning)}

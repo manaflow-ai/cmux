@@ -5219,6 +5219,9 @@ function AcpmuxPane() {
     ? {
         sessions: composerSnapshot.sessions,
         currentId: snapshot.sessionId,
+        queueCounts:
+          snapshot.sessionId && snapshot.queue.length > 0 ? new Map([[snapshot.sessionId, snapshot.queue.length]]) : undefined,
+        steeringIds: snapshot.summary?.steering && snapshot.sessionId ? new Set([snapshot.sessionId]) : undefined,
         onSelect: selectSession,
         onNewChat: () => void callNative("chat.new", {}).catch(() => undefined),
         onMoveToTab: (sessionId: string) => void callNative("chat.openTab", { sessionId }).catch(() => undefined),

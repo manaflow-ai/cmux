@@ -89,5 +89,17 @@ export default componentEntry({
       },
       play: toggleStack,
     },
+    "steering-stack": {
+      note: "A running chat owns two queued steering prompts; its card becomes the active lead in the overlapping stack.",
+      props: {
+        sessions: base,
+        currentId: "chief-working",
+        queueCounts: new Map([["chief-working", 2]]),
+        steeringIds: new Set(["chief-working"]),
+        onSelect: () => undefined,
+        onNewChat: () => undefined,
+        onMoveToTab: () => undefined,
+      },
+    },
   },
 });
