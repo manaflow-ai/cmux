@@ -51,8 +51,8 @@ enum OmnibarStyle {
     static let textLeading: CGFloat = 5
     static let trailingPadding: CGFloat = 8
     static var iconPointSize: CGFloat { 13 }
-    /// 14 pt regular system text.
-    static var font: NSFont { Typography.system(size: 14, weight: .regular) }
+    /// 14 pt regular system text (`TypeScale.field`).
+    static var font: NSFont { Typography.system(size: TypeScale.field, weight: TypeScale.regular) }
     static var ringWidth: CGFloat { 2 }
 
     // MARK: Popup

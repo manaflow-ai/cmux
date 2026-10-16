@@ -4,6 +4,7 @@
     { "name": "caption", "size": 11, "lineHeight": 14, "for": "shortcuts, badges, counters, tooltips, group labels" },
     { "name": "detail", "size": 12, "lineHeight": 16, "for": "secondary lines, metadata, section headers, footer rows" },
     { "name": "body", "size": 13, "lineHeight": 18, "for": "chrome text: labels, rows, menus, controls, settings" },
+    { "name": "field", "size": 14, "lineHeight": 18, "for": "the browser address bar's text" },
     { "name": "title", "size": 15, "lineHeight": 20, "for": "card and panel titles, search fields" },
     { "name": "heading", "size": 20, "lineHeight": 26, "for": "page headings" }
   ],
