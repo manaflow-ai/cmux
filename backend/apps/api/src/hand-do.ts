@@ -19,6 +19,9 @@ import { callerLabel, capJson, isHandAction, PAIR_TTL_MS, sameHex, type AgentEve
  * (it hashes the hand's bearer key and passes only the hash); frames never carry identity.
  */
 
+/** An unacked agent outcome is given up after this long (hand-do.ts sendOutcomes). */
+const OUTCOME_GIVE_UP_MS = 6 * 3_600_000
+const OUTCOME_MAX_BACKOFF_MS = 10 * 60_000
 const HAND_TAG = "hand"
 const DEFAULT_TIMEOUT_MS = 60_000
 const MAX_TIMEOUT_MS = 15 * 60_000
@@ -77,6 +80,8 @@ export class HandDO extends DurableObject<Env> {
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_agent (session TEXT PRIMARY KEY, chief TEXT NOT NULL, conversation TEXT NOT NULL, at INTEGER NOT NULL)`)
     // The brain that drove the session last (agent.send / agent.events): its agent turn outcomes go there; the revoke stays with the starter (its ledger).
     if (!sql.exec<{ name: string }>(`PRAGMA table_info(hand_agent)`).toArray().some((c) => c.name === "driver")) sql.exec(`ALTER TABLE hand_agent ADD COLUMN driver TEXT`)
+    // Agent turn outcomes not yet acked by their brain (agentOutcome): resent by alarm with backoff, one row per (session, turn).
+    sql.exec(`CREATE TABLE IF NOT EXISTS hand_outcome (key TEXT PRIMARY KEY, target TEXT NOT NULL, body TEXT NOT NULL, tries INTEGER NOT NULL DEFAULT 0, first_at INTEGER NOT NULL, next_at INTEGER NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_sandbox (id INTEGER PRIMARY KEY CHECK (id = 1), vm TEXT NOT NULL)`)
     if (!sql.exec<{ name: string }>(`PRAGMA table_info(hand_sandbox)`).toArray().some((c) => c.name === "provider")) sql.exec(`ALTER TABLE hand_sandbox ADD COLUMN provider TEXT`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_event (seq INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT NOT NULL, at INTEGER NOT NULL, body TEXT NOT NULL)`)
@@ -197,6 +202,12 @@ export class HandDO extends DurableObject<Env> {
 
   /** Expired pairing code (the hand and its VM go), a sandbox past its lifetime (revoked), or a VM delete to retry. */
   override async alarm(): Promise<void> {
+    if (this.ctx.storage.sql.exec(`SELECT 1 FROM hand_outcome LIMIT 1`).toArray().length > 0) await this.sendOutcomes()
+    await this.alarmHand()
+    await this.rearm()
+  }
+
+  private async alarmHand(): Promise<void> {
     const r = this.row()
     if (r && r.paired_at === null && Date.now() >= r.created_at + PAIR_TTL_MS) {
       if (!(await this.dropSandbox())) return
@@ -551,8 +562,41 @@ export class HandDO extends DurableObject<Env> {
     const first = turn[0]!
     if (first.e.kind !== "turn_start") return
     const outcome = { hand: r.hand, hand_name: r.name, session, seq: first.seq, end_seq: last.seq, status: last.e.kind === "turn_end" ? "done" : "failed", stop_reason: last.e.kind === "turn_end" ? (last.e.stop_reason ?? "") : last.e.kind === "session_end" ? `session ended${last.e.reason ? `: ${last.e.reason}` : ""}` : "error", text, tools, errors }
-    const brain = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(a.driver ?? `${a.chief}/${a.conversation}`)) as unknown as { agentOutcome(o: typeof outcome): Promise<unknown> }
-    for (let i = 0; i < 2; i++) if (await brain.agentOutcome(outcome).then(() => true, () => false)) return
+    const now = Date.now()
+    sql.exec(`INSERT INTO hand_outcome (key, target, body, first_at, next_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (key) DO NOTHING`, `${session}:${first.seq}`, a.driver ?? `${a.chief}/${a.conversation}`, JSON.stringify(outcome), now, now)
+    await this.sendOutcomes()
+  }
+
+  /**
+   * Sends every due outcome row to its brain; a row goes when the brain acks it (idempotent there on
+   * session and turn). A failed send waits 5 s, doubling to 10 min, and is given up after 6 h.
+   */
+  private async sendOutcomes(): Promise<void> {
+    const sql = this.ctx.storage.sql
+    const now = Date.now()
+    const due = sql.exec<{ key: string; target: string; body: string; tries: number; first_at: number }>(`SELECT key, target, body, tries, first_at FROM hand_outcome WHERE next_at <= ? ORDER BY next_at LIMIT 50`, now).toArray()
+    await Promise.all(
+      due.map(async (r) => {
+        const brain = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(r.target)) as unknown as { agentOutcome(o: unknown): Promise<unknown> }
+        if (await brain.agentOutcome(JSON.parse(r.body)).then(() => true, () => false)) return void sql.exec(`DELETE FROM hand_outcome WHERE key = ?`, r.key)
+        if (now - r.first_at > OUTCOME_GIVE_UP_MS) {
+          console.error(JSON.stringify({ msg: "hand.agent_outcome_dropped", key: r.key, tries: r.tries + 1 }))
+          return void sql.exec(`DELETE FROM hand_outcome WHERE key = ?`, r.key)
+        }
+        sql.exec(`UPDATE hand_outcome SET tries = tries + 1, next_at = ? WHERE key = ?`, now + Math.min(OUTCOME_MAX_BACKOFF_MS, 5_000 * 2 ** r.tries), r.key)
+      })
+    )
+    await this.rearm()
+  }
+
+  /** The alarm at the earliest need: an outcome to resend, the pairing code's expiry, the sandbox's lifetime, or a pending one. */
+  private async rearm(): Promise<void> {
+    const r = this.row()
+    const next = this.ctx.storage.sql.exec<{ at: number | null }>(`SELECT MIN(next_at) AS at FROM hand_outcome`).one().at
+    const wants = [next === null ? null : Number(next), r && r.paired_at === null ? r.created_at + PAIR_TTL_MS : null, r && r.revoked_at === null && this.sandboxVm() ? r.created_at + SANDBOX_LIFETIME_MS : null]
+    const cur = await this.ctx.storage.getAlarm()
+    const at = Math.min(...[...wants, cur !== null && cur > Date.now() ? cur : null].filter((v): v is number => v !== null))
+    if (Number.isFinite(at) && at !== cur) await this.ctx.storage.setAlarm(at)
   }
 
   /** The hand says an agent session ended: its agent tokens stop now (model-gateway/run-token.ts). */
