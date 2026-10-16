@@ -20,16 +20,31 @@ struct SnippetsSidebarFocusBridge: NSViewRepresentable {
 
     func updateNSView(_ view: SnippetsKeyboardFocusView, context: Context) {
         context.coordinator.parent = self
-        view.focusSearchField = { Self.focusSearchField(in: view.window) }
-        view.ownsResponder = { responder in Self.responderIsSearchField(responder, in: view.window) }
+        view.focusSearchField = { [weak view] in
+            guard let view else { return false }
+            return Self.focusSearchField(for: view)
+        }
+        view.ownsResponder = { [weak view] responder in
+            guard let view else { return false }
+            return Self.responderIsSearchField(responder, for: view)
+        }
         view.registerWithKeyboardFocusCoordinatorIfNeeded()
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
-    static func searchField(in window: NSWindow?) -> SidebarSearchField? {
-        guard let root = window?.contentView else { return nil }
-        return firstSearchField(in: root)
+    /// The search field in the host's window. The focus coordinator asks
+    /// the host about every keystroke's responder, so the field is found by
+    /// a view-tree walk once and then reused while it stays in that window.
+    static func searchField(for host: SnippetsKeyboardFocusView) -> SidebarSearchField? {
+        guard let window = host.window else { return nil }
+        if let cached = host.cachedSearchField, cached.window === window {
+            return cached
+        }
+        guard let root = window.contentView else { return nil }
+        let found = firstSearchField(in: root)
+        host.cachedSearchField = found
+        return found
     }
 
     private static func firstSearchField(in view: NSView) -> SidebarSearchField? {
@@ -43,13 +58,14 @@ struct SnippetsSidebarFocusBridge: NSViewRepresentable {
         return nil
     }
 
-    static func focusSearchField(in window: NSWindow?) -> Bool {
-        guard let window, let field = searchField(in: window) else { return false }
+    static func focusSearchField(for host: SnippetsKeyboardFocusView) -> Bool {
+        guard let window = host.window, let field = searchField(for: host) else { return false }
         return window.makeFirstResponder(field)
     }
 
-    static func responderIsSearchField(_ responder: NSResponder, in window: NSWindow?) -> Bool {
-        guard let field = searchField(in: window) else { return false }
+    static func responderIsSearchField(_ responder: NSResponder, for host: SnippetsKeyboardFocusView) -> Bool {
+        guard responder is SidebarSearchField || responder is NSTextView,
+              let field = searchField(for: host) else { return false }
         if responder === field { return true }
         if let textView = responder as? NSTextView, textView.delegate === field { return true }
         return false
@@ -95,7 +111,7 @@ struct SnippetsSidebarFocusBridge: NSViewRepresentable {
                 return nil
             }
             if !isTextEntry, RightSidebarKeyboardNavigation.isPlainSlash(event) {
-                _ = SnippetsSidebarFocusBridge.focusSearchField(in: window)
+                _ = SnippetsSidebarFocusBridge.focusSearchField(for: host)
                 return nil
             }
             if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event),

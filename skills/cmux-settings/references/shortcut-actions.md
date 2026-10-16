@@ -147,6 +147,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.switchRightSidebarToFind`
 - `shortcuts.bindings.switchRightSidebarToMachines`
 - `shortcuts.bindings.switchRightSidebarToSessions`
+- `shortcuts.bindings.switchRightSidebarToSnippets`
 - `shortcuts.bindings.toggleSidebar`
 
 ## Browser

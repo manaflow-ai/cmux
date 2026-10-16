@@ -8,6 +8,8 @@ import AppKit
 final class SnippetsKeyboardFocusView: NSView {
     var focusSearchField: (() -> Bool)?
     var ownsResponder: ((NSResponder) -> Bool)?
+    /// Set by `SnippetsSidebarFocusBridge` after its first lookup.
+    weak var cachedSearchField: SidebarSearchField?
     override var acceptsFirstResponder: Bool { true }
     override var canBecomeKeyView: Bool { true }
 

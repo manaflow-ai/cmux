@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -54,5 +55,24 @@ struct SnippetsSidebarModeTests {
         let commandID = ContentView.commandPaletteRightSidebarModeCommandID(.snippets)
         #expect(commandID == "palette.showRightSidebarSnippets")
         #expect(ContentView.commandPaletteShortcutAction(forCommandID: commandID) == .switchRightSidebarToSnippets)
+    }
+
+    @Test func searchFieldLookupIsCachedPerWindowAndDropsAFieldThatLeft() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.titled], backing: .buffered, defer: true)
+        let root = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = root
+        let host = SnippetsKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+        let field = SidebarSearchField(frame: NSRect(x: 0, y: 0, width: 100, height: 22))
+        field.setAccessibilityIdentifier(SnippetsSidebarFocusBridge.searchFieldIdentifier)
+        root.addSubview(host)
+        root.addSubview(field)
+
+        #expect(SnippetsSidebarFocusBridge.searchField(for: host) === field)
+        #expect(host.cachedSearchField === field)
+        #expect(SnippetsSidebarFocusBridge.responderIsSearchField(field, for: host))
+        #expect(!SnippetsSidebarFocusBridge.responderIsSearchField(host, for: host))
+
+        field.removeFromSuperview()
+        #expect(SnippetsSidebarFocusBridge.searchField(for: host) == nil, "a field that left the window is not reused")
     }
 }
