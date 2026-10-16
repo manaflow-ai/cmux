@@ -17,6 +17,8 @@ import { Icon } from "./icons/Icon";
 import { rowIconSize } from "./icons/iconSize";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { listRowKeyboardProps } from "../../ui/listRowKeyboard";
+import { AnchoredCard } from "../../ui/Tooltip";
+import { HOVER_INTENT, HoverGroup, useHoverIntent } from "../../ui/hoverIntent";
 
 const MARK_LABELS = {
   input: "sidebar.markInput",
@@ -46,6 +48,9 @@ const PLACE_LABELS = {
   worktree: "sidebar.worktree",
   branch: "sidebar.branch",
 } as const satisfies Record<string, StringKey>;
+
+/** Sidebar previews are one warm hover-card group, so moving between rows does not replay the dwell. */
+const sessionPreviewGroup = new HoverGroup(HOVER_INTENT.cardGrace);
 
 /** What the rail switches the list to. */
 export type SidebarView = "sessions" | "history" | "pulls" | "closed";
@@ -84,7 +89,7 @@ export function SessionSidebar({
   onSelect: (sessionId: string) => void;
   onNewChat?: () => void;
   account?: SidebarAccount;
-  /** Preview features are on (`labs.previewFeatures`): the rail offers the Pull requests view. */
+  /** Preview features are on (`labs.previewFeatures`): show Pull requests and session hover cards. */
   preview?: boolean;
   /** Preserves project grouping as an option while keeping the default compact and ungrouped. */
   groupProjects?: boolean;
@@ -155,12 +160,13 @@ export function SessionSidebar({
                 onExpand={(key) => setExpanded((current) => new Set(current).add(key))}
                 settledSessions={settledSessions}
                 groupProjects={groupProjects}
+                preview={preview}
                 onContinue={onContinue}
                 onSettle={onSettle}
                 onShowMoreSettled={onShowMoreSettled}
               />
             ) : (
-              <FlatView view={view} sessions={sessions} selectedId={selectedId} onSelect={onSelect} />
+              <FlatView view={view} sessions={sessions} selectedId={selectedId} onSelect={onSelect} preview={preview} />
             )}
           </div>
           {account && (
@@ -225,6 +231,7 @@ function SessionsView({
   expanded,
   onExpand,
   groupProjects,
+  preview,
   onContinue,
   onSettle,
   onShowMoreSettled,
@@ -239,6 +246,7 @@ function SessionsView({
   expanded: Set<string>;
   onExpand: (groupKey: string) => void;
   groupProjects: boolean;
+  preview: boolean;
   onContinue?: (sessionIds: string[]) => void;
   onSettle?: (sessionIds: string[]) => void;
   onShowMoreSettled?: () => void;
@@ -310,6 +318,7 @@ function SessionsView({
               <SessionRow
                 key={session.sessionId}
                 session={session}
+                preview={preview}
                 selected={session.sessionId === selectedId}
                 onSelect={onSelect}
                 section="active"
@@ -329,6 +338,7 @@ function SessionsView({
               <SessionRow
                 key={session.sessionId}
                 session={session}
+                preview={preview}
                 selected={session.sessionId === selectedId}
                 onSelect={onSelect}
                 section="active"
@@ -366,6 +376,7 @@ function SessionsView({
                     <SessionRow
                       key={session.sessionId}
                       session={session}
+                      preview={preview}
                       selected={session.sessionId === selectedId}
                       groupHost={group.host}
                       onSelect={onSelect}
@@ -405,6 +416,7 @@ function SessionsView({
                 <SessionRow
                   key={session.sessionId}
                   session={session}
+                  preview={preview}
                   selected={session.sessionId === selectedId}
                   onSelect={onSelect}
                   section="settled"
@@ -431,11 +443,13 @@ function FlatView({
   sessions,
   selectedId,
   onSelect,
+  preview,
 }: {
   view: Exclude<SidebarView, "sessions">;
   sessions: AcpmuxSessionEntry[];
   selectedId?: string;
   onSelect: (sessionId: string) => void;
+  preview: boolean;
 }) {
   const t = useT();
   // Pull requests appear once the session summary reports them; until then the view says so.
@@ -460,6 +474,7 @@ function FlatView({
             <SessionRow
               key={session.sessionId}
               session={session}
+              preview={preview}
               selected={session.sessionId === selectedId}
               onSelect={onSelect}
               flat
@@ -474,6 +489,7 @@ function FlatView({
 
 const SessionRow = memo(function SessionRow({
   session,
+  preview,
   selected,
   groupHost,
   onSelect,
@@ -484,6 +500,7 @@ const SessionRow = memo(function SessionRow({
   onSettle,
 }: {
   session: AcpmuxSessionEntry;
+  preview: boolean;
   selected: boolean;
   groupHost?: string;
   onSelect: (sessionId: string) => void;
@@ -498,6 +515,16 @@ const SessionRow = memo(function SessionRow({
   const mark = sessionMark(session, selected);
   const title = session.displayTitle || session.sessionId.slice(0, 8);
   const place = sessionPlace(session, groupHost);
+  const previewText = preview ? session.preview?.trim() : undefined;
+  const previewIntent = useHoverIntent<HTMLElement>({ delay: HOVER_INTENT.cardDwell, group: sessionPreviewGroup });
+  const { dismiss: dismissPreview } = previewIntent;
+  const [placedPreview, setPlacedPreview] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (previewIntent.shown) setPlacedPreview(previewIntent.shown);
+  }, [previewIntent.shown]);
+  useEffect(() => {
+    if (!previewText) dismissPreview();
+  }, [dismissPreview, previewText]);
   const keyboard = listRowKeyboardProps(".acpmux-session-row", (row) => {
     const sessionId = row.dataset.sessionId;
     if (sessionId) onSelect(sessionId);
@@ -505,6 +532,7 @@ const SessionRow = memo(function SessionRow({
   const placeLabel =
     place &&
     `${t(PLACE_LABELS[place.kind])} ${place.label}${place.branch ? `, ${t(PLACE_LABELS.branch)} ${place.branch}` : ""}`;
+  const previewStatus = mark ? t(MARK_LABELS[mark]) : undefined;
   const menuItems: ContextMenuItem[] = [];
   if (section === "settled" && onContinue) {
     menuItems.push({
@@ -535,6 +563,15 @@ const SessionRow = memo(function SessionRow({
               .join(", ")
           : undefined
       }
+      onPointerEnter={(event) => previewText && previewIntent.hover(event.currentTarget)}
+      onPointerLeave={() => previewIntent.hover(null)}
+      onPointerDown={() => previewIntent.dismiss()}
+      onFocus={(event) => previewText && previewIntent.hover(event.currentTarget, 0)}
+      onBlur={() => previewIntent.hover(null)}
+      onKeyDown={(event) => {
+        keyboard.onKeyDown?.(event);
+        if (event.key === "Escape") previewIntent.dismiss();
+      }}
       onClick={() => onSelect(session.sessionId)}
     >
       <span className="acpmux-session-row-title">{title}</span>
@@ -562,5 +599,37 @@ const SessionRow = memo(function SessionRow({
       )}
     </button>
   );
-  return <li>{menuItems.length > 0 ? <ContextMenu items={menuItems}>{row}</ContextMenu> : row}</li>;
+  return (
+    <li>
+      {menuItems.length > 0 ? <ContextMenu items={menuItems}>{row}</ContextMenu> : row}
+      {previewText && placedPreview && (
+        <AnchoredCard
+          anchor={placedPreview}
+          open={previewIntent.shown !== null}
+          side="inline-end"
+          className="acpmux-session-preview"
+          instant={previewIntent.instant}
+        >
+          <div className="acpmux-session-preview-title">{title}</div>
+          <div className="acpmux-session-preview-copy">{previewText}</div>
+          {(previewStatus || placeLabel) && (
+            <div className="acpmux-session-preview-meta">
+              {previewStatus && (
+                <span className={`acpmux-session-preview-status acpmux-session-mark-${mark}`}>
+                  {mark && MARK_GLYPHS[mark]}
+                  {previewStatus}
+                </span>
+              )}
+              {placeLabel && (
+                <span className="acpmux-session-preview-place">
+                  {place && PLACE_GLYPHS[place.kind]}
+                  {placeLabel}
+                </span>
+              )}
+            </div>
+          )}
+        </AnchoredCard>
+      )}
+    </li>
+  );
 });

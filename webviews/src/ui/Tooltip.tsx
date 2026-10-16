@@ -59,6 +59,8 @@ export interface AnchoredCardProps {
   /** Whether it shows (default: while `anchor` is set); false keeps it placed while it fades out. */
   open?: boolean;
   className?: string;
+  /** Which side of the anchor receives the card. */
+  side?: "top" | "bottom" | "inline-end" | "inline-start";
   /** `data-state` on the card, for styling. */
   state?: string;
   /** Shows at once, with no fade in (a warm tooltip group's hint). */
@@ -70,7 +72,15 @@ export interface AnchoredCardProps {
  * A hover card for content the page does not render with React (a link inside the editor): a
  * tooltip anchored to that element, opened and closed by the caller. It never takes focus.
  */
-export function AnchoredCard({ anchor, open, className, state, instant, children }: AnchoredCardProps) {
+export function AnchoredCard({
+  anchor,
+  open,
+  className,
+  side = "bottom",
+  state,
+  instant,
+  children,
+}: AnchoredCardProps) {
   const container = usePortalContainer();
   return (
     <BaseTooltip.Root open={open ?? anchor !== null}>
@@ -78,7 +88,7 @@ export function AnchoredCard({ anchor, open, className, state, instant, children
         <BaseTooltip.Positioner
           className="ui-positioner"
           anchor={virtualAnchor(anchor)}
-          side="bottom"
+          side={side}
           align="start"
           sideOffset={6}
         >
