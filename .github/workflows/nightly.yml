@@ -4812,7 +4812,7 @@ jobs:
   # then keeps its previous build. Cost: the next nightly-next run waits for this
   # job's notarization in the workflow concurrency group (hq-a3 accepted, 2026-10-14).
   # Off switch: repository variable NIGHTLY_NEXT_LEGACY_IDENTITY=off.
-  publish-nightly-identity-legacy:
+  sign-nightly-identity-legacy:
     needs: [decide, legacy-identity-target]
     if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.build != '' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
     continue-on-error: true
@@ -4822,11 +4822,27 @@ jobs:
     concurrency:
       group: nightly-next-legacy-identity
       cancel-in-progress: false
+    # Signs and notarizes only. It holds signing and notarization secrets, so
+    # it runs no bundle code: verify-nightly-identity-legacy launch-smokes the
+    # stapled DMG on a fresh secret-free runner, and publish-nightly-identity-legacy
+    # publishes only the DMG whose sha256 that job tested (cx-vws1x).
     permissions:
-      contents: write
-      issues: write
-      # Read and retire the pending-submission artifacts of earlier runs.
+      contents: read
+      # Read the pending-submission artifacts of earlier runs, and retire
+      # metadata whose bundle is gone (nightly-next-legacy-orphan-meta.sh).
       actions: write
+    outputs:
+      # The old feed already has this build (or a newer one): nothing ran.
+      skip: ${{ steps.order.outputs.skip }}
+      pending: ${{ steps.notarize.outputs.submission_pending }}
+      notarize: ${{ steps.attempt.outputs.notarize }}
+      apple: ${{ steps.attempt.outputs.apple }}
+      requirement_refused: ${{ steps.attempt.outputs.requirement_refused }}
+      # true only when every step of this job passed.
+      signed_ok: ${{ steps.attempt.outputs.signed_ok }}
+      build_sha: ${{ steps.build-src.outputs.build_sha }}
+      dmg_sha256: ${{ steps.handoff.outputs.dmg_sha256 }}
+      minimum_system_version: ${{ steps.handoff.outputs.minimum_system_version }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     # Apple's wait is 20 min, as for cmux NEXT (#20518). A submission still in
     # Apple's queue is kept (artifacts cmux-nightly-identity-pending-meta and
@@ -4988,6 +5004,7 @@ jobs:
       # commit, so the check runs from a checkout of the build's commit
       # (CMUXCommit), with the notices submodule initialized there.
       - name: Check out the build's own source for the bundle checks
+        id: build-src
         if: steps.order.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -5009,6 +5026,7 @@ jobs:
           git worktree add --detach "$RUNNER_TEMP/build-src" "$sha"
           (cd "$RUNNER_TEMP/build-src" && bash scripts/ci/init-submodule.sh ghostty-next)
           echo "CMUX_VERIFY_LICENSES_TOOL=$RUNNER_TEMP/build-src/scripts/verify-app-bundle-licenses.sh" >> "$GITHUB_ENV"
+          echo "build_sha=$sha" >> "$GITHUB_OUTPUT"
           echo "bundle checks run from $sha (CMUXCommit $short)"
 
       # Same packaging, notarization, stapling, spctl and metadata checks as
@@ -5023,11 +5041,8 @@ jobs:
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           # This job holds signing and notarization secrets, so it runs no
-          # bundle code (#21024 guard rule 6): the launch smokes are skipped.
-          # The copied app is the cmux NEXT build that its own run's
-          # verify-signed-nightly launched, re-signed as cmux NIGHTLY; a
-          # secret-free smoke of this DMG before publication needs this job
-          # split into sign, verify and publish jobs (follow-up).
+          # bundle code (#21024 guard rule 6): the launch smokes are deferred
+          # to verify-nightly-identity-legacy, which smokes this exact DMG.
           CMUX_DEFER_LAUNCH_SMOKES: "true"
         run: |
           set -euo pipefail
@@ -5092,19 +5107,249 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+
+      # The stapled DMG goes to the secret-free verify job; publish takes it
+      # only with the sha256 that job tested.
+      - name: Hand the stapled cmux NIGHTLY DMG to the verify job
+        id: handoff
+        if: steps.order.outputs.skip != 'true' && steps.notarize.outputs.submission_pending != 'true'
+        run: |
+          set -euo pipefail
+          dmg="legacy-out/${LEGACY_DMG_PREFIX}${NIGHTLY_BUILD}.dmg"
+          [ -f "$dmg" ] || { echo "no stapled DMG at $dmg" >&2; exit 1; }
+          mkdir -p legacy-signed
+          cp "$dmg" legacy-signed/
+          sha="$(shasum -a 256 "legacy-signed/$(basename "$dmg")" | awk '{print $1}')"
+          [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || { echo "no sha256 for $dmg" >&2; exit 1; }
+          minimum="$(python3 scripts/ci/appcast_minimum_system_version.py floor "legacy-app/cmux NIGHTLY.app")"
+          [[ "$minimum" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || { echo "invalid minimum system version '$minimum'" >&2; exit 1; }
+          { echo "dmg_sha256=$sha"; echo "minimum_system_version=$minimum"; } >> "$GITHUB_OUTPUT"
+          echo "signed $(basename "$dmg") sha256 $sha"
+
+      - name: Upload the stapled cmux NIGHTLY DMG
+        if: steps.handoff.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-identity-signed
+          path: legacy-signed/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
+
+      # What publish-nightly-identity-legacy needs to resolve the attempt:
+      # Apple's answer (a notary log or a stapled ticket), a requirement
+      # refusal, and whether every step here passed.
+      - name: Record the attempt
+        id: attempt
+        if: always() && steps.order.outputs.skip == 'false'
+        env:
+          NOTARIZE: ${{ steps.notarize.outcome }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          apple=unknown
+          if grep -Eq '"status" *: *"(Invalid|Rejected)"' "$RUNNER_TEMP/legacy.notarization.log" 2>/dev/null; then
+            apple=refused
+          elif grep -Eq '"status" *: *"Accepted"' "$RUNNER_TEMP/legacy.notarization.log" 2>/dev/null \
+             || { [ -d "legacy-app/cmux NIGHTLY.app" ] && xcrun stapler validate "legacy-app/cmux NIGHTLY.app" >/dev/null 2>&1; }; then
+            apple=accepted
+          fi
+          refused=false
+          if [ -e "$RUNNER_TEMP/legacy-requirement-refused" ]; then refused=true; fi
+          signed_ok=false
+          if [ "$JOB_STATUS" = success ]; then signed_ok=true; fi
+          {
+            echo "notarize=${NOTARIZE:-skipped}"
+            echo "apple=$apple"
+            echo "requirement_refused=$refused"
+            echo "signed_ok=$signed_ok"
+          } >> "$GITHUB_OUTPUT"
+          echo "attempt: notarize=${NOTARIZE:-skipped} apple=$apple requirement_refused=$refused signed_ok=$signed_ok"
+          if [ "$LEGACY_ACTION" = continue ] && [ -f pending/pending.json ]; then
+            mkdir -p attempt-meta
+            cp pending/pending.json attempt-meta/pending.json
+          fi
+
+      # The continued submission's metadata, for marking it accepted.
+      - name: Upload the continued submission's metadata
+        if: always() && steps.order.outputs.skip == 'false' && env.LEGACY_ACTION == 'continue' && hashFiles('attempt-meta/pending.json') != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-identity-attempt-meta
+          path: attempt-meta/pending.json
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
+            || security delete-keychain build.keychain >/dev/null 2>&1 || true
+
+
+  # cx-vws1x: the launch smoke of the exact stapled cmux NIGHTLY DMG, on a
+  # fresh secret-free runner (a literal ephemeral label, no environment, no
+  # secret). Its tested sha256 is the only DMG publish-nightly-identity-legacy
+  # publishes.
+  verify-nightly-identity-legacy:
+    needs: [legacy-identity-target, sign-nightly-identity-legacy]
+    if: "!cancelled() && needs.sign-nightly-identity-legacy.outputs.signed_ok == 'true' && needs.sign-nightly-identity-legacy.outputs.dmg_sha256 != ''"
+    continue-on-error: true
+    permissions:
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 30
+    outputs:
+      tested_sha256: ${{ steps.smoke.outputs.tested_sha256 }}
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
+      SIGNED_SHA256: ${{ needs.sign-nightly-identity-legacy.outputs.dmg_sha256 }}
+      BUILD_SHA: ${{ needs.sign-nightly-identity-legacy.outputs.build_sha }}
+      LEGACY_DMG_PREFIX: cmux-nightly-next-macos-nightlyid-arm64-
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download the stapled cmux NIGHTLY DMG
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-identity-signed
+          path: legacy-signed
+
+      # The license check compares the app with its own source tree, as in the
+      # signing job: the copied build can be older than this run's commit.
+      - name: Check out the build's own source for the bundle checks
+        run: |
+          set -euo pipefail
+          [[ "$BUILD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "invalid build commit '$BUILD_SHA'" >&2; exit 1; }
+          git fetch --no-tags --depth=1 origin "$BUILD_SHA"
+          git worktree add --detach "$RUNNER_TEMP/build-src" "$BUILD_SHA"
+          (cd "$RUNNER_TEMP/build-src" && bash scripts/ci/init-submodule.sh ghostty-next)
+          echo "CMUX_VERIFY_LICENSES_TOOL=$RUNNER_TEMP/build-src/scripts/verify-app-bundle-licenses.sh" >> "$GITHUB_ENV"
+
+      - name: Smoke the stapled cmux NIGHTLY DMG
+        id: smoke
+        run: |
+          set -euo pipefail
+          [[ "$NIGHTLY_BUILD" =~ ^[0-9]+$ ]] || { echo "invalid build '$NIGHTLY_BUILD'" >&2; exit 1; }
+          [[ "$SIGNED_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "the signing job recorded no sha256" >&2; exit 1; }
+          dmg="legacy-signed/${LEGACY_DMG_PREFIX}${NIGHTLY_BUILD}.dmg"
+          [ -f "$dmg" ] || { echo "no stapled DMG at $dmg" >&2; exit 1; }
+          ./scripts/ci/smoke-dmg.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" 3>"$RUNNER_TEMP/tested.line"
+          tested="$(awk '$1 == "tested" {print $2}' "$RUNNER_TEMP/tested.line")"
+          [ "$tested" = "$SIGNED_SHA256" ] || { echo "smoke-dmg.sh tested '$tested', not the signed $SIGNED_SHA256" >&2; exit 1; }
+          echo "tested_sha256=$tested" >> "$GITHUB_OUTPUT"
+          echo "### cmux NIGHTLY-identity build $NIGHTLY_BUILD: DMG $tested launch-smoked (cx-vws1x)" >> "$GITHUB_STEP_SUMMARY"
+
+  publish-nightly-identity-legacy:
+    needs: [decide, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy]
+    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.build != '' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    continue-on-error: true
+    environment: release-next
+    # One old-feed writer at a time across runs (its own group: a second
+    # pending job in the signing group would cancel the first).
+    concurrency:
+      group: nightly-next-legacy-identity-publish
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      issues: write
+      # Read and retire the pending-submission artifacts of earlier runs.
+      actions: write
+    # Publishes only a DMG whose sha256 verify-nightly-identity-legacy tested,
+    # then resolves the attempt (retire, keep or mark the submission; count a
+    # failure) for the whole sign, verify and publish chain. Runs no bundle code.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 30
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
+      # new: sign and submit this build; continue: ask Apple about the pending
+      # submission of run PENDING_RUN (the same signed DMG, no new upload).
+      LEGACY_ACTION: ${{ needs.legacy-identity-target.outputs.action }}
+      PENDING_RUN: ${{ needs.legacy-identity-target.outputs.pending_run }}
+      # The run that holds the continued submission's bundle (the metadata of
+      # an accepted submission is re-stored by a later run).
+      BUNDLE_RUN: ${{ needs.legacy-identity-target.outputs.bundle_run }}
+      # Checked again on the app's own commit before anything is submitted to
+      # Apple (legacy-identity-target checks the build first).
+      REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
+      CHANNEL_RELEASE_TAG: nightly-next
+      CHANNEL_DMG_PREFIX: cmux-nightly-next-macos
+      # Release asset names of the cmux NIGHTLY-identity copies. They start with
+      # the track prefix (nightly-next-guard.py appcast) but match none of the
+      # track's prune patterns (prune_nightly_release_assets.py); this job
+      # prunes them itself.
+      LEGACY_DMG_PREFIX: cmux-nightly-next-macos-nightlyid-arm64-
+      LEGACY_APPCAST: appcast-arm64.xml
+      SIGN_SKIP: ${{ needs.sign-nightly-identity-legacy.outputs.skip }}
+      SIGN_OK: ${{ needs.sign-nightly-identity-legacy.outputs.signed_ok }}
+      SIGN_PENDING: ${{ needs.sign-nightly-identity-legacy.outputs.pending }}
+      SIGNED_SHA256: ${{ needs.sign-nightly-identity-legacy.outputs.dmg_sha256 }}
+      TESTED_SHA256: ${{ needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # Checked again here: another run may have moved the old feed while this
+      # build was signed and verified.
+      - name: Skip a build the old feed already has
+        id: order
+        if: env.SIGN_SKIP == 'false'
+        run: |
+          set -euo pipefail
+          [[ "$NIGHTLY_BUILD" =~ ^[0-9]+$ ]] || { echo "invalid build '$NIGHTLY_BUILD'" >&2; exit 1; }
+          current="$(curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}" \
+            | sed -n 's#.*<sparkle:version>\([0-9][0-9]*\)</sparkle:version>.*#\1#p' | sort -n | tail -1)"
+          if [ -n "$current" ] && [ "$NIGHTLY_BUILD" -le "$current" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "### Old feed already at $current; build $NIGHTLY_BUILD not published again" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Select Xcode
+        if: steps.order.outputs.skip == 'false' && env.TESTED_SHA256 != ''
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download the stapled cmux NIGHTLY DMG
+        if: steps.order.outputs.skip == 'false' && env.TESTED_SHA256 != ''
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-identity-signed
+          path: legacy-out
+
+      # Only the bytes the verify job launched are published.
+      - name: Refuse a DMG that is not the tested one
+        if: steps.order.outputs.skip == 'false' && env.TESTED_SHA256 != ''
+        run: |
+          ./scripts/ci/nightly-next-legacy-tested-digest.sh \
+            "legacy-out/${LEGACY_DMG_PREFIX}${NIGHTLY_BUILD}.dmg" "$TESTED_SHA256" "$SIGNED_SHA256"
+
       - name: Generate the old feed's appcast
         id: appcast
-        if: steps.order.outputs.skip != 'true' && steps.notarize.outputs.submission_pending != 'true'
+        if: steps.order.outputs.skip == 'false' && env.TESTED_SHA256 != ''
         env:
           TRACK: nightly-next
           NEXT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
           SPARKLE_CHANNEL: cmux-next
+          SPARKLE_MINIMUM_SYSTEM_VERSION: ${{ needs.sign-nightly-identity-legacy.outputs.minimum_system_version }}
         run: |
           set -euo pipefail
           SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
           export SPARKLE_PRIVATE_KEY
-          SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 scripts/ci/appcast_minimum_system_version.py floor "legacy-app/cmux NIGHTLY.app")"
-          export SPARKLE_MINIMUM_SYSTEM_VERSION
+          # Read from the signed app by the signing job.
+          [[ "$SPARKLE_MINIMUM_SYSTEM_VERSION" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || { echo "no minimum system version from the signing job" >&2; exit 1; }
           # One full archive, no deltas: the old feed only has to move its
           # installs to the newest build.
           ./scripts/sparkle_generate_appcast.sh \
@@ -5134,7 +5379,7 @@ jobs:
 
       - name: Publish the cmux NIGHTLY DMG, release notes and the old feed
         id: publish
-        if: steps.order.outputs.skip != 'true' && steps.notarize.outputs.submission_pending != 'true'
+        if: steps.order.outputs.skip == 'false' && env.TESTED_SHA256 != ''
         env:
           GH_TOKEN: ${{ github.token }}
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
@@ -5195,25 +5440,29 @@ jobs:
       # (scripts/ci/nightly-next-legacy-resolve.py). A valid stapled ticket is
       # Apple's answer too: notarize-nightly-dmg.sh staples an Accepted
       # continuation and writes no notary log.
+      - name: Download the continued submission's metadata
+        if: always() && env.SIGN_SKIP == 'false' && steps.order.outputs.skip != 'true' && env.LEGACY_ACTION == 'continue'
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-identity-attempt-meta
+          path: pending
+
       - name: Resolve the attempt
         id: resolve
-        if: always() && steps.order.outputs.skip == 'false'
+        if: always() && env.SIGN_SKIP == 'false' && steps.order.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          PENDING: ${{ steps.notarize.outputs.submission_pending == 'true' }}
-          NOTARIZE: ${{ steps.notarize.outcome }}
+          PENDING: ${{ needs.sign-nightly-identity-legacy.outputs.pending == 'true' }}
+          NOTARIZE: ${{ needs.sign-nightly-identity-legacy.outputs.notarize || 'failure' }}
           PUBLISHED: ${{ steps.publish.outcome == 'success' }}
+          # Apple's answer as the signing job saw it (a notary log or a stapled ticket).
+          APPLE: ${{ needs.sign-nightly-identity-legacy.outputs.apple || 'unknown' }}
+          REQUIREMENT_REFUSED: ${{ needs.sign-nightly-identity-legacy.outputs.requirement_refused || 'false' }}
         run: |
           set -euo pipefail
-          apple=unknown
-          if grep -Eq '"status" *: *"(Invalid|Rejected)"' "$RUNNER_TEMP/legacy.notarization.log" 2>/dev/null; then
-            apple=refused
-          elif grep -Eq '"status" *: *"Accepted"' "$RUNNER_TEMP/legacy.notarization.log" 2>/dev/null \
-             || { [ -d "legacy-app/cmux NIGHTLY.app" ] && xcrun stapler validate "legacy-app/cmux NIGHTLY.app" >/dev/null 2>&1; }; then
-            apple=accepted
-          fi
-          refused=false
-          if [ -e "$RUNNER_TEMP/legacy-requirement-refused" ]; then refused=true; fi
+          apple="$APPLE"
+          refused="$REQUIREMENT_REFUSED"
           decision="$(python3 scripts/ci/nightly-next-legacy-resolve.py --action "$LEGACY_ACTION" --pending "$PENDING" \
             --notarize "$NOTARIZE" --published "$PUBLISHED" --apple "$apple" --requirement-refused "$refused")"
           echo "$decision" >> "$GITHUB_OUTPUT"
@@ -5233,6 +5482,7 @@ jobs:
           # the bundle accepted, so later runs continue it with no time limit
           # and never submit the build again (newest metadata wins).
           if [ "$LEGACY_ACTION" = continue ] && grep -Fxq mark_accepted=true <<<"$decision"; then
+            [ -f pending/pending.json ] || { echo "the signing job left no metadata of the continued submission" >&2; exit 1; }
             mkdir -p accepted-meta
             python3 -I -c 'import json, sys; m = json.load(open(sys.argv[1])); m["accepted"] = True; m["bundle_run"] = sys.argv[2]; json.dump(m, open(sys.argv[3], "w"))' \
               pending/pending.json "$BUNDLE_RUN" accepted-meta/pending.json
@@ -5250,9 +5500,29 @@ jobs:
 
       # Search, not a one-page listing: the issue may be past the first 100 open
       # issues and pull requests (scripts/ci/nightly-next-legacy-failure-issue.sh).
+      # The attempt failed when signing failed, or when a build Apple is done
+      # with was not published (the verify smoke, the digest check, the appcast
+      # or the upload failed). A submission still in Apple's queue never fails.
+      - name: Decide whether the attempt failed
+        id: failed
+        if: always() && env.SIGN_SKIP != 'true' && steps.order.outputs.skip != 'true'
+        env:
+          PUBLISHED: ${{ steps.publish.outcome == 'success' }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          failed=false
+          if [ "$SIGN_SKIP" != false ] || [ "$SIGN_OK" != true ] || [ "$JOB_STATUS" != success ]; then
+            failed=true
+          elif [ "$SIGN_PENDING" != true ] && [ "$PUBLISHED" != true ]; then
+            failed=true
+          fi
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+          echo "attempt failed: $failed (sign skip=$SIGN_SKIP ok=$SIGN_OK pending=$SIGN_PENDING; tested=${TESTED_SHA256:-none}; published=$PUBLISHED)"
+
       - name: Find the failure issue
         id: failure-issue
-        if: failure() && steps.resolve.outputs.real != 'false'
+        if: always() && steps.failed.outputs.failed == 'true' && steps.resolve.outputs.real != 'false'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -5261,7 +5531,7 @@ jobs:
           echo "number=$number" >> "$GITHUB_OUTPUT"
 
       - name: Report a failed publication
-        if: failure() && steps.resolve.outputs.real != 'false'
+        if: always() && steps.failed.outputs.failed == 'true' && steps.resolve.outputs.real != 'false'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           BUILD: ${{ needs.legacy-identity-target.outputs.build }}
@@ -5286,11 +5556,13 @@ jobs:
             }
             core.error(`cmux NIGHTLY-identity publication of build ${process.env.BUILD} failed; see ${run}`);
 
-      - name: Cleanup keychain
-        if: always()
+      # Keep the job red for a failed attempt (continue-on-error keeps the run's
+      # result to cmux NEXT).
+      - name: Fail a failed attempt
+        if: always() && steps.failed.outputs.failed == 'true'
         run: |
-          ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
-            || security delete-keychain build.keychain >/dev/null 2>&1 || true
+          echo "the cmux NIGHTLY-identity attempt for build $NIGHTLY_BUILD failed" >&2
+          exit 1
 
   generate-nightly-deltas:
     # Delta work is deliberately downstream of the first publication. A slow
