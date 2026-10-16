@@ -36,8 +36,16 @@ extension AgentApprovalBanners {
     }
 
     /// `HandsService.texts`: the presence prompt reasons by raw level and profile values.
-    public nonisolated static var handTexts: (raiseHand: (String, String) -> String, raiseDefault: (String, String) -> String, unavailable: String) {
-        ({ handRaiseReason($0, level: $1) }, { handDefaultRaiseReason(profile: $0, level: $1) }, handPresenceUnavailable)
+    public nonisolated static var handTexts: (raiseHand: (String, String) -> String, raiseDefault: (String, String) -> String,
+                                              unavailable: String, notLinked: String) {
+        ({ handRaiseReason($0, level: $1) }, { handDefaultRaiseReason(profile: $0, level: $1) }, handPresenceUnavailable, handNotLinked)
+    }
+
+    /// Why Allow or a raise does nothing: this Mac has no registered Cloud install (signed out, or Cloud is off here).
+    public nonisolated static var handNotLinked: String {
+        String(localized: "hands.install.notLinked",
+               defaultValue: "This Mac is not set up for Cloud, so it cannot confirm this. Choose Sign In to cmux, then try again.",
+               bundle: .module)
     }
 
     /// Why this Mac refuses a raise: it has no Secure Enclave for the presence key.
