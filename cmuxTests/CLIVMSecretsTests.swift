@@ -285,6 +285,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         sk-bare-token-line
         EMPTY_KEY=
         OPENAI_API_KEY='sk-openai-dotenv' # trailing comment
+        PATH=/tmp/should-be-skipped
+        CMUX_SOCKET=/tmp/should-be-skipped
         """.write(to: good, atomically: true, encoding: .utf8)
         let onlyBad = tempDir.appendingPathComponent("bad.env")
         try "sk-bare-token-line\nEMPTY_KEY=\n".write(to: onlyBad, atomically: true, encoding: .utf8)
@@ -322,8 +324,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(result.stdout.contains("+ ANTHROPIC_API_KEY [all] would add"), result.stdout)
         XCTAssertTrue(result.stdout.contains("! line 3 skipped (not NAME=value)"), result.stdout)
         XCTAssertTrue(result.stdout.contains("! EMPTY_KEY skipped (empty value, line 4)"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("! PATH skipped (reserved variable name, line 6)"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("! CMUX_SOCKET skipped (reserved variable name, line 7)"), result.stdout)
         XCTAssertTrue(
-            result.stdout.contains("Would import 2 \u{00B7} Skipped 2: line 3 (not NAME=value), line 4 (empty value)"),
+            result.stdout.contains("Would import 2 \u{00B7} Skipped 4: line 3 (not NAME=value), line 4 (empty value), line 6 (reserved variable name), line 7 (reserved variable name)"),
             result.stdout
         )
         XCTAssertFalse(result.stdout.contains("sk-ant-dotenv"), result.stdout)

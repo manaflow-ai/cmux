@@ -145,6 +145,28 @@ import Testing
     }
 
     @Test
+    func reservedLegacyRecordsDoNotSatisfyARequirement() {
+        let date = Date(timeIntervalSince1970: 0)
+        let requirement = CloudSecretRequirement(name: "CMUX_SOCKET", description: nil, source: ".cmux/cloud.json")
+        let record = CloudSecretRecord(
+            name: "CMUX_SOCKET",
+            scope: .all,
+            fingerprint: "00000000",
+            createdAt: date,
+            updatedAt: date,
+            source: .manual
+        )
+        #expect(CloudSecretRequirements.missing([requirement], records: [record], projectKeys: [], machineID: nil) == [requirement])
+    }
+
+    @Test
+    func reservedDeclarationsAreIgnored() {
+        #expect(CloudSecretRequirements.declared(files: [
+            ".cmux/cloud.json": #"{"env": ["PATH", "CMUX_SOCKET", "DATABASE_URL"]}"#
+        ]).map(\.name) == ["DATABASE_URL"])
+    }
+
+    @Test
     func checkoutResolvesOriginFromConfigAndWorktrees() throws {
         let root = try makeRepository([
             "repo/.git/config": """

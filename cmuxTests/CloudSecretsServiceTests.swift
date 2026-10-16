@@ -165,9 +165,24 @@ struct CloudSecretsServiceTests {
 
         #expect(result.configuredGitCredentials)
         let helper = try #require(recorder.commands.first)
-        #expect(helper.hasPrefix("git config --global credential.https://github.com.helper "))
+        #expect(helper.contains("git config --global --add credential.https://github.com.helper "))
         #expect(helper.contains("${GH_TOKEN:-$GITHUB_TOKEN}"))
         #expect(!helper.contains("ghp_secretvalue"))
+    }
+
+    @Test func removingTheLastGitHubTokenRemovesOnlyCmuxHelpers() async throws {
+        let recorder = RecordingTransport()
+        let service = makeService(recorder)
+        try await service.set([CloudSecretInput(name: "GH_TOKEN", value: "ghp_secretvalue")], scope: .all, source: .ghCLI, sync: false)
+        _ = await service.sync(machineID: "m1")
+
+        _ = try await service.remove(names: ["GH_TOKEN"], scope: .all, sync: true)
+
+        let cleanup = try #require(recorder.commands.last)
+        #expect(cleanup.contains("git config --global --unset-all --fixed-value"))
+        #expect(cleanup.contains("cmux_cloud_github_token_helper_v1"))
+        #expect(cleanup.contains("!f()"))
+        #expect(!cleanup.contains("ghp_secretvalue"))
     }
 
     @Test func aFailedDeliveryIsRedactedAndRecorded() async throws {

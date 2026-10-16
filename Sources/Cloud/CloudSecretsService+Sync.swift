@@ -30,13 +30,31 @@ extension CloudSecretsService {
     /// Names whose presence makes sync configure git's GitHub credential helper.
     nonisolated static let gitTokenNames: Set<String> = ["GH_TOKEN", "GITHUB_TOKEN"]
 
-    /// `git config` for a helper that reads the token from the environment at use time,
-    /// so no value is ever in argv, a config file, or the exec channel.
+    /// A distinctive helper that reads the token from the environment at use time,
+    /// so no value is ever in argv, a config file, or the exec channel. The function
+    /// name is part of the marker: cleanup can remove only the helper cmux added.
+    nonisolated static let gitCredentialHelperValue = #"!cmux_cloud_github_token_helper_v1() { test "$1" = get || exit 0; echo username=x-access-token; echo "password=${GH_TOKEN:-$GITHUB_TOKEN}"; }; cmux_cloud_github_token_helper_v1"#
+
+    /// The helper written by the first version of Cloud Secrets. Remove it during
+    /// cleanup too, so machines upgraded in place do not retain an empty-password
+    /// helper after their token is removed.
+    nonisolated static let legacyGitCredentialHelperValue = #"!f() { test "$1" = get || exit 0; echo username=x-access-token; echo "password=${GH_TOKEN:-$GITHUB_TOKEN}"; }; f"#
+
+    /// Adds the cmux helper only when it is not already present. `--add` preserves
+    /// any helper the user configured; Git tries helpers in config order.
     nonisolated static var gitCredentialHelperCommand: String {
-        let helper = #"!f() { test "$1" = get || exit 0; echo username=x-access-token; echo "password=${GH_TOKEN:-$GITHUB_TOKEN}"; }; f"#
-        return ["git", "config", "--global", "credential.https://github.com.helper", helper]
-            .map(\.posixShellWord)
-            .joined(separator: " ")
+        let key = "credential.https://github.com.helper"
+        let helper = gitCredentialHelperValue.posixShellWord
+        return "if git config --global --get-all \(key.posixShellWord) 2>/dev/null | grep -F -x -- \(helper) >/dev/null 2>&1; then exit 0; else git config --global --add \(key.posixShellWord) \(helper); fi"
+    }
+
+    /// Removes only helpers whose exact value is one of the cmux-owned versions.
+    /// A user's unrelated GitHub helper remains intact.
+    nonisolated static var gitCredentialHelperCleanupCommand: String {
+        let key = "credential.https://github.com.helper".posixShellWord
+        let values = [gitCredentialHelperValue, legacyGitCredentialHelperValue]
+            .map { "git config --global --unset-all --fixed-value \(key) \($0.posixShellWord) >/dev/null 2>&1 || true" }
+        return values.joined(separator: "; ")
     }
 
     /// The machine shim's names-only removal: `cmux env rm NAME…`.
@@ -91,9 +109,18 @@ extension CloudSecretsService {
             } catch {
                 return await failure(machineID: machineID, error: error, values: values)
             }
+            var configuredGit = false
+            if !Self.gitTokenNames.isDisjoint(with: plan.effective.keys) {
+                if let result = try? await transport.exec(machineID, Self.gitCredentialHelperCommand),
+                   result.exitCode == 0 {
+                    configuredGit = true
+                }
+            } else {
+                _ = try? await transport.exec(machineID, Self.gitCredentialHelperCleanupCommand)
+            }
             return CloudSecretSyncResult(
                 machineID: machineID, sent: [], removed: [], noop: true,
-                configuredGitCredentials: false, error: routingError
+                configuredGitCredentials: configuredGit, error: routingError
             )
         }
         var configuredGit = false
@@ -130,14 +157,19 @@ extension CloudSecretsService {
                     recordProviderRouting(routing, machineID: machineID)
                 }
             }
-            let sentNames = toSend.map(\.key)
-            if !toSend.isEmpty, !Self.gitTokenNames.isDisjoint(with: sentNames) {
+            if !Self.gitTokenNames.isDisjoint(with: plan.effective.keys) {
                 // Best effort: the token itself is delivered; only `git push` over
                 // HTTPS depends on the helper, and `gh auth setup-git` remains a fallback.
+                // Run this even when the vault plan is otherwise current, because a
+                // prior helper setup may have failed after the token was delivered.
                 if let result = try? await transport.exec(machineID, Self.gitCredentialHelperCommand),
                    result.exitCode == 0 {
                     configuredGit = true
                 }
+            } else {
+                // Do not leave a cmux helper that returns an empty password: it can
+                // prevent a user's own helper from being tried after token removal.
+                _ = try? await transport.exec(machineID, Self.gitCredentialHelperCleanupCommand)
             }
             // The ledger records what landed: a held-back key stays missing, so the
             // next sync sends it.

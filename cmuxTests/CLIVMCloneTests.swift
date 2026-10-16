@@ -1368,6 +1368,49 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(pool?["machines"] as? [String], ["vm-warm"])
     }
 
+    func testVMCloneDiscardsWarmMachineWhenItsEnvironmentCannotBeReset() throws {
+        let root = try vmCloneScratch("warm-reset-fail")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        try writeVMCloneWarmStart(projectKey: "github.com/o/r", snapshot: "snap_warm", machine: "vm-old", savedSecondsAgo: 600, home: home)
+
+        let (result, log) = try runVMCloneAgainstMock(
+            "vcw-reset-fail",
+            arguments: ["vm", "clone", "o/r", "--new", "--no-open", "--json"],
+            home: home
+        ) { method, params in
+            switch method {
+            case "vm.list": return ["vms": []]
+            case "vm.restore": return ["id": "vm-warm", "status": "running", "image": "snap_warm"]
+            case "vm.status": return ["id": "vm-warm", "status": "running"]
+            case "vm.rename": return ["id": "vm-warm"]
+            case "vm.destroy": return ["destroyed": true]
+            case "vm.create": return ["id": "vm-cold", "status": "running"]
+            case "vm.secrets_sync": return ["sent": [], "removed": [], "noop": true]
+            case "vm.exec":
+                let command = (params["command"] as? String) ?? ""
+                if command.contains(".config/cmux/env") {
+                    return ["exit_code": 1, "stdout": "", "stderr": "reset failed"]
+                }
+                return ["exit_code": 0, "stdout": "cmux-clone=cloned\ncmux-clone-path=/home/cmux/work/r\n", "stderr": ""]
+            case "vm.workspace_new": return ["remote_workspace_id": "ws_r", "existing": false, "opened": false]
+            default: return nil
+            }
+        }
+
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        let methods = log.methods
+        XCTAssertTrue(methods.contains("vm.destroy"), methods.description)
+        XCTAssertLessThan(try XCTUnwrap(methods.firstIndex(of: "vm.restore")), try XCTUnwrap(methods.firstIndex(of: "vm.destroy")), methods.description)
+        XCTAssertLessThan(try XCTUnwrap(methods.firstIndex(of: "vm.destroy")), try XCTUnwrap(methods.firstIndex(of: "vm.create")), methods.description)
+        XCTAssertEqual(log.params(ofFirst: "vm.destroy")?["id"] as? String, "vm-warm")
+        let execs = log.snapshot().filter { ($0["method"] as? String) == "vm.exec" }.compactMap { $0["params"] as? [String: Any] }
+        XCTAssertEqual(execs.last?["id"] as? String, "vm-cold")
+        XCTAssertTrue(result.stderr.contains("Warm start from snapshot snap_warm failed"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("cloning on a fresh machine instead"), result.stderr)
+        XCTAssertEqual(readVMCloneWarmStarts(home: home)["github.com/o/r"]?["snapshot_id"] as? String, "snap_warm")
+    }
+
     func testVMCloneFallsBackToAColdMachineWhenTheWarmStartCannotRestore() throws {
         let root = try vmCloneScratch("warmfail")
         defer { try? FileManager.default.removeItem(at: root) }

@@ -35,7 +35,9 @@ public enum CloudSecretRequirements {
         var requirements: [CloudSecretRequirement] = []
         var seen: Set<String> = []
         func add(_ requirement: CloudSecretRequirement) {
-            guard !requirement.name.isEmpty, seen.insert(requirement.name).inserted else { return }
+            guard !requirement.name.isEmpty,
+                  !CloudSecretInput.isReservedName(requirement.name),
+                  seen.insert(requirement.name).inserted else { return }
             requirements.append(requirement)
         }
         if let object = files[cloudConfigPath].flatMap({ CloudSecretJSONC(text: $0).object() }) {
@@ -61,6 +63,10 @@ public enum CloudSecretRequirements {
     ) -> [CloudSecretRequirement] {
         let projects = Set(projectKeys)
         let covered = Set(records.filter { record in
+            // Reserved names stay in the vault so legacy entries can be
+            // removed, but effectiveEntries never delivers them to a machine.
+            // They therefore cannot satisfy a checkout requirement.
+            guard !CloudSecretInput.isReservedName(record.name) else { return false }
             switch record.scope {
             case .all: return true
             case .project(let key): return projects.contains(key)

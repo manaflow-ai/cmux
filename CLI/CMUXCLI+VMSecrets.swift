@@ -1,3 +1,4 @@
+import CmuxCloud
 import Darwin
 import Foundation
 
@@ -1065,6 +1066,7 @@ extension CMUXCLI {
         enum Reason: String, Equatable {
             case expectedAssignment = "not_assignment"
             case invalidName = "invalid_name"
+            case reservedName = "reserved_name"
             case multilineValue = "multiline_value"
             case trailingText = "trailing_text"
             case emptyValue = "empty_value"
@@ -1084,6 +1086,8 @@ extension CMUXCLI {
                 return String(localized: "cloudSecrets.cli.dotenv.skip.expectedAssignment", defaultValue: "not NAME=value")
             case .invalidName:
                 return String(localized: "cloudSecrets.cli.dotenv.skip.invalidName", defaultValue: "invalid variable name")
+            case .reservedName:
+                return String(localized: "cloudSecrets.cli.dotenv.skip.reservedName", defaultValue: "reserved variable name")
             case .multilineValue:
                 return String(localized: "cloudSecrets.cli.dotenv.skip.multilineValue", defaultValue: "value spans several lines")
             case .trailingText:
@@ -1115,6 +1119,12 @@ extension CMUXCLI {
             let key = line[..<separator].trimmingCharacters(in: .whitespaces)
             guard isValidVMEnvKey(key) else {
                 skipped.append(VMSecretsDotenvSkip(line: lineNumber, reason: .invalidName, name: nil))
+                continue
+            }
+            // The machine's env receiver refuses shell and cmux-owned names. Keep
+            // dotenv import lenient: one such line must not reject all valid keys.
+            if CloudSecretInput.isReservedName(key) {
+                skipped.append(VMSecretsDotenvSkip(line: lineNumber, reason: .reservedName, name: key))
                 continue
             }
             let rawValue = line[line.index(after: separator)...].trimmingCharacters(in: .whitespaces)

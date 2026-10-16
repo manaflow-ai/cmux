@@ -1667,11 +1667,27 @@ extension CMUXCLI {
                 id, reason
             ))
         }
-        _ = try? client.sendV2(
-            method: "vm.exec",
-            params: ["id": id, "command": Self.vmCloneWarmEnvResetCommand, "timeout_ms": 30_000],
-            responseTimeout: 60
-        )
+        do {
+            let reset = try client.sendV2(
+                method: "vm.exec",
+                params: ["id": id, "command": Self.vmCloneWarmEnvResetCommand, "timeout_ms": 30_000],
+                responseTimeout: 60
+            )
+            let exitCode = reset["exit_code"] as? Int ?? -1
+            guard exitCode == 0 else {
+                discardVMCloneWarmStart(id: id, client: client)
+                return (nil, String(
+                    localized: "cli.vm.clone.warm.envResetFailed",
+                    defaultValue: "the restored machine's environment could not be cleared"
+                ))
+            }
+        } catch {
+            discardVMCloneWarmStart(id: id, client: client)
+            return (nil, String(
+                localized: "cli.vm.clone.warm.envResetFailed",
+                defaultValue: "the restored machine's environment could not be cleared"
+            ))
+        }
         do {
             try resetVMCloneWarmWorkspaces(machine: id, client: client)
         } catch {

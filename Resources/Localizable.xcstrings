@@ -669418,6 +669418,65 @@
         }
       }
     },
+    "cloudSecrets.cli.dotenv.skip.reservedName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "reserved variable name"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "reservierter Variablenname"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nom de variable réservé"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسم متغير محجوز"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nombre de variable reservado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留的變數名稱"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留的变量名"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예약된 변수 이름"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "予約済みの変数名"
+          }
+        }
+      }
+    },
     "cloudSecrets.cli.dotenv.skip.multilineValue": {
       "extractionState": "manual",
       "localizations": {
@@ -694466,6 +694525,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "開啟的瀏覽器 REPL 工作階段過多；請使用 `cmux browser repl reset NAME` 重設其中一個（`cmux browser repl list` 會列出此工作區的工作階段；在 cmux 之外，`cmux browser repl list --all-workspaces` 會列出全部）"
+          }
+        }
+      }
+    },
+    "cli.vm.clone.warm.envResetFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the restored machine's environment could not be cleared"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Umgebung der wiederhergestellten Maschine konnte nicht gelöscht werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’environnement de la machine restaurée n’a pas pu être effacé"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر مسح بيئة الآلة المستعادة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo borrar el entorno de la máquina restaurada"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法清除還原機器的環境"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法清除恢复机器的环境"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복원된 머신의 환경을 지울 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元したマシンの環境を消去できませんでした"
           }
         }
       }
