@@ -65,6 +65,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
   private readonly posting = new Set<string>()
   /** Operations that joined the running turn (messages that came in while it ran): the turn waits for them too. */
   private steered: Array<string> = []
+  /** The running turn's input is with pi: from then until it ends, new messages may join it. */
+  private turnLive = false
   private authing: Promise<string> | undefined
 
   readonly harness = new PiHarness({
@@ -268,17 +270,26 @@ export class ChiefBrainDO extends DurableObject<Env> {
     if (queued === 0 && top > cursor) await ackWake(this.env, w.agent, chiefPrincipal(w.agent, w.owner), w.conversation, top).catch(() => undefined)
     // A message that comes in while this conversation's turn runs joins that turn after its current
     // model or tool step (spec 7), instead of waiting for the turn to end.
-    if (queued > 0 && this.turnId && this.turnConversation === w.conversation) await this.steerQueued(w.conversation).catch((e: unknown) => console.warn(JSON.stringify({ msg: "chief_brain.steer_failed", error: String(e).slice(0, 200) })))
+    if (queued > 0 && this.turnLive && this.turnId && this.turnConversation === w.conversation) await this.steerQueued(w.conversation)
     this.kick()
     return { queued }
   }
 
-  /** Logs the conversation's queued messages into the running turn and gives them to it (pi steer). */
+  /**
+   * Logs the conversation's queued messages of the turn's thread into the running turn and gives them
+   * to it (pi steer, after its current step). The op is recorded (memory and storage) before anything
+   * awaits, so the turn's wait loop and a restart both see it; a failed steer puts the rows back.
+   */
   private async steerQueued(conversation: string): Promise<void> {
     const turn = this.turnId
-    if (!turn) return
-    const rows = this.sql.exec<{ n: number; message: string; seq: number; text: string }>(`SELECT n, message, seq, text FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, conversation).toArray()
+    if (!turn || !this.turnLive) return
+    const root = this.sql.exec<{ r: string | null }>(`SELECT trigger_thread_root AS r FROM cb_turn WHERE id = ?`, turn).toArray()[0]?.r ?? null
+    // Only the turn's own thread joins it (its reply goes there); other threads wait for their own turn.
+    const rows = this.sql.exec<{ n: number; message: string; seq: number; text: string }>(`SELECT n, message, seq, text FROM cb_inbox WHERE state = 'queued' AND conversation = ? AND thread_root IS ? ORDER BY n`, conversation, root).toArray()
     if (rows.length === 0) return
+    const op = `${turn}:steer:${rows[0]!.n}`
+    const text = rows.map((r) => r.text).join("\n\n")
+    const before = this.sql.exec<{ s: number }>(`SELECT last_seq AS s FROM cb_turn WHERE id = ?`, turn).one().s
     this.ctx.storage.transactionSync(() => {
       for (const r of rows) {
         this.sql.exec(`INSERT INTO oc_logged (key) VALUES (?) ON CONFLICT DO NOTHING`, `user:${r.message}`)
@@ -286,11 +297,26 @@ export class ChiefBrainDO extends DurableObject<Env> {
         this.sql.exec(`UPDATE cb_inbox SET state = 'running', turn = ? WHERE n = ?`, turn, r.n)
       }
       this.sql.exec(`UPDATE cb_turn SET last_seq = MAX(last_seq, ?) WHERE id = ?`, Math.max(...rows.map((r) => r.seq)), turn)
+      writeConfig(this.sql, { [`steer:${turn}`]: JSON.stringify([...this.steerOps(turn), { op, text }]) })
     })
-    this.compactor.pump()
-    const op = `${turn}:steer:${rows[0]!.n}`
-    await this.harness.session().steer([{ type: "text" as const, text: rows.map((r) => r.text).join("\n\n") }], { operationId: op })
     this.steered.push(op)
+    this.compactor.pump()
+    try {
+      await this.harness.session().steer([{ type: "text" as const, text }], { operationId: op })
+    } catch (e) {
+      console.warn(JSON.stringify({ msg: "chief_brain.steer_failed", run: turn, error: String(e).slice(0, 200) }))
+      // Not given to pi: the rows wait for the next turn, and the turn's ack range is as before.
+      this.steered = this.steered.filter((x) => x !== op)
+      writeConfig(this.sql, { [`steer:${turn}`]: JSON.stringify(this.steerOps(turn).filter((x) => x.op !== op)) })
+      this.sql.exec(`UPDATE cb_inbox SET state = 'queued', turn = NULL WHERE turn = ? AND n >= ? AND n <= ?`, turn, rows[0]!.n, rows[rows.length - 1]!.n)
+      this.sql.exec(`UPDATE cb_turn SET last_seq = ? WHERE id = ?`, before, turn)
+    }
+  }
+
+  /** The joined operations of `turn`, as stored (restart: the turn waits for them and gives pi any it never got). */
+  private steerOps(turn: string): Array<{ op: string; text: string }> {
+    const v = this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `steer:${turn}`).toArray()[0]?.value
+    return v ? (JSON.parse(v) as Array<{ op: string; text: string }>) : []
   }
 
   // ------------------------------------------------------------------ logging
@@ -423,14 +449,19 @@ export class ChiefBrainDO extends DurableObject<Env> {
         await this.harness.submit(blocks.map((text) => ({ type: "text" as const, text })), { operationId: id })
       }
       const limit = new Promise<"timeout">((r) => (timer = setTimeout(() => r("timeout"), TURN_MS)))
+      this.turnLive = true
+      // After a restart: the ops that joined this turn before (pi takes a repeated operation id once).
+      for (const s of this.steerOps(id)) [this.steered.push(s.op), await this.harness.session().steer([{ type: "text" as const, text: s.text }], { operationId: s.op }).catch(() => undefined)]
       let result = await Promise.race([this.harness.wait(id), limit])
       // Messages that joined the turn: wait for them as well (one that came after the last step runs on, under this turn).
       for (let i = 0; i < this.steered.length && result !== "timeout"; i++) {
         const joined = await Promise.race([this.harness.wait(this.steered[i]!), limit])
         if (joined === "timeout" || joined.status !== "done") result = joined
       }
+      // No message joins from here on: the next one starts its own turn.
+      this.turnLive = false
       if (result === "timeout") {
-        void this.harness.abort({ operationId: id }).catch(() => undefined)
+        for (const op of [id, ...this.steered]) void this.harness.abort({ operationId: op }).catch(() => undefined)
         reason = "timeout"
       } else {
         ok = result.status === "done"
@@ -440,7 +471,9 @@ export class ChiefBrainDO extends DurableObject<Env> {
       reason = e instanceof Error ? e.message : String(e)
     } finally {
       clearTimeout(timer)
+      this.turnLive = false
       this.steered = []
+      this.sql.exec(`DELETE FROM cb_config WHERE name = ?`, `steer:${id}`)
       this.turnId = undefined
       this.turnConversation = undefined
     }
