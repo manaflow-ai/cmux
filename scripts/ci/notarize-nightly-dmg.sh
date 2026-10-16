@@ -129,9 +129,14 @@ else
     "$APPLE_SIGNING_IDENTITY"
 fi
 
-# package_signed_dmg <app> <out-dmg> <empty work dir>: create-dmg, LZMA, sign.
+# package_signed_dmg <app> <out-dmg> <empty work dir> [create-keychain]:
+# create-dmg, LZMA, sign. create-keychain makes the signing keychain just
+# before the signature (the DMG around the stapled app, after Apple's wait).
 package_signed_dmg() {
-  local app="$1" out="$2" work="$3" created format
+  local app="$1" out="$2" work="$3" keychain="${4:-}" created format
+  # create-dmg copies the app with the process umask. The notary sidecar
+  # writers set 077, and an app copied under it is readable only by its owner.
+  umask 022
   "$CREATE_DMG_TOOL" --no-code-sign "$app" "$work"
   created="$(find "$work" -maxdepth 1 -name '*.dmg' -print -quit)"
   if [ -z "$created" ]; then
@@ -148,6 +153,12 @@ package_signed_dmg() {
     exit 1
   fi
 
+  if [ "$keychain" = create-keychain ]; then
+    RESTAPLE_KEYCHAIN_OPEN=true
+    "$SIGNING_KEYCHAIN_TOOL" create
+    # No later child process needs the certificate.
+    unset APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD
+  fi
   # The helper wait can pass the CI keychain's short idle lock.
   "$SIGNING_KEYCHAIN_TOOL" unlock
   "$CODESIGN_TOOL" --force --timestamp --keychain build.keychain \
@@ -329,11 +340,7 @@ if [ "$STAPLE_APP_IN_DMG" = true ]; then
   restaple_dir="$DMG_TMP_DIR/stapled-app"
   mkdir -p "$restaple_dir/work"
   FINAL_DMG="$restaple_dir/$(basename "$DMG_RELEASE")"
-  RESTAPLE_KEYCHAIN_OPEN=true
-  "$SIGNING_KEYCHAIN_TOOL" create
-  # No later child process needs the certificate.
-  unset APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD
-  package_signed_dmg "$APP_PATH" "$FINAL_DMG" "$restaple_dir/work"
+  package_signed_dmg "$APP_PATH" "$FINAL_DMG" "$restaple_dir/work" create-keychain
   "$SIGNING_KEYCHAIN_TOOL" delete
   RESTAPLE_KEYCHAIN_OPEN=false
   restaple_output="$NOTARY_DIR/stapled-app-dmg-submit-output"

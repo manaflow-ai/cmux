@@ -15,6 +15,9 @@ APP="$TMP_DIR/input/cmux NIGHTLY.app"
 DMG="$TMP_DIR/cmux-nightly-macos.dmg"
 IMMUTABLE="$TMP_DIR/cmux-nightly-immutable.dmg"
 FAKE_BIN="$TMP_DIR/bin"
+# The stapled-app DMG (CMUX_STAPLE_APP_IN_DMG) has its own cases below; every
+# other case keeps one DMG submission.
+export CMUX_STAPLE_APP_IN_DMG=false
 LOG="$TMP_DIR/calls.log"
 HELPER_STATE="$TMP_DIR/helper-notarization.state"
 mkdir -p "$APP/Contents/MacOS" "$FAKE_BIN"
@@ -25,6 +28,7 @@ cat > "$FAKE_BIN/create-dmg" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf 'create-dmg %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
+printf 'create-dmg-umask %s\n' "$(umask)" >> "$CMUX_TEST_CALL_LOG"
 output_dir="${@: -1}"
 mkdir -p "$output_dir"
 printf 'dmg-fixture\n' > "$output_dir/created.dmg"
@@ -518,7 +522,7 @@ echo "PASS: fast dogfood packaging skips notarization but retains signing"
 cat > "$FAKE_BIN/keychain" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf 'keychain %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
+printf 'keychain %s cert=%s\n' "$*" "${APPLE_CERTIFICATE_BASE64:+set}" >> "$CMUX_TEST_CALL_LOG"
 EOF
 chmod +x "$FAKE_BIN/keychain"
 run_stapled() {
@@ -543,7 +547,7 @@ if [ "$(grep -c '^xcrun notarytool submit ' "$LOG")" -ne 2 ] \
 fi
 first_submit="$(grep -nF "xcrun notarytool submit $DMG " "$LOG" | head -n 1 | cut -d: -f1)"
 app_staple="$(grep -nF "xcrun stapler staple $APP" "$LOG" | head -n 1 | cut -d: -f1)"
-create2="$(grep -n '^keychain create' "$LOG" | head -n 1 | cut -d: -f1)"
+create2="$(grep -n '^keychain create cert=set$' "$LOG" | head -n 1 | cut -d: -f1)"
 dmg2="$(grep -n "^create-dmg --no-code-sign $APP .*/stapled-app/work\$" "$LOG" | head -n 1 | cut -d: -f1)"
 sign2="$(grep -n '^codesign --force --timestamp --keychain build.keychain .*/stapled-app/cmux-nightly-macos.dmg$' "$LOG" | head -n 1 | cut -d: -f1)"
 delete2="$(grep -n '^keychain delete' "$LOG" | awk -F: -v after="${sign2:-0}" '$1 > after {print $1; exit}')"
@@ -558,11 +562,15 @@ for n in first_submit app_staple create2 dmg2 sign2 delete2 submit2 staple2 atta
     exit 1
   fi
 done
-if ! [ "$first_submit" -lt "$app_staple" ] || ! [ "$app_staple" -lt "$create2" ] || ! [ "$create2" -lt "$dmg2" ] \
-  || ! [ "$dmg2" -lt "$sign2" ] || ! [ "$sign2" -lt "$delete2" ] || ! [ "$delete2" -lt "$submit2" ] \
+if ! [ "$first_submit" -lt "$app_staple" ] || ! [ "$app_staple" -lt "$dmg2" ] || ! [ "$dmg2" -lt "$create2" ] \
+  || ! [ "$create2" -lt "$sign2" ] || ! [ "$sign2" -lt "$delete2" ] || ! [ "$delete2" -lt "$submit2" ] \
   || ! [ "$submit2" -lt "$staple2" ] || ! [ "$staple2" -lt "$attach2" ] || ! [ "$attach2" -lt "$mounted_staple" ]; then
   echo "FAIL: stapled-app DMG steps ran out of order" >&2
   cat "$LOG" >&2
+  exit 1
+fi
+if grep -v '^create-dmg-umask 0022$' "$LOG" | grep -q '^create-dmg-umask '; then
+  echo "FAIL: create-dmg must copy the app with umask 022" >&2
   exit 1
 fi
 if grep -q '^xcrun stapler staple '"$DMG"'$' "$LOG" || [ ! -f "$IMMUTABLE" ] || ! cmp -s "$DMG" "$IMMUTABLE"; then
@@ -577,11 +585,15 @@ if CMUX_TEST_STAPLED_STATUS=Invalid run_stapled >/dev/null 2>&1 \
   exit 1
 fi
 : > "$LOG"
-if (TEST_STAPLE_APP_IN_DMG=true CMUX_SIGNING_KEYCHAIN_TOOL="$FAKE_BIN/keychain" run_helper) >/dev/null 2>&1 \
-  || grep -q '^xcrun notarytool submit ' "$LOG"; then
-  echo "FAIL: without the certificate the stapled-app DMG cannot be signed; fail before any submission" >&2
-  exit 1
-fi
+for missing in APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD; do
+  : > "$LOG"
+  if (export APPLE_CERTIFICATE_BASE64=fixture APPLE_CERTIFICATE_PASSWORD=fixture; unset "$missing"
+      TEST_STAPLE_APP_IN_DMG=true CMUX_SIGNING_KEYCHAIN_TOOL="$FAKE_BIN/keychain" run_helper) >/dev/null 2>&1 \
+    || grep -q '^xcrun notarytool submit ' "$LOG"; then
+    echo "FAIL: without $missing the stapled-app DMG cannot be signed; fail before any submission" >&2
+    exit 1
+  fi
+done
 echo "PASS: the shipped DMG carries the stapled app and its own ticket"
 
 # The CI signing keychain must be gone before any launch smoke runs code from
