@@ -47,7 +47,7 @@ public final class TabOverflowHintView: NSView {
 
     func applyTokens() {
         label.font = Typography.caption
-        useButton.font = NSFont.systemFont(ofSize: Typography.caption.pointSize, weight: TypeScale.emphasis)
+        useButton.font = Typography.system(size: Typography.caption.pointSize, weight: TypeScale.emphasis)
         dismissButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: Strings.overflowHintDismiss)?
             .withSymbolConfiguration(.init(pointSize: Typography.caption.pointSize - 2, weight: .semibold))
         needsLayout = true

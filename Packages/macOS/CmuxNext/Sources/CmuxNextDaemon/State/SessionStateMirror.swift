@@ -102,6 +102,9 @@ public struct SessionStateMirror: Sendable, Hashable {
             screenGroups[group.id] = group
         case .screenGroupRemoved(let id):
             screenGroups[id] = nil
+        case .sidebarBatch:
+            // The sidebar document has its own mirror (SessionStateStore.onSidebarBatch).
+            break
         }
     }
 

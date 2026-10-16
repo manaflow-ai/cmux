@@ -56,7 +56,10 @@ extension SidebarListView {
         case let .tab(workspace, tab):
             // Selected at once; the press stays so a drag can take the tab.
             model.send(.selectTab(workspace: workspace, tab: tab))
-        case .section, .emptySection, .folder:
+        case .item:
+            // It runs on mouse-up (as a band item: the App moves the one selection), so a press can still drag it.
+            SidebarGroupKeys(list: self).setFocus(nil)
+        case .section, .emptySection, .folder, .block:
             break
         }
         self.press = press
@@ -91,7 +94,7 @@ extension SidebarListView {
             break
         case let .group(group):
             // An empty saved group reopens; any other group toggles.
-            if let g = model.group(group), g.isPinned, g.workspaces.isEmpty {
+            if let g = model.group(group), g.isPinned, g.workspaces.isEmpty, g.items.isEmpty {
                 model.send(.openGroup(group))
             } else if groupEditing.isOnChip(point, group: group) {
                 // The chip opens the group editor (cx-rcby); its chevron and
@@ -102,7 +105,10 @@ extension SidebarListView {
             }
         case let .section(section):
             model.send(.toggleCollapse(.section(section)))
-        case .emptySection, .folder:
+        case let .item(item):
+            // A link opens its page, a tab shows, an app opens, as in the band.
+            model.send(.activateItem(LayoutItemID(item), opensWorkspace: event.modifierFlags.contains(.option)))
+        case .emptySection, .folder, .block:
             break
         }
         reload(animated: true)
