@@ -19,6 +19,8 @@ public struct SidebarDebugRow: Sendable {
     /// The workspace row's merged status (`StatusIndicatorState`), e.g.
     /// `success` for an unseen done, nil for other rows.
     public var activity: String? = nil
+    /// The dynamic priority bucket used by the attention projection.
+    public var priority: String? = nil
     /// The workspace row's icon kind (`symbol`, `swatch`, `emoji`, `favicon`), nil without one.
     public var icon: String? = nil
     /// The view's frame as drawn now (its presentation, mid-animation), and
@@ -118,11 +120,13 @@ extension SidebarView {
             var title: String?
             var muted = false
             var activity: String?
+            var priority: String?
             var icon: String?
             if case let .workspace(id) = row.key, let workspace = model.workspace(id) {
                 title = workspace.title
                 muted = workspace.muted
                 activity = String(describing: workspace.activity)
+                priority = String(describing: SidebarPriorityItem(workspace: workspace).bucket)
                 icon = workspace.icon.map { icon in
                     switch icon {
                     case .symbol: "symbol"
@@ -138,7 +142,7 @@ extension SidebarView {
             return SidebarDebugRow(key: String(describing: row.key), title: title, frame: list.frame(for: row), windowFrame: windowFrame,
                                    viewFrame: view?.frame, viewAlpha: view?.alphaValue, inList: view?.superview === list,
                                    suppressed: list.suppressed.contains(row.key), selected: view?.isSelected == true, muted: muted,
-                                   activity: activity, icon: icon, shownFrame: view?.shownFrame, clips: view?.clipsToBounds == true, group: row.group?.rawValue,
+                                   activity: activity, priority: priority, icon: icon, shownFrame: view?.shownFrame, clips: view?.clipsToBounds == true, group: row.group?.rawValue,
                                    detail: row.content?.detail).drawn(by: view)
         }
         let selection = model.orderedSelection.map { model.workspace($0)?.title ?? $0.rawValue }
