@@ -1,9 +1,11 @@
 public import CmuxNextCodeRouter
+public import CmuxNextCloud
 public import Foundation
+public import Observation
 
 /// Sample data for the demo and tests: a signed-in Codex and Claude Code,
 /// one env key, Ollama running, and one CodeRouter account. Records calls.
-@MainActor
+@MainActor @Observable
 public final class MockAccountsServices: AccountsServices {
     public var detections: [ProviderDetection] = [
         ProviderDetection(provider: .codex, status: .signedIn, account: AccountLabel.demo("codex", display: "pro"), plan: "pro",
@@ -20,10 +22,20 @@ public final class MockAccountsServices: AccountsServices {
                       account: AccountLabel.demo("codex", display: "d…@e…"), state: "active"),
     ]
     public var isSignedInToCmux = true
+    @ObservationIgnored private let teamSource = MockTeamSource()
+    @ObservationIgnored private let team: ActiveTeam
+    public var activeTeam: ActiveTeam? { isSignedInToCmux ? team : nil }
+    /// What the next team switch throws, if anything.
+    public var teamFailure: (any Error)? {
+        get { teamSource.failure }
+        set { teamSource.failure = newValue }
+    }
     public var failure: (any Error)?
     public private(set) var calls: [String] = []
 
-    public init() {}
+    public init() {
+        team = ActiveTeam(source: teamSource)
+    }
 
     public func detect() async -> [ProviderDetection] {
         calls.append("detect")

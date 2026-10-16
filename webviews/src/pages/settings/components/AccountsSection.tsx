@@ -5,7 +5,7 @@
 import { useCallback, useState } from "react";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { useSettingsState, useStore } from "../context";
-import type { AccountsButton, AccountsRow } from "../ops";
+import type { AccountsButton, AccountsRow, AccountsTeams } from "../ops";
 import { t } from "../strings";
 
 export function AccountsSection() {
@@ -57,6 +57,7 @@ function AccountsBody() {
           </output>
         )}
       </section>
+      {accounts.teams && <ActiveTeam teams={accounts.teams} />}
       {accounts.groups.map((group) => (
         <section className="group" key={group.id} data-accounts-group={group.id}>
           <h3 className="group-title">{group.title}</h3>
@@ -68,6 +69,36 @@ function AccountsBody() {
         </section>
       ))}
     </>
+  );
+}
+
+// The team switcher: one radio per team, the active one checked. A change runs selectTeam; the
+// host's next state moves the check (and everything else that follows the team).
+function ActiveTeam({ teams }: { teams: AccountsTeams }) {
+  const store = useStore();
+  return (
+    <section className="group" data-accounts-teams="">
+      <h3 className="group-title" id="accounts-teams-title">
+        {teams.title}
+      </h3>
+      <fieldset className="rows accounts-teams" aria-labelledby="accounts-teams-title" disabled={teams.disabled}>
+        {teams.options.map((team) => (
+          <label className="row accounts-team" key={team.id} data-team={team.id}>
+            <input
+              type="radio"
+              name="accounts-active-team"
+              value={team.id}
+              aria-label={team.name}
+              checked={team.active}
+              onChange={() => void store.runAccounts({ action: "selectTeam", team: team.id })}
+            />
+            <span className="row-title">{team.name}</span>
+          </label>
+        ))}
+      </fieldset>
+      <div className="row-help">{teams.note ?? teams.help}</div>
+      {teams.error && <div className="row-error">{teams.error}</div>}
+    </section>
   );
 }
 
