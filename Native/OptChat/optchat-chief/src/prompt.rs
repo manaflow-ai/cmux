@@ -19,12 +19,33 @@ calls; take it into account and go on.";
 /// (`CHIEF_TURNS`). The spec text itself stays as written in optchat-core.
 pub fn base_prompt() -> String {
     let spec = optchat_core::system_prompt(AGENT, MIDRUN);
+    // Spec 5a: the turn's input is a frozen view and the log after it.
+    let spec = if spec.contains(VIEW_END) {
+        spec.replacen(VIEW_END, &format!("{VIEW_END}\n\n{}", delta_doc()), 1)
+    } else {
+        format!("{spec}\n\n{}", delta_doc())
+    };
     if spec.contains(SPEC_TURNS) {
         spec.replacen(SPEC_TURNS, CHIEF_TURNS, 1)
     } else {
         // The spec text moved: keep it, and add the rule after it.
         format!("{spec}\n\n{CHIEF_TURNS}")
     }
+}
+
+/// The end of the spec's view section (optchat-core TAELIN_PROMPT): the
+/// delta's description goes after it.
+const VIEW_END: &str = "A text too\nlong for one message is split over several in a row.";
+
+/// What follows `</chat>` in a turn (spec 5a.2), with the spec's rule for
+/// entries that change an earlier line.
+pub fn delta_doc() -> String {
+    format!(
+        "After </chat> come the log entries since the view was made, oldest first,\n\
+         one per line as id|kind: text (newlines as spaces); the turn's new messages\n\
+         are the last user lines. {}",
+        optchat_core::DELTA_RULE
+    )
 }
 
 /// The spec's "Turns" paragraph (optchat-core TAELIN_PROMPT), replaced for
@@ -581,6 +602,47 @@ pub const ZOOM_DESCRIPTION: &str = "Open the line id+n of the view into the two 
 /// What zoom adds for subagents (the MCP tool; the native engine has none).
 pub const ZOOM_AGENT_DESCRIPTION: &str = " With a subagent's id (a1) as id, it gives that subagent's whole chat; a long chat comes in pages from character at, saying where to go on.";
 pub const DATE_DESCRIPTION: &str = "The date and time of message id.";
+
+/// A turn's input in the cached layout (spec 5a): the frozen view in its
+/// blocks of 4 lines, the delta's blocks, then `tail` (per-turn state, never
+/// logged). With `ttl`, three marks of the API's four: the `<chat>` header
+/// (the system prompt's own entry), the view's end and the delta's end. The
+/// previous turn's input is a prefix of this one up to its delta's end, a
+/// block boundary here, so the provider reads all of it.
+pub fn input_layout(
+    system: &str,
+    view: &str,
+    delta: &[String],
+    tail: &str,
+    ttl: Option<CacheTtl>,
+) -> CachedPrompt {
+    let text = |t: &str| json!({"type": "text", "text": t});
+    let mut blocks: Vec<Value> = optchat_core::block_pieces(view)
+        .into_iter()
+        .map(text)
+        .collect();
+    let view_end = blocks.len() - 1;
+    blocks.extend(delta.iter().map(|b| text(b)));
+    let delta_end = blocks.len() - 1;
+    if let Some(ttl) = ttl {
+        for i in [0, view_end, delta_end] {
+            blocks[i]["cache_control"] = ttl.cache_control();
+        }
+    }
+    if !tail.is_empty() {
+        blocks.push(text(tail));
+    }
+    CachedPrompt {
+        system: system.to_owned(),
+        blocks,
+    }
+}
+
+/// `input_layout` without marks or system prompt: the blocks of a harness
+/// with automatic prefix caching (codex), byte-stable the same way.
+pub fn input_blocks(view: &str, delta: &[String], tail: &str) -> Vec<Value> {
+    input_layout("", view, delta, tail, None).blocks
+}
 
 /// The turn's user message (spec 6): the view rendered before the new
 /// messages were logged, then the new messages joined by a blank line.

@@ -59,7 +59,7 @@ fn delta_edit_the_next_turn_carries_the_edit_naming_the_line_and_the_model_quote
     h.settle_posts();
     // Enough log after it that the next turn renders a new view (the delta
     // is past DELTA_HARD), so the message is a line of the frozen view.
-    for i in 0..400 {
+    for i in 0..600 {
         h.chat
             .append(
                 Kind::Note,
@@ -112,6 +112,12 @@ fn delta_edit_the_next_turn_carries_the_edit_naming_the_line_and_the_model_quote
     );
     let sends = h.owner.lock().unwrap().sends();
     let last = &sends.last().expect("a reply").1;
-    assert!(last.contains(NEW), "the reply quotes the edited text: {last}");
-    assert!(!last.contains(OLD), "the reply does not quote the old text: {last}");
+    assert!(
+        last.contains(NEW),
+        "the reply quotes the edited text: {last}"
+    );
+    assert!(
+        !last.contains(OLD),
+        "the reply does not quote the old text: {last}"
+    );
 }

@@ -84,7 +84,7 @@ impl Brain {
                         }
                     }
                     Change::Message { message } => self.on_message(message),
-                    Change::MessageUpdated { .. } => {}
+                    Change::MessageUpdated { message } => self.on_message_updated(&message),
                 }
             }
             DaemonEvent::Down => {
@@ -105,6 +105,43 @@ impl Brain {
         self.daemon = None;
         if let Some(reconnect) = self.reconnect.take() {
             reconnect();
+        }
+    }
+
+    /// Spec 5a.2: an edit or a retraction of a message the log holds is
+    /// logged as a note that names its line (`edit of <id>: <text>`,
+    /// `retracted <id>`), so the next turn's delta carries it and the next
+    /// re-render folds it in. A reaction or another update logs nothing,
+    /// nor does a change of a message not logged (still queued, or one that
+    /// never woke the Chief), nor of the Chief's own messages. The note's key
+    /// names the change, so a replayed update is logged once.
+    fn on_message_updated(&mut self, message: &Message) {
+        let Some(main) = self.state.conversation.clone() else {
+            return;
+        };
+        if message.author == self.settings.membership.participant {
+            return;
+        }
+        let key = format!("{main}#{}", message.seq);
+        let Some(target) = self.chat.logged_id(&key) else {
+            return;
+        };
+        let (text, change) = match (&message.retracted_at, &message.edited_at) {
+            (Some(_), _) => (optchat_core::retracted(target), "retracted".to_owned()),
+            (None, Some(at)) => (
+                optchat_core::edit_of(target, &message_text(message)),
+                format!("edited@{at}"),
+            ),
+            (None, None) => return,
+        };
+        let entry = optchat_host::NewMessage {
+            key: Some(format!("{key}:{change}")),
+            ..optchat_host::NewMessage::new(optchat_core::Kind::Note, &text)
+        };
+        if let Err(e) = self.chat.append_with(&[entry], |_| Vec::new()) {
+            (self.log)(&format!(
+                "logging the change of message {target} failed: {e}"
+            ));
         }
     }
 

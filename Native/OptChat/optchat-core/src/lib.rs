@@ -14,6 +14,7 @@ mod compact;
 mod memory;
 mod node;
 mod render;
+mod turn_input;
 
 pub use compact::{
     compact_request, cut_at_bytes, finish_line, size_check, size_check_for, size_check_in,
@@ -25,6 +26,10 @@ pub use node::{Kind, NodeId};
 pub use render::{
     block_cuts, block_pieces, cache_marks, cache_pieces, mark_piece, render_parts, render_view,
     view_line, zoom, RenderedView, ZoomError, BLOCK_LINES, LOOKBACK_BLOCKS, MARK_REACH,
+};
+pub use turn_input::{
+    deleted, delta_blocks, delta_line, edit_of, fingerprint, retracted, turn_input, Frozen,
+    TurnInput, DELTA_HARD, DELTA_MAX, DELTA_RULE,
 };
 
 /// Target size of one summary line, in UTF-8 bytes (section 3).

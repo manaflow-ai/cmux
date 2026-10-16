@@ -115,7 +115,53 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
             }
         });
     let view_text = view.as_deref().unwrap_or("");
-    let (system, blocks) = if layout == "cached" {
+    // Spec 5a turns: the frozen view, the delta (its log range and cuts),
+    // then the per-turn tail.
+    let delta = start["layout"]["delta"].as_object().map(|d| {
+        let n = |k: &str| d.get(k).and_then(Value::as_u64).unwrap_or(0);
+        let cuts: Vec<u64> = d
+            .get("cuts")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_u64).collect())
+            .unwrap_or_default();
+        chat.delta_blocks(n("front"), n("end"), &cuts)
+    });
+    let input_tail = || {
+        at_work
+            .into_iter()
+            .chain(home)
+            .chain(
+                start["layout"]["resumes"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str),
+            )
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    };
+    let (system, blocks) = if let Some(delta) = &delta {
+        let marker = start["layout"]["marker"].as_bool().unwrap_or(false);
+        let ttl = start["layout"]["ttl"]
+            .as_str()
+            .and_then(crate::prompt::CacheTtl::parse)
+            .unwrap_or(crate::prompt::CacheTtl::FiveMinutes);
+        if layout == "cached" {
+            let l = crate::prompt::input_layout(
+                system_text,
+                view_text,
+                delta,
+                &input_tail(),
+                marker.then_some(ttl),
+            );
+            (l.system, l.blocks)
+        } else {
+            (
+                system_text.to_owned(),
+                crate::prompt::input_blocks(view_text, delta, &input_tail()),
+            )
+        }
+    } else if layout == "cached" {
         let marker = start["layout"]["marker"].as_bool().unwrap_or(true);
         // The traced mark and TTL; a trace from before them: the last whole
         // block at 5 minutes.

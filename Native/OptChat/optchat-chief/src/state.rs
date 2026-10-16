@@ -107,6 +107,10 @@ pub struct HostState {
     /// API's lookback of it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_mark: Option<MarkRecord>,
+    /// The frozen view of spec 5a and where its delta starts: the turns'
+    /// input repeats it byte for byte until a re-render (optchat_core::turn_input).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frozen: Option<FrozenRecord>,
     /// G9: the floor of each side conversation (not the main one) the
     /// chief's wake queue woke, by conversation id.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -710,5 +714,48 @@ impl MarkRecord {
     pub fn prefix_of<'a>(&self, view: &'a str) -> Option<&'a str> {
         let prefix = view.get(..self.bytes)?;
         (crate::trace::hash(prefix) == self.hash).then_some(prefix)
+    }
+}
+
+/// `optchat_core::Frozen` as saved: the view's parts by name (`id+n`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FrozenRecord {
+    pub parts: Vec<String>,
+    pub front: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cuts: Vec<u64>,
+    pub bytes: usize,
+    pub hash: u64,
+}
+
+impl FrozenRecord {
+    pub fn of(frozen: &optchat_core::Frozen) -> FrozenRecord {
+        FrozenRecord {
+            parts: frozen.parts.iter().map(|p| p.name()).collect(),
+            front: frozen.front,
+            cuts: frozen.cuts.clone(),
+            bytes: frozen.bytes,
+            hash: frozen.hash,
+        }
+    }
+
+    /// The record as optchat-core takes it; None when a part does not parse
+    /// (then the turn renders a new view).
+    pub fn frozen(&self) -> Option<optchat_core::Frozen> {
+        let parts = self
+            .parts
+            .iter()
+            .map(|name| {
+                let (id, n) = name.split_once('+')?;
+                optchat_core::NodeId::from_name(id.parse().ok()?, n.parse().ok()?)
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(optchat_core::Frozen {
+            parts,
+            front: self.front,
+            cuts: self.cuts.clone(),
+            bytes: self.bytes,
+            hash: self.hash,
+        })
     }
 }

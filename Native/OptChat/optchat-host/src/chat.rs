@@ -8,7 +8,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use optchat_core::{render_view, zoom, Kind, NodeId, RenderedView, Store, ZoomError};
+use optchat_core::{
+    render_view, zoom, Frozen, Kind, NodeId, RenderedView, Store, TurnInput, ZoomError,
+};
 
 use crate::anthropic::AnthropicModel;
 use crate::cap::cap_tool_result;
@@ -571,6 +573,28 @@ impl OptChat {
     pub fn render_parts(&self, parts: &[NodeId]) -> RenderedView {
         let st = self.shared.lock();
         optchat_core::render_parts(parts, &st.store)
+    }
+
+    /// A turn's input after the system prompt (spec 5a): the frozen view
+    /// `frozen` and the delta after it, or a new view when 5a.4 says so.
+    /// `first_new`: the log id of the turn's first new message (logged).
+    pub fn turn_input(&self, frozen: Option<&Frozen>, first_new: u64) -> TurnInput {
+        let st = self.shared.lock();
+        optchat_core::turn_input(&st.memory, &st.store, frozen, first_new)
+    }
+
+    /// The delta blocks of entries `front..end` cut at `cuts` (a traced
+    /// turn's, shown again by the inspector).
+    pub fn delta_blocks(&self, front: u64, end: u64, cuts: &[u64]) -> Vec<String> {
+        let st = self.shared.lock();
+        optchat_core::delta_blocks(&st.memory, &st.store, front, end, cuts)
+    }
+
+    /// The log id of the conversation message `key` (`<conversation>#<seq>`),
+    /// when it was logged.
+    pub fn logged_id(&self, key: &str) -> Option<u64> {
+        let st = self.shared.lock();
+        st.store.logged_id(key)
     }
 
     /// The agent's `zoom(id, n)` tool (section 7.1).
