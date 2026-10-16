@@ -101,6 +101,11 @@
       "message": "{memory} GiB 的機器將在完整 Pro 於 {date} 開始後可用。Pro 試用最多支援 {max} GiB。",
       "action": "cmux vm new --size {max}g"
     },
+    "memoryTrialMax": {
+      "title": "cmux Pro 試用",
+      "message": "此大小需要 Max 方案。Pro 試用最多支援 {max} GiB。",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "無法驗證來源機器的記憶體大小。",
       "action": "cmux vm new --size 4g"

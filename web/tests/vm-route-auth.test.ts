@@ -1122,6 +1122,16 @@ describe("VM REST auth", () => {
       expect(JSON.stringify(payload)).toContain("October 22, 2026");
       expect(JSON.stringify(payload)).not.toContain("checkout");
       expect(runVmWorkflow).not.toHaveBeenCalled();
+      // A size only Max has is named, with no offer either.
+      const max = await (await POST(new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 32768 }),
+      }))).json() as Record<string, unknown>;
+      expect(max).toMatchObject({ error: "vm_memory_requires_plan", upgradeRequired: false, trial: true });
+      expect(max.message).toBe("This size needs the Max plan. The Pro trial supports up to 4 GiB.");
+      expect(max.upgradeUrl).toBeUndefined();
+      expect(JSON.stringify(max)).not.toContain("checkout");
       // Without a trial, the same Go request offers Pro as before.
       goTrialEnd = null;
       expect(await (await POST(request())).json()).toMatchObject({ upgradeRequired: true, upgradePlanId: "pro" });

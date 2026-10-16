@@ -101,6 +101,11 @@
       "message": "Maskiner på {memory} GiB blir tilgjengelige når full Pro starter {date}. Pro-prøveperioden støtter opptil {max} GiB.",
       "action": "cmux vm new --size {max}g"
     },
+    "memoryTrialMax": {
+      "title": "cmux Pro-prøveperiode",
+      "message": "Denne størrelsen krever Max-planen. Pro-prøveperioden støtter opptil {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "RAM-størrelsen på kildemaskinen kunne ikke bekreftes.",
       "action": "cmux vm new --size 4g"

@@ -101,6 +101,11 @@
       "message": "Las máquinas de {memory} GiB estarán disponibles cuando empiece Pro completo, el {date}. La prueba de Pro admite hasta {max} GiB.",
       "action": "cmux vm new --size {max}g"
     },
+    "memoryTrialMax": {
+      "title": "Prueba de cmux Pro",
+      "message": "Este tamaño requiere el plan Max. La prueba de Pro admite hasta {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "No se pudo verificar la RAM de la máquina de origen.",
       "action": "cmux vm new --size 4g"

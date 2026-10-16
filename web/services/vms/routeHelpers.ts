@@ -612,11 +612,13 @@ export async function vmMemoryTrialResponse(input: {
   readonly memoryMb: number;
   readonly maxMemoryMb: number;
   readonly trialEndsAt: Date;
+  /** The size needs Max, which full Pro does not include either. */
+  readonly needsMax?: boolean;
 }, locale: Locale = "en"): Promise<Response> {
   const memoryGb = Math.round(input.memoryMb / 1024);
   const maxGb = Math.round(input.maxMemoryMb / 1024);
   const date = new Intl.DateTimeFormat(locale, { dateStyle: "long", timeZone: "UTC" }).format(input.trialEndsAt);
-  const copy = await vmMemoryErrorCopy("memoryTrial", locale, { memory: memoryGb, max: maxGb, date });
+  const copy = await vmMemoryErrorCopy(input.needsMax ? "memoryTrialMax" : "memoryTrial", locale, { memory: memoryGb, max: maxGb, date });
   return vmErrorResponse({
     error: "vm_memory_requires_plan",
     status: 402,
@@ -642,9 +644,15 @@ export async function vmMemoryRequiresPlanResponse(input: {
   readonly planId: string;
   readonly upgradePlanId: string;
 }, locale: Locale = "en"): Promise<Response> {
-  // A Pro trial is already the Pro subscription: no upgrade; the size comes when full Pro starts.
-  const trialEndsAt = input.planId === "go" && input.upgradePlanId === "pro" ? await vmCallerTrialEndsAt() : null;
-  if (trialEndsAt) return vmMemoryTrialResponse({ memoryMb: input.memoryMb, maxMemoryMb: input.maxMemoryMb, trialEndsAt }, locale);
+  // A Pro trial is already the Pro subscription and gets no upgrade offer
+  // (the apps hide them too): a Pro size comes when full Pro starts; a Max
+  // size is only named.
+  const trialEndsAt = input.planId === "go" ? await vmCallerTrialEndsAt() : null;
+  if (trialEndsAt) {
+    return vmMemoryTrialResponse({
+      memoryMb: input.memoryMb, maxMemoryMb: input.maxMemoryMb, trialEndsAt, needsMax: input.upgradePlanId !== "pro",
+    }, locale);
+  }
   const memoryGb = Math.round(input.memoryMb / 1024);
   const maxGb = Math.round(input.maxMemoryMb / 1024);
   const upgradeName = input.upgradePlanId.charAt(0).toUpperCase() + input.upgradePlanId.slice(1);

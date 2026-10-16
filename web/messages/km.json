@@ -101,6 +101,11 @@
       "message": "ម៉ាស៊ីន {memory} GiB នឹងអាចប្រើបាននៅពេល Pro ពេញលេញចាប់ផ្តើមនៅ {date}។ ការសាកល្បង Pro គាំទ្ររហូតដល់ {max} GiB។",
       "action": "cmux vm new --size {max}g"
     },
+    "memoryTrialMax": {
+      "title": "ការសាកល្បង cmux Pro",
+      "message": "ទំហំនេះត្រូវការគម្រោង Max។ ការសាកល្បង Pro គាំទ្ររហូតដល់ {max} GiB។",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "មិនអាចផ្ទៀងផ្ទាត់ទំហំ RAM របស់ម៉ាស៊ីនប្រភពបានទេ។",
       "action": "cmux vm new --size 4g"

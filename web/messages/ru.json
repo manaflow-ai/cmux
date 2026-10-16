@@ -101,6 +101,11 @@
       "message": "Машины на {memory} ГиБ станут доступны, когда начнётся полный Pro, {date}. Пробный период Pro поддерживает до {max} ГиБ.",
       "action": "cmux vm new --size {max}g"
     },
+    "memoryTrialMax": {
+      "title": "Пробный период cmux Pro",
+      "message": "Для этого размера нужен тариф Max. Пробный период Pro поддерживает до {max} ГиБ.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "Не удалось проверить объём ОЗУ исходной машины.",
       "action": "cmux vm new --size 4g"

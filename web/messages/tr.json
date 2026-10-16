@@ -101,6 +101,11 @@
       "message": "{memory} GiB makineler, tam Pro {date} tarihinde başladığında kullanılabilir olur. Pro deneme sürümü en fazla {max} GiB destekler.",
       "action": "cmux vm new --size {max}g"
     },
+    "memoryTrialMax": {
+      "title": "cmux Pro deneme sürümü",
+      "message": "Bu boyut için Max planı gerekir. Pro deneme sürümü en fazla {max} GiB destekler.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "Kaynak makinenin RAM boyutu doğrulanamadı.",
       "action": "cmux vm new --size 4g"
