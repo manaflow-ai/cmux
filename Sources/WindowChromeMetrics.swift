@@ -86,24 +86,9 @@ enum SidebarWorkspaceListMetrics {
     static let homeBackRowHeight: CGFloat = 28
     static let homeBackRowBottomGap: CGFloat = 4
 
-    /// Whether the sidebar reserves the Chief Home band (`chief.enabled`).
-    ///
-    /// Read on every access so a runtime toggle moves the rows: the sidebar
-    /// re-renders on the setting (`VerticalTabsSidebar.showsChiefHome`) and the
-    /// AppKit list re-applies its insets on its next apply.
-    static var showsHomeRow: Bool { ChiefSettings.isEnabled }
-
-    /// Height of the band the Home row takes above the first workspace row; zero when Chief is off.
-    static var homeBandHeight: CGFloat {
-        showsHomeRow ? homeRowHeight + homeRowBottomGap : 0
-    }
-
-    static var firstRowTopOffset: CGFloat { homeRowTopOffset + homeBandHeight }
-    /// Scrolled workspace rows are fully hidden above this line, so they never
-    /// draw behind the titlebar controls or the Home row.
-    static var topScrimClearHeight: CGFloat {
-        showsHomeRow ? homeRowTopOffset + homeRowHeight : 0
-    }
+    /// Home uses the ordinary workspace list; no overlay band is reserved.
+    static let firstRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight + 2
+    static let topScrimClearHeight: CGFloat = 0
     static let rowVerticalPadding: CGFloat = 8
     static let rowOuterHorizontalPadding: CGFloat = 6
     static let rowContentHorizontalPadding: CGFloat = 10

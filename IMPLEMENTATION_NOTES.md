@@ -1,3 +1,31 @@
+## 2026-10-15 native Home workspace correction
+
+- The rejected floating conversation picker is removed. Home uses cmux's native
+  workspace group/header with the house icon, pinned above local workspaces.
+  Each additional Chief is an ordinary member workspace; expanding Home pushes
+  local rows down within the same list and scrolling surface. Both the AppKit
+  and SwiftUI sidebar use their existing group/row implementations. Reference:
+  `cmux-design-references/topics/sidebar.md`, with the shipping native workspace
+  group rows as the implementation reference.
+- Home is now a real workspace layout, so browser and terminal splits use the
+  existing pane machinery. Shortcut, menu, palette and `chief open` resolve its
+  native anchor through one action path. New Conversation and Home's plus open
+  a native Chief workspace. Restored conversations preserve selection, manual
+  renames and the existing local conversation archive.
+- Regression `tests_v2/test_chief_native_home.py` was committed before the fix.
+  With `CMUX_SOCKET_PATH=/tmp/cmux-debug-issue-21063-chief-home-v9.sock`, it fails
+  at `chief.open must select a native Home workspace, not an overlay`.
+  The same command will run against the replacement tagged artifact.
+- Canonical Home identity is persisted with the Chief panel snapshot. The
+  canonical tab is pinned and shared close/force-close paths refuse removal.
+  Cross-container drags resolve to the existing conversation-copy router, so
+  duplicates get fresh identities while the original remains in Home. This
+  avoids returning a copied pane's id through an API that promises a move.
+- The dangerous permission bypass remains opt-in and off by default. No new UI
+  copy was needed for this change. `localize-changes --base dea8e6e31f8` and
+  strict catalog validation pass all 11 catalogs/nine locales. Static affected
+  verification and Swift parsing pass; native build/runtime evidence is pending.
+
 ## 2026-10-15 preview launch and localization repair
 
 - Exact-head fleet job `f98592121ff41df8f60fc473` built `0a3eac2b25e`
@@ -5,8 +33,10 @@
   the archive and installed bundle identity, launched the tagged app, and
   confirmed its socket responds. Opened Chief Settings and verified the
   accessible `ChiefSettingsDangerousPermissions` checkbox is visible and off.
-  Screenshot: `.chief-work/shots/chief-home-v9-permissions.png`. The user's
-  stable cmux was not changed.
+  The AX inspection verified the toggle. The subsequent screenshot
+  `.chief-work/shots/chief-home-v9-permissions.png` captured workspace mode
+  after navigation changed; it is not screenshot evidence of Settings.
+  The user's stable cmux was not changed.
 - Reproduced localization parity failure (738 diagnostics), then removed 90
   unused English-only app-catalog duplicates whose strings are resolved from
   translated package catalogs with `bundle: .module`. No app/CLI source uses
