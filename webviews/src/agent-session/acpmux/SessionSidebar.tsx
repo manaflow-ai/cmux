@@ -1,4 +1,4 @@
-import React, { createContext, memo, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, memo, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   filterSessions,
   groupMark,
@@ -516,15 +516,49 @@ const SessionRow = memo(function SessionRow({
   const title = session.displayTitle || session.sessionId.slice(0, 8);
   const place = sessionPlace(session, groupHost);
   const previewText = preview ? session.preview?.trim() : undefined;
+  const previewId = useId();
   const previewIntent = useHoverIntent<HTMLElement>({ delay: HOVER_INTENT.cardDwell, group: sessionPreviewGroup });
   const { dismiss: dismissPreview } = previewIntent;
+  const previewLeaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [placedPreview, setPlacedPreview] = useState<HTMLElement | null>(null);
   useEffect(() => {
     if (previewIntent.shown) setPlacedPreview(previewIntent.shown);
   }, [previewIntent.shown]);
   useEffect(() => {
-    if (!previewText) dismissPreview();
+    if (!previewText) {
+      clearTimeout(previewLeaveTimer.current);
+      previewLeaveTimer.current = undefined;
+      dismissPreview();
+    }
   }, [dismissPreview, previewText]);
+  useEffect(() => () => clearTimeout(previewLeaveTimer.current), []);
+  const cancelPreviewLeave = () => {
+    clearTimeout(previewLeaveTimer.current);
+    previewLeaveTimer.current = undefined;
+  };
+  const hoverPreview = (anchor: HTMLElement, delay?: number) => {
+    cancelPreviewLeave();
+    previewIntent.hover(anchor, delay);
+  };
+  const leavePreviewRow = () => {
+    cancelPreviewLeave();
+    if (!previewIntent.shown) {
+      previewIntent.hover(null);
+      return;
+    }
+    previewLeaveTimer.current = setTimeout(() => {
+      previewLeaveTimer.current = undefined;
+      previewIntent.hover(null);
+    }, HOVER_INTENT.cardGrace);
+  };
+  const leavePreviewCard = () => {
+    cancelPreviewLeave();
+    previewIntent.hover(null);
+  };
+  const dismissPreviewNow = () => {
+    cancelPreviewLeave();
+    dismissPreview();
+  };
   const keyboard = listRowKeyboardProps(".acpmux-session-row", (row) => {
     const sessionId = row.dataset.sessionId;
     if (sessionId) onSelect(sessionId);
@@ -556,6 +590,7 @@ const SessionRow = memo(function SessionRow({
       data-focus-ring="row"
       className={`acpmux-session-row${flat ? " is-flat" : ""}${selected ? " is-selected" : ""}${open ? " is-open" : ""}${session.status === "closed" ? " is-closed" : ""}`}
       aria-current={selected ? "true" : undefined}
+      aria-describedby={previewText ? previewId : undefined}
       aria-label={
         mark || place || trailing || open
           ? [title, open && t("sidebar.alreadyOpen"), trailing, placeLabel, mark && t(MARK_LABELS[mark])]
@@ -563,14 +598,14 @@ const SessionRow = memo(function SessionRow({
               .join(", ")
           : undefined
       }
-      onPointerEnter={(event) => previewText && previewIntent.hover(event.currentTarget)}
-      onPointerLeave={() => previewIntent.hover(null)}
-      onPointerDown={() => previewIntent.dismiss()}
-      onFocus={(event) => previewText && previewIntent.hover(event.currentTarget, 0)}
-      onBlur={() => previewIntent.hover(null)}
+      onPointerEnter={(event) => previewText && hoverPreview(event.currentTarget)}
+      onPointerLeave={leavePreviewRow}
+      onPointerDown={dismissPreviewNow}
+      onFocus={(event) => previewText && hoverPreview(event.currentTarget, 0)}
+      onBlur={leavePreviewCard}
       onKeyDown={(event) => {
         keyboard.onKeyDown?.(event);
-        if (event.key === "Escape") previewIntent.dismiss();
+        if (event.key === "Escape") dismissPreviewNow();
       }}
       onClick={() => onSelect(session.sessionId)}
     >
@@ -604,11 +639,14 @@ const SessionRow = memo(function SessionRow({
       {menuItems.length > 0 ? <ContextMenu items={menuItems}>{row}</ContextMenu> : row}
       {previewText && placedPreview && (
         <AnchoredCard
+          id={previewId}
           anchor={placedPreview}
           open={previewIntent.shown !== null}
           side="inline-end"
           className="acpmux-session-preview"
           instant={previewIntent.instant}
+          onPointerEnter={cancelPreviewLeave}
+          onPointerLeave={leavePreviewCard}
         >
           <div className="acpmux-session-preview-title">{title}</div>
           <div className="acpmux-session-preview-copy">{previewText}</div>

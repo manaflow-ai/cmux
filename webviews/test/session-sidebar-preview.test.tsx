@@ -129,9 +129,7 @@ test("the preview remains readable while the pointer crosses from its row into t
   const card = document.querySelector<HTMLElement>(".acpmux-session-preview")!;
   expect(card !== null).toBe(true);
 
-  await act(async () =>
-    row.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true, relatedTarget: card })),
-  );
+  await act(async () => row.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true, relatedTarget: card })));
   expect(document.querySelector(".acpmux-session-preview") !== null).toBe(true);
   await act(async () =>
     card.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true, relatedTarget: row })),
