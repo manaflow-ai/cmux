@@ -1,4 +1,4 @@
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// Debug alternatives for closing, expanding and restoring pane layouts.
 ///
