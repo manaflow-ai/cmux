@@ -217,7 +217,12 @@ extension TerminalController {
         let window = ctx.browserPanel.extensionPageWindow ?? ctx.webView.window
         guard let window, window.attachedSheet == nil else { return false }
         let icon = iconPath.flatMap { FileManager.default.contents(atPath: $0) }
-        let accepted = await BrowserExtensionDialogPresenter().present(content, icon: icon, in: window)
+        let accepted = await BrowserExtensionDialogPresenter().present(
+            content,
+            icon: icon,
+            in: window,
+            overChromiumPage: ctx.browserPanel.activeEngineKind == .chromium
+        )
         return accepted && !Task.isCancelled
     }
 
