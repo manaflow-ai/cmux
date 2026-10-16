@@ -97,7 +97,8 @@ const decision = await guard.decide({
   surfaceText: scenario.surface, sleep: async () => {},
 });
 const approvers = await guard.approvedBy({ github, owner: 'manaflow-ai', repo: 'cmux', runId: 1 });
-const ack = guard.ackDecision({ decision, approvers, triggeringActor: scenario.triggeringActor, expectedCurrent: scenario.current });
+const policy = guard.parsePolicy(scenario.surface);
+const ack = guard.ackDecision({ decision, approvers, triggeringActor: scenario.triggeringActor, expectedCurrent: scenario.current, requireNonLander: policy.require_non_lander_approver });
 let moveError = null;
 if (scenario.movedTo !== undefined) {
   const moved = { rest: { git: {
@@ -171,10 +172,29 @@ def run(case: dict) -> dict:
     return json.loads(result.stdout)
 
 
-def surface_change() -> dict:
-    case = scenario(rangeFiles=[{"filename": ".github/workflows/nightly.yml"}])
+LANDER_RULE_ON = SURFACE.replace("@require_non_lander_approver off", "@require_non_lander_approver on")
+
+
+def surface_change(lander_rule: bool = True) -> dict:
+    case = scenario(rangeFiles=[{"filename": ".github/workflows/nightly.yml"}],
+                    surface=LANDER_RULE_ON if lander_rule else SURFACE)
     case["commits"][0]["files"] = [{"filename": ".github/workflows/nightly.yml"}]
     return case
+
+
+def test_lander_rule_ships_off_and_a_lander_may_approve() -> None:
+    assert "@require_non_lander_approver off" in SURFACE
+    case = surface_change(lander_rule=False)
+    case["approvals"] = [{"state": "approved", "user": {"login": "teamleaderleo"},
+                          "environments": [{"name": "release-surface-ack"}]}]
+    out = run(case)
+    assert out["decision"]["action"] == "needs-ack"
+    assert out["ack"]["ok"] and out["ack"]["approver"] == "teamleaderleo", out["ack"]
+
+
+def test_with_the_lander_rule_off_an_approval_is_still_required() -> None:
+    out = run(surface_change(lander_rule=False))
+    assert not out["ack"]["ok"]
 
 
 def test_non_surface_range_is_promoted() -> None:
@@ -305,6 +325,7 @@ def test_workflow_runs_the_guard_from_main_and_gates_the_move() -> None:
     assert "if: steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'" in WORKFLOW
     assert "if: needs.promote-nightly-next.outputs.action == 'needs-ack' && needs.promote-nightly-next.outputs.dry_run != 'true'" in WORKFLOW
     assert "group: nightly-next-promote-ack-${{ github.run_id }}" in WORKFLOW
+    assert "requireNonLander: policy.require_non_lander_approver" in WORKFLOW
 
 
 def main() -> None:

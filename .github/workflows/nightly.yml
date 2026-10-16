@@ -605,8 +605,10 @@ jobs:
               surfaceText: fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/release-surface.txt`, 'utf8'),
             });
             const approvers = await guard.approvedBy({ github, owner, repo, runId: context.runId });
+            const policy = guard.parsePolicy(fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/release-surface.txt`, 'utf8'));
             const result = guard.ackDecision({
               decision, approvers,
+              requireNonLander: policy.require_non_lander_approver,
               triggeringActor: context.payload?.sender?.login || process.env.GITHUB_TRIGGERING_ACTOR,
               expectedCurrent: process.env.EXPECTED_CURRENT,
             });

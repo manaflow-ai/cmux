@@ -32,7 +32,21 @@ export function parseSurface(text) {
   return text
     .split('\n')
     .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('#'));
+    .filter((line) => line && !line.startsWith('#') && !line.startsWith('@'));
+}
+
+// Policy lines in the surface file: `@<name> on|off`. Read from main.
+// require_non_lander_approver (default off): when on, the approval must come
+// from someone who did not land the range and did not start the run. When
+// off, any approval in the environment counts (the environment's reviewers
+// still decide who can approve).
+export function parsePolicy(text) {
+  const policy = { require_non_lander_approver: false };
+  for (const raw of text.split('\n')) {
+    const match = /^@([a-z_]+)\s+(on|off)\s*$/.exec(raw.trim());
+    if (match && match[1] in policy) policy[match[1]] = match[2] === 'on';
+  }
+  return policy;
 }
 
 function globToRegExp(glob) {
@@ -300,12 +314,16 @@ export async function approvedBy({ github, owner, repo, runId, environment = ACK
     .filter(Boolean);
 }
 
-export function ackDecision({ decision, approvers, triggeringActor, expectedCurrent }) {
+export function ackDecision({ decision, approvers, triggeringActor, expectedCurrent, requireNonLander = false }) {
   if (decision.action === 'skip') return { ok: true, move: false, reason: decision.reason };
   if (decision.action === 'promote') return { ok: true, move: true, reason: 'no release surface file changed any more' };
   if (decision.action !== 'needs-ack') return { ok: false, reason: decision.reason };
   if (expectedCurrent && decision.current !== expectedCurrent) {
     return { ok: false, reason: `${TARGET} moved from ${expectedCurrent} to ${decision.current} after the approval was requested; request the promotion again` };
+  }
+  if (!requireNonLander) {
+    if (approvers.length === 0) return { ok: false, reason: 'no approval in the approval environment' };
+    return { ok: true, move: true, reason: `approved by ${approvers.join(', ')} (lander rule off)`, approver: approvers[0] };
   }
   const blocked = new Set([...(decision.landers || []), triggeringActor].filter(Boolean));
   const valid = approvers.filter((login) => !blocked.has(login));
