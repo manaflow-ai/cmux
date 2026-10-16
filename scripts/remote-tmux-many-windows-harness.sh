@@ -162,6 +162,13 @@ if tmux list-sessions >/dev/null 2>&1; then
     "$TMUX_DIR"/*|/private"$TMUX_DIR"/*) tmux kill-server ;;
     *) echo "refusing to kill server at '\$sock'" >&2; exit 3 ;;
   esac
+  # kill-server returns before the server is gone, and a new-session that reaches the
+  # exiting server fails with "server exited unexpectedly". Wait for it to stop answering.
+  n=0
+  while tmux list-sessions >/dev/null 2>&1; do
+    n=\$((n+1)); [ \$n -lt 100 ] || { echo "old server did not exit" >&2; exit 3; }
+    sleep 0.1
+  done
 fi
 printf 'import itertools, time\nfor i in itertools.count():\n    print("tick", i, flush=True)\n    time.sleep(0.5)\n' > "$TMUX_DIR/ticker.py"
 fill='i=0; while [ \$i -lt 2000 ]; do echo "line \$i of scrollback, padded to look like real terminal output from a busy pane"; i=\$((i+1)); done'
@@ -194,6 +201,11 @@ run() {
   CLI ssh-tmux "$HOST" || { echo "FAIL: ssh-tmux did not attach" >&2; exit 1; }
   sleep "$seconds"   # the watch window itself; the verdict reads the log below
   local slice; slice="$(tail -n +"$((start + 1))" "$LOG")"
+  # The mirror must actually be up: one workspace per populated session. Without this a
+  # server that failed to populate, or a stream that never published, would read as a pass.
+  local mirrored
+  mirrored=$(CMUX_QUIET=1 CLI workspace list 2>/dev/null | grep -cE ' mw-[0-9]+( |$)' || true)
+  echo "mirrored workspaces: $mirrored of $SESSIONS"
   local resets backpressure enters
   resets=$(printf '%s\n' "$slice" | grep -cE 'remote.stream.reset .*mode=attach( |$)' || true)
   backpressure=$(printf '%s\n' "$slice" | grep -c 'stdin-write-backpressure' || true)
@@ -203,6 +215,10 @@ run() {
   echo "control-mode enters: $enters"
   if [ "$enters" -lt 1 ]; then
     echo "VOID: the stream never reached control mode, so nothing was measured" >&2
+    exit 2
+  fi
+  if [ "$mirrored" -ne "$SESSIONS" ]; then
+    echo "VOID: expected $SESSIONS mirrored workspaces, saw $mirrored" >&2
     exit 2
   fi
   if [ "$resets" -gt 0 ] || [ "$backpressure" -gt 0 ]; then
