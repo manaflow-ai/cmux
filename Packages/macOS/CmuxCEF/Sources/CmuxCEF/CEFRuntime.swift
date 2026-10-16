@@ -293,6 +293,15 @@ public final class CEFRuntime {
         shim.setExtensionDeveloperMode(switchSet.loadExtensions.isEmpty ? 0 : 1)
         shim.setBackgroundColor(backgroundColorARGB)
         newTabPageURL.withCString { shim.setNewTabPageURL($0) }
+        // Extensions such as 1Password and Bitwarden often register their
+        // native host only with Google Chrome. Keep those hosts available in
+        // cmux after Chromium's own profile folders, while the fork still
+        // enforces each manifest's allowed origins.
+        for folder in CEFNativeMessaging().googleChromeFolders(
+            home: FileManager.default.homeDirectoryForCurrentUser
+        ) {
+            _ = shim.addNativeMessagingDir(folder.path, folder.isUserLevel ? 1 : 0)
+        }
         switchStorage = switchSet.arguments.map { strdup($0) } + [nil]
         let locale = library.locale
         let context = Unmanaged.passUnretained(self).toOpaque()
