@@ -54,6 +54,7 @@ extension SettingsSchema {
         "tabs.newTabPosition",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
+        "tabs.overflow",
         "tabs.swapCmdTAndCmdN",
         "palette.scopes.tabs.prefix",
         "palette.scopes.workspaces.prefix",

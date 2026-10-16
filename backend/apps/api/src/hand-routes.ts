@@ -94,7 +94,7 @@ export const handleHands = async (request: Request, env: Env, path: string): Pro
   if (path === "/v1/hands/sandboxes") {
     if (request.method !== "POST") return fail(405, "method_not_allowed", "POST")
     const b = (await body(request)) ?? {}
-    return reply(await createSandbox(env, caller, typeof b.name === "string" ? b.name : "", apiOrigin(env, request)))
+    return reply(await createSandbox(env, caller, typeof b.name === "string" ? b.name : ""))
   }
   if (path === "/v1/hands") return request.method === "GET" ? reply(await listHands(env, caller)) : fail(405, "method_not_allowed", "GET")
   const grant = path.match(/^\/v1\/hands\/grants\/(agent_[0-9A-HJKMNP-TV-Z]{26})$/)

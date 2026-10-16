@@ -882,3 +882,71 @@ fn a_chief_rename_retitles_its_own_conversation_only() {
     assert_success(&same);
     assert_eq!(title(&mut home, &direct), "My scout");
 }
+
+/// cx-mbbee: `cmux chief engine --chief ID` (show and set) and `cmux chief
+/// stop --chief ID` send the daemon's `chief` field (chief-brains-v1): each
+/// reaches that Chief's brain only; without `--chief` the default Chief's.
+#[test]
+fn chief_engine_and_stop_cli_take_a_chief() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let files = unique_temp_dir("cbc");
+    fs::create_dir_all(&files).unwrap();
+    let stub = files.join("brain.sh");
+    fs::write(&stub, STUB).unwrap();
+    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+    let chief_home = files.join("h");
+    fs::create_dir_all(&chief_home).unwrap();
+    let default_socket = files.join("d.sock");
+    let default_lines = fake_tools_socket(&default_socket, "default");
+    let brains = json!({
+        "executable": stub,
+        "home": chief_home,
+        "app": {"bin_dir": "/opt/cmux-test/bin", "user_name": "Test Person",
+                "chief_title": "Chief", "acpmux_bin": "/usr/bin/false"},
+    })
+    .to_string();
+    let server = HeadlessServer::start_with_options(
+        "chief-brains-cli",
+        None,
+        None,
+        &[
+            ("CMUX_TUI_CHIEF_BRAINS", brains.as_str()),
+            ("CMUX_TUI_CHIEF_TOOLS_SOCKET", default_socket.to_str().unwrap()),
+        ],
+    );
+    let scout = make_chief(&server, "Scout", "Researcher");
+    let scout_home = brain_dir(&chief_home, &scout);
+    wait_file(&scout_home.join("pid.1"));
+    let scout_lines = fake_tools_socket(&scout_home.join("optchat/tools.sock"), "scout");
+    let counts = || [&default_lines, &scout_lines].map(|lines| lines.lock().unwrap().len());
+
+    let shown = chief_cli(&server, &["engine", "--chief", &scout, "--json"], "");
+    assert_success(&shown);
+    let report: Value = serde_json::from_slice(&shown.stdout).unwrap();
+    assert_eq!(report["engine"]["harness"], "scout", "{report}");
+    assert_eq!(counts(), [0, 1]);
+
+    let set = chief_cli(&server, &["engine", "--chief", &scout, "--effort", "low", "--json"], "");
+    assert_success(&set);
+    assert_eq!(counts(), [0, 2]);
+    assert_eq!(
+        scout_lines.lock().unwrap()[1],
+        json!({"tool": "engine", "action": "set", "effort": "low"})
+    );
+
+    let stopped = chief_cli(&server, &["stop", "--chief", &scout], "");
+    assert_success(&stopped);
+    assert_eq!(counts(), [0, 3]);
+    assert_eq!(scout_lines.lock().unwrap()[2], json!({"tool": "stop"}));
+
+    let plain = chief_cli(&server, &["engine", "--json"], "");
+    assert_success(&plain);
+    let report: Value = serde_json::from_slice(&plain.stdout).unwrap();
+    assert_eq!(report["engine"]["harness"], "default", "{report}");
+    assert_eq!(counts(), [1, 3]);
+
+    // --chief goes with engine or stop only.
+    let stray = chief_cli(&server, &["--chief", &scout, "-p", "hi"], "");
+    assert_eq!(stray.status.code(), Some(2), "{stray:?}");
+}

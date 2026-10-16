@@ -3,7 +3,7 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { runInDurableObject } from "cloudflare:test"
 import { fireAlarm } from "./setup/alarm.ts"
-import { gatewayBaseUrl, mintRunToken } from "../src/model-gateway/run-token.ts"
+import { gatewayBaseUrl, mintRunToken, revokeAgentSession } from "../src/model-gateway/run-token.ts"
 
 /**
  * The model gateway (model-gateway/gateway.ts) at the product boundary: a person writes to a Cloud
@@ -76,8 +76,11 @@ const fakeRoute = () => {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = new Request(input, init)
     if (req.url.startsWith("https://claude.test/")) {
-      seen.push({ headers: Object.fromEntries(req.headers.entries()), body: await req.json() })
-      return new Response(eventStream(`Routed answer ${seen.length}`), { headers: { "content-type": "application/vnd.amazon.eventstream" } })
+      const body = await req.json()
+      // A body the route refuses (Bedrock's validation answer).
+      if (JSON.stringify(body).includes("FORCE_400")) return Response.json({ message: "tools.0.custom.defer_loading: Extra inputs are not permitted" }, { status: 400 })
+      seen.push({ headers: Object.fromEntries(req.headers.entries()), body })
+      return new Response(eventStream(`Routed answer ${seen.length}`), { headers: { "content-type": "application/vnd.amazon.eventstream", "x-bedrock-region": "us-west-2" } })
     }
     return real(input, init)
   })
@@ -147,6 +150,8 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
     expect(run.cost_usd).toBeGreaterThan(0)
     // Timing: the first model request after the run started, the first token after the request.
     expect(run.timing.request_at).toBeGreaterThanOrEqual(run.started_at)
+    // The Bedrock region that answered (the route's x-bedrock-region) is on the run.
+    expect(run.timing.regions).toEqual(["us-west-2"])
     expect(run.timing.first_token_at).toBeGreaterThanOrEqual(run.timing.request_at)
     // The wake path's marks, in order: the brain got the wake, the turn was admitted, the view was ready, the run started.
     expect(run.timing.wake_at).toBeLessThanOrEqual(run.timing.admitted_at)
@@ -222,20 +227,60 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
     for (let i = 0; i < 50 && after.balance_micros === before.balance_micros; i++) [await new Promise((r) => setTimeout(r, 20)), (after = await meter(team).creditBalance(team, 0, 5))]
     expect(after.balance_micros).toBeLessThan(before.balance_micros)
     expect(after.held_micros).toBe(0)
+    // Claude Code's request shape: betas in the header map into Bedrock's anthropic_beta (unknown ones dropped),
+    // fields Bedrock does not take (context_management) are dropped, not forwarded.
+    const cc = await call({ authorization: `Bearer ${token}`, "anthropic-beta": "interleaved-thinking-2025-05-14,claude-code-20250219,oauth-2025-04-20" }, { ...body, context_management: { edits: [] }, metadata: { user_id: "u" }, thinking: { type: "enabled", budget_tokens: 1024 } })
+    expect(cc.status, await cc.clone().text()).toBe(200)
+    await cc.text()
+    const ccBody = seen.at(-1)!.body
+    expect(ccBody.anthropic_beta).toEqual(["interleaved-thinking-2025-05-14"])
+    expect(ccBody.context_management).toBeUndefined()
+    expect(ccBody.metadata).toBeUndefined()
+    expect(ccBody.thinking).toEqual({ type: "enabled", budget_tokens: 1024 })
+    // Claude Code's dated and small/fast model names map to the family's 5.5 model, or to a model the route serves.
+    const small = await call({ authorization: `Bearer ${token}` }, { ...body, model: "claude-haiku-4-5-20251001" })
+    expect(small.status, await small.clone().text()).toBe(200)
+    await small.text()
+    expect(seen.at(-1)!.body.model).toBe("global.anthropic.claude-opus-5-5")
+    // A refusal of the route reaches the caller with its reason (Claude Code shows it), not a bare status.
+    const refused = await call({ authorization: `Bearer ${token}` }, { ...body, messages: [{ role: "user", content: "FORCE_400" }] })
+    expect(refused.status).toBe(400)
+    expect(((await refused.json()) as any).error.message).toContain("defer_loading: Extra inputs are not permitted")
     // x-api-key works too (stock clients); refusals: no token, a person's session token, a model it does not serve, no streaming.
     expect((await call({ "x-api-key": token })).status).toBe(200)
     expect((await call({})).status).toBe(401)
     expect((await call({ authorization: `Bearer ${await sessionToken("brain-gateway-http")}` })).status).toBe(401)
     expect((await call({ authorization: `Bearer ${token}` }, { ...body, model: "gpt-5" })).status).toBe(400)
     expect((await call({ authorization: `Bearer ${token}` }, { ...body, stream: false })).status).toBe(400)
-    expect(seen).toHaveLength(2)
+    expect(seen).toHaveLength(4)
     // Spend cap: a token minted with a tiny budget is refused (429) before the route, the run still running.
     const tiny = (await mintRunToken(testEnv as any, { team, chief: chief.id, owner: ownerId, run: "run_500", conversation: chief.main_conversation }, { capUsd: 0.0001 })).token
     expect((await call({ authorization: `Bearer ${tiny}` })).status).toBe(429)
     // Revoke: the run ends, and the same token stops working at once (401), long before its expiry.
     await runState(chief.id, chief.main_conversation, "run_500", "done")
     expect((await call({ authorization: `Bearer ${token}` })).status).toBe(401)
-    expect(seen).toHaveLength(2)
+    expect(seen).toHaveLength(4)
+  })
+
+  it("keeps an agent token working while its agent session lives, past the Chief's turn, and stops it when the session ends", async () => {
+    const seen = fakeRoute()
+    const { chief, team } = await owner("brain-gateway-agent", 5, "claude-opus-5-5", "low", "user")
+    const ownerId = (await op(await sessionToken("brain-gateway-agent"), "user.ensure", {})).value.id as string
+    await runState(chief.id, chief.main_conversation, "run_600", "running")
+    const minted = await mintRunToken(testEnv as any, { team, chief: chief.id, owner: ownerId, run: "run_600", conversation: chief.main_conversation }, { agent: true })
+    const brain = testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName(`${chief.id}/${chief.main_conversation}`))
+    await brain.runToken("run_600", minted.jti, 0, { op: "open" })
+    await brain.runToken("run_600", minted.jti, 0, { op: "bind", hand: "hand_1", session: "ses_1" })
+    const call = () => worker.fetch("https://api.test/v1/model-gateway/v1/messages", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${minted.token}` }, body: JSON.stringify({ model: "claude-opus-5-5", max_tokens: 100, stream: true, messages: [{ role: "user", content: "hi" }] }) })
+    // The Chief's turn ends; the agent session still runs, so its token still works.
+    await runState(chief.id, chief.main_conversation, "run_600", "done")
+    const r1 = await call()
+    expect(r1.status, await r1.clone().text()).toBe(200)
+    await r1.text()
+    // The session ends (the hand's hook, or the Chief cancels it): the token stops at once.
+    await revokeAgentSession(testEnv as any, chief.id, chief.main_conversation, "hand_1", "ses_1")
+    expect((await call()).status).toBe(401)
+    expect(seen).toHaveLength(1)
   })
 
   it("refuses a run token whose team has no credits (402) without calling the route", async () => {

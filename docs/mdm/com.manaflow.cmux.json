@@ -2923,6 +2923,16 @@
       "title" : "New Tab Template",
       "type" : "string"
     },
+    "tabs.overflow" : {
+      "default" : "shrink",
+      "description" : "Shrink narrows every tab to the minimum width before the strip scrolls. Scroll keeps tabs wide and scrolls sooner.",
+      "enum" : [
+        "shrink",
+        "scroll"
+      ],
+      "title" : "Tab Overflow",
+      "type" : "string"
+    },
     "tabs.plusButton" : {
       "default" : "hover",
       "description" : "On Hover shows each tab bar's + only while the pointer is over that tab bar.",

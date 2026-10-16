@@ -3,7 +3,7 @@ import { HOLDER, signedFetch } from "../chief-brain/claude-auth.ts"
 import { claudeModel } from "../chief-brain/models.ts"
 import { Credits, CreditsLive, creditsRequired, maxCallCostUsd, payerTeam, type Reservation } from "../credits.ts"
 import type { Env } from "../env.ts"
-import { claudeRoute, isClaude, meteredOwner, offers } from "./routes.ts"
+import { claudeRoute, HAIKU, isClaude, meteredOwner, offers, OPUS, SONNET } from "./routes.ts"
 import { verifyRunToken, type RunGrant } from "./run-token.ts"
 import type { LedgerAnswer, LedgerOp } from "./run-ledger.ts"
 
@@ -27,7 +27,7 @@ const err = (status: number, type: string, message: string) => Response.json({ t
 const safeId = (s: string) => s.replace(/[^A-Za-z0-9._:-]/g, "_").slice(0, 128)
 const run = <A, E>(env: Env, p: Effect.Effect<A, E, Credits>) => Effect.runPromise(p.pipe(Effect.provide(CreditsLive(env))))
 
-export type Who = Omit<RunGrant, "conversation" | "jti" | "cap_usd"> & { readonly conversation?: string; readonly grant?: RunGrant }
+export type Who = Omit<RunGrant, "conversation" | "jti" | "cap_usd" | "agent"> & { readonly conversation?: string; readonly grant?: RunGrant }
 const whoOf = async (env: Env, request: Request): Promise<Who | null> => {
   const auth = request.headers.get("authorization") ?? ""
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : (request.headers.get("x-api-key") ?? "")
@@ -92,6 +92,19 @@ export const handleModelGateway = async (request: Request, env: Env, ctx?: { wai
   return gatewayMessages(env, who, request, ctx)
 }
 
+/**
+ * The model a request runs on: Claude Code names dated or older ids (claude-haiku-4-5-20251001,
+ * claude-sonnet-4-5[1m], its small/fast model) — each family maps to its 5.5 model, and a family
+ * the route does not serve maps to the route's first model (staging's session route serves Opus only).
+ */
+const gatewayModel = (env: Env, raw: string): string => {
+  const m = raw.toLowerCase().replace(/\[1m\]$/, "")
+  if (!m.startsWith("claude-") && !m.includes("anthropic.claude-")) return raw
+  const family = m.includes("haiku") ? HAIKU : m.includes("sonnet") ? SONNET : m.includes("opus") ? OPUS : null
+  if (!family) return raw
+  return offers(env, family) ? family : (claudeRoute(env).models.find((x) => offers(env, x)) ?? family)
+}
+
 /** Upstream statuses worth one more try (throttled or overloaded route; Bedrock throttles per region). */
 const RETRY_STATUS = new Set([429, 503, 529])
 
@@ -108,8 +121,8 @@ export const gatewayMessages = async (env: Env, who: Who, request: Request, ctx?
   } catch {
     return err(400, "invalid_request_error", "the body is a Messages request (JSON)")
   }
-  const name = typeof body.model === "string" ? body.model.replace(/\[1m\]$/, "") : ""
-  if (!isClaude(name)) return err(400, "invalid_request_error", "this gateway serves claude-opus-5-5, claude-sonnet-5-5 and claude-haiku-5-5")
+  const name = gatewayModel(env, typeof body.model === "string" ? body.model : "")
+  if (!isClaude(name)) return err(400, "invalid_request_error", "this gateway serves Claude models (opus, sonnet, haiku)")
   if (body.stream !== true) return err(400, "invalid_request_error", "stream must be true")
   if (!offers(env, name) || !meteredOwner(env, who.owner)) return err(403, "permission_error", `${name} is not available for this account here`)
   const model = claudeModel(name, claudeRoute(env).url)
@@ -121,7 +134,7 @@ export const gatewayMessages = async (env: Env, who: Who, request: Request, ctx?
   const g = who.grant
   const ledger = g ? (env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${g.chief}/${g.conversation}`)) as unknown as { runToken(run: string, jti: string, cap: number, o: LedgerOp): Promise<LedgerAnswer> }) : null
   if (g && ledger) {
-    const a = await ledger.runToken(g.run, g.jti, g.cap_usd, { op: "hold", usd: maxCost }).catch(() => null)
+    const a = await ledger.runToken(g.run, g.jti, g.cap_usd, { op: "hold", usd: maxCost, agent: g.agent }).catch(() => null)
     if (!a) return err(503, "overloaded_error", "the run could not be checked; retry")
     if (!a.ok) return a.code === "run_ended" ? err(401, "authentication_error", "this run has ended; the token no longer works") : err(429, "rate_limit_error", `this run token's model budget is spent: ${a.used_usd.toFixed(4)} of ${g.cap_usd} USD used, this call holds up to ${maxCost.toFixed(4)} USD`)
   }
@@ -145,10 +158,13 @@ export const gatewayMessages = async (env: Env, who: Who, request: Request, ctx?
   }
   const route = claudeRoute(env)
   const holder = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(HOLDER)) as unknown as { claudeAuth(): Promise<string>; claudeInvalidate(): Promise<void> }
-  const fetchRoute = signedFetch(() => holder.claudeAuth(), () => holder.claudeInvalidate(), { auth: route.auth, models: route.models, effortBody: route.effortBody, ...(env.CHIEF_BRAIN_CLAUDE_SERVICE_KEY ? { key: env.CHIEF_BRAIN_CLAUDE_SERVICE_KEY } : {}), ...(env.CHIEF_BRAIN_CACHE_TTL ? { ttl: env.CHIEF_BRAIN_CACHE_TTL } : {}) })
+  const dropped: Array<string> = []
+  const fetchRoute = signedFetch(() => holder.claudeAuth(), () => holder.claudeInvalidate(), { log: (w) => void dropped.push(w), forwardBetas: true, auth: route.auth, models: route.models, effortBody: route.effortBody, ...(env.CHIEF_BRAIN_CLAUDE_SERVICE_KEY ? { key: env.CHIEF_BRAIN_CLAUDE_SERVICE_KEY } : {}), ...(env.CHIEF_BRAIN_CACHE_TTL ? { ttl: env.CHIEF_BRAIN_CACHE_TTL } : {}) })
   let res: Response
   try {
-    const send = (id: string) => fetchRoute(`${route.url}/v1/messages`, { method: "POST", headers: { "content-type": "application/json", "x-cmux-team-id": team, "x-cmux-chief-id": who.chief, "x-request-id": id }, body: JSON.stringify({ ...body, model: name }) })
+    // The caller's betas go on (the Bedrock conversion maps the ones Bedrock takes and logs the rest).
+    const beta = request.headers.get("anthropic-beta")
+    const send = (id: string) => fetchRoute(`${route.url}/v1/messages`, { method: "POST", headers: { "content-type": "application/json", "x-cmux-team-id": team, "x-cmux-chief-id": who.chief, "x-request-id": id, ...(beta ? { "anthropic-beta": beta } : {}) }, body: JSON.stringify({ ...body, model: name }) })
     res = await send(request_id)
     if (RETRY_STATUS.has(res.status)) {
       await res.body?.cancel().catch(() => undefined)
@@ -163,9 +179,21 @@ export const gatewayMessages = async (env: Env, who: Who, request: Request, ctx?
     }
     return err(503, "api_error", "the model route is unavailable")
   }
+  if (dropped.length > 0) console.warn(JSON.stringify({ msg: "model_gateway.dropped", request: request_id, model: name, dropped: [...new Set(dropped)].slice(0, 40) }))
   if (!res.ok || !res.body) {
     await settle({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })
-    return err(res.status >= 400 && res.status < 600 ? res.status : 502, res.status === 429 ? "rate_limit_error" : "api_error", `the model route answered ${res.status}`)
+    // The route's refusal text (a validation message, no secret) goes to the log and to the caller, so the next failure names the field.
+    const why = (await res.text().catch(() => "")).slice(0, 1500)
+    console.warn(JSON.stringify({ msg: "model_gateway.upstream_refused", request: request_id, model: name, status: res.status, body: why, dropped: [...new Set(dropped)].slice(0, 40) }))
+    const detail = ((): string => {
+      try {
+        const j = JSON.parse(why) as { error?: { message?: unknown }; message?: unknown }
+        return String(j.error?.message ?? j.message ?? why)
+      } catch {
+        return why
+      }
+    })().slice(0, 500)
+    return err(res.status >= 400 && res.status < 600 ? res.status : 502, res.status === 429 ? "rate_limit_error" : res.status === 400 ? "invalid_request_error" : "api_error", `the model route answered ${res.status}${detail ? `: ${detail}` : ""}`)
   }
   // The charge outlives a client that goes away mid-stream (waitUntil), so the hold is settled, not left.
   return new Response(res.body.pipeThrough(usageTap((u) => { const p = settle(u); ctx?.waitUntil(p); return p })), { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } })

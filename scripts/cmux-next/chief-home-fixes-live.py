@@ -198,6 +198,7 @@ def check_send_after_shutdown():
     if default:
         open_conversation(default["id"])
     first = brain_pid()
+    log_at = os.path.getsize(os.path.join(HOME_DIR, "host.log")) if os.path.exists(os.path.join(HOME_DIR, "host.log")) else 0
     owner0 = home().get("chief_owner") or {}
     stopped = cli("chief", "shutdown", "--chief-home", HOME_DIR, timeout=150)
     back = wait(lambda: (lambda o: o if o.get("connected") and o.get("daemon_pid") and o.get("daemon_pid") != owner0.get("daemon_pid")
@@ -215,6 +216,30 @@ def check_send_after_shutdown():
         bool(back) and bool(idle) and bool(second) and bool(heard),
         {"first_brain": first, "shutdown_exit": stopped["exit"], "owner_back": bool(back), "no_brain_before_send": bool(idle),
          "send": steps[-1], "new_brain": second, "logged": heard})
+    if "send" in ONLY:
+        check_probe_after_restart(log_at, default)
+
+
+def check_probe_after_restart(log_at, default):
+    """cx-oqnw3: the restarted brain's compactor probe starts (its session name is free), and a
+    compactor fault is never a Chief message in the conversation."""
+    path = os.path.join(HOME_DIR, "host.log")
+
+    def since():
+        try:
+            with open(path, errors="replace") as f:
+                f.seek(log_at)
+                return f.read()
+        except OSError:
+            return ""
+    probed = wait(lambda: "compactor probe (" in since() and "built a node" in since() or "is taken" in since(), 120, step=2)
+    text = since()
+    shown = [m.get("text") or "" for m in (conversation_with("agent_mux") or {}).get("shown_tail", [])
+             if m.get("author") == "agent_mux"]
+    row("cx-oqnw3: the restarted brain's compactor probe runs; no compactor notice as a Chief message",
+        bool(probed) and "is taken" not in text and not any("memory compactor" in t for t in shown),
+        {"probe_line": next((l for l in text.splitlines() if "compactor probe" in l or "is taken" in l), None),
+         "chief_messages_about_compactor": [t[:160] for t in shown if "memory compactor" in t]})
 
 
 def end(app):
