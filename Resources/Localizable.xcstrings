@@ -653650,6 +653650,301 @@
           }
         }
       }
+    },
+    "cli.browser.emulation.offlineFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The browser could not turn on offline mode"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على المتصفح تشغيل وضع عدم الاتصال"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Browser konnte den Offlinemodus nicht aktivieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El navegador no pudo activar el modo sin conexión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le navigateur n'a pas pu activer le mode hors ligne"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザでオフラインモードをオンにできませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저에서 오프라인 모드를 켤 수 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器无法开启离线模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器無法開啟離線模式"
+          }
+        }
+      }
+    },
+    "cli.browser.emulation.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timed out applying browser emulation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت مهلة تطبيق محاكاة المتصفح"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeitüberschreitung beim Anwenden der Browser-Emulation"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se agotó el tiempo al aplicar la emulación del navegador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Délai dépassé lors de l'application de l'émulation du navigateur"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザのエミュレーションの適用がタイムアウトしました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 에뮬레이션을 적용하는 중 시간이 초과되었습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用浏览器模拟时超时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "套用瀏覽器模擬時逾時"
+          }
+        }
+      }
+    },
+    "cli.browser.geolocation.invalidParams": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.geolocation.set needs latitude and longitude, or clear: true"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب browser.geolocation.set قيمتي latitude وlongitude، أو clear: true"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.geolocation.set benötigt latitude und longitude oder clear: true"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.geolocation.set necesita latitude y longitude, o clear: true"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.geolocation.set nécessite latitude et longitude, ou clear: true"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.geolocation.set には latitude と longitude、または clear: true が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.geolocation.set에는 latitude와 longitude 또는 clear: true가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.geolocation.set 需要 latitude 和 longitude，或 clear: true"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.geolocation.set 需要 latitude 和 longitude，或 clear: true"
+          }
+        }
+      }
+    },
+    "cli.browser.geolocation.outOfRange": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Latitude must be between -90 and 90, longitude between -180 and 180, and accuracy 0 or more"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون خط العرض بين -90 و90، وخط الطول بين -180 و180، والدقة 0 أو أكثر"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Breitengrad muss zwischen -90 und 90 liegen, der Längengrad zwischen -180 und 180 und die Genauigkeit bei 0 oder mehr"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La latitud debe estar entre -90 y 90, la longitud entre -180 y 180, y la precisión debe ser 0 o más"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La latitude doit être comprise entre -90 et 90, la longitude entre -180 et 180, et la précision doit être supérieure ou égale à 0"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "緯度は -90〜90、経度は -180〜180、精度は 0 以上で指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위도는 -90에서 90 사이, 경도는 -180에서 180 사이, 정확도는 0 이상이어야 합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "纬度必须介于 -90 到 90 之间，经度介于 -180 到 180 之间，精度须为 0 或以上"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "緯度必須介於 -90 到 90 之間，經度介於 -180 到 180 之間，精確度須為 0 或以上"
+          }
+        }
+      }
+    },
+    "cli.browser.offline.invalidParams": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.offline.set needs enabled: true or false"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب browser.offline.set القيمة enabled: true أو false"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.offline.set benötigt enabled: true oder false"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.offline.set necesita enabled: true o false"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.offline.set nécessite enabled: true ou false"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.offline.set には enabled: true または false が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.offline.set에는 enabled: true 또는 false가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.offline.set 需要 enabled: true 或 false"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.offline.set 需要 enabled: true 或 false"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
