@@ -122,7 +122,8 @@ extension CloudPortPublicationRef {
             vmID: publication.vmID,
             port: publication.port,
             sharing: CloudPortSharing(accessMode: publication.accessMode.rawValue),
-            isGeneratedDomain: publication.domainKind == "generated"
+            isGeneratedDomain: publication.domainKind == "generated",
+            isActive: publication.state.lowercased() != "disabled" && publication.state.lowercased() != "deleted"
         )
     }
 }

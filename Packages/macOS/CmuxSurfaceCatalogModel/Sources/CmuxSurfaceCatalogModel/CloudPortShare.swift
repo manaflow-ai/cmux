@@ -16,6 +16,10 @@ public struct CloudPortPublicationRef: Equatable, Sendable {
     /// configuration the person set up, so Stop Sharing narrows it instead of
     /// deleting it.
     public let isGeneratedDomain: Bool
+    /// Whether the publication is active. Disabled rows can remain briefly in
+    /// an authoritative list after a failed or completed mutation; they no
+    /// longer admit traffic and must not keep a port looking shared.
+    public let isActive: Bool
 
     public init(
         id: String,
@@ -24,7 +28,8 @@ public struct CloudPortPublicationRef: Equatable, Sendable {
         vmID: String,
         port: Int,
         sharing: CloudPortSharing,
-        isGeneratedDomain: Bool
+        isGeneratedDomain: Bool,
+        isActive: Bool = true
     ) {
         self.id = id
         self.hostname = hostname
@@ -33,6 +38,7 @@ public struct CloudPortPublicationRef: Equatable, Sendable {
         self.port = port
         self.sharing = sharing
         self.isGeneratedDomain = isGeneratedDomain
+        self.isActive = isActive
     }
 
     /// Reads one `vm.publication_list` row (the socket's `VMPublication.foundationObject`).
@@ -49,7 +55,8 @@ public struct CloudPortPublicationRef: Equatable, Sendable {
             vmID: vmID,
             port: port,
             sharing: CloudPortSharing(accessMode: object["accessMode"] as? String),
-            isGeneratedDomain: ((object["domainKind"] as? String) ?? "generated") == "generated"
+            isGeneratedDomain: ((object["domainKind"] as? String) ?? "generated") == "generated",
+            isActive: Self.isActiveState(object["state"] as? String)
         )
     }
 
@@ -58,6 +65,11 @@ public struct CloudPortPublicationRef: Equatable, Sendable {
         if let value = raw as? NSNumber { return value.intValue }
         if let value = raw as? String { return Int(value) }
         return nil
+    }
+
+    private static func isActiveState(_ state: String?) -> Bool {
+        guard let state else { return true }
+        return state.lowercased() != "disabled" && state.lowercased() != "deleted"
     }
 }
 
@@ -105,7 +117,7 @@ public struct CloudPortSharePlan: Equatable, Sendable {
 
     public init(publications: [CloudPortPublicationRef], machineID: String, port: Int) {
         self.publications = publications
-            .filter { $0.vmID == machineID && $0.port == port }
+            .filter { $0.isActive && $0.vmID == machineID && $0.port == port }
             .enumerated()
             .sorted {
                 let left = $0.element.sharing.breadth
