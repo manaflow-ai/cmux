@@ -120,15 +120,9 @@ final class SidebarListView: NSView {
     private func windowOcclusionChanged() {
         setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
     }
-    /// Pauses (or resumes) every row's activity animation. It reaches every indicator inside a row,
-    /// not only the row's own: a row badge's glyphs (`RowBadgeView`) sit one level down, and one
-    /// made while the window was covered kept a still ring after the window showed (cx-m8buz).
+    /// Pauses (or resumes) every row's activity animation, down to a row badge's glyphs (cx-m8buz).
     func setWindowVisible(_ visible: Bool) {
-        func reach(_ view: NSView) {
-            for child in view.subviews {
-                if let indicator = child as? StatusIndicatorView { indicator.isWindowVisible = visible } else { reach(child) }
-            }
-        }
+        func reach(_ view: NSView) { view.subviews.forEach { ($0 as? StatusIndicatorView)?.isWindowVisible = visible; if !($0 is StatusIndicatorView) { reach($0) } } }
         subviews.forEach(reach)
     }
     nonisolated override var isFlipped: Bool { true }
