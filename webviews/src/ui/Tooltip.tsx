@@ -59,6 +59,8 @@ export interface AnchoredCardProps {
   /** Whether it shows (default: while `anchor` is set); false keeps it placed while it fades out. */
   open?: boolean;
   className?: string;
+  /** Which side of the anchor receives the card. */
+  side?: "top" | "bottom" | "inline-end" | "inline-start";
   /** `data-state` on the card, for styling. */
   state?: string;
   /** Shows at once, with no fade in (a warm tooltip group's hint). */
@@ -79,6 +81,7 @@ export function AnchoredCard({
   anchor,
   open,
   className,
+  side = "bottom",
   state,
   instant,
   interactive = false,
@@ -92,7 +95,7 @@ export function AnchoredCard({
         <BaseTooltip.Positioner
           className="ui-positioner"
           anchor={virtualAnchor(anchor)}
-          side="bottom"
+          side={side}
           align="start"
           sideOffset={6}
         >
