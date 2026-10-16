@@ -559,8 +559,8 @@ async fn remote_request_and_notification_cancels_cannot_stop_local_sessions() {
 #[tokio::test]
 async fn remote_callers_can_cancel_sessions_they_started() {
     // A Web-owned session may be cancelled by the Web request form.
-    let hub = hub();
-    let mut web = Client::new(&hub, Origin::Web);
+    let web_hub = hub();
+    let mut web = Client::new(&web_hub, Origin::Web);
     let id = session(&mut web, "web-owned").await;
     start_until_cancel(&mut web, &id).await;
     let (reply, notifications) =
@@ -572,8 +572,8 @@ async fn remote_callers_can_cancel_sessions_they_started() {
     );
 
     // A Peer-owned session may be cancelled by the ACP notification form.
-    let hub = hub();
-    let mut peer = Client::new(&hub, Origin::Peer);
+    let peer_hub = hub();
+    let mut peer = Client::new(&peer_hub, Origin::Peer);
     let id = session(&mut peer, "peer-owned").await;
     start_until_cancel(&mut peer, &id).await;
     peer.notify("session/cancel", json!({"sessionId": id})).await;
