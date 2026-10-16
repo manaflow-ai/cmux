@@ -37,6 +37,7 @@ final class MobileSSHCmuxTUITopologyReconnect<Control: AnyObject & Sendable> {
     private let onControlConnected: @MainActor (UInt64, Bool) -> Void
     private var watchTask: Task<Void, Never>?
     private var openingTask: Task<Control, Error>?
+    private var recoveryTask: Task<Void, Never>?
     private var stopped = false
 
     /// The currently owned control, if the session is connected.
@@ -70,31 +71,42 @@ final class MobileSSHCmuxTUITopologyReconnect<Control: AnyObject & Sendable> {
     func connect() async throws -> Control {
         guard !stopped else { throw CancellationError() }
         if let control { return control }
-        if let openingTask {
-            _ = try await openingTask.value
+        if let recoveryTask {
+            await recoveryTask.value
+            guard !stopped else { throw CancellationError() }
             if let control { return control }
-            return try await connect()
         }
+        return try await connectFresh()
+    }
 
-        let task = Task { @MainActor [open] in
-            try await open()
+    private func connectFresh() async throws -> Control {
+        guard !stopped else { throw CancellationError() }
+        let task: Task<Control, Error>
+        if let openingTask {
+            task = openingTask
+        } else {
+            let newTask = Task { @MainActor [open] in
+                try await open()
+            }
+            openingTask = newTask
+            task = newTask
         }
-        openingTask = task
         do {
             let candidate = try await task.value
-            defer { openingTask = nil }
             guard !stopped else {
                 await close(candidate)
                 throw CancellationError()
             }
             if let control {
                 if control !== candidate { await close(candidate) }
+                if openingTask != nil { openingTask = nil }
                 return control
             }
             install(candidate)
+            if openingTask != nil { openingTask = nil }
             return candidate
         } catch {
-            openingTask = nil
+            if openingTask != nil { openingTask = nil }
             throw error
         }
     }
@@ -106,6 +118,8 @@ final class MobileSSHCmuxTUITopologyReconnect<Control: AnyObject & Sendable> {
         watchTask = nil
         openingTask?.cancel()
         openingTask = nil
+        recoveryTask?.cancel()
+        recoveryTask = nil
         let control = control
         self.control = nil
         if let control { await close(control) }
@@ -114,6 +128,10 @@ final class MobileSSHCmuxTUITopologyReconnect<Control: AnyObject & Sendable> {
     /// Replaces a control after a command failed, preserving one owner and
     /// using the same bounded retry policy as an event-driven disconnect.
     func reconnectAfterOperationFailure() async {
+        if let recoveryTask {
+            await recoveryTask.value
+            return
+        }
         guard let control else { return }
         watchTask?.cancel()
         await recover(from: control, generation: generation)
@@ -166,6 +184,20 @@ final class MobileSSHCmuxTUITopologyReconnect<Control: AnyObject & Sendable> {
 
     private func recover(from control: Control, generation: UInt64) async {
         guard !Task.isCancelled, !stopped, isCurrent(control: control, generation: generation) else { return }
+        if let recoveryTask {
+            await recoveryTask.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            await self?.runRecovery(from: control, generation: generation)
+        }
+        recoveryTask = task
+        await task.value
+        recoveryTask = nil
+    }
+
+    private func runRecovery(from control: Control, generation: UInt64) async {
+        guard !Task.isCancelled, !stopped, isCurrent(control: control, generation: generation) else { return }
         self.control = nil
         self.generation &+= 1
         watchTask = nil
@@ -176,7 +208,7 @@ final class MobileSSHCmuxTUITopologyReconnect<Control: AnyObject & Sendable> {
         var attempt = 0
         while !Task.isCancelled, !stopped, transportIsOpen() {
             do {
-                _ = try await connect()
+                _ = try await connectFresh()
                 return
             } catch is CancellationError {
                 return
