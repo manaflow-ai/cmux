@@ -62,10 +62,11 @@ final class WorkspaceRowView: SidebarRowView {
     var isSecondarySelected = false {
         didSet {
             guard isSecondarySelected != oldValue else { return }
-            setAccessibilitySelected(isSelected || isSecondarySelected)
+            updateAccessibilitySelection()
             needsDisplay = true
         }
     }
+    override var showsSelection: Bool { isSelected || isSecondarySelected }
     /// A tab dragged from a pane would move into this workspace.
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     var onClose: (() -> Void)?
