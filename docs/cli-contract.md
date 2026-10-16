@@ -976,7 +976,7 @@ the expected text without connecting to a cmux socket.
 - `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|doctor|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|secrets|clone|repo|ports|share|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux vm new --help` -> `Create a Cloud VM.`
 - `cmux vm ls --help` -> `List your Cloud VMs`
-- `cmux vm ports --help` -> `Show the servers you started inside a Cloud VM`
+- `cmux vm ports --help` -> `Show the listening TCP ports and the servers you started inside a Cloud VM`
 - `cmux vm share --help` -> `cmux vm share <machine> <port> --public [--yes]`
 - `cmux vm domains --help` -> `cmux cloud domains [list]`
 - `cmux vm run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <4g|8g|16g|24g|32g|64g|MB>] [--timeout <seconds>] -- <command...>`
