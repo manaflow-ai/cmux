@@ -25,12 +25,111 @@ extension TabCell: StatusIndicatorConfigClient {
         if item.isBusy { StatusIndicatorAppearance.shared.register(self) }
         let plan = spinnerPlan
         if plan.glyph != .none {
-            makeSpinner().apply(plan, config: StatusIndicatorAppearance.shared.config)
+            let spinner = makeSpinner()
+            let wasHidden = spinner.layer.isHidden || spinner.plan.glyph == .none || isSpinnerExiting
+            isSpinnerExiting = false
+            spinner.apply(plan, config: StatusIndicatorAppearance.shared.config)
+            if wasHidden {
+                showSpinner(spinner, animated: item.indicator.isLoading)
+            } else {
+                spinner.layer.isHidden = false
+            }
         } else {
-            spinnerLayer?.layer.removeFromSuperlayer()
-            spinnerLayer = nil
+            if let spinnerLayer {
+                hideSpinner(spinnerLayer, animated: item.indicator.isLoading)
+            }
         }
         layoutLayers()
+    }
+
+    /// Shows a newly busy indicator without changing the tab's measured
+    /// geometry. The variants are Debug Settings prototypes; `instant` is the
+    /// default and preserves the old one-frame behavior.
+    private func showSpinner(_ spinner: StatusIndicatorLayer, animated: Bool) {
+        let variant = animated ? TabTunables.loadingAnimation.value : .instant
+        let layer = spinner.layer
+        layer.removeAnimation(forKey: "opacity")
+        layer.removeAnimation(forKey: "transform.scale")
+        layer.removeAnimation(forKey: "transform.translation.y")
+        layer.isHidden = false
+        guard variant != .instant, Motion.duration(.fadeIn) > 0 else {
+            layer.opacity = 1
+            layer.setValue(1.0, forKeyPath: "transform.scale")
+            layer.setValue(0.0, forKeyPath: "transform.translation.y")
+            return
+        }
+
+        layer.opacity = 0
+        switch variant {
+        case .fade:
+            break
+        case .fadeScale:
+            if Motion.animatesMovement {
+                layer.setValue(0.86, forKeyPath: "transform.scale")
+                Motion.set(layer, "transform.scale", to: 1.0, movementFade: .fadeIn, from: 0.86)
+            } else {
+                layer.setValue(1.0, forKeyPath: "transform.scale")
+            }
+        case .fadeSlide:
+            if Motion.animatesMovement {
+                layer.setValue(2.0, forKeyPath: "transform.translation.y")
+                Motion.set(layer, "transform.translation.y", to: 0.0, movementFade: .fadeIn, from: 2.0)
+            } else {
+                layer.setValue(0.0, forKeyPath: "transform.translation.y")
+            }
+        case .instant:
+            break
+        }
+        Motion.set(layer, "opacity", to: 1.0, fade: .fadeIn, from: 0.0)
+    }
+
+    /// Retains the indicator for the duration of a prototype exit so a busy
+    /// tab does not flicker out. A new busy update cancels this transition and
+    /// retargets the same layer in `showSpinner`.
+    private func hideSpinner(_ spinner: StatusIndicatorLayer, animated: Bool) {
+        let variant = animated ? TabTunables.loadingAnimation.value : .instant
+        let layer = spinner.layer
+        layer.removeAnimation(forKey: "opacity")
+        layer.removeAnimation(forKey: "transform.scale")
+        layer.removeAnimation(forKey: "transform.translation.y")
+        guard variant != .instant, Motion.duration(.fadeOut) > 0 else {
+            removeSpinner(spinner)
+            return
+        }
+
+        isSpinnerExiting = true
+        layer.isHidden = false
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self, weak spinner] in
+            MainActor.assumeIsolated {
+                guard let self, let spinner, self.spinnerLayer === spinner, !self.item.isBusy else { return }
+                self.removeSpinner(spinner)
+            }
+        }
+        switch variant {
+        case .fade:
+            break
+        case .fadeScale:
+            if Motion.animatesMovement {
+                Motion.set(layer, "transform.scale", to: 0.86, movementFade: .fadeOut)
+            }
+        case .fadeSlide:
+            if Motion.animatesMovement {
+                Motion.set(layer, "transform.translation.y", to: 2.0, movementFade: .fadeOut)
+            }
+        case .instant:
+            break
+        }
+        Motion.set(layer, "opacity", to: 0.0, fade: .fadeOut)
+        CATransaction.commit()
+    }
+
+    private func removeSpinner(_ spinner: StatusIndicatorLayer) {
+        guard spinnerLayer === spinner else { return }
+        spinner.layer.removeAllAnimations()
+        spinner.layer.removeFromSuperlayer()
+        spinnerLayer = nil
+        isSpinnerExiting = false
     }
 
     func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {

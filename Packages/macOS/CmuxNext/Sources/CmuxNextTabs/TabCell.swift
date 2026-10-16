@@ -91,6 +91,9 @@ final class TabCell {
     // five layers each (architecture.md 3): spinner while busy, badge while
     // unread or showing status, close button on the selected/hovered tab.
     var spinnerLayer: StatusIndicatorLayer?
+    /// Keeps a loading indicator in the layer tree while a debug transition
+    /// fades it out. Geometry can still relayout during the short fade.
+    var isSpinnerExiting = false
     var badgeLayer: CALayer?
     var statusGlyphLayer: StatusIndicatorLayer? // a status icon set's badge mark (TabCell+StatusBadge)
     var closeBackgroundLayer: CALayer?
@@ -319,7 +322,12 @@ final class TabCell {
         // A hibernated page's icon is dimmed until it is selected.
         iconLayer.opacity = showsIconArt ? (item.isDormant && !isSelected ? 0.55 : 1) : 0
         if let spinnerLayer {
-            spinnerLayer.layer.opacity = visibility.showsIcon ? 1 : 0
+            // An animated loading exit owns opacity until its completion
+            // removes the layer. Other relayouts still hide an indicator when
+            // the tab becomes too narrow for its icon slot.
+            if !isSpinnerExiting {
+                spinnerLayer.layer.opacity = visibility.showsIcon ? 1 : 0
+            }
             if spinnerBadgesMark {
                 let side = pixel(iconFrame.width * 0.55)
                 spinnerLayer.frame = CGRect(x: pixel(iconFrame.maxX - side + Metrics.space1), y: pixel(iconFrame.maxY - side + Metrics.space1),
