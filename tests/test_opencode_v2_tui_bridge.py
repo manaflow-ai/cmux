@@ -309,6 +309,34 @@ const queueStops = observed.filter((event) => event.session_id === "opencode-chi
 if (queueStops.length !== 2 || queueStops.some((event) => event.is_error)) throw new Error(`queued prompt turns published ${JSON.stringify(queueStops)}`);
 liveA.setRoute(routeA);
 
+// Root-derived subagent classification: a Stop for a session whose OpenCode
+// root differs from its id must dispatch the hook with
+// CMUX_AGENT_MANAGED_SUBAGENT=1 so cmux filters its completion; a top-level
+// session must not carry the tag. Capture the real spawn environment through a
+// stub `cmux` binary, exercising deliverEvent end to end.
+const captureFile = "/tmp/cmux-opencode-v2-capture-" + process.pid + ".log";
+const captureBin = "/tmp/cmux-opencode-v2-capture-" + process.pid + ".sh";
+try { await fs.unlink(captureFile); } catch (_) {}
+await fs.writeFile(captureBin, __CAPTURE_SCRIPT__, "utf8");
+await fs.chmod(captureBin, 0o755);
+const liveCapture = makeLive("a", { CMUX_SOCKET_PATH: socketPath, CMUX_SURFACE_ID: "surface-capture", CMUX_WORKSPACE_ID: "workspace-capture", CMUX_OPENCODE_CMUX_BIN: captureBin, CMUX_TEST_CAPTURE_FILE: captureFile }, {});
+const cleanupCapture = await mod.createCMUXTUIBridge(liveCapture, { environment: liveCapture.environment });
+const captureLine = async (sessionID) => {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    let text = "";
+    try { text = await fs.readFile(captureFile, "utf8"); } catch (_) {}
+    const line = text.split("\n").find((entry) => entry.includes('"session_id":"' + sessionID + '"'));
+    if (line) return line;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("hook dispatch for " + sessionID + " was not captured");
+};
+liveCapture.emit({ details: { type: "session.execution.succeeded", data: { sessionID: "child-a" } } });
+if (!(await captureLine("child-a")).includes("managed=1")) throw new Error("child session dispatch was not tagged as a subagent");
+liveCapture.emit({ details: { type: "session.execution.succeeded", data: { sessionID: "root-a" } } });
+if ((await captureLine("root-a")).includes("managed=1")) throw new Error("top-level session dispatch was tagged as a subagent");
+cleanupCapture();
+
 // A bridge that never owns a queued session must release its expiry timer on
 // disposal, rather than retaining the entire TUI context until the TTL elapses.
 const expiryTimers = new Set();
@@ -328,6 +356,12 @@ server.closeAllConnections?.();
 await new Promise((resolve) => server.close(resolve));
 console.log("PASS");
 '''
+    capture_script = r'''#!/bin/sh
+p=$(cat)
+managed=$(env | sed -n 's/^CMUX_AGENT_MANAGED_SUBAGENT=//p')
+printf 'session=%s managed=%s\n' "$p" "$managed" >> "$CMUX_TEST_CAPTURE_FILE"
+'''
+    source = source.replace("__CAPTURE_SCRIPT__", json.dumps(capture_script))
     with tempfile.TemporaryDirectory(prefix="cmux-opencode-v2-package-") as package:
         package_dir = Path(package)
         feed_source = (ROOT / "Resources/opencode-plugin.js").read_text()
