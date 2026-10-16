@@ -96,6 +96,10 @@ public struct ChiefSettingsView: View {
     /// Never claims Chief runs on a Mac it cannot reach: without the Mac's
     /// control channel the status is the reason, matching the Model row.
     private var statusLine: String {
+        if session.runsInCloud {
+            if !session.isConnected { return session.unavailableReason ?? String(localized: "Connecting to cmux Cloud") }
+            return session.isWorking ? String(localized: "Working in cmux Cloud") : String(localized: "Runs in cmux Cloud")
+        }
         guard hasControl else {
             return session.unavailableReason ?? String(localized: "Not connected to your Mac")
         }
@@ -106,7 +110,10 @@ public struct ChiefSettingsView: View {
 
     @ViewBuilder private var engineSection: some View {
         Section {
-            if !hasControl {
+            if session.runsInCloud {
+                Text("This Chief runs in cmux Cloud.")
+                    .foregroundStyle(.secondary)
+            } else if !hasControl {
                 Text("Connect to your Mac to choose Chief's model.")
                     .foregroundStyle(.secondary)
                 if let report, let model = Self.currentModelName(report) {

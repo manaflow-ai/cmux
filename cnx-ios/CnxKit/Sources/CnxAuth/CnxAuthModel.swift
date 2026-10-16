@@ -91,7 +91,10 @@ public final class CnxAuthModel {
             launchEnvironment["CMUX_UITEST_STACK_EMAIL"] = email
             launchEnvironment["CMUX_UITEST_STACK_PASSWORD"] = password
         }
-        let config = AuthConfig(environment: isDebug ? .development : .production)
+        // A non-DEBUG staging build (project.yml TestFlightStaging) signs in to
+        // the development Stack project: Info.plist CNXStackEnvironment.
+        let stagingStack = Bundle.main.object(forInfoDictionaryKey: "CNXStackEnvironment") as? String == "development"
+        let config = AuthConfig(environment: isDebug || stagingStack ? .development : .production)
         let tokenStore = KeychainStackTokenStore(
             service: KeychainStackTokenStore.serviceName(bundleIdentifier: bundleIdentifier),
             legacyProjectID: config.stack.projectId
@@ -122,7 +125,7 @@ public final class CnxAuthModel {
         coordinator.start()
         let apiBase = Self.apiBase(environment: isDebug ? environment : [:], infoValue: Bundle.main.object(forInfoDictionaryKey: "CNXAPIBase") as? String, isDebug: isDebug)
         // Which backend this build talks to (public ids only, no tokens).
-        authModelLog.info("Stack project \(config.stack.projectId, privacy: .public) (\(isDebug ? "development" : "production", privacy: .public)), callback \(config.magicLinkCallbackURL, privacy: .public), service \(apiBase?.host() ?? "none", privacy: .public)")
+        authModelLog.info("Stack project \(config.stack.projectId, privacy: .public) (\(isDebug || stagingStack ? "development" : "production", privacy: .public)), callback \(config.magicLinkCallbackURL, privacy: .public), service \(apiBase?.host() ?? "none", privacy: .public)")
         return CnxAuthModel(coordinator: coordinator, stack: stack, apiBase: apiBase, isMock: false)
     }
 

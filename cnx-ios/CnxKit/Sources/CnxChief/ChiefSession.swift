@@ -13,7 +13,17 @@ import UIKit
 @MainActor
 @Observable
 public final class ChiefSession {
+    /// The Mac Chief: the Mac's Chief owner over the link (``ChiefDaemonBackend``),
+    /// which `LiveCoordinator` swaps in and out as the Mac link changes.
     public static let shared = ChiefSession(backend: defaultBackend())
+
+    /// The Cloud Chief: the main conversation of the user's Cloud Chief
+    /// (``ChiefCloudBackend``), set by ``ChiefSources`` after sign-in. Home
+    /// shows it first when it answers; offline until then.
+    public static let cloud = ChiefSession(
+        backend: ChiefOfflineBackend(reason: ChiefSources.signedOutReason),
+        outbox: .cloud
+    )
 
     /// Chief before a Mac link: offline (``ChiefOfflineBackend``). DEBUG
     /// builds use the package's conversation simulator
@@ -48,7 +58,8 @@ public final class ChiefSession {
     public var status: String?
     /// The backend the store runs on.
     public private(set) var backend: any ConversationBackend
-    public let identity: ChiefIdentity
+    /// Who is in the conversation; the Cloud Chief's ids come with its backend.
+    public private(set) var identity: ChiefIdentity
     /// The brain's engine controls, when the backend is the Mac's Chief.
     public private(set) var control: ChiefControl?
     /// The Mac Chief runs on, for the settings page.
@@ -118,9 +129,16 @@ public final class ChiefSession {
 
     @ObservationIgnored private var foregroundObserver: (any NSObjectProtocol)?
 
-    /// Swaps the backend (offline to `ChiefDaemonBackend` once a Mac link is up).
-    public func use(_ backend: any ConversationBackend) {
+    /// Swaps the backend (offline to `ChiefDaemonBackend` once a Mac link is
+    /// up, or to ``ChiefCloudBackend`` with the Cloud Chief's `identity`).
+    public func use(_ backend: any ConversationBackend, identity: ChiefIdentity? = nil) {
         store.stop()
+        if let identity, identity != self.identity {
+            self.identity = identity
+            avatar = identity.avatar
+        }
+        live = nil
+        answeredLiveStep = nil
         self.backend = backend
         store = ConversationStore(backend: backend)
         control = (backend as? ChiefDaemonBackend)?.control
@@ -151,6 +169,34 @@ public final class ChiefSession {
         guard let id = lastTurnFailureID, let failure = lastTurnFailure, id != retriedFailureID, isConnected else { return nil }
         return .failure(id: id, failure)
     }
+
+    /// What Chief is doing right now (Live frames v1), when its backend
+    /// carries live frames (``ChiefLiveSource``); nil when nothing runs.
+    public private(set) var live: ChiefLive?
+    /// The live talk step whose reply message already arrived: its bubble
+    /// goes away with the message, before the run's end frame.
+    private var answeredLiveStep: String?
+
+    /// The live reply the transcript draws as a streaming bubble (with the
+    /// activity line under it): ``live`` until its reply message arrives.
+    public var shownLive: ChiefLive? {
+        guard let live else { return nil }
+        if let step = live.step, answeredLiveStep == "\(live.key)\u{0}\(step)" {
+            // The reply is in the transcript; the activity line may stay.
+            guard live.activity != nil else { return nil }
+            var rest = live
+            rest.step = nil
+            rest.text = ""
+            return rest
+        }
+        return live
+    }
+
+    /// Chief is typing or a run is live: Home's pin shows the typing bubble.
+    public var isWorking: Bool { isTyping || live != nil }
+
+    /// This Chief runs in cmux Cloud (not on a Mac).
+    public var runsInCloud: Bool { backend is ChiefCloudBackend }
 
     /// Try Again on a failed turn: the brain does not run a failed turn
     /// again by itself (it retries only connection errors and capacity
@@ -297,6 +343,11 @@ public final class ChiefSession {
         }
     }
 
+    /// This Chief's conversation is on screen (set by its screen): its new
+    /// messages are seen and raise no alert. Per Chief: an open Mac Chief
+    /// never marks the Cloud Chief's messages seen, nor the reverse.
+    @ObservationIgnored public var isVisible = false
+
     /// The conversation is on screen: what it shows now has been seen.
     public func markSeen() {
         seenMessageID = lastMessage?.id
@@ -349,6 +400,14 @@ public final class ChiefSession {
 
     private func attach() {
         let store = store
+        if let source = backend as? any ChiefLiveSource {
+            source.liveFeed.observe { [weak self] live in
+                Task { @MainActor [weak self] in
+                    guard let self, self.store === store, self.live != live else { return }
+                    self.live = live
+                }
+            }
+        }
         if let source = backend as? any ChiefQuestionSource {
             source.questionFeed.observe { [weak self] found in
                 Task { @MainActor [weak self] in
@@ -372,7 +431,14 @@ public final class ChiefSession {
 
     private func refresh() {
         let newest = store.messages.last { $0.seq != nil && !$0.isScheduled }
-        if newest != lastMessage { lastMessage = newest }
+        if newest != lastMessage {
+            // A new reply from Chief replaces the streaming bubble of the live talk step.
+            if let newest, newest.id != lastMessage?.id, newest.senderID == identity.chiefID,
+               let live, let step = live.step {
+                answeredLiveStep = "\(live.key)\u{0}\(step)"
+            }
+            lastMessage = newest
+        }
         // A failed turn is offered for Try Again only while it is the newest message.
         let failure = newest.flatMap { message in
             message.senderID == identity.chiefID
@@ -382,7 +448,7 @@ public final class ChiefSession {
             lastTurnFailure = failure
             lastTurnFailureID = failure == nil ? nil : newest?.id
         }
-        if ChiefAlerts.shared.conversationVisible, seenMessageID != newest?.id { seenMessageID = newest?.id }
+        if isVisible, seenMessageID != newest?.id { seenMessageID = newest?.id }
         if unreadCount != store.unreadCount { unreadCount = store.unreadCount }
         let typing = store.typingParticipantIDs.contains(identity.chiefID)
         if isTyping != typing { isTyping = typing }
@@ -445,7 +511,8 @@ public final class ChiefSession {
         guard newest > seen else { return }
         alertedSeq = newest
         for message in store.messages where (message.seq ?? 0) > seen && message.senderID == identity.chiefID {
-            ChiefAlerts.shared.notify(message, title: store.info?.title ?? identity.title, conversationID: id, preferences: preferences)
+            ChiefAlerts.shared.notify(message, title: store.info?.title ?? identity.title, conversationID: id, preferences: preferences,
+                                     visible: isVisible)
         }
     }
 
@@ -496,6 +563,12 @@ public struct ChiefOutbox: Sendable {
     public static var standard: ChiefOutbox {
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
         return ChiefOutbox(file: directory?.appendingPathComponent("cnx-chief-outbox.json"))
+    }
+
+    /// The Cloud Chief's outbox, apart from the Mac Chief's.
+    public static var cloud: ChiefOutbox {
+        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        return ChiefOutbox(file: directory?.appendingPathComponent("cnx-cloud-chief-outbox.json"))
     }
 
     func load() -> [ConversationComposeMessage] {

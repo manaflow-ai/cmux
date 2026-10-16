@@ -172,6 +172,9 @@ public final class LiveCoordinator {
         let apiForLink = api
         link = LinkController(transport: transport, relayOnly: relayOnly, dialer: dialer, clock: clock,
                               accessToken: { try await apiForLink.accessToken($0) })
+        // The default Chief is the account's Cloud Chief (same sign-in);
+        // the Mac Chief below stays reachable beside it.
+        ChiefSources.shared.start(userID: userID) { try await apiForLink.accessToken($0) }
         feed = LiveFeed(store: feedStore, hub: nil, place: { _ in nil })
         terminalFeed = TerminalFeed(store: feedStore)
         link.endpoint = { [weak self] macID in
@@ -658,6 +661,7 @@ public final class LiveCoordinator {
     /// Sign-out: stops discovery, presence and the link.
     public func stop() {
         stopped = true
+        ChiefSources.shared.stop()
         networkTask?.cancel()
         networkTask = nil
         discoveryTask?.cancel()
