@@ -993,9 +993,6 @@ struct ContentView: View {
     @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
     @State private var observedWindowReference = WeakWindowReference()
-    /// This window's Chief Home, made the first time Home is shown and kept
-    /// (draft, scroll, selection) until Chief is turned off.
-    @State private var chiefHome: ChiefHomeView?
     /// `chief.enabled`, read synchronously (the View menu reads the same key) so a
     /// disabled Chief never flashes its Home row at launch.
     @AppStorage(ChiefCatalogSection().enabled.userDefaultsKey)
@@ -1712,9 +1709,6 @@ struct ContentView: View {
             sessionIndexStore: sessionIndexStore,
             featureFlags: featureFlags,
             isPresented: sidebarState.isVisible,
-            isChiefHomeSelected: sidebarSelectionState.selection == .home,
-            showsChiefHome: chiefEnabled,
-            chiefHome: chiefHome,
             sidebarUnread: sidebarUnread,
             titlebarControlsLayoutModel: titlebarControlsLayoutModel,
             windowId: windowId,
@@ -1869,17 +1863,6 @@ struct ContentView: View {
             .opacity(sidebarSelectionState.selection == .tabs ? 1 : 0)
             .allowsHitTesting(sidebarSelectionState.selection == .tabs)
             .accessibilityHidden(sidebarSelectionState.selection != .tabs)
-
-            // Mounted on first entry, then kept so Chief's scroll position and
-            // draft survive leaving and re-entering Home.
-            // The transcript; the conversation list is the left sidebar while Home shows.
-            if chiefEnabled, let chiefHome {
-                ChiefHomeRepresentable(home: chiefHome, isActive: !isShowingWorkspaces)
-                    .opacity(isShowingWorkspaces ? 0 : 1)
-                    .allowsHitTesting(!isShowingWorkspaces)
-                    .accessibilityHidden(isShowingWorkspaces)
-                    .zIndex(isShowingWorkspaces ? 0 : 3)
-            }
         }
         .modifier(WorkspacePresentationModeContentTopPaddingModifier(
             isFullScreen: isFullScreen,
@@ -2663,10 +2646,7 @@ struct ContentView: View {
         )
 
         view = AnyView(view.onAppear {
-            // Older dev builds materialized each Chief conversation as a native
-            // workspace. Remove those artifacts once so Home's conversation list
-            // does not leave duplicate rows in the normal cmux sidebar.
-            tabManager.removeChiefHomeArtifactsForMigration()
+            ChiefHomeNavigation.restoreConversations(in: tabManager)
             sidebarState.installVisibilityWillChangeHandler(ownerId: windowId) { isVisible in
                 if !isVisible {
                     restoreMainPanelFocusAfterAppKitSidebarHiddenIfNeeded()
@@ -2801,25 +2781,23 @@ struct ContentView: View {
             updateTitlebarText()
         })
 
-        view = AnyView(view.onChange(of: sidebarSelectionState.selection) { oldValue, newValue in
+        view = AnyView(view.onChange(of: sidebarSelectionState.selection) { _, newValue in
+            if newValue == .home {
+                ChiefHomeNavigation(sidebarSelectionState: sidebarSelectionState, tabManager: tabManager).open()
+            }
             updateTitlebarText()
-            ChiefHomeNavigation.selectionDidChange(
-                from: oldValue,
-                to: newValue,
-                window: observedWindow,
-                tabManager: tabManager,
-                markHomeMounted: { if chiefHome == nil { chiefHome = ChiefHomeView() } }
-            )
+        })
+
+        view = AnyView(view.onChange(of: ChiefService.shared.conversations.map { $0.id.rawValue + ":" + $0.title }) { _, _ in
+            ChiefHomeNavigation.restoreConversations(in: tabManager)
         })
 
         view = AnyView(view.onChange(of: chiefEnabled) { _, enabled in
-            // Turning Chief off leaves Home and unmounts it; turning it on starts Chief.
             if enabled {
                 AppDelegate.shared?.startChiefIfEnabled()
+                _ = ChiefHomeNavigation.ensureHome(in: tabManager)
             } else {
-                ChiefHomeNavigation(sidebarSelectionState: sidebarSelectionState).leave()
-                chiefHome?.teardown()
-                chiefHome = nil
+                ChiefHomeNavigation(sidebarSelectionState: sidebarSelectionState, tabManager: tabManager).leave()
             }
         })
 
@@ -2827,14 +2805,14 @@ struct ContentView: View {
             guard ChiefHomeNavigation.notification(
                 notification, targets: observedWindow, sidebarSelectionState: sidebarSelectionState
             ) else { return }
-            ChiefHomeNavigation(sidebarSelectionState: sidebarSelectionState).open()
+            ChiefHomeNavigation(sidebarSelectionState: sidebarSelectionState, tabManager: tabManager).open()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .cmuxToggleChiefHome)) { notification in
             guard ChiefHomeNavigation.notification(
                 notification, targets: observedWindow, sidebarSelectionState: sidebarSelectionState
             ) else { return }
-            ChiefHomeNavigation(sidebarSelectionState: sidebarSelectionState).toggle()
+            ChiefHomeNavigation(sidebarSelectionState: sidebarSelectionState, tabManager: tabManager).toggle()
         })
 
         view = AnyView(view.onChange(of: showModifierHoldHints) { _, _ in
@@ -11446,9 +11424,6 @@ struct VerticalTabsSidebar: View, Equatable {
             && lhs.sidebarUnread === rhs.sidebarUnread
             && lhs.titlebarControlsLayoutModel === rhs.titlebarControlsLayoutModel
             && lhs.isPresented == rhs.isPresented
-            && lhs.isChiefHomeSelected == rhs.isChiefHomeSelected
-            && lhs.showsChiefHome == rhs.showsChiefHome
-            && lhs.chiefHome === rhs.chiefHome
             && lhs.chromeBackgroundColor.isEqual(rhs.chromeBackgroundColor)
     }
 
@@ -11457,13 +11432,6 @@ struct VerticalTabsSidebar: View, Equatable {
     let sessionIndexStore: SessionIndexStore
     var featureFlags: CmuxFeatureFlags = .shared
     var isPresented: Bool = true
-    /// Chief Home is the window's content: the Home row is selected and no workspace row is.
-    var isChiefHomeSelected: Bool = false
-    /// `chief.enabled`: the Home row and its reserved band show only when on.
-    var showsChiefHome: Bool = true
-    /// The window's Chief Home, once opened: its conversation list replaces the
-    /// workspace rows while Home is selected.
-    var chiefHome: ChiefHomeView?
     let sidebarUnread: SidebarUnreadModel
     let titlebarControlsLayoutModel: TitlebarControlsLayoutModel
     let windowId: UUID
@@ -11542,12 +11510,6 @@ struct VerticalTabsSidebar: View, Equatable {
     @State private var appKitTableApplyRequestToken: UInt64 = 0
     @State private var workspaceScrollContentMinHeight: CGFloat = 0
     @State private var checklistPopoverWorkspaceId: UUID?
-    /// Height of Chief's conversation section while Home is selected.  The
-    /// section is a real sibling of the native workspace table: the table's
-    /// safe-area inset uses this same value, so dragging the handle moves the
-    /// workspaces down instead of letting either list paint over the other.
-    @State private var chiefHomeSectionHeight: CGFloat = Self.defaultChiefHomeSectionHeight
-    @State private var chiefHomeSectionDragStartHeight: CGFloat?
     // Pending keyed refresh ids are intentionally non-observed. Workspace
     // publisher bursts cross into SwiftUI once per run-loop batch instead of
     // invalidating the full parent projection once per emitting workspace.
@@ -12090,9 +12052,6 @@ struct VerticalTabsSidebar: View, Equatable {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .overlay(alignment: .top) {
-            chiefHomeSidebarOverlay
-        }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
         .overlay(alignment: .trailing) {
@@ -12168,109 +12127,6 @@ struct VerticalTabsSidebar: View, Equatable {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private var chiefHomeSidebarOverlay: some View {
-        let settings = tabItemSettingsStore.snapshot
-        return Group {
-            if isPresented && showsChiefHome {
-                Group {
-                    if isChiefHomeSelected, let chiefHome {
-                        chiefHomeConversationSection(home: chiefHome, settings: settings)
-                    } else {
-                        SidebarChiefHomeRow(
-                            isSelected: false,
-                            settings: settings,
-                            globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
-                            onSelect: { selection = .home },
-                            onNewConversation: nil
-                        )
-                    }
-                }
-                .padding(.top, SidebarWorkspaceListMetrics.homeRowTopOffset)
-                .frame(maxWidth: .infinity, alignment: .top)
-                .frame(
-                    height: SidebarWorkspaceListMetrics.homeRowTopOffset
-                        + (isChiefHomeSelected ? chiefHomeSectionHeight : SidebarWorkspaceListMetrics.homeRowHeight),
-                    alignment: .top
-                )
-            }
-        }
-    }
-
-    /// Chief Home's conversations live in a bounded section above the native
-    /// workspace table.  The bottom handle is intentionally part of this
-    /// section, so its gesture and its layout reservation always move
-    /// together.
-    private func chiefHomeConversationSection(
-        home: ChiefHomeView,
-        settings: SidebarTabItemSettingsSnapshot
-    ) -> some View {
-        VStack(spacing: 0) {
-            SidebarChiefHomeRow(
-                isSelected: true,
-                settings: settings,
-                globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
-                onSelect: { selection = .tabs },
-                onNewConversation: { home.newConversation() }
-            )
-
-            ChiefConversationListRepresentable(home: home, accent: settings.accentColor)
-                .frame(maxWidth: .infinity)
-                .frame(
-                    height: max(
-                        0,
-                        chiefHomeSectionHeight
-                            - SidebarWorkspaceListMetrics.homeRowHeight
-                            - Self.chiefHomeSectionHandleHeight
-                    ),
-                    alignment: .top
-                )
-                .clipped()
-
-            chiefHomeSectionHandle
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: chiefHomeSectionHeight, alignment: .top)
-        .background(
-            Color(nsColor: .controlBackgroundColor)
-                .opacity(sidebarColorScheme == .dark ? 0.12 : 0.08)
-        )
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor).opacity(0.55))
-                .frame(height: 1 / max(1, NSScreen.main?.backingScaleFactor ?? 2))
-                .allowsHitTesting(false)
-        }
-    }
-
-    private var chiefHomeSectionHandle: some View {
-        ZStack {
-            Rectangle()
-                .fill(Color.clear)
-            Capsule()
-                .fill(Color(nsColor: .secondaryLabelColor).opacity(0.55))
-                .frame(width: 34, height: 4)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: Self.chiefHomeSectionHandleHeight)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 1)
-                .onChanged { value in
-                    let start = chiefHomeSectionDragStartHeight ?? chiefHomeSectionHeight
-                    chiefHomeSectionDragStartHeight = start
-                    chiefHomeSectionHeight = min(
-                        Self.maxChiefHomeSectionHeight,
-                        max(Self.minChiefHomeSectionHeight, start + value.translation.height)
-                    )
-                }
-                .onEnded { _ in
-                    chiefHomeSectionDragStartHeight = nil
-                }
-        )
-        .accessibilityIdentifier("SidebarChiefHomeResizeHandle")
-        .help(String(localized: "sidebar.chiefHome.resizeHelp", defaultValue: "Drag to resize Chief conversations"))
-    }
-
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         // The AppKit NSTableView sidebar is opt-in while it soaks; default stays
         // on the SwiftUI list. The flag key is declared only in FeatureFlags.swift.
@@ -12292,16 +12148,6 @@ struct VerticalTabsSidebar: View, Equatable {
                     }
                     .onAppear { WindowTerminalPortal.usesCoalescedAnchorFailsafe = false }
                 )
-            }
-        }
-        // Reserve real layout space above the workspace list. Safe-area inset
-        // changes the table's viewport as well as its origin, so local cmux
-        // workspaces remain visible directly below Home's conversation list.
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if isChiefHomeSelected {
-                Color.clear
-                    .frame(height: Self.chiefHomeConversationListTopPadding(chiefHomeSectionHeight))
-                    .allowsHitTesting(false)
             }
         }
         // Workspace publisher observations and the snapshot refresh feed BOTH
@@ -12378,15 +12224,6 @@ struct VerticalTabsSidebar: View, Equatable {
         .onDisappear {
             workspaceSnapshotRefreshCoalescer.cancel()
         }
-    }
-
-    private static let defaultChiefHomeSectionHeight: CGFloat = 176
-    private static let minChiefHomeSectionHeight: CGFloat = 92
-    private static let maxChiefHomeSectionHeight: CGFloat = 420
-    private static let chiefHomeSectionHandleHeight: CGFloat = 16
-
-    private static func chiefHomeConversationListTopPadding(_ sectionHeight: CGFloat) -> CGFloat {
-        SidebarWorkspaceListMetrics.firstRowTopOffset + sectionHeight
     }
 
     private func legacyWorkspaceScrollArea(
@@ -15535,9 +15372,8 @@ struct VerticalTabsSidebar: View, Equatable {
             index: index,
             workspaceCount: renderContext.workspaceCount,
             workspace: workspaceSnapshot,
-            isActive: tabManager.selectedTabId == tab.id && !isChiefHomeSelected,
-            // While Chief Home shows, only the Home row looks selected.
-            isMultiSelected: !isChiefHomeSelected && selectedTabIds.contains(tab.id),
+            isActive: tabManager.selectedTabId == tab.id,
+            isMultiSelected: selectedTabIds.contains(tab.id),
             hasUserCustomTitle: tab.effectiveCustomTitleSource == .user,
             hasCustomTitle: tab.hasCustomTitle,
             hasCustomDescription: tab.hasCustomDescription,
