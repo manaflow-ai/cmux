@@ -63,6 +63,12 @@ fn destructive_exec(argv: &[String], home: Option<&Path>) -> Option<String> {
                     return Some(format!("{line:.120}: removes the home folder or the disk"));
                 }
             }
+            "find"
+                if words[i + 1..].iter().take(3).any(|a| is_root_target(a))
+                    && words[i + 1..].iter().any(|a| *a == "-delete" || *a == "rm") =>
+            {
+                return Some("find deletes from the home folder or the disk".into());
+            }
             "mkfs" | "newfs_apfs" | "newfs_hfs" | "fdisk" | "gpt" => {
                 return Some(format!("{base} formats a disk"));
             }
@@ -87,14 +93,96 @@ fn destructive_exec(argv: &[String], home: Option<&Path>) -> Option<String> {
     None
 }
 
-/// Paths a write may never touch on a person's Mac (raw disks, the system volume).
+/// Folders and files of the hand itself and of the agent daemon it drives:
+/// a request that changes them could switch off this policy.
+fn self_paths() -> Vec<PathBuf> {
+    let mut out = vec![super::config::home(), crate::config::home()];
+    if let Some(h) = dirs::home_dir() {
+        out.push(h.join("Library/LaunchAgents/dev.cmux.hand.plist"));
+        out.push(h.join(".config/systemd/user/cmux-hand.service"));
+        out.push(h.join(".config/cmux"));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        out.push(exe);
+    }
+    out
+}
+
+/// Paths a write may never touch on a person's Mac: raw disks, the system
+/// volume, and the hand's own files (its config, key, binary, service).
 fn destructive_path(action: &str, p: &Path) -> Option<String> {
     let writes = matches!(action, "fs.write" | "fs.edit" | "fs.patch");
     let s = p.to_string_lossy();
     if writes && (s.starts_with("/dev/") || s.starts_with("/System/") || s == "/System") {
         return Some(format!("{s}: a disk device or the system volume"));
     }
+    if writes && self_paths().iter().any(|own| p.starts_with(own)) {
+        return Some(format!("{s}: the hand's own files"));
+    }
     None
+}
+
+/// Paths that always need the owner's answer on a mac hand, whatever the
+/// host's verdict: credentials, keychains, shell startup files, launch agents,
+/// git config and hooks.
+fn sensitive_path(p: &Path) -> bool {
+    let Some(home) = dirs::home_dir() else { return false };
+    const UNDER_HOME: &[&str] = &[
+        ".ssh",
+        ".aws",
+        ".gnupg",
+        ".netrc",
+        ".docker/config.json",
+        ".kube",
+        ".config/gh",
+        ".config/gcloud",
+        ".azure",
+        ".npmrc",
+        ".pypirc",
+        ".gitconfig",
+        ".git-credentials",
+        ".zshrc",
+        ".zprofile",
+        ".zshenv",
+        ".bashrc",
+        ".bash_profile",
+        ".profile",
+        "Library/Keychains",
+        "Library/LaunchAgents",
+        "Library/Cookies",
+        "Library/Application Support/Google/Chrome",
+        "Library/Application Support/Firefox",
+        "Library/Application Support/BraveSoftware",
+        "Library/Safari",
+    ];
+    UNDER_HOME.iter().any(|rel| p.starts_with(home.join(rel)))
+        || p.to_string_lossy().contains("/.git/hooks")
+        || p.starts_with("/Library/LaunchAgents")
+        || p.starts_with("/Library/LaunchDaemons")
+}
+
+/// An exec whose words name a sensitive or protected path (best effort: a
+/// command can always build a path the hand cannot see).
+fn sensitive_exec(argv: &[String]) -> bool {
+    let line = argv.join(" ");
+    let home = dirs::home_dir().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default();
+    [
+        ".ssh",
+        ".aws",
+        ".gnupg",
+        "Keychains",
+        "LaunchAgents",
+        ".cmux-hand",
+        ".acpmux",
+        "security ",
+        "sudo ",
+        "defaults write",
+        "launchctl",
+        "osascript",
+    ]
+    .iter()
+    .any(|w| line.contains(w))
+        || (!home.is_empty() && (line.contains(&format!("{home}/.")) || line.contains("~/.")))
 }
 
 /// `path` made absolute against `cwd` and resolved the way the OS will open
@@ -168,6 +256,13 @@ pub fn decide(
             }
             if let Some(why) = paths.iter().find_map(|p| destructive_path(action, p)) {
                 return Decision::Deny(why);
+            }
+            if argv.is_some_and(|a| a.join(" ").contains(".cmux-hand")) {
+                return Decision::Deny("the command touches the hand's own files".into());
+            }
+            // Always the owner's answer, whatever the host says.
+            if paths.iter().any(|p| sensitive_path(p)) || argv.is_some_and(sensitive_exec) {
+                return Decision::Ask;
             }
             // A local allow rule, or the classifier's allow, runs at once; anything else
             // (ask, no verdict, an unknown one) waits for the owner.
