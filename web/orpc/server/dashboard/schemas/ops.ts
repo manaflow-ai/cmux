@@ -132,7 +132,11 @@ const webPricingPresentationSchema = z.object({
 const iosPaywallConfigSchema = z.object({
   experiment: z.string(),
   variant: z.string(),
-  layout: z.enum(["cards", "comparison", "focus"]),
+  // A string, not an enum: a layout added on the server must not break the Lab.
+  layout: z.string(),
+  fallbackLayout: z.string().optional(),
+  planSpecs: z.record(z.string(), z.array(z.string())).optional(),
+  entryPointHeadlines: z.record(z.string(), z.string()).optional(),
   headline: z.string(),
   subheadline: z.string(),
   bullets: z.array(z.string()),
@@ -146,7 +150,7 @@ const labVariantSchema = z.object({
   variant: z.string(),
   name: nullableString,
   hypothesis: nullableString,
-  status: z.enum(["live", "retired"]),
+  status: z.enum(["live", "retired", "queued"]),
   trafficPercent: z.number(),
   proposedTrafficPercent: nullableNumber,
   exposures: nullableNumber,

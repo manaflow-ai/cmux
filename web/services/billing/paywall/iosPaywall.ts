@@ -1,13 +1,14 @@
 // Resolves the paywall the iOS app shows: control for everyone outside the
 // `ios-paywall-v1` experiment, else the user's sticky variant from the
 // PostHog multivariate flag, with copy from the flag payload after the
-// validator passes it. Records the PostHog exposure (`$feature_flag_called`)
-// so PostHog Experiments and the optimizer count the arm.
+// validator passes it. Records the assignment (`paywall_assigned`); the
+// exposure is the app's `ios_paywall_viewed` (see EXPERIMENTS.md).
 
 import { isAdminUser } from "../../admin/access";
 import { captureServerEvent, type ServerEventInput } from "../../analytics/serverEvents";
 import { iosAnalyticsChannel } from "../../analytics/iosEventPolicy";
 import { isSyntheticAccountEmail } from "../../analytics/syntheticAccounts";
+import { PLAN_SPECS } from "./facts";
 import {
   isPostHogFlagsResponseAvailable,
   normalizePostHogFlagsResponse,
@@ -21,9 +22,18 @@ import {
   IOS_PAYWALL_EXPERIMENT,
 } from "./iosPaywallV1";
 import { databasePaywallAssignmentStore, type PaywallAssignmentStore } from "./store";
-import { validateIosPaywallPayload, type IosPaywallConfig } from "./validator";
+import {
+  IOS_PAYWALL_BASE_LAYOUTS,
+  IOS_PAYWALL_LAYOUTS,
+  validateIosPaywallPayload,
+  type IosPaywallConfig,
+  type IosPaywallLayout,
+} from "./validator";
 
 const FLAG_TIMEOUT_MS = 1_500;
+
+/** Server record of the variant served to a user; joined to the app's view event for exposure. */
+export const PAYWALL_ASSIGNMENT_EVENT = "paywall_assigned";
 
 /** The flag's answer for one person. */
 export type PaywallFlagEvaluation =
@@ -47,7 +57,38 @@ export type IosPaywallRequest = {
   readonly purchasable: boolean;
   /** The account's current personal plan id. Only free accounts enter. */
   readonly currentPlanId: string;
+  /** Layouts the app can draw (`x-cmux-paywall-layouts`); see requestedPaywallLayouts. */
+  readonly supportedLayouts?: readonly IosPaywallLayout[];
+  /** The account may be offered the trial now; `trialTimeline` is served only then. */
+  readonly trialEligible?: boolean;
 };
+
+/**
+ * `x-cmux-paywall-layouts: cards,comparison,focus,...`: the layouts this app
+ * build can draw. An app that sends no header predates the header and knows
+ * only the original three. Unknown names are ignored; `cards` is always in.
+ */
+export function requestedPaywallLayouts(header: string | null): readonly IosPaywallLayout[] {
+  if (header === null) return IOS_PAYWALL_BASE_LAYOUTS;
+  const named = new Set(header.split(",").map((value) => value.trim()));
+  return IOS_PAYWALL_LAYOUTS.filter((layout) => layout === "cards" || named.has(layout));
+}
+
+/**
+ * The config as this app receives it: a layout the app cannot draw, or a
+ * trial layout for a user who cannot get the trial, becomes the variant's
+ * fallback layout when that one can be drawn, else `cards`. The server-only
+ * `fallbackLayout` is never sent.
+ */
+export function servedPaywallConfig(config: IosPaywallConfig, request: Pick<IosPaywallRequest, "supportedLayouts" | "trialEligible">): IosPaywallConfig {
+  const supported = request.supportedLayouts ?? IOS_PAYWALL_BASE_LAYOUTS;
+  const drawable = (layout: IosPaywallLayout | undefined) =>
+    layout !== undefined && supported.includes(layout) && (layout !== "trialTimeline" || request.trialEligible === true);
+  const layout = drawable(config.layout) ? config.layout : drawable(config.fallbackLayout) ? config.fallbackLayout! : "cards";
+  const served: IosPaywallConfig = { ...config, layout, ...(layout === "specList" ? { planSpecs: PLAN_SPECS } : {}) };
+  delete (served as { fallbackLayout?: IosPaywallLayout }).fallbackLayout;
+  return served;
+}
 
 export type IosPaywallDependencies = {
   readonly evaluateFlag: (distinctId: string) => Promise<PaywallFlagEvaluation>;
@@ -156,16 +197,25 @@ async function chooseVariant(
   return null;
 }
 
-function exposureEvent(userId: string, config: IosPaywallConfig, enrolled: Enrollment, sticky: boolean, now: Date): ServerEventInput {
+/**
+ * The server's assignment record. Not an exposure: the app fetches the config
+ * from the Settings plan row too. The exposure is the app's
+ * `ios_paywall_viewed`, joined to this record by person (EXPERIMENTS.md).
+ */
+function assignmentEvent(
+  userId: string,
+  config: IosPaywallConfig,
+  enrolled: Enrollment,
+  sticky: boolean,
+  now: Date,
+  appLayouts: readonly IosPaywallLayout[],
+): ServerEventInput {
   return {
-    event: "$feature_flag_called",
+    event: PAYWALL_ASSIGNMENT_EVENT,
     distinctId: userId,
-    // One exposure per user, variant and UTC day; PostHog counts unique persons anyway.
-    insertId: `paywall_exposure:${config.experiment}:${userId}:${config.variant}:${now.toISOString().slice(0, 10)}`,
+    // One record per user, variant and UTC day.
+    insertId: `paywall_assigned:${config.experiment}:${userId}:${config.variant}:${now.toISOString().slice(0, 10)}`,
     properties: {
-      $feature_flag: config.experiment,
-      $feature_flag_response: config.variant,
-      [`$feature/${config.experiment}`]: config.variant,
       paywall_experiment: config.experiment,
       paywall_variant: config.variant,
       paywall_layout: config.layout,
@@ -173,8 +223,18 @@ function exposureEvent(userId: string, config: IosPaywallConfig, enrolled: Enrol
       paywall_channel: enrolled.channel,
       paywall_internal: enrolled.internal,
       paywall_sticky: sticky,
+      // What this app can draw; the optimizer waits for adoption before promoting a newer layout.
+      paywall_app_layouts: appLayouts.join(","),
     },
   };
+}
+
+/** The copy stored with an assignment: the payload without the flag-supplied keys. */
+function storedPayload(config: IosPaywallConfig): Record<string, unknown> {
+  const payload: Record<string, unknown> = { ...config };
+  delete payload.experiment;
+  delete payload.variant;
+  return payload;
 }
 
 /**
@@ -186,32 +246,25 @@ export async function resolveIosPaywall(
   request: IosPaywallRequest,
   deps: IosPaywallDependencies = defaultDependencies(),
 ): Promise<IosPaywallConfig> {
+  const control = servedPaywallConfig(IOS_PAYWALL_CONTROL, request);
   const enrolled = enrollment(user, request, deps.env);
-  if (!enrolled) return IOS_PAYWALL_CONTROL;
+  if (!enrolled) return control;
   try {
     const flag = await deps.evaluateFlag(user.id);
     // The kill switch wins over stickiness.
-    if (flag.state === "off") return IOS_PAYWALL_CONTROL;
+    if (flag.state === "off") return control;
     const chosen = await chooseVariant(user.id, flag, deps);
-    if (!chosen) return IOS_PAYWALL_CONTROL;
+    if (!chosen) return control;
     // Assignment and copy are written once; later serves only touch served_at.
-    await deps.store.recordServed(user.id, IOS_PAYWALL_EXPERIMENT, chosen.config.variant, {
-      layout: chosen.config.layout,
-      headline: chosen.config.headline,
-      subheadline: chosen.config.subheadline,
-      bullets: chosen.config.bullets,
-      highlightedPlanId: chosen.config.highlightedPlanId,
-      defaultBillingPeriod: chosen.config.defaultBillingPeriod,
-      ctaStyle: chosen.config.ctaStyle,
-      showYearlySavings: chosen.config.showYearlySavings,
-    });
-    void deps.captureEvent(exposureEvent(user.id, chosen.config, enrolled, chosen.sticky, deps.now()));
-    return chosen.config;
+    await deps.store.recordServed(user.id, IOS_PAYWALL_EXPERIMENT, chosen.config.variant, storedPayload(chosen.config));
+    const served = servedPaywallConfig(chosen.config, request);
+    void deps.captureEvent(assignmentEvent(user.id, served, enrolled, chosen.sticky, deps.now(), request.supportedLayouts ?? IOS_PAYWALL_BASE_LAYOUTS));
+    return served;
   } catch (error) {
     console.error("billing.paywall.resolve_failed", {
       error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
     });
-    return IOS_PAYWALL_CONTROL;
+    return control;
   }
 }
 

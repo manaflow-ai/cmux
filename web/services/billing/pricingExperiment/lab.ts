@@ -33,7 +33,8 @@ export type LabVariant = {
   readonly variant: string;
   readonly name: string | null;
   readonly hypothesis: string | null;
-  readonly status: "live" | "retired";
+  /** `queued`: a challenger at 0% that the optimizer promotes when a live arm retires. */
+  readonly status: "live" | "retired" | "queued";
   readonly trafficPercent: number;
   readonly proposedTrafficPercent: number | null;
   readonly exposures: number | null;

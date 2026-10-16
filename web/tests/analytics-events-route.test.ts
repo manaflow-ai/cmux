@@ -190,6 +190,21 @@ describe("iOS analytics events route", () => {
     expect(event.properties).toEqual({ channel: "unknown" });
   });
 
+  test("stamps the PostHog experiment arm from the paywall properties", async () => {
+    verifyRequest.mockResolvedValue({ id: deletedUserID });
+
+    const response = await POST(analyticsRequest(deletedUserID, {
+      paywall_experiment: "ios-paywall-v1",
+      paywall_variant: "outcome-copy",
+      entry_point: "settings",
+    }));
+
+    expect(response.status).toBe(200);
+    const [event] = forwardedPostHogBatch();
+    expect(event.properties["$feature/ios-paywall-v1"]).toBe("outcome-copy");
+    expect(event.properties).toMatchObject({ paywall_variant: "outcome-copy", entry_point: "settings" });
+  });
+
   test("namespaces the anonymous alias on an authenticated identify event", async () => {
     const anonymousID = "local-install-id";
     verifyRequest.mockResolvedValue({ id: deletedUserID });

@@ -78,11 +78,26 @@ export function syncPricingExperimentProperties(
 }
 
 /**
- * The `$feature_flag_called` exposure, with the properties every paywall
- * experiment records (services/billing/paywall/EXPERIMENTS.md, rule 3).
- * Preview and local deployments report to the same PostHog project, so the
- * channel is what keeps them out of the analysis.
+ * The `paywall_assigned` record of the arm the proxy pinned, with the
+ * properties every paywall experiment records (EXPERIMENTS.md, rule 3). The
+ * optimizer takes each person's arm from their first assignment record and
+ * joins it to the exposure that follows. Preview and local deployments report
+ * to the same PostHog project, so the channel keeps them out of the analysis.
  */
+export function assignmentEventProperties(
+  exposure: PricingExposure,
+  hostname: string,
+): Record<string, string | boolean> {
+  return {
+    paywall_experiment: exposure.experiment,
+    paywall_variant: exposure.variant,
+    paywall_platform: "web",
+    paywall_channel: (WEB_PRICING_PRODUCTION_HOSTS as readonly string[]).includes(hostname) ? "production" : "preview",
+    paywall_sticky: exposure.sticky,
+  };
+}
+
+/** The `$feature_flag_called` exposure: the rendered view of the pinned arm. */
 export function exposureEventProperties(
   exposure: PricingExposure,
   hostname: string,
@@ -90,10 +105,6 @@ export function exposureEventProperties(
   return {
     $feature_flag: exposure.experiment,
     $feature_flag_response: exposure.variant,
-    paywall_experiment: exposure.experiment,
-    paywall_variant: exposure.variant,
-    paywall_platform: "web",
-    paywall_channel: (WEB_PRICING_PRODUCTION_HOSTS as readonly string[]).includes(hostname) ? "production" : "preview",
-    paywall_sticky: exposure.sticky,
+    ...assignmentEventProperties(exposure, hostname),
   };
 }

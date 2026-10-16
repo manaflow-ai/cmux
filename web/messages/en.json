@@ -7428,9 +7428,11 @@
     },
     "status": {
       "live": "Live",
-      "retired": "Retired"
+      "retired": "Retired",
+      "queued": "Queued"
     },
     "invalidCopy": "Invalid copy: this arm serves control",
+    "queuedNote": "Queued arms wait at 0% traffic. The optimizer promotes one when a live challenger retires, at most 4 live arms.",
     "previewsTitle": "Variants as users see them",
     "webPreviewNote": "Rendered with the cmux.com/pricing components for a signed-out visitor. Prices and plans never vary.",
     "iosPreviewNote": "A web rendering of the iOS paywall layout. The app shows App Store prices. No simulator capture is attached yet.",
@@ -7445,6 +7447,9 @@
     },
     "ios": {
       "recommended": "Recommended",
+      "layout": "Layout: {layout}",
+      "fallback": "Older apps draw: {layout}",
+      "selectedPlan": "Selected plan",
       "seeAllPlans": "See all plans",
       "ctaAction": "Continue with {plan}",
       "ctaPrice": "Subscribe for the App Store price",

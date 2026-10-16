@@ -115,17 +115,27 @@ export function IosPaywallPreview({ config }: { readonly config: IosConfig }) {
   const highlighted = plans.find((plan) => plan.id === config.highlightedPlanId) ?? null;
   const cta = config.ctaStyle === "action" ? t("ctaAction", { plan: highlighted?.name ?? plans[0]!.name }) : t("ctaPrice");
   return (
+    <div>
+      <p className="mb-1 text-center font-mono text-[11px] text-muted">
+        {t("layout", { layout: config.layout })}
+        {config.fallbackLayout ? ` · ${t("fallback", { layout: config.fallbackLayout })}` : ""}
+      </p>
     <div inert className="mx-auto w-[300px] select-none rounded-[28px] border border-border bg-background p-4 text-foreground">
-      <p className="text-lg font-semibold leading-tight">{config.headline}</p>
+      <p className={`${config.layout === "hero" ? "text-2xl" : "text-lg"} font-semibold leading-tight`}>{config.headline}</p>
       {config.subheadline ? <p className="mt-1.5 text-[13px] text-muted">{config.subheadline}</p> : null}
       {config.bullets.length > 0 ? (
         <ul className="mt-3 space-y-1 text-[13px]">
-          {config.bullets.map((bullet) => <li key={bullet}>• {bullet}</li>)}
+          {config.bullets.map((bullet, index) => (
+            <li key={bullet}>{config.layout === "checklist" ? "✓" : config.layout === "trialTimeline" ? `${index + 1}.` : "•"} {bullet}</li>
+          ))}
         </ul>
       ) : null}
-      <PeriodPicker selected={config.defaultBillingPeriod} savings={config.showYearlySavings} />
+      {config.layout === "trialTimeline" ? null : (
+        <PeriodPicker selected={config.defaultBillingPeriod} savings={config.showYearlySavings} />
+      )}
       <IosLayout config={config} plans={plans} highlighted={highlighted?.id ?? null} />
       <div className="mt-3 rounded-xl bg-foreground px-3 py-2.5 text-center text-[13px] font-semibold text-background">{cta}</div>
+    </div>
     </div>
   );
 }
@@ -155,6 +165,37 @@ function IosLayout({
 }) {
   const t = useTranslations("opsPaywallLab.ios");
   const freeName = useTranslations("pricing")("free.name");
+  const specs = (plan: "pro" | "max") => config.planSpecs?.[plan] ?? [];
+  if (config.layout === "planTabs") {
+    const selected = plans.find((plan) => plan.id === highlighted) ?? plans[0]!;
+    return (
+      <div className="mt-3 space-y-2">
+        <div className="flex gap-1 rounded-lg border border-border p-0.5 text-[12px]">
+          {plans.map((plan) => (
+            <span key={plan.id} className={`flex-1 rounded-md px-2 py-1 text-center ${plan.id === selected.id ? "bg-foreground text-background" : "text-muted"}`}>{plan.name}</span>
+          ))}
+        </div>
+        <p className="text-[11px] text-muted">{t("selectedPlan")}</p>
+        <SpecLines lines={specs(selected.id)} />
+      </div>
+    );
+  }
+  if (config.layout === "specList") {
+    return (
+      <div className="mt-3 space-y-2">
+        {plans.map((plan) => (
+          <div key={plan.id}>
+            <IosPlanRow name={plan.name} recommended={plan.id === highlighted} />
+            <SpecLines lines={specs(plan.id)} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (config.layout === "hero" || config.layout === "trialTimeline") {
+    const focus = plans.find((plan) => plan.id === highlighted) ?? plans[0]!;
+    return <div className="mt-3"><IosPlanRow name={focus.name} recommended large /></div>;
+  }
   if (config.layout === "focus") {
     const focus = plans.find((plan) => plan.id === highlighted) ?? plans[0]!;
     return (
@@ -192,6 +233,15 @@ function IosPlanRow({ name, recommended, large = false }: { readonly name: strin
       </div>
       <p className="mt-0.5 text-[11px] text-muted">{t("appStorePrice")}</p>
     </div>
+  );
+}
+
+function SpecLines({ lines }: { readonly lines: readonly string[] }) {
+  if (lines.length === 0) return null;
+  return (
+    <ul className="mt-1 space-y-0.5 pl-1 text-[11px] text-muted">
+      {lines.map((line) => <li key={line}>{line}</li>)}
+    </ul>
   );
 }
 

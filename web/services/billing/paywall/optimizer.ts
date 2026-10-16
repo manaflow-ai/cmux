@@ -113,7 +113,7 @@ export type VariantStats = {
   /** Of those, people with a primary-metric event after their first exposure. */
   readonly conversions: number;
   /**
-   * First exposures since the last allocation change (for the SRM test).
+   * Exposed people assigned since the last allocation change (for the SRM test).
    * Sticky first exposures are left out: an earlier exposure was lost, so the
    * user was assigned under an older split.
    */
@@ -135,21 +135,56 @@ function hogqlString(value: string): string {
   return `'${value}'`;
 }
 
-/** Each exposed person once, with the variant of their first exposure (assignment is sticky). */
+/** The client's view event may be stamped slightly before the server's assignment record. */
+const VIEW_CLOCK_SKEW_SECONDS = 300;
+
+/**
+ * Each exposed person once: the server-assigned variant (first assignment;
+ * assignment is sticky) joined to the person's first exposure event after
+ * it. `first_at` is the exposure time. A person who was assigned but never
+ * saw the paywall is not exposed.
+ */
 function exposureSubquery(definition: ExperimentDefinition): string {
-  return `SELECT person_id, argMin(properties.$feature_flag_response, timestamp) AS variant, min(timestamp) AS first_at,
-      argMin(coalesce(toString(properties.paywall_sticky), ''), timestamp) AS first_sticky
-    FROM events
-    WHERE event = '$feature_flag_called'
-      AND properties.$feature_flag = ${hogqlString(definition.flagKey)}
-      AND timestamp >= ${hogqlTimestamp(definition.startDate)}
-      AND (${definition.exposureWhere})
-    GROUP BY person_id`;
+  return `SELECT a.person_id AS person_id, a.variant AS variant, a.first_sticky AS first_sticky, a.assigned_at AS assigned_at,
+      min(v.timestamp) AS first_at
+    FROM (
+      SELECT person_id, argMin(properties.paywall_variant, timestamp) AS variant, min(timestamp) AS assigned_at,
+        argMin(coalesce(toString(properties.paywall_sticky), ''), timestamp) AS first_sticky
+      FROM events
+      WHERE event = 'paywall_assigned'
+        AND properties.paywall_experiment = ${hogqlString(definition.key)}
+        AND timestamp >= ${hogqlTimestamp(definition.startDate)}
+        AND (${definition.assignmentWhere})
+      GROUP BY person_id
+    ) AS a
+    INNER JOIN (
+      SELECT person_id, timestamp FROM events
+      WHERE event = ${hogqlString(definition.exposureEvent)}
+        AND properties.paywall_experiment = ${hogqlString(definition.key)}
+        AND timestamp >= ${hogqlTimestamp(definition.startDate)}
+        AND (${definition.exposureWhere})
+    ) AS v ON a.person_id = v.person_id
+    WHERE v.timestamp >= a.assigned_at - toIntervalSecond(${VIEW_CLOCK_SKEW_SECONDS})
+    GROUP BY a.person_id, a.variant, a.first_sticky, a.assigned_at`;
+}
+
+/** People whose exposure event named a different arm than the server assigned (an app bug if not 0). */
+export async function clientVariantMismatches(api: PostHogApi, definition: ExperimentDefinition): Promise<number> {
+  const rows = await api.query(`SELECT count(DISTINCT e.person_id)
+    FROM (${exposureSubquery(definition)}) AS e
+    INNER JOIN (
+      SELECT person_id, coalesce(toString(properties.paywall_variant), '') AS client_variant, timestamp FROM events
+      WHERE event = ${hogqlString(definition.exposureEvent)}
+        AND properties.paywall_experiment = ${hogqlString(definition.key)}
+        AND timestamp >= ${hogqlTimestamp(definition.startDate)}
+    ) AS c ON e.person_id = c.person_id
+    WHERE c.timestamp >= e.assigned_at - toIntervalSecond(${VIEW_CLOCK_SKEW_SECONDS}) AND c.client_variant != e.variant`);
+  return Number(rows[0]?.[0] ?? 0);
 }
 
 function metricQuery(definition: ExperimentDefinition, metric: ExperimentMetric, since: string): string {
   return `SELECT e.variant, count() AS exposed, countIf(m.last_at >= e.first_at) AS converted,
-      countIf(e.first_at >= ${hogqlTimestamp(since)} AND e.first_sticky NOT IN ('true', '1')) AS exposed_since
+      countIf(e.assigned_at >= ${hogqlTimestamp(since)} AND e.first_sticky NOT IN ('true', '1')) AS exposed_since
     FROM (${exposureSubquery(definition)}) AS e
     LEFT JOIN (
       SELECT person_id, max(timestamp) AS last_at FROM events
@@ -356,6 +391,8 @@ export type OptimizerDecision = {
   readonly target: Readonly<Record<string, number>>;
   readonly probabilityBest: Readonly<Record<string, number>>;
   readonly retire: readonly string[];
+  /** Queued variants this run makes live (live-arm cap). */
+  readonly promote: readonly string[];
   readonly srm: SrmResult;
   readonly halted: boolean;
   readonly reasons: readonly string[];
@@ -395,11 +432,61 @@ function thompsonTarget(
   return rollouts;
 }
 
+/** Variants to retire now: challengers with enough exposures and almost no chance of being best. */
+function retirements(definition: ExperimentDefinition, live: readonly VariantStats[], pBest: Readonly<Record<string, number>>, reasons: string[]): string[] {
+  const policy = definition.policy;
+  const retire = live
+    .filter((stat) => stat.variant !== definition.controlVariant
+      && stat.exposures >= policy.retireMinExposures
+      && (pBest[stat.variant] ?? 0) < policy.retireBelowProbability)
+    .map((stat) => stat.variant);
+  for (const variant of retire) {
+    reasons.push(`retire ${variant}: P(best)=${(pBest[variant] ?? 0).toFixed(4)} < ${policy.retireBelowProbability} after ${live.find((stat) => stat.variant === variant)?.exposures} exposures`);
+  }
+  return retire;
+}
+
+/** Queued variants (0%, never retired) promoted, in flag order, to fill the live-arm cap. */
+function promotions(
+  definition: ExperimentDefinition,
+  stats: readonly VariantStats[],
+  liveCount: number,
+  promotable: readonly string[],
+  reasons: string[],
+): VariantStats[] {
+  const room = Math.max(0, definition.policy.maxLiveArms - liveCount);
+  const queued = promotable
+    .slice(0, room)
+    .map((variant) => stats.find((stat) => stat.variant === variant)
+      ?? { variant, exposures: 0, conversions: 0, exposuresSinceChange: 0, secondary: {}, guardrails: {} });
+  for (const stat of queued) reasons.push(`promote ${stat.variant}: fewer than ${definition.policy.maxLiveArms} live arms`);
+  return queued;
+}
+
+/** The split for the arms that stay or become live; every other variant goes to 0%. */
+function armSplit(
+  definition: ExperimentDefinition,
+  arms: readonly VariantStats[],
+  pBest: Readonly<Record<string, number>>,
+  reasons: string[],
+): Record<string, number> {
+  const policy = definition.policy;
+  const short = arms.filter((stat) => stat.exposures < policy.minExposuresPerVariant);
+  if (short.length > 0) {
+    reasons.push(`hold equal split: ${short.map((stat) => `${stat.variant} has ${stat.exposures}/${policy.minExposuresPerVariant} exposures`).join(", ")}`);
+    return integerRollouts(Object.fromEntries(arms.map((stat) => [stat.variant, 1])));
+  }
+  reasons.push(`Thompson sampling: traffic follows P(best), control floor ${Math.round(policy.controlFloor * 100)}%`);
+  return thompsonTarget(definition, arms, pBest);
+}
+
 export function decideAllocation(
   definition: ExperimentDefinition,
   flag: Pick<PostHogFlag, "variants">,
   stats: readonly VariantStats[],
   random: () => number,
+  /** Queued variants that may go live now, in queue order (see promotableVariants). */
+  promotable: readonly string[] = [],
 ): OptimizerDecision {
   const policy = definition.policy;
   const current = Object.fromEntries(flag.variants.map((variant) => [variant.key, variant.rolloutPercentage]));
@@ -409,7 +496,7 @@ export function decideAllocation(
   const srm = sampleRatioMismatch(stats.filter((stat) => known.has(stat.variant)), current, policy.srmAlpha);
   const pBest = live.length > 0 ? probabilityBest(live, random) : {};
   const hold = (reason: string, halted = false): OptimizerDecision => ({
-    current, target: current, probabilityBest: pBest, retire: [], srm, halted, reasons: [...reasons, reason], changed: false,
+    current, target: current, probabilityBest: pBest, retire: [], promote: [], srm, halted, reasons: [...reasons, reason], changed: false,
   });
   if (srm.tested && srm.mismatch) {
     return hold(`halted: sample ratio mismatch (chi-square ${srm.chiSquare.toFixed(2)}, p=${srm.pValue.toExponential(2)} < ${policy.srmAlpha}); no traffic change until it is explained`, true);
@@ -417,29 +504,16 @@ export function decideAllocation(
   if (!live.some((stat) => stat.variant === definition.controlVariant)) {
     return hold("halted: control is not live in the flag; restore it before the optimizer moves traffic", true);
   }
-  const short = live.filter((stat) => stat.exposures < policy.minExposuresPerVariant);
-  if (short.length > 0) {
-    const equal = integerRollouts(Object.fromEntries(live.map((stat) => [stat.variant, 1])));
-    const changed = live.some((stat) => equal[stat.variant] !== current[stat.variant]);
-    reasons.push(`hold equal split: ${short.map((stat) => `${stat.variant} has ${stat.exposures}/${policy.minExposuresPerVariant} exposures`).join(", ")}`);
-    return { current, target: changed ? equal : current, probabilityBest: pBest, retire: [], srm, halted: false, reasons, changed };
-  }
-  const retire = live
-    .filter((stat) => stat.variant !== definition.controlVariant
-      && stat.exposures >= policy.retireMinExposures
-      && (pBest[stat.variant] ?? 0) < policy.retireBelowProbability)
-    .map((stat) => stat.variant);
-  for (const variant of retire) {
-    reasons.push(`retire ${variant}: P(best)=${(pBest[variant] ?? 0).toFixed(4)} < ${policy.retireBelowProbability} after ${live.find((stat) => stat.variant === variant)?.exposures} exposures`);
-  }
+  // Retirement needs every live arm past the minimum sample, like any traffic move.
+  const ready = live.every((stat) => stat.exposures >= policy.minExposuresPerVariant);
+  const retire = ready ? retirements(definition, live, pBest, reasons) : [];
   const remaining = live.filter((stat) => !retire.includes(stat.variant));
-  const target = thompsonTarget(definition, remaining, pBest);
-  for (const variant of Object.keys(current)) target[variant] ??= 0;
+  const promoted = promotions(definition, stats, remaining.length, promotable, reasons);
+  const split = armSplit(definition, [...remaining, ...promoted], pBest, reasons);
+  const target: Record<string, number> = Object.fromEntries(flag.variants.map((variant) => [variant.key, split[variant.key] ?? 0]));
   const changed = Object.keys(target).some((variant) => target[variant] !== current[variant]);
-  reasons.push(changed
-    ? `Thompson sampling: traffic follows P(best), control floor ${Math.round(policy.controlFloor * 100)}%`
-    : "Thompson sampling: allocation unchanged");
-  return { current, target, probabilityBest: pBest, retire, srm, halted: false, reasons, changed };
+  if (!changed) reasons.push("allocation unchanged");
+  return { current, target, probabilityBest: pBest, retire, promote: promoted.map((stat) => stat.variant), srm, halted: false, reasons, changed };
 }
 
 // One optimizer run.
@@ -447,7 +521,8 @@ export function decideAllocation(
 export type VariantSnapshot = {
   readonly variant: string;
   readonly name: string | null;
-  readonly status: "live" | "retired";
+  /** `queued`: at 0% and never retired, waiting for a live slot. */
+  readonly status: "live" | "retired" | "queued";
   readonly rolloutBefore: number;
   readonly rolloutAfter: number;
   readonly exposures: number;
@@ -468,6 +543,8 @@ export type OptimizerSnapshot = {
   /** True when this run wrote its target split to the flag. */
   readonly allocationApplied: boolean;
   readonly allocationSince: string;
+  /** Exposed people whose app reported another arm than the server assigned. */
+  readonly clientVariantMismatches: number;
   readonly decision: OptimizerDecision;
   readonly variants: readonly VariantSnapshot[];
 };
@@ -476,6 +553,8 @@ export type OptimizerRunResult = {
   readonly snapshot: OptimizerSnapshot;
   readonly changes: readonly PaywallChange[];
   readonly report: string;
+  /** Set when the flag write failed and the run fell back to observe mode. */
+  readonly writeFailure: string | null;
 };
 
 function parsedPayload(payload: unknown): unknown {
@@ -518,6 +597,9 @@ function changeLog(
       changes.push({ ...base, kind: "payload_invalid", variant: variant.variant, reason: "payload fails the copy validator; control is served instead", details: { errors: variant.payloadErrors } });
     }
   }
+  for (const variant of decision.promote) {
+    changes.push({ ...base, kind: "variant_promoted", variant, reason: decision.reasons.find((reason) => reason.startsWith(`promote ${variant}`)) ?? "promoted", details: null });
+  }
   for (const variant of decision.retire) {
     changes.push({ ...base, kind: "variant_retired", variant, reason: decision.reasons.find((reason) => reason.startsWith(`retire ${variant}`)) ?? "retired", details: { probabilityBest: decision.probabilityBest[variant] ?? null } });
   }
@@ -540,7 +622,8 @@ export function optimizerReport(definition: ExperimentDefinition, snapshot: Opti
     `# ${definition.key} optimizer report, ${now.toISOString().slice(0, 10)}`,
     "",
     `Platform: ${definition.platform} (never pooled with other platforms). Flag: ${definition.flagKey}${snapshot.flagFound ? "" : " (NOT FOUND: using the seed definition)"}. Mode: ${snapshot.dryRun ? "dry run, nothing written" : "live"}.`,
-    `Primary metric: ${definition.primary.label}, per exposed person after first exposure. Exposures since ${definition.startDate}, excluding internal, synthetic and non-production.`,
+    `Primary metric: ${definition.primary.label}, per exposed person after first exposure. Exposure: first \`${definition.exposureEvent}\` after the server assignment, in the server-assigned arm; since ${definition.startDate}, excluding internal, synthetic and non-production.`,
+    `People whose app reported a different arm than the server assigned: ${snapshot.clientVariantMismatches}.`,
     "",
     `| Variant | Status | Traffic now | Traffic next | Exposed | Converted | Rate | P(best) | ${definition.secondary.map((metric) => metric.key).join(" | ")} | ${definition.guardrails.map((metric) => metric.key).join(" | ")} |`,
     `|---|---|---|---|---|---|---|---|${definition.secondary.map(() => "---|").join("")}${definition.guardrails.map(() => "---|").join("")}`,
@@ -590,17 +673,69 @@ export type RunOptimizerInput = {
   readonly applyAllocation?: boolean;
 };
 
-export async function runOptimizer(input: RunOptimizerInput): Promise<OptimizerRunResult> {
-  const { definition, api, log, now } = input;
-  const found = await api.flag(definition.flagKey);
-  const flag = found ?? input.seedFlag;
-  if (!flag) throw new Error(`Flag ${definition.flagKey} does not exist`);
-  const allocationSince = await srmWindowStart(definition, log);
-  const stats = await fetchVariantStats(api, definition, flag.variants.map((variant) => variant.key), allocationSince);
-  const decision = found && !found.active
-    ? { ...decideAllocation(definition, flag, stats, seededRandom(`${definition.key}:${now.toISOString().slice(0, 10)}`)), target: Object.fromEntries(flag.variants.map((variant) => [variant.key, variant.rolloutPercentage])), changed: false, reasons: ["hold: the flag is off (kill switch)"] }
-    : decideAllocation(definition, flag, stats, seededRandom(`${definition.key}:${now.toISOString().slice(0, 10)}`));
-  const variants: VariantSnapshot[] = flag.variants.map((variant) => {
+type QueueState = {
+  /** Queued variants that may go live now, in queue order. */
+  readonly promotable: readonly string[];
+  /** Every variant still waiting in the queue (promotable or blocked for now). */
+  readonly waiting: readonly string[];
+  /** Why a waiting variant cannot be promoted yet (reported). */
+  readonly blocked: readonly string[];
+};
+
+/**
+ * The challenger queue: the experiment's reviewed `queue` order, minus
+ * variants that were ever promoted or retired (a variant an operator set to
+ * 0% is not in the queue, so it is never brought back), minus variants at
+ * traffic. A waiting variant is promotable only when its payload passes the
+ * validator and the experiment's own gate (servable now, app adoption).
+ */
+async function promotableVariants(
+  definition: ExperimentDefinition,
+  flag: PostHogFlag,
+  api: PostHogApi,
+  log: PaywallExperimentLog | null,
+): Promise<QueueState> {
+  const used = log ? await log.variantsWithChange(definition.key, ["variant_promoted", "variant_retired"]) : new Set<string>();
+  const rollout = new Map(flag.variants.map((variant) => [variant.key, variant.rolloutPercentage]));
+  const waiting = (definition.queue ?? []).filter((variant) => rollout.get(variant) === 0 && !used.has(variant));
+  const promotable: string[] = [];
+  const blocked: string[] = [];
+  for (const variant of waiting) {
+    const payload = parsedPayload(flag.payloads[variant]);
+    const validation = definition.validatePayload(payload, variant);
+    const gate = validation.ok ? await definition.promotionGate?.(variant, payload, api) ?? null : "its payload fails the copy validator";
+    if (gate) blocked.push(`queued ${variant} cannot be promoted yet: ${gate}`);
+    else promotable.push(variant);
+  }
+  return { promotable, waiting, blocked };
+}
+
+function runDecision(
+  definition: ExperimentDefinition,
+  flag: PostHogFlag,
+  found: PostHogFlag | null,
+  stats: readonly VariantStats[],
+  now: Date,
+  promotable: readonly string[],
+): OptimizerDecision {
+  const decision = decideAllocation(definition, flag, stats, seededRandom(`${definition.key}:${now.toISOString().slice(0, 10)}`), promotable);
+  if (!found || found.active) return decision;
+  return {
+    ...decision,
+    target: Object.fromEntries(flag.variants.map((variant) => [variant.key, variant.rolloutPercentage])),
+    changed: false,
+    reasons: ["hold: the flag is off (kill switch)"],
+  };
+}
+
+function variantSnapshots(
+  definition: ExperimentDefinition,
+  flag: PostHogFlag,
+  stats: readonly VariantStats[],
+  decision: OptimizerDecision,
+  queued: ReadonlySet<string>,
+): VariantSnapshot[] {
+  return flag.variants.map((variant) => {
     const stat = stats.find((item) => item.variant === variant.key);
     const payload = parsedPayload(flag.payloads[variant.key]);
     const validation = definition.validatePayload(payload, variant.key);
@@ -608,7 +743,7 @@ export async function runOptimizer(input: RunOptimizerInput): Promise<OptimizerR
     return {
       variant: variant.key,
       name: variant.name ?? null,
-      status: after > 0 ? "live" : "retired",
+      status: after > 0 ? "live" : queued.has(variant.key) ? "queued" : "retired",
       rolloutBefore: variant.rolloutPercentage,
       rolloutAfter: after,
       exposures: stat?.exposures ?? 0,
@@ -621,7 +756,33 @@ export async function runOptimizer(input: RunOptimizerInput): Promise<OptimizerR
       payloadErrors: validation.ok ? [] : validation.errors,
     };
   });
-  const apply = input.applyAllocation !== false;
+}
+
+export async function runOptimizer(input: RunOptimizerInput): Promise<OptimizerRunResult> {
+  const { definition, api, log, now } = input;
+  const found = await api.flag(definition.flagKey);
+  const flag = found ?? input.seedFlag;
+  if (!flag) throw new Error(`Flag ${definition.flagKey} does not exist`);
+  const allocationSince = await srmWindowStart(definition, log);
+  const stats = await fetchVariantStats(api, definition, flag.variants.map((variant) => variant.key), allocationSince);
+  const queue = await promotableVariants(definition, flag, api, log);
+  const decided = runDecision(definition, flag, found, stats, now, queue.promotable);
+  const decision: OptimizerDecision = { ...decided, reasons: [...decided.reasons, ...queue.blocked] };
+  const variants = variantSnapshots(definition, flag, stats, decision, new Set(queue.waiting));
+  if (!input.dryRun) {
+    if (!found) throw new Error(`Flag ${definition.flagKey} does not exist; create it before a live run`);
+    if (!log) throw new Error("A live run needs the experiment log (DATABASE_URL)");
+  }
+  // Every read happens before the flag write, so a failed read cannot leave a
+  // written split without its allocation_changed row.
+  const mismatches = await clientVariantMismatches(api, definition);
+  const previous = log ? await log.latestRun(definition.key) : null;
+  const writeFailure = !input.dryRun && input.applyAllocation !== false && decision.changed
+    ? await writeAllocation(api, found!, decision.target)
+    : null;
+  // A failed flag write (for example a key without write scope) leaves this
+  // run in observe mode: the split is proposed and reported, not logged as applied.
+  const apply = input.applyAllocation !== false && writeFailure === null;
   const snapshot: OptimizerSnapshot = {
     experiment: definition.key,
     platform: definition.platform,
@@ -629,27 +790,41 @@ export async function runOptimizer(input: RunOptimizerInput): Promise<OptimizerR
     dryRun: input.dryRun,
     allocationApplied: !input.dryRun && apply && decision.changed,
     allocationSince,
+    clientVariantMismatches: mismatches,
     decision,
     variants,
   };
-  const previous = log ? await log.latestRun(definition.key) : null;
   const wasHalted = previous?.halted === true;
-  const logged = apply ? decision : { ...decision, changed: false, retire: [] };
+  const logged = apply ? decision : { ...decision, changed: false, retire: [], promote: [] };
   const changes = changeLog(definition, variants, logged, previous, input.actor)
     // Log a halt once, when it starts; the run's report repeats it daily.
     .filter((change) => change.kind !== "srm_halt" || !wasHalted);
-  const report = optimizerReport(definition, snapshot, changes, now)
-    + (apply || input.dryRun ? "" : "\nObserve mode: the allocation above is proposed, not written to the flag.\n");
-  if (!input.dryRun) {
-    if (!found) throw new Error(`Flag ${definition.flagKey} does not exist; create it before a live run`);
-    if (!log) throw new Error("A live run needs the experiment log (DATABASE_URL)");
-    if (apply && decision.changed) await api.setVariantRollouts(found, decision.target);
+  const report = optimizerReport(definition, snapshot, changes, now) + modeNote(input.dryRun, apply, writeFailure);
+  if (!input.dryRun && log) {
     // Stamp after the flag write, so the next SRM window starts after the new split is live.
     const writtenAt = new Date();
     await log.appendChanges(changes.map((change) => ({ ...change, changedAt: writtenAt })));
     await log.recordRun({ experiment: definition.key, ranAt: now, halted: decision.halted, snapshot, reportMarkdown: report });
   }
-  return { snapshot, changes, report };
+  return { snapshot, changes, report, writeFailure };
+}
+
+function modeNote(dryRun: boolean, apply: boolean, writeFailure: string | null): string {
+  if (writeFailure) return `\nFlag write failed (${writeFailure}); this run stayed in observe mode.\n`;
+  if (apply || dryRun) return "";
+  return "\nObserve mode: the allocation above is proposed, not written to the flag.\n";
+}
+
+/** Writes the split; returns the failure instead of throwing, so the run still records itself. */
+async function writeAllocation(api: PostHogApi, flag: PostHogFlag, target: Readonly<Record<string, number>>): Promise<string | null> {
+  try {
+    await api.setVariantRollouts(flag, target);
+    return null;
+  } catch (error) {
+    const message = error instanceof Error ? error.message.slice(0, 300) : String(error).slice(0, 300);
+    console.error("billing.paywall.optimizer_flag_write_failed", { flag: flag.key, error: message });
+    return message;
+  }
 }
 
 /** The flag as the seed would create it, for dry runs before the flag exists. */

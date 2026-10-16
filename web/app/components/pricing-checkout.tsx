@@ -19,6 +19,7 @@ import { withExternalBrowserIntent } from "../lib/billing";
 import { vaultSignInHref } from "../lib/vault-auth";
 import type { PricingActionSize } from "./pricing-shared";
 import {
+  assignmentEventProperties,
   exposureEventProperties,
   isPublicPricingPath,
   pricingExposure,
@@ -61,6 +62,7 @@ export function PricingView({
       });
       experimentProperties = syncPricingExperimentProperties(posthog, assignment, exposure);
       if (exposure) {
+        posthog.capture("paywall_assigned", assignmentEventProperties(exposure, window.location.hostname));
         posthog.capture("$feature_flag_called", exposureEventProperties(exposure, window.location.hostname));
       }
     }

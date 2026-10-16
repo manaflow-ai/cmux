@@ -1,7 +1,7 @@
 // Postgres persistence for paywall experiments: sticky assignments, the
 // change log and optimizer runs (db/schema.ts).
 
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { cloudDb } from "../../../db/client";
 import { paywallAssignments, paywallExperimentChanges, paywallExperimentRuns } from "../../../db/schema";
@@ -17,6 +17,8 @@ export type PaywallAssignment = {
 export type PaywallChangeKind =
   | "variant_created"
   | "variant_retired"
+  /** A queued variant got traffic (live-arm cap). */
+  | "variant_promoted"
   | "copy_changed"
   | "payload_invalid"
   | "allocation_changed"
@@ -57,6 +59,8 @@ export type PaywallExperimentLog = {
   readonly latestRun: (experiment: string) => Promise<PaywallRun | null>;
   readonly changes: (experiment: string, limit: number) => Promise<readonly (PaywallChange & { readonly changedAt: Date })[]>;
   readonly lastChangeAt: (experiment: string, kind: PaywallChangeKind) => Promise<Date | null>;
+  /** Variants with at least one change of these kinds, ever. */
+  readonly variantsWithChange: (experiment: string, kinds: readonly PaywallChangeKind[]) => Promise<ReadonlySet<string>>;
 };
 
 export function databasePaywallAssignmentStore(db: () => Db = cloudDb): PaywallAssignmentStore {
@@ -123,6 +127,13 @@ export function databasePaywallExperimentLog(db: () => Db = cloudDb): PaywallExp
         actor: row.actor,
         changedAt: row.changedAt,
       }));
+    },
+    variantsWithChange: async (experiment, kinds) => {
+      const rows = await db()
+        .selectDistinct({ variant: paywallExperimentChanges.variant })
+        .from(paywallExperimentChanges)
+        .where(and(eq(paywallExperimentChanges.experiment, experiment), inArray(paywallExperimentChanges.kind, [...kinds])));
+      return new Set(rows.flatMap((row) => (row.variant ? [row.variant] : [])));
     },
     lastChangeAt: async (experiment, kind) => {
       const [row] = await db()

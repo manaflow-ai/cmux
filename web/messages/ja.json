@@ -7338,9 +7338,11 @@
     },
     "status": {
       "live": "稼働中",
-      "retired": "終了"
+      "retired": "終了",
+      "queued": "待機中"
     },
     "invalidCopy": "無効なコピー: このアームはコントロールを表示します",
+    "queuedNote": "待機中のアームはトラフィック 0% で待ちます。稼働中のチャレンジャーが終了すると、オプティマイザーが1つを昇格します。稼働アームは最大4つです。",
     "previewsTitle": "ユーザーに表示されるバリアント",
     "webPreviewNote": "cmux.com/pricing のコンポーネントで、サインインしていない訪問者向けに表示しています。価格とプランは変わりません。",
     "iosPreviewNote": "iOS ペイウォールのレイアウトを Web で再現したものです。アプリでは App Store の価格が表示されます。シミュレーターのキャプチャはまだ添付されていません。",
@@ -7355,6 +7357,9 @@
     },
     "ios": {
       "recommended": "おすすめ",
+      "layout": "レイアウト: {layout}",
+      "fallback": "古いアプリでの表示: {layout}",
+      "selectedPlan": "選択中のプラン",
       "seeAllPlans": "すべてのプランを見る",
       "ctaAction": "{plan} で続ける",
       "ctaPrice": "App Store の価格で登録",
