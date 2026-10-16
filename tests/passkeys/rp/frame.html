@@ -12,10 +12,23 @@
   const { create, get, checkClientData, result, errName } = window.passkeyHelpers;
   const send = (r) => parent.postMessage({ cmuxPasskeyFrame: id, result: r }, topOrigin);
 
+  const expected = params.get("expect");
   async function runCreate() {
     try {
       const { cred, options } = await create();
+      if (expected) return send(result(false, `resolved; expected ${expected}`));
       const { problems } = checkClientData(cred, "webauthn.create", options.challenge, { crossOrigin: true, topOrigin });
+      send(result(problems.length === 0, problems.join("; ") || "ok"));
+    } catch (e) {
+      send(result(!!expected && errName(e) === expected, `${errName(e)}: ${e && e.message}`));
+    }
+  }
+  // Create, then sign in with it, both from the cross-origin frame.
+  async function runCreateGet() {
+    try {
+      const made = await create();
+      const { cred, options } = await get({ allowCredentials: [{ type: "public-key", id: made.cred.rawId }] });
+      const { problems } = checkClientData(cred, "webauthn.get", options.challenge, { crossOrigin: true, topOrigin });
       send(result(problems.length === 0, problems.join("; ") || "ok"));
     } catch (e) {
       send(result(false, `${errName(e)}: ${e && e.message}`));
@@ -32,6 +45,8 @@
   if (mode === "create") {
     // Creating from a cross-origin iframe needs transient user activation.
     document.getElementById("go").onclick = runCreate;
+  } else if (mode === "create-get") {
+    document.getElementById("go").onclick = runCreateGet;
   } else {
     runGetDenied();
   }
