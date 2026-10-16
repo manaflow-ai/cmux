@@ -42,6 +42,20 @@ struct HostHooks {
     /// Whether the host decides Edit and Undo Send (either hook set): then MessagesLab's own rule (15 and 2 minutes
     /// after sending, appkit-native Host.menu) is off and each item exists only through its hook.
     var ownsEditing: Bool { edit != nil || undoSend != nil }
+
+    // Thread slots and sheets (host-hooks-b, asks 6 and 7; ThreadHost.swift has the `ThreadMode` option).
+    /// Ask 6, `ThreadMode.tree` thread view: the header for the open thread (its root) and branch (the drill path,
+    /// empty: the whole thread). nil hook or nil result: today's header (the date row only). Asked again when the
+    /// view changes and after `MessagesWindowView.threadHeaderDidChange()`.
+    var threadHeader: ((_ root: PartRef, _ path: [PartRef]) -> ThreadHeaderContent?)?
+    /// Ask 6: a click on the header: the action, the thread root, and the clicked item's rect in the view's
+    /// coordinates (for a popover or an inline editor). The host changes its data and calls threadHeaderDidChange().
+    var threadHeaderAction: ((_ action: ThreadHeaderAction, _ root: PartRef, _ anchor: CGRect) -> Void)?
+    /// Ask 7: a sheet is presented (`MessagesWindowView.presentSheet`) or its frame moved (view size, field
+    /// height): the host places its own content view at this frame (the view's coordinates).
+    var layoutSheet: ((CGRect) -> Void)?
+    /// Ask 7: the sheet went away (`dismissSheet`, Esc, or a click outside it): the host removes its view.
+    var sheetDidDismiss: (() -> Void)?
 }
 
 /// A host action on one message, with its per-message availability (HostHooks.undoSend).
@@ -154,4 +168,32 @@ extension MessagesWindowView {
         l.add(a, forKey: "reveal")
         CATransaction.commit()
     }
+}
+
+// MARK: Thread header slot (ask 6; host-hooks-b)
+
+/// The host's thread header in a `.tree` thread view (ask 6): the data comes from the host (cmux:
+/// the daemon's thread object), MessagesLab only draws it and reports clicks.
+struct ThreadHeaderContent: Equatable {
+    enum Status: String, Equatable { case open, resolved }
+    var title: String
+    var status: Status
+    /// The owner's display name; nil: unassigned.
+    var owner: String?
+
+    init(title: String, status: Status, owner: String? = nil) {
+        self.title = title
+        self.status = status
+        self.owner = owner
+    }
+}
+
+/// A click on the host's thread header.
+enum ThreadHeaderAction: Equatable {
+    /// The status chip of an open thread / of a resolved one.
+    case resolve, reopen
+    /// The title.
+    case rename
+    /// The owner.
+    case assign
 }

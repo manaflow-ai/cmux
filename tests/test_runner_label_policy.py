@@ -326,6 +326,19 @@ class NightlyRunnerVariable(unittest.TestCase):
         self.assertIn("vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != ''", text)
 
 
+class NextNightlyTrustedLabels(unittest.TestCase):
+    def test_next_has_a_separate_trusted_pool_and_runner(self):
+        self.assertEqual(drifted_runner_variables({
+            "CI_NIGHTLY_NEXT_TRUSTED_POOL": "glaeda-trusted-std-xcode-26.6",
+            "CI_NIGHTLY_NEXT_TRUSTED_RUNNER": "glaeda-runner-next-glaeda",
+        }), [])
+        for label in ("glaeda-std-xcode-26.6", "glaeda-promote-trusted-std-xcode-26.6",
+                      "glaeda-side-std-xcode-26.6", 'x", "self-hosted'):
+            with self.subTest(label=label):
+                self.assertEqual([name for name, _, _ in drifted_runner_variables({
+                    "CI_NIGHTLY_NEXT_TRUSTED_POOL": label})], ["CI_NIGHTLY_NEXT_TRUSTED_POOL"])
+
+
 class OwnedPoolLabels(unittest.TestCase):
     OWNED = ("glaeda-std-xcode-26.6", "glaeda-light-xcode-26.6", "glaeda-xl-xcode-26")
 

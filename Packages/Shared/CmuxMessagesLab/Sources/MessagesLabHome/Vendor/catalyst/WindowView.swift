@@ -59,6 +59,24 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private var threadClosing = 0
     private(set) var threadViews: [CanvasView] = []
     private(set) var threadSpecs: [RowSpec] = []
+    /// `.tree` mode: the drill path the thread view shows (a change fades the new branch in).
+    private var threadShownPath: [PartRef] = []
+    /// `.tree` mode: the host's thread header over the thread view's rows (nil: today's header,
+    /// the date row only), its content, and its click targets in this view's coordinates.
+    private var threadHeaderView: CanvasView?
+    private var threadHeaderShown: ThreadHeaderContent?
+    private var threadHeaderHits: [(CGRect, ThreadHeaderAction)] = []
+    /// A host sheet over the transcript (`presentSheet`): the dimmed, blurred transcript under it
+    /// (made on the first sheet; standalone MessagesLab never has one), its size and its frame.
+    private var sheetDim: UIView?
+    private var sheetBackdrop: ThreadBackdrop?
+    private var sheetSize: CGSize = .zero
+    private var sheetClosing = 0
+    /// The next rebuild of the open thread view redraws even when its rows did not change.
+    private var threadForceRebuild = false
+    /// The breadcrumb's names as drawn (hit testing reads these, not the drawn string).
+    private var threadCrumbNames: [String] = []
+    private(set) var sheetFrame: CGRect?
     /// The collection view starts 80 pt above the window, so rows under the
     /// header exist (the capture blur reads them).
     static let cvTop: CGFloat = -Fixture.headerHeight
@@ -478,6 +496,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         threadBackdrop.frame = bounds
         morphView.frame = bounds
         placeMask(animated: false, element: nil, begin: 0, oldTop: fieldTop)
+        if sheetFrame != nil { layoutSheet() }
     }
 
     /// Runs work at the start of the next display frame (appkit-native FrameTick: a display link
@@ -917,7 +936,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         defer { RowCell.badgePop = nil }
         var rowsChange = true, paging = false, animate = true, rowsUnchanged = false
         switch action {
-        case .setDraft, .attach, .removeDraftAttachment, .reply, .closeThread: rowsChange = false
+        case .setDraft, .attach, .removeDraftAttachment, .reply, .closeThread, .openThreadPath: rowsChange = false
         case .appendText, .remeasureCustom(_, false): animate = false
         case .prependPage, .appendPage, .evict, .replaceWindow: paging = true; animate = false
         default: break
@@ -970,6 +989,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         if case .setDraft = action { lastEdit = t }
         phase("pre-compose")
         compose.update(state: state, send: send, begin: begin)
+        // A host sheet stays between the header and the field when the field grows or shrinks.
+        if sheetFrame != nil { layoutSheet() }
         phase("compose")
         // A keystroke that keeps the field's height moves no row and changes no cell: no layout
         // pass and no cell refresh (about a third of a keystroke frame's main-thread work).
@@ -2003,12 +2024,36 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             closeThreadView()
             return
         }
-        let msgs = [rm] + s.conversation.messages.filter { $0.replyTo == root }
-        let rows = RowBuilder.rows(s, messages: msgs, now: store.date(at: t), threadMode: true, width: bounds.width, scale: renderScale)
+        let msgs: [Message]
+        var rows: [RowSpec]
+        var header: ThreadHeaderContent?
+        if s.ui.threadMode == .tree {
+            // Tree mode (ThreadHost.swift): the whole tree of the root in tree order (depth first,
+            // siblings in window order), or the drilled branch under the breadcrumb (cmux only).
+            let branch = ThreadTree.branch(s.ui.threadPath, root: root, in: s.conversation.messages)
+            msgs = branch ?? ThreadTree.whole(rm, root: root, in: s.conversation.messages)
+            // "N Replies" under every shown reply that has replies: it opens that reply's branch.
+            var counts = ThreadTree.counts(of: root, in: s.conversation.messages)
+            // The host's count wins when it gives one (Message.replyCount: replies outside the window).
+            for m in msgs { if let n = m.replyCount { counts.updateValue(max(0, n), forKey: m.id) } }
+            counts.removeValue(forKey: root.messageId)
+            if let top = msgs.first { counts.removeValue(forKey: top.id) }
+            rows = RowBuilder.rows(s, messages: msgs, now: store.date(at: t), threadMode: true, width: bounds.width,
+                                   scale: renderScale, threadCounts: counts)
+            if branch != nil { rows.insert(threadCrumb(s, root: root), at: 0) }
+            header = hostHooks.threadHeader?(root, s.ui.threadPath)
+        } else {
+            msgs = [rm] + s.conversation.messages.filter { $0.replyTo == root }
+            rows = RowBuilder.rows(s, messages: msgs, now: store.date(at: t), threadMode: true, width: bounds.width, scale: renderScale)
+        }
         let opening = threadLayer.isHidden || threadClosing > 0
         threadLayer.isHidden = false
-        guard rows != threadSpecs || opening else { return }
+        guard rows != threadSpecs || header != threadHeaderShown || opening || threadForceRebuild else { return }
+        threadForceRebuild = false
         let wasOpen = !threadSpecs.isEmpty && !opening
+        // A drill-in or back (the path changed in an open view): the new branch fades in.
+        let drilled = wasOpen && s.ui.threadPath != threadShownPath
+        threadShownPath = s.ui.threadPath
         threadSpecs = rows
         threadViews.forEach { $0.removeFromSuperview() }
         threadClosing = 0
@@ -2018,8 +2063,11 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             // The drawn rows: the cell's frame moved by its content's window snap (RowCell.rowSnap).
             if let spec = cell.spec { sources[spec.key] = cell.convert(cell.bounds, to: self).offsetBy(dx: cell.rowSnap.x, dy: cell.rowSnap.y) }
         }
-        let total = rows.reduce(0) { $0 + $1.total }
+        let headerHeight = header == nil ? 0 : ThreadHeaderDraw.height
+        let total = rows.reduce(0) { $0 + $1.total } + headerHeight
         var y = MessagesWindowView.threadCenterY + (bounds.height - Fixture.windowSize.height) - total / 2
+        placeThreadHeader(header, top: y, fade: !wasOpen || drilled)
+        y += headerHeight
         threadViews = rows.map { spec in
             let top = y + spec.gap - RowDraw.margin
             y += spec.total
@@ -2039,6 +2087,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         threadSources = [:]
         for (v, spec) in zip(threadViews, threadSpecs) {
             if let src = sources[spec.key] { threadSources[spec.key] = src }
+            if drilled { ThreadBackdrop.fade(v.layer, from: 0, to: 1, duration: 0.18) }
             guard !wasOpen else { continue }
             if let src = threadSources[spec.key] {
                 ThreadBackdrop.fly(v.layer, fromY: src.midY, toY: v.frame.midY, tau: MessagesWindowView.threadOpenTau, delay: ThreadBackdrop.openDelay)
@@ -2056,9 +2105,15 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         CATransaction.setCompletionBlock { [weak self] in
             guard let self, self.threadClosing == token else { return }
             self.threadViews.forEach { $0.removeFromSuperview() }
-            self.threadViews = []; self.threadSpecs = []; self.threadSources = [:]
+            self.threadViews = []; self.threadSpecs = []; self.threadSources = [:]; self.threadShownPath = []
+            self.threadHeaderView?.removeFromSuperview(); self.threadHeaderView = nil
+            self.threadHeaderShown = nil; self.threadHeaderHits = []
             self.threadLayer.isHidden = true
             self.threadClosing = 0
+        }
+        if let hv = threadHeaderView {
+            hv.layer.opacity = 0
+            ThreadBackdrop.fade(hv.layer, from: 1, to: 0, duration: 0.25)
         }
         for (v, spec) in zip(threadViews, threadSpecs) {
             if let src = threadSources[spec.key] {
@@ -2148,7 +2203,187 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
 
     func threadContentContains(_ p: CGPoint) -> Bool {
         threadViews.contains { $0.frame.insetBy(dx: 0, dy: RowDraw.margin).contains(p) }
+            || threadHeaderView?.frame.contains(p) == true
     }
+
+    // MARK: Host controls (cmux Home, ThreadHost.swift)
+
+    /// What a click means to a host option, before the host's own click handling. nil: nothing
+    /// here (always nil in `.messages` mode without host rows or a sheet: the host goes on as before).
+    enum HostControl {
+        /// The host dispatches this action (its own dispatch keeps its timing).
+        case dispatch(Action)
+        /// Done here (a host callback ran); the host does nothing more with the click.
+        case handled
+    }
+
+    /// A click at `p` (this view's coordinates) on a `.tree` thread view's breadcrumb, back
+    /// control or "N Replies" (drill-in).
+    func hostControl(at p: CGPoint) -> HostControl? {
+        // A host sheet: a click on the dimmed transcript dismisses it; the sheet's own content is
+        // the host's view (a click that reaches the transcript there does nothing).
+        if let f = sheetFrame {
+            if !f.contains(p) { dismissSheet() }
+            return .handled
+        }
+        // A hosted row that takes clicks (TranscriptCustomRowProvider.tapped: cmux's run card).
+        if let h = hit(p), case let .custom(c) = h.row.part, let prov = CustomRows.provider(c.kind), prov.tapped(c, ref: h.row.ref) {
+            return .handled
+        }
+        let s = store.state
+        guard s.ui.threadMode == .tree, let root = s.ui.openThread, threadClosing == 0 else { return nil }
+        // The host's thread header: title (rename), status chip (resolve / reopen), owner (assign).
+        if let hv = threadHeaderView, hv.frame.contains(p) {
+            if let hit = threadHeaderHits.first(where: { $0.0.contains(p) }) {
+                hostHooks.threadHeaderAction?(hit.1, root, hit.0)
+            }
+            return .handled
+        }
+        for (v, spec) in zip(threadViews, threadSpecs) where v.frame.insetBy(dx: 0, dy: RowDraw.margin).contains(p) {
+            switch spec.kind {
+            case let .replies(_, ref, _):
+                return .dispatch(.openThreadPath([root] + ThreadTree.path(to: ref, root: root, in: s.conversation.messages)))
+            case let .separator(bold, rest) where spec.key == MessagesWindowView.crumbKey:
+                // The breadcrumb: "< Back" pops one branch; a name opens that level (the last is this one).
+                let x = p.x - v.frame.minX
+                guard let target = MessagesWindowView.crumbTarget(x: x, bold: bold, rest: rest, names: threadCrumbNames, spec: spec) else { return .handled }
+                let path = s.ui.threadPath
+                let keep = target < 0 ? path.count - 1 : target
+                guard keep >= 0, keep < path.count else { return .handled }
+                return .dispatch(.openThreadPath([root] + Array(path.prefix(keep))))
+            default:
+                continue
+            }
+        }
+        return nil
+    }
+
+    /// The host's thread header changed (title, status, owner): the open thread view asks
+    /// `HostHooks.threadHeader` again.
+    func threadHeaderDidChange() {
+        guard store.state.ui.threadMode == .tree, store.state.ui.openThread != nil, threadClosing == 0 else { return }
+        threadForceRebuild = true
+        rebuildThread(store.state, at: clock())
+    }
+
+    /// Shows `header` (nil: removes it) at `top`, full width; `fade`: it fades in.
+    private func placeThreadHeader(_ header: ThreadHeaderContent?, top: CGFloat, fade: Bool) {
+        threadHeaderView?.removeFromSuperview()
+        threadHeaderView = nil
+        threadHeaderShown = header
+        threadHeaderHits = []
+        guard let header else { return }
+        let frame = CGRect(x: 0, y: top, width: bounds.width, height: ThreadHeaderDraw.height)
+        let layout = ThreadHeaderDraw.layout(header, width: bounds.width)
+        threadHeaderHits = layout.hits.map { ($0.0.offsetBy(dx: frame.minX, dy: frame.minY), $0.1) }
+        let v = CanvasView(frame: frame) { [weak self] ctx, _ in
+            Fixture.withRenderScale(self?.renderScale ?? 0) {
+                Fixture.elevated = true
+                ThreadHeaderDraw.draw(header, layout: layout, in: ctx)
+                Fixture.elevated = false
+            }
+        }
+        v.layer.contentsScale = renderScale
+        threadLayer.addSubview(v)
+        threadHeaderView = v
+        if fade { ThreadBackdrop.fade(v.layer, from: 0, to: 1, duration: 0.28, delay: ThreadBackdrop.openDelay) }
+    }
+
+    /// Present a host sheet over the transcript (ask 7): the transcript dims and blurs as under a
+    /// thread view, and the host places its own view at the returned frame (`size` clamped to the
+    /// transcript between the header and the field, centered). `HostHooks.layoutSheet`
+    /// gets the frame now and after every size change; a click on the dimmed transcript dismisses.
+    @discardableResult
+    func presentSheet(size: CGSize) -> CGRect {
+        sheetSize = size
+        if sheetDim == nil {
+            let d = UIView()
+            d.backgroundColor = .clear
+            let b = ThreadBackdrop()
+            d.layer.addSublayer(b.root)
+            insertSubview(d, aboveSubview: threadLayer)
+            sheetDim = d
+            sheetBackdrop = b
+        }
+        let opening = sheetFrame == nil
+        sheetDim?.isHidden = false
+        layoutSheet()
+        if opening { sheetBackdrop?.animate(open: true) }
+        return sheetFrame ?? .zero
+    }
+
+    /// Remove the host sheet (no-op without one); `HostHooks.sheetDidDismiss` follows.
+    func dismissSheet() {
+        guard sheetFrame != nil else { return }
+        sheetFrame = nil
+        sheetClosing += 1
+        let token = sheetClosing
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            guard let self, self.sheetFrame == nil, self.sheetClosing == token else { return }
+            self.sheetDim?.isHidden = true
+        }
+        sheetBackdrop?.animate(open: false)
+        CATransaction.commit()
+        hostHooks.sheetDidDismiss?()
+    }
+
+    private func layoutSheet() {
+        sheetDim?.frame = bounds
+        sheetBackdrop?.frame = bounds
+        let top = Fixture.headerHeight + 12, bottom = max(top + 40, fieldTop - 12)
+        let w = max(40, min(sheetSize.width, bounds.width - 32)), h = max(40, min(sheetSize.height, bottom - top))
+        let f = CGRect(x: ((bounds.width - w) / 2).rounded(), y: (top + (bottom - top - h) / 2).rounded(), width: w, height: h)
+        sheetFrame = f
+        hostHooks.layoutSheet?(f)
+    }
+
+    static let crumbKey = "thread-crumb"
+    static let crumbSeparator = " \u{203A} "
+
+    /// The breadcrumb of a drilled branch (cmux only; MessagesLab's own rule never drills): the
+    /// thread view's date-row style (a bold "< Back", then the authors of the root and of each
+    /// drilled reply).
+    private func threadCrumb(_ s: AppState, root: PartRef) -> RowSpec {
+        let names = ([root] + s.ui.threadPath).map { ref -> String in
+            let who = s.message(ref.messageId)?.senderId
+            let name = s.conversation.participants.first { $0.id == who }?.displayName ?? ""
+            return name.count > 18 ? String(name.prefix(17)) + "\u{2026}" : name
+        }
+        threadCrumbNames = names
+        var r = RowSpec(key: MessagesWindowView.crumbKey,
+                        kind: .separator(bold: "\u{2039} " + Strings.threadBack, rest: names.joined(separator: MessagesWindowView.crumbSeparator)),
+                        gap: 12, height: 35.5)
+        r.width = bounds.width
+        return r
+    }
+
+    /// Which breadcrumb item is under `x` (row coordinates): -1 the back control, i the i-th name
+    /// (0: the root), nil none. The same widths as the separator drawing (RowDraw.drawStatic).
+    static func crumbTarget(x: CGFloat, bold: String, rest: String, names: [String], spec: RowSpec) -> Int? {
+        let parts = RowDraw.receiptParts(bold, " " + rest)
+        guard let b = parts.first, let r = parts.last else { return nil }
+        func w(_ t: String, _ f: UIFont) -> CGFloat { TextDraw.width(t, font: f, kern: RowDraw.captionKern) }
+        let total = w(b.0, b.1) + w(" " + rest, r.1)
+        var x0 = spec.metrics.centerX - total / 2
+        if x >= x0 - 8, x <= x0 + w(b.0, b.1) + 2 { return -1 }
+        x0 += w(b.0, b.1) + w(" ", r.1)
+        for (i, name) in names.enumerated() {
+            let nw = w(name, r.1)
+            if x >= x0 - 2, x <= x0 + nw + 2 { return i }
+            x0 += nw + w(crumbSeparator, r.1)
+        }
+        return nil
+    }
+
+    /// For checks (appkit-native ThreadTreeCheck): the open thread view's row keys, top first,
+    /// a row's frame (its content, this view's coordinates), and the host header's click targets.
+    var threadRowKeys: [String] { threadSpecs.map(\.key) }
+    func threadRowFrame(_ key: String) -> CGRect? {
+        zip(threadViews, threadSpecs).first { $0.1.key == key }.map { $0.0.frame.insetBy(dx: 0, dy: RowDraw.margin) }
+    }
+    var threadHeaderTargets: [(CGRect, ThreadHeaderAction)] { threadHeaderHits }
+    var threadHeaderFrame: CGRect? { threadHeaderView?.frame }
 
     /// For self tests: the last text part row (mine or theirs) in the loaded window.
     func lastTextRow(mine: Bool, where accept: (PartRow) -> Bool = { _ in true }) -> Hit? {
@@ -2477,5 +2712,70 @@ extension MessagesWindowView {
         refreshVisibleCells()
         updateThumb()
         CATransaction.commit()
+    }
+}
+
+// MARK: Thread header slot (cmux Home, ThreadHost.swift)
+
+/// The host's thread header in a `.tree` thread view (cmux only): the title, then a status chip
+/// and the owner, centered over the thread's rows in the date row's palette (the elevated thread
+/// copy colors). Click targets: the title (rename), the chip (resolve / reopen), the owner (assign).
+enum ThreadHeaderDraw {
+    static let height: CGFloat = 50
+    static var titleFont: UIFont { HomeFonts.system(ofSize: 13, weight: .semibold) }
+    static var chipFont: UIFont { HomeFonts.system(ofSize: 10, weight: .semibold) }
+    static var ownerFont: UIFont { HomeFonts.system(ofSize: Fixture.captionSize) }
+
+    struct Layout {
+        var title: String
+        var titleX: CGFloat
+        var chip: CGRect
+        var chipText: String
+        var owner: String
+        var ownerX: CGFloat
+        var hits: [(CGRect, ThreadHeaderAction)]
+    }
+
+    static func layout(_ h: ThreadHeaderContent, width: CGFloat) -> Layout {
+        let m = Metrics(width: width)
+        let maxTitle = max(40, width - 2 * Fixture.leftEdge - 24)
+        var title = h.title
+        if TextDraw.width(title, font: titleFont) > maxTitle {
+            // The longest prefix that fits with an ellipsis (halving search: one width per step).
+            var lo = 0, hi = title.count
+            while lo < hi {
+                let mid = (lo + hi + 1) / 2
+                if TextDraw.width(String(title.prefix(mid)) + "\u{2026}", font: titleFont) <= maxTitle { lo = mid } else { hi = mid - 1 }
+            }
+            title = String(title.prefix(lo)) + "\u{2026}"
+        }
+        let tw = TextDraw.width(title, font: titleFont)
+        let chipText = h.status == .resolved ? Strings.threadResolved : Strings.threadOpen
+        let cw = TextDraw.width(chipText, font: chipFont, kern: RowDraw.captionKern) + 14
+        let owner = h.owner ?? Strings.threadUnassigned
+        let ow = TextDraw.width(owner, font: ownerFont, kern: RowDraw.captionKern)
+        let line = cw + 8 + ow
+        let x0 = m.centerX - line / 2
+        let chip = CGRect(x: x0, y: 27, width: cw, height: 16)
+        let titleRect = CGRect(x: m.centerX - tw / 2 - 4, y: 2, width: tw + 8, height: 20)
+        let ownerRect = CGRect(x: chip.maxX + 4, y: 25, width: ow + 8, height: 20)
+        let toggle: ThreadHeaderAction = h.status == .resolved ? .reopen : .resolve
+        return Layout(title: title, titleX: m.centerX - tw / 2, chip: chip, chipText: chipText, owner: owner, ownerX: chip.maxX + 8,
+                      hits: [(chip.insetBy(dx: -3, dy: -3), toggle), (titleRect, .rename), (ownerRect, .assign)])
+    }
+
+    static func draw(_ h: ThreadHeaderContent, layout l: Layout, in ctx: CGContext) {
+        TextDraw.line(l.title, font: titleFont, color: Fixture.incomingText, x: l.titleX, baseline: 17, in: ctx)
+        let open = h.status != .resolved
+        let fill = open ? UIColor(red: 0.19, green: 0.78, blue: 0.35, alpha: 0.24) : UIColor(white: 1, alpha: Fixture.lightAppearance ? 0.0 : 0.12)
+        let ink = open ? UIColor(red: 0.30, green: 0.85, blue: 0.45, alpha: 1) : Fixture.secondaryText
+        let r = min(l.chip.width, l.chip.height) / 2 * 0.999
+        ctx.saveGState()
+        ctx.addPath(CGPath(roundedRect: l.chip, cornerWidth: r, cornerHeight: r, transform: nil))
+        ctx.setFillColor((Fixture.lightAppearance && !open ? UIColor(white: 0, alpha: 0.08) : fill).cgColor)
+        ctx.fillPath()
+        ctx.restoreGState()
+        TextDraw.line(l.chipText, font: chipFont, color: ink, x: l.chip.minX + 7, baseline: l.chip.minY + 11.5, in: ctx, kern: RowDraw.captionKern)
+        TextDraw.line(l.owner, font: ownerFont, color: Fixture.secondaryText, x: l.ownerX, baseline: l.chip.minY + 12, in: ctx, kern: RowDraw.captionKern)
     }
 }
