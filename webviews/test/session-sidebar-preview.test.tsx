@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { HOVER_INTENT } from "../src/ui/hoverIntent";
 
 const scope = globalThis as Record<string, unknown>;
 const saved: (readonly [string, boolean, unknown])[] = [];
@@ -98,6 +99,7 @@ test("session preview appears after hover and includes status and placement", as
   await act(async () => {
     row.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true, relatedTarget: document.body }));
   });
+  await wait(HOVER_INTENT.cardGrace + 50);
   expect(document.querySelector(".acpmux-session-preview") === null).toBe(true);
 });
 
@@ -107,8 +109,40 @@ test("session preview appears immediately on focus and stays absent without prev
   expect(document.querySelector<HTMLElement>(".acpmux-session-preview")?.textContent).toContain(
     "A focused latest reply.",
   );
+  const descriptionId = row.getAttribute("aria-describedby");
+  expect(descriptionId !== null).toBe(true);
+  expect(document.getElementById(descriptionId!)?.textContent).toContain("A focused latest reply.");
+
+  await sidebar("An updated latest reply.");
+  expect(row.getAttribute("aria-describedby")).toBe(descriptionId);
+  expect(document.getElementById(descriptionId!)?.textContent).toContain("An updated latest reply.");
 
   await sidebar();
+  expect(document.querySelector(".acpmux-session-preview") === null).toBe(true);
+  expect(row.getAttribute("aria-describedby")).toBeNull();
+});
+
+test("the preview remains readable while the pointer crosses from its row into the card", async () => {
+  const row = await sidebar("A reply that remains readable inside its hover card.");
+  await act(async () => row.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true })));
+  await wait(HOVER_INTENT.cardDwell + 50);
+  const card = document.querySelector<HTMLElement>(".acpmux-session-preview")!;
+  expect(card !== null).toBe(true);
+
+  await act(async () =>
+    row.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true, relatedTarget: card })),
+  );
+  expect(document.querySelector(".acpmux-session-preview") !== null).toBe(true);
+  await act(async () =>
+    card.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true, relatedTarget: row })),
+  );
+  await wait(HOVER_INTENT.cardGrace + 50);
+  expect(document.querySelector(".acpmux-session-preview")?.textContent).toContain(
+    "A reply that remains readable inside its hover card.",
+  );
+  await act(async () =>
+    card.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true, relatedTarget: document.body })),
+  );
   expect(document.querySelector(".acpmux-session-preview") === null).toBe(true);
 });
 
@@ -121,6 +155,7 @@ test("turning preview features off removes the focused card and prevents hover c
 
   const disabledRow = await sidebar("A reply behind the preview setting.", false);
   expect(document.querySelector(".acpmux-session-preview") === null).toBe(true);
+  expect(disabledRow.getAttribute("aria-describedby")).toBeNull();
   await act(async () => {
     disabledRow.blur();
     disabledRow.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
