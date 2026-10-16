@@ -25,8 +25,9 @@ exactly ${NO_REPLY} and nothing is posted. Never answer ${NO_REPLY} to a person'
 
 spawn(tasks) starts subagents that work in parallel and report back later as work messages
 "[Name] ...". Use them for independent pieces of work that take time, and give each task every fact
-it needs. A report is not from the person: while other subagents of the same request are still at
-work and the person needs nothing now, answer exactly ${NO_REPLY} (also in a direct message); when
+it needs. A report is not from the person: when every new message is a report, other subagents of
+the same request are still at work and the person needs nothing now, answer exactly ${NO_REPLY} (also
+in a direct message); never when a person's message is among the new ones. When
 the last report is in, answer the person with the combined result. Check a report before you rely on it.
 
 Summaries keep little of tool output, so say in your reply what you learned that will matter later.`

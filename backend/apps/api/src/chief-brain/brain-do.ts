@@ -18,7 +18,7 @@ import { clipReply, formatMessage, isNoReply, replyTarget, systemFirst, textPart
 import { AGENT, systemPrompt } from "./prompts.ts"
 import { handsTools, memoryTools } from "./brain-tools.ts"
 import { chiefsTools } from "./brain-chiefs.ts"
-import { type ChildStart, childInput, childKey, childObject, childPrompt, childRunId, postReports, readChild, slotCounts, slotEnqueue, slotPump, SPAWN_SCHEMA, spawnMax, spawnTool, subagentActivity, takeReport, turnThread } from "./brain-spawn.ts"
+import { type ChildStart, childInput, childKey, childObject, childPrompt, childRunId, postReports, readChild, slotCounts, slotEnqueue, slotPump, SPAWN_SCHEMA, CHILD_LOST_MS, spawnMax, spawnTool, subagentActivity, takeReport, turnThread } from "./brain-spawn.ts"
 
 /**
  * ChiefBrainDO, one per chief (name = the chief's agent id): a Chief that answers in Cloud
@@ -140,7 +140,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     this.compactor.pump()
     this.kick()
     for (const r of this.sql.exec<{ id: string }>(`SELECT id FROM cb_turn WHERE post = 'pending'`).toArray()) void this.postAndSchedule(r.id)
-    if (this.sql.exec(`SELECT 1 FROM cb_spawn WHERE posted = 0 AND state IN ('done', 'failed') LIMIT 1`).toArray().length > 0) void this.deliverReports()
+    if (this.sql.exec(`SELECT 1 FROM cb_spawn WHERE posted = 0 LIMIT 1`).toArray().length > 0) void this.deliverReports()
     if (this.sql.exec(`SELECT 1 FROM cb_spawn_slot LIMIT 1`).toArray().length > 0) void this.pumpSlots()
     if (!this.memory.settled()) await this.schedule("compact", "compact", Date.now() + RETRY_MS)
   }
@@ -237,12 +237,19 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   /** A run with its steps after `afterSeq`, or null. The Worker checked the caller is a member of this brain's conversation first. */
   async run(id: string, afterSeq = 0, limit = 500): Promise<{ run: Run; steps: Array<Step>; has_more: boolean } | null> {
+    // A subagent run is read only from a started child: a read never opens a child before its task (its tools come from its role).
+    if (id.startsWith("sub_") && !readChild(this.sql)) return null
     await this.lifecycle.start()
     const agent = this.config().agent
     const run = agent ? readRun(this.sql, agent, id) : null
     if (!run) return null
     const steps = readSteps(this.sql, id, afterSeq, limit + 1)
     return { run, steps: steps.slice(0, limit), has_more: steps.length > limit }
+  }
+
+  /** Parent brain: did it spawn child `n` (the runs route asks before it reaches a child object). */
+  async spawned(n: number): Promise<boolean> {
+    return this.sql.exec(`SELECT 1 FROM cb_spawn WHERE n = ?`, n).toArray().length > 0
   }
 
   /** This brain's runs, newest first (the Worker checked membership first). */
@@ -340,16 +347,19 @@ export class ChiefBrainDO extends DurableObject<Env> {
     this.ctx.storage.transactionSync(() => {
       if (this.sql.exec(`SELECT 1 FROM oc_logged WHERE key = ?`, key).toArray().length > 0) return
       this.sql.exec(`INSERT INTO oc_logged (key) VALUES (?)`, key)
-      this.memory.append(kind, text)
+      // A child never reads a memory view: no log, no compactor calls.
+      if (!this.childOf()) this.memory.append(kind, text)
       if (turn && step) changed = upsertStep(this.sql, turn, step, Date.now())
       logged = true
     })
-    if (logged) this.compactor.pump()
+    if (logged && !this.childOf()) this.compactor.pump()
     if (turn && changed) this.announce(turn, [changed])
   }
 
   /** `conversation-run-changed` for the run's conversation (the run summary and the steps that changed). */
   private announce(turn: string, steps: ReadonlyArray<Step>): void {
+    // A subagent run is not shown live as a Chief run (its card and the runs route show it).
+    if (this.childOf()) return
     const agent = this.config().agent
     const run = agent ? readRun(this.sql, agent, turn) : null
     if (agent && run) this.ctx.waitUntil(liveOf(this.ctx).after(() => runChanged(this.env, run.conversation, agent, run, steps))) // behind the live frames
@@ -384,9 +394,18 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   private async drain(): Promise<void> {
-    if (this.childOf()) {
-      const r = this.sql.exec<{ id: string }>(`SELECT id FROM cb_turn WHERE status = 'running' LIMIT 1`).toArray()[0]
-      return r ? this.runTurn(r.id) : undefined
+    const child = this.childOf()
+    if (child) {
+      const r = this.sql.exec<{ id: string; submitted: number }>(`SELECT id, submitted FROM cb_turn WHERE status = 'running' LIMIT 1`).toArray()[0]
+      if (!r) return
+      // Admitted once (a daily turn counted once, also across an eviction); an unreachable owner retries later.
+      if (!r.submitted && !this.sql.exec(`SELECT 1 FROM cb_config WHERE name = 'spawn.admitted'`).toArray().length) {
+        const refused = await this.childAdmit(child)
+        if (refused === "owner.unreachable") return void (await this.schedule("drain", "drain", Date.now() + RETRY_MS))
+        if (refused) return this.childEnd(r.id, false, refused)
+        writeConfig(this.sql, { "spawn.admitted": "1" })
+      }
+      return this.runTurn(r.id)
     }
     for (;;) {
       const running = this.sql.exec<{ turn: string }>(`SELECT turn FROM cb_inbox WHERE state = 'running' ORDER BY n LIMIT 1`).toArray()[0]
@@ -450,10 +469,6 @@ export class ChiefBrainDO extends DurableObject<Env> {
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       if (!row.submitted) {
-        if (child) {
-          const refused = await this.childAdmit(child)
-          if (refused) throw new Error(refused)
-        }
         const blocks = JSON.parse(row.input ?? "[]") as Array<string>
         // A paid model: an allowed owner, the route serves it, under the deployment's cap, with the route's sign-in; else the fallback, which passes the same gate when it is paid; else no turn.
         const owner = this.config().owner ?? ""
@@ -473,7 +488,9 @@ export class ChiefBrainDO extends DurableObject<Env> {
         this.sql.exec(`UPDATE cb_turn SET submitted = 1 WHERE id = ?`, id)
         await this.harness.submit(blocks.map((text) => ({ type: "text" as const, text })), { operationId: id })
       }
-      const limit = new Promise<"timeout">((r) => (timer = setTimeout(() => r("timeout"), TURN_MS)))
+      // A child's bound runs from its start, across restarts (its slot frees after SLOT_STALE_MS).
+      const left = child ? Math.max(1_000, Number(this.sql.exec<{ s: number }>(`SELECT started AS s FROM cb_turn WHERE id = ?`, id).one().s) + TURN_MS - Date.now()) : TURN_MS
+      const limit = new Promise<"timeout">((r) => (timer = setTimeout(() => r("timeout"), left)))
       this.turnLive = true
       // After a restart: the ops that joined this turn before (pi takes a repeated operation id once).
       for (const s of this.steerOps(id)) [this.steered.push(s.op), await this.harness.session().steer([{ type: "text" as const, text: s.text }], { operationId: s.op }).catch(() => undefined)]
@@ -588,7 +605,11 @@ export class ChiefBrainDO extends DurableObject<Env> {
       config: () => this.config(),
       isChild: () => this.childOf() !== null,
       enqueue: (items: ReadonlyArray<ChildStart>) => this.settingsOf(items[0]!.agent).spawnEnqueue(items[0]!.agent, items[0]!.owner, [...items]) as Promise<{ running: number; waiting: number }>,
-      changed: (conversation: string) => this.subsChanged(conversation)
+      changed: (conversation: string) => {
+        this.subsChanged(conversation)
+        // The lost-child check runs even when no report ever comes.
+        void this.schedule("spawn-post", "spawn-post", Date.now() + CHILD_LOST_MS + 60_000)
+      }
     }
   }
 
@@ -642,9 +663,12 @@ export class ChiefBrainDO extends DurableObject<Env> {
   /** Child: the run ended; its report (the last talk, or a short failure line with no internal detail) goes to the parent. */
   private async childEnd(id: string, ok: boolean, reason: string | null): Promise<void> {
     const why = String(reason ?? "")
+    const talk = ok ? lastTalk(this.sql, id) : ""
     const report = ok
-      ? lastTalk(this.sql, id) || "(no answer)"
-      : /credits/i.test(why)
+      ? (talk && !isNoReply(talk) ? talk : "(no answer)")
+      : /^(disabled|other_chief|chief_archived|chief_placed)$/.test(why)
+        ? "I could not do the task: the Chief is off or archived."
+        : /credits/i.test(why)
         ? "I could not do the task: this team is out of Cloud credits."
         : /daily_turn_limit|daily_cap/.test(why)
           ? "I could not do the task: the Chief reached today's limit."
@@ -670,6 +694,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       console.warn(JSON.stringify({ msg: "chief_brain.spawn_report_retry", run: id, tries: t.post_tries, error: String(e).slice(0, 200) }))
       if (t.post_tries >= 30) {
         this.sql.exec(`UPDATE cb_turn SET post = 'refused' WHERE id = ?`, id)
+        await this.settingsOf(c.agent).spawnDone(childObject(c.agent, c.conversation, c.n)).catch(() => undefined)
         return null
       }
       this.sql.exec(`UPDATE cb_turn SET post_tries = post_tries + 1 WHERE id = ?`, id)
@@ -693,6 +718,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
         this.reportAgain = false
         const cfg = this.config()
         if (!cfg.agent || !cfg.owner) return
+        // A child that never reported within CHILD_LOST_MS counts as failed.
+        this.sql.exec(`UPDATE cb_spawn SET state = 'failed', report = 'I did not report in time.', ended = ? WHERE state IN ('queued', 'enqueued') AND created < ?`, Date.now(), Date.now() - CHILD_LOST_MS)
         const a = await this.admitted(cfg.agent, cfg.owner, false).catch((): Admission => ({ ok: false, reason: "owner.unreachable" }))
         if (!a.ok && a.reason === "owner.unreachable") return void (await this.schedule("spawn-post", "spawn-post", Date.now() + POST_RETRY_MS))
         // The Chief was turned off, archived or placed: its reports are not posted.

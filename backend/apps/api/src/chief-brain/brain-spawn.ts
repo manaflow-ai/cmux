@@ -25,7 +25,7 @@ export const SPAWN_SCHEMA = [
   // Parent brain: one row per child it spawned (`call`, `i` make a replayed tool call commit once).
   `CREATE TABLE IF NOT EXISTS cb_spawn (n INTEGER PRIMARY KEY AUTOINCREMENT, call TEXT NOT NULL, i INTEGER NOT NULL, name TEXT NOT NULL, parent_run TEXT NOT NULL, conversation TEXT NOT NULL, kind TEXT NOT NULL, thread_root TEXT, task TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'queued', created INTEGER NOT NULL, ended INTEGER, report TEXT, posted INTEGER NOT NULL DEFAULT 0, UNIQUE (call, i))`,
   // Settings object: the Chief's child slots (waiting or running), with each child's start payload.
-  `CREATE TABLE IF NOT EXISTS cb_spawn_slot (child TEXT PRIMARY KEY, state TEXT NOT NULL, at INTEGER NOT NULL, start TEXT NOT NULL)`
+  `CREATE TABLE IF NOT EXISTS cb_spawn_slot (child TEXT PRIMARY KEY, state TEXT NOT NULL, at INTEGER NOT NULL, start TEXT NOT NULL, tries INTEGER NOT NULL DEFAULT 0)`
 ]
 
 /** Tasks per spawn call. */
@@ -34,8 +34,10 @@ const TASK_MAX = 8_000
 const BRIEF_MAX = 16_000
 /** A report the parent reads (the view doc: messages up to 30,000 characters). */
 const REPORT_MAX = 30_000
-/** Work-card preview limit (home-core MAX_PREVIEW_BYTES). */
-const PREVIEW_BYTES = 4_096
+/** Work-card preview shown to members (home-core allows 4096 bytes). */
+const PREVIEW_BYTES_SHOWN = 600
+/** A child that has not reported after this long is failed in the parent (its "still at work" line ends). */
+export const CHILD_LOST_MS = 60 * 60_000
 /** A running slot older than this is free again (a child run is bounded by TURN_MS = 10 min). */
 export const SLOT_STALE_MS = 12 * 60_000
 
@@ -157,6 +159,10 @@ export const spawnTool = (host: SpawnHost): ToolRegistration<typeof Args> => ({
 
 const childStub = (env: Env, s: ChildStart) =>
   env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(childObject(s.agent, s.conversation, s.n))) as unknown as { spawnStart(s: ChildStart): Promise<{ ended: boolean }> }
+const parentStub = (env: Env, s: ChildStart) =>
+  env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${s.agent}/${s.conversation}`)) as unknown as { spawnReport(n: number, status: "done" | "failed", report: string): Promise<unknown> }
+/** Starts of one child before it is given up (a failed report goes to the parent). */
+const START_TRIES = 5
 
 export const slotEnqueue = (sql: SqlStorage, items: ReadonlyArray<ChildStart>, now: number): void => {
   for (const s of items) sql.exec(`INSERT INTO cb_spawn_slot (child, state, at, start) VALUES (?, 'waiting', ?, ?) ON CONFLICT (child) DO NOTHING`, childObject(s.agent, s.conversation, s.n), now, JSON.stringify(s))
@@ -176,16 +182,24 @@ export const slotPump = async (sql: SqlStorage, env: Env, cap: number, now = Dat
   sql.exec(`DELETE FROM cb_spawn_slot WHERE state = 'running' AND at < ?`, now - SLOT_STALE_MS)
   for (;;) {
     if (slotCounts(sql).running >= cap) break
-    const next = sql.exec<{ child: string; start: string }>(`SELECT child, start FROM cb_spawn_slot WHERE state = 'waiting' ORDER BY at, child LIMIT 1`).toArray()[0]
+    const next = sql.exec<{ child: string; start: string; tries: number }>(`SELECT child, start, tries FROM cb_spawn_slot WHERE state = 'waiting' ORDER BY at, child LIMIT 1`).toArray()[0]
     if (!next) return null
-    sql.exec(`UPDATE cb_spawn_slot SET state = 'running', at = ? WHERE child = ?`, now, next.child)
+    sql.exec(`UPDATE cb_spawn_slot SET state = 'running', at = ?, tries = tries + 1 WHERE child = ?`, now, next.child)
+    const s = JSON.parse(next.start) as ChildStart
     try {
-      const r = await childStub(env, JSON.parse(next.start) as ChildStart).spawnStart(JSON.parse(next.start) as ChildStart)
+      const r = await childStub(env, s).spawnStart(s)
       // A child that already ended (a repeated start) holds no slot.
       if (r.ended) sql.exec(`DELETE FROM cb_spawn_slot WHERE child = ?`, next.child)
     } catch (e) {
-      console.warn(JSON.stringify({ msg: "chief_brain.spawn_start_failed", child: next.child, error: String(e).slice(0, 200) }))
-      sql.exec(`UPDATE cb_spawn_slot SET state = 'waiting' WHERE child = ? AND state = 'running'`, next.child)
+      console.warn(JSON.stringify({ msg: "chief_brain.spawn_start_failed", child: next.child, tries: next.tries + 1, error: String(e).slice(0, 200) }))
+      if (next.tries + 1 >= START_TRIES) {
+        // Given up: the parent gets a failed report (so its "still at work" list ends) and the slot frees.
+        sql.exec(`DELETE FROM cb_spawn_slot WHERE child = ?`, next.child)
+        await parentStub(env, s).spawnReport(s.n, "failed", "I could not start.").catch(() => undefined)
+        continue
+      }
+      // Behind the other waiting children, so one bad child never blocks the queue.
+      sql.exec(`UPDATE cb_spawn_slot SET state = 'waiting', at = ? WHERE child = ? AND state = 'running'`, Date.now(), next.child)
       return Date.now() + 5_000
     }
   }
@@ -219,13 +233,16 @@ export const postReports = async (env: Env, sql: SqlStorage, transaction: (f: ()
   let retry = false
   for (const r of rows) {
     const report = r.report?.trim() || "(no report)"
+    // The full report goes only to the Chief; members see a short preview in the Chief's own line or a DM,
+    // and only the status in a channel or group (the Chief decides what of a report the room sees).
+    const shown = r.kind === "chief" || r.kind === "dm" ? clipBytes(`${r.name}: ${report}`, PREVIEW_BYTES_SHOWN) : `${r.name}: ${r.state === "done" ? "done" : "failed"}`
     const res = await postWork(env, principal, {
       conversation: r.conversation,
       key: `spawn-report:${principal.agent}:${childKey(r.conversation, r.n)}`,
       session: childRunId(r.n),
       host,
       status: r.state === "done" ? "done" : "failed",
-      preview: clipBytes(`${r.name}: ${report}`, PREVIEW_BYTES),
+      preview: shown,
       ...(r.thread_root ? { thread_root: r.thread_root } : {})
     }).catch((e: unknown) => ({ ok: false as const, code: "owner.unreachable", message: String(e) }))
     if (!res.ok && res.code === "owner.unreachable") {
@@ -234,10 +251,13 @@ export const postReports = async (env: Env, sql: SqlStorage, transaction: (f: ()
     }
     transaction(() => {
       sql.exec(`UPDATE cb_spawn SET posted = 1 WHERE n = ?`, r.n)
-      if (!res.ok || res.seq === undefined) return void console.warn(JSON.stringify({ msg: "chief_brain.spawn_report_refused", n: r.n, code: res.ok ? "no_seq" : res.code }))
+      // A refused card still reaches the Chief (the inbox row is what it reads).
+      if (!res.ok) console.warn(JSON.stringify({ msg: "chief_brain.spawn_report_refused", n: r.n, code: res.code }))
+      // The row's seq is the brain's read cursor, not the card's: a turn's ack (last_seq) never passes a person's message it has not read.
+      const seq = Number(sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, r.conversation).toArray()[0]?.seq ?? 0)
       const busy = sql.exec<{ name: string }>(`SELECT name FROM cb_spawn WHERE parent_run = ? AND conversation = ? AND state IN ('queued', 'enqueued') ORDER BY n`, r.parent_run, r.conversation).toArray().map((x) => x.name)
       const text = `[${r.name}] ${report}${r.state === "done" ? "" : " (the subagent failed)"}${busy.length > 0 ? `\n(still at work: ${busy.join(", ")})` : "\n(all subagents of this request have reported)"}`
-      sql.exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, woke) VALUES (?, ?, ?, ?, ?, ?, 1) ON CONFLICT (message) DO NOTHING`, res.message ?? `spawn:${r.n}`, r.conversation, res.seq, r.kind, r.thread_root, text)
+      sql.exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, woke) VALUES (?, ?, ?, ?, ?, ?, 1) ON CONFLICT (message) DO NOTHING`, (res.ok && res.message) || `spawn:${r.n}`, r.conversation, seq, r.kind, r.thread_root, text)
       conversations.add(r.conversation)
     })
   }
