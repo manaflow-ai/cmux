@@ -166,12 +166,12 @@ struct CloudFirstRunPlanTests {
 
     // MARK: Timeline
 
-    @Test func timelineFreezesWhenTheAgentStarts() {
+    @Test func timelineFreezesWhenTheAgentStarts() throws {
         let open = Date(timeIntervalSince1970: 1_000)
         var timeline = CloudFirstRunTimeline(openedAt: open)
         timeline.record(.machineReady, at: open.addingTimeInterval(14.2))
         timeline.record(.machineReady, at: open.addingTimeInterval(99))
-        let machineMark = timeline.seconds(.machineReady)
+        let machineMark = try #require(timeline.seconds(.machineReady))
         let runningDisplay = timeline.elapsed(now: open.addingTimeInterval(20))
         #expect(abs(machineMark - 14.2) < 0.001)
         #expect(abs(runningDisplay - 20) < 0.001)
