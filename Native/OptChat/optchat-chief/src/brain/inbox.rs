@@ -111,9 +111,9 @@ impl Brain {
     /// Spec 5a.2: an edit or a retraction of a message the log holds is
     /// logged as a note that names its line (`edit of <id>: <text>`,
     /// `retracted <id>`), so the next turn's delta carries it and the next
-    /// re-render folds it in. A reaction or another update logs nothing,
-    /// nor does a change of a message not logged (still queued, or one that
-    /// never woke the Chief), nor of the Chief's own messages. The note's key
+    /// re-render folds it in. A reaction or another update logs nothing, nor
+    /// does a change of the Chief's own messages. A message still queued
+    /// takes the edited text, or leaves the queue when retracted. The note's key
     /// names the change, so a replayed update is logged once.
     fn on_message_updated(&mut self, message: &Message) {
         let Some(main) = self.state.conversation.clone() else {
@@ -124,6 +124,7 @@ impl Brain {
         }
         let key = format!("{main}#{}", message.seq);
         let Some(target) = self.chat.logged_id(&key) else {
+            self.update_queued(message);
             return;
         };
         let (text, change) = match (&message.retracted_at, &message.edited_at) {
@@ -142,6 +143,30 @@ impl Brain {
             (self.log)(&format!(
                 "logging the change of message {target} failed: {e}"
             ));
+        }
+    }
+
+    /// The queued item of main-conversation message `message` (not logged
+    /// yet) takes its edit, or leaves the queue when it was retracted.
+    fn update_queued(&mut self, message: &Message) {
+        let is_it = |q: &super::Queued| {
+            q.conversation.is_none()
+                && !q.logged
+                && matches!(q.source, Source::Message { seq, .. } if seq == message.seq)
+        };
+        if message.retracted_at.is_some() {
+            self.queue.retain(|q| !is_it(q));
+            if !self.queued_messages_of(None) {
+                self.state.logged_seq = self.handled;
+                self.save();
+                self.set_cursor(self.handled);
+                self.settle_acks();
+            }
+        } else if message.edited_at.is_some() {
+            let text = message_text(message);
+            for q in self.queue.iter_mut().filter(|q| is_it(q)) {
+                q.text = super::images::logged_text(&text, &q.images);
+            }
         }
     }
 

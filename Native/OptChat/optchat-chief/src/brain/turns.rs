@@ -439,6 +439,20 @@ impl Brain {
                 _ => None,
             })
             .collect();
+        // The turn's first new entry: an item a failed steer logged already
+        // is new too, so it stays in the delta, never in a new view (5a.3).
+        let main = self.state.conversation.clone().unwrap_or_default();
+        let first_new = items
+            .iter()
+            .filter(|q| q.logged)
+            .filter_map(|q| match q.source {
+                Source::Message { seq, .. } => self.chat.logged_id(&format!(
+                    "{}#{seq}",
+                    q.conversation.as_deref().unwrap_or(&main)
+                )),
+                _ => None,
+            })
+            .fold(first_id, u64::min);
         let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
         // Per-turn state goes after the delta, never in the system prompt and
         // never before a cache mark: the subagents at work now (the reference
@@ -465,11 +479,10 @@ impl Brain {
             .frozen
             .as_ref()
             .and_then(crate::state::FrozenRecord::frozen);
-        let input = self.chat.turn_input(frozen.as_ref(), first_id);
+        let input = self.chat.turn_input(frozen.as_ref(), first_new);
         self.state.frozen = Some(crate::state::FrozenRecord::of(&input.frozen));
         self.save();
         let view = &input.view;
-        let delta_end = self.chat.status().messages;
         let cached = cached.as_deref();
         let (blocks, system_prompt, preset) = match cached {
             Some(preset) => {
@@ -489,19 +502,19 @@ impl Brain {
                     &self.settings.system_text,
                     &view.text,
                     &input.delta,
+                    &image_blocks,
                     &tail.join("\n\n"),
                     mark,
                 );
                 (layout.blocks, Some(layout.system), Some(preset.to_owned()))
             }
             None => (
-                input_blocks(&view.text, &input.delta, &tail.join("\n\n")),
+                input_blocks(&view.text, &input.delta, &image_blocks, &tail.join("\n\n")),
                 None,
                 plain_preset,
             ),
         };
         let image_count = image_blocks.len();
-        let blocks = with_images(blocks, image_blocks);
         if self.settings.turn_preset.is_some() && family == crate::acpmux::Family::Claude {
             // The system prompt carries the instructions in the cached
             // layout; the old layout reads them from CLAUDE.md.
@@ -527,7 +540,7 @@ impl Brain {
         // The delta by its log range and cuts: the inspector renders it again.
         layout["delta"] = serde_json::json!({
             "front": input.frozen.front,
-            "end": delta_end,
+            "end": input.end,
             "cuts": input.frozen.cuts,
             "bytes": input.delta.iter().map(String::len).sum::<usize>(),
             "rendered": input.rendered,
@@ -1245,19 +1258,6 @@ fn source_name(source: &Source) -> &'static str {
 
 /// The turn's images go just before its last block (the new messages, which
 /// name them), so the view blocks and their cache marker stay as they were.
-fn with_images(
-    mut blocks: Vec<serde_json::Value>,
-    images: Vec<serde_json::Value>,
-) -> Vec<serde_json::Value> {
-    if images.is_empty() {
-        return blocks;
-    }
-    let tail = blocks.pop();
-    blocks.extend(images);
-    blocks.extend(tail);
-    blocks
-}
-
 /// A queued item's source as the pending turn saves it.
 fn item(queued: &Queued) -> Item {
     let images = queued.images.iter().map(|i| i.source.clone()).collect();

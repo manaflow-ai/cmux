@@ -49,6 +49,8 @@ pub struct TurnInput {
     pub delta: Vec<String>,
     /// The record to store for the next turn (this request's end is a cut).
     pub frozen: Frozen,
+    /// The log length the delta runs to (this request's end).
+    pub end: u64,
     /// Whether this turn rendered a new view (one cache write of the view).
     pub rendered: bool,
 }
@@ -110,17 +112,20 @@ pub fn delta_blocks(
     cuts: &[u64],
 ) -> Vec<String> {
     let mut blocks: Vec<String> = Vec::new();
-    let mut last_user: Option<bool> = None;
+    let mut last: Option<(u64, bool)> = None;
     for id in front..end.min(memory.len()) {
         if memory.is_imported(id) {
             continue;
         }
         let (kind, text) = store.message(id);
         let user = kind == Kind::User;
-        if last_user != Some(user) || cuts.binary_search(&id).is_ok() || blocks.is_empty() {
+        // A cut between the last line and this one (also when the entry at
+        // the cut itself is left out) ends the block.
+        let cut = last.is_some_and(|(prev, _)| cuts.iter().any(|c| prev < *c && *c <= id));
+        if last.is_none_or(|(_, was_user)| was_user != user) || cut {
             blocks.push(String::new());
         }
-        last_user = Some(user);
+        last = Some((id, user));
         let block = blocks.last_mut().expect("a block was pushed");
         block.push('\n');
         block.push_str(&delta_line(id, kind, &text));
@@ -132,13 +137,16 @@ fn delta_bytes(blocks: &[String]) -> usize {
     blocks.iter().map(String::len).sum()
 }
 
-/// A view rendered now over the entries before `first_new` (this turn's new
-/// messages go to the delta, never into the view: 5a.3).
+/// A view rendered now over the built lines before `first_new` (this turn's
+/// new messages go to the delta, never into the view: 5a.3).
 fn render_fresh(memory: &Memory, store: &dyn Store, first_new: u64) -> (RenderedView, u64) {
+    // Up to the first line that is not built (it and every later entry go
+    // to the delta, as lines of their own): a frozen view never shows the
+    // placeholder, so a later build never changes its bytes (5a.1).
     let parts: Vec<NodeId> = render_view(memory, store)
         .parts
         .into_iter()
-        .filter(|p| p.end() <= first_new)
+        .take_while(|p| p.end() <= first_new && memory.is_built(*p))
         .collect();
     let front = parts.iter().map(|p| p.end()).max().unwrap_or(0);
     (render_parts(&parts, store), front)
@@ -170,7 +178,9 @@ pub fn turn_input(
     });
     if let Some((f, view)) = kept {
         let delta = delta_blocks(memory, store, f.front, memory.len(), &f.cuts);
-        let bytes = delta_bytes(&delta);
+        // This turn's new messages stay in the delta through a re-render,
+        // so only the entries before them count toward one.
+        let bytes = delta_bytes(&delta_blocks(memory, store, f.front, first_new, &f.cuts));
         let stay =
             bytes <= DELTA_HARD && (bytes <= DELTA_MAX || !built_past(memory, f.front, first_new));
         if stay {
@@ -183,6 +193,7 @@ pub fn turn_input(
                 view,
                 delta,
                 frozen: next,
+                end,
                 rendered: false,
             };
         }
@@ -201,6 +212,7 @@ pub fn turn_input(
         view,
         delta,
         frozen,
+        end,
         rendered: true,
     }
 }

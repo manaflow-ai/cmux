@@ -42,8 +42,9 @@ const VIEW_END: &str = "A text too\nlong for one message is split over several i
 pub fn delta_doc() -> String {
     format!(
         "After </chat> come the log entries since the view was made, oldest first,\n\
-         one per line as id|kind: text (newlines as spaces); the turn's new messages\n\
-         are the last user lines. {}",
+         one per line as id|kind: text (newlines as spaces), or id|edit of <id>: text,\n\
+         id|retracted <id>, id|deleted <id>; the turn's new messages are the last user\n\
+         lines. {}",
         optchat_core::DELTA_RULE
     )
 }
@@ -604,8 +605,8 @@ pub const ZOOM_AGENT_DESCRIPTION: &str = " With a subagent's id (a1) as id, it g
 pub const DATE_DESCRIPTION: &str = "The date and time of message id.";
 
 /// A turn's input in the cached layout (spec 5a): the frozen view in its
-/// blocks of 4 lines, the delta's blocks, then `tail` (per-turn state, never
-/// logged). With `ttl`, three marks of the API's four: the `<chat>` header
+/// blocks of 4 lines, the delta's blocks, the turn's `images`, then `tail`
+/// (per-turn state, never logged). Nothing per-turn goes before the delta's end. With `ttl`, three marks of the API's four: the `<chat>` header
 /// (the system prompt's own entry), the view's end and the delta's end. The
 /// previous turn's input is a prefix of this one up to its delta's end, a
 /// block boundary here, so the provider reads all of it.
@@ -613,6 +614,7 @@ pub fn input_layout(
     system: &str,
     view: &str,
     delta: &[String],
+    images: &[Value],
     tail: &str,
     ttl: Option<CacheTtl>,
 ) -> CachedPrompt {
@@ -629,6 +631,7 @@ pub fn input_layout(
             blocks[i]["cache_control"] = ttl.cache_control();
         }
     }
+    blocks.extend(images.iter().cloned());
     if !tail.is_empty() {
         blocks.push(text(tail));
     }
@@ -640,8 +643,8 @@ pub fn input_layout(
 
 /// `input_layout` without marks or system prompt: the blocks of a harness
 /// with automatic prefix caching (codex), byte-stable the same way.
-pub fn input_blocks(view: &str, delta: &[String], tail: &str) -> Vec<Value> {
-    input_layout("", view, delta, tail, None).blocks
+pub fn input_blocks(view: &str, delta: &[String], images: &[Value], tail: &str) -> Vec<Value> {
+    input_layout("", view, delta, images, tail, None).blocks
 }
 
 /// The turn's user message (spec 6): the view rendered before the new

@@ -118,8 +118,15 @@ fn a_claude_turn_sends_the_frozen_view_then_the_delta_with_three_marks() {
             json!({"type": "ephemeral", "ttl": "1h"})
         );
     }
-    let expected =
-        input_layout(&claude_md(None), &view, &delta, "", Some(CacheTtl::OneHour)).blocks;
+    let expected = input_layout(
+        &claude_md(None),
+        &view,
+        &delta,
+        &[],
+        "",
+        Some(CacheTtl::OneHour),
+    )
+    .blocks;
     assert_eq!(*blocks, expected);
     assert!(!h.dir.path().join("session").join("CLAUDE.md").exists());
 }
@@ -160,7 +167,7 @@ fn without_system_prompt_support_a_claude_turn_keeps_the_old_layout_and_its_clau
     assert_eq!(inner.specs[0].preset, None);
     assert_eq!(
         inner.prompts[0],
-        input_blocks(&view, &[format!("\n{id}|user: hello")], "")
+        input_blocks(&view, &[format!("\n{id}|user: hello")], &[], "")
     );
     assert_eq!(
         std::fs::read_to_string(h.dir.path().join("session").join("CLAUDE.md")).unwrap(),
@@ -194,7 +201,7 @@ fn a_codex_turn_sends_the_view_first_and_the_messages_last_with_no_marker_and_no
     assert_eq!(inner.specs[0].preset, None);
     assert_eq!(
         inner.prompts[0],
-        input_blocks(&view, &[format!("\n{id}|user: one")], "")
+        input_blocks(&view, &[format!("\n{id}|user: one")], &[], "")
     );
     assert!(inner.prompts.iter().all(|b| markers(b).is_empty()));
     // Automatic prefix caching (spec 5a): the second turn's input starts

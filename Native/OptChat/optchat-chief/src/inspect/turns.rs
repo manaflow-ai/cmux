@@ -151,6 +151,7 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
                 system_text,
                 view_text,
                 delta,
+                &[],
                 &input_tail(),
                 marker.then_some(ttl),
             );
@@ -158,7 +159,7 @@ pub fn turn_prompt(chat: &OptChat, start: &Value, system_text: &str) -> TurnProm
         } else {
             (
                 system_text.to_owned(),
-                crate::prompt::input_blocks(view_text, delta, &input_tail()),
+                crate::prompt::input_blocks(view_text, delta, &[], &input_tail()),
             )
         }
     } else if layout == "cached" {
