@@ -88,8 +88,8 @@ import CmuxMobileSSH
             try? await reconnect.connect()
         }
         #expect(await result.value == nil)
-        #expect(openCount >= MobileSSHCmuxTUITopologyReconnect<FakeControl>.maximumRecoveryAttempts)
-        #expect(openCount <= MobileSSHCmuxTUITopologyReconnect<FakeControl>.maximumRecoveryAttempts + 1)
+        #expect(openCount >= MobileSSHCmuxTUITopologyReconnect<FakeControl>.maximumRecoveryAttempts + 1)
+        #expect(openCount <= MobileSSHCmuxTUITopologyReconnect<FakeControl>.maximumRecoveryAttempts + 2)
         #expect(first.isClosed)
     }
 

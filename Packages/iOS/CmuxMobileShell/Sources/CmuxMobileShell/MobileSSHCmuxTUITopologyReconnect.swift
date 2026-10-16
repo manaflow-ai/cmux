@@ -79,7 +79,8 @@ final class MobileSSHCmuxTUITopologyReconnect<Control: AnyObject & Sendable> {
         if let recoveryTask {
             await recoveryTask.value
             guard !stopped else { throw CancellationError() }
-            if let control { return control }
+            guard let control else { throw CmuxTUIError.closed }
+            return control
         }
         return try await connectFresh()
     }
