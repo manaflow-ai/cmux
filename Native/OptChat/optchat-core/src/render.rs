@@ -386,7 +386,15 @@ pub fn turn_input(
 ) -> TurnInput {
     let new_from = memory.len().saturating_sub(new);
     if let Some(f) = frozen.filter(|f| f.front <= new_from) {
-        let (delta, bytes) = delta_blocks(memory, store, f.front, new_from, memory.len(), &f.cuts, &f.starts);
+        let (delta, bytes) = delta_blocks(
+            memory,
+            store,
+            f.front,
+            new_from,
+            memory.len(),
+            &f.cuts,
+            &f.starts,
+        );
         // A fold past the front: a built view line above level 0 now covers the front message, so a
         // re-render is shorter than view + delta (a short message built at pump alone does not count).
         let built_past = f.front < memory.len()
@@ -398,7 +406,10 @@ pub fn turn_input(
             if memory.len() > f.front && next.cuts.last() != Some(&memory.len()) {
                 next.cuts.push(memory.len());
             }
-            if new_from > f.front && new_from < memory.len() && next.starts.last() != Some(&new_from) {
+            if new_from > f.front
+                && new_from < memory.len()
+                && next.starts.last() != Some(&new_from)
+            {
                 next.starts.push(new_from);
             }
             return TurnInput {
