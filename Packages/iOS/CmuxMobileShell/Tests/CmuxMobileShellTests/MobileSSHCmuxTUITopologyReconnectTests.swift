@@ -61,6 +61,43 @@ import CmuxMobileSSH
         await reconnect.close()
     }
 
+    @Test func subscriptionFailureBacksOffBeforeReplacingControl() async throws {
+        let first = FakeControl(id: 1)
+        let second = FakeControl(id: 2)
+        let third = FakeControl(id: 3)
+        var pending = [first, second, third]
+        var openCount = 0
+        var delays: [Duration] = []
+        let (connections, connectionContinuation) = AsyncStream<(UInt64, Bool)>.makeStream()
+        let reconnect = MobileSSHCmuxTUITopologyReconnect<FakeControl>(
+            open: {
+                openCount += 1
+                return pending.removeFirst()
+            },
+            subscribe: { control in
+                if control.id == second.id { throw CmuxTUIError.closed }
+                return control.stream
+            },
+            close: { control in control.close() },
+            transportIsOpen: { true },
+            sleep: { duration in delays.append(duration) },
+            onEvent: { _, _ in },
+            onTransportGap: { _ in },
+            onControlConnected: { generation, recovered in connectionContinuation.yield((generation, recovered)) }
+        )
+        var connectionIterator = connections.makeAsyncIterator()
+
+        _ = try await reconnect.connect()
+        #expect(await connectionIterator.next()?.1 == false)
+
+        first.continuation.yield(.disconnected)
+        #expect(await connectionIterator.next()?.1 == true)
+        #expect(await connectionIterator.next()?.1 == true)
+        #expect(openCount == 3)
+        #expect(delays == [.seconds(1)])
+        await reconnect.close()
+    }
+
     @Test func deadOwnerExhaustsRecoverySoDiscoveryCanDropProvider() async throws {
         let first = FakeControl(id: 1)
         var openCount = 0

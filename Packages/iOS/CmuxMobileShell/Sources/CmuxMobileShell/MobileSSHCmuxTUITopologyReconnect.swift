@@ -18,16 +18,16 @@ final class MobileSSHCmuxTUITopologyReconnect<Control: AnyObject & Sendable> {
     typealias Sleep = (Duration) async throws -> Void
 
     /// The first retry delay after a topology control disconnects.
-    static var initialBackoff: Duration { .seconds(1) }
+    nonisolated static let initialBackoff: Duration = .seconds(1)
     /// The maximum retry delay while the owning SSH transport remains open.
-    static var maximumBackoff: Duration { .seconds(30) }
+    nonisolated static let maximumBackoff: Duration = .seconds(30)
     /// A dead owner must eventually be allowed to fall out of discovery. The
     /// retry window covers the normal transient case while keeping a cached
     /// provider from blocking workspace listing forever.
-    static var maximumRecoveryAttempts: Int { 3 }
+    nonisolated static let maximumRecoveryAttempts = 3
 
     /// Returns the capped delay for a zero-based reconnect attempt.
-    static func backoff(forAttempt attempt: Int) -> Duration {
+    nonisolated static func backoff(forAttempt attempt: Int) -> Duration {
         let shift = min(max(attempt, 0), 5)
         return min(Self.initialBackoff * (1 << shift), Self.maximumBackoff)
     }
@@ -44,6 +44,7 @@ final class MobileSSHCmuxTUITopologyReconnect<Control: AnyObject & Sendable> {
     private var openingTask: Task<Control, Error>?
     private var recoveryTask: Task<Void, Never>?
     private var stopped = false
+    private var postOpenSubscriptionFailures = 0
 
     /// The currently owned control, if the session is connected.
     private(set) var control: Control?
@@ -163,6 +164,9 @@ final class MobileSSHCmuxTUITopologyReconnect<Control: AnyObject & Sendable> {
                 var overflowed = false
                 for await event in events {
                     guard !Task.isCancelled, isCurrent(control: control, generation: generation) else { return }
+                    if event != .disconnected {
+                        postOpenSubscriptionFailures = 0
+                    }
                     onEvent(event, generation)
                     if event == .overflow { overflowed = true }
                     if event == .disconnected {
@@ -175,11 +179,13 @@ final class MobileSSHCmuxTUITopologyReconnect<Control: AnyObject & Sendable> {
                     // at a fresh server snapshot after the overflow relist.
                     continue
                 }
+                postOpenSubscriptionFailures += 1
                 await recover(from: control, generation: generation)
                 return
             } catch is CancellationError {
                 return
             } catch {
+                postOpenSubscriptionFailures += 1
                 await recover(from: control, generation: generation)
                 return
             }
@@ -190,15 +196,18 @@ final class MobileSSHCmuxTUITopologyReconnect<Control: AnyObject & Sendable> {
         guard !Task.isCancelled, !stopped, isCurrent(control: control, generation: generation) else { return }
         if let recoveryTask {
             await recoveryTask.value
+            if !Task.isCancelled, !stopped, isCurrent(control: control, generation: generation) {
+                await recover(from: control, generation: generation)
+            }
             return
         }
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.runRecovery(from: control, generation: generation)
+            self.recoveryTask = nil
         }
         recoveryTask = task
         await task.value
-        recoveryTask = nil
     }
 
     private func runRecovery(from control: Control, generation: UInt64) async {
@@ -210,7 +219,15 @@ final class MobileSSHCmuxTUITopologyReconnect<Control: AnyObject & Sendable> {
         onTransportGap(self.generation)
         guard transportIsOpen() else { return }
 
-        var attempt = 0
+        var attempt = postOpenSubscriptionFailures
+        guard attempt < Self.maximumRecoveryAttempts else { return }
+        if attempt > 0 {
+            do {
+                try await sleep(Self.backoff(forAttempt: attempt - 1))
+            } catch {
+                return
+            }
+        }
         while !Task.isCancelled, !stopped, transportIsOpen(), attempt < Self.maximumRecoveryAttempts {
             do {
                 _ = try await connectFresh()
