@@ -92,10 +92,7 @@ extension RemoteTmuxControlConnection {
         if !commands.isEmpty {
             _ = sendBatchInternal(commands, kinds: commands.map { _ in .other })
         }
-        let installTarget = sessionId.map { "$\($0)" } ?? sessionName
-        if let command = RemoteTmuxAgentHookInstaller.installCommand(sessionTarget: installTarget) {
-            send(command)
-        }
+        requestAgentHookInstall(sessionTarget: sessionId.map { "$\($0)" } ?? sessionName)
     }
 
     /// Builds the `set-environment -t <target> KEY VALUE` command lines for a

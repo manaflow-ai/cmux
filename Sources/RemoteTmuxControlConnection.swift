@@ -191,10 +191,10 @@ final class RemoteTmuxControlConnection {
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
     var newPaneCompletions: [UUID: (Int?) -> Void] = [:]
     /// Completions for ``sendTracked(_:completion:)`` blocks, keyed by the
-    /// `.tracked` token in the FIFO. Guaranteed exactly one edge each: `%end`,
-    /// `%error`, or a stream reset (``failPendingTrackedSends()``) — callers
-    /// build protocol-anchored state machines on that guarantee.
+    /// `.tracked` token in the FIFO. Guaranteed exactly one edge each: `%end`, `%error`, or a
+    /// stream reset (``failPendingTrackedSends()``); callers build state machines on that.
     var trackedSendCompletions: [UUID: (Bool) -> Void] = [:]
+    var agentHookInstalls = RemoteTmuxAgentHookInstallBatch()
 
     private var process: Process?
     /// Cleanup belongs to the ended spawn, and must finish even if a replacement
