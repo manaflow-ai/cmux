@@ -85,6 +85,19 @@ function systemOf(context: TranscriptContext | Context): string {
     .join("\n");
 }
 
+/** A hash of the tool declarations in force (names and schemas, in order), as a provider binds thinking to them. */
+const toolsHash = (context: unknown): string => {
+  const tools = new Map<string, unknown>()
+  for (const m of (context as { messages: Array<{ role: string; toolsAdded?: Array<{ name: string; description?: string; parameters?: unknown }>; toolsRemoved?: Array<{ name: string }> }> }).messages) {
+    if (m.role !== "system") continue
+    for (const t of m.toolsRemoved ?? []) tools.delete(t.name)
+    for (const t of m.toolsAdded ?? []) tools.set(t.name, [t.description ?? "", t.parameters ?? {}])
+  }
+  let h = 0x811c9dc5
+  for (const c of JSON.stringify([...tools])) h = Math.imul(h ^ c.charCodeAt(0), 0x01000193) >>> 0
+  return h.toString(16)
+}
+
 /** The tools in force for a request: the transcript's system messages replayed (toolsAdded / toolsRemoved). */
 const offeredTools = (context: unknown): Array<{ name: string; size: number }> => {
   const tools = new Map<string, number>()
@@ -137,6 +150,25 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
     if (req.includes("shape-boolconf")) return fauxAssistantMessage('{"verdict":"allow","confidence":true,"reason":"x"}');
     return fauxAssistantMessage('{"verdict":"ask","confidence":0.6,"reason":"not routine"}');
   }
+  // Like Anthropic's API: a signed thinking block of an earlier step is valid only with the same tools list.
+  const hash = toolsHash(context);
+  if (!compact) {
+    for (const m of messages) {
+      if (m.role !== "assistant" || !Array.isArray(m.content)) continue;
+      for (const [i, b] of (m.content as Array<{ type: string; thinkingSignature?: string }>).entries()) {
+        if (b.type === "thinking" && b.thinkingSignature?.startsWith("sig:") && b.thinkingSignature !== `sig:${hash}`)
+          throw new Error(`400 messages.${messages.indexOf(m)}.content.${i}: Invalid \`signature\` in \`thinking\` block: The \`tools\` list differs from the one this block was created with.`);
+      }
+    }
+  }
+  // A turn whose text holds "SIGNED" answers every step with a thinking block signed for the current tools.
+  const signed = !compact && blocksOf(firstUser?.content).join("\n").includes("SIGNED");
+  const withThinking = (r: ReturnType<typeof fauxAssistantMessage>) => {
+    if (!signed) return r;
+    const t = fauxThinking("checking the tools");
+    (t as { thinkingSignature?: string }).thinkingSignature = `sig:${hash}`;
+    return { ...r, content: [t, ...(r.content as Array<unknown>)] } as typeof r;
+  };
   const last = messages[messages.length - 1]!;
   if (!compact && held) {
     // A held request ends early when its run is aborted, as a real stream does.
@@ -156,7 +188,7 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
     return fauxAssistantMessage(`sum: ${body.slice(0, 120)}`);
   }
   if (last.role === "toolResult") {
-    return fauxAssistantMessage(`[${model.id}] tool said: ${textOf(last.content).slice(0, 200)}`);
+    return withThinking(fauxAssistantMessage(`[${model.id}] tool said: ${textOf(last.content).slice(0, 200)}`));
   }
   const text = blocksOf(last.content).at(-1) ?? "";
   const zoom = /zoom\((\d+),\s*(\d+)\)/.exec(text);
@@ -167,7 +199,7 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
   const anyTool = /tool:([a-z_]+)\s+(\{[\s\S]*\})\s*$/.exec(text);
   if (anyTool) {
     try {
-      return fauxAssistantMessage([fauxToolCall(anyTool[1]!, JSON.parse(anyTool[2]!) as Parameters<typeof fauxToolCall>[1])], { stopReason: "toolUse" });
+      return withThinking(fauxAssistantMessage([fauxToolCall(anyTool[1]!, JSON.parse(anyTool[2]!) as Parameters<typeof fauxToolCall>[1])], { stopReason: "toolUse" }));
     } catch {
       // Not JSON: answer as text below.
     }

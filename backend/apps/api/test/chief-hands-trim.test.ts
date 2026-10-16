@@ -82,26 +82,30 @@ describe("Chief hands tools by hand", { timeout: 120_000 }, () => {
     expect(names).not.toContain("agent")
     const compact = first[0]!.find((t) => t.name === "hands")!.size
 
-    // A hand appears while the turn's first request runs (held): that request has the compact tool; the Chief
-    // lists its hands with it, and the request after the tool result carries the full hands and agent tools.
+    // A hand appears while the turn's first request runs (held), and the Chief lists its hands with the entry tool.
+    // The model signs its thinking for the tools list (as Anthropic does): the tools must not change inside the turn,
+    // or the next request is refused with a 400. The full tools come at the next turn boundary.
     const release = holdTurns()
     const key2 = "hands-marker-two"
-    expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: key2, parts: [{ type: "text", text: 'marker-two tool:hands {"action":"list"}' }] }, key2)).ok).toBe(true)
+    expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: key2, parts: [{ type: "text", text: 'SIGNED marker-two tool:hands {"action":"list"}' }] }, key2)).ok).toBe(true)
     const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(chief.main_conversation))
     for (let i = 0; i < 200 && turnTools("marker-two").length === 0; i++) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 25))]
-    expect(turnTools("marker-two")[0]!.map((t) => t.name)).not.toContain("agent")
     await pair(token, "sb-trim")
     release()
-    for (let i = 0; i < 200 && (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id).length < 2; i++) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 25))]
+    let replies: Array<any> = []
+    for (let i = 0; i < 200 && replies.length < 2; i++) [(replies = (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)), await fireAlarm(conv), await new Promise((r) => setTimeout(r, 25))]
+    expect(replies.length).toBe(2)
+    expect(replies[1].parts[0].text, "the turn failed").toContain("tool said")
     const second = turnTools("marker-two")
     expect(second.length, "the tool call took no second request").toBeGreaterThanOrEqual(2)
-    const after = second[1]!
-    expect(after.map((t) => t.name), JSON.stringify(second)).toEqual(expect.arrayContaining(["hands", "agent"]))
-    expect(after.find((t) => t.name === "hands")!.size).toBeGreaterThan(compact * 3)
+    expect(new Set(second.map((t) => JSON.stringify(t))).size, `the tools changed inside the turn: ${JSON.stringify(second)}`).toBe(1)
+    expect(second[0]!.map((t) => t.name)).not.toContain("agent")
 
-    // Later turns have them from their first request.
-    await dmAndReply(token, chief, "marker-three", 3)
-    expect(turnTools("marker-three")[0]!.map((t) => t.name)).toEqual(expect.arrayContaining(["hands", "agent"]))
+    // The next turn has the full tools from its first request.
+    await dmAndReply(token, chief, "SIGNED marker-three", 3)
+    const three = turnTools("marker-three")[0]!
+    expect(three.map((t) => t.name)).toEqual(expect.arrayContaining(["hands", "agent"]))
+    expect(three.find((t) => t.name === "hands")!.size).toBeGreaterThan(compact * 3)
   })
 
   it("a Chief whose hand was paired between turns gets the full tools without waiting on the turn's path", async () => {
