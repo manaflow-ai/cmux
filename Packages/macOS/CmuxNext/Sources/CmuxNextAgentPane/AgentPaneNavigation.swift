@@ -1,3 +1,4 @@
+import CmuxNextPages
 import Foundation
 import WebKit
 
@@ -24,7 +25,8 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         case .allow:
             decisionHandler(.allow)
         case .openOutside(let url):
-            _ = Self.openOutside(url, gestures: view.model.transport.gestures, open: view.openURL)
+            let other = LinkRouter.isOtherTarget(action.modifierFlags)
+            _ = Self.openOutside(url, gestures: view.model.transport.gestures) { view.openURL($0, other) }
             decisionHandler(.cancel)
         case .cancel:
             decisionHandler(.cancel)

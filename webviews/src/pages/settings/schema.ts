@@ -17,6 +17,8 @@ export type SettingKind =
   | "time_range"
   | "theme"
   | "font_family"
+  // Free text, empty for none (`files.textEditor`: an app name, bundle ID or app path).
+  | "text"
   // Kinds only cmux-browser keys use today; the page never renders them (see `consumers`).
   | "number_list"
   | "string_map"
