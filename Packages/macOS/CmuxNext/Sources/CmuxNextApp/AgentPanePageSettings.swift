@@ -6,7 +6,7 @@ import Observation
 
 /// The cmux.json keys every agent page shows, followed for ``AgentTabs``: `labs.previewFeatures`,
 /// `agentPane.editedFiles.*`, `agentPane.showContextUsage`, `diff.colors` and the Debug Settings
-/// toggle `agent.reasoningSlider`. Each change reaches every open view; a new view gets the current
+/// toggles `agent.reasoningSlider`/`agent.reasoningSliderStyle`. Each change reaches every open view; a new view gets the current
 /// values (``apply(to:)``).
 final class AgentPanePageSettings {
     private(set) var previewFeatures = false
@@ -26,7 +26,7 @@ final class AgentPanePageSettings {
 
     /// Follows both keys in `settings`; `push` runs after each change, to reach the open views.
     func follow(_ settings: SettingsController, push: @escaping () -> Void) {
-        for task in [previewObservation, editedFilesObservation, zoomObservation, composerObservation, diffColorsObservation] { task?.cancel() }  // a new controller replaces, never adds
+        for task in [previewObservation, editedFilesObservation, zoomObservation, composerObservation, reasoningSliderObservation, diffColorsObservation] { task?.cancel() }  // a new controller replaces, never adds
         self.settings = settings
         // task-owner: lives as long as the tabs; event-driven (Observation)
         previewObservation = Task { [weak self] in
@@ -57,16 +57,19 @@ final class AgentPanePageSettings {
                 guard let self else { return }
                 // The reasoning slider is the Debug Settings toggle's, not cmux.json's.
                 let reasoningSlider = composer.reasoningSlider
+                let reasoningSliderStyle = composer.reasoningSliderStyle
                 composer = value
                 composer.reasoningSlider = reasoningSlider
+                composer.reasoningSliderStyle = reasoningSliderStyle
                 push()
             }
         }
         // task-owner: lives as long as the tabs; event-driven (Observation)
         reasoningSliderObservation = Task { [weak self] in
-            for await on in ObservationStream({ AgentPaneTunables.reasoningSlider.value }) {
+            for await on in ObservationStream({ (AgentPaneTunables.reasoningSlider.value, AgentPaneTunables.reasoningSliderStyle.value) }) {
                 guard let self else { return }
-                composer.reasoningSlider = on
+                composer.reasoningSlider = on.0
+                composer.reasoningSliderStyle = on.1.rawValue
                 push()
             }
         }

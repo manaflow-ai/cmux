@@ -169,6 +169,19 @@
   will-change: left;
   transform: translateZ(0);
 }
+/* Debug Settings agent.reasoningSliderStyle=minimal: a quieter comparison treatment that keeps
+   the same stops and interaction while reducing the thumb's visual weight. */
+.acpmux-effort-track[data-slider-style="minimal"] .acpmux-effort-fill {
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 34%, transparent);
+}
+.acpmux-effort-track[data-slider-style="minimal"] .acpmux-effort-thumb {
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-width: 1.5px;
+  background: var(--surface-popup);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 32%, transparent);
+}
 /* Faster and Smarter at the track's ends (the track is physical left-to-right, so the row is too),
    the recommended level on its own centred line under them: a narrow panel never cuts it. */
 .acpmux-effort-ends {

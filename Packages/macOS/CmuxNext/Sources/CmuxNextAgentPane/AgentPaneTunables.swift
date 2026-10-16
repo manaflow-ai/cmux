@@ -38,6 +38,20 @@ public nonisolated enum AgentPaneTurnActionsPlacement: String, Sendable, CaseIte
     }
 }
 
+/// Visual treatment of the opt-in reasoning slider. The default keeps the current tokenized
+/// accent thumb; `minimal` is a quieter outlined treatment for comparing composer density.
+public nonisolated enum AgentPaneReasoningSliderStyle: String, Sendable, CaseIterable, TunableChoice {
+    case accent
+    case minimal
+
+    public var tunableTitle: String {
+        switch self {
+        case .accent: "Accent (current)"
+        case .minimal: "Minimal (quiet fill, outlined thumb)"
+        }
+    }
+}
+
 /// Debug Settings declarations of the agent pane (DEV and NIGHTLY).
 public nonisolated struct AgentPaneTunables {
     public nonisolated init() {}
@@ -173,5 +187,13 @@ public nonisolated struct AgentPaneTunables {
         help: "The composer's reasoning menu shows a slider from Faster to Smarter instead of the list of levels.",
         default: false, code: "AgentPaneTunables.reasoningSlider")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor] }
+    /// The slider treatment to compare while `reasoningSlider` is on. The default is today's
+    /// tokenized accent thumb; this remains a Debug Settings choice and never changes the
+    /// slider's availability.
+    public static let reasoningSliderStyle = Tunable<AgentPaneReasoningSliderStyle>.choice(
+        "agent.reasoningSliderStyle", PageTunables.section, "Reasoning slider style",
+        help: "Visual treatment for the opt-in reasoning slider: today's accent treatment or a quieter outlined thumb.",
+        default: .accent, code: "AgentPaneTunables.reasoningSliderStyle")
+
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor] }
 }
