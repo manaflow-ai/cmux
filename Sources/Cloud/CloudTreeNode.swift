@@ -340,7 +340,7 @@ final class CloudTreeNode: NSObject {
     var isDragSource: Bool {
         switch kind {
         case .terminal, .display: return true
-        case .browser(let row): return !row.resource.machine.isLocal
+        case .browser(let row): return !row.resource.machine.isLocal && row.remoteView != nil
         case .workspace(let machine, _, _, _, _) where !machine.isLocal:
             guard let group = dragGroup, !group.isEmpty else { return false }
             return group.resources.allSatisfy { !$0.machine.isLocal }

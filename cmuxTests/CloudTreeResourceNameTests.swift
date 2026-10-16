@@ -135,6 +135,28 @@ struct CloudTreeResourceNameTests {
             ))
         )
         #expect(!node.isDragSource)
+
+        let cloudWithoutTab = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .browser, key: "cloud-browser"),
+            title: "Cloud browser",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: workspace,
+            remoteViews: [],
+            port: nil,
+            url: "https://example.com"
+        )
+        let cloudNode = CloudTreeNode(
+            id: "cloud-browser",
+            kind: .browser(CloudTreeBrowserRow(
+                resource: cloudWithoutTab,
+                isOpen: false,
+                workspaceTitle: workspace.name,
+                remoteView: nil
+            ))
+        )
+        #expect(!cloudNode.isDragSource, "a Cloud row without an exact remote tab is not draggable")
     }
 
     /// A rename writes to a daemon tab, so a row with no tab has nothing to
