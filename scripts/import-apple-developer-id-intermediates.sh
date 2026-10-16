@@ -41,7 +41,17 @@ add_intermediate() {
       "$url" \
       --output "$cert_path"
   fi
-  security add-certificates -k "$KEYCHAIN" "$cert_path"
+  # The signing .p12 can already carry an intermediate, and add-certificates
+  # then fails with "already in <keychain>". That is the wanted state; the
+  # count below still checks that both intermediates are in the keychain.
+  local output
+  if ! output="$(security add-certificates -k "$KEYCHAIN" "$cert_path" 2>&1)"; then
+    if [[ "$output" != *"already in"* ]]; then
+      echo "$output" >&2
+      exit 1
+    fi
+    echo "$name is already in $KEYCHAIN"
+  fi
 }
 
 add_intermediate \
