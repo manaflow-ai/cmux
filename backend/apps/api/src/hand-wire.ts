@@ -51,6 +51,8 @@ export interface HandSummary {
   readonly online: boolean
   /** A sandbox hand (its VM was made for it and is deleted with it). */
   readonly sandbox?: boolean
+  /** Its permission level (hand-levels.ts). */
+  readonly level?: string
 }
 
 export interface HandError {
