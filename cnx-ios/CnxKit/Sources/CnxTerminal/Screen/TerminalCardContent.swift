@@ -44,20 +44,46 @@ public enum TerminalCardContent: Equatable, Sendable {
 /// the next build after a read that brought nothing.
 public struct TerminalCardScreenRefresh: Sendable {
     public static let interval: Double = 3
-    private var asked: [String: Date] = [:]
+    /// A read that has not answered after this long no longer blocks a new one.
+    public static let staleAfter: Double = 10
+
+    /// One read, numbered from 1: replies are kept only for the newest
+    /// request (round 11 A6).
+    public typealias Request = Int
+
+    private var latest: [String: (request: Request, at: Date)] = [:]
+    private var inFlight: Set<String> = []
+    private var sequence = 0
 
     public init() {}
 
-    /// Whether to ask now; records the ask.
-    public mutating func begin(_ id: String, now: Date, gridOpening: Bool = false) -> Bool {
-        if !gridOpening, let last = asked[id], now.timeIntervalSince(last) < Self.interval { return false }
-        asked[id] = now
+    /// A new read to send, or nil: one is still out (unless the grid is
+    /// opening), or the last one was asked for under `interval` ago.
+    public mutating func begin(_ id: String, now: Date, gridOpening: Bool = false) -> Request? {
+        if !gridOpening, let last = latest[id] {
+            let age = now.timeIntervalSince(last.at)
+            if inFlight.contains(id), age < Self.staleAfter { return nil }
+            if age < Self.interval { return nil }
+        }
+        sequence += 1
+        latest[id] = (sequence, now)
+        inFlight.insert(id)
+        return sequence
+    }
+
+    /// A reply arrived; true when it is the newest read's (apply it).
+    public mutating func finished(_ id: String, request: Request) -> Bool {
+        guard latest[id]?.request == request else { return false }
+        inFlight.remove(id)
         return true
     }
 
-    /// The read brought nothing (no link yet, or a failure).
-    public mutating func failed(_ id: String) {
-        asked[id] = nil
+    /// The read brought nothing; only the newest read's failure allows an
+    /// early retry (an old failure keeps the newer read's time).
+    public mutating func failed(_ id: String, request: Request) {
+        guard latest[id]?.request == request else { return }
+        inFlight.remove(id)
+        latest[id] = nil
     }
 }
 

@@ -89,28 +89,38 @@ import Testing
     @Test func anOlderReplyAfterANewerOneIsDropped() throws {
         var refresh = TerminalCardScreenRefresh()
         let t0 = Date(timeIntervalSince1970: 1000)
-        let old = try #require(refresh.begin("s1", now: t0))
-        let new = try #require(refresh.begin("s1", now: t0.addingTimeInterval(1), gridOpening: true))
-        #expect(refresh.finished("s1", request: new))
-        #expect(!refresh.finished("s1", request: old))
+        let oldAsk = refresh.begin("s1", now: t0)
+        let old = try #require(oldAsk)
+        let newAsk = refresh.begin("s1", now: t0.addingTimeInterval(1), gridOpening: true)
+        let new = try #require(newAsk)
+        let newKept = refresh.finished("s1", request: new)
+        let oldKept = refresh.finished("s1", request: old)
+        #expect(newKept)
+        #expect(!oldKept)
     }
 
     @Test func aCardBuildWhileAReadIsOutAsksNothing() {
         var refresh = TerminalCardScreenRefresh()
         let t0 = Date(timeIntervalSince1970: 1000)
-        #expect(refresh.begin("s1", now: t0) != nil)
+        let first = refresh.begin("s1", now: t0)
+        #expect(first != nil)
         // 4 s later the first read has not answered: no second one.
-        #expect(refresh.begin("s1", now: t0.addingTimeInterval(4)) == nil)
+        let second = refresh.begin("s1", now: t0.addingTimeInterval(4))
+        #expect(second == nil)
     }
 
     @Test func anOldFailureKeepsTheNewerReadsTime() throws {
         var refresh = TerminalCardScreenRefresh()
         let t0 = Date(timeIntervalSince1970: 1000)
-        let old = try #require(refresh.begin("s1", now: t0))
-        let new = try #require(refresh.begin("s1", now: t0.addingTimeInterval(1), gridOpening: true))
+        let oldAsk = refresh.begin("s1", now: t0)
+        let old = try #require(oldAsk)
+        let newAsk = refresh.begin("s1", now: t0.addingTimeInterval(1), gridOpening: true)
+        let new = try #require(newAsk)
         refresh.failed("s1", request: old)
-        #expect(refresh.finished("s1", request: new))
-        #expect(refresh.begin("s1", now: t0.addingTimeInterval(2)) == nil)
+        let newKept = refresh.finished("s1", request: new)
+        #expect(newKept)
+        let again = refresh.begin("s1", now: t0.addingTimeInterval(2))
+        #expect(again == nil)
     }
 }
 

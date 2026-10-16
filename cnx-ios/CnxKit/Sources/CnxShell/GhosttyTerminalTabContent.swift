@@ -284,13 +284,16 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// is drawn as not current (T-TABS-01).
     private func refreshScreenText(for tab: WorkspaceTab, model: TerminalModel, gridOpening: Bool = false) {
         guard let provider = screenTextProvider, !model.pageStarted,
-              screenTextRefresh.begin(tab.id, now: Date(), gridOpening: gridOpening) else { return }
+              let request = screenTextRefresh.begin(tab.id, now: Date(), gridOpening: gridOpening) else { return }
         Task { @MainActor [weak self, weak model] in
             let text = await provider(tab)
+            guard let self else { return }
             guard let text else {
-                self?.screenTextRefresh.failed(tab.id)
+                self.screenTextRefresh.failed(tab.id, request: request)
                 return
             }
+            // A slower older reply never replaces a newer card text (A6).
+            guard self.screenTextRefresh.finished(tab.id, request: request) else { return }
             guard let model, !model.pageStarted else { return }
             if model.cardScreenText != text { model.cardScreenText = text }
         }
