@@ -74,7 +74,7 @@ class Handler : public CefPermissionHandler {
                                       const CefString& requesting_origin, uint32_t requested_permissions,
                                       CefRefPtr<CefMediaAccessCallback> callback) override {
     LOG(WARNING) << "cmux media access requested=" << requested_permissions;
-    if (!browser || requested_permissions == 0) return false;
+    if (!browser || requested_permissions == 0 || !callback) return false;
     // Desktop capture has no cmux prompt: denied (BrowserPagePermissionPolicy).
     if (requested_permissions &
         (CEF_MEDIA_PERMISSION_DESKTOP_AUDIO_CAPTURE | CEF_MEDIA_PERMISSION_DESKTOP_VIDEO_CAPTURE)) {
@@ -84,6 +84,13 @@ class Handler : public CefPermissionHandler {
     uint32_t prompt_bits = 0;
     if (requested_permissions & CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE) prompt_bits |= CEF_PERMISSION_TYPE_CAMERA_STREAM;
     if (requested_permissions & CEF_MEDIA_PERMISSION_DEVICE_AUDIO_CAPTURE) prompt_bits |= CEF_PERMISSION_TYPE_MIC_STREAM;
+    // Unknown media bits have no safe cmux prompt. Let Chromium cancel them
+    // instead of emitting an empty question that could leave the request
+    // waiting behind the permission strip.
+    if (prompt_bits == 0) {
+      callback->Cancel();
+      return true;
+    }
     const int token = NextMediaToken();
     media_requests()[token] = MediaRequest{callback, requested_permissions};
     Emit(CMUX_SHIM_PERMISSION_PROMPT, browser->GetIdentifier(), token, prompt_bits, 0, requesting_origin.ToString());

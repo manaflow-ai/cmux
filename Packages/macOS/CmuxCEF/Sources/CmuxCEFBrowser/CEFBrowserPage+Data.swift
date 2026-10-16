@@ -97,7 +97,7 @@ final class CEFBrowserPageDataBridge {
             }
             // Chromium ended the question meanwhile: nothing to answer.
             guard let self, self.waitingPermissions.remove(token) != nil else { return }
-            self.answer(token: token, outcome: outcome, kinds: pageRequest.kinds, origin: origin)
+            self.answer(token: token, outcome: outcome, kinds: pageRequest.kinds, origin: origin, page: page)
         }
     }
 
@@ -105,7 +105,8 @@ final class CEFBrowserPageDataBridge {
         token: Int32,
         outcome: BrowserPagePermissionCoordinator.Outcome,
         kinds: [BrowserPagePermissionRequest.Kind],
-        origin: String
+        origin: String,
+        page: CEFBrowserPage
     ) {
         logger.notice("permission answer token=\(token) decision=\(String(describing: outcome.decision), privacy: .public) oneTime=\(outcome.isOneTime)")
         switch outcome.decision {
@@ -119,6 +120,21 @@ final class CEFBrowserPageDataBridge {
             // prompt request stays waiting until Chromium ends it.
             if token < 0 { _ = runtime.shim?.permissionContinue(token, 0) }
             return
+        }
+        // Chromium normally does not persist a media decision, but some CEF
+        // builds still consult the profile content setting after a denied
+        // getUserMedia request. Clear that adapter copy immediately so every
+        // subsequent request reaches cmux's coordinator, whose site store is
+        // the only remembered answer. This also prevents a hidden Chromium
+        // bubble from replacing the approved system-blocked strip.
+        if token < 0, let browserID = page.browser.browserID {
+            for kind in kinds {
+                guard let type = BrowserChromiumPermissionRequest.contentSettingType(for: kind) else { continue }
+                runtime.setContentSetting(
+                    browser: browserID, origin: origin, type: type,
+                    value: BrowserChromiumPermissionRequest.contentSettingDefault
+                )
+            }
         }
         // Chromium saves prompt answers, never media answers.
         guard outcome.isOneTime, token > 0 else { return }

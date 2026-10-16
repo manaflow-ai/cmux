@@ -87,7 +87,8 @@ struct BrowserChromiumPermissionRequestTests {
             == .ask([.camera, .microphone]))
         #expect(policy.decide(BrowserChromiumPermissionRequest.geolocation.pageRequest(origin: origin), sessionGrants: nil) == .deny)
         #expect(policy.decide(BrowserChromiumPermissionRequest.windowManagement.pageRequest(origin: origin), sessionGrants: nil) == .deny)
-        // Notification.requestPermission resolves "denied" at once, as in WebKit tabs; it never waits on a strip.
+        // Notifications resolve as denied immediately, matching WebKit tabs;
+        // they never wait on a prompt strip.
         #expect(policy.decide(BrowserChromiumPermissionRequest.notifications.pageRequest(origin: origin), sessionGrants: nil) == .deny)
     }
 }

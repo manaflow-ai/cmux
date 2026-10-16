@@ -184,6 +184,16 @@ import Testing
         #expect(switches.extraSwitches == ["enable-x"])
         #expect(switches.useMockKeychain)
     }
+
+    @Test func notificationsStayDisabledForWebKitParity() {
+        let switches = CEFSwitches.current(
+            forkAPIVersion: 23,
+            bundleIdentifier: "com.cmuxterm.app.debug.tag",
+            environment: [:],
+            allowsDevelopmentOverrides: true
+        )
+        #expect(switches.arguments.contains("disable-notifications"))
+    }
 }
 
 @Suite struct CEFPageBackgroundTests {

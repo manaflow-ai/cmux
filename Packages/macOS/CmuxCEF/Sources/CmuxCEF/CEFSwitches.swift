@@ -30,9 +30,9 @@ struct CEFSwitches: Equatable, Sendable {
         // Non-official builds otherwise enable the field trial testing config
         // (features that need helpers cmux does not ship).
         result.append("disable-field-trial-config")
-        // Web notifications must not make CEF's Alerts helper request a
-        // separate macOS notification authorization. DesktopNotifier owns the
-        // one app-level authorization request when cmux posts a banner.
+        // Chromium notifications have no cmux surface. Keep the API disabled;
+        // BrowserNotificationDenialScript defines a deterministic denied
+        // fallback so requestPermission never throws or remains pending.
         result.append("disable-notifications")
         result.append(contentsOf: Self.chromePromptOffSwitches)
         // Never pass a feature-list switch expecting it to replace CEF's own

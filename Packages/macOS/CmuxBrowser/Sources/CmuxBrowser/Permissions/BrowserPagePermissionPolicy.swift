@@ -5,17 +5,18 @@ import Foundation
 /// Chromium's permission bubble anchors to a toolbar cmux never shows, so a
 /// request left to Chromium would wait until it times out).
 ///
-/// The defaults match what a WebKit tab in cmux does today, so switching a
-/// tab's engine never widens what a page may do:
+/// The defaults preserve WebKit's decisions for existing tabs. Chromium's
+/// native notification API is disabled and its fallback settles denied, just
+/// as WebKit's delegate denies web notifications immediately:
 /// - camera and microphone ask the person (WebKit shows its capture prompt);
 /// - clipboard read asks the person (WebKit shows its Paste callout per read);
 /// - location, notifications, screen capture and every other kind are denied
-///   without asking (WebKit tabs deny geolocation and have no web
-///   notifications).
+///   without asking (WebKit tabs deny geolocation and web notifications).
 ///
 /// A tab a REPL/automation session created answers from the session's grants
 /// instead, exactly like its WebKit tabs (`session.configure` `permissions`).
-/// Changing these defaults is a trust decision (cmux issue 13742).
+/// Chromium's Notification API fallback follows this denial policy; WebKit's
+/// existing delegate decision remains unchanged.
 public struct BrowserPagePermissionPolicy: Sendable {
     /// The policy's answer to one request.
     public enum Outcome: Equatable, Sendable {

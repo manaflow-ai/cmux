@@ -1,14 +1,9 @@
-/// Web notifications in a Chromium page answer "denied" at once, as in
-/// WebKit tabs (``BrowserPagePermissionPolicy`` denies notifications).
-///
-/// Chromium runs with notifications switched off (`--disable-notifications`:
-/// its Alerts helper must not ask macOS for notification permission), which
-/// removes the `Notification` API: a page calling
-/// `Notification.requestPermission()` throws and never learns the answer.
-/// This document-start script, in every frame of the page's world, gives the
-/// page WebKit's behavior: a `Notification` whose `permission` is "denied",
-/// whose `requestPermission` settles (promise and legacy callback) with
-/// "denied", and whose constructor throws as a denied one does.
+/// A guarded fallback for a Chromium page where the Notification API is
+/// unavailable. Chromium runs with notifications disabled so this fallback
+/// supplies WebKit's deterministic denied behavior: permission reads report
+/// `denied`, requests settle with `denied`, and constructing a notification
+/// throws. The denied members are installed even if a future build keeps a
+/// native API, so a Chromium change cannot reintroduce a pending request.
 public enum BrowserNotificationDenialScript {
     /// The script's source.
     public static let source = """
