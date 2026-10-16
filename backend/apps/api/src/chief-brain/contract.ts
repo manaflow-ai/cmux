@@ -254,6 +254,8 @@ export interface HandsShape {
   readonly pairCode: (name: string, profile: Profile) => Effect.Effect<Minted, HandsError>
   /** A new Freestyle sandbox with its hand installed and paired (hand-sandbox.ts). */
   readonly newSandbox: (name: string) => Effect.Effect<Sandbox, HandsError>
+  /** A model gateway run token (model-gateway/run-token.ts) for one agent run of this Chief. */
+  readonly runToken: (run: string) => Effect.Effect<{ readonly token: string; readonly expires_at: number }, HandsError>
   /** A hand id, or the name of one of the owner's hands. */
   readonly resolve: (hand: string) => Effect.Effect<string, HandsError>
   readonly call: (hand: string, action: string, params: unknown, timeoutMs?: number) => Effect.Effect<unknown, HandsError>

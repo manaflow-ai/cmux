@@ -15,6 +15,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
+pub use super::gateway::ModelRoute;
+
 pub const HARNESSES: &[&str] = &["claude", "codex", "opencode"];
 /// Text is sent once this much has gathered, or at the next non-text event.
 const TEXT_FLUSH: usize = 2048;
@@ -22,6 +24,8 @@ const TEXT_FLUSH: usize = 2048;
 struct Session {
     cwd: PathBuf,
     client: Arc<Client>,
+    /// The one-run gateway route of this chat (gateway.rs), if it has one.
+    route: Option<String>,
 }
 
 /// Sessions this hand started, by acpmux session id. A hand drives only these.
@@ -63,8 +67,11 @@ impl Agents {
             })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn start(
         &self,
+        api: &str,
+        model_route: Option<ModelRoute>,
         policy: &str,
         harness: &str,
         cwd: PathBuf,
@@ -89,6 +96,23 @@ impl Agents {
             .await
             .map_err(|e| HandError::new("agent.daemon", format!("{e:#}")))?;
         let mut meta = json!({ "harness": harness, "policy": policy });
+        // A per-run model route: this chat talks to the Cloud's model gateway
+        // with a short-lived token (gateway.rs); the route is bound before the
+        // harness starts and removed with the session.
+        let route = match &model_route {
+            Some(r) => {
+                if harness != "claude" {
+                    return Err(HandError::new(
+                        "agent.route_harness",
+                        format!("a gateway route serves claude, not {harness}"),
+                    ));
+                }
+                let id = super::gateway::prepare(&client, api, r).await?;
+                meta["route"] = json!(id);
+                Some(id)
+            }
+            None => None,
+        };
         if let Some(m) = model {
             meta["model"] = json!(m);
         }
@@ -100,8 +124,16 @@ impl Agents {
                 method::SESSION_NEW,
                 json!({ "cwd": cwd, "mcpServers": [], "_meta": { "acpmux": meta } }),
             )
-            .await
-            .map_err(|e| HandError::new("agent.start_failed", format!("{e:#}")))?;
+            .await;
+        let created = match created {
+            Ok(c) => c,
+            Err(e) => {
+                if let Some(id) = &route {
+                    super::gateway::remove(&client, id).await;
+                }
+                return Err(HandError::new("agent.start_failed", format!("{e:#}")));
+            }
+        };
         let session = created
             .get("sessionId")
             .and_then(Value::as_str)
@@ -116,10 +148,10 @@ impl Agents {
             .request(method::MUX_ATTACH, json!({ "sessionId": session, "eventStream": true, "afterSeq": 0, "visible": false }))
             .await
             .map_err(|e| HandError::new("agent.start_failed", format!("attach: {e:#}")))?;
-        self.sessions
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(session.clone(), Session { cwd: cwd.clone(), client: client.clone() });
+        self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(
+            session.clone(),
+            Session { cwd: cwd.clone(), client: client.clone(), route: route.clone() },
+        );
         // Pump: daemon events -> summaries -> the Cloud.
         let sid = session.clone();
         let backlog: Vec<Value> =
@@ -145,9 +177,28 @@ impl Agents {
             }
             text.flush(&sid, None, &sink).await;
             agents.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&sid);
+            // The event stream ended (the daemon went away): the route goes with
+            // a new connection; an expired one is swept anyway (gateway::sweep).
+            if let Some(id) = &route {
+                super::gateway::remove_fresh(id).await;
+            }
         });
         let prompt_id = self.prompt(&session, prompt)?;
         Ok(json!({ "session": session, "harness": harness, "cwd": cwd, "prompt_id": prompt_id }))
+    }
+
+    /// A new gateway token for a chat that runs on a one-run route.
+    pub fn renew_route(&self, session: &str, route: &ModelRoute) -> Result<(), HandError> {
+        let id = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(session)
+            .and_then(|s| s.route.clone());
+        match id {
+            Some(id) => super::gateway::renew(&id, route),
+            None => Ok(()),
+        }
     }
 
     /// Queues a prompt; the turn's events arrive on the event stream.

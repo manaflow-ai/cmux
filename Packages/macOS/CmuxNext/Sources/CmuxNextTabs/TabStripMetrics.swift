@@ -1,5 +1,5 @@
 public import CoreGraphics
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// Every size the strip uses, derived from the CmuxNextDesign density tokens
 /// (`Metrics`, 2 pt grid). Plain data so layout math is testable with fixed
@@ -13,6 +13,9 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// its icon and close button while the others shrink to icons.
     public var minActiveTabWidth: CGFloat
     public var pinnedTabWidth: CGFloat
+    /// Chrome's strip geometry (design-tokens.json `motion.tabStrip`, at the UI scale): open and
+    /// close widths, the minimum widths above, the reorder threshold, closing mode.
+    public var chrome: MotionTabStrip
     /// Width of every unpinned tab in `.compact` style.
     public var compactTabWidth: CGFloat
     /// Extra space between the last pinned tab and the first unpinned tab.
@@ -100,8 +103,10 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Reads the design tokens for the current density.
     public init() {
         maxTabWidth = Metrics.tabMaxWidth
-        minInactiveTabWidth = Metrics.tabMinWidth
-        pinnedTabWidth = Metrics.tabMinWidth
+        chrome = MotionTabStrip(comfortable: Metrics.density == .comfortable).scaled(by: Metrics.scale(1))
+        // Chrome crowding: every tab shrinks evenly to the active minimum, then the inactive ones to theirs.
+        // The minimums and the pinned width are settings (defaults: the shared tokens); min <= max.
+        pinnedTabWidth = Metrics.tabPinnedWidth
         compactTabWidth = TabTunables.compactTabWidth.value
         pinnedGroupGap = TabTunables.pinnedGroupGap.value
         contentLeadingInset = Metrics.tabContentLeadingInset
@@ -113,7 +118,11 @@ public struct TabStripMetrics: Equatable, Sendable {
         titleCloseSpacing = TabTunables.titleCloseSpacing.value
         titleFadeWidth = TabTunables.titleFadeWidth.value
         badgeSize = TabTunables.badgeSize.value
-        minActiveTabWidth = contentLeadingInset + iconSize + titleCloseSpacing + closeButtonSize + contentTrailingInset
+        // Never narrower than the active tab's icon and close button need (comfortable density), never
+        // wider than the max; the inactive minimum never passes the active one.
+        let activeFloor = contentLeadingInset + iconSize + titleCloseSpacing + closeButtonSize + contentTrailingInset
+        minActiveTabWidth = min(max(Metrics.tabMinActiveWidth, activeFloor), maxTabWidth)
+        minInactiveTabWidth = min(Metrics.tabMinInactiveWidth, minActiveTabWidth)
         closeMinContentsWidth = TabTunables.closeMinContentsWidth.value
         titleMinVisibleWidth = TabTunables.titleMinVisibleWidth.value
         stripHeight = Metrics.tabStripHeight
