@@ -201,7 +201,7 @@ jobs:
     # dispatch against a feature branch must not upload arbitrary code.
     needs: decide
     if: needs.decide.outputs.upload == 'true' && github.ref == 'refs/heads/main'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 90
     # Signs with the iOS distribution certificate and the App Store Connect
     # key, which live only in the release environment (main and v* tags), and
@@ -624,7 +624,7 @@ jobs:
     # Run alongside tester assignment and even if later steps in the upload
     # job fail. Notes timeouts must not turn an accepted upload into a failure.
     if: ${{ !cancelled() && needs.upload.result == 'success' && needs.upload.outputs.notes_artifact_id != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     continue-on-error: true
     permissions:
@@ -661,7 +661,7 @@ jobs:
       always() && needs.decide.result == 'success' &&
       (needs.upload.result == 'success' || needs.upload.result == 'skipped') &&
       (needs.upload.outputs.build_number != '' || needs.decide.outputs.retry_build_number != '')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
