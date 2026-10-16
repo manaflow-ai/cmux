@@ -85,6 +85,26 @@ class ResumeTests(unittest.TestCase):
                 self.receipt()
             self.jobs = original
 
+    def test_later_failed_job_rerun_does_not_replace_original_attempt(self):
+        def api(path, token):
+            if path.endswith("/actions/runs/123"):
+                return {**self.run, "run_attempt": 2}
+            if path.endswith("/attempts/1"):
+                return self.run
+            if "/jobs?" in path:
+                return {"total_count": len(self.jobs), "jobs": self.jobs}
+            if "/artifacts?" in path:
+                return {"total_count": len(self.artifacts), "artifacts": self.artifacts}
+            if "/compare/" in path:
+                return {"status": "ahead"}
+            self.fail(f"unexpected API request: {path}")
+
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GH_TOKEN": "test",
+                                          "GITHUB_REF": "refs/heads/nightly-next", "GITHUB_SHA": "c" * 40,
+                                          "GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+                mock.patch.object(resume.download, "api_json", side_effect=api):
+            self.assertEqual(resume.plan("123", "1")["build"], "12301")
+
     def test_missing_expired_unhashed_or_different_attempt_artifacts_are_rejected(self):
         for change in ({"expired": True}, {"digest": ""}, {"created_at": "2026-10-15T00:02:00Z"},
                        {"workflow_run": {"id": 456}}):
