@@ -552,13 +552,13 @@
 
 /* The seam: under the strip the card draws its rim (--acpmux-card-ring, resting or focused) on a
    layer that leaves out the stretch the strip stands on, so the strip and the card read as one
-   surface; the card's edge meets the strip's sides. Leo: the card's top hairline showed under it. */
-.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box,
-.nt-composer:has(.acpmux-composer-strip) .nt-box {
+   surface; the card's edge meets the strip's sides. Leo: the card's top hairline showed under it.
+   The New Tab has no tab on its card (newtab/screen.css: its strip is text over the card), so its
+   card keeps its whole rim. */
+.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box {
   box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
 }
-.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box::before,
-.nt-composer:has(.acpmux-composer-strip) .nt-box::before {
+.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -590,7 +590,7 @@
 
 /* The top strip's Debug variants (agentPane.debug.topStripStyle, DEV and NIGHTLY; the app sets
    data-top-strip on <html>). Without the attribute nothing below applies, so the default is the
-   strip and queue above. "Top strip" is whatever stands on the card's top edge: the location strip
+   strip and queue above (and on the New Tab, newtab/screen.css's text over the card). "Top strip" is whatever stands on the card's top edge: the location strip
    on a new chat, or the queued prompts once the chat started.
    - bump: the strip (or the queue, with no strip) stands --acpmux-strip-gap above the card inside
      its own closed hairline, and the card draws its whole rim (#20789).
@@ -598,18 +598,16 @@
      ink on the card's content edge (where the prompt's text starts), as Codex and Claude Code
      desktop show the context above their prompt.
    - tray: a filled tray tucked under the card's top edge, the card's whole rim drawn over it, as
-     ChatGPT desktop's Codex tray (cg-design-judge, 2026-10-15).
-   - fitted, cursor: New Tab designs (newtab/topStripVariants.css); a started chat keeps the
-     default strip under them, so the chat composer's rules here leave them out. */
-:root[data-top-strip]:not([data-top-strip="fitted"], [data-top-strip="cursor"]) .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box,
+     ChatGPT desktop's Codex tray (cg-design-judge, 2026-10-15). */
+:root[data-top-strip] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box,
 :root[data-top-strip] .nt-composer:has(.acpmux-composer-strip) .nt-box {
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
-:root[data-top-strip]:not([data-top-strip="fitted"], [data-top-strip="cursor"]) .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box::before,
+:root[data-top-strip] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box::before,
 :root[data-top-strip] .nt-composer:has(.acpmux-composer-strip) .nt-box::before {
   content: none;
 }
-:root[data-top-strip]:not([data-top-strip="fitted"], [data-top-strip="cursor"]) .acpmux-composer { --acpmux-strip-gap: 4px; }
+:root[data-top-strip] .acpmux-composer { --acpmux-strip-gap: 4px; }
 :root[data-top-strip] .nt-composer { --acpmux-strip-gap: 4px; }
 
 /* bump */

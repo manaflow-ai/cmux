@@ -142,9 +142,6 @@ export type AgentPaneVariant = VariantBase & {
   theme?: Record<string, unknown>;
   /** The snapshot the bridge delivers after `ready`. */
   snapshot: AcpmuxSnapshot;
-  /** `data-*` attributes on `<html>` as the app sets them at document start from Debug Settings
-   *  (AgentPaneTunables.documentAttributes): `{"top-strip": "fitted"}` is `data-top-strip`. */
-  documentAttributes?: Record<string, string>;
   /** With `ready.transport: "mock"`: the harnesses the mock daemon lists (`[]`: none installed). */
   mockHarnesses?: unknown[];
   /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null.

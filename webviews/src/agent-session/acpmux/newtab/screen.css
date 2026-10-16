@@ -110,6 +110,45 @@
     transition: --nt-box-lift var(--agent-motion-hover) var(--agent-ease-out);
   }
 }
+/* Without a top strip variant (Debug Settings agentPane.debug.topStripStyle, composerLocation.css),
+   the folder and computer are plain text over the card, as Cursor's home draws them: no tab shape,
+   no fill, a small gap, the card's rim whole (Lucas #21133, Lawrence's pick 2026-10-16). The
+   variants keep the filled strip above as their base. */
+:root:not([data-top-strip]) .nt-screen .nt-composer {
+  gap: 6px;
+}
+:root:not([data-top-strip]) .nt-screen .nt-composer .acpmux-composer-strip {
+  --acpmux-strip-height: 26px;
+  margin: 0;
+  /* The ghost buttons' own inset puts the folder icon on the field's text edge. */
+  padding: 0 6px;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+/* The create actions are outlined pills, as Cursor's home draws its starters: New terminal, New
+   browser tab and New chat read as buttons, not as text (Lucas #21133). */
+.nt-screen .nt-create {
+  gap: 6px;
+  margin: 10px 0 0;
+}
+.nt-screen .nt-create .nt-tool {
+  height: 28px;
+  padding: 0 12px 0 10px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 12%, transparent);
+  color: var(--agent-soft);
+  font-weight: 400;
+}
+.nt-screen .nt-create .nt-tool:hover,
+.nt-screen .nt-create .nt-tool:focus-visible {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  color: var(--agent-text);
+}
+.nt-screen .nt-create .nt-tool:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 55%, transparent);
+  outline-offset: 1px;
+}
 /* The card never clips: the model picker opens in the card, above or below its chip (a clipping
    card cut it to its search field, Lawrence 2026-10-13). The location row is the strip above it. */
 /* Templates (cx-yabk, plans/cmux-next/new-tab-templates.md): the same screen, other sections and

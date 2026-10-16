@@ -574,19 +574,6 @@ export default agentPaneEntry({
         await ctx.waitFor(() => item("Show Dictation Button"));
       },
     },
-    // Debug Settings "Composer top strip style" (agentPane.debug.topStripStyle), the New Tab values.
-    "top-strip-fitted": {
-      note: "Composer top strip style Fitted: the New Tab's tab fits its folder and computer and flows into the card through rounded shoulders.",
-      ready: newTab(),
-      snapshot: noChat(manySessions(14)),
-      documentAttributes: { "top-strip": "fitted" },
-    },
-    "top-strip-cursor": {
-      note: "Composer top strip style Cursor: the folder and computer as plain text over the card, and the create actions as outlined pills.",
-      ready: newTab(),
-      snapshot: noChat(manySessions(14)),
-      documentAttributes: { "top-strip": "cursor" },
-    },
     "template-composer": {
       note: "Composer template (tabs.newTabTemplate): one large prompt, no chats.",
       ready: newTab({ template: "composer" }),
