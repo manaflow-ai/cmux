@@ -18,11 +18,15 @@ import SwiftUI
 /// the band `SidebarWorkspaceListMetrics` reserves below the titlebar.
 struct SidebarChiefHomeRow: View {
     let isSelected: Bool
+    /// Whether the conversation rows are disclosed below this destination.
+    let isExpanded: Bool
     let settings: SidebarTabItemSettingsSnapshot
     let globalFontMagnificationPercent: Int
     let onSelect: () -> Void
     /// Starts a new conversation; shown as the row's compose button while selected.
     var onNewConversation: (() -> Void)?
+    /// Toggles the inline Chief conversation list.
+    var onToggleExpanded: () -> Void
 
     /// The Chief's name from its profile (renamed in Chief Settings).
     @State private var chiefName = ChiefProfile.currentName()
@@ -32,6 +36,19 @@ struct SidebarChiefHomeRow: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 7) {
+                Button(action: onToggleExpanded) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(font(9, weight: .semibold))
+                        .foregroundColor(.secondary)
+                        .frame(width: 12, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(ChiefStrings.conversationsList)
+                .accessibilityLabel(Text(ChiefStrings.conversationsList))
+                .accessibilityValue(Text(isExpanded ? ChiefStrings.conversationsExpanded : ChiefStrings.conversationsCollapsed))
+                .accessibilityIdentifier("SidebarChiefHomeDisclosure")
+
                 Button(action: onSelect) {
                     HStack(spacing: 7) {
                         SidebarChiefHomeAvatar(diameter: (16 * settings.sidebarFontScale).rounded())
