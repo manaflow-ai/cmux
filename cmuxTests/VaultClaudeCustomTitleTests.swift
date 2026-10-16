@@ -114,6 +114,29 @@ struct VaultClaudeCustomTitleTests {
     }
 
     @Test
+    func nameClearedBetweenTheWindowsFallsBackToTheFirstPrompt() async throws {
+        let fixture = try ClaudeTranscriptFixture()
+        defer { fixture.tearDown() }
+        let padding = String(repeating: "x", count: 2_000)
+        var lines = [
+            fixture.userLine("Fix the billing export"),
+            fixture.customTitleLine("Early name"),
+        ]
+        for _ in 0..<((SessionIndexStore.headByteCap / padding.utf8.count) + 4) {
+            lines.append(fixture.assistantLine(padding))
+        }
+        lines.append(fixture.customTitleLine(""))
+        for _ in 0..<((SessionIndexStore.tailByteCap / padding.utf8.count) + 4) {
+            lines.append(fixture.assistantLine(padding))
+        }
+        try fixture.writeTranscript(sessionId: "cleared-later", lines: lines)
+
+        let entry = try await fixture.loadEntry(sessionId: "cleared-later")
+
+        #expect(entry.title == "Fix the billing export")
+    }
+
+    @Test
     func clearedNameFallsBackToTheFirstPrompt() async throws {
         let fixture = try ClaudeTranscriptFixture()
         defer { fixture.tearDown() }
