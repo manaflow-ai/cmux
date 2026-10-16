@@ -453,6 +453,19 @@ class FailureIssueTests(unittest.TestCase):
         self.OUTPUTS = {"decide": self.OUTPUTS["decide"], "publish-nightly": {"tag_status": "", "already_published": "true"}}
         self.assertEqual(self.publication("recovered", **outcome), (False, False))
 
+    def test_an_already_published_own_build_neither_reports_nor_closes(self):
+        outcome = {"republish-nightly-deltas": "skipped", "sign-release-notes": "skipped",
+                   "publish-release-notes": "skipped"}
+        self.OUTPUTS = {"decide": self.OUTPUTS["decide"],
+                        "publish-nightly": {"tag_status": "", "already_published": "true"}}
+        self.assertEqual(self.publication("own", **outcome), (False, False))
+        for result in ("failure", "cancelled"):
+            with self.subTest(result=result):
+                self.assertEqual(self.publication("own", **dict(outcome, **{"build-nightly-app": result})),
+                                 (True, False))
+        self.OUTPUTS["publish-nightly"]["tag_status"] = "stale"
+        self.assertEqual(self.publication("own", **outcome), (True, False))
+
 
 def run_recheck(build: int, next_builds: tuple, legacy_builds: tuple = (), classic_builds: tuple = (),
                 *, source: str = "recovered", track: str = "nightly-next"):
