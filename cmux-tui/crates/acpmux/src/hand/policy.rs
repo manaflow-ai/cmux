@@ -252,13 +252,46 @@ fn inside(path: &Path, root: &Path) -> bool {
     path.starts_with(&root)
 }
 
-/// The decision for `action` on `paths` (already resolved). `verdict` is the
-/// Cloud classifier's (`allow`, `ask`; a `deny` never reaches the hand), and
-/// `argv` the program of an `exec`.
+/// A hand's permission level (set by its owner in the Cloud; a Chief may only
+/// lower it). `Full`: only the integrity guard (the hand's own key, config and
+/// binary). `Auto`: the classifier's verdict, the hard denies and the asks.
+/// `Ask`: every write, program run and agent session asks. `ReadOnly`: reads only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Level {
+    Full,
+    Auto,
+    Ask,
+    ReadOnly,
+}
+
+impl Level {
+    /// The request's level, else the profile's default (sandbox: full, mac: auto).
+    /// An unknown name is the strictest level, never a looser one.
+    pub fn of(given: Option<&str>, profile: Profile) -> Self {
+        match given {
+            None => match profile {
+                Profile::Sandbox => Self::Full,
+                Profile::Mac => Self::Auto,
+            },
+            Some("full") => Self::Full,
+            Some("auto") => Self::Auto,
+            Some("ask") => Self::Ask,
+            _ => Self::ReadOnly,
+        }
+    }
+}
+
+/// Actions that only read.
+const READ_ACTIONS: &[&str] = &["fs.read", "fs.list", "fs.glob", "fs.grep", "agent.events"];
+
+/// The decision for `action` on `paths` (already resolved). `level` and
+/// `verdict` come from the Cloud with the request (`_level`, `_verdict`); `argv`
+/// is the program of an `exec`.
 pub fn decide(
     cfg: &HandConfig,
     action: &str,
     paths: &[PathBuf],
+    level: Option<&str>,
     verdict: Option<&str>,
     argv: Option<&[String]>,
 ) -> Decision {
@@ -270,35 +303,47 @@ pub fn decide(
             ));
         }
     }
-    match cfg.profile {
-        Profile::Sandbox => Decision::Allow,
-        Profile::Mac => {
-            // The hand's own hard denies first: a host that says allow cannot skip them.
-            if let Some(why) = argv.and_then(|a| destructive_exec(a, dirs::home_dir().as_deref())) {
-                return Decision::Deny(why);
-            }
-            if let Some(why) = paths.iter().find_map(|p| destructive_path(action, p)) {
-                return Decision::Deny(why);
-            }
-            if argv.is_some_and(|a| a.join(" ").contains(".cmux-hand")) {
-                return Decision::Deny("the command touches the hand's own files".into());
-            }
-            // Nothing runs in, reads or lists the hand's own files (its key is there).
-            let own = self_paths();
-            if paths.iter().any(|p| own.iter().any(|o| p.starts_with(o))) {
-                return Decision::Deny("the hand's own files".into());
-            }
-            // A search, list or program run over a folder that holds credentials or the
-            // hand's files asks first: it would walk into them.
-            if matches!(action, "fs.grep" | "fs.glob" | "fs.list" | "exec" | "agent.start")
-                && paths.iter().any(|root| holds_protected(root, &own))
-            {
-                return Decision::Ask;
-            }
-            // Always the owner's answer, whatever the host says.
-            if paths.iter().any(|p| sensitive_path(p)) || argv.is_some_and(sensitive_exec) {
-                return Decision::Ask;
-            }
+    // The integrity guard, at every level and on every profile: the hand's own key,
+    // config, binary and service, and the agent daemon it drives, are never touched.
+    // It protects the account, not the person's files.
+    let own = self_paths();
+    if paths.iter().any(|p| own.iter().any(|o| p.starts_with(o))) {
+        return Decision::Deny("the hand's own files".into());
+    }
+    if argv.is_some_and(|a| a.join(" ").contains(".cmux-hand")) {
+        return Decision::Deny("the command touches the hand's own files".into());
+    }
+    let level = Level::of(level, cfg.profile);
+    let read = READ_ACTIONS.contains(&action);
+    match level {
+        Level::Full => return Decision::Allow,
+        Level::ReadOnly if !read => {
+            return Decision::Deny(format!("{action}: this hand is read-only"));
+        }
+        _ => {}
+    }
+    // The hard denies (auto, ask, read-only): a host that says allow cannot skip them.
+    if let Some(why) = argv.and_then(|a| destructive_exec(a, dirs::home_dir().as_deref())) {
+        return Decision::Deny(why);
+    }
+    if let Some(why) = paths.iter().find_map(|p| destructive_path(action, p)) {
+        return Decision::Deny(why);
+    }
+    // A search, list or program run over a folder that holds credentials or the
+    // hand's files asks first: it would walk into them.
+    if matches!(action, "fs.grep" | "fs.glob" | "fs.list" | "exec" | "agent.start")
+        && paths.iter().any(|root| holds_protected(root, &own))
+    {
+        return Decision::Ask;
+    }
+    // Credentials, startup files and the like: always the owner's answer.
+    if paths.iter().any(|p| sensitive_path(p)) || argv.is_some_and(sensitive_exec) {
+        return Decision::Ask;
+    }
+    match level {
+        Level::ReadOnly => Decision::Allow,
+        Level::Ask if !read => Decision::Ask,
+        _ => {
             // A local allow rule, or the classifier's allow, runs at once; anything else
             // (ask, no verdict, an unknown one) waits for the owner.
             let covered = |p: &PathBuf| {

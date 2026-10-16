@@ -2,7 +2,8 @@ import { env, exports } from "cloudflare:workers"
 import { Effect } from "effect"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
-import { agentProgram, handsLayer, type HandsReport } from "../src/chief-brain/brain-hands.ts"
+import { agentProgram, handsLayer, handsProgram, type HandsReport } from "../src/chief-brain/brain-hands.ts"
+import { proofMessage } from "../src/hand-levels.ts"
 import type { Env } from "../src/env.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
@@ -141,4 +142,46 @@ describe("Chief hands", { timeout: 60_000 }, () => {
     expect(r.json.error.code).toBe("hand.mac_disabled")
     expect(h.frames.filter((f) => f.t === "req")).toHaveLength(0)
   })
+  it("runs a sandbox hand at full with no verdict, lets a Chief only lower the level, and raises it only with the owner's app proof", async () => {
+    const { token, user, lead } = await owner("hands-levels")
+    const { hand, key } = await pairHand(token)
+    const seen: Array<any> = []
+    await dial(hand, key, "sandbox", (f, send) => {
+      if (f.t !== "req") return
+      seen.push(f)
+      send({ t: "res", id: f.id, ok: true, value: { ran: f.action } })
+    })
+    // A sandbox starts at full: forwarded with no classifier verdict and no approval; a caller's own _verdict is dropped.
+    expect((await http("GET", "/v1/hands", token)).json.value.find((h: any) => h.hand === hand)).toMatchObject({ level: "full" })
+    expect((await http("POST", `/v1/hands/${hand}/call`, token, { action: "exec", params: { argv: ["rm", "-rf", "build"], cwd: "/work/p", _verdict: "deny" } })).json).toMatchObject({ ok: true })
+    expect(seen.at(-1).params).toMatchObject({ _level: "full", argv: ["rm", "-rf", "build"] })
+    expect(seen.at(-1).params._verdict).toBeUndefined()
+    expect((await http("GET", `/v1/hands/${hand}/approvals`, token)).json.value).toEqual([])
+    // A granted Chief lowers it to read-only: a write is refused before it reaches the hand.
+    await http("PUT", `/v1/hands/grants/${lead}`, token, { on: true })
+    const chief = (args: any) => Effect.runPromise(Effect.provide(Effect.catch(handsProgram(args), (e) => Effect.succeed({ error: e.code })), handsLayer(testEnv, { kind: "chief", user, agent: lead }))) as Promise<any>
+    expect(await chief({ action: "set_level", hand, level: "read-only" })).toMatchObject({ level: "read-only", from: "full" })
+    const before = seen.length
+    expect((await http("POST", `/v1/hands/${hand}/call`, token, { action: "fs.write", params: { path: "/work/p/a", text: "x" } })).json.error.code).toBe("hand.read_only")
+    expect(seen.length).toBe(before)
+    expect((await http("POST", `/v1/hands/${hand}/call`, token, { action: "fs.read", params: { path: "/work/p/a" } })).json.ok).toBe(true)
+    // The Chief cannot raise it back; the person's session alone cannot either.
+    expect(await chief({ action: "set_level", hand, level: "full" })).toEqual({ error: "hand.level_refused" })
+    expect((await http("PUT", `/v1/hands/${hand}/level`, token, { level: "full" })).json.error.code).toBe("hand.level_refused")
+    // With the proof of one of the owner's app installs (an ECDSA P-256 signature over a single-use challenge) it rises.
+    const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
+    const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
+    const install = (await op(token, "install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x!, y: jwk.y! }, kind: "mac", name: "mac", device_name: "mac", platform: "macos" })).value.id as string
+    const sign = async (message: string) => btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(message))))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+    const { nonce } = (await http("POST", `/v1/hands/${hand}/level-challenge`, token)).json.value
+    const bad = await http("PUT", `/v1/hands/${hand}/level`, token, { level: "full", install, nonce, signature: await sign(proofMessage(testEnv, hand, "auto", nonce)) })
+    expect(bad.json.error.code).toBe("hand.level_refused")
+    // The nonce was spent by the failed try: a new one, signed for the exact target and level.
+    const second = (await http("POST", `/v1/hands/${hand}/level-challenge`, token)).json.value.nonce
+    const raised = await http("PUT", `/v1/hands/${hand}/level`, token, { level: "full", install, nonce: second, signature: await sign(proofMessage(testEnv, hand, "full", second)) })
+    expect(raised.json, JSON.stringify(raised.json)).toMatchObject({ ok: true, value: { level: "full", from: "read-only" } })
+    const audit = (await http("GET", `/v1/hands/${hand}/audit`, token)).json.value.filter((a: any) => a.action === "level").map((a: any) => [a.who, a.outcome])
+    expect(audit).toEqual([[`session:${user}`, "read-only->full"], [`session:${user}`, "refused:read-only->full"], [`session:${user}`, "refused:read-only->full"], [`agent:${lead}`, "refused:read-only->full"], [`agent:${lead}`, "full->read-only"]])
+  })
+
 })

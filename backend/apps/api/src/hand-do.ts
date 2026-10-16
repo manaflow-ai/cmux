@@ -1,10 +1,11 @@
 import { DurableObject } from "cloudflare:workers"
 import type { Env } from "./env.ts"
-import { deleteSandboxVm } from "./hand-sandbox.ts"
+import { PROVIDERS } from "./hand-providers.ts"
 import { revokeAgentSession } from "./model-gateway/run-token.ts"
 import { classify, requestSummary, type Classified } from "./hand-classify.ts"
 import { createVerdictTable, listVerdicts, recordVerdict } from "./hand-verdicts.ts"
-import { createIndexTables, handName, indexGrants, indexList, indexName, indexPut, indexSetGrant } from "./hand-index.ts"
+import { checkRaise, createLevelTables, defaultLevel, isLevel, issueChallenge, raises, READ_ACTIONS, type Level, type Proof } from "./hand-levels.ts"
+import { createIndexTables, indexDefaultLevel, indexSetDefaultLevel, handName, indexGrants, indexList, indexName, indexPut, indexSetGrant } from "./hand-index.ts"
 import { callerLabel, capJson, isHandAction, PAIR_TTL_MS, sameHex, type AgentEvent, type HandCaller, type HandError, type HandReply, type HandSummary, type Profile, type StoredEvent } from "./hand-wire.ts"
 
 /**
@@ -47,6 +48,7 @@ type HandRow = {
   profile: string | null
   hello: string | null
   last_seen: number | null
+  level: string | null
 }
 
 /** Mac hands take Cloud requests only where HANDS_MAC_ENABLED is "1" and, when HANDS_MAC_OWNERS lists owners, only for them. */
@@ -74,13 +76,17 @@ export class HandDO extends DurableObject<Env> {
     createVerdictTable(sql)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_agent (session TEXT PRIMARY KEY, chief TEXT NOT NULL, conversation TEXT NOT NULL, at INTEGER NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_sandbox (id INTEGER PRIMARY KEY CHECK (id = 1), vm TEXT NOT NULL)`)
+    if (!sql.exec<{ name: string }>(`PRAGMA table_info(hand_sandbox)`).toArray().some((c) => c.name === "provider")) sql.exec(`ALTER TABLE hand_sandbox ADD COLUMN provider TEXT`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_event (seq INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT NOT NULL, at INTEGER NOT NULL, body TEXT NOT NULL)`)
     createIndexTables(sql)
+    createLevelTables(sql)
+    // The level column came after the first hands: add it to an existing table once.
+    if (!sql.exec<{ name: string }>(`PRAGMA table_info(hand)`).toArray().some((c) => c.name === "level")) sql.exec(`ALTER TABLE hand ADD COLUMN level TEXT`)
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"))
   }
 
   private row(): HandRow | undefined {
-    return this.ctx.storage.sql.exec<HandRow>(`SELECT hand, owner, name, minted_by, created_at, code_sha, key_sha, paired_at, revoked_at, profile, hello, last_seen FROM hand WHERE id = 1`).toArray()[0]
+    return this.ctx.storage.sql.exec<HandRow>(`SELECT hand, owner, name, minted_by, created_at, code_sha, key_sha, paired_at, revoked_at, profile, hello, last_seen, level FROM hand WHERE id = 1`).toArray()[0]
   }
 
   /** The newest open hand socket (a replaced one may still be closing). */
@@ -90,7 +96,7 @@ export class HandDO extends DurableObject<Env> {
 
   private summary(r: HandRow): HandSummary {
     const sandbox = this.ctx.storage.sql.exec(`SELECT 1 FROM hand_sandbox WHERE id = 1`).toArray().length > 0
-    return { hand: r.hand, name: r.name, profile: (r.profile as Profile | null) ?? null, created_at: r.created_at, paired_at: r.paired_at, revoked_at: r.revoked_at, last_seen: r.last_seen, online: this.socket() !== undefined, sandbox }
+    return { hand: r.hand, name: r.name, profile: (r.profile as Profile | null) ?? null, created_at: r.created_at, paired_at: r.paired_at, revoked_at: r.revoked_at, last_seen: r.last_seen, online: this.socket() !== undefined, sandbox, level: this.level(r) }
   }
 
   private index(user: string) {
@@ -131,7 +137,8 @@ export class HandDO extends DurableObject<Env> {
   async mint(hand: string, owner: string, mintedBy: string, codeSha: string, name: string, profile: Profile = "sandbox"): Promise<{ expires_at: number }> {
     const now = Date.now()
     if (this.row()) throw new Error("hand id already used")
-    this.ctx.storage.sql.exec(`INSERT INTO hand (id, hand, owner, name, minted_by, created_at, code_sha, profile) VALUES (1, ?, ?, ?, ?, ?, ?, ?)`, hand, owner, name, mintedBy, now, codeSha, profile)
+    const level = (await this.index(owner).ownerDefaultLevel(profile)) ?? defaultLevel(profile)
+    this.ctx.storage.sql.exec(`INSERT INTO hand (id, hand, owner, name, minted_by, created_at, code_sha, profile, level) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)`, hand, owner, name, mintedBy, now, codeSha, profile, level)
     const grants = await this.index(owner).listGrants()
     this.setGrantsLocal(grants)
     await this.ctx.storage.setAlarm(now + PAIR_TTL_MS)
@@ -162,11 +169,12 @@ export class HandDO extends DurableObject<Env> {
     return this.ctx.storage.sql.exec<{ vm: string }>(`SELECT vm FROM hand_sandbox WHERE id = 1`).toArray()[0]?.vm
   }
 
-  /** Deletes this hand's sandbox VM by exact id; keeps the row (and retries by alarm) until the provider confirms. */
+  /** Deletes this hand's sandbox machine by exact id on its provider; keeps the row (and retries by alarm) until the provider confirms. */
   private async dropSandbox(): Promise<boolean> {
-    const vm = this.sandboxVm()
-    if (!vm) return true
-    if (await deleteSandboxVm(this.env, vm)) {
+    const row = this.ctx.storage.sql.exec<{ vm: string; provider: string | null }>(`SELECT vm, provider FROM hand_sandbox WHERE id = 1`).toArray()[0]
+    if (!row) return true
+    const provider = PROVIDERS[row.provider ?? "freestyle"]
+    if (provider && (await provider.remove(this.env, row.vm))) {
       this.ctx.storage.sql.exec(`DELETE FROM hand_sandbox WHERE id = 1`)
       return true
     }
@@ -191,8 +199,8 @@ export class HandDO extends DurableObject<Env> {
   }
 
   /** The Freestyle VM this hand runs in (hand-sandbox.ts); deleted with the hand. A hand that is gone takes its VM with it now. */
-  async setSandbox(vm: string): Promise<void> {
-    this.ctx.storage.sql.exec(`INSERT INTO hand_sandbox (id, vm) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET vm = excluded.vm`, vm)
+  async setSandbox(vm: string, provider = "freestyle"): Promise<void> {
+    this.ctx.storage.sql.exec(`INSERT INTO hand_sandbox (id, vm, provider) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET vm = excluded.vm, provider = excluded.provider`, vm, provider)
     const r = this.row()
     if (!r || r.revoked_at !== null) await this.dropSandbox()
     else await this.publish(r)
@@ -263,13 +271,18 @@ export class HandDO extends DurableObject<Env> {
     // A caller never sets the verdict: it is the host classifier's alone.
     const { _verdict: _ignored, ...own } = ((params && typeof params === "object" && !Array.isArray(params) ? params : {}) as Record<string, unknown>)
     // A mac hand: the auto-mode classifier's verdict first (hand-classify.ts); every verdict is kept.
-    const verdict = !denied && ws && r?.profile === "mac" ? await this.verdict(req, caller, r.owner, action, own) : null
-    const forwarded = verdict ? { ...own, _verdict: verdict.verdict } : own
+    const level = r ? this.level(r) : "read-only"
+    const reading = READ_ACTIONS.has(action)
+    // auto: the classifier's verdict first; ask: every write, run and session asks (no classifier); full: neither.
+    const verdict = !denied && ws && r && level === "auto" ? await this.verdict(req, caller, r.owner, action, own) : level === "ask" && !reading ? { verdict: "ask" as const, reason: "level ask" } : null
+    const forwarded = { ...own, _level: level, ...(verdict ? { _verdict: verdict.verdict } : {}) }
     const result: HandReply = denied
       ? refuse(denied, denied === "hand.mac_disabled" ? "Cloud requests to a Mac hand are off until the trust review" : `refused: ${denied}`)
       : !ws
         ? refuse("hand.offline", "the hand is not connected")
-        : verdict?.verdict === "deny"
+        : level === "read-only" && !reading
+          ? refuse("hand.read_only", `this hand is read-only (${action})`)
+          : verdict?.verdict === "deny"
           ? refuse("hand.classifier_denied", `refused as destructive: ${verdict.reason}`)
           : await new Promise<HandReply>((resolve) => {
             const ms = Math.min(Math.max(timeoutMs ?? DEFAULT_TIMEOUT_MS, 1_000), MAX_TIMEOUT_MS)
@@ -301,6 +314,62 @@ export class HandDO extends DurableObject<Env> {
     const r = this.row()
     if (caller.kind !== "owner" || !r || r.owner !== caller.user) return refuse("hand.not_found", "no such hand")
     return { ok: true, value: listVerdicts(this.ctx.storage.sql, limit) }
+  }
+
+  private level(r: HandRow): Level {
+    return isLevel(r.level) ? r.level : defaultLevel(r.profile as Profile | null)
+  }
+
+  /** A single-use challenge the owner's app signs to raise this hand's level (hand-levels.ts). */
+  async levelChallenge(caller: HandCaller): Promise<HandReply<{ nonce: string; expires_at: number }>> {
+    const r = this.row()
+    if (caller.kind !== "owner" || !r || r.owner !== caller.user) return refuse("hand.not_found", "no such hand")
+    return { ok: true, value: issueChallenge(this.ctx.storage.sql, r.hand) }
+  }
+
+  /** Lowers the level (the owner, or a Chief with the hands grant), or raises it (the owner, with the app proof). */
+  async setLevel(caller: HandCaller, to: string, proof?: Proof): Promise<HandReply<{ hand: string; level: Level; from: Level }>> {
+    const r = this.row()
+    if (!r || r.owner !== caller.user || r.revoked_at !== null) return refuse("hand.not_found", "no such hand")
+    if (caller.kind === "chief" && this.ctx.storage.sql.exec(`SELECT 1 FROM hand_grant WHERE agent = ?`, caller.agent ?? "").toArray().length === 0) return refuse("hand.no_grant", "this Chief has no hands grant")
+    if (!isLevel(to)) return refuse("request.invalid", "level is full, auto, ask or read-only")
+    const from = this.level(r)
+    if (raises(from, to)) {
+      const why = await checkRaise(this.env, this.ctx.storage.sql, caller, r.owner, r.hand, to, proof)
+      if (why) {
+        this.audit(crypto.randomUUID(), "level", callerLabel(caller), `refused:${from}->${to}`, null)
+        return refuse("hand.level_refused", why)
+      }
+    }
+    this.ctx.storage.sql.exec(`UPDATE hand SET level = ? WHERE id = 1`, to)
+    this.audit(crypto.randomUUID(), "level", callerLabel(caller), `${from}->${to}`, null)
+    await this.publish(this.row()!)
+    return { ok: true, value: { hand: r.hand, level: to, from } }
+  }
+
+  // --- Owner index role: default levels for new hands ---
+
+  async ownerDefaultLevel(profile: Profile): Promise<Level | undefined> {
+    const l = indexDefaultLevel(this.ctx.storage.sql, profile)
+    return isLevel(l) ? l : undefined
+  }
+
+  async defaultChallenge(profile: Profile): Promise<{ nonce: string; expires_at: number }> {
+    return issueChallenge(this.ctx.storage.sql, `default:${profile}`)
+  }
+
+  /** The owner's default level for new `profile` hands; raising it needs the app proof, a Chief may only lower it. */
+  async setOwnerDefault(caller: HandCaller, owner: string, profile: Profile, to: string, proof?: Proof): Promise<HandReply<{ profile: Profile; level: Level }>> {
+    if (caller.user !== owner) return refuse("auth.forbidden", "not your hands")
+    if (!isLevel(to)) return refuse("request.invalid", "level is full, auto, ask or read-only")
+    const from = (await this.ownerDefaultLevel(profile)) ?? defaultLevel(profile)
+    if (caller.kind === "chief" && !indexGrants(this.ctx.storage.sql).includes(caller.agent ?? "")) return refuse("hand.no_grant", "this Chief has no hands grant")
+    if (raises(from, to)) {
+      const why = await checkRaise(this.env, this.ctx.storage.sql, caller, owner, `default:${profile}`, to, proof)
+      if (why) return refuse("hand.level_refused", why)
+    }
+    indexSetDefaultLevel(this.ctx.storage.sql, profile, to)
+    return { ok: true, value: { profile, level: to } }
   }
 
   /** The sweep (hand-sweep.ts): "live" (keep) or "gone" (no live hand holds it: delete); the sweep keeps it when this call fails. */

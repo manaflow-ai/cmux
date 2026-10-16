@@ -103,7 +103,8 @@ where
                 .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
         })
         .flatten();
-    match decide(ctx.cfg, action, &paths, opt_s(p, "_verdict"), argv.as_deref()) {
+    match decide(ctx.cfg, action, &paths, opt_s(p, "_level"), opt_s(p, "_verdict"), argv.as_deref())
+    {
         Decision::Allow => {}
         Decision::Deny(why) => return Err(HandError::new("policy.denied", why)),
         Decision::Ask => {
