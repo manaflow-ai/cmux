@@ -11,7 +11,6 @@ public protocol ActiveTeamSource: AnyObject {
     var availableTeams: [CMUXAuthTeam] { get }
     /// The selection API calls target (the persisted one, else the first team).
     var resolvedTeamID: String? { get }
-    var selectedTeamID: String? { get set }
     /// Persists `id` as the account's selected team, then selects it locally.
     func selectTeam(id: String?) async throws
     /// Re-reads membership; a selection the account left falls back to its first team.
@@ -81,7 +80,9 @@ public final class ActiveTeam {
         guard managedTeamID == nil || id == managedTeamID else { throw Refusal.managed }
         guard source.availableTeams.contains(where: { $0.id == id }) else { throw Refusal.notMember }
         guard id != self.id else { return }
-        source.selectedTeamID = id
+        isSwitching = true
+        defer { isSwitching = false }
+        try await source.selectTeam(id: id)
     }
 
     /// Re-reads the account's teams (one left or joined elsewhere).
