@@ -31,9 +31,11 @@ export interface Classified {
 }
 
 const TIMEOUT_MS = 8_000
+/** The reply budget: room for a model that thinks before it answers (a 200-token budget ended most sensitive replies before their JSON). */
+const MAX_TOKENS = 2_048
 const SUMMARY_MAX = 6_000
 
-const SYSTEM = `You review one request a coding assistant wants to run on a person's own Mac. Answer with JSON only:
+const SYSTEM = `You review one request a coding assistant wants to run on a person's own Mac. Answer with exactly one JSON object and nothing else (no code fence, no text before or after it):
 {"verdict":"allow"|"ask"|"deny","confidence":0.0-1.0,"reason":"<= 120 characters"}
 allow: routine software work inside project folders: reading and editing source files, running builds, tests, linters, git status/diff/commit, package installs in the project.
 ask: anything outside routine project work: deleting files outside the project; reading credentials, keychains, ~/.ssh, ~/.aws, browser profiles, password stores; sudo or admin rights; changing system settings, login items, launch agents; git push to main, master or release branches, or any force push; sending local files or data to a network host; payments or purchases; anything you are not sure about.
@@ -62,20 +64,59 @@ export const requestSummary = (action: string, params: unknown, forLog = false):
   return { text: forLog ? text.slice(0, SUMMARY_MAX) : text, whole: text.length <= SUMMARY_MAX }
 }
 
-const parse = (text: string): { verdict: Verdict; reason: string } | null => {
-  const m = /\{[\s\S]*\}/.exec(text)
-  if (!m) return null
-  try {
-    const j = JSON.parse(m[0]) as { verdict?: unknown; confidence?: unknown; reason?: unknown }
-    const reason = typeof j.reason === "string" ? j.reason.slice(0, 160) : ""
-    const confidence = typeof j.confidence === "number" ? j.confidence : 0
-    if (j.verdict === "deny") return { verdict: "deny", reason }
-    // Allow only with a clear, confident allow; everything else is a question for the person.
-    if (j.verdict === "allow" && confidence >= 0.8) return { verdict: "allow", reason }
-    return { verdict: "ask", reason: reason || "the classifier was not sure" }
-  } catch {
-    return null
+/**
+ * The verdict objects in a reply: each top-level balanced `{...}` with a "verdict" key, also inside
+ * a code fence or after prose (Opus tends to explain first, Haiku answers bare JSON). An object
+ * nested in another one is never read: a reply that quotes the request cannot slip one in.
+ */
+const verdictObjects = (text: string): Array<Record<string, unknown>> => {
+  const found: Array<Record<string, unknown>> = []
+  let start = text.indexOf("{")
+  while (start !== -1) {
+    let depth = 0
+    let quoted = false
+    let end = -1
+    for (let i = start; i < text.length; i++) {
+      const ch = text[i]
+      if (quoted) {
+        if (ch === "\\") i++
+        else if (ch === '"') quoted = false
+      } else if (ch === '"') quoted = true
+      else if (ch === "{") depth++
+      else if (ch === "}" && --depth === 0) {
+        end = i
+        break
+      }
+    }
+    if (end === -1) break
+    try {
+      const j = JSON.parse(text.slice(start, end + 1)) as unknown
+      if (j && typeof j === "object" && !Array.isArray(j) && "verdict" in j) found.push(j as Record<string, unknown>)
+    } catch {}
+    start = text.indexOf("{", end + 1)
   }
+  return found
+}
+
+/** A finite number, or a numeric string; anything else is no confidence. */
+const confidenceOf = (v: unknown): number => {
+  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN
+  return Number.isFinite(n) ? n : 0
+}
+
+export const parseVerdict = (text: string): { verdict: Verdict; reason: string } | null => {
+  const all = verdictObjects(text)
+  if (all.length === 0) return null
+  const reasonOf = (j: Record<string, unknown>) => (typeof j.reason === "string" ? j.reason.slice(0, 160) : "")
+  // A deny anywhere wins; two verdicts that are not a deny are a question for the person.
+  const deny = all.find((j) => j.verdict === "deny")
+  if (deny) return { verdict: "deny", reason: reasonOf(deny) }
+  if (all.length > 1) return { verdict: "ask", reason: "the classifier gave more than one verdict" }
+  const j = all[0]!
+  // Allow only with a clear, confident allow; everything else is a question for the person.
+  if (j.verdict === "allow" && confidenceOf(j.confidence) >= 0.8) return { verdict: "allow", reason: reasonOf(j) }
+  if (j.verdict !== "allow" && j.verdict !== "ask") return null
+  return { verdict: "ask", reason: reasonOf(j) || "the classifier was not sure" }
 }
 
 export const classify = async (env: Env, hand: string, owner: string, agent: string | undefined, request: string, summary: { text: string; whole: boolean }): Promise<Classified> => {
@@ -101,13 +142,22 @@ export const classify = async (env: Env, hand: string, owner: string, agent: str
   // HAND_CLASSIFIER_TIMEOUT_MS: a shorter limit proves the timeout path on a test deployment.
   const limit = Math.min(Math.max(Number(env.HAND_CLASSIFIER_TIMEOUT_MS ?? TIMEOUT_MS) || TIMEOUT_MS, 1), TIMEOUT_MS)
   const timer = setTimeout(() => controller.abort(), limit)
+  const where = `${model.provider}/${model.id}`
   try {
-    const reply = await models.models.completeSimple(model, ctx, { maxTokens: 200, signal: controller.signal })
+    const reply = await models.models.completeSimple(model, ctx, { maxTokens: MAX_TOKENS, signal: controller.signal })
+    const ms = Date.now() - started
+    if (reply.stopReason === "aborted" || controller.signal.aborted) return { verdict: "ask", reason: `the classifier timed out after ${limit} ms`, model: where, ms }
+    if (reply.rawStopReason === "refusal") return { verdict: "ask", reason: "the classifier model refused to answer", model: where, ms }
+    if (reply.stopReason === "error") return { verdict: "ask", reason: "the classifier model failed (an error reply)", model: where, ms }
     const text = (reply.content ?? []).map((c) => (c.type === "text" ? c.text : "")).join("")
-    const got = reply.stopReason === "error" || reply.stopReason === "aborted" ? null : parse(text)
-    return { ...(got ?? { verdict: "ask" as const, reason: "the classifier gave no readable verdict" }), model: `${model.provider}/${model.id}`, ms: Date.now() - started }
+    const got = parseVerdict(text)
+    if (got) return { ...got, model: where, ms }
+    // The reply's size and shape only (never its text): enough to see a cut-off or a prose answer.
+    const kinds = [...new Set((reply.content ?? []).map((c) => c.type))].join("+") || "none"
+    return { verdict: "ask", reason: `the classifier reply had no readable verdict (${text.length} chars, stop ${reply.stopReason}, ${kinds})`, model: where, ms }
   } catch {
-    return { verdict: "ask", reason: "the classifier did not answer", model: `${model.provider}/${model.id}`, ms: Date.now() - started }
+    const ms = Date.now() - started
+    return { verdict: "ask", reason: controller.signal.aborted ? `the classifier timed out after ${limit} ms` : "the classifier did not answer (a transport error)", model: where, ms }
   } finally {
     clearTimeout(timer)
   }

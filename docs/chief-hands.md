@@ -46,3 +46,6 @@ Hand sandboxes are separate from the cmux Cloud VM product. Cloud VMs run on Fre
 - At `full`, the integrity guard is a mistake guard, not a boundary. It checks paths and argv words. A program that the person allowed can still read the hand's key. The planned fix is to keep the key in the Keychain, or to run the hand as a separate user.
 - The hard denies on a Mac hand catch the plain cases only (for example `rm -rf ~` or a disk erase). An encoded command can get past them. The classifier and the person's choice of level are the main guard.
 - There is no iOS approval surface yet. The Mac app answers through its approval banner.
+- A level change does not change running agent sessions. A session keeps the policy it started with (approve-all at `full`). To apply a lower level to an agent, stop the session and start it again.
+- The hand runs its agents on its own acpmux daemon (`<hand home>/acpmux`) and proves the person with a key it makes at each start. When that daemon is a signed (Team) daemon, which ignores the key, the hand restarts it at most once per run. After that it refuses every agent permission prompt.
+- The idle stop (`CMUX_HAND_AGENT_IDLE_MINUTES`, default 30, `0` = never) skips a session whose turn is still running. A turn that hangs keeps its session until the Chief stops it.

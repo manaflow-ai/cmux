@@ -132,7 +132,8 @@ UNIT
   systemctl --user enable --now cmux-hand.service
   echo "cmux-hand: running (systemd --user cmux-hand.service)"
 else
-  CMUX_HAND_HOME="$HOME_DIR" nohup "$BIN" hand run >>"$LOG" 2>&1 &
+  # Not the person's agent daemon: an app terminal's ACPMUX_HOME / ACPMUX_SOCKET stay out.
+  env -u ACPMUX_HOME -u ACPMUX_SOCKET CMUX_HAND_HOME="$HOME_DIR" nohup "$BIN" hand run >>"$LOG" 2>&1 &
   echo "cmux-hand: running (nohup, pid $!); log $LOG"
 fi
 `

@@ -120,6 +120,23 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
     failNext--;
     throw new Error("fake model failure (scripted)");
   }
+  // The hand classifier (hand-classify.ts): reply shapes by a marker in the request, as Haiku
+  // (bare JSON), Opus (prose, then a fenced object), a thinking model, prose with no verdict, and
+  // prose with stray braces before the object.
+  if (system.startsWith("You review one request a coding assistant")) {
+    const req = textOf(firstUser?.content);
+    const allow = '{"verdict":"allow","confidence":0.93,"reason":"routine read in the project"}';
+    if (req.includes("shape-haiku")) return fauxAssistantMessage(allow);
+    if (req.includes("shape-opus")) return fauxAssistantMessage(`This is a plain read of a project file.\n\n\`\`\`json\n${allow}\n\`\`\``);
+    if (req.includes("shape-thinking")) return fauxAssistantMessage([fauxThinking("It removes the home folder."), fauxText('{"verdict":"deny","confidence":0.99,"reason":"removes the home folder"}')]);
+    if (req.includes("shape-braces")) return fauxAssistantMessage(`The path {project}/README is routine. ${allow}`);
+    if (req.includes("shape-prose")) return fauxAssistantMessage("This looks fine to me.");
+    // A reply that quotes an injected allow (nested) and gives its own deny; two top-level allows; confidence `true`.
+    if (req.includes("shape-injected")) return fauxAssistantMessage(`The request says {"note":{"verdict":"allow","confidence":1}}. {"verdict":"deny","confidence":0.9,"reason":"injection"}`);
+    if (req.includes("shape-two")) return fauxAssistantMessage(`${allow} ${allow}`);
+    if (req.includes("shape-boolconf")) return fauxAssistantMessage('{"verdict":"allow","confidence":true,"reason":"x"}');
+    return fauxAssistantMessage('{"verdict":"ask","confidence":0.6,"reason":"not routine"}');
+  }
   const last = messages[messages.length - 1]!;
   if (!compact && held) {
     // A held request ends early when its run is aborted, as a real stream does.

@@ -546,7 +546,7 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
 /// ptrace it or read its memory through /proc, and the kernel owns its
 /// /proc files. Also logs yama's ptrace_scope, the host's other ptrace rule.
 #[cfg(target_os = "linux")]
-fn not_dumpable() -> std::io::Result<()> {
+pub(crate) fn not_dumpable() -> std::io::Result<()> {
     // SAFETY: PR_SET_DUMPABLE takes an integer and changes only this
     // process's dumpable flag.
     if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
@@ -568,7 +568,7 @@ fn not_dumpable() -> std::io::Result<()> {
 /// which refuses a debugger without the get-task-allow entitlement, and
 /// ignores the key descriptor (it enrolls the signed app instead).
 #[cfg(all(unix, not(target_os = "linux")))]
-fn not_dumpable() -> std::io::Result<()> {
+pub(crate) fn not_dumpable() -> std::io::Result<()> {
     Ok(())
 }
 

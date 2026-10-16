@@ -30,6 +30,8 @@ struct Session {
     sink: EventSink,
     /// The last prompt or event, for the idle stop.
     last: std::time::Instant,
+    /// A turn is running (a prompt sent, no turn_end yet): the idle stop leaves it alone.
+    busy: bool,
 }
 
 /// Asks the owner (the Cloud approval flow, link.rs) and answers true when allowed.
@@ -65,27 +67,43 @@ impl Agents {
         *self.ask.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(ask);
     }
 
-    fn touch(&self, session: &str) {
+    /// Activity on a session: `busy` Some(true) when a prompt is sent, Some(false) at its turn's end.
+    fn touch(&self, session: &str, busy: Option<bool>) {
         if let Some(s) =
             self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_mut(session)
         {
             s.last = std::time::Instant::now();
+            if let Some(b) = busy {
+                s.busy = b;
+            }
         }
+    }
+
+    /// Whether a session is idle past `limit` now (no turn running).
+    fn idle(&self, session: &str, limit: std::time::Duration) -> Option<EventSink> {
+        self.sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(session)
+            .filter(|s| !s.busy && s.last.elapsed() > limit)
+            .map(|s| s.sink.clone())
     }
 
     /// Stops every session idle past the limit (called each minute by link.rs).
     pub async fn stop_idle(&self) {
         let Some(limit) = idle_limit() else { return };
-        let idle: Vec<(String, EventSink)> = self
+        let ids: Vec<String> = self
             .sessions
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .iter()
-            .filter(|(_, s)| s.last.elapsed() > limit)
-            .map(|(id, s)| (id.clone(), s.sink.clone()))
+            .keys()
+            .cloned()
             .collect();
-        for (id, sink) in idle {
-            let _ = self.stop(&id, &sink).await;
+        for id in ids {
+            // Checked again for each one: a prompt may have come in since.
+            if let Some(sink) = self.idle(&id, limit) {
+                let _ = self.stop(&id, &sink).await;
+            }
         }
     }
 
@@ -209,6 +227,7 @@ impl Agents {
                 route: route.clone(),
                 sink: sink.clone(),
                 last: std::time::Instant::now(),
+                busy: true,
             },
         );
         // Pump: daemon events -> summaries -> the Cloud.
@@ -226,7 +245,12 @@ impl Agents {
                     Message::Notification { method: m, params: Some(params) }
                         if m == method::MUX_EVENT =>
                     {
-                        agents.touch(&sid);
+                        let ended = params.get("dir").and_then(Value::as_str) == Some("mux")
+                            && matches!(
+                                params.get("kind").and_then(Value::as_str),
+                                Some("turn_end" | "turn_error" | "turn_result")
+                            );
+                        agents.touch(&sid, ended.then_some(false));
                         if params.get("dir").and_then(Value::as_str) == Some("mux")
                             && matches!(
                                 params.get("kind").and_then(Value::as_str),
@@ -274,7 +298,7 @@ impl Agents {
     /// Queues a prompt; the turn's events arrive on the event stream.
     pub fn prompt(&self, session: &str, text: &str) -> Result<String, HandError> {
         let client = self.client(session)?;
-        self.touch(session);
+        self.touch(session, Some(true));
         let prompt_id = uuid::Uuid::now_v7().to_string();
         let params = json!({
             "sessionId": session,
@@ -322,16 +346,16 @@ impl Agents {
         };
         let options =
             msg.pointer("/request/options").and_then(Value::as_array).cloned().unwrap_or_default();
-        let allow_option = options
-            .iter()
-            .find(|o| o.get("kind").and_then(Value::as_str) == Some("allow_once"))
-            .or_else(|| {
-                options.iter().find(|o| {
-                    o.get("kind").and_then(Value::as_str).is_some_and(|k| k.starts_with("allow"))
-                })
-            })
-            .and_then(|o| o.get("optionId").and_then(Value::as_str))
-            .map(str::to_owned);
+        // Only a one-time allow: an "always" option would let the agent's later calls run without the owner.
+        let option_of = |kind: &str| {
+            options
+                .iter()
+                .find(|o| o.get("kind").and_then(Value::as_str) == Some(kind))
+                .and_then(|o| o.get("optionId").and_then(Value::as_str))
+                .map(str::to_owned)
+        };
+        let allow_option = option_of("allow_once");
+        let reject_option = option_of("reject_once");
         let summary = json!({
             "action": "agent.permission",
             "session": session,
@@ -346,11 +370,17 @@ impl Agents {
                 (Some(ask), true, Some(_)) => ask(summary).await,
                 _ => false,
             };
-            let mut params = json!({ "sessionId": session, "permissionId": permission });
-            if allowed {
-                params["optionId"] = json!(allow_option);
+            // A refusal picks the prompt's reject option (the turn goes on without the call); with
+            // none, or when that answer fails, no option (the agent sees a cancelled prompt).
+            let chosen = if allowed { allow_option } else { reject_option };
+            let base = json!({ "sessionId": session, "permissionId": permission });
+            let mut params = base.clone();
+            if let Some(option) = chosen {
+                params["optionId"] = json!(option);
             }
-            let _ = client.request(method::MUX_PERMISSION_RESPOND, params).await;
+            if client.request(method::MUX_PERMISSION_RESPOND, params).await.is_err() {
+                let _ = client.request(method::MUX_PERMISSION_RESPOND, base).await;
+            }
         });
     }
 

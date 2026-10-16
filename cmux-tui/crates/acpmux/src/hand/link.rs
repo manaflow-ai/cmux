@@ -42,6 +42,13 @@ fn socket_url(cfg: &HandConfig) -> String {
 }
 
 pub async fn run(cfg: HandConfig) -> Result<()> {
+    // First: every acpmux path below (gateway routes, the agent daemon) is the hand's own.
+    super::daemon::use_hand_home()?;
+    // The hand holds a person key in memory: no same-uid agent may read it (Linux).
+    #[cfg(unix)]
+    if let Err(e) = crate::daemon::not_dumpable() {
+        anyhow::bail!("the hand cannot protect its person key: {e}");
+    }
     pair::check_api(&cfg.api)?;
     // One running hand per hand home: a second copy (a service plus a manual
     // run) would take turns replacing each other's socket.
@@ -57,7 +64,6 @@ pub async fn run(cfg: HandConfig) -> Result<()> {
     let approvals: Approvals = Arc::default();
     // The hand's agents run on its own keyed acpmux daemon (daemon.rs), so its
     // connection is the proven person that answers their permission prompts.
-    super::daemon::use_hand_home();
     agents.set_ask(owner_ask(&out_tx, &approvals));
     let idle = agents.clone();
     tokio::spawn(async move {
@@ -115,6 +121,8 @@ fn owner_ask(out: &mpsc::Sender<Value>, approvals: &Approvals) -> super::agent::
                         .lock()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
                         .remove(&aid);
+                    // The Cloud closes the row: a later answer would change nothing here.
+                    let _ = out.send(json!({ "t": "approval-expired", "id": aid })).await;
                     false
                 }
             }
