@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
-"""Home's key-window palette follows ONE app-wide state (cx-4o3vq).
+"""Each Home window follows ITS OWN key state (cx-95476, MessagesLab 806ef0c inactive-per-view).
 
-MessagesLab draws Home's transcript with one process-wide palette state (`Fixture.inactive`). Before cx-4o3vq each Home
-pane set it from its own window's key notifications and redrew only its own rows, so the palette followed whichever pane
-fired last and the other Home windows kept rows of the other palette. The rule now: the palette is the key palette when
-the app is active and its key window hosts a Home pane, else the inactive palette; every Home view draws again when it
-changes; a display move does not change it.
+MessagesLab keeps the inactive-window state per window view (MessagesWindowView.inactive): each Home pane sets it from
+its own window only (didBecomeKey -> active, didResignKey -> inactive, `!window.isKeyWindow` when it joins a window).
+Before cx-95476 one app-wide state (HomeKeyState over `Fixture.inactive`, cx-4o3vq) drew every Home window with the key
+palette while any Home window was key, and dimmed every bubble when none was. The rule now, as Messages on macOS 27: a
+non-key Home window is inactive while another Home window is key (its typing indicator takes the inactive colours, its
+rows are drawn with its own state); the bubbles are the same in both states (Home draws them with the theme's key
+palette); a display move does not change the state.
 
 Two windows, each with a Home fixture tab, on the tagged app TAG (classic Home). The app takes the key window, so run
-it in `nx-remote --needs input` (the GUI session alone). Reads the palette state (`debug.home.drive geometry`:
-fixtureInactive, appActive) and the incoming balloon fill in each window's snapshot:
-  1. window A (Home) key: the key palette; A shows the key fill.
-  2. window B key, B without a Home pane: the inactive palette; A shows the inactive fill.
-  3. B gets a Home tab, B key: the key palette; A and B show the same fill.
-  4. A key again: the key palette; A and B show the same fill (before cx-4o3vq B kept the inactive fill).
-  5. the app inactive (Finder takes the activation): the inactive palette; A and B show the same fill, the inactive one.
-  6. A key, then A moved to a 1x virtual display and back: the palette state and A's fill do not change.
+it in `nx-remote --needs input` (the GUI session alone). Reads each window's own state (`debug.home.drive geometry` with
+`window`: viewInactive, cellsOffInactive = visible rows drawn with another state than their view's, windowKey,
+appActive) and the incoming balloon fill in each window's snapshot:
+  1. window A (Home) key: A active; A shows the key fill.
+  2. window B key, B without a Home pane: A inactive; A's fill does not change.
+  3. B gets a Home tab, B key: B active, A inactive (before cx-95476 A stayed on the key palette); same fills.
+  4. A key again: A active, B inactive (before cx-95476 B stayed on the key palette); same fills.
+  5. the app inactive (Finder takes the activation): A and B inactive; the fills do not change (before: dimmed).
+  6. A key, then A moved to a 1x virtual display and back: A's state and fill do not change.
 
 Usage: home-key-palette.py --tag <tag> [--out DIR]
 """
@@ -71,11 +74,20 @@ def poll(predicate, timeout=20):
     return None
 
 
-def state(window=None):
-    """The app-wide palette state and the app's activity, read through the Home view in `window` (default: the active
-    window's); windowKey is that window's."""
-    g = (rpc("debug.home.drive", {"action": "geometry", **({"window": window} if window else {})}) or {}).get("geometry") or {}
-    return {k: g.get(k) for k in ("fixtureInactive", "appActive", "windowKey")}
+def state(window):
+    """The inactive-window state of the Home view in `window` (its own; a build before cx-95476 has only the app-wide
+    `fixtureInactive`, which is what that view drew with), the rows it drew with another state, its window's key state
+    and the app's activity."""
+    g = (rpc("debug.home.drive", {"action": "geometry", "window": window}) or {}).get("geometry") or {}
+    out = {k: g.get(k) for k in ("viewInactive", "cellsOffInactive", "appActive", "windowKey")}
+    if out["viewInactive"] is None:
+        out["viewInactive"], out["legacy"] = g.get("fixtureInactive"), True
+    return out
+
+
+def own(s, inactive):
+    """The view's own state is `inactive` and every visible row drew with it (a build before cx-95476 has no row read)."""
+    return s.get("viewInactive") == inactive and (s.get("legacy") or s.get("cellsOffInactive") == 0)
 
 
 def window_ids():
@@ -146,11 +158,12 @@ try:
     rpc("debug.window.focus", {"window": a})
     check("the app is active", bool(poll(lambda: state(a).get("appActive") == 1, timeout=10)), state(a))
     wait_settled()
-    s1, fa1 = state(), fill(a, "1-a-key")
-    print(f"     1 A key: {s1} A fill {fa1}", flush=True)
+    s1, fa1 = state(a), fill(a, "1-a-key")
+    print(f"     1 A key: A {s1} A fill {fa1}", flush=True)
     check("1: the app is active and A is key", s1.get("appActive") == 1 and s1.get("windowKey") == 1, s1)
-    check("1: A key (hosts Home): the key palette", s1.get("fixtureInactive") == 0, s1)
+    check("1: A key: A active", own(s1, 0), s1)
     key_fill = fa1
+    check("1: A shows a fill", key_fill is not None, key_fill)
 
     rpc("action.run", {"action": "newWindow", "origin": "script"})
     b = poll(lambda: next((i for i in window_ids() if i != a), None), timeout=20)
@@ -159,48 +172,46 @@ try:
     rpc("debug.window.focus", {"window": b})
     wait_settled()
     s2, fa2 = state(a), fill(a, "2-a-behind-b")
-    print(f"     2 B key, no Home: {s2} A fill {fa2}", flush=True)
-    check("2: B key without a Home pane: the inactive palette", s2.get("fixtureInactive") == 1, s2)
-    check("2: A shows a fill other than the key fill", fa2 is not None and not same(fa2, key_fill), {"a": fa2, "key": key_fill})
-    inactive_fill = fa2
+    print(f"     2 B key, no Home: A {s2} A fill {fa2}", flush=True)
+    check("2: B key without a Home pane: A inactive", own(s2, 1), s2)
+    check("2: A's bubbles do not change (the same in both states)", same(fa2, key_fill), {"a": fa2, "key": key_fill})
 
     check("window B: a Home fixture tab shows its transcript", open_fixture(), rpc("debug.home.drive", {"action": "texts"}))
     rpc("debug.window.focus", {"window": b})
     wait_settled()
-    s3, fa3, fb3 = state(), fill(a, "3-a"), fill(b, "3-b")
-    print(f"     3 B key with Home: {s3} A fill {fa3} B fill {fb3}", flush=True)
-    check("3: B key (hosts Home): the key palette", s3.get("fixtureInactive") == 0, s3)
-    check("3: A and B show the same fill, the key fill", same(fa3, fb3, key_fill), {"a": fa3, "b": fb3, "key": key_fill})
+    s3a, s3b, fa3, fb3 = state(a), state(b), fill(a, "3-a"), fill(b, "3-b")
+    print(f"     3 B key with Home: A {s3a} B {s3b} A fill {fa3} B fill {fb3}", flush=True)
+    check("3: B key (hosts Home): B active", own(s3b, 0), s3b)
+    check("3: B key: A inactive (its own window is not key)", own(s3a, 1), s3a)
+    check("3: A and B show the key fill", same(fa3, fb3, key_fill), {"a": fa3, "b": fb3, "key": key_fill})
 
     rpc("debug.window.focus", {"window": a})
     wait_settled()
-    s4, fa4, fb4 = state(), fill(a, "4-a"), fill(b, "4-b")
-    print(f"     4 A key again: {s4} A fill {fa4} B fill {fb4}", flush=True)
-    check("4: A key (hosts Home): the key palette", s4.get("fixtureInactive") == 0, s4)
-    check("4: A and B show the same fill, the key fill (one palette state, every Home view drawn with it)",
-          same(fa4, fb4, key_fill), {"a": fa4, "b": fb4, "key": key_fill})
+    s4a, s4b, fa4, fb4 = state(a), state(b), fill(a, "4-a"), fill(b, "4-b")
+    print(f"     4 A key again: A {s4a} B {s4b} A fill {fa4} B fill {fb4}", flush=True)
+    check("4: A key again: A active", own(s4a, 0), s4a)
+    check("4: A key: B inactive (its own window is not key)", own(s4b, 1), s4b)
+    check("4: A and B show the key fill", same(fa4, fb4, key_fill), {"a": fa4, "b": fb4, "key": key_fill})
 
     # Another app takes the activation (Finder; the input lock holds the GUI session).
     subprocess.run(["/usr/bin/open", "-b", "com.apple.finder"], capture_output=True)
     check("the app is no longer active (Finder is)", bool(poll(lambda: state(a).get("appActive") == 0, timeout=10)), state(a))
     wait_settled()
-    s5, fa5, fb5 = state(a), fill(a, "5-a"), fill(b, "5-b")
-    print(f"     5 app inactive: {s5} A fill {fa5} B fill {fb5}", flush=True)
-    check("5: the app inactive: the inactive palette", s5.get("appActive") == 0 and s5.get("fixtureInactive") == 1, s5)
-    check("5: A and B show the same fill, the inactive fill", same(fa5, fb5, inactive_fill),
-          {"a": fa5, "b": fb5, "inactive": inactive_fill})
+    s5a, s5b, fa5, fb5 = state(a), state(b), fill(a, "5-a"), fill(b, "5-b")
+    print(f"     5 app inactive: A {s5a} B {s5b} A fill {fa5} B fill {fb5}", flush=True)
+    check("5: the app inactive: A and B inactive", own(s5a, 1) and own(s5b, 1), [s5a, s5b])
+    check("5: the bubbles do not change (no dimmed palette)", same(fa5, fb5, key_fill), {"a": fa5, "b": fb5, "key": key_fill})
 
-    # 6: A key, then a display move and back: no palette change (the display change never sets the palette state).
+    # 6: A key, then a display move and back: no state change (the display change never sets the key state).
     rpc("debug.window.focus", {"window": a})
     subprocess.run(["/usr/bin/open", "-a", app], capture_output=True)  # the app active again (the input lock is held)
     check("the app is active again", bool(poll(lambda: state(a).get("appActive") == 1, timeout=10)), state(a))
     rpc("debug.window.focus", {"window": a})
     wait_settled()
     s6, fa6 = state(a), fill(a, "6-a-before")
-    print(f"     6 A key before the move: {s6} A fill {fa6}", flush=True)
-    check("6: before the move A is key: the key palette and the key fill",
-          s6.get("appActive") == 1 and s6.get("windowKey") == 1 and s6.get("fixtureInactive") == 0 and same(fa6, key_fill),
-          [s6, fa6, key_fill])
+    print(f"     6 A key before the move: A {s6} A fill {fa6}", flush=True)
+    check("6: before the move A is key: A active and the key fill",
+          s6.get("appActive") == 1 and s6.get("windowKey") == 1 and own(s6, 0) and same(fa6, key_fill), [s6, fa6, key_fill])
     vdbin = os.path.expanduser("~/messageslab-rig/bin/vdisplay")
     run = subprocess.run([vdbin, "1600", "1000", "60", "240", "0", "--detach", "--owner", str(os.getpid()), "--log",
                           os.path.join(opts.out, "vdisplay.log")], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
@@ -213,7 +224,7 @@ try:
         wait_settled()
         s7 = state(a)
         print(f"     6 A on the 1x display: {s7}", flush=True)
-        check("6: the move does not change the palette state", s7.get("fixtureInactive") == 0, [s6, s7])
+        check("6: the move does not change A's state", own(s7, 0), [s6, s7])
         subprocess.run(["kill", str(vd)], capture_output=True)  # the virtual display this script started (its pid=)
         gone = poll(lambda: subprocess.run(["kill", "-0", str(vd)], capture_output=True).returncode != 0, timeout=15)
         vd = None if gone else vd
@@ -222,8 +233,8 @@ try:
         wait_settled()
         s8, fa8 = state(a), fill(a, "6-a-after")
         print(f"     6 A back on the 2x display: {s8} A fill {fa8}", flush=True)
-        check("6: after the move back: the same palette state and the same fill",
-              s8.get("fixtureInactive") == 0 and same(fa8, fa6, key_fill), {"before": [s6, fa6], "after": [s8, fa8]})
+        check("6: after the move back: the same state and the same fill",
+              own(s8, 0) and same(fa8, fa6, key_fill), {"before": [s6, fa6], "after": [s8, fa8]})
 finally:
     reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
     if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):
