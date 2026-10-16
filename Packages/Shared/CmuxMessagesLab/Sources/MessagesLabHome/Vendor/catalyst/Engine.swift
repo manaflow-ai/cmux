@@ -19,6 +19,12 @@ struct ConversationUIState: Equatable {
     var openThread: PartRef?
     /// The host's quiet status line under the transcript (HostHooks.swift, ask 9; `.setNotice`); nil: no line.
     var notice: String?
+    /// The host's thread option (ThreadHost.swift); `.messages` unless the host sets `.tree`
+    /// (`Store.setThreadMode`).
+    var threadMode: ThreadMode = .messages
+    /// `.tree` mode: the branch the open thread view shows, the drilled messages below the root,
+    /// outermost first (empty: the whole thread). A reply sent in the view answers the last one.
+    var threadPath: [PartRef] = []
     /// `offset`: points scrolled up from the bottom (0 when pinned).
     var scroll = Scroll()
     struct Scroll: Equatable { var pinnedToBottom = true; var offset: CGFloat = 0 }
@@ -46,6 +52,9 @@ enum Action {
     case react(PartRef, Reaction.Kind, by: ID? = nil)
     case reply(PartRef)
     case closeThread
+    /// Open the thread view at a path: the root first, then the drilled replies outermost first
+    /// (`ThreadMode.tree`; in `.messages` only the root counts). `Action.openThread(path:)`.
+    case openThreadPath([PartRef])
     case edit(ID, String)
     case unsend(ID)
     /// Delete… in the menu: the message leaves this device's transcript (no row stays).
@@ -89,6 +98,12 @@ enum Action {
     case setNotice(String?)
 }
 
+extension Action {
+    /// A permalink path (ThreadHost.swift): message ids, the thread root first, then the drilled
+    /// replies outermost first. The host dispatches it (cmux: a link to a nested reply).
+    static func openThread(path: [ID]) -> Action { .openThreadPath(path.map { PartRef(messageId: $0, partIndex: 0) }) }
+}
+
 enum Reducer {
     /// Whether `.send` takes DRAFT: text other than white space, or an attachment. Return on any
     /// other draft does nothing (`Store.apply` drops the rejected send; the hosts do not dispatch it).
@@ -107,8 +122,10 @@ enum Reducer {
             let text = d.text.trimmingCharacters(in: .whitespacesAndNewlines)
             var parts = d.attachments.map { Part.attachment($0) }
             if !text.isEmpty { parts += TextParts.parts(for: text) }
-            let m = Message(id: newID(), senderId: s.me, sentAt: stamp, parts: parts,
+            var m = Message(id: newID(), senderId: s.me, sentAt: stamp, parts: parts,
                             replyTo: d.replyTo ?? s.ui.openThread, status: .sending, edits: nil, retractedAt: nil, reactions: [])
+            // Tree mode: a reply in a drilled branch answers the branch's message (nil: the root).
+            if s.ui.threadMode == .tree, let root = s.ui.openThread, m.replyTo == root { m.parent = s.ui.threadPath.last }
             s.conversation.messages.append(m)
             s.total += 1
             s.ui.draft = Draft(text: "", attachments: [], replyTo: nil)
@@ -133,9 +150,30 @@ enum Reducer {
             let root = s.message(ref.messageId)?.replyTo ?? ref      // replies store the root
             s.ui.openThread = root
             s.ui.draft.replyTo = root
+            // Tree mode: the replied message stays the parent. The view opens its branch (the
+            // path from the root down to it), and a reply sent there answers it (`.send`).
+            s.ui.threadPath = s.ui.threadMode == .tree ? ThreadTree.path(to: ref, root: root, in: s.conversation.messages) : []
         case .closeThread:
             s.ui.openThread = nil
             s.ui.draft.replyTo = nil
+            s.ui.threadPath = []
+        case let .openThreadPath(path):
+            guard let first = path.first else { break }
+            // The root as `.reply` finds it (a reply's id opens its thread; the part index the
+            // thread's replies store), and only the path's loaded members of that thread.
+            let root = s.message(first.messageId)?.replyTo ?? s.conversation.messages
+                .first { $0.replyTo?.messageId == first.messageId }?.replyTo ?? first
+            s.ui.openThread = root
+            s.ui.draft.replyTo = root
+            if s.ui.threadMode == .tree {
+                let members = Set(ThreadTree.members(of: root, in: s.conversation.messages).map(\.id))
+                var kept: [PartRef] = []
+                if first.messageId != root.messageId, members.contains(first.messageId) { kept.append(first) }
+                kept += path.dropFirst().filter { members.contains($0.messageId) }
+                s.ui.threadPath = kept
+            } else {
+                s.ui.threadPath = []
+            }
         case let .edit(id, text):
             // checked reads and an in-place update; an edit that yields no part changes nothing (no trap).
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
@@ -150,10 +188,14 @@ enum Reducer {
         case let .unsend(id):
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }) else { break }
             s.conversation.messages.update(at: i) { $0.parts = []; $0.reactions = []; $0.retractedAt = stamp } // checked
+            // Tree mode: an unsent drilled reply closes back to its parent's branch.
+            if let k = s.ui.threadPath.firstIndex(where: { $0.messageId == id }) { s.ui.threadPath = Array(s.ui.threadPath.prefix(k)) }
         case let .delete(id):
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }) else { break }
             s.conversation.messages.update(at: i) { $0.deletedAt = stamp; $0.reactions = [] } // checked
-            if s.ui.openThread?.messageId == id { s.ui.openThread = nil }
+            if s.ui.openThread?.messageId == id { s.ui.openThread = nil; s.ui.threadPath = [] }
+            // Tree mode: a deleted branch closes back to its parent's branch.
+            if let k = s.ui.threadPath.firstIndex(where: { $0.messageId == id }) { s.ui.threadPath = Array(s.ui.threadPath.prefix(k)) }
         case let .attach(a):
             s.ui.draft.attachments.append(a)
         case let .removeDraftAttachment(id):
@@ -368,6 +410,13 @@ final class Store {
 
     func date(at t: Double) -> Date { baseDate.addingTimeInterval(t) }
 
+    /// The host's thread option (ThreadHost.swift). Set it before the first view shows the
+    /// conversation; standalone MessagesLab keeps `.messages`.
+    func setThreadMode(_ mode: ThreadMode) {
+        state.ui.threadMode = mode
+        if mode == .messages { state.ui.threadPath = [] }
+    }
+
     func dispatch(_ action: Action) { apply(action, at: now) }
 
     /// Apply a user action at `t` ahead of the jobs that fall due by then: they fire at the
@@ -565,7 +614,7 @@ final class DefaultResponder: Responder {
     }
 
     /// The decision for one answer, shared by its beats.
-    private final class Decision { var made = false; var root: PartRef?; var dropped = false }
+    private final class Decision { var made = false; var root: PartRef?; var parent: PartRef?; var dropped = false }
 
     private func schedulePickup(_ store: Store, after delay: Double) {
         pickupGen += 1
@@ -637,9 +686,11 @@ final class DefaultResponder: Responder {
                 return
             }
             d.root = threadRoot(for: a.target, store.state)
+            d.parent = treeParent(for: a.target, root: d.root, store.state)
         }
-        let m = Message(id: store.makeID("reply"), senderId: who, sentAt: Instant.format(store.date(at: store.now)),
+        var m = Message(id: store.makeID("reply"), senderId: who, sentAt: Instant.format(store.date(at: store.now)),
                         parts: beat.parts, replyTo: d.root, status: nil, edits: nil, retractedAt: nil, reactions: [])
+        m.parent = d.parent
         log.append((m.id, false, false))
         store.dispatch(.receive(m))
         events.append(.sent(id: m.id, answering: a.target.id, thread: d.root, at: store.now))
@@ -656,6 +707,13 @@ final class DefaultResponder: Responder {
         guard newer else { return nil }
         let part = target.parts.firstIndex { $0.plainText != nil } ?? 0
         return PartRef(messageId: target.id, partIndex: part)
+    }
+
+    /// `ThreadMode.tree`: an answer to a message inside a thread answers that message (its parent),
+    /// not only the thread. nil in `.messages` mode and for an answer to the root.
+    private func treeParent(for target: Message, root: PartRef?, _ s: AppState) -> PartRef? {
+        guard s.ui.threadMode == .tree, let root, target.replyTo == root, target.id != root.messageId else { return nil }
+        return PartRef(messageId: target.id, partIndex: target.parts.firstIndex { $0.plainText != nil } ?? 0)
     }
 
     // MARK: What to say
