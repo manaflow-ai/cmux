@@ -185,6 +185,9 @@ struct PaneZoomMotionTests {
     }
 
     @Test func anArrivingSplitPaneFadesItsContentWhileItsHostKeepsTheFinalSize() throws {
+        let paneAnimations = DesignSettings.shared.paneAnimations
+        DesignSettings.shared.paneAnimations = true
+        defer { DesignSettings.shared.paneAnimations = paneAnimations }
         let screen = Screen(.leaf("p1"))
         let split = SplitNode.split("v", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))
         screen.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(split))])
