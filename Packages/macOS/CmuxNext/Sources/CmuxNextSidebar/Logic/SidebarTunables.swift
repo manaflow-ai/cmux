@@ -1,6 +1,28 @@
 public import CmuxNextDesign
 public import CoreGraphics
 
+/// Prototype variants for the sidebar's width transition (Debug Settings
+/// `sidebar.collapseMotion`). The default keeps the existing slide-only
+/// behavior; the fade variant is opt-in so the two looks can be compared
+/// without changing a user's normal configuration.
+public nonisolated enum SidebarCollapseMotionVariant: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    /// The current sidebar transition: the panel stays opaque while its clip
+    /// width moves to (or from) zero.
+    case slide
+    /// The panel's content fades with the width transition, keeping the
+    /// geometry unchanged while avoiding a hard edge at the end of a hide.
+    case slideFade
+
+    public var tunableTitle: String {
+        switch self {
+        case .slide: "Slide"
+        case .slideFade: "Slide and fade"
+        }
+    }
+
+    var fadesPanel: Bool { self == .slideFade }
+}
+
 /// Debug Settings tunables of sidebar drag and drop (`DropResolver`).
 /// Sidebar sizes come from `Metrics` (`MetricTunables`).
 public nonisolated enum SidebarTunables {
@@ -43,7 +65,15 @@ public nonisolated enum SidebarTunables {
         help: "Adds sample rows with 1 to 7 pending items to the sidebar, to compare the row badges without real sessions.",
         default: false, code: "SidebarTunables.rowBadgePreview")
 
+    /// The width transition used when the sidebar is collapsed or expanded.
+    /// `.slide` is the shipped behavior; `.slideFade` is a DEV/NIGHTLY
+    /// prototype for comparing a fast opacity fade against the same geometry.
+    public static let collapseMotion = Tunable<SidebarCollapseMotionVariant>.choice(
+        "sidebar.collapseMotion", .sidebar, "Sidebar collapse motion",
+        help: "Prototype for hiding and showing the sidebar: slide keeps the panel opaque; slide and fade fades its content with the same width motion.",
+        default: .slide, code: "SidebarTunables.collapseMotion")
+
     public static var all: [TunableDescriptor] {
-        [groupEdgeFraction, groupExitFraction, sectionTopFraction, workspaceOntoStart, workspaceOntoEnd].map(\.descriptor) + [agentMark.descriptor, presenceDots.descriptor, SidebarRowBadgeStyle.tunable.descriptor, SidebarRowBadgeStackCap.tunable.descriptor, rowBadgePreview.descriptor, NotificationBadgeLook.tunable.descriptor, NotificationIconLook.tunable.descriptor, updateCardButton.descriptor, SidebarChatsDesign.tunable.descriptor] + SidebarSectionTunables.all
+        [groupEdgeFraction, groupExitFraction, sectionTopFraction, workspaceOntoStart, workspaceOntoEnd].map(\.descriptor) + [agentMark.descriptor, presenceDots.descriptor, SidebarRowBadgeStyle.tunable.descriptor, SidebarRowBadgeStackCap.tunable.descriptor, rowBadgePreview.descriptor, collapseMotion.descriptor, NotificationBadgeLook.tunable.descriptor, NotificationIconLook.tunable.descriptor, updateCardButton.descriptor, SidebarChatsDesign.tunable.descriptor] + SidebarSectionTunables.all
     }
 }

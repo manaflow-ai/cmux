@@ -38,6 +38,10 @@ public final class SidebarContainerView: NSView {
     private var targetWidth: CGFloat
     /// Bumped per width animation; a stale completion does nothing.
     private var animationGeneration = 0
+    /// The collapse prototype used by the current transition. Keeping it
+    /// alongside the width target lets a Debug Settings change retarget a
+    /// transition already in flight without changing the default geometry.
+    private var targetCollapseMotion: SidebarCollapseMotionVariant
 
     /// The window edge this sidebar sits on (`sidebar.side`, R109): the
     /// resize handle and the slide-out follow it.
@@ -57,6 +61,7 @@ public final class SidebarContainerView: NSView {
         sidebarView = SidebarView(model: model)
         handle = SidebarResizeHandle()
         targetWidth = model.displayWidth
+        targetCollapseMotion = SidebarTunables.collapseMotion.value
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         clip.wantsLayer = true
@@ -185,10 +190,12 @@ public final class SidebarContainerView: NSView {
     private func observe() {
         let model = model
         observation = Task { [weak self] in
-            for await (_, _, defaultWidth, border) in ObservationStream({
+            for await (_, _, defaultWidth, border, _) in ObservationStream({
                 // The default width token is tracked so a settings change
-                // resizes live.
-                (model.presentation, model.width, Metrics.sidebarWidth, Metrics.sidebarBorderWidth)
+                // resizes live. The collapse prototype is tracked here too,
+                // so Debug Settings retargets an in-flight transition.
+                (model.presentation, model.width, Metrics.sidebarWidth, Metrics.sidebarBorderWidth,
+                 SidebarTunables.collapseMotion.value)
             }) {
                 self?.handle.restingLineWidth = border
                 self?.followDefaultWidth(defaultWidth)
@@ -217,9 +224,11 @@ public final class SidebarContainerView: NSView {
     /// Sets every constraint and visibility for the model without animating.
     private func snap() {
         targetWidth = model.displayWidth
+        targetCollapseMotion = SidebarTunables.collapseMotion.value
         widthConstraint.constant = targetWidth
         panelWidth.constant = model.width
         panel.isHidden = model.isHidden
+        panel.alphaValue = 1
         handle.isHidden = model.isHidden
     }
 
@@ -229,16 +238,24 @@ public final class SidebarContainerView: NSView {
     private func apply() {
         let hidden = model.isHidden
         let target = model.displayWidth
+        let collapseMotion = SidebarTunables.collapseMotion.value
         panelWidth.constant = model.width
         handle.isHidden = hidden
         if handle.isDragging, !hidden {
             targetWidth = target
+            targetCollapseMotion = collapseMotion
             widthConstraint.constant = target
             return
         }
-        guard targetWidth != target else { return }
+        guard targetWidth != target || targetCollapseMotion != collapseMotion else { return }
         targetWidth = target
+        targetCollapseMotion = collapseMotion
         if !hidden { panel.isHidden = false }
+        // The slide-and-fade prototype starts an expansion transparent and
+        // lets the same timed transition reveal it. Slide keeps the current
+        // opaque panel behavior, including when a user switches variants
+        // while the sidebar is already visible.
+        if !hidden { panel.alphaValue = collapseMotion.fadesPanel ? 0 : 1 }
         animationGeneration += 1
         let generation = animationGeneration
         // Animate only the constraint: descendants re-lay out each frame at
@@ -250,8 +267,14 @@ public final class SidebarContainerView: NSView {
         // A toggle mid-animation starts from the constant on screen.
         Motion.animateTimed(hidden ? .disappear : .appear, in: self, {
             Motion.animator(widthConstraint, in: self).constant = target
+            if collapseMotion.fadesPanel {
+                panel.animator().alphaValue = hidden ? 0 : 1
+            } else {
+                panel.alphaValue = 1
+            }
         }, completion: { [weak self] in
             guard let self, generation == self.animationGeneration, self.model.isHidden else { return }
+            self.panel.alphaValue = collapseMotion.fadesPanel ? 0 : 1
             self.panel.isHidden = true
             PointerHover.refresh(in: self.window)
         })
