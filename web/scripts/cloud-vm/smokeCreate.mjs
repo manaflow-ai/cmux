@@ -14,12 +14,12 @@ export function createVmRequest({ targetUrl, authHeaders, provider, image, fetch
     ...(provider === "default" ? {} : { provider }),
     ...(image ? { image } : {}),
   };
-  return async (idempotencyKey) => {
+  return async (idempotencyKey, signal) => {
     const response = await fetchWithTimeout(`${targetUrl}/api/vm`, {
       method: "POST",
       headers: { ...authHeaders, "content-type": "application/json", "idempotency-key": idempotencyKey },
       body: JSON.stringify(body),
-    });
+    }, undefined, signal);
     const text = await response.text();
     let parsed;
     try {
@@ -47,7 +47,8 @@ export async function createVmWithRetry({
   const startedAt = now();
   for (;;) {
     throwIfAborted(signal);
-    const response = await send(idempotencyKey);
+    const response = await send(idempotencyKey, signal);
+    throwIfAborted(signal);
     if (response.status === 200) {
       if (!response.body || typeof response.body !== "object" || !response.body.id) {
         throw new Error("POST /api/vm response missing id");

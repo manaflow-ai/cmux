@@ -10,13 +10,16 @@ describe("Cloud VM smoke create retry", () => {
       { status: 200, body: { id: "vm-1", provider: "freestyle" } },
     ];
     const requests: Array<{ url: string; init: RequestInit }> = [];
+    const controller = new AbortController();
+    const signals: Array<AbortSignal | undefined> = [];
     const send = createVmRequest({
       targetUrl: "https://cmux.test",
       authHeaders: { authorization: "Bearer test" },
       provider: "default",
       image: undefined,
-      fetchWithTimeout: async (url: string, init: RequestInit) => {
+      fetchWithTimeout: async (url: string, init: RequestInit, _timeout: number | undefined, signal: AbortSignal | undefined) => {
         requests.push({ url, init });
+        signals.push(signal);
         const response = responses.shift()!;
         return { status: response.status, text: async () => JSON.stringify(response.body) };
       },
@@ -25,6 +28,7 @@ describe("Cloud VM smoke create retry", () => {
     await createVmWithRetry({
       idempotencyKey: "smoke-key",
       send,
+      signal: controller.signal,
       sleep: async () => {},
       now: (() => {
         let current = 0;
@@ -39,6 +43,7 @@ describe("Cloud VM smoke create retry", () => {
     expect(requests.map(({ init }) => init.body)).toEqual([
       "{}", "{}", "{}",
     ]);
+    expect(signals).toEqual([controller.signal, controller.signal, controller.signal]);
   });
 
   test("retries an in-progress create with the same idempotency key until it is ready", async () => {
@@ -105,15 +110,23 @@ describe("Cloud VM smoke create retry", () => {
   test("cancellation stops the retry wait before another request", async () => {
     const controller = new AbortController();
     let sends = 0;
+    let markWaitStarted!: () => void;
+    const waitStarted = new Promise<void>((resolve) => { markWaitStarted = resolve; });
     const pending = createVmWithRetry({
       idempotencyKey: "smoke-key",
       send: async () => {
         sends += 1;
         return { status: 503, body: { error: "vm_operation_in_progress", phase: "create", retryable: true, retryAfterSeconds: 60 } };
       },
+      sleep: async (_ms: number, signal: AbortSignal | undefined) => {
+        markWaitStarted();
+        return new Promise<never>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        });
+      },
       signal: controller.signal,
     });
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await waitStarted;
     controller.abort(new Error("test cancellation"));
     await expect(pending).rejects.toThrow("aborted");
     expect(sends).toBe(1);

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { execFileSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -124,18 +124,24 @@ async function timed(name, work) {
   }
 }
 
-async function fetchWithTimeout(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
-  if (useVercelCurl) return vercelCurlFetch(url, init, timeoutMs);
+/** Fetch an API request with both a local timeout and caller cancellation. */
+async function fetchWithTimeout(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS, signal) {
+  if (useVercelCurl) return vercelCurlFetch(url, init, timeoutMs, signal);
   const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener("abort", abort, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
   }
 }
 
-function vercelCurlFetch(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+/** Run the Vercel curl transport while preserving cancellation and cleanup. */
+async function vercelCurlFetch(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS, signal) {
   const parsed = new URL(url);
   const scratch = mkdtempSync(path.join(tmpdir(), "cmux-vercel-curl-"));
   const responsePath = path.join(scratch, "response.txt");
@@ -161,7 +167,7 @@ function vercelCurlFetch(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
     }
     writeFileSync(configPath, `${lines.join("\n")}\n`, { mode: 0o600 });
 
-    const statusOutput = execFileSync("vercel", [
+    const statusOutput = await runVercelCurl([
       "curl",
       `${parsed.pathname}${parsed.search}`,
       "--deployment",
@@ -171,11 +177,7 @@ function vercelCurlFetch(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
       "--",
       "--config",
       configPath,
-    ], {
-      encoding: "utf8",
-      timeout: timeoutMs + 10_000,
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
+    ], timeoutMs, signal);
     const statusMatch = statusOutput.match(/(\d{3})$/);
     if (!statusMatch) throw new Error(`vercel curl did not return an HTTP status: ${statusOutput}`);
     const status = Number(statusMatch[1]);
@@ -187,6 +189,46 @@ function vercelCurlFetch(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
+}
+
+/** Run the Vercel CLI in a cancellable child process for signal-safe teardown. */
+function runVercelCurl(args, timeoutMs, signal) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("vercel", args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let timer;
+    let abort = () => {};
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+    };
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      child.kill("SIGTERM");
+      reject(error);
+    };
+    abort = () => fail(signal?.reason instanceof Error ? signal.reason : new Error("Vercel curl aborted"));
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", fail);
+    child.once("close", (code) => {
+      if (settled) return;
+      if (code !== 0) {
+        fail(new Error(`vercel curl exited with ${code}: ${stderr.trim()}`));
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolve(stdout.trim());
+    });
+    timer = setTimeout(() => fail(new Error(`vercel curl exceeded ${timeoutMs + 10_000} ms`)), timeoutMs + 10_000);
+    if (signal?.aborted) abort();
+    else signal?.addEventListener("abort", abort, { once: true });
+  });
 }
 
 function writeResultFile(outcome) {
