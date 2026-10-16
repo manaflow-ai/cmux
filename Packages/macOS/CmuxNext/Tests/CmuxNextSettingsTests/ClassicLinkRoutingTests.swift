@@ -10,7 +10,7 @@ import Testing
 /// and `.urlsToAlwaysOpenExternally`. Next reads the same keys from the adopted
 /// `cmux.json`, and imports once what classic's Settings window kept in its
 /// preferences.
-@MainActor @Suite(.serialized) struct ClassicTerminalLinkRoutingTests {
+@MainActor @Suite(.serialized) struct ClassicLinkRoutingTests {
     static func settings(_ json: String) throws -> (SettingsController, URL) {
         let home = FileManager.default.temporaryDirectory.appending(path: "cn-classic-links-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
@@ -23,7 +23,7 @@ import Testing
     }
 
     static func opensInCmux(_ settings: SettingsController, _ link: String) throws -> Bool {
-        settings.snapshot.terminalLinkRouting.opensInCmux(try #require(URL(string: link)))
+        settings.snapshot.linkRouting.opensInCmux(try #require(URL(string: link)))
     }
 
     @Test func classicCmuxJSONRoutesTerminalLinks() async throws {
@@ -74,7 +74,7 @@ import Testing
 
         // Removed in next, then the next launch: the classic value does not come back,
         // and turning terminal links off in classic later isn't read either.
-        try await settings.setSetting(at: TerminalLinkRouting.hostsPath, to: nil, by: .user)
+        try await settings.setSetting(at: LinkRouting.hostsPath, to: nil, by: .user)
         own.set(false, forKey: "browserOpenTerminalLinksInCmuxBrowser")
         #expect(try await !settings.importClassicPreferences(from: [own, stable], marker: own))
         #expect(try Self.opensInCmux(settings, "https://example.org/"))
@@ -93,11 +93,11 @@ import Testing
         #expect(try await settings.importClassicPreferences(from: [own, stable], marker: own))
         #expect(try !Self.opensInCmux(settings, "https://example.com/"))
         // Cmd-Option picks a cmux browser profile: the toggle doesn't apply, the rules do.
-        let routing = settings.snapshot.terminalLinkRouting
+        let routing = settings.snapshot.linkRouting
         #expect(routing.opensInCmux(try #require(URL(string: "https://example.com/")), explicit: true))
         #expect(!routing.opensInCmux(try #require(URL(string: "https://bank.example/login")), explicit: true))
         // A link with no usable host goes out, as in classic.
-        #expect(!TerminalLinkRouting.fallback.opensInCmux(try #require(URL(string: "https://")), explicit: true))
+        #expect(!LinkRouting.fallback.opensInCmux(try #require(URL(string: "https://")), explicit: true))
     }
 
     /// The keys decide which links leave a browser agents drive, so only the person changes them,
@@ -108,10 +108,10 @@ import Testing
         """)
         defer { try? FileManager.default.removeItem(at: home) }
         await settings.reload()
-        #expect(settings.snapshot.terminalLinkRouting.embeddedHosts.isEmpty)
+        #expect(settings.snapshot.linkRouting.embeddedHosts.isEmpty)
         #expect(settings.snapshot.diagnostics.contains { $0.path == "browser.hostsToOpenInEmbeddedBrowser" })
 
-        for path in [TerminalLinkRouting.openPath, TerminalLinkRouting.hostsPath, TerminalLinkRouting.rulesPath] {
+        for path in [LinkRouting.openPath, LinkRouting.hostsPath, LinkRouting.rulesPath] {
             await #expect(throws: SettingUserOnly.self) {
                 try await settings.setSetting(at: path, to: nil, by: .caller("mcp"))
             }
