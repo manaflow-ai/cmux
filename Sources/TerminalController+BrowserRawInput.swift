@@ -57,6 +57,10 @@ extension TerminalController {
                 )
             }
             let steps = request.steps
+            if let enginePage = v2MainSync({ panel.automationEnginePage }),
+               v2MainSync({ enginePage.capabilities.contains(.devToolsProtocol) }) {
+                return v2BrowserRawInputOverDevTools(steps, page: enginePage, context: context)
+            }
             var deliveryTask: Task<Void, Never>?
             let outcome: Result<CGPoint, BrowserRawInputFailure>? = v2AwaitCallback(timeout: 10) { finish in
                 deliveryTask = Task { @MainActor in
