@@ -148,6 +148,7 @@ extension CMUXCLI {
         let configToml = codexHome.flatMap {
             try? String(contentsOf: $0.appendingPathComponent("config.toml"), encoding: .utf8)
         }
+        var usesFileCredentials = false
         let temporaryConfigHome: URL? = {
             guard let configToml else { return nil }
             let home = FileManager.default.temporaryDirectory
@@ -173,6 +174,7 @@ extension CMUXCLI {
                         at: home.appendingPathComponent("auth.json"),
                         withDestinationURL: authURL
                     )
+                    usesFileCredentials = true
                 }
                 return home
             } catch {
@@ -195,6 +197,11 @@ extension CMUXCLI {
             configToml: configToml,
             usesTemporaryConfig: temporaryConfigHome != nil
         )
+        if usesFileCredentials {
+            // "auto" may read the linked file but save refreshed tokens to a
+            // keyring entry owned by this disposable home instead.
+            arguments += ["-c", "cli_auth_credentials_store=\"file\""]
+        }
         arguments += [
             "--cd", workingDirectory.path,
             "--output-last-message", outputFile.path,
