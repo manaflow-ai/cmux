@@ -68,6 +68,29 @@ def job(name):
     return TEXT[start:] if end is None else TEXT[start:start + len(name) + 4 + end.start()]
 
 
+# The resolved cmux-tui publication includes a checksum-verified acpmux
+# companion. Fetch it before the app job's acpmux step so the existing
+# commit-addressed helper cache can reuse it instead of starting Cargo.
+app_job = job("build-nightly-app")
+try:
+    tree_fetch_at = app_job.index("      - name: Fetch the resolved cmux-tui tree companions\n")
+except ValueError:
+    tree_fetch_at = -1
+try:
+    acpmux_at = app_job.index("      - name: Build in-tree acpmux for the compilation cache\n")
+except ValueError:
+    acpmux_at = -1
+if tree_fetch_at < 0:
+    failures.append("build-nightly-app must fetch resolved cmux-tui tree companions")
+elif acpmux_at < 0 or tree_fetch_at > acpmux_at:
+    failures.append("resolved cmux-tui tree companions must be fetched before the acpmux cache step")
+else:
+    fetch_end = app_job.find("\n      - name:", tree_fetch_at + 10)
+    fetch_step = app_job[tree_fetch_at:fetch_end if fetch_end >= 0 else None]
+    if "pin-cmux-tui.sh fetch" not in fetch_step or "CMUX_TUI_TREE_KEY" not in fetch_step:
+        failures.append("resolved tree companion fetch must select the resolver's attested tree key")
+
+
 def build_env(body, outputs):
     values = {}
     for key, value in re.findall(r"^ +([A-Z_]+): (.+)$", body, re.M):
