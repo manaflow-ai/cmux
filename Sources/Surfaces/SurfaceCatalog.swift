@@ -28,6 +28,9 @@ final class SurfaceCatalog {
     static let didChangeNotification = Notification.Name("cmux.surfaces.didChange")
     private(set) var machines: [SurfaceMachineID: SurfaceMachineInfo] = [:]
     private(set) var resources: [SurfaceResourceID: SurfaceResource] = [:]
+    /// Native documents are presentation state, separate from the daemon's browser snapshot.
+    var cloudBrowserDocuments: [SurfaceResourceID: [UUID: CloudBrowserDocument]] = [:]
+    var cloudBrowserDocumentRevision: UInt64 = 0
     private struct CloudProjectionKey: Hashable { let panelID: UUID; let workspaceID: UUID }
     /// Derived storage must not publish when a SwiftUI read rebuilds it.
     @ObservationIgnored private var cloudProjectionIndex: Set<CloudProjectionKey>?
@@ -152,6 +155,7 @@ final class SurfaceCatalog {
     // MARK: Providers
     func register(_ provider: any SurfaceProvider) {
         if let previous = providers[provider.machine], previous !== provider {
+            cloudBrowserDocuments = cloudBrowserDocuments.filter { $0.key.machine != provider.machine }
             cloudWorkspaceCreationCoordinator.cancel(machine: provider.machine)
             cloudWorkspaceProjectionCoordinator.cancel(machine: provider.machine)
             let inFlightKeys = inFlightProjects.keys.filter { $0.machine == provider.machine }
@@ -176,6 +180,7 @@ final class SurfaceCatalog {
         closeURLBackedPanes(on: machine)
         cloudWorkspaceDeletionLedger.remove(machine: machine)
         providers[machine] = nil
+        cloudBrowserDocuments = cloudBrowserDocuments.filter { $0.key.machine != machine }
         machines[machine] = nil
         for id in resourceIDsByMachine[machine] ?? [] { resources[id] = nil }
         resourceIDsByMachine[machine] = nil
@@ -626,7 +631,8 @@ final class SurfaceCatalog {
         try validateOwnership(of: [id], at: destination)
         let scope = beginProjectionMutation(for: [id])
         defer { endProjectionMutation(scope) }
-        guard let resource = resources[id] else { throw SurfaceCatalogError.unknownResource(id) }
+        guard let knownResource = resources[id] else { throw SurfaceCatalogError.unknownResource(id) }
+        let resource = resourceForPresentation(knownResource)
         // Resolve the opaque tab id against the current graph before any async
         // provider work. A stale view must fail, never silently attach to a
         // different placement after a concurrent daemon update.
