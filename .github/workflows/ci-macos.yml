@@ -281,6 +281,10 @@ jobs:
       # bundle jobs verify and install web bundles separately; do not make the
       # compile-only product depend on a bundle stamp.
       CMUX_WEB_BUNDLES_OPTIONAL: "1"
+      # Compile admission does not publish or consume the same-tree cmux-tui
+      # runtime. Pin mode lets the bundle phase warn and continue when no
+      # pinned client is cached, instead of requiring a tree artifact.
+      CMUX_NEXT_TUI_MODE: "pin"
     steps:
       - name: Reject stale pull request rerun
         if: ${{ github.event_name == 'pull_request' }}
