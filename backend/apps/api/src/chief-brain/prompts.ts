@@ -41,8 +41,11 @@ Inside <chat>, no message appears in full, not even the last ones.
 
 After </chat> come the messages since the view was made, oldest first, one
 line each in the form id+1|kind: text (each in full, up to 30,000
-characters). A line after </chat> that names an earlier line id (edit of,
-retracted, deleted) replaces what that line says. The newest user lines
+characters). A line after </chat> that names an earlier message replaces
+what that message says. Its forms: id+1|edit of <target>: <new text>,
+id+1|retracted <target>, id+1|deleted <target>. The target is a message id:
+the view line that covers it (the line id+n with id <= target < id+n) is the
+one changed; zoom(target, 1) opens the message itself. The newest user lines
 are the messages you answer now.
 
 Navigating: zoom(id, n) opens line id+n into the two lines of n/2
