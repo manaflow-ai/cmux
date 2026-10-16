@@ -77,7 +77,7 @@ public struct MobilePaywallView: View {
     @State private var layoutOverride: BillingPaywallLayout?
     /// False once the user declined notifications: the trial timeline then
     /// drops the reminder it could not send.
-    @State private var reminderAllowed = true
+    @State private var reminderAllowed = false
 
     /// Creates the paywall.
     /// - Parameters:
@@ -149,10 +149,12 @@ public struct MobilePaywallView: View {
                         Image(systemName: "xmark")
                     }
                 }
-                .accessibilityLabel(L10n.string("mobile.billing.paywall.close", defaultValue: "Close"))
+                .accessibilityLabel(effectiveLayout == .specList
+                    ? L10n.string("mobile.billing.done", defaultValue: "Done")
+                    : L10n.string("mobile.billing.paywall.close", defaultValue: "Close"))
                 .accessibilityIdentifier("BillingPaywallClose")
             }
-            if effectiveLayout.restoreAtTop, isShowingOffers {
+            if effectiveLayout.restoreAtTop, isShowingOffers, !isCompleted {
                 ToolbarItem(placement: .primaryAction) {
                     Button(L10n.string("mobile.billing.restoreShort", defaultValue: "Restore")) {
                         guard preview == nil else { return }
@@ -178,6 +180,7 @@ public struct MobilePaywallView: View {
             let fixed = BillingPaywallContext(entryPoint: preview.entryPoint, config: preview.config, configSource: .server)
             apply(fixed)
             if billing.account.account == nil { await billing.loadIfNeeded() }
+            reminderAllowed = await BillingTrialReminder().canRemind()
             await billing.loadPreviewOffers()
             if preview.scenario == .trial { await loadPreviewTrial(preview) }
             return
@@ -190,6 +193,7 @@ public struct MobilePaywallView: View {
         apply(fixed)
         appearedAt = .now
         billing.paywallViewed(context: fixed)
+        reminderAllowed = await BillingTrialReminder().canRemind()
         if wasLoaded { await billing.refresh() }
         await billing.prepareTrial()
         guard !Task.isCancelled else { return }
@@ -197,7 +201,6 @@ public struct MobilePaywallView: View {
             // Lead with the trial: select its plan and period.
             planPeriods[grant.planID] = grant.billingOffer.billingPeriod
             selectedPlan = grant.planID
-            reminderAllowed = await BillingTrialReminder().canRemind()
         }
     }
 
@@ -245,12 +248,11 @@ public struct MobilePaywallView: View {
                 // Ask in context: the timeline promised this reminder.
                 reminderAllowed = await BillingTrialReminder().requestIfNeeded()
             }
-            await billing.buy(offer, context: context, trial: trial)
-            guard let trial, promisesReminder, reminderAllowed else { return }
-            switch billing.purchase {
-            case .completed, .awaitingServer: await BillingTrialReminder().schedule(grant: trial)
-            default: break
-            }
+            let charged = await billing.buy(offer, context: context, trial: trial)
+            // Decided from this purchase's own result, not the shared phase,
+            // which a close during the purchase may already have cleared.
+            guard charged, let trial, promisesReminder, reminderAllowed else { return }
+            await BillingTrialReminder().schedule(grant: trial)
         }
     }
 
@@ -419,7 +421,11 @@ public struct MobilePaywallView: View {
                     }
                 }
             }
-            if let trial = selectedOffer.flatMap(trial(for:)) {
+            // The terms sit with the trial's own button: in specList that is
+            // its row, not the selected plan.
+            if let trial = effectiveLayout == .specList
+                ? visibleOffers.lazy.compactMap({ trial(for: $0) }).first
+                : selectedOffer.flatMap(trial(for:)) {
                 MobilePaywallTrialTerms(grant: trial)
                     .onAppear { reportTrialShown(trial, context: context) }
             }
@@ -590,6 +596,8 @@ public struct MobilePaywallView: View {
 
     private var selectedOffer: BillingOffer? {
         let visible = visibleOffers
+        // The checklist compares Free with Pro, so its button buys Pro.
+        if effectiveLayout == .checklist, let pro = visible.first(where: { $0.planID == .pro }) { return pro }
         if let selectedPlan, let offer = visible.first(where: { $0.planID == selectedPlan }) { return offer }
         return defaultOffer
     }

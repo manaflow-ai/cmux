@@ -298,8 +298,16 @@ struct MobilePaywallPlanCard: View {
             }
             .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             .onTapGesture(perform: select)
-            .accessibilityElement(children: .contain)
-            .accessibilityAction(named: Text(copy.name), select)
+            // One VoiceOver element: activating selects the plan; the other
+            // period is a named action.
+            .accessibilityElement(children: .combine)
+            .accessibilityAction { select() }
+            .accessibilityAction(named: Text(alternateOffer.map(alternateLine) ?? copy.name)) {
+                if let period, let alternateOffer {
+                    period.wrappedValue = alternateOffer.billingPeriod
+                }
+                select()
+            }
             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .accessibilityIdentifier("BillingOfferCard.\(offer.planID.rawValue)")
     }

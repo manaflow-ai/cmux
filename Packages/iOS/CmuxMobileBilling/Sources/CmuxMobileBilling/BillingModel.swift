@@ -381,6 +381,10 @@ public final class BillingModel {
         await buy(offer, context: paywallContext(entryPoint: entryPoint))
     }
 
+    /// The product of the last purchase the App Store charged in this
+    /// session; kept when the result banner is dismissed.
+    private var lastChargedProductID: String?
+
     /// Buys an offer from a paywall session; the purchase events carry the
     /// session's experiment properties.
     /// - Parameters:
@@ -388,7 +392,16 @@ public final class BillingModel {
     ///   - context: The paywall session.
     ///   - trial: The granted free trial, when `offer` is its product; its
     ///     signed eligibility goes to StoreKit.
-    public func buy(_ offer: BillingOffer, context: BillingPaywallContext, trial: BillingTrialGrant? = nil) async {
+    /// - Returns: True when the App Store charged for `offer` (the server
+    ///   applied it or will), independent of the result banner's state.
+    @discardableResult
+    public func buy(_ offer: BillingOffer, context: BillingPaywallContext, trial: BillingTrialGrant? = nil) async -> Bool {
+        lastChargedProductID = nil
+        await performBuy(offer, context: context, trial: trial)
+        return lastChargedProductID == offer.product.id
+    }
+
+    private func performBuy(_ offer: BillingOffer, context: BillingPaywallContext, trial: BillingTrialGrant?) async {
         let trial = trial?.productID == offer.product.id ? trial : nil
         guard !purchase.isPurchasing else { return }
         var properties = context.analyticsProperties
@@ -436,6 +449,7 @@ public final class BillingModel {
             switch await deliver(transaction) {
             case .accepted(let receipt):
                 purchase = .completed(receipt.planID)
+                lastChargedProductID = offer.product.id
                 capturePurchaseSucceeded(offer, transaction, delivery: "accepted")
                 await loadAccount()
             case .rejected(let failure):
@@ -446,6 +460,7 @@ public final class BillingModel {
                 // server also learns of it from App Store Server
                 // Notifications, so this is not a failed purchase.
                 purchase = .awaitingServer(productID: offer.product.id)
+                lastChargedProductID = offer.product.id
                 capturePurchaseSucceeded(offer, transaction, delivery: "deferred")
             }
         }
