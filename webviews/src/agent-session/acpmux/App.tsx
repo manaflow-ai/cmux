@@ -190,7 +190,7 @@ import { PullRequestDock } from "./summary/PullRequestDock";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
-import { configureSidebarPreviewVariant } from "./sidebarPreview";
+import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
@@ -295,6 +295,8 @@ declare global {
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
       /// default): the session coverage label.
       applyPreview?(on: boolean): void;
+      /// The native Debug Settings baseline for the sidebar latest-reply preview.
+      applySidebarPreviewVariant?(variant: unknown): void;
       /// Suggested tasks on or off (the Debug toggle `agent.suggestedTasks`, DEV and NIGHTLY, off by
       /// default): an agent's offers draw as the suggested tasks card (offer/offersShown.ts).
       applySuggestedTasks?(on: boolean): void;
@@ -3505,6 +3507,9 @@ function AcpmuxPane() {
       applyPreview(on) {
         setPreview(on === true);
       },
+      applySidebarPreviewVariant(variant) {
+        configureNativeSidebarPreviewVariant(variant);
+      },
       applySuggestedTasks(on) {
         if (setSuggestedTasks(on === true)) directClient.current?.suggestedTasksChanged();
       },
@@ -3547,10 +3552,9 @@ function AcpmuxPane() {
         if (customization.layout) {
           configureDictation(customization.layout);
           configureQuickActions(customization.layout);
-          if ("sidebarPreviewVariant" in customization.layout)
-            configureSidebarPreviewVariant(customization.layout.sidebarPreviewVariant);
+          configureSidebarPreviewVariant(customization.layout.sidebarPreviewVariant);
           window.cmuxAcpmuxRegistry?.configure(customization.layout);
-        }
+        } else configureSidebarPreviewVariant(undefined);
       },
       dictation(update) {
         deliverDictation(update);

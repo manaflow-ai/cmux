@@ -614,7 +614,7 @@ const SessionRow = memo(function SessionRow({
       data-focus-ring="row"
       className={`acpmux-session-row${flat ? " is-flat" : ""}${selected ? " is-selected" : ""}${open ? " is-open" : ""}${session.status === "closed" ? " is-closed" : ""}`}
       aria-current={selected ? "true" : undefined}
-      aria-describedby={previewText ? previewId : undefined}
+      aria-describedby={previewText && previewIntent.shown ? previewId : undefined}
       aria-label={
         mark || place || trailing || open
           ? [title, open && t("sidebar.alreadyOpen"), trailing, placeLabel, mark && t(MARK_LABELS[mark])]

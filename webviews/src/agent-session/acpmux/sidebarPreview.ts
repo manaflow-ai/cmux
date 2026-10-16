@@ -12,18 +12,22 @@ export function readSidebarPreviewVariant(value: unknown): SidebarPreviewVariant
   return isVariant(value) ? value : DEFAULT_VARIANT;
 }
 
-const initialVariant = (): SidebarPreviewVariant => {
-  if (typeof window === "undefined") return DEFAULT_VARIANT;
+const queryVariant = (): SidebarPreviewVariant | undefined => {
+  if (typeof window === "undefined") return undefined;
   const query = new URLSearchParams(window.location.search).get("sidebarPreview");
-  return readSidebarPreviewVariant(query ?? document.documentElement.dataset.acpmuxSidebarPreview);
+  return isVariant(query) ? query : undefined;
 };
 
-let current = initialVariant();
+const queryOverride = queryVariant();
+let nativeVariant =
+  typeof document === "undefined"
+    ? DEFAULT_VARIANT
+    : readSidebarPreviewVariant(document.documentElement.dataset.acpmuxSidebarPreview);
+let customizationOverride: SidebarPreviewVariant | undefined;
+let current = queryOverride ?? nativeVariant;
 const listeners = new Set<() => void>();
 
-/** Applies `layout.sidebarPreviewVariant` from the host's customization bridge. */
-export function configureSidebarPreviewVariant(value: unknown): void {
-  const next = readSidebarPreviewVariant(value);
+const publish = (next: SidebarPreviewVariant): void => {
   if (next === current) return;
   current = next;
   if (typeof document !== "undefined") {
@@ -31,6 +35,19 @@ export function configureSidebarPreviewVariant(value: unknown): void {
     else document.documentElement.dataset.acpmuxSidebarPreview = next;
   }
   for (const listener of listeners) listener();
+};
+
+/** Applies `layout.sidebarPreviewVariant` from the host's customization bridge. Passing no value
+ * removes the customization override and restores the native Debug Settings baseline. */
+export function configureSidebarPreviewVariant(value: unknown): void {
+  customizationOverride = value === undefined ? undefined : readSidebarPreviewVariant(value);
+  publish(queryOverride ?? customizationOverride ?? nativeVariant);
+}
+
+/** Applies the native Debug Settings baseline without clearing a user's explicit layout override. */
+export function configureNativeSidebarPreviewVariant(value: unknown): void {
+  nativeVariant = readSidebarPreviewVariant(value);
+  if (customizationOverride === undefined) publish(queryOverride ?? nativeVariant);
 }
 
 /** Reads the page-level debug choice, unless a gallery/prototype passes an explicit prop. */

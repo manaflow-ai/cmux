@@ -52,6 +52,24 @@ public nonisolated enum AgentPaneReasoningSliderStyle: String, Sendable, CaseIte
     }
 }
 
+/// Visual treatments for the session sidebar's latest-reply hover preview.
+public nonisolated enum AgentPaneSidebarPreviewVariant: String, Sendable, CaseIterable, TunableChoice {
+    /// The elevated card used by the current sidebar.
+    case card
+    /// A quieter, flatter preview card.
+    case quiet
+    /// A preview card distinguished by an outline instead of elevation.
+    case outline
+
+    public var tunableTitle: String {
+        switch self {
+        case .card: "Card (current)"
+        case .quiet: "Quiet (flatter)"
+        case .outline: "Outline (rim, no shadow)"
+        }
+    }
+}
+
 /// Debug Settings declarations of the agent pane (DEV and NIGHTLY).
 public nonisolated struct AgentPaneTunables {
     public nonisolated init() {}
@@ -195,5 +213,12 @@ public nonisolated struct AgentPaneTunables {
         help: "Visual treatment for the opt-in reasoning slider: today's accent treatment or a quieter outlined thumb.",
         default: .accent, code: "AgentPaneTunables.reasoningSliderStyle")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor] }
+    /// The session sidebar's latest-reply hover preview treatment. User layout customization may
+    /// still override this choice with `layout.sidebarPreviewVariant` for a prototype.
+    public static let sidebarPreviewVariant = Tunable<AgentPaneSidebarPreviewVariant>.choice(
+        "agentPane.debug.sidebarPreviewVariant", PageTunables.section, "Sidebar preview variant",
+        help: "Visual treatment for the session sidebar's latest-reply hover preview: card, quiet, or outline.",
+        default: .card, code: "AgentPaneTunables.sidebarPreviewVariant")
+
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, turnActionsPlacement.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor, reasoningSliderStyle.descriptor, sidebarPreviewVariant.descriptor] }
 }

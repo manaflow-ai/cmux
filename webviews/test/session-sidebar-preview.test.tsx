@@ -6,7 +6,11 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { HOVER_INTENT } from "../src/ui/hoverIntent";
-import { configureSidebarPreviewVariant, type SidebarPreviewVariant } from "../src/agent-session/acpmux/sidebarPreview";
+import {
+  configureNativeSidebarPreviewVariant,
+  configureSidebarPreviewVariant,
+  type SidebarPreviewVariant,
+} from "../src/agent-session/acpmux/sidebarPreview";
 
 const scope = globalThis as Record<string, unknown>;
 const saved: (readonly [string, boolean, unknown])[] = [];
@@ -181,6 +185,7 @@ test("Escape dismisses the focused preview", async () => {
   expect(document.querySelector(".acpmux-session-preview") !== null).toBe(true);
   await act(async () => row.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   expect(document.querySelector(".acpmux-session-preview") === null).toBe(true);
+  expect(row.getAttribute("aria-describedby")).toBeNull();
 });
 
 test("sidebar preview visual variants stay opt-in and preserve the shared card semantics", async () => {
@@ -217,6 +222,19 @@ test("the sidebar preview Debug layout choice selects the default treatment with
   const disabledRow = await sidebar("Preview stays gated.", false);
   await act(async () => disabledRow.focus());
   expect(document.querySelector(".acpmux-session-preview") === null).toBe(true);
+});
+
+test("removing the Debug layout choice restores the native sidebar preview baseline", async () => {
+  await act(async () => configureNativeSidebarPreviewVariant("quiet"));
+  await act(async () => configureSidebarPreviewVariant("outline"));
+  await act(async () => configureSidebarPreviewVariant(undefined));
+
+  const row = await sidebar("The native quiet baseline is restored.");
+  await act(async () => row.focus());
+  expect(document.querySelector(".acpmux-session-preview-quiet") !== null).toBe(true);
+
+  await act(async () => configureNativeSidebarPreviewVariant("card"));
+  await act(async () => configureSidebarPreviewVariant(undefined));
 });
 
 test("session rows retain ArrowDown, End and Home navigation", async () => {
