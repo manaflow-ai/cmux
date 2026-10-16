@@ -285,6 +285,9 @@ jobs:
       # runtime. Pin mode lets the bundle phase warn and continue when no
       # pinned client is cached, instead of requiring a tree artifact.
       CMUX_NEXT_TUI_MODE: "pin"
+      # Do not let a reused mini's unrelated release client turn the
+      # compile-only warning path back into a Debug capability check.
+      CMUX_TUI_CLIENT_CACHE: "/nonexistent"
     steps:
       - name: Reject stale pull request rerun
         if: ${{ github.event_name == 'pull_request' }}
