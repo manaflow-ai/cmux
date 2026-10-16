@@ -104,6 +104,7 @@ enum HandPresenceKey {
 
 /// One presence prompt in flight: its reason text, and a cancel (`LAContext.invalidate`, which
 /// the framework allows from any thread).
+// crash-allow: the only mutable state is the LAContext, whose invalidate() and evaluation are thread-safe; the reason is immutable.
 public final class HandPresencePrompt: @unchecked Sendable {
     public let reason: String
     let context = LAContext()
