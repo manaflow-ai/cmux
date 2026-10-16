@@ -711,7 +711,7 @@ if ! awk '
   in_move && /continue-on-error: true/ { saw_move_best_effort=1 }
   in_move && /GH_TOKEN: \$\{\{ steps\.release-tag-token\.outputs\.token \}\}/ { saw_app_token=1 }
   in_move && index($0, "GITHUB_TOKEN: ''") { saw_github_token_cleared=1 }
-  in_move && /scripts\/ci\/update-release-tag\.py/ { saw_api_update=1 }
+  in_move && /(scripts|PUBLISH_TOOLING)\/ci\/update-release-tag\.py/ { saw_api_update=1 }
   END { exit !(saw_move_if && saw_move_id && saw_move_best_effort && saw_app_token && saw_github_token_cleared && saw_api_update) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: moving the channel release tag must use the scoped app token, remain observable when stale, and use the verified API helper"
