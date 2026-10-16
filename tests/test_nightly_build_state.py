@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise actual retained Release state and content-checked input timestamps."""
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -66,6 +67,18 @@ class NightlyBuildState(unittest.TestCase):
         os.utime(resource, ns=(old, old))
         state.inputs(self.workspace, 'replay')
         self.assertGreater(resource.stat().st_mtime_ns, old)
+
+    def test_missing_or_corrupt_retained_state_falls_back_to_fresh_inputs(self):
+        self.prepare()
+        derived = self.workspace / 'build-universal'
+        shutil.rmtree(derived.resolve())
+        self.prepare()
+        self.assertTrue(derived.is_dir())
+        (derived / state.MANIFEST).write_text('incomplete JSON')
+        old = 1_000_000_000_000_000_000
+        os.utime(self.source, ns=(old, old))
+        state.inputs(self.workspace, 'replay')
+        self.assertGreater(self.source.stat().st_mtime_ns, old)
 
     def test_hosted_and_classic_do_not_acquire_next_state(self):
         self.assertFalse(self.prepare(runner='blacksmith-12vcpu-macos-26-1'))

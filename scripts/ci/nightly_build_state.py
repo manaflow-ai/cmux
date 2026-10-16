@@ -34,13 +34,13 @@ def owned(runner: str) -> bool:
 
 
 def link(path: Path, target: Path) -> None:
+    target.mkdir(parents=True, exist_ok=True)
     if path.is_symlink() and path.resolve() == target.resolve():
         return
     if path.is_symlink() or path.is_file():
         path.unlink()
     elif path.exists():
         shutil.rmtree(path)
-    target.mkdir(parents=True, exist_ok=True)
     path.symlink_to(target, target_is_directory=True)
 
 
