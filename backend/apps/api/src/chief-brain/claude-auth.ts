@@ -1,6 +1,6 @@
 import type { Env } from "../env.ts"
-import { bedrockBody, eventStreamToSse } from "./bedrock-stream.ts"
-import { claudeRoute, claudeRouteReady, meteredOwner, offers, OPUS } from "./model-routes.ts"
+import { bedrockBody, eventStreamToSse } from "../model-gateway/bedrock-stream.ts"
+import { BEDROCK_IDS, claudeRoute, claudeRouteReady, meteredOwner, offers, OPUS, type RouteAuth } from "../model-gateway/routes.ts"
 
 /**
  * Sign-in for the metered Claude route (`/api/claude-david/v1/messages` on the Chatmux service,
@@ -85,7 +85,11 @@ export const holderInvalidate = (sql: SqlStorage): void => void sql.exec(`DELETE
  * ClaudeAuthError (fixed text) when there is no secret or the refresh fails.
  */
 export const holderAuth = async (env: Env, sql: SqlStorage, now = Date.now()): Promise<string> => {
-  // An enterprise route with a static bearer token (CHIEF_BRAIN_CLAUDE_AUTH=bearer): nothing to refresh.
+  // A route with a static key: nothing to refresh (service-key: the signed fetch sends the key itself).
+  if (claudeRoute(env).auth === "service-key") {
+    if (!env.CHIEF_BRAIN_CLAUDE_SERVICE_KEY) throw new ClaudeAuthError()
+    return "service-key"
+  }
   if (claudeRoute(env).auth === "bearer") {
     if (!env.CHIEF_BRAIN_CLAUDE_TOKEN) throw new ClaudeAuthError()
     return `Bearer ${env.CHIEF_BRAIN_CLAUDE_TOKEN}`
@@ -115,14 +119,31 @@ export const holderAuth = async (env: Env, sql: SqlStorage, now = Date.now()): P
  * key is removed and `X-Stack-Auth` set; the body and the answer are converted for Bedrock
  * (bedrock-stream.ts). `auth` throws ClaudeAuthError on failure.
  */
-export const signedFetch = (auth: () => Promise<string>, refused: () => Promise<void>, route: { readonly auth: "stack" | "bearer"; readonly models: ReadonlyArray<string>; readonly effortBody?: boolean; readonly ttl?: string } = { auth: "stack", models: [] }): typeof fetch =>
+export interface SignedRoute {
+  readonly auth: RouteAuth
+  readonly models: ReadonlyArray<string>
+  readonly effortBody?: boolean
+  readonly ttl?: string
+  /** service-key: the route's key (never logged). */
+  readonly key?: string
+}
+export const signedFetch = (auth: () => Promise<string>, refused: () => Promise<void>, route: SignedRoute = { auth: "stack-session", models: [] }): typeof fetch =>
   (async (input: RequestInfo | URL, init?: RequestInit) => {
     const headers = new Headers(init?.headers)
     for (const h of ["x-api-key", "authorization", "anthropic-beta", "anthropic-version", "content-length"]) headers.delete(h)
-    headers.set(route.auth === "bearer" ? "authorization" : "X-Stack-Auth", await auth())
+    const service = route.auth === "service-key"
+    // The payer and call headers are the service-key route's contract; no other route gets them.
+    if (!service) for (const h of ["x-cmux-team-id", "x-cmux-chief-id", "x-request-id"]) headers.delete(h)
+    if (service) {
+      // The gateway set x-cmux-team-id (required), x-cmux-chief-id and x-request-id per call.
+      if (!route.key || !headers.get("x-cmux-team-id")) throw new ClaudeAuthError()
+      headers.set("x-api-key", route.key)
+    } else headers.set(route.auth === "bearer" ? "authorization" : "X-Stack-Auth", await auth())
     headers.set("x-coderouter-client", "cmux-cloud-chief")
-    // A route that serves one model names it in its own Bedrock URL; a multi-model route reads `model`.
-    const body = typeof init?.body === "string" ? bedrockBody(init.body, { keepModel: route.models.length > 1, effort: route.effortBody === true, ...(route.ttl ? { ttl: route.ttl } : {}) }) : init?.body
+    headers.set("user-agent", "cmux-cloud-chief/1")
+    // The Chatmux session route names Opus in its own Bedrock URL; a service-key or multi-model route reads `model` (the Bedrock id).
+    const model = service ? (id: string) => BEDROCK_IDS[id] ?? id : undefined
+    const body = typeof init?.body === "string" ? bedrockBody(init.body, { keepModel: service || route.models.length > 1, ...(model ? { modelId: model } : {}), effort: route.effortBody === true, ...(route.ttl ? { ttl: route.ttl } : {}) }) : init?.body
     const res = await fetch(input, { ...init, headers, ...(body === undefined ? {} : { body }) })
     if (res.status === 401) await refused().catch(() => undefined)
     // The route answers Bedrock's event stream; the Anthropic client reads Messages events.
