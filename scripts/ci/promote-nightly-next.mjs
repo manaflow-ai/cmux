@@ -422,56 +422,84 @@ export async function pendingPromotions({ github, owner, repo, runId }) {
 // requests arrive out of order (an older commit's Release compile or cmux-tui
 // tree can finish after a newer one's). Before deciding, read the requests that
 // wait for (or just got) the release-surface-ack approval:
-// - when one of them targets a commit that contains this request's commit and
-//   was decided against the current nightly-next, it stays and this request
-//   steps aside ("superseded"): that approval still promotes everything here;
+// - when one of them was decided against the current nightly-next and either
+//   targets a commit that contains this request's commit or is already
+//   approved (its wait job runs), it stays and this request steps aside
+//   ("superseded"): that approval promotes everything here, or is about to move
+//   nightly-next, and the next request asks again;
 // - otherwise this request decides the newest commit among its own and theirs
-//   (a later request never moves nightly-next to less than a waiting one), and
-//   its await-release-surface-ack job, in the shared cancel-in-progress group,
-//   cancels the older waiters. A waiter decided against an older nightly-next
-//   is dead (ackDecision refuses it), so it never makes this request step aside.
-// If the adopted commit is refused, the request decides its own commit. If the
-// scan fails, `scanFailed` is set and the workflow waits in a per-run group,
-// which cancels nothing (the behavior before this rule).
-export async function decideNewest({ github, core, owner, repo, sha, runId, ...rest }) {
-  let pending = [];
+//   that is not refused (a later request never moves nightly-next to less than
+//   a waiting one), and its await-release-surface-ack job, in the shared
+//   cancel-in-progress group, cancels the older waiters. A waiter decided
+//   against an older nightly-next is dead (ackDecision refuses it), so it never
+//   makes this request step aside.
+// The scan runs again after deciding, because the previous request's wait job
+// is named only a few seconds after its decide job ends. If the scan fails,
+// `scanFailed` is set and the workflow waits in a per-run group, which cancels
+// nothing (the behavior before this rule). A waiter whose commit cannot be
+// compared is skipped.
+async function scanWaiters({ github, core, owner, repo, sha, runId }) {
+  const pending = await pendingPromotions({ github, owner, repo, runId });
   let current = null;
-  let target = sha;
-  let scanFailed = false;
   try {
-    pending = await pendingPromotions({ github, owner, repo, runId });
-    try {
-      current = (await github.rest.git.getRef({ owner, repo, ref: `heads/${TARGET}` })).data.object.sha;
-    } catch (error) {
-      if (error.status !== 404) throw error;
-    }
-    for (const waiter of pending) {
-      if (waiter.sha === target) continue;
-      const { data } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${target}...${waiter.sha}` });
-      if (data.status === 'ahead') target = waiter.sha;
-    }
+    current = (await github.rest.git.getRef({ owner, repo, ref: `heads/${TARGET}` })).data.object.sha;
   } catch (error) {
-    core?.warning?.(`Could not read the other nightly-next promotion requests (${error.status || error.message}); deciding ${sha} without cancelling them.`);
-    return { decision: await decide({ github, core, owner, repo, sha, ...rest }), requested: sha, scanFailed: true };
+    if (error.status !== 404) throw error;
   }
-  const live = pending.find((waiter) => waiter.sha === target && waiter.current === current);
-  if (live) {
-    return {
-      decision: {
-        action: 'superseded',
-        reason: `run ${live.runId} already waits to promote ${target} from ${current || 'nothing'}, which contains ${sha}; that request stays`,
-        sha: target, current,
-      },
-      requested: sha, scanFailed,
-    };
+  const live = pending.filter((waiter) => waiter.current === current);
+  // Commits that contain the request's commit, newest first.
+  const containing = [];
+  for (const waiter of pending) {
+    if (waiter.sha === sha || containing.some((other) => other.sha === waiter.sha)) continue;
+    let status;
+    try {
+      status = (await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${sha}...${waiter.sha}` })).data.status;
+    } catch (error) {
+      core?.notice?.(`Skipping the waiting request for ${waiter.sha} (run ${waiter.runId}): it cannot be compared with ${sha} (${error.status || error.message}).`);
+      continue;
+    }
+    if (status !== 'ahead') continue;
+    let at = containing.length;
+    for (let i = 0; i < containing.length; i += 1) {
+      const order = (await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${containing[i].sha}...${waiter.sha}` })).data.status;
+      if (order === 'ahead') { at = i; break; }
+    }
+    containing.splice(at, 0, waiter);
   }
-  if (target !== sha) {
-    core?.notice?.(`A waiting request targets ${target}, which contains ${sha}; deciding ${target}.`);
-    const adopted = await decide({ github, core, owner, repo, sha: target, ...rest });
-    if (adopted.action !== 'refuse') return { decision: adopted, requested: sha, scanFailed };
-    core?.notice?.(`${target} is refused (${adopted.reason}); deciding the requested ${sha}.`);
+  const keep = live.find((waiter) => waiter.sha === sha || waiter.status === 'in_progress' || containing.some((other) => other.sha === waiter.sha && other.runId === waiter.runId));
+  return { current, keep, candidates: containing.map((waiter) => waiter.sha) };
+}
+
+export async function decideNewest({ github, core, owner, repo, sha, runId, ...rest }) {
+  const superseded = (keep, current) => ({
+    action: 'superseded',
+    reason: `run ${keep.runId} already waits to promote ${keep.sha} from ${current || 'nothing'}${keep.status === 'in_progress' ? ' and is approved' : `, which contains ${sha}`}; that request stays`,
+    sha: keep.sha, current,
+  });
+  let decision = null;
+  let seen = new Set();
+  for (let round = 0; round < 2; round += 1) {
+    let scan;
+    try {
+      scan = await scanWaiters({ github, core, owner, repo, sha, runId });
+    } catch (error) {
+      core?.warning?.(`Could not read the other nightly-next promotion requests (${error.status || error.message}); deciding ${sha} without cancelling them.`);
+      return { decision: decision || await decide({ github, core, owner, repo, sha, ...rest }), requested: sha, scanFailed: true };
+    }
+    if (scan.keep) return { decision: superseded(scan.keep, scan.current), requested: sha, scanFailed: false };
+    const order = [...scan.candidates, sha];
+    // Round two re-decides only when a waiter commit appeared since round one.
+    if (decision && order.every((target) => seen.has(target))) break;
+    seen = new Set(order);
+    decision = null;
+    for (const target of order) {
+      if (target !== sha) core?.notice?.(`A waiting request targets ${target}, which contains ${sha}; deciding ${target}.`);
+      const attempt = await decide({ github, core, owner, repo, sha: target, ...rest });
+      if (attempt.action !== 'refuse' || target === sha) { decision = attempt; break; }
+      core?.notice?.(`${target} is refused (${attempt.reason}); trying the next commit.`);
+    }
   }
-  return { decision: await decide({ github, core, owner, repo, sha, ...rest }), requested: sha, scanFailed };
+  return { decision, requested: sha, scanFailed: false };
 }
 
 export async function approvedBy({ github, owner, repo, runId, environment = ACK_ENVIRONMENT }) {

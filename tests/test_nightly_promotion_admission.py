@@ -606,6 +606,36 @@ def test_a_refused_waiter_commit_falls_back_to_the_request() -> None:
     assert out["decision"]["sha"] == SHA
 
 
+def test_an_approved_live_waiter_is_not_cancelled() -> None:
+    out = run(with_waiter(MID, CURRENT, status="in_progress"))
+    assert out["decision"]["action"] == "superseded", out["decision"]
+    assert out["decision"]["sha"] == MID
+
+
+def test_a_refused_newest_waiter_falls_back_to_the_next_newest() -> None:
+    # Run 900 waits for NEWER (no green compile any more), run 901 for SHA2
+    # between SHA and NEWER; both were decided against an older nightly-next.
+    sha2 = "e" * 40
+    case = with_waiter(NEWER, "9" * 40, green=False)
+    case["commits"][0]["parents"] = [{"sha": sha2}]
+    case["commits"].insert(1, commit(sha2, [SHA], ["Sources/Two.swift"]))
+    case["runs"].append(gate_run(id=9, head_sha=sha2))
+    case["jobs"]["9"] = GREEN
+    case["jobs"]["901"] = [{"name": f"nightly-next promotion {sha2} from {'9' * 40}", "status": "waiting"}]
+    case["dispatchRuns"].append({"id": 901, "status": "waiting"})
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out["decision"]
+    assert out["decision"]["sha"] == sha2
+
+
+def test_an_uncomparable_waiter_is_skipped_not_a_scan_failure() -> None:
+    gone = "7" * 40
+    case = with_waiter(gone, "9" * 40)
+    out = run(case)
+    assert not out["newest"]["scanFailed"], out
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA
+
+
 def test_a_finished_waiter_does_not_count() -> None:
     out = run(with_waiter(NEWER, CURRENT, status="completed"))
     assert out["decision"]["action"] == "promote", out["decision"]
@@ -640,7 +670,7 @@ def test_only_the_wait_for_the_approval_is_cancellable() -> None:
     # scan failed), the approval environment only for needs-ack, no secrets.
     assert wait["concurrency"]["cancel-in-progress"] is True
     assert wait["concurrency"]["group"].startswith("nightly-next-promote-ack${{")
-    assert "scan_failed == 'true'" in wait["concurrency"]["group"]
+    assert "scan_failed == 'true' && format('-wait-{0}', github.run_id)" in wait["concurrency"]["group"]
     assert "'release-surface-ack'" in wait["environment"] and "action == 'needs-ack'" in wait["environment"]
     assert wait["permissions"] == {}
     assert "secrets." not in json.dumps(wait)
