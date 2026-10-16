@@ -64,6 +64,24 @@ public struct AccountsPageState: Encodable, Equatable, Sendable {
         public let rows: [Row]
     }
 
+    /// The account's teams, the active one marked; nil when signed out or teamless.
+    public struct Teams: Encodable, Equatable, Sendable {
+        public struct Option: Encodable, Equatable, Sendable {
+            public let id: String
+            public let name: String
+            public let active: Bool
+        }
+
+        public let title: String
+        public let help: String
+        public let options: [Option]
+        /// Switching is off (a managed device, or a switch being saved).
+        public let disabled: Bool
+        public let note: String?
+        public let error: String?
+    }
+
+    public let teams: Teams?
     public let refresh: String
     public let refreshing: Bool
     /// The Sign In to cmux button's title when cmux is signed out.
@@ -80,12 +98,16 @@ public enum AccountsPageAction: Equatable, Sendable {
     case remove(accountID: String)
     case runSetupToken, cancelPaste
     case saveKey(AIProvider, String), sendToCodeRouter(AIProvider, String)
+    case selectTeam(String)
 
-    /// Parses `{action, provider?, account?, secret?}`; nil for an unknown action or provider.
-    public init?(action: String, provider: String?, account: String?, secret: String?) {
+    /// Parses `{action, provider?, account?, secret?, team?}`; nil for an unknown action or provider.
+    public init?(action: String, provider: String?, account: String?, secret: String?, team: String? = nil) {
         let provider = provider.flatMap(AIProvider.init(rawValue:))
         switch (action, provider) {
         case ("refresh", _): self = .refresh
+        case ("selectTeam", _):
+            guard let team, !team.isEmpty else { return nil }
+            self = .selectTeam(team)
         case ("signIn", _): self = .signInToCmux
         case ("reauth", let provider?): self = .reauthenticate(provider)
         case ("addKey", let provider?): self = .addKey(provider)
@@ -113,6 +135,7 @@ extension AccountsModel {
     /// The screen as the Settings page draws it.
     public var pageState: AccountsPageState {
         AccountsPageState(
+            teams: pageTeams,
             refresh: AccountsStrings.refresh, refreshing: isRefreshing,
             signIn: isSignedInToCmux ? nil : AccountsStrings.signInToCmux,
             removeTitle: AccountsStrings.remove,
@@ -145,8 +168,18 @@ extension AccountsModel {
         case .sendToCodeRouter(let provider, let secret):
             pasteTarget = nil
             connect(provider, pasted: secret)
+        case .selectTeam(let id): await selectTeam(id)
         }
         return nil
+    }
+
+    private var pageTeams: AccountsPageState.Teams? {
+        let teams = services.teams
+        guard isSignedInToCmux, !teams.teams.isEmpty else { return nil }
+        return .init(title: AccountsStrings.teamTitle, help: AccountsStrings.teamHelp,
+                     options: teams.teams.map { .init(id: $0.id, name: $0.name, active: $0.id == teams.activeID) },
+                     disabled: teams.isManaged || teams.isSwitching,
+                     note: teams.isManaged ? AccountsStrings.teamManaged : nil, error: teamError)
     }
 
     private func pageRow(_ row: AccountRowState) -> AccountsPageState.Row {

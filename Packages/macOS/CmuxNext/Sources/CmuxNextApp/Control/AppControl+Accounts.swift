@@ -18,8 +18,12 @@ extension AppControl {
         service?.router.register([
             .mainActor("accounts.list") { _ in
                 let model = services.accounts.model
+                let teams = services.accounts.teams
+                let active = teams.teams.first { $0.id == teams.activeID }
                 return .value(.object([
                     "signed_in": .bool(model.isSignedInToCmux),
+                    // The team every coderouter.* call acts in (Settings > Accounts > Active Team).
+                    "active_team": active.map { .object(["id": .string($0.id), "name": .string($0.name)]) } ?? .null,
                     "refreshing": .bool(model.isRefreshing),
                     "handles_stable": .bool(services.accounts.handlesStable),
                     "providers": .array(model.rows.map(Self.json)),
@@ -69,10 +73,8 @@ extension AppControl {
             guard let client = services.accounts.client else { throw ControlError(code: "unavailable", message: "Cloud is not available in this build") }
             let params = request.params
             let team = (params["teamId"] ?? params["team_id"])?.stringValue
-            // RestrictToManagedTeam (P17-3): only the managed team, and only when the account has it.
-            if let managed = services.cloud.auth.managedTeamID, services.cloud.auth.teamID != managed || (team != nil && team != managed) {
-                throw ControlError(code: "managed", message: RefusalStrings.turnedOffByOrganization)
-            }
+            if let refusal = Self.teamRefusal(requested: team, active: services.cloud.auth.teamID,
+                                              managed: services.cloud.auth.managedTeamID) { throw refusal }
             return .followUp {
                 do {
                     let data = try await call(client, team, params)
@@ -82,6 +84,22 @@ extension AppControl {
                 }
             }
         }
+    }
+
+    /// Why a `coderouter.*` call may not act in `requested`: everything acts in the active team,
+    /// so a `teamId` naming another team is refused (switch the active team first).
+    /// RestrictToManagedTeam (P17-3): only the managed team, and only when the account has it.
+    nonisolated static func teamRefusal(requested: String?, active: String?, managed: String?) -> ControlError? {
+        let requested = requested?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let named = requested?.isEmpty == false ? requested : nil
+        if let managed, active != managed || (named != nil && named != managed) {
+            return ControlError(code: "managed", message: RefusalStrings.turnedOffByOrganization)
+        }
+        if let named, named != active {
+            return ControlError(code: "not_active_team",
+                                message: "\(named) is not the active team. Switch teams in Settings > Accounts, then try again.")
+        }
+        return nil
     }
 
     nonisolated private static func code(_ error: CodeRouterError) -> String {

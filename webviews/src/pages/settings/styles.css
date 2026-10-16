@@ -813,6 +813,23 @@ mark {
   margin-bottom: 8px;
 }
 
+.accounts-teams {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.accounts-team {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: default;
+}
+
+.accounts-teams:disabled .accounts-team {
+  opacity: 0.6;
+}
+
 .accounts-sign-in {
   margin-right: auto;
 }

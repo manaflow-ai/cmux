@@ -40,9 +40,20 @@ extension AppServices {
         return Task { [weak self] in
             var account: String?
             var routerUser: String??
+            var team: (user: String, team: String)?
             for await state in ObservationStream({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID) }) {
                 guard let self else { return }
                 self.cloudContextDidChange()
+                // A switch of the active team (any surface): the team's machines and CodeRouter
+                // accounts replace the old team's. Sign-in and sign-out load their own.
+                let currentTeam = state.0 ? state.2.flatMap { user in state.3.map { (user: user, team: $0) } } : nil
+                if let before = team, let now = currentTeam, before.user == now.user, before.team != now.team {
+                    cloud.logger.info("active team switched")
+                    // task-owner: one machine-list reload; superseded results are reconciled by CloudService
+                    Task { await cloud.refresh() }
+                    self.accounts.model.refresh()
+                }
+                team = currentTeam
                 // The local model relay follows the signed-in user (ModelRouterLease).
                 let user = state.0 ? state.2 : nil
                 if routerUser != .some(user) {
