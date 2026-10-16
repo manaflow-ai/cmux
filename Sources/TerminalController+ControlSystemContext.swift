@@ -139,6 +139,19 @@ extension TerminalController: ControlSystemContext {
     /// include Dock stores; legacy top/task-manager callers explicitly pass
     /// none because Dock process attribution is outside the list/tree parity
     /// scope.
+    /// The file a Markdown or file preview surface shows, so automation can
+    /// tell same-named files in different folders apart. Other panels have none.
+    static func controlSurfaceFilePath(_ panel: any Panel) -> String? {
+        switch panel {
+        case let markdown as MarkdownPanel:
+            return markdown.filePath
+        case let preview as FilePreviewPanel:
+            return preview.filePath
+        default:
+            return nil
+        }
+    }
+
     func controlSystemTreeWorkspaceNode(
         workspace: Workspace,
         index: Int,
@@ -166,7 +179,8 @@ extension TerminalController: ControlSystemContext {
                 isBrowser: browserPanel != nil,
                 url: browserPanel?.currentURL?.absoluteString,
                 renderHealthRawValue: (panel as? TerminalPanel)?.surface.renderHealth.rawValue,
-                dockScopeRawValue: surface.dockScopeRawValue
+                dockScopeRawValue: surface.dockScopeRawValue,
+                filePath: panel.flatMap(Self.controlSurfaceFilePath)
             )
             if let paneUUID = surface.paneID {
                 surfacesByPane[paneUUID, default: []].append(node)
