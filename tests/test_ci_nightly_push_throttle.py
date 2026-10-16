@@ -55,6 +55,7 @@ const summary = {
 };
 const core = {
   setOutput: (k, v) => { outputs[k] = v; },
+  setFailed: (message) => { outputs.failed = message; },
   notice: (m) => notices.push(m),
   warning: (m) => warnings.push(m),
   summary,
