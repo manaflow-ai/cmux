@@ -51,6 +51,7 @@ struct AuthCoordinatorTeamActionsTests {
             CMUXAuthTeam(id: "team-a", displayName: "Alpha"),
             CMUXAuthTeam(id: "team-b", displayName: "Beta")
         ])
+        await client.setServerSelectedTeamID("team-a")
         let coordinator = makeCoordinator(client: client)
         try await coordinator.signInWithPassword(email: "user@example.com", password: "password")
         #expect(coordinator.resolvedTeamID == "team-a")

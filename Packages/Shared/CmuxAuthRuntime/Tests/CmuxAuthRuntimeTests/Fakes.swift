@@ -70,6 +70,7 @@ actor FakeAuthClient: AuthClient {
     func setMintedAccessToken(_ token: String?) { mintedAccessToken = token }
     func setThrowOnCurrentUser(_ error: (any Error)?) { throwOnCurrentUser = error }
     func setTeams(_ teams: [CMUXAuthTeam]) { self.teams = teams }
+    func setServerSelectedTeamID(_ id: String?) { serverSelectedTeamID = id }
     func setThrowOnListTeams(_ error: (any Error)?) { throwOnListTeams = error }
     func setNonce(_ nonce: String) { self.nonce = nonce }
     func holdNextTeamSelection(started: TestPhaseSignal, release: TestContinuationBlocker) {
