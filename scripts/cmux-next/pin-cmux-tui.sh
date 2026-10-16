@@ -729,7 +729,10 @@ on_origin_branch() {
     sha="$(awk -v ref="refs/heads/$branch" '$2 == ref { print $1 }' <<<"$heads")"
     [[ "$sha" =~ ^[0-9a-f]{40}$ ]] && grep -qxF "$sha" <<<"$descendants" && return 0
   done
-  awk 'NR == FNR { local_desc[$1]; next } $1 in local_desc { found = 1; exit } END { exit !found }' \
+  [[ -n "$heads" ]] || return 1
+  # Full SHAs only on both sides: an empty line must never match.
+  awk 'NR == FNR { if ($1 ~ /^[0-9a-f]{40}$/) local_desc[$1]; next }
+    $1 ~ /^[0-9a-f]{40}$/ && ($1 in local_desc) { found = 1; exit } END { exit !found }' \
     <(printf '%s\n' "$descendants") <(printf '%s\n' "$heads")
 }
 
