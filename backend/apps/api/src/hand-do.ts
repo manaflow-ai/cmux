@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers"
 import type { Env } from "./env.ts"
 import { deleteSandboxVm } from "./hand-sandbox.ts"
+import { revokeAgentSession } from "./model-gateway/run-token.ts"
 import { createIndexTables, handName, indexGrants, indexList, indexName, indexPut, indexSetGrant } from "./hand-index.ts"
 import { callerLabel, isHandAction, PAIR_TTL_MS, sameHex, type AgentEvent, type HandCaller, type HandError, type HandReply, type HandSummary, type Profile, type StoredEvent } from "./hand-wire.ts"
 
@@ -73,6 +74,7 @@ export class HandDO extends DurableObject<Env> {
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_grant (agent TEXT PRIMARY KEY)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_audit (seq INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, req TEXT NOT NULL, action TEXT NOT NULL, who TEXT NOT NULL, outcome TEXT NOT NULL, ms INTEGER)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_approval (id TEXT PRIMARY KEY, req TEXT NOT NULL, summary TEXT NOT NULL, at INTEGER NOT NULL, answered_at INTEGER, allow INTEGER, who TEXT)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS hand_agent (session TEXT PRIMARY KEY, chief TEXT NOT NULL, conversation TEXT NOT NULL, at INTEGER NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_sandbox (id INTEGER PRIMARY KEY CHECK (id = 1), vm TEXT NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_event (seq INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT NOT NULL, at INTEGER NOT NULL, body TEXT NOT NULL)`)
     createIndexTables(sql)
@@ -231,6 +233,11 @@ export class HandDO extends DurableObject<Env> {
             }
           })
     this.audit(req, action, callerLabel(caller), result.ok ? "ok" : result.error.code, Date.now() - started)
+    // A Chief's agent session: its gateway tokens are revoked in its conversation when the hand reports its end.
+    const session = (result.ok && action === "agent.start" ? (result.value as { session?: unknown } | null)?.session : undefined)
+    if (typeof session === "string" && caller.agent && caller.conversation) {
+      this.ctx.storage.sql.exec(`INSERT INTO hand_agent (session, chief, conversation, at) VALUES (?, ?, ?, ?) ON CONFLICT(session) DO NOTHING`, session, caller.agent, caller.conversation, Date.now())
+    }
     return result
   }
 
@@ -322,6 +329,16 @@ export class HandDO extends DurableObject<Env> {
     return { ok: true, value: { hand: r.hand } }
   }
 
+  /** The hand says an agent session ended: its agent tokens stop now (model-gateway/run-token.ts). */
+  private async sessionEnded(session: string): Promise<void> {
+    const r = this.row()
+    const a = this.ctx.storage.sql.exec<{ chief: string; conversation: string }>(`SELECT chief, conversation FROM hand_agent WHERE session = ?`, session).toArray()[0]
+    if (!r || !a) return
+    const answer = await revokeAgentSession(this.env, a.chief, a.conversation, r.hand, session).catch((e: unknown) => ({ ok: false, error: String(e) }))
+    this.audit(crypto.randomUUID(), "agent.session_end", "hand", (answer as { ok?: boolean }).ok === false ? "revoke_failed" : "revoked", null)
+    this.ctx.storage.sql.exec(`DELETE FROM hand_agent WHERE session = ?`, session)
+  }
+
   /** Socket upgrade. The Worker passes `x-cmux-hand-key-sha256`, the hash of the bearer key. */
   override async fetch(request: Request): Promise<Response> {
     if (request.headers.get("Upgrade") !== "websocket") return new Response("expected websocket", { status: 426 })
@@ -379,6 +396,7 @@ export class HandDO extends DurableObject<Env> {
         sql.exec(`INSERT INTO hand_event (session, at, body) VALUES (?, ?, ?)`, session, now, capJson(f.event, 64_000))
         if (++this.inserts % 100 === 0) sql.exec(`DELETE FROM hand_event WHERE seq <= (SELECT MAX(seq) FROM hand_event) - ?`, KEEP_EVENTS)
         for (const wake of [...this.waiters]) wake()
+        if ((f.event as { kind?: unknown }).kind === "session_end") await this.sessionEnded(session)
         return
       }
     }

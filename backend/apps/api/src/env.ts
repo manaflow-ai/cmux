@@ -59,6 +59,8 @@ export interface Env {
   readonly HANDS_MAC_ENABLED?: string
   /** Base URL of the published acpmux files the hand installer downloads (default https://files.cmux.com/cmux-tui). */
   readonly HAND_RELEASE_BASE?: string
+  /** Secret: the hands-only Freestyle key (hand-sandbox.ts is its only reader). Never logged. */
+  readonly HAND_FREESTYLE_API_KEY?: string
   /** Freestyle snapshot for Chief sandboxes with a hand (hand-sandbox.ts); unset: no sandbox creation. */
   readonly HAND_SANDBOX_SNAPSHOT?: string
   /** The cmux-tui v2 tree key whose published acpmux the installer installs (wins over HAND_RELEASE_COMMIT). */
