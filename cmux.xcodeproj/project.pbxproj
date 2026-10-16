@@ -2452,6 +2452,7 @@
 		A11CE0060000000000000001 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A11CE0050000000000000001 /* LICENSE */; };
 		272A62278FCC175ADA154567 /* LinkHoverIndicatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF2DDC7F468ACB78B5C88A0 /* LinkHoverIndicatorView.swift */; };
 		B79500310000000000000101 /* ListeningPortLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500310000000000000102 /* ListeningPortLookup.swift */; };
+		813CC091D0FB2239B0E2D35E /* ListeningPortLookupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB297CF7A9C2B7820B8D5DB1 /* ListeningPortLookupTests.swift */; };
 		110436021104360211043602 /* LiveAgentSessionOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110436011104360111043601 /* LiveAgentSessionOwner.swift */; };
 		110431021104310211043102 /* LiveAgentSessionOwnerIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110431011104310111043101 /* LiveAgentSessionOwnerIndex.swift */; };
 		110437021104370211043702 /* LiveAgentSessionOwnerObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110437011104370111043701 /* LiveAgentSessionOwnerObservation.swift */; };
@@ -7027,6 +7028,7 @@
 		A11CE0050000000000000001 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = SOURCE_ROOT; };
 		9BF2DDC7F468ACB78B5C88A0 /* LinkHoverIndicatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkHoverIndicatorView.swift; sourceTree = "<group>"; };
 		B79500310000000000000102 /* ListeningPortLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningPortLookup.swift; sourceTree = "<group>"; };
+		AB297CF7A9C2B7820B8D5DB1 /* ListeningPortLookupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ListeningPortLookupTests.swift"; sourceTree = "<group>"; };
 		110436011104360111043601 /* LiveAgentSessionOwner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveAgentSessionOwner.swift; sourceTree = "<group>"; };
 		110431011104310111043101 /* LiveAgentSessionOwnerIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveAgentSessionOwnerIndex.swift; sourceTree = "<group>"; };
 		110437011104370111043701 /* LiveAgentSessionOwnerObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveAgentSessionOwnerObservation.swift; sourceTree = "<group>"; };
@@ -13927,6 +13929,7 @@
 				62038FEBE991E6F6022BD52F /* SSHTuiAttachRetryTests.swift */,
 				FBA69A8DB9EBB531DD11DFE5 /* AccountUpgradeOfferTests.swift */,
 				A1CE8E303102A963A8DE21E7 /* BrowserAutomationRestoredPanelTests.swift */,
+				AB297CF7A9C2B7820B8D5DB1 /* ListeningPortLookupTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18578,6 +18581,7 @@
 				8582A1000000000000000002 /* KimiResumeReviewRegressionTests.swift in Sources */,
 				87C609D63F03597AC12C8B0A /* LastSurfaceClosePreferenceTests.swift in Sources */,
 				9492CAFE0000000000000002 /* LastTerminalChildExitRecoveryTests.swift in Sources */,
+				813CC091D0FB2239B0E2D35E /* ListeningPortLookupTests.swift in Sources */,
 				DB326399C791DD70E9D6997A /* LiveWorkspaceFixture.swift in Sources */,
 				540A9F26DCDFD0C16B257D6F /* LocalSurfaceProviderTests.swift in Sources */,
 				A6583EF34D0856BB46D469D3 /* LocalTerminalSizingHostLifecycleTests.swift in Sources */,
