@@ -70,7 +70,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       this.registry.install({
         name: "chief",
         sections: [section("chief", () => systemPrompt(this.config()), { tag: false })],
-        tools: [...memoryTools(() => this.memory), ...chiefsTools(this.env, () => this.config()), ...handsTools(this.env, () => this.config(), (r) => (r.type === "run.activity" ? liveOf(this.ctx).activity(r.line) : this.turnId && this.announce(this.turnId, [upsertStep(this.sql, this.turnId, r.step, Date.now())])))],
+        tools: [...memoryTools(() => this.memory), ...chiefsTools(this.env, () => this.config()), ...handsTools(this.env, () => ({ ...this.config(), run: this.turnId, conversation: this.turnConversation }), (r) => (r.type === "run.activity" ? liveOf(this.ctx).activity(r.line) : this.turnId && this.announce(this.turnId, [upsertStep(this.sql, this.turnId, r.step, Date.now())])))],
         hooks: [
           hook(GenerationTask, {
             beforeRequest: async ({ messages }, api) => {
