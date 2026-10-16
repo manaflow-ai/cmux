@@ -109,17 +109,28 @@ import Testing
         }
 
         store.requestRefresh()
-        await Task.yield()
+        try await Self.waitUntil { reads == 1 }
         #expect(reads == 1)
         listed = Self.refs([Self.publication("a", .public)])
         store.invalidate()
         releaseFirst?.resume()
 
-        for _ in 0..<100 where reads < 2 {
-            await Task.yield()
+        try await Self.waitUntil {
+            reads == 2 && store.sharing(machineID: "vm-1", port: 3000) == .public
         }
         #expect(reads == 2)
         #expect(store.sharing(machineID: "vm-1", port: 3000) == .public)
+    }
+
+    private static func waitUntil(
+        timeout: Duration = .seconds(10),
+        _ condition: @escaping @MainActor () -> Bool
+    ) async throws {
+        let deadline = ContinuousClock.now + timeout
+        while !condition(), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        #expect(condition())
     }
 
     @Test func theBadgeIsPrivateTeamOrPublic() {
