@@ -8,6 +8,9 @@
   label ordering mismatch. The next build exposed the new Chief drag source in
   three existing cloud ownership switches; those switches now classify Chief
   as a local source and the corrected head is ready for another fleet build.
+  The subsequent compile also required the SwiftUI binding to be explicit and
+  a DEBUG drag log interpolation to be split into a local value; both are now
+  fixed before the next tagged submission.
 
 ## 2026-10-15 Chief Home pane drag
 

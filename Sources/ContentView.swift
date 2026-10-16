@@ -11468,7 +11468,7 @@ struct VerticalTabsSidebar: View, Equatable {
     /// Chief Home is the window's content: the Home row is selected and no workspace row is.
     var isChiefHomeSelected: Bool = false
     /// Home's compact conversation disclosure stays visible while workspaces are shown.
-    @Binding var isChiefHomeExpanded: Bool = .constant(false)
+    @Binding var isChiefHomeExpanded: Bool
     /// `chief.enabled`: the Home row and its reserved band show only when on.
     var showsChiefHome: Bool = true
     /// The window's Chief Home, once opened: its conversation list replaces the
@@ -12211,7 +12211,8 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         .onChange(of: dragState.draggedTabId) { newDraggedTabId in
 #if DEBUG
-            cmuxDebugLog("sidebar.dragState.sidebar tab=\(sidebarShortTabId(newDraggedTabId))")
+            let shortDraggedTabID = sidebarShortTabId(newDraggedTabId)
+            cmuxDebugLog("sidebar.dragState.sidebar tab=\(shortDraggedTabID)")
 #endif
             guard newDraggedTabId == nil else { return }
             dragAutoScrollController.stop()
