@@ -15,7 +15,7 @@ nightly-next (or main); a fork head; a non-publishing event; an attempt
 record for another attempt; an unknown branch; a missing or malformed digest
 record; an artifact of another channel; a zip with extra members; a head
 SHA that is only on a tag with the branch's name; a run that built an app but
-prepared none; prepare jobs that disagree on publishing; a job from a newer
+has no prepare job; prepare jobs that disagree on publishing; a job from a newer
 attempt; an API redirect (never followed with the token).
 Skipped (exit 0, admitted=false): a failed source run, a superseded attempt
 (before or during the downloads), a run that prepared no app, a run that does
@@ -409,10 +409,18 @@ class AdmitCase(unittest.TestCase):
                            f"{HEAD}...refs/heads/nightly-next": "diverged"}
         self.assert_refused(self.run_tool(data), "is not on nightly-next (compare status 'diverged')")
 
-    def test_run_that_built_an_app_but_prepared_none_is_refused(self) -> None:
+    def test_run_that_built_an_app_without_a_prepare_job_is_refused(self) -> None:
         data = scenario("main", ())
         data["jobs"][1]["conclusion"] = "success"
-        self.assert_refused(self.run_tool(data), "but no prepare-nightly-variant job prepared one")
+        self.assert_refused(self.run_tool(data), "but has no prepare-nightly-variant job")
+
+    def test_build_only_run_with_skipped_prepare_jobs_is_skipped(self) -> None:
+        data = scenario("main", ())
+        data["jobs"][1]["conclusion"] = "success"
+        for index, variant in enumerate(("arm64", "universal")):
+            data["jobs"].append({"id": 400 + index, "name": f"prepare-nightly-variant ({variant})", "conclusion": "skipped",
+                                 "run_id": RUN_ID, "head_sha": HEAD, "run_attempt": ATTEMPT})
+        self.assert_skipped(self.run_tool(data), "prepared no app")
 
     def test_prepare_jobs_that_disagree_on_publishing_are_refused(self) -> None:
         data = scenario("main")
