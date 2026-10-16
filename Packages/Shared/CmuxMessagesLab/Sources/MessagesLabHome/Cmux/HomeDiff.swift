@@ -25,6 +25,9 @@ import Foundation
 struct HomeDiff: Equatable {
     var actions: [Action] = []
     var rebuild = false
+    /// Where the running reply's posted message goes among `actions` (the stream's
+    /// `.streamEnd(replacedBy:)` is dispatched there, in transcript order).
+    var handOffAt: Int?
 
     static func == (a: HomeDiff, b: HomeDiff) -> Bool {
         a.rebuild == b.rebuild && a.actions.map(describe) == b.actions.map(describe)
@@ -70,7 +73,9 @@ struct HomeDiff: Equatable {
                 if !item.reactions.isEmpty { react(from: [], to: item.reactions, id: id(item), owners: owners(item, newSummary), me: me, into: &d) }
             } else if item.key != handOff {
                 d.actions.append(.receive(msg(item)))
-            } // else: the running reply's stream takes it in place (ProjectionCore.stream, `.streamEnd(replacedBy:)`)
+            } else {
+                d.handOffAt = d.actions.count // the running reply's stream takes it in place (ProjectionCore.stream)
+            }
         }
         d.keepNewestStatus()
         return d

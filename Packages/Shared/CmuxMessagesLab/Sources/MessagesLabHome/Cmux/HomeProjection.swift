@@ -148,6 +148,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         guard let store = controller.store else {
             install(items: items, summary: summary, typing: typing, hasOlder: newHasOlder)
             restoreDraft()
+            // A reply already running when the view opens shows as its stream at once.
+            if let store = controller.store { for a in core.stream(draft, state: store.state) { controller.dispatch(a) } }
             return
         }
         let typingChanged = Set(store.state.ui.typing) != Set(typing.filter { $0 != me }.map(\.rawValue))
@@ -177,13 +179,15 @@ final class HomeProjection: @preconcurrency ChatIntents {
                 self.onRowsChange()
             }
         } else {
-            for a in diff.actions {
+            // The running reply's stream goes after the new messages (it stays the newest bubble), or
+            // where its posted reply is among them (`.streamEnd(replacedBy:)`, in transcript order).
+            let cut = diff.handOffAt ?? diff.actions.count
+            for (i, a) in diff.actions.enumerated() {
+                if i == cut { for s in streamed { controller.dispatch(s) } }
                 if case .prependPage = a { olderRequested = false }
                 controller.dispatchTimingTapback(a) // my tapback chosen in the menu: from its input (MessagesLab 7518134)
             }
-            // After the new messages, so the running reply stays the newest bubble; its posted reply
-            // takes the bubble's place here (`.streamEnd(replacedBy:)`).
-            for a in streamed { controller.dispatch(a) }
+            if cut >= diff.actions.count { for s in streamed { controller.dispatch(s) } }
             if diff.rebuild { rebuild() }
             for a in core.typing(store.state, wanted: typing) { controller.dispatch(a) }
         }

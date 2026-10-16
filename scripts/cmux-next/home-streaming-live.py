@@ -394,6 +394,8 @@ def live_frames(conversation, session):
     while time.time() - t0 < 0.4:
         sample("after-final")
     rebuilds_before = drive("texts").get("rebuilds")
+    # The running reply is MessagesLab's streaming bubble (ask 11), not a message.
+    check("streaming-bubble", lambda: drive("texts").get("streams") == 1, seconds=2)
     brain.request("conversation-run-append", conversation=conversation, run={"id": run, "status": "done"})
     brain.request("conversation-op", conversation=conversation, idempotency_key=run,
                   op={"kind": "message.send", "client_msg_id": run, "parts": [{"type": "text", "text": text}]})

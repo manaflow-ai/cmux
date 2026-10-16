@@ -19,7 +19,10 @@ struct ShownStream: Equatable {
 /// whole text), the posted reply (same key) ends it with `replacedBy:` (MessagesLab
 /// gives it the bubble's rows and cells: nothing moves), and a reply that ends
 /// without a message ends it with `replacedBy: nil` (it leaves as the typing
-/// indicator). Every end also turns the author's typing off, else the dots return.
+/// indicator). The author's typing dots follow HomeStore's typing (core.typing),
+/// not the stream: an extra `.typing(false)` would blink them when HomeStore still
+/// reports typing. Limits: the stream bubble has no thread root and no mentions
+/// (a Chief's top-level reply has neither), so such a reply moves once in place.
 extension ProjectionCore {
     /// True when `stream(_:state:)` would act.
     func streamDiffers(_ want: HomeTurnDraft?) -> Bool {
@@ -35,8 +38,8 @@ extension ProjectionCore {
         if let live = shownStream, want?.turn != live.turn || shown.contains(where: { $0.key == live.turn }) {
             shownStream = nil
             let final = shown.first { $0.key == live.turn }.map(finalMessage)
+            // The author's typing then follows HomeStore (core.typing): a final message ends it in MessagesLab.
             actions.append(.streamEnd(Self.streamID(live.turn), replacedBy: final))
-            actions.append(.typing(live.author.rawValue, false))
         }
         // A reply already posted (a page brought it first) needs no stream.
         guard let want, let text = Self.visibleText(want), !shown.contains(where: { $0.key == want.turn }) else {
