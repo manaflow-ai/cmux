@@ -148,6 +148,18 @@ extension BrowserPanel {
         enginePageDelegate.panel = self
         enginePage.uiDelegate = enginePageDelegate
         attachEnginePageFeatures()
+        // Register telemetry before the first Chromium navigation. Installing
+        // this from `browser.console.list` or `browser.errors.list` is too late
+        // for page-load console entries and error events. `CEFBrowserPage`
+        // queues this script until its browser exists, then registers it before
+        // the initial load; WebKit keeps its existing configuration path.
+        enginePage.addUserScript(
+            BrowserPageUserScript(
+                source: Self.telemetryHookBootstrapScriptSource,
+                injectionTime: .documentStart,
+                isMainFrameOnly: true
+            )
+        )
         // Chromium disables notifications; install a deterministic fallback so
         // requestPermission settles as denied instead of throwing or pending.
         enginePage.addUserScript(BrowserNotificationDenialScript.userScript)
