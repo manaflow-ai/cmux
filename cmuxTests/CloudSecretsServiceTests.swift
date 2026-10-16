@@ -362,7 +362,12 @@ struct CloudSecretsServiceTests {
                         waiter?.resume()
                     }
                 },
-                exec: { _, _ in VMExecResult(exitCode: 0, stdout: "", stderr: "") }
+                exec: { _, command in
+                    let stdout = command.contains("cmux-provider-routing")
+                        ? "CMUX-ROUTING-RESULT openai=ok anthropic=ok\n"
+                        : ""
+                    return VMExecResult(exitCode: 0, stdout: stdout, stderr: "")
+                }
             )
         }
 

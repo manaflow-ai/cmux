@@ -93,8 +93,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     /// `--dry-run --json`: the plan, computed without a socket.
     private func vmCloneDryRunPlan(_ arguments: [String], home: URL, directory: URL? = nil) throws -> (plan: [String: Any], result: ProcessRunResult) {
+        var invocation = arguments
+        // The agent prompt follows `--`, so options appended after it would be
+        // treated as prompt words instead of clone flags.
+        if let separator = invocation.firstIndex(of: "--") {
+            invocation.insert(contentsOf: ["--dry-run", "--json"], at: separator)
+        } else {
+            invocation += ["--dry-run", "--json"]
+        }
         let result = try runVMCloneCLI(
-            arguments: ["vm", "clone"] + arguments + ["--dry-run", "--json"],
+            arguments: ["vm", "clone"] + invocation,
             home: home,
             socketPath: makeSocketPath("vcd"),
             directory: directory
