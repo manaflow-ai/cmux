@@ -9,6 +9,7 @@ import { AGENT_TOKEN_TTL_SECONDS, mintRunToken } from "../model-gateway/run-toke
 import type { LedgerOp } from "../model-gateway/run-ledger.ts"
 import { HandsError, type AgentEvent, type HandCaller, type HandReply } from "../hand-wire.ts"
 import { Hands } from "./contract.ts"
+import { CLAUDE } from "./models.ts"
 import type { StepPatch } from "./brain-runs.ts"
 
 /**
@@ -157,8 +158,8 @@ const HandsArgs = Type.Object({
 type HandsArgsT = Static<typeof HandsArgs>
 
 const AgentArgs = Type.Object({
-  action: Type.Union([Type.Literal("start"), Type.Literal("send"), Type.Literal("wait"), Type.Literal("cancel"), Type.Literal("deny"), Type.Literal("events")], {
-    description: "start: a new agent session with a first prompt. send: another prompt. wait: follow the running turn. cancel: stop the turn. deny: refuse a permission the agent asked for. events: raw event page."
+  action: Type.Union([Type.Literal("start"), Type.Literal("send"), Type.Literal("wait"), Type.Literal("cancel"), Type.Literal("stop"), Type.Literal("deny"), Type.Literal("events")], {
+    description: "start: a new agent session with a first prompt. send: another prompt. wait: follow the running turn. cancel: stop the turn. stop: end the session (its model access ends with it). deny: refuse a permission the agent asked for. events: raw event page."
   }),
   hand: Type.String({ description: "Hand id (hand_...) or its name; for start, \"new\" makes a new sandbox for it." }),
   name: Type.Optional(Type.String({ description: "start with hand \"new\": the new sandbox's name." })),
@@ -208,7 +209,8 @@ export const agentProgram = (a: AgentArgsT, report: HandsReporter, callId: strin
       const run = `${callId}`.replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 128)
       const minted = harnessName === "claude" ? yield* hands.runToken(run) : undefined
       const model_route = minted ? { kind: "anthropic", token: minted.token, expires_at: minted.expires_at } : undefined
-      const started = (yield* hands.call(hand, "agent.start", { harness: harnessName, cwd: yield* need(a.cwd, "cwd"), prompt: yield* need(a.prompt, "prompt"), model: a.model, effort: a.effort, model_route }, 60_000)) as { session: string }
+      // On the gateway the agent runs a model the gateway serves (the harness's own default may not be one).
+      const started = (yield* hands.call(hand, "agent.start", { harness: harnessName, cwd: yield* need(a.cwd, "cwd"), prompt: yield* need(a.prompt, "prompt"), model: a.model ?? (minted ? CLAUDE : undefined), effort: a.effort, model_route }, 60_000)) as { session: string }
       if (minted) yield* hands.bindToken(minted.jti, hand, started.session)
       if (budget === 0) return started
       return yield* followTurn(hand, handName, harness, started.session, 0, budget, report, callId)
@@ -229,6 +231,11 @@ export const agentProgram = (a: AgentArgsT, report: HandsReporter, callId: strin
     if (a.action === "cancel") {
       yield* hands.revokeSession(hand, session)
       return yield* hands.call(hand, "agent.cancel", { session })
+    }
+    // The Chief ends the session: the agent stops, its tokens stop (here and when the hand reports the end).
+    if (a.action === "stop") {
+      yield* hands.revokeSession(hand, session)
+      return yield* hands.call(hand, "agent.stop", { session })
     }
     if (a.action === "deny") return yield* hands.call(hand, "agent.deny", { session, permission_id: yield* need(a.permission_id, "permission_id") })
     return yield* hands.events(hand, session, a.after_seq ?? 0, 0)
@@ -256,8 +263,8 @@ export const handsTools = (
   report: HandsReporter = () => undefined
 ): [ToolRegistration<typeof HandsArgs>, ToolRegistration<typeof AgentArgs>] => {
   const caller = (): HandCaller | null => {
-    const { agent, owner } = who()
-    return agent && owner ? { kind: "chief", user: owner, agent } : null
+    const { agent, owner, conversation } = who()
+    return agent && owner ? { kind: "chief", user: owner, agent, ...(conversation ? { conversation } : {}) } : null
   }
   return [
     {
