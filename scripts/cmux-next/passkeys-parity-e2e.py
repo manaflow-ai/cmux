@@ -55,6 +55,8 @@ PROBE = ("(async () => { const P = window.PublicKeyCredential; const out = {secu
          " try { out.conditional = P && P.isConditionalMediationAvailable ? await P.isConditionalMediationAvailable() : 'missing'; } catch (e) { out.conditional = 'error ' + e.name; }"
          " try { out.caps = P && P.getClientCapabilities ? await P.getClientCapabilities() : 'missing'; } catch (e) { out.caps = 'error ' + e.name; }"
          " out.ua = navigator.userAgent; window.__cmuxParity = out; return out; })()")
+# The first readyState can be the initial about:blank document; wait for the real page.
+LOADED = "(location.protocol !== 'about:' && document.readyState === 'complete')"
 GITHUB_SHOWS = f"(document.body && document.body.innerText.includes({json.dumps(GITHUB_TEXT)}))"
 ROWS = []
 
@@ -137,7 +139,7 @@ class CmuxTab:
         self.tab = created[0] if created else None
 
     def ready(self):
-        return bool(self.tab) and wait(lambda: cmux_js(self.tab, "document.readyState") == "complete", 45, 1)
+        return bool(self.tab) and wait(lambda: cmux_js(self.tab, LOADED) is True, 45, 1)
 
     def probe(self):
         cmux_js(self.tab, "window.__cmuxParity = null; " + PROBE)
@@ -241,7 +243,7 @@ class ChromeTab:
         self.tab = target["id"]
 
     def ready(self):
-        return wait(lambda: self.eval("document.readyState") == "complete", 45, 1)
+        return wait(lambda: self.eval(LOADED) is True, 45, 1)
 
     def eval(self, script, await_promise=False):
         reply = self.ws.call("Runtime.evaluate", {"expression": script, "awaitPromise": await_promise, "returnByValue": True})
