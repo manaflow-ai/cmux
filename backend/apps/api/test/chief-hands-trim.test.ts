@@ -3,6 +3,7 @@ import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { fakeCalls, holdTurns } from "../src/chief-brain/fake.ts"
+import { testSandboxInstalls } from "../src/hand-providers.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /**
@@ -118,5 +119,56 @@ describe("Chief hands tools by hand", { timeout: 120_000 }, () => {
     await dmAndReply(token, chief, "then marker-five", 2)
     await dmAndReply(token, chief, "then marker-six", 3)
     expect(turnTools("marker-six")[0]!.map((t) => t.name)).toEqual(expect.arrayContaining(["hands", "agent"]))
+  })
+  it("one message makes a sandbox and starts an agent: one run, one reply, no 400 (the run continues once with the full tools)", async () => {
+    const { token, chief } = await ownerWithChief("hands-one-msg")
+    expect((await http("PUT", `/v1/hands/grants/${chief.id}`, token, { on: true })).status).toBe(200)
+    const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(chief.main_conversation))
+    const agentStarts: Array<any> = []
+    // The test plays the sandbox machine: it pairs with the install code and dials the hand socket.
+    let dialed = false
+    const playMachine = async () => {
+      const install = testSandboxInstalls.find((x) => x.name === "sb-one")
+      if (!install || dialed) return
+      dialed = true
+      const key = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+      const paired = await http("POST", "/v1/hands/pair", "", { code: install.code, key_sha256: await sha(key), name: "sb-one", profile: "sandbox" })
+      expect(paired.json.ok, JSON.stringify(paired.json)).toBe(true)
+      const res = await worker.fetch(`https://api.test/v1/hands/${paired.json.value.hand}/socket`, { headers: { Upgrade: "websocket", authorization: `Bearer ${key}` } })
+      const ws = res.webSocket!
+      const send = (x: unknown) => ws.send(JSON.stringify(x))
+      ws.addEventListener("message", (e) => {
+        const f = JSON.parse(e.data as string)
+        if (f.t !== "req" || f.action !== "agent.start") return
+        agentStarts.push(f)
+        send({ t: "res", id: f.id, ok: true, value: { session: "sess-one", harness: "codex", cwd: f.params.cwd } })
+        send({ t: "event", session: "sess-one", seq: 1, event: { kind: "turn_start" } })
+        send({ t: "event", session: "sess-one", seq: 2, event: { kind: "text", text: "Agent is on it." } })
+        send({ t: "event", session: "sess-one", seq: 3, event: { kind: "turn_end", stop_reason: "end_turn" } })
+      })
+      ws.accept()
+      send({ t: "hello", version: "test", profile: "sandbox", roots: ["/work"], agent_policy: "approve-edits", harnesses: ["claude", "codex", "opencode"], caps: ["levels"], os: "linux", arch: "x86_64", hostname: "sb-one" })
+    }
+    const key = "hands-one-msg-1"
+    const text = 'SIGNED make a sandbox and start an agent then:agent {"action":"start","hand":"sb-one","harness":"codex","cwd":"/work","prompt":"say hi","wait_seconds":5} tool:hands {"action":"new_sandbox","name":"sb-one"}'
+    expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: key, parts: [{ type: "text", text }] }, key)).ok).toBe(true)
+    let replies: Array<any> = []
+    for (let i = 0; i < 400 && replies.length === 0; i++) {
+      await playMachine()
+      replies = (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)
+      if (replies.length === 0) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 25))]
+    }
+    for (let i = 0; i < 10; i++) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 25))]
+    replies = (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)
+    expect(replies, JSON.stringify(replies.map((m) => m.parts[0]?.text))).toHaveLength(1)
+    expect(replies[0].parts[0].text, "the run failed (a 400?)").toContain("tool said")
+    expect(agentStarts, "no agent was started").toHaveLength(1)
+    expect(agentStarts[0].params).toMatchObject({ harness: "codex", cwd: "/work", prompt: "say hi" })
+    const runs = (await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, token)).json.value.runs
+    expect(runs).toHaveLength(1)
+    expect(runs[0]).toMatchObject({ status: "done", reply: { state: "posted" } })
+    // Within each pi turn the tools list stayed the same; the continuation had the full tools.
+    const calls = fakeCalls.filter((c) => c.kind === "turn" && c.tools.length > 0 && c.firstUser.join("\n").includes("make a sandbox and start an agent"))
+    expect(calls.some((c) => c.tools.some((t) => t.name === "agent")), "the continuation had no agent tool").toBe(true)
   })
 })

@@ -16,7 +16,7 @@ import { randomB32, type HandCaller, type HandReply } from "./hand-wire.ts"
 const SANDBOX_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/
 const INSTALL_TIMEOUT_MS = 150_000
 /** Machine name prefixes of the environments (FREESTYLE-NAMES; cloud-driver.ts). */
-export const SANDBOX_PREFIX = /^cmuxnp-(dev|stg|prod)-cld-$/
+export const SANDBOX_PREFIX = /^cmuxnp-(dev|stg|prod|test)-cld-$/
 
 const maxSandboxes = (env: Env) => {
   const n = Number(env.HAND_SANDBOX_MAX ?? "3")

@@ -153,7 +153,10 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
   // Like Anthropic's API: a signed thinking block of an earlier step is valid only with the same tools list.
   const hash = toolsHash(context);
   if (!compact) {
-    for (const m of messages) {
+    // Only the open turn (assistant messages after the last user message) is checked, as Anthropic does: a
+    // finished turn's thinking stays valid when the tools change before the next user message.
+    const lastUser = messages.map((m) => m.role).lastIndexOf("user");
+    for (const m of messages.slice(lastUser + 1)) {
       if (m.role !== "assistant" || !Array.isArray(m.content)) continue;
       for (const [i, b] of (m.content as Array<{ type: string; thinkingSignature?: string }>).entries()) {
         if (b.type === "thinking" && b.thinkingSignature?.startsWith("sig:") && b.thinkingSignature !== `sig:${hash}`)
@@ -196,6 +199,11 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
   const date = /date\((\d+)\)/.exec(text);
   if (date) return fauxAssistantMessage([fauxToolCall("date", { id: Number(date[1]) })], { stopReason: "toolUse" });
   // "tool:<name> <json args>" calls any registered tool (the hands e2e drives `hands` and `agent` this way).
+  // The brain's continuation after a first hand: run the original request's "then:<tool> <json>" script.
+  if (text.includes("Your new hand is ready")) {
+    const then = /then:([a-z_]+)\s+(\{[^\n]*?\})\s+tool:/.exec(blocksOf(firstUser?.content).join("\n"));
+    if (then) return withThinking(fauxAssistantMessage([fauxToolCall(then[1]!, JSON.parse(then[2]!) as Parameters<typeof fauxToolCall>[1])], { stopReason: "toolUse" }));
+  }
   const anyTool = /tool:([a-z_]+)\s+(\{[\s\S]*\})\s*$/.exec(text);
   if (anyTool) {
     try {
