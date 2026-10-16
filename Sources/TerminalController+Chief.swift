@@ -149,8 +149,8 @@ extension TerminalController {
 
     /// `chief.open`: an explicit focus-intent command (`focusIntentV2Methods`),
     /// like `workspace.select`. Home becomes the target window's content
-    /// through ``Notification/Name/cmuxOpenChiefHome`` (the same path as the
-    /// shortcut and the sidebar row); the window comes forward only when the
+    /// through ``ChiefHomeNavigation`` (the same path as the shortcut and the
+    /// sidebar row); the window comes forward only when the
     /// command's focus policy allows it.
     private nonisolated func chiefOpen(_ target: ChiefControlWindowTarget) async throws -> V2CallResult {
         let windowID: UUID?? = try await v2MainAsync { () -> UUID?? in
@@ -167,8 +167,14 @@ extension TerminalController {
                 tabManager = app.currentScriptableMainWindow()?.tabManager
             }
             guard let tabManager, let windowID = app.windowId(for: tabManager),
-                  let window = app.mainWindow(for: windowID) else { return .some(nil) }
-            NotificationCenter.default.post(name: .cmuxOpenChiefHome, object: window)
+                  app.mainWindow(for: windowID) != nil,
+                  let context = app.mainWindowContext(for: tabManager) else { return .some(nil) }
+            // Complete the native selection before replying. A launch-time
+            // notification can arrive before SwiftUI installs its subscriber.
+            ChiefHomeNavigation(
+                sidebarSelectionState: context.sidebarSelectionState,
+                tabManager: tabManager
+            ).open()
             if Self.socketCommandAllowsInAppFocusMutations() {
                 _ = app.focusMainWindow(windowId: windowID)
             }

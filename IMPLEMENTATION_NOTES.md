@@ -1,5 +1,16 @@
 ## 2026-10-15 native Home workspace correction
 
+- Fleet v12 at `4bea721bcd1` compiled and launched with the native Home group
+  above the local workspace row. Archive digest and bundle tag were verified.
+  Its first launch exposed a `chief.open` subscriber race: the socket replied
+  before the native selection was applied. The socket now calls the shared
+  `ChiefHomeNavigation` action on the main actor before replying. The live
+  regression also explicitly returns to a local workspace before opening Home;
+  ten warm v12 round trips passed, while the initial cold open failed.
+- Read-only review found no healthy-state drag/focus blocker. A manually
+  malformed persisted Home group (a canonical anchor assigned to another
+  group) still needs a dedicated restore-repair path; normal grouping actions
+  prevent that state. This remains a resilience gap, not verified behavior.
 - The rejected floating conversation picker is removed. Home uses cmux's native
   workspace group/header with the house icon, pinned above local workspaces.
   Each additional Chief is an ordinary member workspace; expanding Home pushes
