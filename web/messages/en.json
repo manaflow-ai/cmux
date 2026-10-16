@@ -7432,7 +7432,7 @@
       "queued": "Queued"
     },
     "invalidCopy": "Invalid copy: this arm serves control",
-    "queuedNote": "Queued arms wait at 0% traffic. The optimizer promotes one when a live challenger retires, at most 4 live arms.",
+    "queuedNote": "Queued arms wait at 0% traffic and are listed in promotion order. The optimizer promotes the next one when a live challenger retires, at most 4 live arms.",
     "previewsTitle": "Variants as users see them",
     "webPreviewNote": "Rendered with the cmux.com/pricing components for a signed-out visitor. Prices and plans never vary.",
     "iosPreviewNote": "A web rendering of the iOS paywall layout. The app shows App Store prices. No simulator capture is attached yet.",

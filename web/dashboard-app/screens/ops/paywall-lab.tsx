@@ -35,16 +35,9 @@ export function PaywallLabView({ lab }: { readonly lab: PaywallLab }) {
   );
 }
 
-const STATUS_ORDER = { live: 0, queued: 1, retired: 2 } as const;
-
-/** Live arms first, then the challenger queue in promotion order, then retired arms. */
-function byStatus(variants: readonly PaywallLabVariant[]): PaywallLabVariant[] {
-  return [...variants].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
-}
-
-function ExperimentSection({ experiment: raw, lab }: { readonly experiment: PaywallLabExperiment; readonly lab: PaywallLab }) {
+/** Variants arrive live first, then queued in promotion order, then retired (services/billing/pricingExperiment/lab.ts). */
+function ExperimentSection({ experiment, lab }: { readonly experiment: PaywallLabExperiment; readonly lab: PaywallLab }) {
   const t = useTranslations("opsPaywallLab");
-  const experiment = { ...raw, variants: byStatus(raw.variants) };
   const queued = experiment.variants.some((variant) => variant.status === "queued");
   return (
     <section data-testid={`paywall-lab-${experiment.key}`} className="space-y-4">

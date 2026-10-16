@@ -9,7 +9,7 @@
 //   see it (web: the real pricing components; iOS: the validated payload).
 
 import { experimentDefinition, PAYWALL_EXPERIMENTS } from "../paywall/experiments";
-import { FREE_TRIAL_AVAILABLE } from "../paywall/facts";
+import { FREE_TRIAL_AVAILABLE, PLAN_SPECS } from "../paywall/facts";
 import type { OptimizerSnapshot } from "../paywall/optimizer";
 import type { PaywallExperimentLog } from "../paywall/store";
 import { staffVariantsView, type StaffVariantsView } from "../paywall/variantsView";
@@ -95,9 +95,30 @@ function srmSummary(snapshot: OptimizerSnapshot | null): LabExperiment["srm"] {
 
 function preview(platform: string, paywall: unknown): LabVariantPreview | null {
   if (!paywall) return null;
-  return platform === "web"
-    ? { kind: "web", presentation: paywall as WebPricingPresentation }
-    : { kind: "ios", config: paywall as IosPaywallConfig };
+  if (platform === "web") return { kind: "web", presentation: paywall as WebPricingPresentation };
+  const config = paywall as IosPaywallConfig;
+  // The server adds the plan specs when it serves specList (iosPaywall.ts
+  // servedPaywallConfig); the validated payload has none, so add them here too.
+  return { kind: "ios", config: config.layout === "specList" ? { ...config, planSpecs: PLAN_SPECS } : config };
+}
+
+const STATUS_RANK = { live: 0, queued: 1, retired: 2 } as const;
+
+/**
+ * Live arms, then the challenger queue in the order the optimizer promotes it
+ * (the definition's `queue`), then retired arms.
+ */
+function inLabOrder<T extends { readonly variant: string; readonly status: keyof typeof STATUS_RANK }>(
+  variants: readonly T[],
+  queue: readonly string[],
+): T[] {
+  const position = (variant: string) => {
+    const index = queue.indexOf(variant);
+    return index === -1 ? queue.length : index;
+  };
+  return [...variants].sort((a, b) =>
+    STATUS_RANK[a.status] - STATUS_RANK[b.status]
+    || (a.status === "queued" ? position(a.variant) - position(b.variant) : 0));
 }
 
 async function labExperiment(key: string, deps: Dependencies): Promise<LabExperiment | null> {
@@ -127,7 +148,7 @@ async function labExperiment(key: string, deps: Dependencies): Promise<LabExperi
     primaryLabel: definition.primary.label,
     secondaryMetrics: definition.secondary.map(({ key: metric, label }) => ({ key: metric, label })),
     guardrailMetrics: definition.guardrails.map(({ key: metric, label }) => ({ key: metric, label })),
-    variants: view.variants.map((variant) => ({
+    variants: inLabOrder(view.variants, definition.queue ?? []).map((variant) => ({
       variant: variant.variant,
       name: variant.name,
       hypothesis: definition.platform === "web" ? hypotheses.get(variant.variant) ?? null : null,

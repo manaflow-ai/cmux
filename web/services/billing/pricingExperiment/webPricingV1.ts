@@ -218,6 +218,7 @@ export const WEB_PRICING_V1_DEFINITION: Omit<ExperimentDefinition, "policy"> = {
   exposureEvent: "$feature_flag_called",
   exposureWhere: [
     "properties.paywall_platform = 'web'",
+    "properties.paywall_channel = 'production'",
     // Only visitors who can still convert: anonymous or on the free plan
     // when exposed. Paid accounts stay bucketed (sticky) but are not counted.
     "coalesce(toString(properties.account_plan), 'free') = 'free'",

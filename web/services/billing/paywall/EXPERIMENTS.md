@@ -232,10 +232,15 @@ run with fewer arms.
   `paywall_assigned` with that pinned arm and then the exposure,
   `$feature_flag_called`. Both carry `paywall_experiment`, `paywall_variant`,
   `paywall_platform = web`, `paywall_channel` and `paywall_sticky` (true when
-  the arm came from a pin older than a day, so the SRM window skips it). The
-  browser sends the assignment record because the proxy does not know the
-  browser's PostHog id on a first visit. The arm still comes from the proxy's
-  cookie, never from the page. Both events are recorded only when the proxy
+  the browser has an existing pin but no visit in the last day, so the SRM
+  window skips it). The browser sends the assignment record because the proxy
+  does not know the browser's PostHog id on a first visit. The arm still comes
+  from the proxy's cookie, never from the page. Unlike iOS, the web
+  assignment is therefore client-reported, with the same trust as any
+  browser event. Both events come from one page view, so the optimizer's
+  client-variant mismatch count is not an app bug on the web: a non-zero
+  count means sign-in merged people from devices that hold different pins
+  (cross-arm contamination). Both events are recorded only when the proxy
   put this browser in the running experiment (`cmux_wp1_live` cookie), the
   pinned arm is the rendered one, and the URL is `/pricing`. A bot (the proxy
   gives it no cookie), a visitor without JavaScript, a paused experiment and a
