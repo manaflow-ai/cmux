@@ -1,6 +1,7 @@
 import CmuxNextActions
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 
@@ -34,7 +35,16 @@ struct AgentTabContent {
         // Set on each show, so a tab moved to another pane opens files there.
         view.model.onOpenFile = { [weak pane] url, target in
             guard let pane else { return false }
+            // A file ref's page opens beside the chat (ChatBeside); Command-click, a new tab here.
+            if target == .tab, !ChatBeside.keepsOldPlace, ChatBeside(services: pane.services).open(.file(url), beside: key) { return true }
             return pane.services.registry.openAgentFile(path: url.path, target: target, pane: pane.paneKey)
+        }
+        // A link, a PR's among them, opens in the in-app browser beside the chat; Command-click, the
+        // default browser, as every link did before.
+        view.openURL = { [weak pane] url in
+            if ChatBeside.keepsOldPlace || pane.map({ ChatBeside(services: $0.services).open(.url(url), beside: key) }) != true {
+                NSWorkspace.shared.openInBackground(url)
+            }
         }
         view.model.onOpenPreview = { [weak pane] url in
             guard let pane else { return false }

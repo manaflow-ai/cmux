@@ -6,6 +6,7 @@ import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import CmuxNextCompat
+import typealias CmuxNextDaemon.SurfaceID
 
 /// Owns one file page's tabs (diff-host S6 `cmux.markdown`, S7 `cmux.editor`): pane tabs, one
 /// ``FilePageProvider`` and page view per tab, one shared look per page (its settings section,
@@ -94,12 +95,15 @@ final class FilePageService: InternalPageProvider {
     func file(_ key: String) -> URL? { tabs[key]?.provider?.file ?? tabs[key]?.file }
 
     /// Opens `file` in a tab after `pane`'s selected tab, or selects the tab of `pane`'s window that
-    /// already shows it. A user run (`focus`) selects and focuses it.
+    /// already shows it. A user run (`focus`) selects and focuses it. `beside` makes the placement
+    /// of a new store tab beside a chat (ChatBeside, AgentBesidePlacement): that open always makes
+    /// a tab, as ChatBeside looks for one in the pane beside the chat itself (``selectShown(_:in:)``).
     @discardableResult
-    func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true, recoveredText: String? = nil) -> String {
+    func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true, recoveredText: String? = nil,
+              beside: (@MainActor () -> @MainActor (SurfaceID) -> Void)? = nil) -> String {
         let real = file.standardizedFileURL.resolvingSymlinksInPath()
         if userChose { services.viewers.recents.record(real, as: kind.recents) }
-        let key = show(in: pane, focus: focus, Tab(file: real, userChose: userChose, recoveredText: recoveredText)) { key in
+        let key = show(in: pane, focus: focus, Tab(file: real, userChose: userChose, recoveredText: recoveredText), beside: beside) { key in
             self.file(key) == real
         }
         // The user opened a file a tab already shows (perhaps one an agent opened): it is theirs now.
@@ -161,9 +165,10 @@ final class FilePageService: InternalPageProvider {
     /// (page-tabs-v1), on its file as the route (page-tab-route-v1), so it
     /// moves like any daemon tab and Reopen Closed brings it back on that
     /// file; else as an app-only tab.
-    private func show(in pane: PaneController, focus: Bool, _ tab: Tab, matching: (String) -> Bool) -> String {
+    private func show(in pane: PaneController, focus: Bool, _ tab: Tab, beside: (@MainActor () -> @MainActor (SurfaceID) -> Void)? = nil,
+                      matching: (String) -> Bool) -> String {
         let window = services.windowController(showing: pane)
-        for candidate in window?.content?.panes.values.map({ $0 }) ?? [pane] {
+        for candidate in beside != nil ? [] : window?.content?.panes.values.map({ $0 }) ?? [pane] {
             let keys = services.pages.tabIDs(in: candidate.paneKey) + candidate.pane.tabs.compactMap { services.pages.storeKey(of: $0.id) }
             if let shown = keys.first(where: { tabs[$0] != nil && matching($0) }) {
                 if focus { reveal(shown, in: candidate) }
@@ -185,7 +190,7 @@ final class FilePageService: InternalPageProvider {
         // A store tab only on this Mac's daemon that keeps the route: a file path of this Mac never
         // goes to another machine's daemon, and a tab without its route could not come back.
         if let window, pane.daemon.isLocal, services.pages.keepsRoutes(pane.daemon),
-           services.pages.openStoreTab(kind.page, in: pane, window: window, focus: focus, key: key) != nil {
+           services.pages.openStoreTab(kind.page, in: pane, window: window, focus: focus, key: key, created: beside?()) != nil {
             return key
         }
         services.pages.open(kind.page, in: pane.paneKey, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue,

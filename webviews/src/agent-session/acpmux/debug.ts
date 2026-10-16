@@ -6,6 +6,7 @@ import { openPicker, pickerLabels } from "./pickerOpeners";
 import { syntheticRows } from "./synthetic";
 import { runStream, type StreamOptions } from "./streamDebug";
 import { loadRun, loadSeed, type LoadRunOptions } from "./loadDebug";
+import { linksTurnRows } from "./linksTurn";
 import { workedTurnRows } from "./workedTurn";
 import { acpWire, type AcpWireLog } from "./wire";
 import { followTrace } from "./followTrace";
@@ -20,7 +21,7 @@ export type FlingOptions = { nominal_ms?: number; wait?: boolean };
 
 export type AcpmuxDebug = {
   /// Replaces the transcript with `count` synthetic rows, or with the worked turn of
-  /// workedTurn.ts when `fixture` is "worked-turn".
+  /// workedTurn.ts when `fixture` is "worked-turn", linksTurn.ts when it is "links".
   seedRows(count?: number, fixture?: string): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
@@ -122,7 +123,11 @@ export function createAcpmuxDebug(
     async seedRows(count = 5000, fixture) {
       acpmuxPerf.enable();
       const rows =
-        fixture === "worked-turn" ? workedTurnRows(Date.now() - 60_000) : syntheticRows(Math.max(3, Math.floor(count)));
+        fixture === "worked-turn"
+          ? workedTurnRows(Date.now() - 60_000)
+          : fixture === "links"
+            ? linksTurnRows(Date.now() - 60_000)
+            : syntheticRows(Math.max(3, Math.floor(count)));
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(rows);

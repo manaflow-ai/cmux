@@ -24,7 +24,9 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         case .allow:
             decisionHandler(.allow)
         case .openOutside(let url):
+            AgentPaneLinkClick.modifiers = action.modifierFlags
             _ = Self.openOutside(url, gestures: view.model.transport.gestures, open: view.openURL)
+            AgentPaneLinkClick.modifiers = nil
             decisionHandler(.cancel)
         case .cancel:
             decisionHandler(.cancel)
