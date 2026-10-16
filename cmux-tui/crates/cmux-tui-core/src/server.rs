@@ -92,6 +92,8 @@ mod image_paste;
 mod url_open;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
+const ATTACH_OUTPUT_COALESCE_WINDOW: Duration = Duration::from_micros(750);
+const ATTACH_OUTPUT_COALESCE_MAX_BYTES: usize = 16 * 1024 * 1024;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
 pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guard-v1";
 pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
@@ -14558,6 +14560,23 @@ mod tests {
         let mut oversized_line = oversized_payload;
         oversized_line.push('\n');
         assert!(json_line_payload_len(&oversized_line) > MAX_JSON_LINE_BYTES);
+    }
+
+    #[test]
+    fn attach_output_coalescer_merges_only_adjacent_output() {
+        let mut current = AttachFrame::Output(vec![1, 2]);
+        assert!(try_merge_attach_output(&mut current, AttachFrame::Output(vec![3, 4])));
+        assert_eq!(current, AttachFrame::Output(vec![1, 2, 3, 4]));
+
+        let colors = Arc::new(TerminalColors::default());
+        assert!(!try_merge_attach_output(
+            &mut current,
+            AttachFrame::ColorsChanged(colors.clone())
+        ));
+        assert_eq!(current, AttachFrame::Output(vec![1, 2, 3, 4]));
+
+        let mut oversized = AttachFrame::Output(vec![0; ATTACH_OUTPUT_COALESCE_MAX_BYTES]);
+        assert!(!try_merge_attach_output(&mut oversized, AttachFrame::Output(vec![1])));
     }
 
     struct TestSocketDir(PathBuf);
