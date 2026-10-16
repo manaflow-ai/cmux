@@ -487,10 +487,7 @@ async fn a_web_notification_cancel_forwarded_by_a_peer_keeps_web_control() {
     let mut cb = client(b.clone()).await;
     cb.call(method::MUX_ATTACH, json!({"sessionId": remote_id, "limit": 0})).await.unwrap();
     let policy = cb
-        .call(
-            method::MUX_SET_POLICY,
-            json!({"sessionId": remote_id, "policy": "approve-all"}),
-        )
+        .call(method::MUX_SET_POLICY, json!({"sessionId": remote_id, "policy": "approve-all"}))
         .await;
     assert!(policy["error"].is_null(), "{policy}");
     cb.next += 1;
@@ -525,11 +522,8 @@ async fn a_web_notification_cancel_forwarded_by_a_peer_keeps_web_control() {
     web_a
         .tx
         .send(
-            Message::notification(
-                method::SESSION_CANCEL,
-                json!({"sessionId": "b/web-cancel"}),
-            )
-            .to_line(),
+            Message::notification(method::SESSION_CANCEL, json!({"sessionId": "b/web-cancel"}))
+                .to_line(),
         )
         .await
         .unwrap();
@@ -542,7 +536,10 @@ async fn a_web_notification_cancel_forwarded_by_a_peer_keeps_web_control() {
     assert!(ended.is_err(), "a Web cancel through a peer ended the turn: {ended:?}");
 
     cb.tx
-        .send(Message::notification(method::SESSION_CANCEL, json!({"sessionId": remote_id})).to_line())
+        .send(
+            Message::notification(method::SESSION_CANCEL, json!({"sessionId": remote_id}))
+                .to_line(),
+        )
         .await
         .unwrap();
     let ended = cb

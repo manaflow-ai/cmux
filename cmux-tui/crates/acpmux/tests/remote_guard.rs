@@ -588,10 +588,7 @@ async fn web_cancel_still_requires_web_control_of_remote_sessions() {
         let id = session(&mut web, &format!("web-owned-{form}")).await;
         let mut local = Client::new(&hub, Origin::Local);
         let policy = local
-            .call(
-                "_acpmux/set_policy",
-                json!({"sessionId": id, "policy": "approve-all"}),
-            )
+            .call("_acpmux/set_policy", json!({"sessionId": id, "policy": "approve-all"}))
             .await;
         assert!(policy["error"].is_null(), "{policy}");
 
