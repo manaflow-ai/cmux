@@ -4,9 +4,32 @@ import { session } from "../../gallery/fixtures/acpmux";
 import { ChiefDock } from "./ChiefDock";
 
 const base = [
-  session({ sessionId: "chief-working", title: "Prepare the release notes", status: "running", indicator: "working", preview: "Checking the changelog and open pull requests…", updatedAt: 1000 }),
-  session({ sessionId: "chief-input", title: "Review the sidebar polish", status: "waiting", indicator: "input", pendingPermissions: 1, preview: "The agent needs your approval to continue.", updatedAt: 900 }),
-  session({ sessionId: "chief-unread", title: "Update the screenshots", status: "idle", indicator: "done", unread: true, preview: "The new gallery captures are ready.", updatedAt: 800 }),
+  session({
+    sessionId: "chief-working",
+    title: "Prepare the release notes",
+    status: "running",
+    indicator: "working",
+    preview: "Checking the changelog and open pull requests…",
+    updatedAt: 1000,
+  }),
+  session({
+    sessionId: "chief-input",
+    title: "Review the sidebar polish",
+    status: "waiting",
+    indicator: "input",
+    pendingPermissions: 1,
+    preview: "The agent needs your approval to continue.",
+    updatedAt: 900,
+  }),
+  session({
+    sessionId: "chief-unread",
+    title: "Update the screenshots",
+    status: "idle",
+    indicator: "done",
+    unread: true,
+    preview: "The new gallery captures are ready.",
+    updatedAt: 800,
+  }),
   session({ sessionId: "chief-quiet", title: "Draft the onboarding copy", status: "idle", updatedAt: 700 }),
 ];
 

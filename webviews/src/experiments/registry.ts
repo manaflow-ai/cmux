@@ -7,7 +7,13 @@ import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
 import type { Experiment } from "./experiment";
 
-export const EXPERIMENTS: readonly Experiment[] = [diffTreeDisclosure, treeNameFade, sessionReplay, chiefDock, hoverActions];
+export const EXPERIMENTS: readonly Experiment[] = [
+  diffTreeDisclosure,
+  treeNameFade,
+  sessionReplay,
+  chiefDock,
+  hoverActions,
+];
 
 export function experimentById(id: string): Experiment | undefined {
   return EXPERIMENTS.find((experiment) => experiment.id === id);

@@ -55,7 +55,12 @@ export function ChiefDock({ sessions, currentId, onSelect, onNewChat, onMoveToTa
   );
   const attention = cards.filter((session) => urgency(session) >= 4).length;
   return (
-    <aside className="acpmux-chief-dock" data-attached={attached} data-expanded={expanded} aria-label={t("header.agentChat")}>
+    <aside
+      className="acpmux-chief-dock"
+      data-attached={attached}
+      data-expanded={expanded}
+      aria-label={t("header.agentChat")}
+    >
       <div className="acpmux-chief-dock-rail">
         <button
           type="button"
@@ -68,7 +73,13 @@ export function ChiefDock({ sessions, currentId, onSelect, onNewChat, onMoveToTa
           {attention > 0 && <span className="acpmux-chief-dock-badge">{attention}</span>}
         </button>
         <span className="acpmux-chief-dock-divider" aria-hidden="true" />
-        <button type="button" className="acpmux-chief-dock-tool" aria-label={t("sidebar.newChat")} title={t("sidebar.newChat")} onClick={onNewChat}>
+        <button
+          type="button"
+          className="acpmux-chief-dock-tool"
+          aria-label={t("sidebar.newChat")}
+          title={t("sidebar.newChat")}
+          onClick={onNewChat}
+        >
           <span aria-hidden="true">+</span>
         </button>
         <button
@@ -85,7 +96,9 @@ export function ChiefDock({ sessions, currentId, onSelect, onNewChat, onMoveToTa
       {expanded && (
         <div className="acpmux-chief-dock-cards">
           <header className="acpmux-chief-dock-header">
-            <span className="acpmux-chief-dock-title"><Icon name="agent.chief" size={14} /> {t("header.agentChat")}</span>
+            <span className="acpmux-chief-dock-title">
+              <Icon name="agent.chief" size={14} /> {t("header.agentChat")}
+            </span>
             <span className="acpmux-chief-dock-count">{cards.length}</span>
           </header>
           <div className="acpmux-chief-dock-stack">
@@ -94,7 +107,12 @@ export function ChiefDock({ sessions, currentId, onSelect, onNewChat, onMoveToTa
               const selected = session.sessionId === currentId;
               const title = sessionTitle(session);
               return (
-                <article className="acpmux-chief-card" data-selected={selected} data-depth={index} key={session.sessionId}>
+                <article
+                  className="acpmux-chief-card"
+                  data-selected={selected}
+                  data-depth={index}
+                  key={session.sessionId}
+                >
                   <button type="button" className="acpmux-chief-card-main" onClick={() => onSelect(session.sessionId)}>
                     <StatusDot value={status(session)} />
                     <span className="acpmux-chief-card-copy">
