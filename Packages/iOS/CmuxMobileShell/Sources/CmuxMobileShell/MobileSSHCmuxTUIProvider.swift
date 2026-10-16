@@ -45,6 +45,7 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
         subscribe: { control in try await control.subscribe() },
         close: { control in await control.close() },
         transportIsOpen: { [weak self] in self?.connection.isOpen ?? false },
+        sleep: { duration in try await ContinuousClock().sleep(for: duration) },
         onEvent: { [weak self] event, generation in
             self?.topologyEvent(event, generation: generation)
         },

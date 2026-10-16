@@ -55,9 +55,7 @@ final class MobileSSHCmuxTUITopologyReconnect<Control: AnyObject & Sendable> {
         subscribe: @escaping Subscribe,
         close: @escaping Close,
         transportIsOpen: @escaping TransportIsOpen,
-        sleep: @escaping Sleep = { duration in
-            try await ContinuousClock().sleep(for: duration)
-        },
+        sleep: @escaping Sleep,
         onEvent: @escaping @MainActor (CmuxTUIControlEvent, UInt64) -> Void,
         onTransportGap: @escaping @MainActor (UInt64) -> Void,
         onControlConnected: @escaping @MainActor (UInt64, Bool) -> Void

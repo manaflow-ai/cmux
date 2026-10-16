@@ -38,6 +38,7 @@ import CmuxMobileSSH
             subscribe: { $0.stream },
             close: { $0.close() },
             transportIsOpen: { true },
+            sleep: { duration in try await ContinuousClock().sleep(for: duration) },
             onEvent: { event, generation in eventContinuation.yield((event, generation)) },
             onTransportGap: { _ in },
             onControlConnected: { generation, recovered in connectionContinuation.yield((generation, recovered)) }
