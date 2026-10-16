@@ -15,7 +15,7 @@ export const apiOrigin = (env: Env, request?: Request): string => env.CLOUD_API_
 
 /** The one line a target machine runs to install and pair a hand. */
 export const installLine = (origin: string, code: string, profile: Profile = "sandbox") =>
-  `curl -fsSL ${origin}/hand/install.sh | sh -s -- --pair ${code}${profile === "mac" ? " --profile mac --root <folder>" : ""}`
+  `curl -fsSL ${origin}/hand/install.sh | sh -s -- --pair ${code}${profile === "mac" ? " --profile mac" : ""}`
 
 export interface Minted {
   readonly hand: string
@@ -35,7 +35,7 @@ export const mintPairCode = async (env: Env, caller: HandCaller, name: string, o
   const hand = `hand_${randomB32(20)}`
   const secret = randomB32(24)
   const code = `${hand}.${secret}`
-  const { expires_at } = await handStub(env, hand).mint(hand, caller.user, caller.kind === "owner" ? `session:${caller.user}` : `agent:${caller.agent}`, await sha256Hex(secret), name.slice(0, 80) || "hand")
+  const { expires_at } = await handStub(env, hand).mint(hand, caller.user, caller.kind === "owner" ? `session:${caller.user}` : `agent:${caller.agent}`, await sha256Hex(secret), name.slice(0, 80) || "hand", profile)
   return { ok: true, value: { hand, code, expires_at, install: installLine(origin, code, profile) } }
 }
 

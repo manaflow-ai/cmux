@@ -4,7 +4,8 @@ import { HAND_ID } from "./hand-wire.ts"
 
 /**
  * The hourly sweep of sandbox VMs (index.ts scheduled): every VM under this deployment's prefix with
- * a `cmux_hand` tag whose hand has no live row naming that exact VM (a create that timed out after
+ * a `cmux_hand` tag and this deployment's origin (`cmux_deployment`) whose hand row no longer holds
+ * that exact VM (a create that timed out after
  * the provider made the VM, a hand removed while its delete failed) is deleted by its exact id. VMs
  * younger than 15 minutes are left alone (a sandbox being made has its row a moment later).
  */
@@ -16,6 +17,8 @@ export const sweepSandboxVms = async (env: Env): Promise<{ seen: number; deleted
   const key = env.HAND_FREESTYLE_API_KEY
   const prefix = env.CLOUD_NAME_PREFIX ?? ""
   if (!key || !/^cmuxnp-(dev|stg|prod)-cld-$/.test(prefix)) return { seen: 0, deleted: 0, kept: 0 }
+  const origin = (env.CLOUD_API_ORIGIN ?? "").replace(/\/$/, "")
+  if (!origin) return { seen: 0, deleted: 0, kept: 0 }
   const base = (env.CLOUD_FREESTYLE_API_URL || "https://api.freestyle.sh").replace(/\/+$/, "")
   const headers = { authorization: `Bearer ${key}` }
   let seen = 0
@@ -32,10 +35,13 @@ export const sweepSandboxVms = async (env: Env): Promise<{ seen: number; deleted
       if (!vm.id || done.has(vm.id)) continue
       done.add(vm.id)
       const hand = vm.metadata?.cmux_hand
-      if (!vm.id || typeof hand !== "string" || !HAND_ID.test(hand) || !vm.slug?.startsWith(`${prefix}hand-`)) continue
+      // Only VMs this deployment made (its prefix and its origin in the metadata).
+      if (!vm.id || typeof hand !== "string" || !HAND_ID.test(hand) || !vm.slug?.startsWith(`${prefix}hand-`) || vm.metadata?.cmux_deployment !== origin) continue
       seen++
-      if (Date.now() - Date.parse(vm.createdAt ?? "") < MIN_AGE_MS) continue
-      if (await handStub(env, hand).ownsVm(vm.id).catch(() => true)) {
+      const made = Date.parse(vm.createdAt ?? "")
+      if (!Number.isFinite(made) || Date.now() - made < MIN_AGE_MS) continue
+      const state = await handStub(env, hand).ownsVm(vm.id).catch(() => "unknown" as const)
+      if (state !== "gone") {
         kept++
         continue
       }
