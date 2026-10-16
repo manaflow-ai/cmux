@@ -6,7 +6,15 @@ const probe = readFileSync(new URL("./devbox-cua-smoke.py", import.meta.url)).to
 
 /** Read immutable evidence without repeating any desktop actions. */
 export async function readCuaProof<T>(read: () => Promise<T>): Promise<T> {
-  return read();
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await read();
+    } catch (error) {
+      const code = error instanceof Error && "code" in error ? error.code : undefined;
+      if (attempt >= 3 || !["ECONNRESET", "EPIPE", "ETIMEDOUT"].includes(String(code))) throw error;
+      console.warn(`CUA proof read interrupted (${code}); retry ${attempt}/2`);
+    }
+  }
 }
 
 /** Speak MCP using the guest's native agent configuration, under its desktop login environment. */
