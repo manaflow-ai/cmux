@@ -2533,6 +2533,7 @@ jobs:
         run: |
           set -euo pipefail
           expect=()
+          names=()
           read -ra names <<<"$UPLOADED_ASSETS"
           for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
           python3 scripts/ci/finalize-release.py publish \
@@ -2580,6 +2581,7 @@ jobs:
         run: |
           set -euo pipefail
           expect=()
+          names=()
           read -ra names <<<"$UPLOADED_ASSETS"
           for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
           python3 scripts/ci/finalize-release.py publish \

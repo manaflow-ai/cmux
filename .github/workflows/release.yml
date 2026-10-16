@@ -168,6 +168,7 @@ jobs:
             core.setOutput('release_state', 'clear');
             core.setOutput('resume_release_id', '');
             core.setOutput('resume_assets', '');
+            core.setOutput('resume_asset_count', '');
             if (!tag) {
               core.notice('workflow_dispatch is not running from a tag; release guard is in dry-run mode.');
               return;
@@ -220,19 +221,31 @@ jobs:
               return;
             }
 
-            if (shouldSkipBuildAndUpload) {
-              // A rebuild would produce different signed bytes, so never
-              // rebuild. Resume from the staged assets instead: publish this
-              // release by id (a draft after a failure between upload and
-              // publish) and upload its own appcast to R2.
+            if (shouldSkipBuildAndUpload && !release.draft) {
               core.notice(
-                `Release ${tag} (id ${release.id}, draft=${release.draft}) already contains immutable assets ` +
-                `(${conflicts.join(', ')}). Skipping build and upload; resuming publication from the staged assets.`
+                `Release ${tag} already contains immutable assets (${conflicts.join(', ')}). ` +
+                'Skipping build, notarization, and upload to preserve existing signed artifacts.'
+              );
+              core.setOutput('skip_all', 'true');
+              core.setOutput('skip_upload', 'true');
+              return;
+            }
+
+            if (shouldSkipBuildAndUpload) {
+              // A failure between upload and publish left a complete staged
+              // draft. A rebuild would produce different signed bytes, so never
+              // rebuild: publish this draft by id and upload its own appcast to
+              // R2. A published release stays a no-op, so a rerun never
+              // republishes a release someone demoted.
+              core.notice(
+                `Release ${tag} is a staged draft (id ${release.id}) with every immutable asset ` +
+                `(${conflicts.join(', ')}). Skipping build and upload; resuming publication from the draft.`
               );
               core.setOutput('skip_all', 'true');
               core.setOutput('skip_upload', 'true');
               core.setOutput('resume_release_id', String(release.id));
               core.setOutput('resume_assets', existingAssetNames.join(' '));
+              core.setOutput('resume_asset_count', String(assets.length));
               return;
             }
 
@@ -942,10 +955,12 @@ jobs:
           UPLOADED_ASSETS: ${{ steps.upload_release.outputs.asset_names }}
           UPLOADED_COUNT: ${{ steps.upload_release.outputs.asset_count }}
           RESUME_ASSETS: ${{ steps.guard_release_assets.outputs.resume_assets }}
+          RESUME_COUNT: ${{ steps.guard_release_assets.outputs.resume_asset_count }}
           MAKE_LATEST: ${{ steps.latest_release.outputs.make_latest }}
         run: |
           set -euo pipefail
           expect=()
+          names=()
           if [ -n "$UPLOADED_ASSETS" ]; then
             read -ra names <<<"$UPLOADED_ASSETS"
             for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
@@ -954,6 +969,7 @@ jobs:
             # Resumed: everything already on the complete staged release.
             read -ra names <<<"$RESUME_ASSETS"
             for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
+            expect+=(--expect-count "$RESUME_COUNT")
           fi
           python3 scripts/ci/finalize-release.py publish \
             --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" --release-id "$RELEASE_ID" \
