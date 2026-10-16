@@ -85,3 +85,36 @@ The previous repository work on compact activity (`ab4ff8a00dc`) and measured
 disclosure/virtualized transcript behavior is useful prior art. This note keeps
 those pieces and defines the missing transcript-level compaction rather than
 replacing the current interaction model.
+
+## Dictation, rail, and motion follow-through
+
+The companion interaction should feel like one calm surface rather than a set
+of unrelated controls:
+
+- **Dictation:** cmux NEXT already has a native `AgentPaneDictation` session,
+  permission/error states, a mic beside Send, level-meter support, and a
+  `cmuxAcpmuxBridge.dictation` text splice. Keep the button visible and
+  discoverable, use the existing hide/show preference, and make the states
+  explicit: idle, listening, finalizing, unavailable, denied, and stopped.
+  Dictation and bidirectional realtime voice remain separate capabilities; a
+  realtime failure must leave one-shot dictation usable.
+- **Left rail:** the model picker already uses a vertical provider rail with
+  active, missing, loading, keyboard navigation, and scrollable behavior. The
+  next pass should add a stable scroll bookmark/active marker when the rail is
+  taller than its viewport, preserve the selected provider while the list
+  scrolls, and keep the marker out of the content hit target. The bookmark is a
+  navigation aid, not another selection state.
+- **Motion:** reuse the measured disclosure animation approach already present in
+  `Transcript.tsx`. For rail scrolling, image-preview hover, and dictation
+  transitions, use short ease-out entry and ease-in exit curves, interrupt from
+  the current measured frame, and honor `prefers-reduced-motion`. Avoid a
+  constant-duration slide that feels abrupt when the distance changes.
+- **Image previews:** give each preview a quiet hairline rim, a small contrast
+  lift on hover/focus, and a restrained scale or shadow change. Keep the hover
+  treatment subordinate to the disclosure state and keyboard equivalent; do not
+  make the image jump or steal focus.
+
+These are follow-up slices after transcript-level history compaction. They share
+the same acceptance rules: keyboard and accessibility state, reduced motion,
+stable scroll anchoring, and no loss of the underlying transcript or dictation
+text.
