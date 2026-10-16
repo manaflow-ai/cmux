@@ -4,7 +4,7 @@ import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { publicActor } from "./public-actor.ts"
 import { withAdmit } from "./home-admit.ts"
-import { brainName } from "./chief-brain/brain-do.ts"
+import { dueWakes, nextDeliveryAt, pendWake, sendWake, settleWake, type Wake } from "./mux-wake-delivery.ts"
 
 /**
  * MuxDO, one per chief (home-messaging.md sections 3 and 4.3): the chief's wake queue, run by
@@ -63,9 +63,11 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
 
   /**
    * A committed wake (a new queue row, not a duplicate) of a cloud-brain chief also goes to its Durable
-   * Object brain for that conversation (chief-brain/brain-do.ts), where CHIEF_BRAIN_ENABLED is "1". The brain answers only when its owner
-   * turned it on; otherwise it returns at once. Delivery is best effort: the wake row stays in the
-   * queue until the brain (or a brain host) acks it.
+   * Object brain, where CHIEF_BRAIN_ENABLED is "1": only to the Chief's own brain (brain_impl, cached here
+   * by PUT .../brain-impl), so a pi Chief's wake never waits on the opencode brain object. Delivery is
+   * at least once (mux-wake-delivery.ts): the wake stays a row here until the brain's RPC answers, and the
+   * alarm sends it again with backoff after an eviction or a deploy reset of the brain; brains take a
+   * repeated wake idempotently. The queue row itself stays until the brain (or a brain host) acks it.
    */
   protected afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>) {
     if (op !== "mux.wake" || this.env.CHIEF_BRAIN_ENABLED !== "1") return
@@ -74,17 +76,35 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
     const item = result?.value
     // A chief run locally (mux.configure brain "local") is its host's alone: no second answer from here.
     if (!item || result?.replayed || !head?.agent || !head.owner_user || head.brain !== "cloud") return
-    const brain = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(brainName(head.agent, item.conversation)))
     const wake = { agent: head.agent, owner: head.owner_user, conversation: item.conversation, seq: item.seq, reason: item.reason }
-    const failed = (e: unknown) => console.warn(JSON.stringify({ msg: "chief_brain.wake_failed", agent: head.agent, error: String(e).slice(0, 200) }))
-    // Each wake goes only to the Chief's own brain (brain_impl, cached here by PUT .../brain-impl): a pi Chief's wake
-    // never waits on the opencode brain object, whose first call can take seconds (it lives near container capacity).
-    // An opencode Chief on a deployment without the container falls back to P.
-    const opencode = this.env.CHIEF_OPENCODE_ENABLED === "1" && this.env.OPENCODE_BRAIN_DO && this.brainImpl() === "opencode" ? this.env.OPENCODE_BRAIN_DO.get(this.env.OPENCODE_BRAIN_DO.idFromName(head.agent)) : undefined
-    const sent = opencode
-      ? opencode.wake(wake).then((r) => ("skipped" in r && (r.skipped === "impl_pi" || r.skipped === "no_container") ? brain.wake(wake) : r))
-      : brain.wake(wake)
-    this.ctx.waitUntil(sent.then(() => undefined, failed))
+    pendWake(this.ctx.storage.sql, wake, Date.now())
+    this.scheduleAlarm()
+    this.ctx.waitUntil(this.deliver(wake))
+  }
+
+  private opencode(): boolean {
+    return this.env.CHIEF_OPENCODE_ENABLED === "1" && this.env.OPENCODE_BRAIN_DO !== undefined && this.brainImpl() === "opencode"
+  }
+
+  private async deliver(wake: Wake): Promise<void> {
+    settleWake(this.ctx.storage.sql, wake, await sendWake(this.env, wake, this.opencode()), Date.now())
+    this.scheduleAlarm()
+  }
+
+  /** The alarm sends the undelivered wakes that are due (mux-wake-delivery.ts). */
+  protected override async onWake(now: number): Promise<void> {
+    const head = this.boundEngine?.currentState
+    const due = dueWakes(this.ctx.storage.sql, now)
+    if (!head?.agent || !head.owner_user || head.brain !== "cloud" || this.env.CHIEF_BRAIN_ENABLED !== "1") {
+      for (const d of due) settleWake(this.ctx.storage.sql, d, true, now)
+      return
+    }
+    for (const d of due) await this.deliver({ agent: head.agent, owner: head.owner_user, ...d })
+  }
+
+  /** The next undelivered wake's due time shares the one alarm with the outbox drain. */
+  protected override nextWakeAt(_state: mux.MuxHead, _now: number): number | null {
+    return nextDeliveryAt(this.ctx.storage.sql)
   }
 
   /** mux.queue: the head (cursors and pending counts); wake rows come with the snapshot. */
