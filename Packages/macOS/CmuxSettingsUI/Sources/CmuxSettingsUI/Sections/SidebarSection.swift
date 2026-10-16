@@ -38,6 +38,7 @@ public struct SidebarSection: View {
     @State var showMetadata: DefaultsValueModel<Bool>
     @State private var compactAgentStatus: DefaultsValueModel<Bool>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
+    @State private var keepPaneWidthsOnToggle: DefaultsValueModel<Bool>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
         self.catalog = catalog
@@ -72,6 +73,7 @@ public struct SidebarSection: View {
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
         _compactAgentStatus = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.compactAgentStatus))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
+        _keepPaneWidthsOnToggle = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.keepPaneWidthsOnToggle))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
     }
     /// The rendered sidebar settings section.
@@ -112,6 +114,7 @@ public struct SidebarSection: View {
             showMetadata,
             compactAgentStatus,
             rightMaxWidth,
+            keepPaneWidthsOnToggle,
             rememberedRightMaxWidth,
         ]
         models.forEach { $0.startObserving() }
@@ -186,6 +189,18 @@ public struct SidebarSection: View {
                 subtitle: String(localized: "settings.sidebarAppearance.matchTerminalBackground.subtitle", defaultValue: "Use the same background color and transparency as the terminal.")
             ) {
                 Toggle("", isOn: Binding(get: { matchTerminal.current }, set: { matchTerminal.set($0) }))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.keepPaneWidthsOnToggle"),
+                String(localized: "settings.sidebar.keepPaneWidthsOnToggle", defaultValue: "Keep Pane Widths When Toggling Right Sidebar"),
+                subtitle: String(localized: "settings.sidebar.keepPaneWidthsOnToggle.subtitle", defaultValue: "Grow or shrink the window by the sidebar width when the active display has room.")
+            ) {
+                Toggle("", isOn: Binding(get: { keepPaneWidthsOnToggle.current }, set: { keepPaneWidthsOnToggle.set($0) }))
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .controlSize(.small)

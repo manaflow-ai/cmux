@@ -213,6 +213,14 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: RightSidebarWidthSettings.maxWidthKey
     )
 
+    /// Whether showing the right sidebar grows the window to preserve the
+    /// terminal pane widths when there is room on the active display.
+    public let keepPaneWidthsOnToggle = DefaultsKey<Bool>(
+        id: "sidebar.keepPaneWidthsOnToggle",
+        defaultValue: false,
+        userDefaultsKey: "sidebarKeepPaneWidthsOnToggle"
+    )
+
     public let rememberedRightMaxWidth = DefaultsKey<Double>(
         id: "sidebar.rightMaxWidth.remembered",
         defaultValue: RightSidebarWidthSettings.defaultConfiguredMaximumWidth,

@@ -145,6 +145,7 @@ extension CmuxSettingsFileStore {
         "sidebar.notificationBadgePosition",
         "sidebar.showCustomMetadata",
         "sidebar.compactAgentStatus",
+        "sidebar.keepPaneWidthsOnToggle",
         "sidebar.compactStatusIcons",
         RightSidebarWidthSettings.settingsPath,
         "sidebar.activeTabIndicatorStyle",

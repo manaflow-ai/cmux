@@ -444,6 +444,10 @@ enum SidebarSettingsFileMapping {
             jsonKey: "compactAgentStatus",
             defaultsKey: SidebarWorkspaceDetailDefaults.compactAgentStatusKey
         ),
+        .init(
+            jsonKey: "keepPaneWidthsOnToggle",
+            defaultsKey: sidebar.keepPaneWidthsOnToggle.userDefaultsKey
+        ),
     ]
 
     static func branchLayoutStoredValue(_ rawValue: String) -> Bool? {
