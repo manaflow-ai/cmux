@@ -11,8 +11,23 @@
   could still return the pre-open selection after the main-actor action.
   `chief.open` now schedules and awaits the existing snapshot publication
   before returning, and reports `opened: false` when Chief is disabled.
-  The same cold-start regression failed on v13; the replacement artifact will
-  rerun it without delays or polling.
+  The same cold-start regression failed on v13 and passed on v14 immediately
+  after launch, without delays or polling.
+- Fleet v14 (`5915e9188df741d60858a210`) built product sources at
+  `5db3745214a451ca35deef2f53ac9464580950b7`, published as
+  `http://127.0.0.1:17320/issue-21063-chief-home-v14`, and launched. Verified
+  archive digest `0e8dd051fe8b8719290a4c7ed223495470d2805af143549af6c8953d4ac1540f`,
+  exact tag, bundle id and embedded commit. Native Home and Settings captures
+  are in `.chief-work/shots/native-home/`; the permission bypass is off.
+  Full hosted verification remains pending; app compilation and the live
+  socket regression do not establish app-host unit-test or tour coverage.
+- Hosted run `38842982269` completed with seven test-target diagnostics in
+  `ChiefListAndSettingsCopyTests`: four unresolved `ConversationID` uses and
+  three initializers missing the newly required permission flag. The test
+  now imports `CmuxHomeCore` and supplies explicit safe permission defaults.
+  This follow-up changes test code only; the v14 app artifact contains the
+  same product sources. The light tour's first attempt was cancelled before
+  execution and provides no light-mode or AX evidence.
 - Read-only review found no healthy-state drag/focus blocker. A manually
   malformed persisted Home group (a canonical anchor assigned to another
   group) still needs a dedicated restore-repair path; normal grouping actions

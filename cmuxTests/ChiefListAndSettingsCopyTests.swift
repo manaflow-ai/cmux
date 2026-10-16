@@ -1,4 +1,5 @@
 import CmuxChief
+import CmuxHomeCore
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -60,10 +61,10 @@ import Testing
     }
 
     @Test func unknownChiefModelsDoNotCarryAStaleEffortFlag() {
-        let settings = ChiefEngineSettings(harness: "claude", model: "claude-future-6", effort: "max")
+        let settings = ChiefEngineSettings(harness: "claude", model: "claude-future-6", effort: "max", dangerouslySkipPermissions: false)
         #expect(settings.normalized.effort.isEmpty)
-        #expect(ChiefEngineSettings(harness: "codex", model: "gpt-5.5", effort: "max").normalized.effort.isEmpty)
-        #expect(ChiefEngineSettings(harness: "codex", model: "gpt-5.5", effort: "xhigh").normalized.effort == "xhigh")
+        #expect(ChiefEngineSettings(harness: "codex", model: "gpt-5.5", effort: "max", dangerouslySkipPermissions: false).normalized.effort.isEmpty)
+        #expect(ChiefEngineSettings(harness: "codex", model: "gpt-5.5", effort: "xhigh", dangerouslySkipPermissions: false).normalized.effort == "xhigh")
     }
 
     @Test func dangerousPermissionBypassDefaultsOffAndPersistsOnlyWhenEnabled() {
