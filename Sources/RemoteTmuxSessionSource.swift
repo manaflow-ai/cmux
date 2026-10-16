@@ -155,6 +155,9 @@ protocol RemoteTmuxSessionSource: AnyObject {
 
     /// Sends a raw tmux control command targeting this session's server-global ids.
     @discardableResult func send(_ command: String) -> Bool
+    /// Installs the agent hooks for one session. The concrete stream batches sessions so the
+    /// helper's payload goes out once for all of them rather than once per session.
+    func requestAgentHookInstall(sessionTarget: String)
     /// Sends a command and fires `completion` exactly once with its block result,
     /// so a state machine can anchor on the resolution instead of a timer.
     @discardableResult func sendTracked(_ command: String, completion: @escaping (Bool) -> Void) -> Bool
@@ -266,6 +269,13 @@ extension RemoteTmuxSessionSource {
     @discardableResult
     func seedPane(paneId: Int) -> UUID? {
         seedPane(paneId: paneId, clearScrollback: true)
+    }
+
+    /// A source with no stream of its own to batch on installs at once.
+    func requestAgentHookInstall(sessionTarget: String) {
+        if let command = RemoteTmuxAgentHookInstaller.installCommand(sessionTargets: [sessionTarget]) {
+            send(command)
+        }
     }
 
     /// A source with no stream of its own to pace seeds immediately.

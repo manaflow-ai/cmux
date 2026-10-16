@@ -143,8 +143,12 @@ def launch(agent, args):
     os.execv(executable, [executable, *injected, *args])
 
 
-def install(session, encoded):
-    """Runs in-band via tmux run-shell; never opens another SSH connection."""
+def install(sessions, encoded):
+    """Runs in-band via tmux run-shell; never opens another SSH connection.
+
+    One payload serves every session given, so a host with many sessions sends
+    the helper once rather than once per session.
+    """
     data = base64.b64decode(encoded)
     directory = Path.home() / '.local/share/cmux/tmux-agent' / hashlib.sha256(data).hexdigest()[:16]
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -163,6 +167,14 @@ def install(session, encoded):
     stable = directory.parent / 'init.sh'
     stable.write_text('. ' + shlex.quote(str(integration)) + '\n')
     context = dict(tmux=shutil.which('tmux'), socket=os.environ['TMUX'].rsplit(',', 2)[0])
+    for session in sessions:
+        try:
+            install_session(context, session, script, stable, bin_dir)
+        except (OSError, subprocess.SubprocessError):
+            continue  # A session that went away must not skip the rest.
+
+
+def install_session(context, session, script, stable, bin_dir):
     previous = tmux_call(context, 'show-options', '-Aqv', '-t', session, 'default-command')
     owned = tmux_call(context, 'show-options', '-Aqv', '-t', session, '@cmux_agent_default_command')
     shell = tmux_call(context, 'show-options', '-Aqv', '-t', session, 'default-shell') or os.environ.get('SHELL', '/bin/sh')
@@ -242,7 +254,7 @@ def shell_launch(shell):
 def main():
     mode = sys.argv[1]
     if mode == '--install':
-        install(sys.argv[2], sys.argv[3])
+        install(sys.argv[2:-1], sys.argv[-1])
     elif mode == '--launch':
         return launch(sys.argv[2], sys.argv[3:])
     elif mode == '--hook':
