@@ -238,6 +238,10 @@ public struct BrowserPageAutomation {
         }
         var registered: String?
         if !overrides.isDefault {
+            // CEF's DevTools agent needs the Page domain enabled before it
+            // accepts a new-document script. Without the handshake the
+            // command can reply successfully while later documents omit it.
+            _ = try? await devTools("Page.enable", [:])
             let json = try await devTools("Page.addScriptToEvaluateOnNewDocument", [
                 "source": overrides.pageScript(dispatchesChangeEvents: false),
             ])
