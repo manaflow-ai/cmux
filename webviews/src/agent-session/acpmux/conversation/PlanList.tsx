@@ -2,6 +2,10 @@
 // acpmux, or Codex's own plan) draws as a checklist under its progress, and a turn's later updates
 // redraw its one list (direct.ts). Done items are struck through, the one in progress is bold; a
 // screen reader hears each item's state.
+// With the agent.sessionStatus Debug toggle on (cx-ncc.102, Claude Code desktop's in-session
+// status) the list is a quiet card: a circle waits, a spinner runs and a check is done, with no
+// heading, strike-through or bold.
+import { createContext, useContext } from "react";
 import { useT, type StringKey } from "../i18n";
 import type { AcpmuxPlanEntry } from "../model";
 import { Check } from "./icons";
@@ -12,14 +16,19 @@ const STATUS: Record<AcpmuxPlanEntry["status"], StringKey> = {
   pending: "plan.status.pending",
 };
 
+/// Whether todo lists draw as the status card (the agent.sessionStatus Debug toggle).
+export const PlanCardStyle = createContext(false);
+
 export function PlanList({ entries }: { entries: readonly AcpmuxPlanEntry[] }) {
   const t = useT();
+  const card = useContext(PlanCardStyle);
   const done = entries.filter((entry) => entry.status === "completed").length;
+  const progress =
+    entries.length === 1 ? t("plan.progress.one", { done }) : t("plan.progress", { done, total: entries.length });
   return (
-    <div className="cv-plan">
-      <div className="cv-plan__heading">
-        {entries.length === 1 ? t("plan.progress.one", { done }) : t("plan.progress", { done, total: entries.length })}
-      </div>
+    <div className={card ? "cv-plan is-card" : "cv-plan"}>
+      {/* The card says its progress to a screen reader only; its marks show it. */}
+      <div className={card ? "cv-plan__state" : "cv-plan__heading"}>{progress}</div>
       <ul className="cv-plan__items">
         {entries.map((entry, index) => (
           // Items have no ids, and a list only grows or changes status in place.

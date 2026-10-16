@@ -10,6 +10,7 @@ import React, {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
@@ -131,7 +132,8 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
-import { PlanList } from "./conversation/PlanList";
+import { ActivityLine } from "./conversation/ActivityLine";
+import { PlanCardStyle, PlanList } from "./conversation/PlanList";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import {
   SessionCwdContext,
@@ -152,7 +154,17 @@ import {
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
 import { ChatFindScope } from "./conversation/ChatFindScope";
-import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, type TurnView, turnViewFrom } from "./conversation/turns";
+import {
+  ACTIVITY_LINE,
+  DATE,
+  PREVIEW,
+  RENDER,
+  THINKING,
+  WORKED,
+  WORKING,
+  type TurnView,
+  turnViewFrom,
+} from "./conversation/turns";
 import { ArrowDown, Copy } from "./conversation/icons";
 import { PreviewCard } from "./conversation/PreviewCard";
 import { turnPreviewUrl } from "./conversation/previewUrl";
@@ -250,6 +262,7 @@ import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/Sugge
 import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
 import { experimentArm } from "../../experiments/experiment";
+import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -294,6 +307,9 @@ declare global {
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
       /// default): the session coverage label.
       applyPreview?(on: boolean): void;
+      /// Claude Code desktop's in-session status (the live plan card, the recap card) on or off: the
+      /// Debug Settings toggle `agent.sessionStatus`, off by default (sessionStatus.ts).
+      applySessionStatus?(on: boolean): void;
       /// Suggested tasks on or off (the Debug toggle `agent.suggestedTasks`, DEV and NIGHTLY, off by
       /// default): an agent's offers draw as the suggested tasks card (offer/offersShown.ts).
       applySuggestedTasks?(on: boolean): void;
@@ -633,6 +649,30 @@ const WorkingRow = memo(
     a.row.at === b.row.at &&
     a.row.durationMs === b.row.durationMs,
 );
+/// The live turn's activity line under its todo card (the agent.sessionStatus Debug toggle, cx-ncc.102).
+const ActivityLineRow = memo(
+  function ActivityLineRow({ row }: RowProps) {
+    return <ActivityLine row={row} />;
+  },
+  (a, b) =>
+    a.row.id === b.row.id && a.row.version === b.row.version && a.row.text === b.row.text && a.row.at === b.row.at,
+);
+/// The pane's shortcut labels, and the todo list's status card style (agent.sessionStatus, cx-ncc.102).
+function PaneContexts({
+  shortcuts,
+  planCard,
+  children,
+}: {
+  shortcuts: ShortcutLabels;
+  planCard: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <ShortcutsContext.Provider value={shortcuts}>
+      <PlanCardStyle.Provider value={planCard}>{children}</PlanCardStyle.Provider>
+    </ShortcutsContext.Provider>
+  );
+}
 
 /// How many turns back the header's Preview looks for a page.
 const PREVIEW_TURNS = 8;
@@ -760,6 +800,7 @@ const defaultRegistry: NativeRegistry = {
   [DATE]: DateRow,
   [THINKING]: ThinkingRow,
   [WORKING]: WorkingRow,
+  [ACTIVITY_LINE]: ActivityLineRow,
   [PREVIEW]: PreviewRow,
   [RENDER]: RenderRow,
   editedFiles: EditedFilesRow,
@@ -2633,6 +2674,8 @@ function AcpmuxPane() {
         : snapshot.rows;
     return rows;
   }, [snapshot.rows, snapshot.permissionGroups, individualPermission]);
+  /// The in-session status toggle (Debug Settings `agent.sessionStatus`): the todo card and activity line.
+  const sessionStatus = useSessionStatus();
   // A call the permission panel asks about is drawn by the panel's row while it waits
   // (withoutAskedCalls); with the panel hidden behind folder trust, it stays in the transcript.
   const trustBlocked = Boolean(trustAsk.blocked);
@@ -2652,7 +2695,12 @@ function AcpmuxPane() {
       const turns = turnViewFrom(
         rows,
         expanded,
-        { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs, liveRuns: codexRuns },
+        {
+          working: snapshot.isWorking,
+          clockOffset: snapshot.clockOffsetMs,
+          liveRuns: codexRuns,
+          statusCards: sessionStatus,
+        },
         last?.turns,
       );
       const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
@@ -2669,6 +2717,7 @@ function AcpmuxPane() {
     codexRuns,
     chatShellRuns,
     panelAsks,
+    sessionStatus,
   ]);
   // Another chat never opens on a subagent of this one.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
@@ -3482,6 +3531,9 @@ function AcpmuxPane() {
       },
       applyPreview(on) {
         setPreview(on === true);
+      },
+      applySessionStatus(on) {
+        setSessionStatus(on === true);
       },
       applySuggestedTasks(on) {
         if (setSuggestedTasks(on === true)) directClient.current?.suggestedTasksChanged();
@@ -5241,7 +5293,7 @@ function AcpmuxPane() {
     );
   if (paneRenderStart > 0) acpmuxPerf.span("pane.body", performance.now() - paneRenderStart);
   const pane = (
-    <ShortcutsContext.Provider value={shortcuts}>
+    <PaneContexts shortcuts={shortcuts} planCard={sessionStatus}>
       <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
         <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
           {!harnessesOpen && showNewTab && !newTab.history && (
@@ -5583,7 +5635,7 @@ function AcpmuxPane() {
           />
         )}
       </section>
-    </ShortcutsContext.Provider>
+    </PaneContexts>
   );
   return <SignInContext.Provider value={signIn}>{pane}</SignInContext.Provider>;
 }
