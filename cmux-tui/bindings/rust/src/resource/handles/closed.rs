@@ -55,6 +55,10 @@ pub struct ClosedMemberRecord {
     pub name: Option<String>,
     /// The workspace a tab or screen was closed from.
     pub workspace_id: Option<WorkspaceId>,
+    /// A closed workspace's registry key; `None` for a tab or screen, and
+    /// from a daemon that does not report it.
+    #[serde(default)]
+    pub workspace_key: Option<String>,
     /// The pane a tab was closed from.
     pub pane_id: Option<PaneId>,
     /// Position the object held when it closed.
@@ -76,6 +80,9 @@ pub struct ClosedItemSnapshot {
     pub kind: String,
     pub name: Option<String>,
     pub workspace_id: Option<WorkspaceId>,
+    /// The first member's `workspace_key`.
+    #[serde(default)]
+    pub workspace_key: Option<String>,
     pub pane_id: Option<PaneId>,
     pub index: u32,
     #[serde(deserialize_with = "deserialize_decimal")]
@@ -87,6 +94,18 @@ pub struct ClosedItemSnapshot {
     pub member_count: u32,
     /// Every closed object of the group in restore order.
     pub members: Vec<ClosedMemberRecord>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, Value>,
+}
+
+/// What `workspace.close` with `report_closed_ids` closed.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct WorkspaceCloseResult {
+    /// The closed groups the close stored, oldest first (empty for an
+    /// ephemeral workspace); `reopen_closed` of each restores exactly that
+    /// close, also when other closed workspaces share its name.
+    #[serde(default)]
+    pub closed_ids: Vec<String>,
     #[serde(flatten)]
     pub additional: BTreeMap<String, Value>,
 }
@@ -267,5 +286,24 @@ fn validate_window(window: Option<&str>) -> Result<()> {
             )))
         }
         _ => Ok(()),
+    }
+}
+
+impl Workspace {
+    /// `workspace.close` that also names the closed groups it stored
+    /// (`report_closed_ids`), so an Undo reopens exactly this close.
+    pub fn close_reporting(&self) -> Result<MutationResult<WorkspaceCloseResult>> {
+        self.close_reporting_with(MutationOptions::unique()?)
+    }
+
+    pub fn close_reporting_with(
+        &self,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<WorkspaceCloseResult>> {
+        let params = self.params().value("report_closed_ids", Value::Bool(true));
+        mutation_snapshot(
+            self.session.client.mutate(ops::WORKSPACE_CLOSE, params, mutation)?,
+            "workspace close result",
+        )
     }
 }

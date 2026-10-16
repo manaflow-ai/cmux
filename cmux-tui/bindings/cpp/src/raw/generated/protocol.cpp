@@ -13353,6 +13353,11 @@ Result<Json> Codec<WorkspaceMutationResult>::encode(const WorkspaceMutationResul
         if (!encoded) return std::move(encoded).error();
         object.emplace("changed", std::move(encoded).value());
     }
+    if (value.closed_ids) {
+        auto encoded = encode_value(*value.closed_ids);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("closed_ids", std::move(encoded).value());
+    }
     auto encoded_generation = encode_value(value.generation);
     if (!encoded_generation) return std::move(encoded_generation).error();
     object.emplace("generation", std::move(encoded_generation).value());
@@ -13386,6 +13391,12 @@ Result<WorkspaceMutationResult> Codec<WorkspaceMutationResult>::decode(const Jso
         auto decoded = decode_value<bool>(*field_changed);
         if (!decoded) return std::move(decoded).error();
         result.changed = std::move(decoded).value();
+    }
+    const Json* field_closed_ids = value.find("closed_ids");
+    if (field_closed_ids) {
+        auto decoded = decode_value<std::vector<std::string>>(*field_closed_ids);
+        if (!decoded) return std::move(decoded).error();
+        result.closed_ids = std::move(decoded).value();
     }
     const Json* field_generation = value.find("generation");
     if (!field_generation) {
@@ -15557,6 +15568,11 @@ Result<Json> Codec<CloseWorkspaceRequest>::encode(const CloseWorkspaceRequest& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("reason", std::move(encoded).value());
     }
+    if (value.report_closed_ids) {
+        auto encoded = encode_value(*value.report_closed_ids);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("report_closed_ids", std::move(encoded).value());
+    }
     if (!value.workspace.is_absent()) {
         auto encoded = encode_value(value.workspace);
         if (!encoded) return std::move(encoded).error();
@@ -15643,6 +15659,12 @@ Result<CloseWorkspaceRequest> Codec<CloseWorkspaceRequest>::decode(const Json& v
             if (!decoded) return std::move(decoded).error();
             result.reason = Field<CloseReason>(std::move(decoded).value());
         }
+    }
+    const Json* field_report_closed_ids = value.find("report_closed_ids");
+    if (field_report_closed_ids) {
+        auto decoded = decode_value<bool>(*field_report_closed_ids);
+        if (!decoded) return std::move(decoded).error();
+        result.report_closed_ids = std::move(decoded).value();
     }
     const Json* field_workspace = value.find("workspace");
     if (field_workspace) {

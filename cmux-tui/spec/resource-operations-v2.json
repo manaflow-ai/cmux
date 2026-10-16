@@ -7295,6 +7295,17 @@
           },
           "description": "The workspace a tab or screen was closed from."
         },
+        "workspace_key": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The first member's `workspace_key`. Absent (an older daemon) reads as null; this daemon always sends it."
+        },
         "pane_id": {
           "required": true,
           "type": {
@@ -7448,6 +7459,17 @@
               "resource": "workspace"
             }
           }
+        },
+        "workspace_key": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "A closed workspace's registry key; null for a tab or screen and for a workspace closed before the record kept it. Absent (an older daemon) reads as null; this daemon always sends it."
         },
         "pane_id": {
           "required": true,
@@ -7635,6 +7657,34 @@
             }
           },
           "description": "At level `workspace`: the workspaces the selector chose; else empty."
+        },
+        "closed_ids": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "description": "The `closed.list` groups this call stored, oldest first; `closed.reopen` of each restores exactly what it closed. Absent only on a replay of a call committed before the field existed."
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceCloseResult": {
+      "kind": "object",
+      "fields": {
+        "closed_ids": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "description": "With `report_closed_ids`: the `closed.list` groups this close stored, oldest first (empty for an ephemeral workspace); `closed.reopen` of each restores exactly what it closed. Absent without `report_closed_ids`, and on a replay of a close committed before the groups were recorded."
         }
       },
       "extra": false
@@ -30566,6 +30616,14 @@
               "name": "decimal"
             },
             "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          },
+          "report_closed_ids": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "When true, the result value names the closed groups the close stored (`closed_ids`). Omitted or false: the value is empty, as before."
           }
         },
         "extra": false
@@ -30576,7 +30634,7 @@
         "arguments": [
           {
             "kind": "ref",
-            "name": "EmptyResult"
+            "name": "WorkspaceCloseResult"
           }
         ]
       },
