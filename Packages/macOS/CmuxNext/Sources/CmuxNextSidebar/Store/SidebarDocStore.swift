@@ -253,6 +253,7 @@ public final class SidebarDocStore {
         // task-owner: one sidebar mutation; settles its pending intent
         Task { [weak self] in
             var asked = 1
+            // wakeup-allow: bounded retry only after an awaited remote call; this is not polling.
             while true {
                 do {
                     let reply = try await body(remote, key, stamped)
