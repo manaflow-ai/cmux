@@ -114,6 +114,7 @@ extension SidebarListView {
             self.drag = nil
             revealedActive = nil
             let sentBefore = SidebarDocStore.current?.lastIntentKey
+            model.noteUserMove()
             doc.drop(items, target)
             settling?.key = SidebarDocStore.current?.lastIntentKey // nil already: refused inside the call
             // The drop sent nothing (no intent, e.g. an adopt still on the way): nothing will end a settle, so the
@@ -129,6 +130,7 @@ extension SidebarListView {
         guard let target = drag.target else { return cancelDrag() }
         self.drag = nil
         revealedActive = nil // A drop moves rows, not the list: its reload anchors on the first visible row (cx-fnfj).
+        model.noteUserMove()
         switch (drag.payload, target) {
         case let (.workspaces(ids), .position(position)):
             model.send(.reorder(ids, to: position))

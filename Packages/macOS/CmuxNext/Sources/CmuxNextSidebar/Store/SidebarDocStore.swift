@@ -233,29 +233,45 @@ public final class SidebarDocStore {
         let origin = Self.undoOrigin
         // task-owner: one sidebar mutation; settles its pending intent
         Task { [weak self] in
-            do {
-                let reply = try await body(remote, key, stamped)
-                guard let self else { return }
-                // A no-op change echoes no batch: its intent must not stay pending.
-                if !reply.hasInverse {
+            var asked = 1
+            while true {
+                do {
+                    let reply = try await body(remote, key, stamped)
+                    guard let self else { return }
+                    // A no-op change echoes no batch: its intent must not stay pending.
+                    if !reply.hasInverse {
+                        self.drop(key)
+                        NotificationCenter.default.post(name: Self.settledNotification, object: self, userInfo: ["key": key])
+                    }
+                    if undoable, reply.hasInverse {
+                        let inverse = reply.inverse
+                        self.onUndoable(title, origin) { [weak self] in self?.apply(inverse, title: title) }
+                    } else if let origin {
+                        self.onUndoRefused(origin)
+                    }
+                    return
+                } catch is SidebarDocUnsettled where asked < Self.unsettledAsks {
+                    // No reply (a timeout under load, a lost connection): the daemon may have applied the change, and
+                    // its echo may still come. The intent stays pending, so the rows keep the optimistic look; the
+                    // same key asks again and the daemon replays a committed change (cx-ml98q: a timed-out drop flew
+                    // back to its source, then the late echo moved it again).
+                    asked += 1
+                } catch {
+                    guard let self else { return }
+                    if let origin { self.onUndoRefused(origin) }
+                    // The daemon refused it (or never answered): no batch will echo the key. The rows spring back once.
                     self.drop(key)
-                    NotificationCenter.default.post(name: Self.settledNotification, object: self, userInfo: ["key": key])
+                    // Unanswered: the daemon's document says where the rows really are.
+                    if error is SidebarDocUnsettled { self.refresh() }
+                    self.refuse(SidebarDocStrings.describe(error), key: key)
+                    return
                 }
-                if undoable, reply.hasInverse {
-                    let inverse = reply.inverse
-                    self.onUndoable(title, origin) { [weak self] in self?.apply(inverse, title: title) }
-                } else if let origin {
-                    self.onUndoRefused(origin)
-                }
-            } catch {
-                guard let self else { return }
-                if let origin { self.onUndoRefused(origin) }
-                // The daemon refused it: no batch will echo the key.
-                self.drop(key)
-                self.refuse(SidebarDocStrings.describe(error), key: key)
             }
         }
     }
+
+    /// How many times one change is sent under its key before an unanswered change counts as refused.
+    private static let unsettledAsks = 4
 
     private func drop(_ key: String) {
         mirror?.reject(key)
@@ -265,6 +281,12 @@ public final class SidebarDocStore {
     private func bump() { version &+= 1 }
 
     static func newKey() -> String { "sidebar-" + UUID().uuidString.lowercased() }
+}
+
+/// A change sent with no answer (a timeout, a closed connection): the daemon may have applied it. The store sends it
+/// again under the same idempotency key (the daemon replays a committed change) instead of dropping it.
+public nonisolated struct SidebarDocUnsettled: Error, Hashable, Sendable {
+    public init() {}
 }
 
 /// A change refused before it was sent, with the message the refusal HUD shows.

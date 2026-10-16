@@ -71,6 +71,21 @@ def cli(*args):
 DOC_ERRORS = set()
 
 
+def doc_operation(operation, **params):
+    """One sidebar document operation through the tagged app's bundled cmux-tui (`raw operation`, its own key): a
+    change from another client as far as the app's own document store is concerned. The reply's JSON, or None."""
+    tui = os.path.join(os.path.dirname(CLI), "cmux-tui")
+    env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "CMUX_QUIET": "1"}
+    params = {"machine": "current", "session": "current", **params}
+    out = subprocess.run([tui, "--app-socket", SOCKET, "--json", "raw", "operation", operation, "--params-json", json.dumps(params)],
+                         capture_output=True, text=True, timeout=30, env=env)
+    try:
+        return json.loads(out.stdout)
+    except ValueError:
+        print(operation + ":", (out.stdout + out.stderr)[:300], flush=True)
+        return None
+
+
 def doc_icon_url(host):
     """The icon_url the home daemon's sidebar document stores on the link item for `host` (sidebar.get, through the
     tagged app's bundled cmux-tui)."""
@@ -658,6 +673,38 @@ try:
                      lambda: close["title"] not in rows() or None)
         else:
             record("long list keeps its first visible row on screen: close one above the view", False, "no row above the view")
+
+        # Scroll reveal (hq-2d DESIGN.md, cx-ml98q): a change from another client that moves the ACTIVE row out of view
+        # never moves the view. Another client (cmux-tui `raw operation`, its own key) moves V100 to its section's top.
+        print("focus V100 again", cli("workspace", made["V100"], "focus")[:120], flush=True)
+        wait(lambda: any(r.get("title") == "V100" and r.get("selected") for r in window().get("rows", [])) or None, 10)
+        time.sleep(1.0)  # test harness: let the reveal scroll apply
+        listed = window().get("rows", [])
+        active = next((r for r in listed if r.get("title") == "V100" and r.get("in_list")), None)
+        keep = next((r for r in sorted(listed, key=lambda r: r["window_frame"]["y"]) if r.get("in_list") and r.get("title")
+                     and r["title"] != "V100" and r["window_frame"]["y"] >= TOP), None)
+        document = doc_operation("sidebar.get") or {}
+        ids = {made["V100"], row_id(active)}
+        item = next((i for i in document.get("items", []) if (i.get("body") or {}).get("type") == "workspace"
+                     and ids & {(i["body"].get("ref") or {}).get("workspace_id"), (i["body"].get("ref") or {}).get("workspace_key")}), None)
+        top = item and min((i for i in document.get("items", []) if i.get("section") == item.get("section") and not i.get("parent")
+                            and i["id"] != item["id"]), key=lambda i: i.get("order", ""), default=None)
+        visible = bool(active and active["window_frame"]["y"] >= TOP)
+        if item and top and keep and visible:
+            moved = doc_operation("sidebar.move", items=[item["id"]], to={"section": item["section"], "before": top["id"]})
+            gone = wait(lambda: (next((r for r in window().get("rows", []) if r.get("title") == "V100"), {"window_frame": {"y": 0}})
+                                 ["window_frame"]["y"] < TOP) or None, 10)
+            time.sleep(1.0)  # test harness: a reveal scroll would apply within this
+            after = next((r for r in window().get("rows", []) if r.get("title") == keep["title"]), None)
+            still = bool(after and abs(after["window_frame"]["y"] - keep["window_frame"]["y"]) <= 0.5)
+            selected = [r.get("title") for r in window().get("rows", []) if r.get("selected")]
+            record("another client moves the active row out of view: the view does not move", bool(gone) and still and selected == ["V100"],
+                   f"kept={keep['title']} y {keep['window_frame']['y']} -> {after and after['window_frame']['y']} gone={bool(gone)} "
+                   f"selected={selected} reply={str(moved)[:120]}")
+            shot("v2-reveal-other-client")
+        else:
+            record("another client moves the active row out of view: the view does not move", False,
+                   f"setup: item={bool(item)} top={bool(top)} keep={keep and keep.get('title')} active visible={visible}")
     else:
         record("long list keeps its first visible row on screen", False, f"setup: base={base} made={len(made)}")
 finally:
