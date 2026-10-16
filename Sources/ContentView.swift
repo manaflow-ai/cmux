@@ -2818,7 +2818,7 @@ struct ContentView: View {
                 AppDelegate.shared?.startChiefIfEnabled()
             } else {
                 ChiefHomeNavigation(sidebarSelectionState: sidebarSelectionState).leave()
-                chiefHome?.stop()
+                chiefHome?.teardown()
                 chiefHome = nil
             }
         })
@@ -12164,7 +12164,9 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         .onChange(of: dragState.draggedTabId) { newDraggedTabId in
 #if DEBUG
-            cmuxDebugLog("sidebar.dragState.sidebar tab=\(sidebarShortTabId(newDraggedTabId))")
+            let shortDraggedTabID = sidebarShortTabId(newDraggedTabId)
+            let dragStateLogMessage = "sidebar.dragState.sidebar tab=" + shortDraggedTabID
+            cmuxDebugLog(dragStateLogMessage)
 #endif
             guard newDraggedTabId == nil else { return }
             dragAutoScrollController.stop()
