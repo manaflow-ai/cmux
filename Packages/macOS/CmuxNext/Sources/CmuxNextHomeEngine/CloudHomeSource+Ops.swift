@@ -50,6 +50,9 @@ nonisolated extension CloudHomeSource {
         case .addReaction(let message, let conversation, let reaction, let partIndex):
             return try await edit(.addReaction(messageID: message.rawValue, partIndex: partIndex,
                                                kind: CloudHomeMapping.reaction(reaction)), in: conversation)
+        case .updateThread(let conversation, let root, let title, let status, let owner):
+            return try await edit(.updateThread(root: root.rawValue, title: title, status: status?.rawValue,
+                                                owner: owner.map { $0.isEmpty ? $0 : identity.toCloud(ParticipantID($0)) }), in: conversation)
         case .setTyping(let conversation, _):
             // Answered by `submit` before binding; nothing to send.
             return HomeOpResult(rev: 0, conversation: conversation)

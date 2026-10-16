@@ -42,6 +42,9 @@ public enum HomeOp: Hashable, Sendable {
     /// My typing state. Ephemeral: never stored by the owner and never in the
     /// intent log (the store sends it directly; nothing to settle).
     case setTyping(conversation: ConversationID, on: Bool)
+    /// `thread.update` (conversation-thread-objects-v1): a thread root's title, status or owner. nil leaves a
+    /// field as it is; an empty title or owner clears it. At least one field.
+    case updateThread(conversation: ConversationID, root: MessageID, title: String? = nil, status: ThreadInfo.Status? = nil, owner: String? = nil)
 
     /// The stream this op writes. Its result's `rev` is a revision of this stream.
     public var stream: HomeStream {
@@ -53,6 +56,7 @@ public enum HomeOp: Hashable, Sendable {
              .addReaction(_, let conversation, _, _),
              .removeReaction(_, let conversation, _, _),
              .answerQuestion(_, let conversation, _, _),
+             .updateThread(let conversation, _, _, _, _),
              .setTyping(let conversation, _):
             .conversation(conversation)
         case .setPinned, .setMuted, .createGroup, .createChief, .startConversation, .invite, .openDirect:
@@ -72,6 +76,7 @@ public enum HomeOp: Hashable, Sendable {
              .addReaction(_, let conversation, _, _),
              .removeReaction(_, let conversation, _, _),
              .answerQuestion(_, let conversation, _, _),
+             .updateThread(let conversation, _, _, _, _),
              .setTyping(let conversation, _):
             conversation
         case .createGroup, .createChief, .startConversation, .invite, .openDirect:

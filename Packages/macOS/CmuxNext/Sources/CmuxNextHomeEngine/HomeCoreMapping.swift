@@ -84,7 +84,7 @@ public nonisolated enum HomeCoreMapping {
     }
 
     static func message(_ message: ConversationMessage) -> Message {
-        Message(id: MessageID(message.id), conversation: ConversationID(message.conversation), seq: message.seq,
+        var mapped = Message(id: MessageID(message.id), conversation: ConversationID(message.conversation), seq: message.seq,
                 clientMessageID: IdempotencyKey(message.clientMsgID), author: ParticipantID(message.author),
                 parts: message.parts.enumerated().map { part($1, messageID: message.id, index: $0) }, createdAt: date(message.createdAt) ?? .distantPast,
                 editedAt: date(message.editedAt), retractedAt: date(message.retractedAt),
@@ -92,6 +92,15 @@ public nonisolated enum HomeCoreMapping {
                 replyTo: message.replyTo.map { PartRef(message: MessageID($0.messageID), partIndex: $0.partIndex) },
                 // A message from before threads marked its thread as a reply to the root.
                 threadRoot: (message.threadRoot ?? message.replyTo?.messageID).map { MessageID($0) })
+        mapped.thread = thread(message.thread)
+        return mapped
+    }
+
+    /// A root's thread object (conversation-thread-objects-v1).
+    static func thread(_ wire: ConversationThreadObject?) -> ThreadInfo? {
+        guard let wire else { return nil }
+        return ThreadInfo(title: wire.title, owner: wire.owner.map { ParticipantID($0) }, resolvedAtSeq: wire.resolved?.seq,
+                          resolvedBy: wire.resolved.map { ParticipantID($0.by) })
     }
 
     static func summary(_ summary: CmuxNextDaemon.ConversationSummary) -> CmuxHomeCore.ConversationSummary {
@@ -159,6 +168,8 @@ public nonisolated enum HomeCoreMapping {
             guard let data = try? answer.conversationAnswer.data(),
                   let value = try? JSONDecoder().decode(JSONValue.self, from: data) else { return nil }
             return (conversation.rawValue, .answerQuestion(messageID: message.rawValue, partIndex: partIndex, answer: value))
+        case .updateThread(let conversation, let root, let title, let status, let owner):
+            return (conversation.rawValue, .updateThread(root: root.rawValue, title: title, status: status?.rawValue, owner: owner))
         case .createGroup, .createChief, .startConversation, .invite, .openDirect, .setPinned, .setMuted, .setTyping:
             return nil
         }

@@ -89,6 +89,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var deferredThread: (root: MessageID?, parent: MessageID?) = (nil, nil)
     /// A permalink's message waiting for the window that holds it (`reveal`, HomeProjection+Tree.swift).
     var pendingReveal: MessageID?
+    /// Tree threads: permalink paging, the thread header, Copy Link (HomeProjection+ThreadHeader.swift).
+    let tree = HomeTreeState()
     /// Rebuilds and applied (changed) updates, for tests.
     private(set) var rebuilds = 0
     private(set) var appliedUpdates = 0
@@ -142,6 +144,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // The line closes one display frame after the reply took the bubble's place, never with it (cx-zz30r).
         if let activity = live?.activity { liveLine.show(activity) } else { liveLine.hide(after: controller) }
         revealIfLoaded()
+        refreshThreadHeader()
     }
 
     /// The whole current value; unchanged values return before any work.
@@ -204,6 +207,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         self.hasOlder = hasOlder
         let store = controller.install(conv, windowStart: w.start, total: w.total)
         store.linkPreviews = linkPreviews
+        installThreadHeader()
         if let previews = linkPreviews?.previews {
             // MessagesLab 85684b4: the LinkPresentation fallback runs only for an OUTGOING card on
             // screen (a link I sent); a late answer fills the card.

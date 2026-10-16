@@ -7,23 +7,52 @@ import CmuxHomeCore
 /// (`HomeMapping.id`). The tree itself is the daemon's (`reply_to` parents, HomeMapping+Tree.swift);
 /// MessagesLab's ThreadTree walks those parents over the loaded window.
 extension HomeProjection {
-    /// Opens `message` once the shown window holds it: a thread reply opens its thread at its own
-    /// branch (the path from the root down to it), a root with replies opens its thread, any other
-    /// message only shows the conversation. It waits while the shown window does not hold it (the
-    /// owner's first page, an older page the user scrolls to; no page is loaded for it); a later
-    /// reveal, a thread action of the user, or a full history without it ends the wait.
+    /// Opens `message`: a thread reply opens its thread at its own branch (the owner's path from the
+    /// root down to it, `conversation-link-resolve`), a root with replies opens its thread, any other
+    /// message only shows the conversation. A message older than the loaded window loads older pages
+    /// until it is in (one page per refresh, never a wait for a scroll); a later reveal, a thread action
+    /// of the user, or a full history without it ends the request.
     func reveal(_ message: MessageID) {
         pendingReveal = message
+        tree.target = nil
+        tree.pages = 0
+        let homeStore = self.homeStore, conversation = self.conversation
+        // task-owner: one link resolve; ends with the owner's answer
+        Task { [weak self] in
+            let target = await homeStore.resolveLink(conversation, message: message)
+            guard let self, self.pendingReveal == message else { return }
+            self.tree.target = target
+            self.revealIfLoaded()
+        }
         revealIfLoaded()
     }
 
     func threadMovedByUser() { pendingReveal = nil }
 
+    /// One older page toward the waiting permalink (its seq is below the window), or the end of the request.
+    private func pageTowardReveal() {
+        let oldest = homeStore.oldestLoadedSeq(in: conversation)
+        let below = tree.target?.seq.map { seq in oldest.map { seq < $0 } ?? true } ?? (tree.pages < 50)
+        guard hasOlder, below else {
+            if !shown.isEmpty { pendingReveal = nil }  // the history holds no such message
+            return
+        }
+        guard !tree.paging else { return }
+        tree.paging = true
+        tree.pages += 1
+        let homeStore = self.homeStore, conversation = self.conversation
+        // task-owner: one page read; the refresh it causes asks for the next one
+        Task { [weak self] in
+            await homeStore.loadOlder(conversation)
+            self?.tree.paging = false
+            self?.revealIfLoaded()
+        }
+    }
+
     func revealIfLoaded() {
         guard let target = pendingReveal, let store = controller.store else { return }
         guard let item = shown.first(where: { $0.messageID == target }) else {
-            // The whole history is loaded and the message is not in it (deleted, another conversation): give up.
-            if !shown.isEmpty, !hasOlder { pendingReveal = nil }
+            pageTowardReveal()
             return
         }
         pendingReveal = nil
@@ -33,7 +62,12 @@ extension HomeProjection {
         let ref = PartRef(messageId: id, partIndex: 0)
         let root = m.replyTo ?? ref
         guard m.replyTo != nil || messages.contains(where: { $0.replyTo?.messageId == id && $0.id != id }) else { return }
-        controller.dispatch(.openThreadPath([root] + ThreadTree.path(to: ref, root: root, in: messages)))
+        // The owner's path when every message on it is loaded, else the loaded parents' walk.
+        let owned = (tree.target?.path ?? []).compactMap { pid in shown.first { $0.messageID == pid }.map { HomeMapping.id($0, aliases: aliases) } }
+        let path = tree.target.map { owned.count == $0.path.count && owned.count > 1 } == true
+            ? owned.map { PartRef(messageId: $0, partIndex: 0) } : [root] + ThreadTree.path(to: ref, root: root, in: messages)
+        tree.target = nil
+        controller.dispatch(.openThreadPath(path))
     }
 
     /// The owner's id of the message the open thread view shows: the drilled branch's message,

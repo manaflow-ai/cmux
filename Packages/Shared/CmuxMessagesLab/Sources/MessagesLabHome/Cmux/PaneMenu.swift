@@ -47,8 +47,12 @@ extension ChatController {
         // cmux: no Edit or Undo Send (HomeOp has no edit or unsend).
         if case let .text(text, _) = hit.row.part {
             menu.addItem(MenuAction(title: Strings.menuCopy) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string) })
-            menu.addItem(.separator())
         }
+        // cmux: the message's permalink, the form the Channels page copies (conversation-link-resolve opens it).
+        if let link = intents?.messageLink(ref.messageId) {
+            menu.addItem(MenuAction(title: CmuxStrings.copyLink, symbol: "link") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(link, forType: .string) })
+        }
+        if menu.items.last.map({ !$0.isSeparatorItem }) == true { menu.addItem(.separator()) }
         // cmux: a video plays in place; opening it in an app is only here.
         if case let .attachment(a) = hit.row.part {
             if a.kind == "video", let intents {

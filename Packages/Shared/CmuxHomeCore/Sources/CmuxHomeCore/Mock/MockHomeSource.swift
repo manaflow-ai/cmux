@@ -550,6 +550,20 @@ public actor MockHomeSource: HomeSource {
             // An invite changes no inbox entry, so the current revision settles it.
             let (_, receipt) = personFor(contact)
             return HomeOpResult(rev: inboxRev, invite: receipt ?? InviteReceipt(contact: contact, channel: contact.isEmail ? .email : .sms, alreadyMember: true))
+        case .updateThread(let conversation, let root, let title, let status, let owner):
+            guard var list = stored[conversation], let index = list.firstIndex(where: { $0.id == root }),
+                  var summary = conversations[conversation] else { throw HomeRejection.invalid("unknown_message") }
+            guard list[index].threadRoot == nil else { throw HomeRejection.invalid("invalid_thread_root") }
+            var thread = list[index].thread ?? ThreadInfo()
+            if let title { thread.title = title.isEmpty ? nil : title }
+            if let owner { thread.owner = owner.isEmpty ? nil : ParticipantID(owner) }
+            if let status { (thread.resolvedAtSeq, thread.resolvedBy) = status == .resolved ? (summary.lastSeq, me.id) : (nil, nil) }
+            list[index].thread = thread == ThreadInfo() ? nil : thread
+            stored[conversation] = list
+            summary.rev += 1
+            conversations[conversation] = summary
+            publish(.message(list[index], rev: summary.rev))
+            return HomeOpResult(rev: summary.rev)
         case .setTyping(let conversation, let on):
             // Ephemeral: broadcast, never stored, no revision.
             guard let summary = conversations[conversation] else { throw HomeRejection.invalid("unknown_conversation") }

@@ -14,6 +14,15 @@ extension HomeNativeTranscriptView {
     /// branch, any depth, once the transcript holds it.
     public func reveal(message: String) { transcript.reveal(message: message) }
 
+    /// The build's link scheme, for "Copy Link" in the message menu.
+    public var linkScheme: String? {
+        get { transcript.linkScheme }
+        set { transcript.linkScheme = newValue }
+    }
+
+    /// Automation (DEBUG socket): thread header and Copy Link drives (MessagesLabHomeView.debugTreeDrive).
+    public func debugTreeDrive(_ action: String, _ args: [String: String]) -> [String: String]? { transcript.debugTreeDrive(action, args) }
+
     /// Automation (DEBUG socket): the open drill path, root first, as owner ids.
     public var debugOpenThreadPath: [String] { transcript.debugOpenThreadPath }
 
