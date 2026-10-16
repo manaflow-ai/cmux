@@ -318,6 +318,11 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(occurrences, [], stale)
         self.assertNotIn("NIGHTLY_BUILD", job["env"])
         self.assertIn("NOTES_HEAD: ${{ steps.source.outputs.build_sha }}", text)
+        # A recovered build can predate this workflow's script arguments (run
+        # 38855116561), so the tooling comes from the workflow's own commit.
+        tooling = step(job, "Checkout publication tooling at the workflow commit")["with"]
+        self.assertEqual(tooling["ref"], "${{ github.sha }}")
+        self.assertIn('"$PUBLISH_TOOLING/ci/nightly_version.py"', step(job, "Recheck the recovered build against both feeds")["run"])
         self.assertEqual(job["outputs"]["source"], "${{ steps.source.outputs.source }}")
 
     def test_publish_runs_for_an_accepted_own_or_recovered_build(self):
@@ -463,6 +468,7 @@ def run_recheck(build: int, next_builds: tuple, legacy_builds: tuple = (), class
             NIGHTLY_NEXT_FEED_BASE=str(work / "next"),
             NIGHTLY_NEXT_LEGACY_FEED_BASE=str(work / "legacy"),
             GITHUB_OUTPUT=str(output),
+            PUBLISH_TOOLING=str(ROOT / "scripts"),
         )
         result = subprocess.run(["bash", "-c", script], cwd=ROOT, env=env, capture_output=True, text=True)
         result.output = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)  # type: ignore[attr-defined]
