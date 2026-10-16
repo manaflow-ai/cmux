@@ -559,6 +559,21 @@ class RecheckTests(unittest.TestCase):
                    "publish-nightly": {"source": "recovered", "already_published": "true"}}
         self.assertFalse(job_runs("republish-nightly-deltas", outcome, outputs))
 
+    def test_an_already_published_own_build_publishes_no_release_notes(self):
+        for name in ("sign-release-notes", "publish-release-notes"):
+            with self.subTest(job=name):
+                outcome = dict.fromkeys(workflow()["jobs"][name]["needs"], "success")
+                outputs = {"decide": {"should_publish": "true", "track": "nightly-next"},
+                           "publish-nightly": {"source": "own", "already_published": "true"}}
+                self.assertFalse(job_runs(name, outcome, outputs))
+                outputs["publish-nightly"]["already_published"] = ""
+                self.assertTrue(job_runs(name, outcome, outputs))
+
+    def test_the_recheck_holds_the_release_tag_publication_lock(self):
+        lock = workflow()["jobs"]["publish-nightly"]["concurrency"]
+        self.assertEqual(lock["group"], "release-publish-${{ needs.decide.outputs.release_tag }}")
+        self.assertFalse(lock["cancel-in-progress"])
+
 
 def run_continue_step(notary: str) -> subprocess.CompletedProcess[str]:
     """Run the real continuation step against one candidate, with gh, the
