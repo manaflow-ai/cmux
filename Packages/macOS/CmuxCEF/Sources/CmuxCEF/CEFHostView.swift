@@ -52,6 +52,23 @@ public final class CEFHostView: NSView {
         updateBackground()
     }
 
+    /// The Chromium fork tracks this view with a separate child window. AppKit
+    /// does not otherwise send the fork's geometry notification when a tab's
+    /// host is reparented or resized, so keep the child window's frame in sync
+    /// with the view that owns it.
+    public override func setFrameSize(_ newSize: NSSize) {
+        let changed = frame.size != newSize
+        super.setFrameSize(newSize)
+        if changed { postGeometryChange() }
+    }
+
+    /// Notifies the Chromium child window when the host moves within its pane.
+    public override func setFrameOrigin(_ newOrigin: NSPoint) {
+        let changed = frame.origin != newOrigin
+        super.setFrameOrigin(newOrigin)
+        if changed { postGeometryChange() }
+    }
+
     private func updateBackground() {
         guard showsPlaceholder else {
             layer?.backgroundColor = nil
