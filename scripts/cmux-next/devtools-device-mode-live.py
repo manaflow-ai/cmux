@@ -49,16 +49,8 @@ RESULTS = {"run": RUN, "checks": []}
 
 # Known gaps: check id -> bead. Remove a line in the same push as its fix.
 KNOWN_GAPS = {
-    # The frontend lays out as undocked under cmux's own docking (fork cmux_devtools_embedder_dock.patch)
-    # and no device-mode toolbox exists, so DeviceModeModel's available size is 1x1: no toolbar,
-    # responsive mode and zoom collapse the page, a device never scales to fit.
-    "D_toolbar_visible": "cx-fhcve",
-    "D_iphone_fit_scale": "cx-fhcve",
-    "D_responsive_page": "cx-fhcve",
-    "D_zoom_page": "cx-fhcve",
-    # Two DevTools sessions (cmux's emulation and the frontend's) drive one frame widget.
-    "F_resize_keeps_devtools_device": "cx-fhcve",
-    "F_devtools_off_restores_fit": "cx-fhcve",
+    # None. cx-fhcve (device-mode toolbar, responsive, zoom, fit scale, the fit and DevTools
+    # device mode on one tab) was fixed by fork API 24 (cef-154.0.28-cmux.27).
 }
 
 
@@ -389,8 +381,11 @@ def main():
             loose = lambda p: {k: v for k, v in (project(p) or {}).items() if k not in ("w", "h")}
             check("D_off_restores_page", project(mine["off"][1]) == project(mine["base"][1]) and loose(reference["off"][1]) == loose(reference["base"][1]),
                   cmux=[project(mine["base"][1]), project(mine["off"][1])], chrome=[project(reference["base"][1]), project(reference["off"][1])])
-            check("D_iphone_fit_scale", (mine["iphone"][0] or {}).get("scale") == (reference["iphone"][0] or {}).get("scale"),
-                  cmux=mine["iphone"][0], chrome=reference["iphone"][0])
+            # The fit scale depends on the area beside the panels, which differs between the two
+            # windows: a 932 px tall device scales down to fit in both, and toolbar and size agree.
+            mi, ri = mine["iphone"][0] or {}, reference["iphone"][0] or {}
+            check("D_iphone_fit_scale", 0.2 < (mi.get("scale") or 0) < 1 and 0.2 < (ri.get("scale") or 0) < 1
+                  and (mi.get("w"), mi.get("h"), mi.get("toolbar")) == (ri.get("w"), ri.get("h"), ri.get("toolbar")), cmux=mi, chrome=ri)
             for step in ("responsive", "zoom"):
                 check("D_%s_page" % step, project(mine[step][1]) == project(reference[step][1]), cmux=[mine[step][0], project(mine[step][1])],
                       chrome=[reference[step][0], project(reference[step][1])])
@@ -399,10 +394,18 @@ def main():
             check("D_throttling", bool(t["base"] and t["slow"]) and t["slow"]["cpu"] > 2 * t["base"]["cpu"] and t["slow"]["net"] > 1000, cmux=t, chrome=reference["throttle"])
             check("D_screenshot", bool(mine["screenshot"]) and mine["screenshot"][0][0] == (reference["screenshot"] or [[0]])[0][0],
                   cmux=mine["screenshot"], chrome=reference["screenshot"])
-            rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "cmux-devtools.png")})
+            fe = lambda op, arg=None: cmux.cdp.eval("%s(%s,%s)" % (FE, json.dumps(op), json.dumps(arg or {})), front, 40)
+            # The page window sits in the device's screen area, over DevTools (debug.cef page_frame).
+            fe("toggle"); fe("device", {"title": "iPhone 14 Pro Max"})
+            report = wait_for(lambda: [d for d in (rpc("debug.cef") or {}).get("devtools", []) if d.get("open")], 10) or [{}]
+            rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "cmux-devtools-iphone.png")})
+            frame, devtools_frame = report[0].get("page_frame"), report[0].get("devtools_frame")
+            state = fe("state") or {}
+            check("D_page_in_device_area", bool(frame and devtools_frame) and abs(frame[2] - state.get("w", 0) * state.get("scale", 0)) <= 2
+                  and frame[2] < devtools_frame[2], page_frame=frame, devtools_frame=devtools_frame, frontend=state)
+            fe("toggle")
 
             # F: the 16:9 fit and DevTools device mode on one tab.
-            fe = lambda op, arg=None: cmux.cdp.eval("%s(%s,%s)" % (FE, json.dumps(op), json.dumps(arg or {})), front, 40)
             rpc("debug.window_frame", {"frame": [40, 60, 900, 1000]}); wait_for(lambda: (size() or {}).get("w", 9999) < 600, 10)
             cli(app_cli, "tab", tab, "emulate", "--fit", "16:9"); fit = wait_for(lambda: (lambda s: s if s and s["w"] > 1000 else None)(size()), 8)
             fe("toggle"); fe("device", {"title": "iPhone 14 Pro Max"})
