@@ -12194,30 +12194,38 @@ struct VerticalTabsSidebar: View, Equatable {
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         // The AppKit NSTableView sidebar is opt-in while it soaks; default stays
         // on the SwiftUI list. The flag key is declared only in FeatureFlags.swift.
-        Group {
-            if featureFlags.isAppKitSidebarListEnabled {
-                AnyView(
-                    appKitWorkspaceScrollArea(renderContext: renderContext)
-                        // Push the flag value into the portal from its single
-                        // evaluation site (feature-flag lint one-file rule).
-                        .onAppear { WindowTerminalPortal.usesCoalescedAnchorFailsafe = true }
-                )
-            } else {
-                AnyView(
-                    SidebarUnreadSnapshotReader(source: sidebarUnread) { unreadSnapshot in
-                        legacyWorkspaceScrollArea(
-                            renderContext: renderContext,
-                            unreadSnapshot: unreadSnapshot
-                        )
-                    }
-                    .onAppear { WindowTerminalPortal.usesCoalescedAnchorFailsafe = false }
-                )
+        VStack(spacing: 0) {
+            // Reserve real layout space above the workspace table. A padding on
+            // the AppKit table moves its host view without changing the table's
+            // viewport, which can leave the rows clipped; a stack gives the
+            // local workspaces a full viewport directly below Home's list.
+            if isChiefHomeSelected {
+                Color.clear
+                    .frame(height: Self.chiefHomeConversationListTopPadding)
+                    .allowsHitTesting(false)
             }
+            Group {
+                if featureFlags.isAppKitSidebarListEnabled {
+                    AnyView(
+                        appKitWorkspaceScrollArea(renderContext: renderContext)
+                            // Push the flag value into the portal from its single
+                            // evaluation site (feature-flag lint one-file rule).
+                            .onAppear { WindowTerminalPortal.usesCoalescedAnchorFailsafe = true }
+                    )
+                } else {
+                    AnyView(
+                        SidebarUnreadSnapshotReader(source: sidebarUnread) { unreadSnapshot in
+                            legacyWorkspaceScrollArea(
+                                renderContext: renderContext,
+                                unreadSnapshot: unreadSnapshot
+                            )
+                        }
+                        .onAppear { WindowTerminalPortal.usesCoalescedAnchorFailsafe = false }
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        // Home's conversation list occupies a compact, fixed upper section.
-        // Keep the ordinary workspace list in the same scroll surface below it
-        // so local cmux workspaces never disappear behind a Home overlay.
-        .padding(.top, isChiefHomeSelected ? Self.chiefHomeConversationListTopPadding : 0)
         // Workspace publisher observations and the snapshot refresh feed BOTH
         // list implementations, so they live on the shared parent. Both use one snapshot cache; material updates publish a generation,
         // never a second retained copy of every workspace snapshot.
