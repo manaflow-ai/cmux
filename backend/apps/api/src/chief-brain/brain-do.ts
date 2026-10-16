@@ -496,8 +496,9 @@ export class ChiefBrainDO extends DurableObject<Env> {
         }
         await this.harness.session().reset()
         this.sql.exec(`UPDATE cb_turn SET submitted = 1 WHERE id = ?`, id)
-        // A hand paired since the last turn gives the full tools on this turn's first request (bounded wait).
-        await Promise.race([this.refreshHands().catch(() => undefined), new Promise((r) => setTimeout(r, 1_500))])
+        // Off the hot path: the turn starts with the cached tool set; a hand found now swaps in the full tools for
+        // the next model request (the entry tool also swaps before its own result returns).
+        this.ctx.waitUntil(this.refreshHands().catch(() => undefined))
         await this.harness.submit(blocks.map((text) => ({ type: "text" as const, text })), { operationId: id })
       }
       // A child's bound runs from its start, across restarts (its slot frees after SLOT_STALE_MS).

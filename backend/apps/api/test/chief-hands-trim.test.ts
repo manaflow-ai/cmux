@@ -104,13 +104,15 @@ describe("Chief hands tools by hand", { timeout: 120_000 }, () => {
     expect(turnTools("marker-three")[0]!.map((t) => t.name)).toEqual(expect.arrayContaining(["hands", "agent"]))
   })
 
-  it("a Chief whose hand was paired between turns has the full tools on the next turn's first request", async () => {
+  it("a Chief whose hand was paired between turns gets the full tools without waiting on the turn's path", async () => {
     const { token, chief } = await ownerWithChief("hands-trim-next")
     expect((await http("PUT", `/v1/hands/grants/${chief.id}`, token, { on: true })).status).toBe(200)
     await dmAndReply(token, chief, "first marker-four", 1)
     expect(turnTools("marker-four")[0]!.map((t) => t.name)).not.toContain("agent")
     await pair(token, "sb-next")
+    // The next turn starts with the cached (compact) set and finds the hand in the background; the turn after has the full tools.
     await dmAndReply(token, chief, "then marker-five", 2)
-    expect(turnTools("marker-five")[0]!.map((t) => t.name)).toEqual(expect.arrayContaining(["hands", "agent"]))
+    await dmAndReply(token, chief, "then marker-six", 3)
+    expect(turnTools("marker-six")[0]!.map((t) => t.name)).toEqual(expect.arrayContaining(["hands", "agent"]))
   })
 })
