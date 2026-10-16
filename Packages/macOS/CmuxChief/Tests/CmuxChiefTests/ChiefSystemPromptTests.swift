@@ -17,6 +17,8 @@ import Testing
             socketPath: "/tmp/cmux-test.sock",
             chiefHomePath: "/tmp/chief-home",
             workspacesSummary: "workspace:1 api (selected)\nworkspace:2 web",
+            currentWorkspaceRef: "workspace:1",
+            currentSurfaceRef: "surface:9",
             date: Date(timeIntervalSince1970: 1_792_000_000),
             timeZone: TimeZone(identifier: "UTC") ?? .current
         )
@@ -45,6 +47,11 @@ import Testing
         #expect(prompt.contains("- You run on: Claude Code, model claude-opus-5-5"))
         #expect(prompt.contains("- Chief home: /tmp/chief-home"))
         #expect(prompt.contains("workspace:2 web"))
+        #expect(prompt.contains("# Current Chief target"))
+        #expect(prompt.contains("This turn was sent from Chief in workspace `workspace:1`."))
+        #expect(prompt.contains("Chief surface: surface:9"))
+        #expect(prompt.contains("--workspace workspace:1 --url <url> --focus false"))
+        #expect(prompt.contains("verify with\n`cmux tree --all --json`"))
     }
 
     @Test func emptyContextOmitsOptionalSections() {

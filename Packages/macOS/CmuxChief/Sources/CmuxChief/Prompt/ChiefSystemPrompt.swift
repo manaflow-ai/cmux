@@ -25,6 +25,12 @@ public struct ChiefPromptContext: Sendable, Equatable {
     public var chiefHomePath: String?
     /// A short text summary of the user's workspaces at session start.
     public var workspacesSummary: String?
+    /// The workspace containing the Chief surface that started this turn.
+    /// This is refreshed by the app for every turn; unlike the workspace
+    /// summary it is an actionable target for `cmux` mutations.
+    public var currentWorkspaceRef: String?
+    /// The Chief surface that started this turn, when it is still mounted.
+    public var currentSurfaceRef: String?
     /// Whether the user explicitly enabled dangerous permission bypasses.
     public var dangerouslySkipPermissions: Bool
     /// The session's start time.
@@ -43,6 +49,8 @@ public struct ChiefPromptContext: Sendable, Equatable {
                 socketPath: String? = nil,
                 chiefHomePath: String? = nil,
                 workspacesSummary: String? = nil,
+                currentWorkspaceRef: String? = nil,
+                currentSurfaceRef: String? = nil,
                 dangerouslySkipPermissions: Bool = false,
                 date: Date = Date(),
                 timeZone: TimeZone = .current) {
@@ -56,6 +64,8 @@ public struct ChiefPromptContext: Sendable, Equatable {
         self.socketPath = socketPath
         self.chiefHomePath = chiefHomePath
         self.workspacesSummary = workspacesSummary
+        self.currentWorkspaceRef = currentWorkspaceRef
+        self.currentSurfaceRef = currentSurfaceRef
         self.dangerouslySkipPermissions = dangerouslySkipPermissions
         self.date = date
         self.timeZone = timeZone
@@ -112,6 +122,18 @@ public struct ChiefSystemPrompt: Sendable, Equatable {
             A snapshot; check again with the CLI before acting on it.
 
             \(summary)
+            """)
+        }
+        if let workspace = context.currentWorkspaceRef?.trimmingCharacters(in: .whitespacesAndNewlines), !workspace.isEmpty {
+            let surfaceLine = context.currentSurfaceRef.map { "\n- Chief surface: \($0)" } ?? ""
+            sections.append("""
+            # Current Chief target
+
+            This turn was sent from Chief in workspace `\(workspace)`.\(surfaceLine)
+            Use this exact workspace for cmux actions. Browser splits should use
+            `cmux new-pane --type browser --direction right --workspace \(workspace) --url <url> --focus false`.
+            After every layout mutation, inspect the returned refs and verify with
+            `cmux tree --all --json`; report the actual CLI error if verification fails.
             """)
         }
         let memory = context.memory.trimmingCharacters(in: .whitespacesAndNewlines)

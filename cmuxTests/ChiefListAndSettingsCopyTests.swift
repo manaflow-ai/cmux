@@ -95,7 +95,12 @@ import Testing
 
     @Test func aTurnTellsTheCLIItIsChiefs() {
         let home = ChiefHome(root: URL(fileURLWithPath: "/tmp/chief-home", isDirectory: true))
-        let environment = ChiefTurnContextBuilder.environment(socketPath: "/tmp/cmux.sock", home: home, base: [:])
+        let workspaceID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let surfaceID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        let environment = ChiefTurnContextBuilder.environment(socketPath: "/tmp/cmux.sock", home: home,
+                                                              workspaceID: workspaceID, surfaceID: surfaceID, base: [:])
         #expect(environment["CMUX_CHIEF_TURN"] == "1")
+        #expect(environment["CMUX_WORKSPACE_ID"] == workspaceID.uuidString)
+        #expect(environment["CMUX_SURFACE_ID"] == surfaceID.uuidString)
     }
 }
