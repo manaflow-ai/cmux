@@ -213,6 +213,24 @@ import Testing
         #expect(rect == CGRect(x: 0, y: 299, width: 400, height: 1))
         #expect(CEFHostView.chromiumSeparatorRect(in: CGRect(x: 0, y: 0, width: 400, height: 1)) == nil)
     }
+
+    /// Reparenting a selected tab changes the host frame while Chromium's
+    /// child window is already alive; the tracker must receive that geometry
+    /// change so the page cannot cover cmux's tab strip.
+    @MainActor @Test func frameChangesNotifyTheChromiumTracker() async {
+        let host = CEFHostView(frame: CGRect(x: 10, y: 20, width: 100, height: 80))
+        await confirmation("frame changes notify the tracker", expectedCount: 2) { confirm in
+            let token = NotificationCenter.default.addObserver(
+                forName: CEFHostView.geometryDidChange,
+                object: host,
+                queue: .main
+            ) { _ in confirm() }
+            defer { NotificationCenter.default.removeObserver(token) }
+
+            host.setFrameSize(NSSize(width: 220, height: 140))
+            host.setFrameOrigin(NSPoint(x: 30, y: 40))
+        }
+    }
 }
 
 @Suite struct CEFJSDialogEventTests {
