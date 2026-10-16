@@ -219,6 +219,11 @@ struct AgentHookDeliveryProcess: Sendable {
         environment["CMUX_SOCKET_PATH"] = event.socketPath
         environment["CMUX_BUNDLED_CLI_PATH"] = executableURL.path
         environment["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] = "1"
+        // Detached helpers outlive this worker and lose cmux ancestry. Give
+        // only local replay the app-issued authorization used by terminals.
+        if !event.relayBacked {
+            environment["CMUX_SOCKET_CAPABILITY"] = socketClientCapability
+        }
         if event.relayBacked {
             environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] = "1"
             environment["CMUX_AGENT_HOOK_ROUTE_SNAPSHOT"] = "1"
