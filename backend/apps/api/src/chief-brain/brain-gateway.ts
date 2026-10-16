@@ -34,6 +34,8 @@ export const gatewayOptions = (ctx: DurableObjectState, env: Env, now: () => Bra
     hooks: {
       event: (e) => live.event(e),
       usage: (run, u) => addUsage(ctx.storage.sql, run, u),
+      // The newest model error of the run (Run.error names it when the run fails).
+      failed: (run, message) => void ctx.storage.sql.exec(`INSERT INTO cb_run_error (turn, text) VALUES (?, ?) ON CONFLICT (turn) DO UPDATE SET text = excluded.text`, run, message),
       region: (run, region) => void ctx.storage.sql.exec(`INSERT INTO cb_marks (turn, mark, at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, run, `region:${region}`, Date.now()),
       notice: async (conversation, text) => {
         const { agent, owner } = now().config
@@ -56,4 +58,16 @@ export const creditsCanStart = (env: Env, config: BrainConfig): Promise<"ok" | "
 export const creditsNotice = async (env: Env, config: BrainConfig, conversation: string): Promise<void> => {
   const text = await gateOf(env, config).notice(conversation).catch(() => null)
   if (text && config.agent && config.owner) await postText(env, chiefPrincipal(config.agent, config.owner), conversation, text, `credits-notice:${config.agent}:${conversation}:${new Date().toISOString().slice(0, 13)}`).catch(() => undefined)
+}
+
+/** The notice a person sees when a turn failed after its retries (no vendor names, no detail). */
+export const TURN_FAILED_NOTICE = "I could not reach the model, so I stopped here. Please try again."
+
+/**
+ * A failed turn is never silent: one short notice as the chief in the turn's conversation (once per
+ * run, by its idempotency key). Not for a credits refusal: that has its own notice (the gateway's).
+ */
+export const turnFailedNotice = async (env: Env, config: BrainConfig, conversation: string, run: string, reason: string, error: string | undefined): Promise<void> => {
+  if (/credits/i.test(`${reason} ${error ?? ""}`) || !config.agent || !config.owner) return
+  await postText(env, chiefPrincipal(config.agent, config.owner), conversation, TURN_FAILED_NOTICE, `turn-failed:${config.agent}:${run}`).catch(() => undefined)
 }

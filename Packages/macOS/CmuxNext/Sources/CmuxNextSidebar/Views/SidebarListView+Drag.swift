@@ -119,6 +119,8 @@ extension SidebarListView {
             // The drop sent nothing (no intent, e.g. an adopt still on the way): nothing will end a settle, so the
             // rows and the card go back as for a refusal.
             if settling != nil, SidebarDocStore.current?.lastIntentKey == sentBefore { settling = nil }
+            // A sent move (not refused at once): the structural set that shows it may reveal the active row.
+            if settling != nil { model.noteUserMove() }
             suppressed = drag.hiddenKeys
             // The drop's look is what the drag shows: adopting it moves nothing (the card settles into its slot).
             reload(animated: true, adopt: true)
@@ -129,6 +131,7 @@ extension SidebarListView {
         guard let target = drag.target else { return cancelDrag() }
         self.drag = nil
         revealedActive = nil // A drop moves rows, not the list: its reload anchors on the first visible row (cx-fnfj).
+        model.noteUserMove()
         switch (drag.payload, target) {
         case let (.workspaces(ids), .position(position)):
             model.send(.reorder(ids, to: position))

@@ -59,6 +59,13 @@ export const flushMarks = (sql: SqlStorage, turn: string): void => {
   }
 }
 
+/** A failed run's error: its reason, and the newest model error the gateway saw (the route's message, no secret). */
+export const runError = (sql: SqlStorage, id: string): string | undefined => sql.exec<{ text: string }>(`SELECT text FROM cb_run_error WHERE turn = ?`, id).toArray()[0]?.text
+const errorOf = (sql: SqlStorage, id: string, reason: string): string => {
+  const model = runError(sql, id)
+  return (model && !reason.includes(model) ? `${reason}: ${model}` : reason).slice(0, 2000)
+}
+
 /** Adds one model call's usage to its run. */
 export const addUsage = (sql: SqlStorage, turn: string, u: { input: number; output: number; cache_read: number; cache_write: number; cost_usd: number }): void =>
   void sql.exec(
@@ -141,7 +148,7 @@ export const readRun = (sql: SqlStorage, agent: string, id: string): Run | null 
     model: String(t.model),
     harness: "pi-durable",
     session: { kind: "pi", id, host: "cloud" },
-    ...(status === "failed" && t.reason !== null ? { error: String(t.reason).slice(0, 2000) } : {}),
+    ...(status === "failed" && t.reason !== null ? { error: errorOf(sql, id, String(t.reason)) } : {}),
     ...(t.post === null ? {} : { reply: { state: String(t.post), ...(t.posted_message === null ? {} : { message: String(t.posted_message) }) } }),
     ...(tm || Object.keys(marks).length > 0 ? { timing: { ...marks, ...(!tm || tm.request_at === null ? {} : { request_at: Number(tm.request_at) }), ...(!tm || tm.first_token_at === null ? {} : { first_token_at: Number(tm.first_token_at) }) } } : {}),
     ...(u ? { usage: { input: Number(u.input), output: Number(u.output), cache_read: Number(u.cache_read), cache_write: Number(u.cache_write), calls: Number(u.calls) }, cost_usd: Number(u.cost_usd) } : {})

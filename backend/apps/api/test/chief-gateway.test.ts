@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { runInDurableObject } from "cloudflare:test"
 import { fireAlarm } from "./setup/alarm.ts"
 import { gatewayBaseUrl, mintRunToken, revokeAgentSession } from "../src/model-gateway/run-token.ts"
+import { TURN_FAILED_NOTICE } from "../src/chief-brain/brain-gateway.ts"
 
 /**
  * The model gateway (model-gateway/gateway.ts) at the product boundary: a person writes to a Cloud
@@ -194,7 +195,10 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
       expect(run.model).toBe("claude-opus-5-5")
       expect(run.error).toContain("daily_cap")
       expect(seen).toHaveLength(0)
-      expect((await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)).toHaveLength(0)
+      // Not silent: one short notice from the Chief, no answer.
+      await drive(chief.main_conversation, chief.id, async () => (await history(token, chief.main_conversation)).some((m) => m.author === chief.id), "the failure notice")
+      const posted = (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)
+      expect(posted.map((m) => m.parts[0].text)).toEqual([TURN_FAILED_NOTICE])
     } finally {
       delete testEnv.CHIEF_BRAIN_CLAUDE_DAILY_TURNS
       testEnv.CHIEF_BRAIN_FALLBACK_MODEL = "claude-haiku-5-5"
@@ -260,6 +264,18 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
     await runState(chief.id, chief.main_conversation, "run_500", "done")
     expect((await call({ authorization: `Bearer ${token}` })).status).toBe(401)
     expect(seen).toHaveLength(4)
+  })
+
+  it("names the route's refusal in Run.error when a turn fails, and tells the person once", async () => {
+    const seen = fakeRoute()
+    const { token, chief } = await owner("brain-gateway-fail", 5, "claude-opus-5-5", "low", "user")
+    expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: "x1", parts: [{ type: "text", text: "FORCE_400 please" }] }, "x1")).ok).toBe(true)
+    await drive(chief.main_conversation, chief.id, async () => (await runsOf(token, chief.id, chief.main_conversation)).some((r: any) => r.status === "failed"), "the failed run")
+    const run = (await runsOf(token, chief.id, chief.main_conversation))[0]
+    expect(run.error).toContain("Extra inputs are not permitted")
+    await drive(chief.main_conversation, chief.id, async () => (await history(token, chief.main_conversation)).some((m) => m.author === chief.id), "the failure notice")
+    expect((await history(token, chief.main_conversation)).filter((m) => m.author === chief.id).map((m) => m.parts[0].text)).toEqual([TURN_FAILED_NOTICE])
+    expect(seen).toHaveLength(0)
   })
 
   it("keeps an agent token working while its agent session lives, past the Chief's turn, and stops it when the session ends", async () => {
