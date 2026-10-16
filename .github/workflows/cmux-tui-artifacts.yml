@@ -24,6 +24,9 @@ name: cmux-tui artifacts
 #   cmux-tui/tree/<tree-key>/cmux-tui-aarch64-apple-darwin  immutable, source-addressed
 #   cmux-tui/tree/<tree-key>/cmux-tui-aarch64-apple-darwin.sha256
 #   cmux-tui/tree/<tree-key>/source.json           the commit and run that built it
+#   cmux-tui/tree/<tree-key>/cmux-tui-acpmux-<musl or darwin target>(.sha256)
+#                                                  acpmux for GPUI, listed in completion.json
+#                                                  (trees published after hq-1f only)
 #   cmux-tui/tree/<tree-key>/cmux-tui-x86_64-pc-windows-gnu.exe(.sha256)  the
 #                                                  Windows daemon (unsigned) for GPUI;
 #                                                  completion-windows.json names its commit
@@ -2357,6 +2360,23 @@ jobs:
           PY
             source_args=(--source-file tree/source.json --publish-source)
           fi
+          # acpmux for Linux and macOS (hq-1f): each one the source commit's
+          # manifest attests, as that commit published it (cmux-tui/<commit>/,
+          # the bytes its manifest names). completion.json lists them, except
+          # in a republication of a tree whose completion.json exists: that
+          # file is write-once, so the helper lists its names again and a tree
+          # published before acpmux gets none.
+          for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-acpmux-companions); do
+            if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("binaries", {}).get(sys.argv[2]) is not None else 1)' manifest.json "$asset"; then
+              fetch "https://files.cmux.com/cmux-tui/$source_commit/$asset" "assets/tree/$asset"
+            else
+              echo "::warning title=tree without $asset::the manifest of $source_commit attests no $asset; tree $KEY is published without it"
+            fi
+          done
+          completion_args=()
+          if fetch "$base/completion.json" tree/existing-completion.json 2>/dev/null; then
+            completion_args=(--existing-completion-file tree/existing-completion.json)
+          fi
           # The Windows daemon has its own attestation (completion-windows.json)
           # and commit prefix (cmux-tui-windows/<commit>/): the build of the
           # commit an earlier publication of this tree named there; else the
@@ -2405,6 +2425,7 @@ jobs:
             --manifest-file manifest.json \
             "${source_args[@]}" \
             "${windows_args[@]}" \
+            "${completion_args[@]}" \
             --uploader scripts/ci/upload-r2-object.py \
             --endpoint-url "$R2_ENDPOINT" \
             --bucket cmux-binaries \
@@ -2451,6 +2472,13 @@ jobs:
           else
             echo "::warning title=tree without Windows::$base has no completion-windows.json"
           fi
+          # acpmux for Linux and macOS (hq-1f): each one completion.json lists.
+          curl -fsSL --proto '=https' -o completion.json "$base/completion.json?verify=$GITHUB_RUN_ID-check"
+          for name in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-acpmux-companions); do
+            if python3 -c 'import json,sys; sys.exit(0 if sys.argv[2] in json.load(open(sys.argv[1])).get("binaries", {}) else 1)' completion.json "$name"; then
+              names="$names $name"
+            fi
+          done
           for name in $names; do
             curl -fsSL --proto '=https' -o published "$base/$name?verify=$GITHUB_RUN_ID-check"
             published_sha="$(curl -fsSL --proto '=https' "$base/$name.sha256?verify=$GITHUB_RUN_ID-check" | awk 'NR==1{print $1}')"

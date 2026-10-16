@@ -4,7 +4,7 @@ import { ackWake, chiefPrincipal, typing } from "../chief-brain/brain-io.ts"
 import type { Admission } from "../chief-brain/brain-do.ts"
 import type { Step } from "../chief-brain/brain-runs.ts"
 import { HOLDER, signedFetch } from "../chief-brain/claude-auth.ts"
-import { claudeRoute, isMetered } from "../chief-brain/model-routes.ts"
+import { claudeRoute, isMetered } from "../model-gateway/routes.ts"
 import type { CpNote, CpRun, CpWake } from "./contract.ts"
 import { brainModel, hostCall, HostRefused, type Who } from "./host.ts"
 import { LiveRuns } from "./live-runs.ts"
@@ -401,7 +401,7 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     const holder = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(HOLDER))
     // The P brain's Claude route, from the same configuration (url, stack or bearer auth, models, cache TTL).
     const route = claudeRoute(this.env)
-    const f = signedFetch(() => holder.claudeAuth(), () => holder.claudeInvalidate(), { auth: route.auth, models: route.models, effortBody: route.effortBody, ...(this.env.CHIEF_BRAIN_CACHE_TTL ? { ttl: this.env.CHIEF_BRAIN_CACHE_TTL } : {}) })
+    const f = signedFetch(() => holder.claudeAuth(), () => holder.claudeInvalidate(), { auth: route.auth, models: route.models, effortBody: route.effortBody, ...(this.env.CHIEF_BRAIN_CLAUDE_SERVICE_KEY ? { key: this.env.CHIEF_BRAIN_CLAUDE_SERVICE_KEY } : {}), ...(this.env.CHIEF_BRAIN_CACHE_TTL ? { ttl: this.env.CHIEF_BRAIN_CACHE_TTL } : {}) })
     return f(`${route.url.replace(/\/+$/, "")}/v1/messages`, { method: "POST", headers: request.headers, body: await request.text() }).catch((e: unknown) => Response.json({ type: "error", error: { type: "api_error", message: e instanceof Error ? e.message : "gateway failed" } }, { status: 502 }))
   }
 

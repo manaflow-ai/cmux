@@ -166,8 +166,13 @@ def stop_acpmux():
     this run's (the home is this run's alone): SIGTERM, then SIGKILL."""
     env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "ACPMUX_HOME": ACPMUX_HOME,
            "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")}
+    # The run's agents end with the daemon: `--end-agents` (cx-qryd0). An acpmux
+    # from before that flag refuses it; its plain shutdown already ends agents.
+    acp = os.path.join(BINS, "acpmux")
     try:
-        subprocess.run([os.path.join(BINS, "acpmux"), "daemon", "shutdown", "--end-agents"], env=env, timeout=30, capture_output=True)
+        r = subprocess.run([acp, "daemon", "shutdown", "--end-agents"], env=env, timeout=30, capture_output=True, text=True)
+        if r.returncode != 0 and "end-agents" in (r.stdout + r.stderr):
+            subprocess.run([acp, "daemon", "shutdown"], env=env, timeout=30, capture_output=True)
     except (OSError, subprocess.TimeoutExpired):
         pass
     router = os.path.join(ACPMUX_HOME, "router", "router.sock")

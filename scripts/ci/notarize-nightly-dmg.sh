@@ -19,6 +19,7 @@ SMOKE_TOOL="${CMUX_SMOKE_TOOL:-$ROOT_DIR/scripts/smoke-launch-macos-app.sh}"
 VERIFY_METADATA_TOOL="${CMUX_VERIFY_METADATA_TOOL:-$ROOT_DIR/scripts/verify-app-bundle-channel-metadata.sh}"
 VERIFY_LICENSES_TOOL="${CMUX_VERIFY_LICENSES_TOOL:-$ROOT_DIR/scripts/verify-app-bundle-licenses.sh}"
 NOTARIZE_COMPUTER_USE_HELPER_TOOL="${CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL:-$ROOT_DIR/scripts/ci/notarize-computer-use-helper.sh}"
+SIGNING_KEYCHAIN_TOOL="${CMUX_SIGNING_KEYCHAIN_TOOL:-$ROOT_DIR/scripts/ci/signing-keychain.sh}"
 COMPUTER_USE_NOTARY_SUBMISSION_FILE="${CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE:-}"
 SKIP_NOTARIZATION="${CMUX_SKIP_NOTARIZATION:-false}"
 # Release channel of the app being packaged: `nightly` (default), `next`
@@ -154,11 +155,17 @@ if [ -z "$CONTINUE_STATE" ]; then
     exit 1
   fi
 
+  # The helper wait can pass the CI keychain's short idle lock.
+  "$SIGNING_KEYCHAIN_TOOL" unlock
   "$CODESIGN_TOOL" --force --timestamp --keychain build.keychain \
     --sign "$APPLE_SIGNING_IDENTITY" \
     "$DMG_RELEASE"
   "$CODESIGN_TOOL" --verify --verbose=2 "$DMG_RELEASE"
 fi
+# This is the last signature. Delete the CI signing keychain before Apple's
+# wait and before the launch smokes below run code from the bundle. A
+# continuation signs nothing; delete is a no-op when no keychain exists.
+"$SIGNING_KEYCHAIN_TOOL" delete
 
 if [ "$SKIP_NOTARIZATION" = true ]; then
   # Fast dogfood DMGs retain Developer ID signing but never enter Apple's
@@ -363,6 +370,8 @@ fi
 "$XCRUN_TOOL" stapler staple "$APP_PATH"
 "$XCRUN_TOOL" stapler validate "$APP_PATH"
 "$SPCTL_TOOL" -a -vv --type execute "$APP_PATH"
+# Apple is done with this artifact; the app below must not find the key.
+notary_auth_forget "$NOTARY_DIR"
 CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP_PATH"
 CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP_PATH"
 "$VERIFY_METADATA_TOOL" "$APP_PATH" "$CHANNEL"

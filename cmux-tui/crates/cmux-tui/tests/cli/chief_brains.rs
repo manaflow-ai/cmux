@@ -828,3 +828,57 @@ fn a_chief_made_before_the_brain_supervisor_runs_reports_its_brain_started() {
     wait_gone(pid, "the brain after daemon shutdown");
     let _ = fs::remove_dir_all(&files);
 }
+
+/// cx-di8pd: `cmux chief edit --name` renames the Chief's own conversation
+/// (its oldest DM with the person) in the owner, so every reader of the
+/// title (Home's header and list, the CLI, a page) follows the registry.
+/// A later conversation with the same Chief keeps the title its person gave
+/// it, and an edit of another field changes no title.
+#[test]
+fn a_chief_rename_retitles_its_own_conversation_only() {
+    let server = HeadlessServer::start("chief-rename-title");
+    let mut home = Conn::open(&server.socket);
+    let scout = make_chief(&server, "Scout", "Researcher");
+    let direct = dm(&mut home, "scout-dm", &scout, "Scout");
+    // A later conversation with only Scout and a title of its own (a channel).
+    std::thread::sleep(Duration::from_millis(5)); // distinct created_at for the oldest-first rule
+    let channel = dm(&mut home, "scout-notes", &scout, "Scout notes");
+    let title = |home: &mut Conn, id: &str| -> String {
+        let listed = home.request("conversation-list", json!({}));
+        listed["conversations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["id"] == json!(id))
+            .map(|c| c["title"].as_str().unwrap_or_default().to_owned())
+            .unwrap_or_else(|| panic!("{id} is not listed: {listed}"))
+    };
+
+    let renamed = chief_cli(&server, &["edit", &scout, "--name", "Scout Two", "--json"], "");
+    assert_success(&renamed);
+    assert_eq!(title(&mut home, &direct), "Scout Two");
+    assert_eq!(title(&mut home, &channel), "Scout notes");
+
+    let role = chief_cli(&server, &["edit", &scout, "--role", "Night watch", "--json"], "");
+    assert_success(&role);
+    assert_eq!(title(&mut home, &direct), "Scout Two");
+
+    let again = chief_cli(&server, &["edit", &scout, "--name", "Scout Three", "--json"], "");
+    assert_success(&again);
+    assert_eq!(title(&mut home, &direct), "Scout Three");
+    assert_eq!(title(&mut home, &channel), "Scout notes");
+
+    // A title the person gave the DM stays through an edit that sends the same name.
+    home.request(
+        "conversation-op",
+        json!({"conversation": direct, "idempotency_key": "my-title",
+               "op": {"kind": "title.set", "title": "My scout"}}),
+    );
+    let same = chief_cli(
+        &server,
+        &["edit", &scout, "--name", "Scout Three", "--role", "Day watch", "--json"],
+        "",
+    );
+    assert_success(&same);
+    assert_eq!(title(&mut home, &direct), "My scout");
+}

@@ -19,6 +19,8 @@ type Msg = { role: string; content: string | Array<Block>; output_config?: unkno
 export interface BedrockBodyOptions {
   /** Keep the body's `model` (a route that serves more than one model reads it). */
   readonly keepModel?: boolean
+  /** The route's id for the body's model name (service-key: the Bedrock model id). */
+  readonly modelId?: (name: string) => string
   /** Send the turn's effort (`output_config`) and `thinking.display`; else Bedrock's proven minimal body. */
   readonly effort?: boolean
   /** Prompt cache TTL for every cache mark (default "1h"; "5m" keeps Bedrock's default). */
@@ -44,6 +46,7 @@ export const bedrockBody = (raw: string, opts: BedrockBodyOptions = {}): string 
   try {
     const body = JSON.parse(raw) as Record<string, unknown>
     const out: Record<string, unknown> = { anthropic_version: BEDROCK_VERSION, ...Object.fromEntries(Object.entries(body).filter(([k]) => BODY_KEYS.has(k) || (opts.keepModel === true && k === "model"))) }
+    if (opts.keepModel === true && typeof out.model === "string" && opts.modelId) out.model = opts.modelId(out.model)
     const messages = Array.isArray(body.messages) ? (body.messages as Array<Msg>) : []
     const system: Array<Block> = typeof body.system === "string" ? [{ type: "text", text: body.system }] : Array.isArray(body.system) ? (body.system as Array<Block>) : []
     for (const m of messages.filter((x) => x.role === "system")) system.push(...(typeof m.content === "string" ? [{ type: "text", text: m.content }] : m.content.filter((b) => b.type === "text")))

@@ -93,6 +93,14 @@ enum RemoteStrings {
         String(format: String(localized: "remote.install.body", defaultValue: "Downloads cmux-tui %1$@ from files.cmux.com, checks its SHA-256 checksum and installs it at %2$@ on %3$@, without sudo. A cmux-tui running there restarts on the new build; its terminals keep running.", table: "Remote", bundle: .module), commit, path, destination)
     }
     static var install: String { String(localized: "remote.button.install", defaultValue: "Install", table: "Remote", bundle: .module) }
+    /// cx-3r9mt: an older cmux-tui on a machine that is not idle; the person starts the update.
+    static func updateTitle(_ name: String) -> String {
+        String(format: String(localized: "remote.update.title", defaultValue: "Update available on %@", table: "Remote", bundle: .module), name)
+    }
+    static func updateBody(commit: String, path: String, machine: String) -> String {
+        String(format: String(localized: "remote.update.body", defaultValue: "%1$@ runs an older cmux-tui. Agents or chats run there now, so cmux does not update it by itself. Update installs cmux-tui %2$@ at %3$@; terminals and agents keep running.", table: "Remote", bundle: .module), machine, commit, path)
+    }
+    static var update: String { String(localized: "remote.button.update", defaultValue: "Update", table: "Remote", bundle: .module) }
     /// The toast after Forget Machine (its Undo brings the machine back).
     static func forgotToast(_ name: String) -> String {
         String(format: String(localized: "remote.forgot.toast", defaultValue: "Forgot %@", table: "Remote", bundle: .module), name)

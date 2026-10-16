@@ -160,8 +160,15 @@ where
             exec::run(&argv, &path, opt_u(p, "timeout_ms")).await
         }
         "agent.start" => {
+            let model_route = p
+                .get("model_route")
+                .filter(|v| !v.is_null())
+                .map(super::gateway::parse)
+                .transpose()?;
             ctx.agents
                 .start(
+                    &ctx.cfg.api,
+                    model_route,
                     &ctx.cfg.agent_policy,
                     s(p, "harness")?,
                     path,
@@ -174,6 +181,9 @@ where
         }
         "agent.send" => {
             let session = s(p, "session")?;
+            if let Some(r) = p.get("model_route").filter(|v| !v.is_null()) {
+                ctx.agents.renew_route(session, &super::gateway::parse(r)?)?;
+            }
             let id = ctx.agents.prompt(session, s(p, "prompt")?)?;
             Ok(json!({ "session": session, "prompt_id": id }))
         }

@@ -46,9 +46,10 @@ nonisolated struct HomeLiveMapping {
     /// A run's talk rows with their text.
     static func talkRows(_ rows: ConversationRunRows) -> [HomeLiveRunSnapshot.Step] {
         rows.steps.compactMap { step in
-            // A cut row is not the step's text: the reply brings it.
-            guard step.kind == "talk", step.truncated != true, let text = step.text else { return nil }
-            return HomeLiveRunSnapshot.Step(step: step.id, isTalk: true, seq: 0, text: text)
+            // A cut row is not the step's text (the reply brings it): it gives only its place.
+            guard step.kind == "talk" else { return nil }
+            let text = step.truncated == true ? "" : step.text ?? ""
+            return HomeLiveRunSnapshot.Step(step: step.id, isTalk: true, seq: 0, text: text, place: step.seq)
         }
     }
 }

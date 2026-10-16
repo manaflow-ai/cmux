@@ -32,6 +32,7 @@ export { MuxDO } from "./mux-do.ts"
 export { ChiefBrainDO } from "./chief-brain/brain-do.ts"
 export { OpencodeBrainDO } from "./chief-brain-opencode/brain-do.ts"
 import { CHIEF_BRAIN_PATH, handleChiefBrain } from "./chief-brain/routes.ts"
+import { GATEWAY_PATH, handleModelGateway } from "./model-gateway/http.ts"
 import { handleBrainImpl, handleOpencodeHost, handleOpencodeRuns, OPENCODE_HOST_PATH, OPENCODE_IMPL_PATH, opencodeOn } from "./chief-brain-opencode/routes.ts"
 export { DomainDO } from "./domain-do.ts"
 export { PairingDO } from "./pairing-do.ts"
@@ -182,6 +183,8 @@ export default {
     if (mux && request.headers.get("Upgrade") === "websocket") return wire(request, env, spent, "mux", mux[1]!)
     // Chief hands (hand-routes.ts): the installer, pairing, the hand socket, and the person's hand management.
     if (HAND_PATH.test(url.pathname)) return handleHands(request, env, url.pathname)
+    // The model gateway over HTTP (model-gateway/http.ts): run tokens and chief tokens, Anthropic Messages in, events out.
+    if (GATEWAY_PATH.test(url.pathname)) return handleModelGateway(request, env)
     // A chief's Durable Object brain (chief-brain/routes.ts): its owner's settings, and runs for conversation members.
     const chiefBrain = url.pathname.match(CHIEF_BRAIN_PATH)
     // A Chief that runs the opencode brain (chief-brain-opencode/) keeps its runs there.
