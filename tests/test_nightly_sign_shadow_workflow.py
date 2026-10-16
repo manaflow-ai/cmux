@@ -7,7 +7,7 @@ nightly-sign.yml runs from main on every completed "Nightly macOS build" run
 - every job is gated `vars.NIGHTLY_SIGN == 'shadow' && (...)`, so with the
   variable unset (the default) or set to any other value no job runs;
 - a shadow job holds no environment and no secret, asks only for read
-  permissions, runs on the literal label ubuntu-24.04 (no keychain), checks
+  permissions, runs on literal Linux labels, no variable (no keychain), checks
   out only main (no `ref`, no `repository`), uses no action but checkout,
   has no container, services, defaults or shell override, and runs exactly
   one fixed command: main's admit tool. So no signing, notary or publish
@@ -45,6 +45,7 @@ ADMIT_COMMAND = (
     '--source-run-id "$SOURCE_RUN_ID" --source-run-attempt "$SOURCE_RUN_ATTEMPT" '
     '--out "$RUNNER_TEMP/nightly-sign-source"'
 )
+LINUX_RUNNER = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}"
 JOB_KEYS = {"name", "if", "runs-on", "timeout-minutes", "permissions", "steps"}
 STEP_KEYS = {"name", "id", "uses", "with", "env", "run"}
 WORKFLOW_KEYS = {"name", "on", True, "permissions", "env", "concurrency", "jobs"}
@@ -127,7 +128,7 @@ def check_workflow() -> None:
         check(isinstance(permissions, dict) and set(permissions) <= READ_PERMISSIONS
               and set(permissions.values()) == {"read"},
               f"{where}: permissions must be read-only actions/checks/contents (got {permissions!r})")
-        check(job.get("runs-on") == "ubuntu-24.04", f"{where}: a shadow job runs on the literal Linux label ubuntu-24.04")
+        check(job.get("runs-on") == LINUX_RUNNER, f"{where}: a shadow job runs on literal Linux labels ({LINUX_RUNNER})")
         for name in contexts(yaml.safe_dump(job)) | contexts("${{ " + gate + " }}"):
             check(bool(ALLOWED_CONTEXTS.match(name)), f"{where}: reads {name}, which a shadow job must not use")
         steps = job.get("steps") or []

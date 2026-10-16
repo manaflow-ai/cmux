@@ -48,8 +48,8 @@ jobs:
   admit:
     name: Admit source run (shadow)
     if: vars.NIGHTLY_SIGN == 'shadow' && (github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'))
-    # A literal Linux label: a variable must not move this job to another machine.
-    runs-on: ubuntu-24.04
+    # Literal Linux labels: a variable must not move this job to another machine.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     permissions:
       actions: read
