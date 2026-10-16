@@ -7,7 +7,7 @@ public struct CloudWorkspaceProjectionPlan {
     public let missing: [SurfaceResourcePlacement]
     public let obsolete: [SurfaceProjection]
 
-    public init(desired: [SurfaceResourcePlacement], existing: [SurfaceProjection]) {
+    public init(desired: [SurfaceResourcePlacement], existing: [SurfaceProjection], protectedPanelIDs: Set<UUID> = []) {
         let wanted = Set(desired)
         // Desired placements an existing pane already shows: exact daemon tabs,
         // a local preview's own workspace row and the display memberships it
@@ -35,6 +35,7 @@ public struct CloudWorkspaceProjectionPlan {
                 }
                 continue
             }
+            if protectedPanelIDs.contains(projection.panelID) { continue }
             if !wanted.contains(placement) || !seen.insert(placement).inserted { obsolete.append(projection) }
         }
         var missingSeen = Set<SurfaceResourcePlacement>()
