@@ -177,15 +177,19 @@ async fn a_chat_starts_on_a_file_secret_route_named_at_creation() {
         "ANTHROPIC_AUTH_TOKEN=zzruntoken.two"
     );
 
-    // A token file others can read is refused at spawn, and so is a symlink to one.
-    std::fs::set_permissions(&token, std::fs::Permissions::from_mode(0o644)).unwrap();
-    let open = local
-        .err(
-            "session/new",
-            json!({"cwd": root, "mcpServers": [], "_meta": {"acpmux": {"route": "gw-run"}}}),
-        )
-        .await;
-    assert!(open.to_string().contains("readable by others"), "{open}");
+    // A token file its group or others can read is refused at spawn, and so is any
+    // symlink (in or out of the folder); the refusal names the path, never the value.
+    for mode in [0o640, 0o604, 0o644] {
+        std::fs::set_permissions(&token, std::fs::Permissions::from_mode(mode)).unwrap();
+        let open = local
+            .err(
+                "session/new",
+                json!({"cwd": root, "mcpServers": [], "_meta": {"acpmux": {"route": "gw-run"}}}),
+            )
+            .await;
+        assert!(open.to_string().contains("readable by others"), "mode {mode:o}: {open}");
+        assert!(!open.to_string().contains("zzruntoken"), "mode {mode:o}: {open}");
+    }
     std::fs::set_permissions(&token, std::fs::Permissions::from_mode(0o600)).unwrap();
     let link = root.join("link.token");
     std::os::unix::fs::symlink(&token, &link).unwrap();
@@ -199,6 +203,7 @@ async fn a_chat_starts_on_a_file_secret_route_named_at_creation() {
         )
         .await;
     assert!(linked.to_string().contains("not a regular file"), "{linked}");
+    assert!(!linked.to_string().contains("zzruntoken"), "{linked}");
 
     // A route that does not exist, or a bad id, starts no chat.
     let missing = local

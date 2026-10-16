@@ -181,6 +181,9 @@ where
         }
         "agent.send" => {
             let session = s(p, "session")?;
+            if let Some(r) = p.get("model_route").filter(|v| !v.is_null()) {
+                ctx.agents.renew_route(session, &super::gateway::parse(r)?)?;
+            }
             let id = ctx.agents.prompt(session, s(p, "prompt")?)?;
             Ok(json!({ "session": session, "prompt_id": id }))
         }

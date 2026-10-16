@@ -595,10 +595,21 @@ pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, Route
         .map(|d| d.as_millis())
         .unwrap_or(0);
     let name = format!("{id}.{stamp}.toml");
-    std::fs::rename(&route.path, backups.join(&name))
-        .map_err(|e| RouteError::Failed(e.to_string()))?;
+    if id.starts_with(ONE_RUN_PREFIX) {
+        // A one-run route (cmux-hand's gateway route) leaves no backup: it
+        // names only a token file that is removed with it.
+        std::fs::remove_file(&route.path).map_err(|e| RouteError::Failed(e.to_string()))?;
+    } else {
+        std::fs::rename(&route.path, backups.join(&name))
+            .map_err(|e| RouteError::Failed(e.to_string()))?;
+    }
+    // Chats bound to it fall back to their inherited route.
+    update_bindings(home, |b| b.chats.retain(|_, r| r != id))?;
     Ok(name)
 }
+
+/// Route ids a hand makes for one agent run (crates/acpmux/src/hand/gateway.rs).
+pub const ONE_RUN_PREFIX: &str = "cmux-gateway-";
 
 pub fn restore(dir: Option<&Path>, home: &Path, backup: &str) -> Result<Route, RouteError> {
     if backup.contains('/') || backup.contains("..") || !backup.ends_with(".toml") {

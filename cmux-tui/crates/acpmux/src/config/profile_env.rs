@@ -21,7 +21,23 @@ pub fn file_secret(path: &str) -> Result<String, String> {
     if !p.is_absolute() {
         return Err(format!("{path}: a file reference needs an absolute path"));
     }
-    let meta = std::fs::symlink_metadata(p).map_err(|e| format!("{path}: {e}"))?;
+    // One open, no symlink at the last component, and every check on that
+    // same descriptor: a file swapped after a check is never the one read.
+    let mut opts = std::fs::OpenOptions::new();
+    opts.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
+    }
+    let file = opts.open(p).map_err(|e| {
+        if e.raw_os_error() == Some(libc::ELOOP) {
+            format!("{path}: not a regular file (a symlink)")
+        } else {
+            format!("{path}: {e}")
+        }
+    })?;
+    let meta = file.metadata().map_err(|e| format!("{path}: {e}"))?;
     if !meta.file_type().is_file() {
         return Err(format!("{path}: not a regular file"));
     }
@@ -39,7 +55,9 @@ pub fn file_secret(path: &str) -> Result<String, String> {
     if meta.len() > FILE_SECRET_MAX {
         return Err(format!("{path}: larger than {FILE_SECRET_MAX} bytes"));
     }
-    let text = std::fs::read_to_string(p).map_err(|e| format!("{path}: {e}"))?;
+    let mut text = String::new();
+    use std::io::Read;
+    file.take(FILE_SECRET_MAX + 1).read_to_string(&mut text).map_err(|e| format!("{path}: {e}"))?;
     let text = text.strip_suffix('\n').unwrap_or(&text);
     let text = text.strip_suffix('\r').unwrap_or(text);
     if text.is_empty() || text.contains(['\n', '\r']) {

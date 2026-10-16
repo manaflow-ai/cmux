@@ -140,15 +140,18 @@ impl Hub {
         let _claim = pooled.as_ref().map(|id| self.pool_claim_guard(id.clone()));
         let id = pooled.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         meta.id = id.clone();
-        // The chat's route is bound before its harness starts, so its first
-        // spawn already runs on it (route_switch.rs reads the binding).
+        // A named route is checked before anything is created: it exists and
+        // serves this chat's harness family.
         if let Some(route_id) = &route {
-            let (dir, state) = crate::routes::places(&*self.config.read().await);
-            crate::routes::find(dir.as_deref(), route_id).map_err(|e| {
+            let (dir, _) = crate::routes::places(&*self.config.read().await);
+            let found = crate::routes::find(dir.as_deref(), route_id).map_err(|e| {
                 RpcError::invalid_params(format!("route {route_id}: {}", e.message()))
             })?;
-            crate::routes::set_binding(&state, &format!("chat:{id}"), Some(route_id))
-                .map_err(|e| RpcError::invalid_params(e.message().to_owned()))?;
+            if !found.serves(&family) {
+                return Err(RpcError::invalid_params(format!(
+                    "route {route_id} does not serve the {family} harness"
+                )));
+            }
         }
         // Pick or check the name and insert under one lock, so concurrent
         // creations can never publish the same name twice.
@@ -193,6 +196,17 @@ impl Hub {
         if let Err(e) = self.store.save(&session.meta()) {
             self.sessions.lock().unwrap().remove(&id);
             return Err(RpcError::internal(e.to_string()));
+        }
+        // The chat's route is bound once the session exists and before its
+        // harness starts, so its first spawn already runs on it (route_switch.rs).
+        if let Some(route_id) = &route {
+            let (_, state) = crate::routes::places(&*self.config.read().await);
+            if let Err(e) =
+                crate::routes::set_binding(&state, &format!("chat:{id}"), Some(route_id))
+            {
+                self.sessions.lock().unwrap().remove(&id);
+                return Err(RpcError::invalid_params(e.message().to_owned()));
+            }
         }
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
         if let Some(a) = &adopt {

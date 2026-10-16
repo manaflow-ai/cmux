@@ -21,7 +21,8 @@ const MAX_TOKEN: usize = 4096;
 #[derive(Debug, Clone)]
 pub struct ModelRoute {
     pub token: String,
-    /// Unix seconds; a token past it is refused before anything is written.
+    /// Unix seconds (milliseconds are taken too); a token past it is refused
+    /// before anything is written.
     pub expires_at: u64,
 }
 
@@ -55,12 +56,76 @@ pub fn parse(v: &Value) -> Result<ModelRoute, HandError> {
     Ok(ModelRoute { token: token.to_owned(), expires_at })
 }
 
+fn dir() -> PathBuf {
+    super::config::home().join("gateway")
+}
+
 fn token_path(id: &str) -> PathBuf {
-    super::config::home().join("gateway").join(format!("{id}.token"))
+    dir().join(format!("{id}.token"))
+}
+
+/// When the run's token expires (unix seconds), kept beside it for the sweep.
+fn expiry_path(id: &str) -> PathBuf {
+    dir().join(format!("{id}.expires"))
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Removes every one-run route whose token expired (a minute of slack), its
+/// token and its chat bindings, over a new daemon connection. Runs when the
+/// hand starts and before each new route, so nothing outlives its token.
+pub async fn sweep() {
+    let Ok(rd) = std::fs::read_dir(dir()) else { return };
+    let now = now_secs();
+    let mut stale = Vec::new();
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let Some(id) = name.strip_suffix(".expires") else { continue };
+        let at = std::fs::read_to_string(e.path())
+            .ok()
+            .and_then(|t| t.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        if at + 60 < now && id.starts_with(crate::routes::ONE_RUN_PREFIX) {
+            stale.push(id.to_owned());
+        }
+    }
+    if stale.is_empty() {
+        return;
+    }
+    let Ok(client) = crate::daemon::connect(false).await else {
+        // No daemon: no session can use them; the files go, the route files stay until next time.
+        for id in &stale {
+            let _ = std::fs::remove_file(token_path(id));
+        }
+        return;
+    };
+    for id in stale {
+        remove(&client, &id).await;
+    }
+}
+
+/// A new token for a run's route (a long chat outlives one token): the route
+/// reads the file at each spawn, so the next harness start uses it.
+pub fn renew(id: &str, route: &ModelRoute) -> Result<(), HandError> {
+    let path = token_path(id);
+    if !path.exists() {
+        return Err(HandError::new("agent.bad_route", format!("{id} has no token to renew")));
+    }
+    super::config::write_private(&path, route.token.as_bytes())
+        .and_then(|()| {
+            super::config::write_private(&expiry_path(id), route.expires_at.to_string().as_bytes())
+        })
+        .map_err(|e| HandError::new("agent.bad_route", format!("{e:#}")))
 }
 
 /// Writes the token file and the run's route; returns the route id.
 pub async fn prepare(client: &Client, api: &str, route: &ModelRoute) -> Result<String, HandError> {
+    sweep().await;
     let api = super::pair::check_api(api)
         .map_err(|e| HandError::new("agent.bad_route", e.to_string()))?;
     let id = format!("cmux-gateway-{}", &uuid::Uuid::now_v7().simple().to_string()[20..]);
@@ -73,6 +138,9 @@ pub async fn prepare(client: &Client, api: &str, route: &ModelRoute) -> Result<S
         let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
     }
     super::config::write_private(&path, route.token.as_bytes())
+        .and_then(|()| {
+            super::config::write_private(&expiry_path(&id), route.expires_at.to_string().as_bytes())
+        })
         .map_err(|e| HandError::new("agent.bad_route", format!("{e:#}")))?;
     let added = client
         .request(
@@ -91,13 +159,26 @@ pub async fn prepare(client: &Client, api: &str, route: &ModelRoute) -> Result<S
         .await;
     if let Err(e) = added {
         let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(expiry_path(&id));
         return Err(HandError::new("agent.route_failed", format!("{e:#}")));
     }
     Ok(id)
 }
 
-/// Removes the run's route and its token file (best effort: the token expires anyway).
+/// Removes the run's route (and its chat bindings) and its token file.
 pub async fn remove(client: &Client, id: &str) {
     let _ = std::fs::remove_file(token_path(id));
+    let _ = std::fs::remove_file(expiry_path(id));
     let _ = client.request(method::MUX_ROUTE_REMOVE, json!({ "id": id })).await;
+}
+
+/// [`remove`] over a new daemon connection (the session's own may be gone).
+pub async fn remove_fresh(id: &str) {
+    match crate::daemon::connect(false).await {
+        Ok(client) => remove(&client, id).await,
+        Err(_) => {
+            let _ = std::fs::remove_file(token_path(id));
+            let _ = std::fs::remove_file(expiry_path(id));
+        }
+    }
 }

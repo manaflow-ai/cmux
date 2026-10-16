@@ -33,7 +33,12 @@ export const handsLayer = (env: Env, caller: HandCaller) =>
       pairCode: (name, profile) => rpc(() => mintPairCode(env, caller, name, apiOrigin(env), profile)),
       runToken: (run) =>
         Effect.tryPromise({
-          try: () => mintRunToken(env, { team: payerTeam(caller.user), chief: caller.agent ?? "", owner: caller.user, run }),
+          // The hand reads seconds.
+          try: async () => {
+            if (!caller.agent) throw new Error("a run token is for a Chief's run")
+            const t = await mintRunToken(env, { team: payerTeam(caller.user), chief: caller.agent, owner: caller.user, run })
+            return { token: t.token, expires_at: Math.floor(t.expires_at / 1000) }
+          },
           catch: (e) => new HandsError("hand.gateway_unavailable", e instanceof Error ? e.message : String(e))
         }),
       newSandbox: (name) => rpc(() => createSandbox(env, caller, name, apiOrigin(env))),
@@ -198,7 +203,9 @@ export const agentProgram = (a: AgentArgsT, report: HandsReporter, callId: strin
     // Follow from where the session is now, so an earlier turn's end is not read again.
     const head = a.after_seq ?? (yield* hands.events(hand, session, 0, 0)).head_seq
     if (a.action === "send") {
-      const sent = yield* hands.call(hand, "agent.send", { session, prompt: yield* need(a.prompt, "prompt") })
+      // A claude chat on the gateway gets a fresh run token per prompt (the hand renews its route; others ignore it).
+      const model_route = a.harness === "claude" ? { kind: "anthropic", ...(yield* hands.runToken(`${callId}`.replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 128))) } : undefined
+      const sent = yield* hands.call(hand, "agent.send", { session, prompt: yield* need(a.prompt, "prompt"), model_route })
       if (budget === 0) return sent
       return yield* followTurn(hand, handName, harness, session, head, budget, report, callId)
     }
