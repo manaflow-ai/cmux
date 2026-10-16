@@ -27,7 +27,7 @@ const cwd = "/Users/dev/project/agent-chat";
 const noLoadingProviders = new Set<string>();
 const codexModelsLoading = new Set(["codex"]);
 const fixtureSha = (digit: string) => digit.repeat(64);
-const humanMandateRef = "user-request: orchestration-lab-gallery-prototype";
+const humanMandateRef = "user-request:orchestration-lab-gallery-prototype";
 
 type OrchestrationStrategy = {
   id: string;
