@@ -29,12 +29,11 @@ const http = async (method: string, path: string, token: string, body?: unknown)
 const op = async (token: string, name: string, params: unknown, key: string = crypto.randomUUID()) => (await http("POST", "/v1/ops", token, { op: name, params, idempotency_key: key, origin: "user" })).json
 const history = async (token: string, conversation: string) => (await http("POST", "/v1/read", token, { op: "conversation.history", params: { conversation, limit: 50 } })).json.value.messages as Array<any>
 
-// Every call of the opencode brain's wake, by Chief; each call is slow, like a cold object far away.
+// Every call of the opencode brain's wake, by Chief.
 const woken: Array<string> = []
 const realWake = OpencodeBrainDO.prototype.wake
 OpencodeBrainDO.prototype.wake = async function (this: OpencodeBrainDO, w) {
   woken.push(w.agent)
-  await new Promise((r) => setTimeout(r, 1_500))
   return realWake.call(this, w)
 }
 afterAll(() => void (OpencodeBrainDO.prototype.wake = realWake))
@@ -52,13 +51,12 @@ const ownerWithChief = async (sub: string) => {
   return { token, chief }
 }
 
-/** Sends one DM and waits (bounded) for the Chief's n-th reply; returns ms from send to that reply. */
+/** Sends one DM and waits (bounded) for the Chief's n-th reply. */
 const dmAndReply = async (token: string, chief: { id: string; main_conversation: string }, text: string, n: number) => {
-  const t0 = Date.now()
   expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: text, parts: [{ type: "text", text }] }, text)).ok).toBe(true)
   const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(chief.main_conversation))
   for (let i = 0; i < 200; i++) {
-    if ((await history(token, chief.main_conversation)).filter((m) => m.author === chief.id).length >= n) return Date.now() - t0
+    if ((await history(token, chief.main_conversation)).filter((m) => m.author === chief.id).length >= n) return
     await fireAlarm(conv)
     await new Promise((r) => setTimeout(r, 50))
   }
@@ -78,6 +76,7 @@ describe("Chief wake routing by brain_impl", { timeout: 120_000 }, () => {
     // so the pi brain answers.
     const set = await http("PUT", `/v1/chiefs/${chief.id}/brain-impl`, token, { impl: "opencode" })
     expect(set.status, JSON.stringify(set.json)).toBe(200)
+    expect((await http("GET", `/v1/chiefs/${chief.id}/brain-impl`, token)).json.value).toEqual({ impl: "opencode" })
     await dmAndReply(token, chief, "o one", 3)
     expect(woken.filter((a) => a === chief.id)).toHaveLength(1)
 

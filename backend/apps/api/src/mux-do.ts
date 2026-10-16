@@ -25,17 +25,28 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
     return head && head.agent === agent ? (head.owner_user ?? null) : null
   }
 
-  /** RPC (PUT /v1/chiefs/<agent>/brain-impl, after the opencode brain took the setting): the brain this Chief's wakes go to. */
+  /**
+   * The Chief's brain implementation, the one source of truth for routing (wakes here, the runs read and
+   * GET/PUT /v1/chiefs/<agent>/brain-impl in the Worker). PUT writes it here first, then tells the opencode
+   * brain; a failure between the two is safe both ways (an opencode wake the brain still calls pi answers
+   * `impl_pi` and falls back to P; a pi Chief never reaches the opencode brain). RPC, owner-checked by the route.
+   */
   async setBrainImpl(impl: "pi" | "opencode"): Promise<void> {
     this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS mux_brain_impl (k INTEGER PRIMARY KEY CHECK (k = 1), impl TEXT NOT NULL)`)
     this.ctx.storage.sql.exec(`INSERT INTO mux_brain_impl (k, impl) VALUES (1, ?) ON CONFLICT (k) DO UPDATE SET impl = excluded.impl`, impl)
+    this.impl = impl
   }
+  async brainImplOf(): Promise<string> {
+    return this.brainImpl()
+  }
+  private impl: string | undefined
 
-  /** The cached brain_impl ("pi" when never set); a synchronous local read on the wake path. */
+  /** The brain_impl ("pi" when never set): local, read once per object life. */
   private brainImpl(): string {
+    if (this.impl !== undefined) return this.impl
     const sql = this.ctx.storage.sql
-    if (sql.exec(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'mux_brain_impl'`).toArray().length === 0) return "pi"
-    return sql.exec<{ impl: string }>(`SELECT impl FROM mux_brain_impl WHERE k = 1`).toArray()[0]?.impl ?? "pi"
+    this.impl = sql.exec(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'mux_brain_impl'`).toArray().length === 0 ? "pi" : (sql.exec<{ impl: string }>(`SELECT impl FROM mux_brain_impl WHERE k = 1`).toArray()[0]?.impl ?? "pi")
+    return this.impl
   }
 
   /** The chief itself (agent token) or its owner. */
