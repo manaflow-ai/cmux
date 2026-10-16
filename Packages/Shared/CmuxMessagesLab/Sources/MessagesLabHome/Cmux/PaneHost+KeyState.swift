@@ -16,7 +16,9 @@ extension ChatController {
     func followKeyState() {
         keyObservers.forEach { NotificationCenter.default.removeObserver($0) }
         keyObservers = []
-        guard let window, let demo, !Self.noFocus else { return }
+        guard let window, let demo else { return }
+        // Test modes (noFocus): the state the arguments name, no key observers.
+        if Self.noFocus { demo.setInactive(!Self.args.contains("--active")); return }
         let follows = followsKeyWindow
         demo.setInactive(Self.viewInactive(followsKeyWindow: follows, windowIsKey: window.isKeyWindow))
         guard follows else { return }

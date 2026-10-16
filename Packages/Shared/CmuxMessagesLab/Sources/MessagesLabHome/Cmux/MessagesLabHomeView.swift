@@ -12,6 +12,8 @@ public final class MessagesLabHomeView: NSView {
     let controller: ChatController
     let projection: HomeProjection
     private var warmed = false
+    /// The palette generation this view's rows were last refreshed for (applyTheme).
+    private var appliedPalette = -1
 
     /// - Parameters:
     ///   - store: the app's HomeStore (one per daemon session; the view never creates one).
@@ -158,17 +160,14 @@ public final class MessagesLabHomeView: NSView {
         }
         // Link cards follow a light theme (MessagesLab 02519e9: Messages' light card, #E9E9EB).
         if let demo = controller.demo { demo.setLightAppearance(theme.active.isLight) } else { Fixture.lightAppearance = theme.active.isLight }
-        guard Fixture.theme != theme else { return }
-        Fixture.theme = theme
-        RowBitmaps.shared.removeAll()
-        if let demo = controller.demo {
-            // The theme's rows draw again in this view (the bitmaps were dropped, the palette generation moved).
-            demo.chrome.setNeedsDisplay()
-            demo.refreshVisibleCells()
-            demo.backgroundColor = Fixture.background
-            // The placeholder, waveform and chips are drawn once with the palette.
-            demo.compose.rescale()
-        }
+        if Fixture.theme != theme { Fixture.theme = theme; RowBitmaps.shared.removeAll() }
+        // This view draws again whenever its rows were made with another palette: also a second Home window,
+        // which finds the process-wide theme already set (its own applied generation, not the theme compare).
+        guard let demo = controller.demo, appliedPalette != Fixture.paletteGeneration else { return }
+        appliedPalette = Fixture.paletteGeneration
+        demo.chrome.setNeedsDisplay(); demo.refreshVisibleCells()
+        demo.backgroundColor = Fixture.background
+        demo.compose.rescale()  // the placeholder, waveform and chips are drawn once with the palette
     }
 
     /// cmux: a click on a cmux app link in agent text (`URL.isCmuxAppLink`); the host

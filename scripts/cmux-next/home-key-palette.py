@@ -19,6 +19,7 @@ appActive) and the incoming balloon fill in each window's snapshot:
   4. A key again: A active, B inactive (before cx-95476 B stayed on the key palette); same fills.
   5. the app inactive (Finder takes the activation): A and B inactive; the fills do not change (before: dimmed).
   6. A key, then A moved to a 1x virtual display and back: A's state and fill do not change.
+  7. a send in A; while its Chief types: A key, then B key: A's typing fill follows A's own state (exact compare).
 
 The app runs with `--follow-key-state` (MessagesLab's parity behavior). Without it Home keeps the key look in every
 window (trunk 283047940d8, Lawrence 2026-10-18; HomeUnfocusedAppearanceTests), so these steps test the parity switch.
@@ -82,15 +83,16 @@ def state(window):
     `fixtureInactive`, which is what that view drew with), the rows it drew with another state, its window's key state
     and the app's activity."""
     g = (rpc("debug.home.drive", {"action": "geometry", "window": window}) or {}).get("geometry") or {}
-    out = {k: g.get(k) for k in ("viewInactive", "cellsOffInactive", "appActive", "windowKey")}
+    out = {k: g.get(k) for k in ("viewInactive", "cellsOffInactive", "typingOffInactive", "appActive", "windowKey")}
     if out["viewInactive"] is None:
         out["viewInactive"], out["legacy"] = g.get("fixtureInactive"), True
     return out
 
 
 def own(s, inactive):
-    """The view's own state is `inactive` and every visible row drew with it (a build before cx-95476 has no row read)."""
-    return s.get("viewInactive") == inactive and (s.get("legacy") or s.get("cellsOffInactive") == 0)
+    """The view's own state is `inactive` and every visible row drew with it, a typing row's fill exactly (a build before
+    cx-95476 has no row read)."""
+    return s.get("viewInactive") == inactive and (s.get("legacy") or (s.get("cellsOffInactive") == 0 and s.get("typingOffInactive") == 0))
 
 
 def window_ids():
@@ -123,6 +125,27 @@ def fill(window, name):
 def same(*fills):
     """Equal fills, within 2 levels per channel (the outgoing gradient's dither moves a sampled grey by 1)."""
     return all(f is not None for f in fills) and all(max(abs(a[i] - b[i]) for i in range(3)) <= 2 for a in fills for b in fills)
+
+
+def typing_fill(window, name):
+    """The typing bubble's fill in `window`'s snapshot, exactly: the most common colour of the band above its dots
+    (its box from debug.home.drive typing, window points, bottom-left origin)."""
+    box = rpc("debug.home.drive", {"action": "typing", "window": window}) or {}
+    path = os.path.join(opts.out, f"{name}.png")
+    rpc("debug.window_snapshot", {"path": path, "window": window})
+    if not box.get("ok") or not os.path.exists(path):
+        return None, box
+    return path, box
+
+
+def band_colour(path, box):
+    w, h, (rows, bpp) = read_png(path)
+    s = w / box["windowWidth"]
+    x0, x1 = (box["x"] + box["width"] * 0.25) * s, (box["x"] + box["width"] * 0.75) * s
+    top = (box["windowHeight"] - box["y"] - box["height"]) * s
+    y0, y1 = top + box["height"] * 0.10 * s, top + box["height"] * 0.24 * s
+    counts = Counter(tuple(rows[y][x * bpp:x * bpp + 3]) for y in range(int(y0), int(y1) + 1) for x in range(int(x0), int(x1) + 1))
+    return counts.most_common(1)[0][0] if counts else None
 
 
 def wait_settled():
@@ -239,6 +262,30 @@ try:
         print(f"     6 A back on the 2x display: {s8} A fill {fa8}", flush=True)
         check("6: after the move back: the same state and the same fill",
               own(s8, 0) and same(fa8, fa6, key_fill), {"before": [s6, fa6], "after": [s8, fa8]})
+
+    # 7: the typing indicator per window state, exactly (key and non-key fills differ by one level: no tolerance).
+    # The mock Chief of A's fixture types from 1.5 s to 3.0 s after a send; both snapshots fall inside that window.
+    rpc("debug.window.focus", {"window": a})
+    wait_settled()
+    rpc("debug.home.drive", {"action": "focus", "window": a})
+    rpc("debug.home.drive", {"action": "type", "text": "Key state typing check", "window": a})
+    sent = rpc("debug.home.drive", {"action": "send", "window": a}) or {}
+    check("7: a send in A", bool(sent.get("ok")), sent)
+    time.sleep(1.7)  # test harness: inside the mock Chief's typing window
+    t_key, box_key = typing_fill(a, "7-a-typing-key")
+    s7k = state(a)
+    rpc("debug.window.focus", {"window": b})
+    time.sleep(0.3)  # test harness: the key change's redraw lands
+    t_off, box_off = typing_fill(a, "7-a-typing-behind-b")
+    s7o = state(a)
+    check("7: A shows a typing row in both states", bool(t_key and t_off), [box_key, box_off])
+    check("7: A key: A active, its typing row drawn with it", own(s7k, 0), s7k)
+    check("7: B key: A inactive, its typing row drawn with it", own(s7o, 1), s7o)
+    if t_key and t_off:
+        ck, co = band_colour(t_key, box_key), band_colour(t_off, box_off)
+        print(f"     7 A typing fill key {ck} behind B {co}", flush=True)
+        check("7: the typing fill differs between the states (exact compare)", ck is not None and co is not None and ck != co,
+              {"key": ck, "inactive": co})
 finally:
     reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
     if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):

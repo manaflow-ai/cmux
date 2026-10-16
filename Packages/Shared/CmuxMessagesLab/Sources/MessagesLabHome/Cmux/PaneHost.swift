@@ -509,8 +509,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         observers = []
         // The flight recorder follows the pane's window (before the window view exists, too).
         FlightRecorder.shared.attach(self)
-        guard let window, let demo else { followKeyState(); return }  // drops the old window's key observers
-        if Self.noFocus { demo.setInactive(!Self.args.contains("--active")) } else { followKeyState() }
+        followKeyState()  // its own window's key state; drops the old window's key observers
+        guard let window, demo != nil else { return }
         observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in self?.followDisplay() })
         followDisplay()
     }
