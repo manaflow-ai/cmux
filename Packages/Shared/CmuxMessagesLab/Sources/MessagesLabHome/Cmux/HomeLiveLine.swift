@@ -42,11 +42,22 @@ final class HomeLiveLine {
     func hide(after controller: ChatController) {
         guard activity != nil, !hiding else { return }
         hiding = true
-        controller.nextFrame { [weak self] in
+        controller.nextFrame { [weak self, weak controller] in
             guard let self, self.hiding else { return }
             self.hiding = false
             self.show(nil)
+            self.closed(fires: controller?.frameTick.fires)
         }
+    }
+
+    /// Automation (DEBUG socket): the display frame the reply's hand-off (`.streamEnd(_, replacedBy:)`) was
+    /// dispatched in, and the display frames from it to the line's close (nil: no line closed after a hand-off).
+    var handOffFire: Int?
+    private(set) var closeAfterHandOffFires: Int?
+
+    private func closed(fires: Int?) {
+        closeAfterHandOffFires = if let fires, let handOffFire { fires - handOffFire } else { nil }
+        handOffFire = nil
     }
 
     /// The transcript's store was made again (install): it shows the line again.
@@ -94,4 +105,17 @@ extension MessagesLabHomeView {
     public var debugRebuilds: Int { projection.rebuilds }
     /// Automation (DEBUG socket): the streaming bubbles' texts (ask 11), oldest first.
     public var debugStreamTexts: [String] { controller.store?.state.ui.streams.filter { !$0.parts.isEmpty }.map(\.text) ?? [] }
+    /// Automation (DEBUG socket): display frames from the reply's hand-off to the activity line's close.
+    public var debugLineCloseAfterHandOffFires: Int? { projection.liveLine.closeAfterHandOffFires }
+}
+
+extension HomeProjection {
+    /// Dispatches the running reply's stream actions; the hand-off (`.streamEnd(_, replacedBy: message)`)
+    /// notes its display frame for automation (cx-06vn1).
+    func dispatchStreamed(_ actions: [Action]) {
+        for action in actions {
+            if case .streamEnd(_, _?) = action { liveLine.handOffFire = controller.frameTick.fires }
+            controller.dispatch(action)
+        }
+    }
 }

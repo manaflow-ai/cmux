@@ -190,11 +190,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
             // where its posted reply is among them (`.streamEnd(replacedBy:)`, in transcript order).
             let cut = diff.handOffAt ?? diff.actions.count
             for (i, a) in diff.actions.enumerated() {
-                if i == cut { for s in streamed { controller.dispatch(s) } }
+                if i == cut { dispatchStreamed(streamed) }
                 if case .prependPage = a { olderRequested = false }
                 controller.dispatchTimingTapback(a) // my tapback chosen in the menu: from its input (MessagesLab 7518134)
             }
-            if cut >= diff.actions.count { for s in streamed { controller.dispatch(s) } }
+            if cut >= diff.actions.count { dispatchStreamed(streamed) }
             if diff.rebuild { rebuild() }
             for a in core.typing(store.state, wanted: typing) { controller.dispatch(a) }
         }
