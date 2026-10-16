@@ -253,29 +253,7 @@ final class RemoteTmuxViewConnection {
         observerToken = conn.addObserver(
             onTopologyChanged: { [weak self] in self?.scheduleReconcile() },
             onExit: { [weak self] in self?.handleEnded() },
-            onConnectionStateChanged: { [weak self] state in
-                guard let self, !self.isStopped else { return }
-                if state == .connected {
-                    self.onAuthenticated?()
-                    self.scheduleReconcile()
-                } else {
-                    // The stream dropped. A bootstrap `new-session` that was buffered
-                    // but lost before the write flushed (the close-before-flush race)
-                    // never reached tmux, so re-arm the one-shot to retry on reconnect.
-                    // The sticky `didEverSurfaceWorkspace` still prevents recreating a
-                    // session the user closed (it only flips true once a real workspace
-                    // surfaced), so this can't resurrect closed work.
-                    self.didBootstrapEmptyHost = false
-                    // Re-run the view bringup on the next connect. The view we stamped may
-                    // not be the view we come back to: it can be killed during the outage
-                    // and recreated by the re-attach, and an unstamped view classifies as
-                    // not ours.
-                    self.didBootstrapView = false
-                    // A fresh connect gets a fresh budget; the old stream's refusals say nothing
-                    // about whether this one will take the writes.
-                    self.bringupRetries = 0
-                }
-            },
+            onConnectionStateChanged: { [weak self] state in self?.streamStateChanged(state) },
             onAuthRequired: { [weak self] sshArgv in
                 guard let self, !self.isStopped else { return false }
                 // The stream is parked for interactive credentials. Publish the verdict now, not
@@ -290,6 +268,29 @@ final class RemoteTmuxViewConnection {
         try conn.start()
         conn.setClientSize(columns: initialCols, rows: initialRows)
         connection = conn
+    }
+
+    /// The view stream connected or dropped.
+    func streamStateChanged(_ state: RemoteTmuxConnectionState) {
+        guard !isStopped else { return }
+        if state == .connected {
+            onAuthenticated?()
+            scheduleReconcile()
+            return
+        }
+        // The stream dropped. A bootstrap `new-session` that was buffered but lost before the
+        // write flushed (the close-before-flush race) never reached tmux, so re-arm the one-shot
+        // to retry on reconnect. The sticky `didEverSurfaceWorkspace` still prevents recreating
+        // a session the user closed (it only flips true once a real workspace surfaced), so this
+        // can't resurrect closed work.
+        didBootstrapEmptyHost = false
+        // Re-run the view bringup on the next connect. The view we stamped may not be the view
+        // we come back to: it can be killed during the outage and recreated by the re-attach,
+        // and an unstamped view classifies as not ours.
+        didBootstrapView = false
+        // A fresh connect gets a fresh budget; the old stream's refusals say nothing about
+        // whether this one will take the writes.
+        bringupRetries = 0
     }
 
     func stop() {
