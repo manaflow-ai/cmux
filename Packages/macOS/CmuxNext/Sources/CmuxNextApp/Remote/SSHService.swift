@@ -316,11 +316,8 @@ final class SSHService {
         }
     }
 
-    /// cx-3r9mt (hq-6d 2026-10-15): on connect, the app's bundled cmux-tui says whether the
-    /// machine's build is older (`cmux-tui remote update-need`, capabilities first, then build
-    /// time); only then the app installs its build and hands the session daemon and the agent
-    /// daemon over (terminals and hosted agents kept). A newer, equal or unordered remote build is
-    /// left alone; a failed update leaves the machine as it was (the app's own tolerance stays).
+    /// cx-3r9mt: on connect, an older remote build (`cmux-tui remote update-need`) gets this app's
+    /// build, daemons handed over; any other answer or a failure leaves the machine as it was.
     func updateIfOlder(_ session: SSHMachineSession) async {
         guard !policyDisabled, let binary, case .installed? = await session.link.lastReport?.binary,
               let commit = await BundledCmuxTUI.commit(binary: binary) else { return }
@@ -349,11 +346,8 @@ final class SSHService {
     // MARK: Install
 
     /// Installs the app's cmux-tui build on the machine and reconnects.
-    ///
-    /// `automatic` (the connect-time update, cx-3r9mt) is the remote `build_identity` the update
-    /// was decided for: the install then skips a plan that would install that same build (a tree
-    /// published earlier under another commit), refuses on the machine when its binary changed
-    /// since, and never shows the link as failed (the machine keeps working on its old build).
+    /// `automatic` (cx-3r9mt): the remote `build_identity` the update was decided for; that build
+    /// is skipped, a changed binary refused, and the link never shown as failed.
     func install(_ session: SSHMachineSession, automatic: String? = nil) async throws {
         if policyDisabled { throw ActionFailure(message: RefusalStrings.turnedOffByOrganization) }
         guard let binary else { throw ActionFailure(message: RemoteStrings.noClient) }

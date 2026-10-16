@@ -79,10 +79,8 @@ extension SSHService {
         }
     }
 
-    /// cx-3r9mt / cx-brq9m: after an install the machine's acpmux still runs the replaced binary
-    /// (its new starts fail): the keyed restart hands it over to the new one when nothing is lost
-    /// (``RemoteAgentDaemonStatus/handoffBlocker``); else its chats show the restart notice. True
-    /// when the new binary's acpmux runs (or none ran).
+    /// cx-brq9m: after an install the keyed restart hands the acpmux over to the new binary when
+    /// nothing is lost (``RemoteAgentDaemonStatus/handoffBlocker``); true when the new one runs.
     @discardableResult
     func handOffAgentDaemonAfterInstall(_ session: SSHMachineSession) async -> Bool {
         let name = session.host.destination.description
