@@ -130,6 +130,16 @@
             }
           },
           {
+            "key" : "settings.group.files",
+            "rows" : [
+              "files.textEditor"
+            ],
+            "title" : {
+              "key" : "settings.group.files",
+              "text" : "Files"
+            }
+          },
+          {
             "key" : "settings.group.updates",
             "rows" : [
               "updates.checkAutomatically",
@@ -723,15 +733,15 @@
             }
           },
           {
-            "key" : "settings.group.terminalLinks",
+            "key" : "settings.group.openingLinks",
             "rows" : [
-              "browser.openTerminalLinksInCmuxBrowser",
+              "browser.openLinksInCmuxBrowser",
               "browser.hostsToOpenInEmbeddedBrowser",
               "browser.urlsToAlwaysOpenExternally"
             ],
             "title" : {
-              "key" : "settings.group.terminalLinks",
-              "text" : "Terminal Links"
+              "key" : "settings.group.openingLinks",
+              "text" : "Opening Links"
             }
           },
           {
@@ -21534,8 +21544,57 @@
       "default" : true,
       "default_label" : null,
       "group" : {
-        "key" : "settings.group.terminalLinks",
-        "text" : "Terminal Links"
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
+      },
+      "help" : {
+        "key" : "settings.browser.openLinks.help",
+        "text" : "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.openLinksInCmuxBrowser",
+      "keywords" : [
+        "link",
+        "url",
+        "click",
+        "default browser",
+        "terminal",
+        "chat"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "openLinksInCmuxBrowser"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.openLinks",
+        "text" : "Open Links in cmux Browser"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
       },
       "help" : {
         "key" : "settings.browser.openTerminalLinks.help",
@@ -21550,7 +21609,7 @@
         "default browser"
       ],
       "kind" : "toggle",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "browser",
         "openTerminalLinksInCmuxBrowser"
@@ -21588,8 +21647,8 @@
       ],
       "default_label" : null,
       "group" : {
-        "key" : "settings.group.terminalLinks",
-        "text" : "Terminal Links"
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
       },
       "help" : {
         "key" : "settings.browser.hostWhitelist.help",
@@ -21643,12 +21702,12 @@
       ],
       "default_label" : null,
       "group" : {
-        "key" : "settings.group.terminalLinks",
-        "text" : "Terminal Links"
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
       },
       "help" : {
-        "key" : "settings.browser.externalPatterns.help",
-        "text" : "Terminal links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression."
+        "key" : "settings.browser.externalLinkPatterns.help",
+        "text" : "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.urlsToAlwaysOpenExternally",
@@ -21679,12 +21738,60 @@
       ],
       "section" : "browser",
       "summary" : {
-        "key" : "settings.browser.externalPatterns.summary",
-        "text" : "Terminal links that open in your default browser"
+        "key" : "settings.browser.externalLinkPatterns.summary",
+        "text" : "Links that open in your default browser"
       },
       "title" : {
         "key" : "settings.browser.externalPatterns",
         "text" : "URLs to Always Open Externally"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.files",
+        "text" : "Files"
+      },
+      "help" : {
+        "key" : "settings.files.textEditor.help",
+        "text" : "The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "files.textEditor",
+      "keywords" : [
+        "editor",
+        "open with",
+        "app",
+        "path",
+        "file",
+        "code"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "files",
+        "textEditor"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.files.textEditor",
+        "text" : "Text Editor"
       },
       "validation" : "portable"
     },
@@ -24891,7 +24998,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "9e5f4aab05be7c2800bd6b615b47533eac1d8b1a9f63d945924246a9af2ee7a6",
+  "schema_hash" : "7f1e65dbec8eddce6851f98d5372e2d002e69846dc5ab408ac78935796260379",
   "sections" : [
     {
       "id" : "general",

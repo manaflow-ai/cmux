@@ -42,6 +42,7 @@ enum AppearanceHandlers {
                                   path: CenterFocusedColumnSetting.configPath, fileValue: { .string($0.rawValue) }, save: save) { context.design.centerFocusedColumn = $0 }
         ChromeStyleSetting.bindActions(into: registry, design: context.design, save: save)
         TabOverflowSetting.bindActions(into: registry, design: context.design, save: save)
+        LinkRouting.bindActions(into: registry, save: save)
         registry.bind("appearance.interfaceSize.increase", run: { _ in try stepInterfaceSize(by: 1, context) })
         registry.bind("appearance.interfaceSize.decrease", run: { _ in try stepInterfaceSize(by: -1, context) })
         registry.bind("appearance.uiScale.increase", run: { _ in try stepUIScale(by: uiScale.step, context) })

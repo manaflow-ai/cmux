@@ -6,7 +6,7 @@ public import Foundation
 /// opens only an app from the list it made, only for a validated http(s) URL
 /// (``AgentPaneReplyRequest/webURL(_:)``), with `NSWorkspace.open(_:withApplicationAt:)`: no
 /// shell, no `open(1)`, never an app path or name from the page (unlike
-/// `OpenInHandlers.applicationURL(named:)`, which takes any name).
+/// `LinkMenu.application(named:)`, which takes any name).
 @MainActor public protocol AgentPaneBrowserApps: AnyObject {
     /// The apps that open `https` URLs, the default first.
     func applications() -> [URL]

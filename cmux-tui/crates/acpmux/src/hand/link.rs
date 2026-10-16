@@ -137,6 +137,8 @@ async fn serve(
         "roots": cfg.roots,
         "agent_policy": cfg.agent_policy,
         "harnesses": HARNESSES,
+        // This hand applies the permission level it gets with each request (policy.rs).
+        "caps": ["levels"],
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
         "hostname": pair::hostname(),
