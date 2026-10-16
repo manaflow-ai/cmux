@@ -126,7 +126,7 @@ public nonisolated struct ListViewport<ID: Hashable & Sendable>: Hashable, Senda
     /// `self`, with `focused` focused before and `newFocus` after:
     /// 1. anchor (`anchored`),
     /// 2. reveal `newFocus` when focus changed, or, when `userMoved` (the
-    ///    user's own move: a keyboard move, a drop), when it was fully visible
+    ///    user's own move: a keyboard move, the Move Up/Down action; never a drop), when it was fully visible
     ///    and the change pushed it (not just its padding) out of view; a
     ///    change from others never moves the view,
     /// 3. clamp.
