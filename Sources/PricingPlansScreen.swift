@@ -1,5 +1,7 @@
 import CmuxCloud
+import CmuxProductAnalytics
 import AppKit
+import CMUXMobileCore
 import Bonsplit
 import Foundation
 import SwiftUI
@@ -11,15 +13,53 @@ import SwiftUI
 /// workspace creation is unavailable. Every caller names its
 /// ``ProUpgradeSource`` so the resulting checkout is attributable.
 enum ProUpgradePresenter {
-    static let intentEvent = "cmux_upgrade_entrypoint_opened"
-
     @MainActor
     private static var workspaceReuseState = ProUpgradeWorkspaceReuseState()
 
+    /// Menu title for an upgrade entrypoint that offers `tier`, the next
+    /// tier above the account's plan (``CmuxPlanTier/upgradeOffer(isSignedIn:knownTier:)``).
+    nonisolated static func upgradeMenuTitle(for tier: CmuxPlanTier) -> String {
+        switch tier {
+        case .max:
+            String(localized: "menu.help.upgradeToMax", defaultValue: "Upgrade to cmux Max…")
+        case .free, .go, .pro:
+            String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…")
+        }
+    }
+
+    /// Command palette title for the same offer, without the ellipsis.
+    nonisolated static func upgradeCommandTitle(for tier: CmuxPlanTier) -> String {
+        switch tier {
+        case .max:
+            String(localized: "command.pro.upgradeToMax.title", defaultValue: "Upgrade to cmux Max")
+        case .free, .go, .pro:
+            String(localized: "command.pro.upgrade.title", defaultValue: "Upgrade to cmux Pro")
+        }
+    }
+
+    /// The offer every upgrade entrypoint shows, or nil when the account is
+    /// already on the top tier or its plan is not yet known.
     @MainActor
-    static func present(source: ProUpgradeSource) {
-        PostHogAnalytics.shared.capture(intentEvent, properties: CheckoutAttribution.intentProperties(source: source))
-        presentAppPricingWeb(source: source)
+    static var currentUpgradeOffer: CmuxPlanTier? {
+        guard let flow = AppDelegate.shared?.auth?.accountFlow else { return .pro }
+        return flow.upgradeOffer
+    }
+
+    /// Records the click as `cmux_upgrade_entrypoint_opened` (the funnel's
+    /// first client step) and opens pricing.
+    ///
+    /// - Parameters:
+    ///   - source: The surface; it also travels to checkout as `cmux_source`.
+    ///   - analytics: The emitter. Tests pass their own.
+    ///   - open: Opens pricing. Tests pass a no-op.
+    @MainActor
+    static func present(
+        source: ProUpgradeSource,
+        analytics: ProductAnalytics = .app,
+        open: @MainActor (ProUpgradeSource) -> Void = { presentAppPricingWeb(source: $0) }
+    ) {
+        analytics.track(.upgradeOpened(source, destination: .pricingPage))
+        open(source)
     }
 
     /// Hover hook for upgrade entrypoints: loads the pricing page into a
@@ -65,8 +105,12 @@ enum ProUpgradePresenter {
     }
 
     @MainActor
-    static func presentCheckout(source: ProUpgradeSource, plan: CheckoutPlan = .pro) {
-        PostHogAnalytics.shared.capture(intentEvent, properties: CheckoutAttribution.intentProperties(source: source, plan: plan))
+    static func presentCheckout(
+        source: ProUpgradeSource,
+        plan: CheckoutPlan = .pro,
+        analytics: ProductAnalytics = .app
+    ) {
+        analytics.track(.upgradeOpened(source, plan: plan, destination: .checkout))
         NSWorkspace.shared.open(checkoutURL(source: source, plan: plan))
     }
 

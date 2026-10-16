@@ -118,7 +118,7 @@ extension TerminalController {
                 )
             )
         }
-        guard let browserPanel = dock.browserPanel(for: surfaceID) else {
+        guard let browserPanel = dock.browserPanelForAutomation(surfaceID) else {
             return (
                 true,
                 nil,

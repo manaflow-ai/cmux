@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxCloud
 import Foundation
 import Testing
@@ -30,6 +31,32 @@ struct BillingPlanClientTests {
         let details = try await client.fetch(from: BillingPlanStubURLProtocol.url, accessToken: "token")
         #expect(details.isPro)
         #expect(details.canManageBilling)
+    }
+
+    // A Max subscriber is reported as planId "pro" for older clients. The
+    // exact plan must survive decoding, or Max reads as Pro and the app
+    // offers an upgrade the account already has.
+    @Test("Max subscriber decodes as the Max tier", arguments: [
+        ("free", "free", "free", false, CmuxPlanTier.free),
+        ("go", "pro", "free", true, CmuxPlanTier.go),
+        ("pro", "pro", "free", true, CmuxPlanTier.pro),
+        ("max", "pro", "free", true, CmuxPlanTier.max),
+        ("free", "free", "team", false, CmuxPlanTier.pro),
+    ])
+    func exactTierDecodes(
+        subscriptionPlanID: String,
+        planID: String,
+        teamPlanID: String,
+        isPro: Bool,
+        expected: CmuxPlanTier
+    ) async throws {
+        let client = BillingPlanClient(session: BillingPlanStubURLProtocol.session(body: """
+        {"authenticated":true,"planId":"\(planID)","subscriptionPlanId":"\(subscriptionPlanID)",
+         "isPro":\(isPro),"billingManagement":"stripe","teamPlanId":"\(teamPlanID)","teamBillingManagement":"none"}
+        """))
+
+        let details = try await client.fetch(from: BillingPlanStubURLProtocol.url, accessToken: "token")
+        #expect(details.tier == expected)
     }
 }
 

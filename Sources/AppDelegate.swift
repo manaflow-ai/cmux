@@ -1,5 +1,6 @@
 import CmuxCloud
 import CmuxCloudBannerCore
+import CmuxProductAnalytics
 import CmuxCloudTui
 import CmuxComputerUse
 import CmuxCloudMachines
@@ -847,7 +848,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private(set) var cloudMachinePinStore: CloudMachinePinStore?
     /// "Introducing cmux cloud", shown once from the first main window.
     private(set) lazy var cloudWelcomeWindowController = CloudWelcomeWindowController()
-    private(set) lazy var cloudActivationCoordinator = CloudActivationCoordinator(prepare: { try await CmuxTuiSurfaceProviderRegistry.shared.prepareForActivation() }, cleanup: { await CmuxTuiSurfaceProviderRegistry.shared.cancelActivationPreparation() })
+    private(set) lazy var cloudActivationCoordinator = CloudActivationCoordinator(prepare: { try await CmuxTuiSurfaceProviderRegistry.shared.prepareForActivation() }, cleanup: { await CmuxTuiSurfaceProviderRegistry.shared.cancelActivationPreparation() }, analytics: .app)
     var cloudWorkspaceCoordinator: CloudWorkspaceCoordinator?
     var cloudWorkspaceOperationController: CloudWorkspaceOperationController?
     var deviceWorkspaceCreationCoordinator: DeviceWorkspaceCreationCoordinator?
@@ -1914,6 +1915,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             PostHogAnalytics.shared.startIfNeeded()
             StartupBreadcrumbLog.append("appDelegate.didFinish.posthog.complete")
         }
+        startProductAnalytics()
         // `DisableTelemetry` (MDM) also stops the remote feature-flag fetch: it
         // carries the same anonymous install id, and flags then use their
         // built-in defaults.
@@ -2164,6 +2166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "tabCount": tabManager?.tabs.count ?? 0
         ])
         if TelemetrySettings.enabledForCurrentLaunch && !isRunningUnderXCTestCached {
+            refreshProductAnalyticsActivityContext()
             PostHogAnalytics.shared.trackActive(reason: "didBecomeActive")
         }
         // A Mac that slept through the reply nudge picks parked replies up here.

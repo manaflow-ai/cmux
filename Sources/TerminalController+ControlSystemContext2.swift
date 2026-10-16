@@ -220,14 +220,14 @@ extension TerminalController {
             }
 
         case "reload", "reload_tab":
-            guard let browserPanel = workspace.browserPanel(for: panelId) else {
+            guard let browserPanel = workspace.browserPanelForAutomation(panelId) else {
                 return .reloadNotBrowser
             }
             browserPanel.reload(dialogOwner: .automation)
             return finish(.none)
 
         case "duplicate", "duplicate_tab":
-            guard let browserPanel = workspace.browserPanel(for: panelId) else {
+            guard let browserPanel = workspace.browserPanelForAutomation(panelId) else {
                 return .duplicateNotBrowser
             }
             guard BrowserAvailabilitySettings.isEnabled() else {

@@ -26,6 +26,7 @@ import CmuxPanes
 import CmuxSidebar
 import CmuxNotifications
 import Combine
+import CmuxProductAnalytics
 import CryptoKit
 import Darwin
 import Network
@@ -2785,7 +2786,23 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// fallback: a workspace that never fired a notification still carries a
     /// real timestamp instead of nothing.
     let createdAt = Date()
-    @Published var title: String
+    private let sidebarTitleDidChangeSubject: CurrentValueSubject<String, Never>
+    @Published var title: String {
+        didSet {
+            // Combine's @Published publisher emits from willSet. The sidebar
+            // snapshot reads the workspace after this property changes, so
+            // publish a second value from didSet for a committed title.
+            sidebarTitleDidChangeSubject.send(title)
+        }
+    }
+    /// Publishes the workspace title after the stored value has been updated.
+    ///
+    /// `@Published` emits from `willSet`; sidebar snapshots must read the
+    /// committed title so the first refresh after a rename cannot cache the
+    /// previous value.
+    var sidebarTitleDidChangePublisher: AnyPublisher<String, Never> {
+        sidebarTitleDidChangeSubject.eraseToAnyPublisher()
+    }
     @Published var customTitle: String?
     /// Provenance of `customTitle`: `.user` for manual renames (sidebar,
     /// CLI, command palette), `.auto` for AI auto-naming. `nil` when no
@@ -4256,6 +4273,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.portOrdinal = portOrdinal
         let admittedAutomaticTitle = AutomaticTerminalTitle(title)?.value ?? String(localized: "notification.desktop.defaultTerminalTitle", defaultValue: "Terminal")
         self.processTitle = admittedAutomaticTitle
+        self.sidebarTitleDidChangeSubject = CurrentValueSubject(admittedAutomaticTitle)
         self.title = admittedAutomaticTitle
         self.customTitle = nil
         self.customTitleSource = nil
@@ -5556,6 +5574,27 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
 #endif
         return materializeDeferredBrowserPanel(deferredPanel) != nil
+    }
+
+    /// The live browser a browser automation command drives.
+    ///
+    /// A browser that session restore kept as a placeholder is materialized in
+    /// place, in the background: selection and focus stay where they are
+    /// (socket focus policy), and the panel keeps its ID. Returns nil when the
+    /// panel is not a browser, or while restore is still assembling layout.
+    func browserPanelForAutomation(_ panelId: UUID) -> BrowserPanel? {
+        if let browserPanel = panels[panelId] as? BrowserPanel { return browserPanel }
+        guard let deferredPanel = panels[panelId] as? DeferredBrowserPanel,
+              sessionRestoreLayoutSuppressionDepth == 0 else {
+            return nil
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.browser.materialize.request workspace=\(id.uuidString.prefix(8)) " +
+                "panel=\(panelId.uuidString.prefix(8)) reason=automation"
+        )
+#endif
+        return materializeDeferredBrowserPanel(deferredPanel)
     }
 
     /// Returns the current panel after materializing a deferred browser when needed.
@@ -10252,6 +10291,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         installBrowserPanelSubscription(browserPanel)
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
         applyCloudBrowserCreationPlan(cloudBrowserPlan, to: browserPanel)
+        if creationPolicy == .userInitiated {
+            ProductAnalytics.app.featureUsed(.browserPane)
+        }
 
         return browserPanel
     }
@@ -10386,6 +10428,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         installBrowserPanelSubscription(browserPanel)
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
         applyCloudBrowserCreationPlan(cloudBrowserPlan, to: browserPanel)
+        if creationPolicy == .userInitiated {
+            ProductAnalytics.app.featureUsed(.browserPane)
+        }
 
         return browserPanel
     }
@@ -14914,7 +14959,9 @@ extension Workspace: BonsplitDelegate {
         }
         if let tabId = bonsplitController.selectedTab(inPane: pane)?.id,
            let panelId = panelIdFromSurfaceId(tabId) {
-            _ = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(workspaceId: id, panelId: panelId, vertical: orientation == .vertical, focusIntent: .focusCreatedPane)
+            let accepted = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(workspaceId: id, panelId: panelId, vertical: orientation == .vertical, focusIntent: .focusCreatedPane) ?? false
+            // tmux owns this split, so `didSplitPane` never runs for it.
+            if accepted { ProductAnalytics.app.featureUsed(.split) }
         }
         return false
     }
@@ -15157,6 +15204,8 @@ extension Workspace: BonsplitDelegate {
             scheduleTerminalGeometryReconcile()
             return
         }
+        // A split from the tab bar UI (drag to an edge, split button) is a user split.
+        ProductAnalytics.app.featureUsed(.split)
         // If the new pane already has a tab, this split moved an existing tab (drag-to-split).
         //
         // In the "drag the only tab to split edge" case, bonsplit inserts a placeholder "Empty"
