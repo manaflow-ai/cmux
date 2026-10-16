@@ -26,7 +26,8 @@ const rpc = <A>(f: () => Promise<HandReply<A>>) =>
   Effect.flatMap(Effect.tryPromise({ try: f, catch: (e) => new HandsError("hand.unreachable", e instanceof Error ? e.message : String(e)) }), unwrap)
 
 /** The live service for one Chief of one owner. */
-export const handsLayer = (env: Env, caller: HandCaller) =>
+/** `turn`: the brain run the call works for; a run token names it (revoked when that run ends). */
+export const handsLayer = (env: Env, caller: HandCaller, turn?: { readonly run?: string; readonly conversation?: string }) =>
   Layer.succeed(Hands)(
     Hands.of({
       list: () => rpc(() => listHands(env, caller)),
@@ -35,8 +36,10 @@ export const handsLayer = (env: Env, caller: HandCaller) =>
         Effect.tryPromise({
           // The hand reads seconds.
           try: async () => {
-            if (!caller.agent) throw new Error("a run token is for a Chief's run")
-            const t = await mintRunToken(env, { team: payerTeam(caller.user), chief: caller.agent, owner: caller.user, run })
+            if (!caller.agent || !turn?.run || !turn.conversation) throw new Error("a run token is for a Chief's running turn")
+            // The token names the brain's run (not the tool call), so the run's end revokes it; `run` is the call's label only.
+            void run
+            const t = await mintRunToken(env, { team: payerTeam(caller.user), chief: caller.agent, owner: caller.user, run: turn.run, conversation: turn.conversation })
             return { token: t.token, expires_at: Math.floor(t.expires_at / 1000) }
           },
           catch: (e) => new HandsError("hand.gateway_unavailable", e instanceof Error ? e.message : String(e))
@@ -216,14 +219,14 @@ export const agentProgram = (a: AgentArgsT, report: HandsReporter, callId: strin
   })
 
 const asText = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v, null, 2))
-const run = <A>(env: Env, caller: HandCaller | null, program: Effect.Effect<A, HandsError, Hands>): Promise<string> =>
+const run = <A>(env: Env, caller: HandCaller | null, program: Effect.Effect<A, HandsError, Hands>, turn?: { readonly run?: string; readonly conversation?: string }): Promise<string> =>
   caller === null
     ? Promise.resolve("hands: this brain has no chief yet")
     : Effect.runPromise(
         program.pipe(
           Effect.map(asText),
           Effect.catch((e: HandsError) => Effect.succeed(`hands error ${e.code}: ${e.message}`)),
-          Effect.provide(handsLayer(env, caller))
+          Effect.provide(handsLayer(env, caller, turn))
         )
       )
 
@@ -233,7 +236,7 @@ const run = <A>(env: Env, caller: HandCaller | null, program: Effect.Effect<A, H
  */
 export const handsTools = (
   env: Env,
-  who: () => { agent: string | null; owner: string | null },
+  who: () => { agent: string | null; owner: string | null; run?: string | undefined; conversation?: string | undefined },
   report: HandsReporter = () => undefined
 ): [ToolRegistration<typeof HandsArgs>, ToolRegistration<typeof AgentArgs>] => {
   const caller = (): HandCaller | null => {
@@ -255,7 +258,7 @@ export const handsTools = (
         "Coding agents (claude, codex, opencode) on a hand, through acpmux with the hand's own permission policy. start returns when the turn ends or wait_seconds passes, with the agent's last text, its tool calls and any permission it waits for; continue with wait (after_seq = last_seq).",
       parameters: AgentArgs,
       replay: "unsafe",
-      execute: async (args, api) => ({ content: [{ type: "text", text: await run(env, caller(), agentProgram(args as AgentArgsT, report, api.callId)) }] })
+      execute: async (args, api) => ({ content: [{ type: "text", text: await run(env, caller(), agentProgram(args as AgentArgsT, report, api.callId), { run: who().run, conversation: who().conversation }) }] })
     }
   ]
 }

@@ -10,6 +10,7 @@ import { clip, clipInput, flushMarks, lastTalk, markPending, readRun, readRuns, 
 import { type BrainConfig, patchError, readConfig, SCHEMA, writeConfig } from "./brain-store.ts"
 import { AUTH_FAILED, holderAuth, holderInvalidate, holderTurn, HOLDER } from "./claude-auth.ts"
 import { Compactor, type CallRecord } from "./compactor.ts"
+import { type LedgerAnswer, type LedgerOp, runLedger } from "../model-gateway/run-ledger.ts"
 import { capText, cutAtMarks, type Kind, Memory, RETRY_MS } from "./memory.ts"
 import { brainModels, compactorDefault, compactorModel, creditsCanStart, creditsNotice, FAKE, gatewayOptions, isClaude, liveOf, modelRefusal, pickTurnModel, validModelName } from "./models.ts"
 import { clipReply, formatMessage, isNoReply, replyTarget, systemFirst, textParts } from "./brain-text.ts"
@@ -69,7 +70,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       this.registry.install({
         name: "chief",
         sections: [section("chief", () => systemPrompt(this.config()), { tag: false })],
-        tools: [...memoryTools(() => this.memory), ...chiefsTools(this.env, () => this.config()), ...handsTools(this.env, () => this.config(), (r) => (r.type === "run.activity" ? liveOf(this.ctx).activity(r.line) : this.turnId && this.announce(this.turnId, [upsertStep(this.sql, this.turnId, r.step, Date.now())])))],
+        tools: [...memoryTools(() => this.memory), ...chiefsTools(this.env, () => this.config()), ...handsTools(this.env, () => ({ ...this.config(), run: this.turnId, conversation: this.turnConversation }), (r) => (r.type === "run.activity" ? liveOf(this.ctx).activity(r.line) : this.turnId && this.announce(this.turnId, [upsertStep(this.sql, this.turnId, r.step, Date.now())])))],
         hooks: [
           hook(GenerationTask, {
             beforeRequest: async ({ messages }, api) => {
@@ -152,6 +153,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
   async claudeTurn(owner: string, model?: string): Promise<string> { return holderTurn(this.env, this.sql, owner, model) }
   /** Holder only: the route answered 401, so the stored access token goes. */
   async claudeInvalidate(): Promise<void> { holderInvalidate(this.sql) }
+  /** Conversation brain: a per-run gateway token's revoke check and spend cap (model-gateway/run-ledger.ts). */
+  async runToken(run: string, jti: string, cap: number, o: LedgerOp): Promise<LedgerAnswer> { return runLedger(this.sql, run, jti, cap, o) }
   private holder = () => this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(HOLDER))
 
   /** The owner's settings (the Worker checked the caller owns `agent`). Turning it on needs a live chief that no server runs. */
@@ -169,16 +172,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
       if (!record) return { ok: false, code: "chief_archived", message: "the chief is archived or unknown" }
       if (record.brain_place) return { ok: false, code: "chief_placed", message: "a paired server runs this chief; remove its brain place first" }
     }
-    writeConfig(this.sql, {
-      agent,
-      owner,
-      ...(patch.enabled === undefined ? {} : { enabled: patch.enabled ? "1" : "0" }), ...(patch.chiefs === undefined ? {} : { chiefs: patch.chiefs ? "1" : "0" }),
-      model: patch.model, effort: patch.effort,
-      compactor_model: patch.compactor_model,
-      role: patch.role,
-      personality: patch.personality,
-      instructions: patch.instructions
-    })
+    writeConfig(this.sql, { agent, owner, ...(patch.enabled === undefined ? {} : { enabled: patch.enabled ? "1" : "0" }), ...(patch.chiefs === undefined ? {} : { chiefs: patch.chiefs ? "1" : "0" }) })
+    writeConfig(this.sql, { model: patch.model, effort: patch.effort, compactor_model: patch.compactor_model, role: patch.role, personality: patch.personality, instructions: patch.instructions })
     return { ok: true, config: this.config() }
   }
 

@@ -1,6 +1,7 @@
 import { env, exports } from "cloudflare:workers"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
+import { runInDurableObject } from "cloudflare:test"
 import { fireAlarm } from "./setup/alarm.ts"
 import { gatewayBaseUrl, mintRunToken } from "../src/model-gateway/run-token.ts"
 
@@ -113,6 +114,11 @@ const drive = async (conversation: string, chief: string, done: () => Promise<bo
   }
   throw new Error(`timed out waiting for ${what}`)
 }
+/** A run of the chief's brain in that conversation with this status (a hand's agent works for a running run). */
+const runState = (chief: string, conversation: string, run: string, status: string) =>
+  runInDurableObject(testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName(`${chief}/${conversation}`)), async (_i: unknown, state: DurableObjectState) => {
+    state.storage.sql.exec(`INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, last_seq, status, model, started) VALUES (?, ?, 'msg_x', 'chief', 0, ?, 'claude-opus-5-5', ?) ON CONFLICT (id) DO UPDATE SET status = excluded.status`, run, conversation, status, Date.now())
+  })
 const runsOf = async (token: string, chief: string, conversation: string) => (await http("GET", `/v1/chiefs/${chief}/runs?conversation=${conversation}`, token)).json.value?.runs ?? []
 
 describe("Model gateway: service-key route, credits, usage, paid fallback", { timeout: 120_000 }, () => {
@@ -193,7 +199,8 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
     const seen = fakeRoute()
     const { chief, team } = await owner("brain-gateway-http", 5, "claude-opus-5-5", "low", true)
     const ownerId = (await op(await sessionToken("brain-gateway-http"), "user.ensure", {})).value.id as string
-    const { token } = await mintRunToken(testEnv as any, { team, chief: chief.id, owner: ownerId, run: "run_1", conversation: chief.main_conversation })
+    await runState(chief.id, chief.main_conversation, "run_500", "running")
+    const { token } = await mintRunToken(testEnv as any, { team, chief: chief.id, owner: ownerId, run: "run_500", conversation: chief.main_conversation })
     expect(gatewayBaseUrl(testEnv as any)).toBe("https://api.test/v1/model-gateway")
     const before = await meter(team).creditBalance(team, 0, 5)
     const body = { model: "claude-sonnet-5-5", max_tokens: 1000, stream: true, messages: [{ role: "user", content: "write a haiku" }] }
@@ -221,13 +228,21 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
     expect((await call({ authorization: `Bearer ${token}` }, { ...body, model: "gpt-5" })).status).toBe(400)
     expect((await call({ authorization: `Bearer ${token}` }, { ...body, stream: false })).status).toBe(400)
     expect(seen).toHaveLength(2)
+    // Spend cap: a token minted with a tiny budget is refused (429) before the route, the run still running.
+    const tiny = (await mintRunToken(testEnv as any, { team, chief: chief.id, owner: ownerId, run: "run_500", conversation: chief.main_conversation }, { capUsd: 0.0001 })).token
+    expect((await call({ authorization: `Bearer ${tiny}` })).status).toBe(429)
+    // Revoke: the run ends, and the same token stops working at once (401), long before its expiry.
+    await runState(chief.id, chief.main_conversation, "run_500", "done")
+    expect((await call({ authorization: `Bearer ${token}` })).status).toBe(401)
+    expect(seen).toHaveLength(2)
   })
 
   it("refuses a run token whose team has no credits (402) without calling the route", async () => {
     const seen = fakeRoute()
     const { chief, team } = await owner("brain-gateway-broke", 0, "claude-opus-5-5", "low", true)
     const ownerId = (await op(await sessionToken("brain-gateway-broke"), "user.ensure", {})).value.id as string
-    const { token } = await mintRunToken(testEnv as any, { team, chief: chief.id, owner: ownerId, run: "run_9" })
+    await runState(chief.id, chief.main_conversation, "run_501", "running")
+    const { token } = await mintRunToken(testEnv as any, { team, chief: chief.id, owner: ownerId, run: "run_501", conversation: chief.main_conversation })
     const res = await worker.fetch("https://api.test/v1/model-gateway/v1/messages", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ model: "claude-opus-5-5", max_tokens: 100, stream: true, messages: [{ role: "user", content: "hi" }] }) })
     expect(res.status).toBe(402)
     expect(((await res.json()) as any).error.message).toContain("out of Cloud credits")
