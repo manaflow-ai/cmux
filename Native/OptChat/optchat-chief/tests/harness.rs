@@ -1024,3 +1024,32 @@ fn the_compactor_follows_the_engines_claude_harness() {
         );
     }
 }
+
+/// Spec 5a.2: a block once sent is sent again byte for byte. A user entry
+/// logged right after a turn's messages (a turn that logged no reply, then
+/// an approval answer or a resume note) must not join the last turn's last
+/// block: the next turn's input starts with the whole last input.
+#[test]
+fn a_user_entry_right_after_the_last_turns_messages_keeps_its_input_a_prefix() {
+    let silent: Script = Box::new(|_, _| {
+        vec![
+            json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
+        ]
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let s = settings(dir.path());
+    let mut h = Harness::configured(dir, silent, owner(), s, Arc::new(|_: &str| {}));
+    h.agents.inner.lock().unwrap().system_prompts = true;
+    fill(&h.chat, 120);
+    h.connect();
+    h.say("user_local", "one");
+    h.settle();
+    h.chat.append(Kind::User, "yes").unwrap();
+    h.say("user_local", "two");
+    h.settle();
+    let inner = h.agents.inner.lock().unwrap();
+    assert_eq!(inner.prompts.len(), 2);
+    let (a, b) = (texts(&inner.prompts[0]), texts(&inner.prompts[1]));
+    assert_eq!(b[..a.len()], a[..], "the first turn's input is a prefix");
+}
