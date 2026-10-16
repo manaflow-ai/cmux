@@ -18,6 +18,7 @@ struct AgentHookDeliveryProcess: Sendable {
     }
 
     private let executableURLProvider: @Sendable () -> URL?
+    private let socketClientCapability: String?
     private let processTimeout: Duration
     private let deliveryTimeout: Duration
     private let terminationGrace: Duration
@@ -26,11 +27,13 @@ struct AgentHookDeliveryProcess: Sendable {
         executableURLProvider: @escaping @Sendable () -> URL? = {
             Bundle.main.resourceURL?.appendingPathComponent("bin/cmux", isDirectory: false)
         },
+        socketClientCapability: String? = nil,
         processTimeout: Duration = .seconds(15),
         deliveryTimeout: Duration = .seconds(16),
         terminationGrace: Duration = .milliseconds(250)
     ) {
         self.executableURLProvider = executableURLProvider
+        self.socketClientCapability = socketClientCapability
         self.processTimeout = processTimeout
         self.deliveryTimeout = deliveryTimeout
         self.terminationGrace = terminationGrace
@@ -216,6 +219,11 @@ struct AgentHookDeliveryProcess: Sendable {
         environment["CMUX_SOCKET_PATH"] = event.socketPath
         environment["CMUX_BUNDLED_CLI_PATH"] = executableURL.path
         environment["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] = "1"
+        // Detached helpers outlive this worker and lose cmux ancestry. Give
+        // only local replay the app-issued authorization used by terminals.
+        if !event.relayBacked {
+            environment["CMUX_SOCKET_CAPABILITY"] = socketClientCapability
+        }
         if event.relayBacked {
             environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] = "1"
             environment["CMUX_AGENT_HOOK_ROUTE_SNAPSHOT"] = "1"
