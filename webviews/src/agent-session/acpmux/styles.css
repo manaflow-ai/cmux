@@ -677,6 +677,7 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
 /* Session row previews float in the shared popup layer, so the 30px row and its gutters never
    change when a last-message card appears. */
 .acpmux-session-preview{display:grid;gap:6px;min-width:220px;max-width:300px;padding:10px 12px;color:var(--ui-popup-fg,var(--agent-text));}
+.ui-card.acpmux-session-preview{pointer-events:auto;}
 .acpmux-session-preview-title{min-width:0;overflow:hidden;color:var(--agent-text);font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:var(--weight-emphasis);text-overflow:ellipsis;white-space:nowrap;}
 .acpmux-session-preview-copy{max-width:34ch;color:var(--agent-soft);font-size:var(--text-detail);line-height:var(--text-detail--line-height);overflow-wrap:anywhere;}
 .acpmux-session-preview-meta{display:flex;flex-wrap:wrap;gap:8px;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);}
