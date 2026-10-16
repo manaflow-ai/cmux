@@ -104,7 +104,7 @@ jobs:
     # macOS 15 above because Zig 0.15.2 cannot link it on macOS 26.
     # Import the Apple Developer ID intermediate chain into the build keychain
     # below so signing does not depend on mutable runner login-keychain state.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
     # Notarization wait times vary on Apple's side. The standalone Computer Use
     # helper starts once the thin variants are cut (the first signing step) and
     # overlaps the remaining signing work; the outer app and final DMG still
