@@ -971,6 +971,10 @@ const currentRegistry = (): NativeRegistry => ({
   ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined),
 });
 
+/// The thread's top padding (styles.css `.acpmux-thread`): rows draw this far below their places,
+/// so the transcript ends this far past their total height.
+const THREAD_TOP = 16;
+
 /// Where a scroller sits, read while its content still matches `totalHeight`.
 const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
   top: node.scrollTop,
@@ -1452,7 +1456,12 @@ export function VirtualTranscript({
     };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [estimated, drawn, registry, rows, sessionId, width]);
-  const layout = measured.layout;
+  // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
+  // alone placed the latest row's bottom that far under the view.
+  const layout = useMemo(
+    () => ({ ...measured.layout, totalHeight: measured.layout.totalHeight + THREAD_TOP }),
+    [measured],
+  );
   const reportedLayout = useRef<typeof measured | null>(null);
   const reportedEstimate = useRef<typeof estimated | null>(null);
   const sessionSwitched = previousSession.current !== sessionId;
