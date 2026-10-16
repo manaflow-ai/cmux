@@ -241,7 +241,7 @@ const E=await import(B+'models/emulation/emulation.js');const UI=await import(B+
 const m=E.DeviceModeModel.DeviceModeModel.instance();const L=E.EmulatedDevices.EmulatedDevicesList.instance();
 const tgt=SDK.TargetManager.TargetManager.instance().primaryPageTarget();const settle=()=>new Promise(r=>setTimeout(r,800));
 const st=()=>({type:m.type(),device:m.device()&&m.device().title,scale:m.scale(),w:m.appliedDeviceSize().width,h:m.appliedDeviceSize().height,
-  toolbar:[...document.querySelectorAll('.device-mode-toolbar')].some(e=>e.offsetWidth>0&&e.offsetHeight>0)});
+  toolbar:(()=>{const seen=[];const walk=r=>{for(const e of r.querySelectorAll('*')){if(e.classList&&e.classList.contains('device-mode-toolbar')&&e.offsetWidth>0)seen.push(e);if(e.shadowRoot)walk(e.shadowRoot)}};walk(document);return seen.length>0})()});
 const dev=t=>L.standard().find(d=>d.title===t);
 switch(op){
  case 'devices':return L.standard().map(d=>d.title);
@@ -334,6 +334,8 @@ def main():
     chrome_proc = chrome = None; failed = True
     try:
         reference = None
+        if not opts.no_chrome and not os.path.exists(opts.chrome):
+            check("D_chrome_reference", False, why="no Google Chrome at %s (pass --no-chrome to skip the D checks)" % opts.chrome)
         if not opts.no_chrome and os.path.exists(opts.chrome):
             data_dir = os.path.join(tempfile.gettempdir(), "chrome-" + RUN)
             chrome_proc = subprocess.Popen([opts.chrome, "--user-data-dir=" + data_dir, "--remote-debugging-port=0", "--no-first-run",
@@ -356,7 +358,8 @@ def main():
         tab = ((reply or {}).get("created") or [None])[0]
         wait_for(lambda: (rpc("browser.page.eval", {"script": "document.title", "tab": tab}) or {}).get("value"), 60, 1)
         if not wait_for(lambda: port_up(port), 60, 1):
-            check("cmux_remote_debugging", False, why="no DevTools port %d (a Release build ignores CMUX_NEXT_CEF_EXTRA_SWITCHES)" % port); return
+            check("cmux_remote_debugging", False, why="no DevTools port %d (a Release build ignores CMUX_NEXT_CEF_EXTRA_SWITCHES)" % port)
+            raise RuntimeError("no cmux DevTools port")
         cmux = Browser("cmux", port)
         page = cmux.attach(lambda t: t["type"] == "page" and t["url"].startswith(URL))
         cmux.cdp.call("Runtime.enable", {}, page)
@@ -428,11 +431,15 @@ def main():
                 check("W_eme_vp9", status["eme"] and status["eme"].get("webm-vp9-opus") is True, eme=status["eme"])
                 check("W_playback_vp9", ((status["playback"].get("sintel-vp9") or {}).get("t") or 0) > 3, playback=status["playback"].get("sintel-vp9"))
 
-        lines = subprocess.run(["log", "show", "--last", "%ds" % int(time.time() - started + 30), "--style", "compact", "--predicate",
-                                'processID == %d AND eventMessage CONTAINS "device emulation"' % pid], capture_output=True, text=True, timeout=120).stdout
-        bad = [l for l in lines.splitlines() if "failed" in l]
-        check("E3_no_emulation_errors", not bad, errors=bad[-6:])
+        if not pid:
+            raise RuntimeError("system.identify gave no pid")
+        shown = subprocess.run(["log", "show", "--last", "%ds" % int(time.time() - started + 30), "--style", "compact", "--predicate",
+                                'processID == %d AND eventMessage CONTAINS "device emulation"' % pid], capture_output=True, text=True, timeout=120)
+        bad = [l for l in shown.stdout.splitlines() if "failed" in l]
+        check("E3_no_emulation_errors", shown.returncode == 0 and not bad, errors=bad[-6:], rc=shown.returncode)
         failed = any(c["status"] == "fail" for c in RESULTS["checks"])
+    except Exception as error:  # noqa: BLE001 - any harness error is a failed run
+        check("harness", False, error=repr(error)); failed = True
     finally:
         json.dump(RESULTS, open(os.path.join(opts.out, "results.json"), "w"), indent=1, default=str)
         if chrome:

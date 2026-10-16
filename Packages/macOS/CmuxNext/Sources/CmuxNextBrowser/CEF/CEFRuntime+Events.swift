@@ -255,10 +255,12 @@ extension CEFRuntime {
         // waiter exists; without this the result was dropped and the call
         // timed out after `timeout` (every device emulation lost 5 s on
         // Emulation.setEmitTouchEventsForMouse).
+        // A nested run loop inside the call may start another call: keep the outer one's table.
+        let outer = synchronousDevToolsResults
         synchronousDevToolsResults = [:]
         let message = shim.devToolsCall(browser, method, CEFDevToolsResult.params(params))
         let answered = synchronousDevToolsResults
-        synchronousDevToolsResults = nil
+        synchronousDevToolsResults = outer.map { $0.merging(answered ?? [:]) { first, _ in first } }
         guard message != 0 else { throw BrowserTabError.closed }
         let key = CEFDevToolsKey(browser: browser, message: message)
         if let result = answered?[key] { return try result.get() }
