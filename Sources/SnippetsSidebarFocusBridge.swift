@@ -71,6 +71,30 @@ struct SnippetsSidebarFocusBridge: NSViewRepresentable {
         return false
     }
 
+    /// What a key press does while the Snippets search field or host owns
+    /// focus. Text entry keeps Return (the field submits it through its own
+    /// delegate, honoring IME) and j/k (they type); an open IME composition
+    /// keeps every key.
+    enum KeyCommand: Equatable {
+        case passThrough
+        case escape
+        case activate
+        case focusSearch
+        case move(Int)
+    }
+
+    static func keyCommand(for event: NSEvent, isTextEntry: Bool, isComposing: Bool) -> KeyCommand {
+        if isComposing { return .passThrough }
+        if event.keyCode == 53 { return .escape }
+        if !isTextEntry, event.keyCode == 36 || event.keyCode == 76 { return .activate }
+        if !isTextEntry, RightSidebarKeyboardNavigation.isPlainSlash(event) { return .focusSearch }
+        if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event),
+           !(isTextEntry && (event.keyCode == 38 || event.keyCode == 40)) {
+            return .move(delta)
+        }
+        return .passThrough
+    }
+
     @MainActor
     final class Coordinator {
         var parent: SnippetsSidebarFocusBridge
@@ -98,28 +122,24 @@ struct SnippetsSidebarFocusBridge: NSViewRepresentable {
                   let responder = window.firstResponder, host.ownsKeyboardFocus(responder) else {
                 return event
             }
-            let isTextEntry = responder !== host
-            if (responder as? NSTextView)?.hasMarkedText() == true {
+            let command = SnippetsSidebarFocusBridge.keyCommand(
+                for: event,
+                isTextEntry: responder !== host,
+                isComposing: (responder as? NSTextView)?.hasMarkedText() == true
+            )
+            switch command {
+            case .passThrough:
                 return event
-            }
-            if event.keyCode == 53 { // Escape
+            case .escape:
                 parent.onEscape()
-                return nil
-            }
-            if !isTextEntry, event.keyCode == 36 || event.keyCode == 76 { // Return / keypad Enter
+            case .activate:
                 parent.onActivate()
-                return nil
-            }
-            if !isTextEntry, RightSidebarKeyboardNavigation.isPlainSlash(event) {
+            case .focusSearch:
                 _ = SnippetsSidebarFocusBridge.focusSearchField(for: host)
-                return nil
-            }
-            if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event),
-               !(isTextEntry && (event.keyCode == 38 || event.keyCode == 40)) {
+            case .move(let delta):
                 parent.onMove(delta)
-                return nil
             }
-            return event
+            return nil
         }
 
         deinit {

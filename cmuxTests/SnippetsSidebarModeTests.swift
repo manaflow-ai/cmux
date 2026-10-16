@@ -75,4 +75,45 @@ struct SnippetsSidebarModeTests {
         field.removeFromSuperview()
         #expect(SnippetsSidebarFocusBridge.searchField(for: host) == nil, "a field that left the window is not reused")
     }
+
+    private func key(_ characters: String, _ keyCode: UInt16, _ modifiers: NSEvent.ModifierFlags = []) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: modifiers,
+            timestamp: 0, windowNumber: 0, context: nil,
+            characters: characters, charactersIgnoringModifiers: characters,
+            isARepeat: false, keyCode: keyCode
+        ))
+    }
+
+    @Test func keyBindingsInTheSearchField() throws {
+        func command(_ event: NSEvent) -> SnippetsSidebarFocusBridge.KeyCommand {
+            SnippetsSidebarFocusBridge.keyCommand(for: event, isTextEntry: true, isComposing: false)
+        }
+        #expect(command(try key("", 125)) == .move(1), "Down")
+        #expect(command(try key("", 126)) == .move(-1), "Up")
+        #expect(command(try key("n", 45, .control)) == .move(1), "Ctrl+N")
+        #expect(command(try key("p", 35, .control)) == .move(-1), "Ctrl+P")
+        #expect(command(try key("\u{1b}", 53)) == .escape)
+        #expect(command(try key("j", 38)) == .passThrough, "j types into the query")
+        #expect(command(try key("k", 40)) == .passThrough, "k types into the query")
+        #expect(command(try key("\r", 36)) == .passThrough, "Return submits through the field delegate")
+        #expect(command(try key("/", 44)) == .passThrough, "slash types into the query")
+        #expect(command(try key("s", 1)) == .passThrough)
+        #expect(command(try key("6", 22, .control)) == .passThrough, "mode shortcuts are not swallowed")
+    }
+
+    @Test func keyBindingsOnTheHostAndDuringComposition() throws {
+        func host(_ event: NSEvent) -> SnippetsSidebarFocusBridge.KeyCommand {
+            SnippetsSidebarFocusBridge.keyCommand(for: event, isTextEntry: false, isComposing: false)
+        }
+        #expect(host(try key("j", 38)) == .move(1))
+        #expect(host(try key("k", 40)) == .move(-1))
+        #expect(host(try key("\r", 36)) == .activate)
+        #expect(host(try key("\u{3}", 76)) == .activate, "keypad Enter")
+        #expect(host(try key("/", 44)) == .focusSearch)
+        #expect(host(try key("\u{1b}", 53)) == .escape)
+        for event in [try key("\u{1b}", 53), try key("", 125), try key("\r", 36)] {
+            #expect(SnippetsSidebarFocusBridge.keyCommand(for: event, isTextEntry: true, isComposing: true) == .passThrough)
+        }
+    }
 }
