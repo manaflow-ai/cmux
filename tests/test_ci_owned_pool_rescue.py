@@ -2149,9 +2149,13 @@ class Workflow(unittest.TestCase):
                      "github.event.workflow_run.event == 'workflow_dispatch' || "
                      "github.event.workflow_run.path == '.github/workflows/nightly.yml' && "
                      "(github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule') && "
-                     "github.event.workflow_run.head_branch == 'main' && "
+                     "(github.event.workflow_run.head_branch == 'main' && "
                      "startsWith(vars.CI_SEED_TRUSTED_POOL, 'glaeda-trusted-') && "
-                     "startsWith(vars.CI_NIGHTLY_TRUSTED_RUNNER, 'glaeda-runner-')) && "
+                     "startsWith(vars.CI_NIGHTLY_TRUSTED_RUNNER, 'glaeda-runner-') || "
+                     "github.event.workflow_run.head_branch == 'nightly-next' && "
+                     "github.event.workflow_run.event == 'push' && "
+                     "startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, 'glaeda-trusted-') && "
+                     "startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-'))) && "
                      "github.event.workflow_run.head_repository.full_name == github.repository && "
                      "github.event.workflow_run.run_attempt == 1)"):
             self.assertIn(part, condition)

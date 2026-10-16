@@ -900,11 +900,11 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
 
 
 def nightly_target(run: Mapping[str, Any], repository: str) -> Target | str:
-    """A nightly.yml run to watch, or why not: only attempt 1 of main's own push or schedule run."""
+    """Attempt 1 of main push/schedule or nightly-next push, from this repository."""
     if run.get("event") not in NIGHTLY_EVENTS:
         return f"a {run.get('event') or 'unknown'} run of {NIGHTLY_WORKFLOW_PATH}, not a push or schedule"
-    if run.get("head_branch") != MAIN_BRANCH:
-        return f"a run of {NIGHTLY_WORKFLOW_PATH} on {run.get('head_branch') or 'an unknown branch'}, not {MAIN_BRANCH}"
+    if run.get("head_branch") not in (MAIN_BRANCH, "nightly-next") or (run.get("head_branch") == "nightly-next" and run.get("event") != "push"):
+        return f"a run of {NIGHTLY_WORKFLOW_PATH} on {run.get('head_branch') or 'an unknown branch'}, not a trusted nightly event"
     head = (run.get("head_repository") or {}).get("full_name") or ""
     if head.casefold() != repository.casefold():
         return "a fork head; forks never take a persistent pool"
@@ -912,7 +912,7 @@ def nightly_target(run: Mapping[str, Any], repository: str) -> Target | str:
     if attempt != 1:
         return f"attempt {attempt}; its first attempt's watch follows it"
     return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=NIGHTLY_WORKFLOW_PATH,
-                  side=True, nightly=True)
+                  side=True, nightly=True, push_branch=str(run["head_branch"]))
 
 
 def marker_name(target: Target) -> str:
@@ -1101,9 +1101,9 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
         # nightly.yml's concurrency group never cancels in progress: a newer
         # run waits behind this one, and a re-run of this one would join the
         # group and cancel that pending run. Leave the revision to it.
-        newer = read(lambda: api.newer_unfinished_runs(target.path, target.run_id, MAIN_BRANCH), sleep, log)
+        newer = read(lambda: api.newer_unfinished_runs(target.path, target.run_id, target.push_branch or MAIN_BRANCH), sleep, log)
         if newer:
-            return f"a newer nightly run on {MAIN_BRANCH} ({newer[0]}) has not finished and builds instead"
+            return f"a newer nightly run on {target.push_branch or MAIN_BRANCH} ({newer[0]}) has not finished and builds instead"
         return ""
     if target.push_branch:
         # Not the branch head: a head commit outside the workflow's paths has no
@@ -1315,7 +1315,7 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     subject = (f"pull request #{target.pr_number}'s {target.path}" if target.pr_number else
                "an E2E dispatch" if target.path == E2E_WORKFLOW_PATH else f"a dispatch of {target.path}") \
         if target.e2e else f"main's full-suite dispatch at {target.head_sha[:12]}" if target.main \
-        else f"main's nightly build at {target.head_sha[:12]}" if target.nightly \
+        else f"{target.push_branch or MAIN_BRANCH}'s nightly build at {target.head_sha[:12]}" if target.nightly \
         else f"pull request #{target.pr_number}" if target.pr_number else f"a run of {target.path}"
     if target.side and not target.nightly:
         subject += " (side lane)"
