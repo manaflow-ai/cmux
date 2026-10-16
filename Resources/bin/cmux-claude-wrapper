@@ -118,10 +118,19 @@ cmux_claude_wrapper_args_have_managed_settings() {
 cmux_claude_wrapper_path_without_shims() {
     local current_path="${PATH:-}"
     local shim_root="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}"
+    local preserved_shim_dir=""
     local old_ifs="$IFS"
     local entry
     local result=""
     local globbing_was_disabled=0
+
+    # A claude-teams launch puts its tmux shim beside the per-surface Claude
+    # shim. Custom Claude launchers need a cleaned PATH to avoid re-entering
+    # cmux, but the Teams shim must remain available for Claude's tmux calls.
+    if [[ "${cmux_claude_teams_wrapper_launch:-0}" == "1" &&
+          "${CMUX_CLAUDE_TEAMS_TMUX_SHIM:-}" == */* ]]; then
+        preserved_shim_dir="${CMUX_CLAUDE_TEAMS_TMUX_SHIM%/*}"
+    fi
 
     case "$-" in
         *f*) globbing_was_disabled=1 ;;
@@ -132,7 +141,9 @@ cmux_claude_wrapper_path_without_shims() {
         if [[ "$entry" == "$shim_root" ||
               "$entry" == */cmux-cli-shims/* ||
               "$entry" == */cmux-cli-shims ]]; then
-            continue
+            if [[ -z "$preserved_shim_dir" || "$entry" != "$preserved_shim_dir" ]]; then
+                continue
+            fi
         fi
         if [[ -z "$result" ]]; then
             result="$entry"
