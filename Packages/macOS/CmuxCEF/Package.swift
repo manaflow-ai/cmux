@@ -56,6 +56,7 @@ let package = Package(
             name: "CmuxCEFBrowser",
             dependencies: [
                 "CmuxCEF",
+                "CmuxCEFExtensions",
                 .product(name: "CmuxBrowser", package: "CmuxBrowser"),
             ],
             swiftSettings: [
