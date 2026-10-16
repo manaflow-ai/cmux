@@ -827,6 +827,7 @@ struct RestorableAgentSessionIndexTests {
         let sessionId = "ffffffff-ffff-ffff-ffff-ffffffffffff"
         let workspaceId = UUID()
         let panelId = UUID()
+        let stableSurfaceId = UUID()
         var record = driftedAgentHookRecord(
             launcher: "codex",
             sessionId: sessionId,
@@ -836,6 +837,7 @@ struct RestorableAgentSessionIndexTests {
             launchCwd: cwd.path,
             updatedAt: 10
         )
+        record["stableSurfaceId"] = stableSurfaceId.uuidString
         // Force restore eligibility to come from the usable argv/source rule,
         // rather than the helper's default isRestorable: true marker.
         record["isRestorable"] = NSNull()
@@ -854,12 +856,21 @@ struct RestorableAgentSessionIndexTests {
             sessions: [sessionId: record]
         )
 
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
         let snapshot = try XCTUnwrap(
-            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-                .snapshot(workspaceId: workspaceId, panelId: panelId),
+            index.snapshot(workspaceId: workspaceId, panelId: panelId),
             "a contradictory record with usable argv should use the argv consistently with sessions list"
         )
         XCTAssertEqual(snapshot.launchCommand?.arguments, ["/usr/local/bin/codex", "--yolo"])
+        XCTAssertEqual(
+            index.entryForStablePanel(
+                workspaceId: UUID(),
+                panelId: UUID(),
+                stableSurfaceId: stableSurfaceId,
+                revalidateProcessEvidence: false
+            )?.snapshot.sessionId,
+            sessionId
+        )
     }
 
     @Test

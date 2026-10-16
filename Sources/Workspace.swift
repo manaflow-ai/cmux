@@ -115,6 +115,7 @@ extension Workspace {
                     restorableAgentObservation: restorableAgentIndex?.entryForStablePanel(
                         workspaceId: id,
                         panelId: panelId,
+                        stableSurfaceId: panels[panelId]?.stableSurfaceId,
                         processIdentityProvider: currentAgentProcessIdentity,
                         processPresenceProvider: agentProcessPresence,
                         // Snapshot projection already consumes one index result;
@@ -2057,6 +2058,9 @@ extension Workspace {
                 remotePTYSessionID: restoredRemotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
                 restoredSurfaceId: reusableSurfaceId,
+                restoredStableSurfaceId: snapshot.stableSurfaceId.flatMap {
+                    sessionRestoreIdentityExclusions.shouldAdopt($0) ? $0 : nil
+                },
                 terminalFontSizeCreationPolicy: .sessionRestore(
                     overrideBasePoints: snapshot.terminal?.fontSize,
                     representedChangeTokens: Set(
@@ -2085,6 +2089,12 @@ extension Workspace {
                     }
                 }
                 return nil
+            }
+            if let recovery = snapshot.terminal?.restoreRecovery {
+                terminalPanel.restoreRecovery.state = .failed(
+                    reason: recovery.reason,
+                    recoveryInput: recovery.recoveryInput
+                )
             }
             if deferredAgentResumeAdmission { terminalPanel.restoreRecovery.state = .checking }
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
@@ -9586,6 +9596,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
+        restoredStableSurfaceId: UUID? = nil,
         terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy = .inherit,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
@@ -9608,6 +9619,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
+            restoredStableSurfaceId: restoredStableSurfaceId,
             terminalFontSizeCreationPolicy: terminalFontSizeCreationPolicy,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
@@ -9635,6 +9647,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
+        restoredStableSurfaceId: UUID? = nil,
         terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy = .inherit,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
@@ -9703,6 +9716,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
+            restoredStableSurfaceId: restoredStableSurfaceId,
             terminalFontSizeCreationPolicy: terminalFontSizeCreationPolicy,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
@@ -9728,6 +9742,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remotePTYSessionID: String?,
         suppressWorkspaceRemoteStartupCommand: Bool,
         restoredSurfaceId: UUID?,
+        restoredStableSurfaceId: UUID?,
         terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy,
         inheritWorkingDirectoryFallback: Bool,
         workingDirectoryFallbackSourcePanelId: UUID?,
@@ -9802,6 +9817,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
             additionalEnvironment: effectiveStartupEnvironment,
+            stableSurfaceId: restoredStableSurfaceId,
             isRemoteTerminal: tracksRemoteTerminalSurface,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: runtimeSpawnPolicy,

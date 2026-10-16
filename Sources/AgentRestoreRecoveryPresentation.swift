@@ -10,6 +10,9 @@ final class AgentRestoreRecoveryPresentation {
         case checking
         case liveOwner(kind: String, processID: Int, attachInput: String?, attachAvailable: Bool)
         case writerLock(candidates: [CodexWriterProcessInspector.Candidate])
+        /// A relaunch that did not start is kept visibly recoverable instead
+        /// of becoming an indistinguishable shell.
+        case failed(reason: String, recoveryInput: String?)
     }
 
     var state: State?

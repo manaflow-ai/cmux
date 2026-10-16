@@ -858,6 +858,7 @@ struct AgentHookDeliveryQueueTests {
                 "CMUX_AGENT_MANAGED_SUBAGENT": "1",
                 "CMUX_CLAUDE_PID": "8535",
                 "CMUX_SURFACE_ID": "surface-a",
+                "CMUX_STABLE_SURFACE_ID": "stable-surface-a",
             ],
         ]
         let event = try #require(AgentHookDeliveryEvent(
@@ -878,6 +879,7 @@ struct AgentHookDeliveryQueueTests {
         #expect(environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == "1")
         #expect(environment["CMUX_AGENT_MANAGED_SUBAGENT"] == "1")
         #expect(environment["CMUX_SURFACE_ID"] == "surface-a")
+        #expect(environment["CMUX_STABLE_SURFACE_ID"] == "stable-surface-a")
         #expect(environment["ANTHROPIC_BASE_URL"] == nil)
         #expect(environment["CMUX_CLAUDE_PID"] == nil)
         let relayStateDirectory = try #require(

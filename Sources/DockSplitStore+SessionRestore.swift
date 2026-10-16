@@ -528,6 +528,9 @@ extension DockSplitStore {
             tmuxStartCommand: restoredTmuxStartCommand,
             initialInput: initialInput,
             additionalEnvironment: replayEnvironment,
+            stableSurfaceId: snapshot.stableSurfaceId.flatMap {
+                excludingStableIdentities.contains($0) ? nil : $0
+            },
             focusPlacement: .rightSidebarDock,
             isRemoteTerminal: terminalSnapshot.isRemoteTerminal == true,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
@@ -547,6 +550,12 @@ extension DockSplitStore {
             panelId: terminal.id,
             internallySeededInput: initialInput
         )
+        if let recovery = terminalSnapshot.restoreRecovery {
+            terminal.restoreRecovery.state = .failed(
+                reason: recovery.reason,
+                recoveryInput: recovery.recoveryInput
+            )
+        }
         if willRunAgentInput {
             // Keep the typed resume selector so the shell-state handler can
             // replay it if the login shell drops the typeahead.
