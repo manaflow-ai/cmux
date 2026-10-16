@@ -1,9 +1,10 @@
 public import CmuxNextCodeRouter
 public import Foundation
+public import Observation
 
 /// Sample data for the demo and tests: a signed-in Codex and Claude Code,
 /// one env key, Ollama running, and one CodeRouter account. Records calls.
-@MainActor
+@MainActor @Observable
 public final class MockAccountsServices: AccountsServices {
     public var detections: [ProviderDetection] = [
         ProviderDetection(provider: .codex, status: .signedIn, account: AccountLabel.demo("codex", display: "pro"), plan: "pro",

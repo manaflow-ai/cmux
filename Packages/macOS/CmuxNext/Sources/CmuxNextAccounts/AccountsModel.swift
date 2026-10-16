@@ -58,9 +58,9 @@ public final class AccountsModel {
             // Detection and the CodeRouter list run concurrently.
             let detecting = Task { await services.detect() }
             let loading = Task { await Self.loadLinked(services) }
-            let teams = Task { await services.refreshTeams() }
+            // Membership re-reads on its own; the team list updates when it lands.
+            Task { await services.refreshTeams() }
             let found = await detecting.value, accounts = await loading.value
-            await teams.value
             guard let self, current == self.generation, !Task.isCancelled else { return }
             for detection in found { self.apply(.detected(detection), to: detection.provider) }
             switch accounts {

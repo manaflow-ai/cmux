@@ -71,6 +71,8 @@ public final class ActiveTeam {
         case managed
         /// The account is not a member of that team.
         case notMember
+        /// Another switch is being saved.
+        case switching
     }
 
     /// Makes `id` the active team: saved for the account first, so a refused
@@ -80,6 +82,7 @@ public final class ActiveTeam {
         guard managedTeamID == nil || id == managedTeamID else { throw Refusal.managed }
         guard source.availableTeams.contains(where: { $0.id == id }) else { throw Refusal.notMember }
         guard id != self.id else { return }
+        guard !isSwitching else { throw Refusal.switching }
         isSwitching = true
         defer { isSwitching = false }
         try await source.selectTeam(id: id)
