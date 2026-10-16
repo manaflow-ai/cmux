@@ -414,29 +414,31 @@ impl Hub {
         prompt_id: &str,
         reason: Option<&str>,
     ) -> bool {
-        let removed = {
+        let (removed, mut ledger) = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(i) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
                 return false;
             };
+            // Pin the identity before it leaves the queue: its runner may settle it meanwhile.
+            let ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
             session.queued.fetch_sub(1, Ordering::SeqCst);
-            queue.remove(i)
+            (queue.remove(i), ledger)
         };
-        session.queue_moved.notify_waiters();
-        // A resend of a rebuilt prompt waits on the ledger entry `restore_queues` made.
-        if removed.restored {
-            let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some((_, outcome)) = ledger.iter().find(|(id, _)| id == prompt_id) {
-                outcome.send_replace(Some(Ok(withdrawn_reply(prompt_id, &removed.turn_id))));
-            }
-            prompt_ledger::prune(&mut ledger);
-        }
         let mut msg =
             json!({"promptId": prompt_id, "turnId": removed.turn_id, "queued": session.queued()});
         if let Some(reason) = reason {
             msg["reason"] = json!(reason);
         }
         self.append(session, "mux", "queue_removed", msg);
+        // Finish the best-effort append before settlement can evict the retry identity.
+        if removed.restored {
+            if let Some((_, outcome)) = ledger.iter().find(|(id, _)| id == prompt_id) {
+                outcome.send_replace(Some(Ok(withdrawn_reply(prompt_id, &removed.turn_id))));
+            }
+            prompt_ledger::prune(&mut ledger);
+        }
+        drop(ledger);
+        session.queue_moved.notify_waiters();
         // A stored permit: the waiting task sees it even before it polls.
         removed.withdraw.notify_one();
         true
