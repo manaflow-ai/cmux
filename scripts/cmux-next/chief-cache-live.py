@@ -93,10 +93,14 @@ def chief_listed():
     return any("agent_mux" in c.get("participants", []) for c in home.get("conversations", []))
 
 
-def deferred_servers():
-    """MCP servers of the deferred tool names in this tag's Chief turn transcripts (Claude Code)."""
+def deferred_servers(since):
+    """MCP servers of the deferred tool names in this tag's Chief turn transcripts (Claude Code)
+    written since `since` (Claude Code's project folder name: every character not [A-Za-z0-9] is -)."""
     found = {}
-    for path in glob.glob(os.path.expanduser(f"~/.claude/projects/*isolated-{TAG}-optchat-session/*.jsonl")):
+    folder = re.sub(r"[^A-Za-z0-9]", "-", os.path.join(OPTCHAT, "session"))
+    for path in glob.glob(os.path.expanduser(f"~/.claude/projects/{folder}/*.jsonl")):
+        if os.path.getmtime(path) < since:
+            continue
         for line in open(path, errors="replace"):
             try:
                 attachment = json.loads(line).get("attachment") or {}
@@ -166,6 +170,8 @@ def main():
     log = open(os.path.join(opts.out, f"app-{TAG}.log"), "w")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     failures = []
+    started = time.time()
+    start = 0
     try:
         if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 300):
             sys.exit("the app's control socket never answered")
@@ -174,6 +180,8 @@ def main():
             sys.exit(f"no Home composer: {json.dumps(rpc('debug.home'))[:600]}")
         wait(chief_listed, 180, step=1)
         wait(lambda: "daemon connected" in host_log() and os.path.exists(os.path.join(OPTCHAT, "tools.sock")), 180, step=1)
+        # Only this probe's turns count: one the brain started on its own before is left out.
+        start = len(usages())
         for n in range(1, opts.turns + 1):
             before = len(usages())
             drive = send(f"cache probe {TAG} turn {n}: reply with only the word ok{n}.")
@@ -185,10 +193,11 @@ def main():
                 break
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"cache-{TAG}-home.png")}, timeout=10)
     finally:
-        rows = usages()
-        servers = deferred_servers()
+        rows = usages()[start:]
+        servers = deferred_servers(started)
         end_run(app)
         log.close()
+        shutil.rmtree(SCRATCH, ignore_errors=True)
         try:
             shutil.copy(os.path.join(MUX_HOME, "host.log"), os.path.join(opts.out, f"host-{TAG}.log"))
         except OSError:

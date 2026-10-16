@@ -15,7 +15,8 @@
 //!
 //! Deviation: acpmux ignores the client's `mcpServers` in `session/new` and
 //! gives every agent chat its own agent tools instead (cmux, cmux-cua,
-//! secrets: acpmux agent_tools.rs, cx-wx93i), so mux/host's way of passing
+//! secrets: acpmux agent_tools.rs, cx-wx93i; a Chief turn keeps only cmux,
+//! `TURN_TOOL_SERVERS`, cx-4a5w2), so mux/host's way of passing
 //! MCP servers reaches no harness. The Chief's own `optchat` server, which
 //! acpmux does not know, goes in the directory's `.mcp.json`, enabled by the
 //! project settings, which Claude Code harnesses read.
