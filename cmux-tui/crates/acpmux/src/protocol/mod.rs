@@ -10,6 +10,7 @@
 //! a name this registry lacks (`protocol/tests.rs`).
 
 pub mod permission;
+pub mod mailbox;
 pub mod session;
 #[cfg(test)]
 mod tests;
@@ -103,6 +104,7 @@ fn notification<P: JsonSchema>(name: &'static str) -> MethodDecl {
 /// within each group.
 pub fn registry() -> Vec<MethodDecl> {
     use Kind::*;
+    use mailbox::*;
     use permission::*;
     use session::*;
     vec![
@@ -160,10 +162,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_INFO, Request),
         untyped(method::MUX_EVENTS, Request),
         untyped(method::MUX_ATTACHMENT, Request),
-        untyped(method::MUX_MAIL_SEND, Request),
-        untyped(method::MUX_MAIL_READ, Request),
-        untyped(method::MUX_MAIL_WAIT, Request),
-        untyped(method::MUX_MAIL_ACK, Request),
+        request::<MailSendParams, MailSendResult>(method::MUX_MAIL_SEND),
+        request::<MailReadParams, MailPageResult>(method::MUX_MAIL_READ),
+        request::<MailWaitParams, MailPageResult>(method::MUX_MAIL_WAIT),
+        request::<MailAckParams, MailAckResult>(method::MUX_MAIL_ACK),
         untyped(method::MUX_HISTORY, Request),
         untyped(method::MUX_COMPLETE, Request),
         untyped(method::MUX_WAIT, Request),
