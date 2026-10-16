@@ -136,12 +136,10 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             return .object(["ok": .bool(true), "geometry": .object(view.debugGeometry().mapValues { .number($0) })])
         case "texts":
             // What the transcript view itself holds (its MessagesLab store), oldest first, to compare
-            // with the HomeStore transcript and the owner's snapshot (a message in both but not here is hidden);
-            // a streaming bubble (ask 11) is drawn after them and comes last.
+            // with the HomeStore transcript and the owner's snapshot (a message in both but not here is hidden); a stream (ask 11) last.
             let texts = view.debugMessageTexts(limit: params["limit"]?.intValue ?? 50) + view.debugStreamTexts
             return .object(["ok": .bool(true), "texts": .array(texts.map { .string($0) }),
-                            "statusLine": view.debugStatusLine.map { .string($0) } ?? .null,
-                            "rebuilds": .number(Double(view.debugRebuilds)), "streams": .number(Double(view.debugStreamTexts.count))])
+                            "statusLine": view.debugStatusLine.map { .string($0) } ?? .null, "rebuilds": .number(Double(view.debugRebuilds)), "streams": .number(Double(view.debugStreamTexts.count))])
         case "engine_set", "chief_control":
             // One pick in the shown conversation's Chief settings panel (`key`: harness, model or effort;
             // no `value`: default), as its popup does (scripts/cmux-next/chief-home-fixes-live.py).
