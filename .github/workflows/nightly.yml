@@ -3708,6 +3708,7 @@ jobs:
             printf '%s\n' "$DOWNLOADS"
           } > "$RUNNER_TEMP/nightly-release-body.md"
           expect=()
+          names=()
           read -ra names <<<"$UPLOADED_ASSETS"
           for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
           python3 scripts/ci/finalize-release.py publish \
@@ -3797,6 +3798,7 @@ jobs:
             printf '%s\n' "$DOWNLOADS"
           } > "$RUNNER_TEMP/nightly-release-body.md"
           expect=()
+          names=()
           read -ra names <<<"$UPLOADED_ASSETS"
           for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
           python3 scripts/ci/finalize-release.py publish \
