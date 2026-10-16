@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxHomeCore
 import MessagesLabSidebar
 import SwiftUI
@@ -37,6 +38,11 @@ final class ChiefHomeConversationRowsView: NSHostingView<ChiefHomeConversationRo
         self.home = home
         super.init(rootView: ChiefHomeConversationRows(home: home, accent: accent))
         setAccessibilityIdentifier("ChiefHomeConversationRows")
+    }
+
+    @available(*, unavailable)
+    required init(rootView: ChiefHomeConversationRows) {
+        fatalError("init(rootView:) has not been implemented")
     }
 
     @available(*, unavailable)

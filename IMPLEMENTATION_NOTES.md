@@ -1,3 +1,10 @@
+## 2026-10-15 tagged build compile fix
+
+- The first exact-head fleet build caught two Xcode-only issues in the Home
+  conversation host: it now imports `CmuxFoundation` for `CmuxAccentColor` and
+  explicitly implements the unavailable required `NSHostingView` initializer.
+  Swift syntax and app-source wiring checks pass after the repair.
+
 ## 2026-10-15 Chief Home pane drag
 
 - The pinned Chief Home row now carries a live Bonsplit transfer lease for the
