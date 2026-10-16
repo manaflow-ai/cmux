@@ -1,5 +1,5 @@
 import { Popover } from "@base-ui-components/react/popover";
-import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { Block, ChangedFile, SessionActions } from "../session";
 import { fileDiffCacheKey } from "../session";
 import { agentChatText } from "../i18n";
@@ -987,6 +987,12 @@ export function Blocks({
   const virtual = useVirtualTurns(displayGroups.length, virtualized);
   const [expandedTurns, setExpandedTurns] = useState<Record<string, boolean>>(() => initialExpandedTurns);
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>(() => initialExpandedItems);
+  useEffect(() => {
+    if (blocks.length !== 0) return;
+    setHistoryExpanded(false);
+    setExpandedTurns({});
+    setExpandedItems({});
+  }, [blocks.length]);
   const start = virtualized ? virtual.range.start : 0;
   const end = virtualized ? virtual.range.end : displayGroups.length - 1;
   const visible = displayGroups.slice(start, end + 1);
