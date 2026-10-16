@@ -1,0 +1,6 @@
+node_modules/
+release/
+renderer/dist/
+test-output/
+renderer/catalog-messages.js
+src/catalog-messages.json

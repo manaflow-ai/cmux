@@ -1,0 +1,162 @@
+/* cmux reference appearance. Geometry comes from Sources/WindowChromeMetrics.swift
+   and Sources/SessionPersistence.swift. The default palette matches the repository
+   screenshots' Monokai terminal; explicit user themes and terminal colors still win.
+   Intent: developers following several terminal workspaces without losing context.
+   Palette: charcoal chrome, olive-black terminal, blue selection, muted metadata.
+   Depth: one-pixel separators; blue marks keyboard focus and attention.
+   Surfaces: terminal #272822, sidebar #252525, tab strip #1f1f1f.
+   Typography: Windows system UI at 13px; Cascadia Mono terminal at 13px.
+   Spacing: 4px unit, 6px outer row inset, 10px row content inset, 28px chrome. */
+:root {
+  --color-canvas: #272822;
+  --color-chrome: #252525;
+  --color-rail: #252525;
+  --color-pane: #272822;
+  --color-pane-warm: #1f1f1f;
+  --color-pane-active: #30312b;
+  --color-line: #383936;
+  --color-line-strong: #585955;
+  --color-text: #dddddd;
+  --color-muted: #ababab;
+  --color-faint: #858580;
+  --color-terminal-gutter: #181916;
+  --font-ui: "Segoe UI", system-ui, sans-serif;
+  --depth-pane-shadow: none;
+}
+body { font-size: 13px; }
+.shell { grid-template-rows: minmax(0, 1fr); }
+.shell > .window-resize-edge { position: fixed; }
+.shell .sidebar {
+  grid-template-rows: 28px minmax(0, 1fr);
+  background: var(--color-rail-surface);
+  border-right-color: var(--color-line);
+}
+.shell .sidebar-chrome {
+  display: flex;
+  height: 28px;
+  gap: 8px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+}
+.sidebar-chrome > button {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #c7c7c7;
+  -webkit-app-region: no-drag;
+}
+.sidebar-chrome > button:hover { background: #ffffff16; }
+#shell .sidebar-chrome #notificationsRailButton { display: grid; }
+#notificationsRailButton { position: relative; }
+#notificationsRailButton[data-count]:not([data-count=""])::after {
+  content: attr(data-count); position: absolute; right: -6px; top: -2px;
+  min-width: 12px; height: 12px; padding: 0 2px; border-radius: 6px;
+  font: 9px/12px var(--font-ui); color: white; background: #0a84ff;
+}
+.sidebar-chrome svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; }
+.sidebar-chrome .sidebar-action-label { display: none; }
+.sidebar-chrome .sidebar-action-icon { width: 18px; height: 18px; }
+.shell .sidebar-tools, .shell .sidebar-footer { display: none; }
+.shell .workspace-list { padding: 2px 6px 8px; }
+.shell .workspace-list .workspace-row {
+  grid-template-columns: minmax(0, 1fr) 16px;
+  gap: 0;
+  min-height: 52px;
+  margin: 0 0 4px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  box-shadow: none;
+}
+.shell .workspace-list .workspace-row.is-active {
+  background: #0a84ff;
+  color: white;
+  box-shadow: none;
+}
+.shell .workspace-row .workspace-card { gap: 4px; padding: 0; }
+.shell .workspace-row .workspace-attention, .shell .workspace-row .workspace-grip,
+.shell .workspace-row .workspace-color, .shell .workspace-row .workspace-counts { display: none; }
+.shell .workspace-name { font-size: 13px; font-weight: 600; line-height: 16px; }
+.workspace-row .workspace-meta { display: flex; flex-direction: row-reverse; justify-content: flex-end; gap: 6px; }
+.shell .workspace-row .workspace-name-line { display: flex; }
+.shell .workspace-row .workspace-name { flex: 1; }
+.shell .workspace-row .workspace-path, .shell .workspace-row .workspace-branch { background: none; border: none; padding: 0; }
+.workspace-row .workspace-path, .workspace-row .workspace-branch {
+  font: 11px/14px var(--font-mono);
+  color: var(--color-muted);
+}
+.workspace-summary { font-size: 12px; line-height: 15px; color: var(--color-muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.workspace-summary:empty { display: none; }
+.workspace-row.is-active .workspace-path, .workspace-row.is-active .workspace-branch,
+.workspace-row.is-active .workspace-summary { color: #ffffffd9; }
+.shell .workspace-list .workspace-row .workspace-close { width: 16px; height: 16px; color: inherit; opacity: 0; }
+.shell .workspace-list .workspace-row:hover .workspace-close,
+.shell .workspace-list .workspace-row:focus-within .workspace-close { opacity: .8; }
+.shell .main { grid-template-rows: 28px 28px minmax(0, 1fr) 24px; }
+.shell.hide-status:not(.hide-tabs) .main { grid-template-rows: 28px 28px minmax(0, 1fr); }
+.shell.hide-tabs:not(.hide-status) .main, .shell.workspace-empty:not(.hide-status) .main { grid-template-rows: 28px minmax(0, 1fr) 24px; }
+.shell.hide-tabs.hide-status .main, .shell.workspace-empty.hide-status .main,
+.shell.focus-mode .main { grid-template-rows: 28px minmax(0, 1fr); }
+.shell .topbar { min-height: 28px; gap: 6px; padding-left: 12px; background: var(--color-chrome-surface); }
+.workspace-title-block { display: flex; align-items: center; gap: 6px; }
+.workspace-heading { font-size: 13px; font-weight: 600; color: var(--color-muted); }
+.workspace-subheading { display: none; }
+.shell .topbar .tool-button { height: 20px; min-height: 20px; width: 20px; min-width: 20px; padding: 0; }
+.shell .topbar .tool-label, .shell .topbar #splitRightButton, .shell .topbar #settingsButton { display: none; }
+.shell .native-window-controls { height: 28px; }
+.shell .window-control { width: 32px; height: 28px; }
+.shell .window-control svg { width: 14px; height: 14px; }
+.window-actions { display: none; }
+.shell.sidebar-collapsed .window-actions { display: flex; }
+.shell .surface-tabs { height: 28px; min-height: 28px; }
+.shell .pane { grid-template-rows: 28px minmax(0, 1fr); outline: none; box-shadow: none; background: var(--color-pane-surface); }
+#paneGrid .pane-header {
+  grid-template-columns: 14px minmax(36px, 1fr) max-content;
+  height: 28px;
+  padding: 0 6px;
+  gap: 6px;
+  background: #1f1f1f;
+  border-bottom: 1px solid var(--color-line);
+}
+.pane .pane-grip { display: none; }
+.shell .pane-header::before { display: none; }
+.shell .pane-title { font-size: 12px; font-weight: 500; color: #c5c5c5; }
+#paneGrid .pane-type { grid-column: 1; grid-row: 1; display: grid; width: 14px; min-width: 14px; height: 14px; border: 0; border-radius: 0; }
+#paneGrid .pane-type svg { fill: none; stroke: currentColor; }
+#paneGrid .pane-type, #paneGrid .pane-title { display: none; }
+/* Intent: tabs share the terminal's split boundary; inactive terminal processes
+   keep running. Palette and 28px strip geometry follow the original Bonsplit bar. */
+.pane-tab-strip { grid-column: 1 / 3; grid-row: 1; height: 28px; min-width: 0; display: flex; overflow: auto hidden; scrollbar-width: none; }
+.pane-tab { display: flex; align-items: center; gap: 6px; flex: 0 1 190px; min-width: 64px; max-width: 230px; height: 28px; padding: 0 6px; border-right: 1px solid #383936; color: #aaa; font-size: 12px; cursor: default; }
+.pane-tab.is-selected { background: #272822; color: #ddd; box-shadow: inset 0 1px #858580; }
+.pane.is-active .pane-tab.is-selected { box-shadow: inset 0 1px #0a84ff; }
+.pane-tab-icon { display: grid; place-items: center; width: 14px; flex: 0 0 14px; }
+.pane-tab-icon svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.pane-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.pane-tab-close { border: 0; padding: 0; background: transparent; color: inherit; opacity: 0; width: 14px; height: 18px; font-size: 15px; }
+.pane-tab:hover .pane-tab-close, .pane-tab:focus-within .pane-tab-close { opacity: 1; }
+.pane-tab-close:hover { background: #ffffff16; border-radius: 3px; }
+.pane-tab:focus-visible { outline: 1px solid #0a84ff; outline-offset: -2px; }
+#paneGrid .pane-new-tab { font: 20px/20px var(--font-ui); }
+#paneGrid .pane-title { grid-column: 2; grid-row: 1; }
+#paneGrid .pane-toolbar { grid-column: 3; grid-row: 1; opacity: 1; pointer-events: auto; transform: none; max-inline-size: none; gap: 2px; }
+#paneGrid .pane-tool { flex: 0 0 20px; }
+.shell .pane-tool { height: 20px; width: 20px; min-width: 20px; color: #93948f; }
+.shell .pane-tool svg { width: 13px; height: 13px; }
+.shell .pane-toolbar .font-down, .shell .pane-toolbar .font-up,
+.shell .pane-toolbar .restart, .shell .pane-toolbar .minimize { display: none; }
+.shell .pane.is-active > .pane-header { box-shadow: inset 0 1px #0a84ff; }
+.shell .pane.has-attention { outline: 2px solid #0a84ff; outline-offset: -2px; }
+.shell .terminal-host { padding: 6px; background: var(--color-pane-surface); }
+.shell .pane-body { background: var(--color-pane-surface); }
+.shell .pane-grid { background: #181916; }
+.shell .pane-splitter { flex-basis: 1px; background: #181916; }
+.shell.focus-mode .pane { grid-template-rows: minmax(0, 1fr); }
