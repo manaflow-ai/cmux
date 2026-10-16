@@ -385,7 +385,9 @@ def main():
             for step in ("iphone", "rotate", "pixel7", "media"):
                 check("D_%s_page" % step, project(mine[step][1]) == project(reference[step][1]), cmux=project(mine[step][1]), chrome=project(reference[step][1]))
             # Device mode off: each browser's page is back to its own size before device mode.
-            check("D_off_restores_page", project(mine["off"][1]) == project(mine["base"][1]) and project(reference["off"][1]) == project(reference["base"][1]),
+            # Chrome's own base is read while its auto-opened DevTools may still take its width: compare it without w/h.
+            loose = lambda p: {k: v for k, v in (project(p) or {}).items() if k not in ("w", "h")}
+            check("D_off_restores_page", project(mine["off"][1]) == project(mine["base"][1]) and loose(reference["off"][1]) == loose(reference["base"][1]),
                   cmux=[project(mine["base"][1]), project(mine["off"][1])], chrome=[project(reference["base"][1]), project(reference["off"][1])])
             check("D_iphone_fit_scale", (mine["iphone"][0] or {}).get("scale") == (reference["iphone"][0] or {}).get("scale"),
                   cmux=mine["iphone"][0], chrome=reference["iphone"][0])
