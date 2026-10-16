@@ -46,7 +46,6 @@ extension Workspace {
         let chiefPanel = ChiefPanel(conversationID: conversationID, isHome: isHome)
         panels[chiefPanel.id] = chiefPanel
         panelTitles[chiefPanel.id] = chiefPanel.displayTitle
-        if isHome { pinnedPanelIds.insert(chiefPanel.id) }
 
         guard let newTabId = bonsplitController.createTab(
             title: chiefPanel.displayTitle,
@@ -55,9 +54,9 @@ extension Workspace {
             kind: SurfaceKind.chief.rawValue,
             isDirty: false,
             isLoading: false,
-            // Bonsplit hides the close affordance and excludes pinned tabs from
-            // close-others paths. The Workspace delegate remains the final guard.
-            isPinned: isHome,
+            // Home is protected by the Workspace close delegate, while its
+            // Bonsplit tab remains ordinary so it can be dragged and reordered.
+            isPinned: false,
             inPane: paneId
         ) else {
             panels.removeValue(forKey: chiefPanel.id)

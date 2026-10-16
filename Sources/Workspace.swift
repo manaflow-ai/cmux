@@ -2406,7 +2406,11 @@ extension Workspace {
         }
 
         setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle, source: snapshot.effectiveCustomTitleSource ?? .user, propagateToCloud: false)
-        setPanelPinned(panelId: panelId, pinned: snapshot.isPinned)
+        // Canonical Chief Home is protected by its close delegate, but its tab
+        // must remain an ordinary movable Bonsplit tab. This also migrates
+        // sessions written by older builds that persisted Home as pinned.
+        let restoredPinned = (panels[panelId] as? ChiefPanel)?.isHome == true ? false : snapshot.isPinned
+        setPanelPinned(panelId: panelId, pinned: restoredPinned)
 
         // The bonsplit tab header only refreshes when `updateTab` is called; the writes
         // above never reach it (`setPanelCustomTitle` skips the sync when there is no
@@ -5960,6 +5964,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     func setPanelPinned(panelId: UUID, pinned: Bool) {
         guard panels[panelId] != nil else { return }
+        if (panels[panelId] as? ChiefPanel)?.isHome == true, pinned {
+            return
+        }
         let wasPinned = pinnedPanelIds.contains(panelId)
         guard wasPinned != pinned else { return }
         let mutationToken = UUID()
@@ -11562,9 +11569,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func moveSurface(panelId: UUID, toPane paneId: PaneID, atIndex index: Int? = nil, focus: Bool = true) -> Bool {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
         guard bonsplitController.allPaneIds.contains(paneId) else { return false }
-        if let home = panels[panelId] as? ChiefPanel, home.isHome {
-            return duplicateChiefSurface(home, inPane: paneId, atIndex: index, focus: focus)
-        }
         guard bonsplitController.moveTab(tabId, toPane: paneId, atIndex: index) else { return false }
 
         if focus {
