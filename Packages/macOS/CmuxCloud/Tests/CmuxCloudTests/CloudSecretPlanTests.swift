@@ -164,7 +164,10 @@ import Testing
 
         let delivery = try #require(try await vault.delivery(for: "m1"))
         #expect(Set(delivery.delivered.keys) == ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"])
-        #expect(try await vault.plan(machineID: "m1").sendNames == ["OPENAI_API_KEY"])
+        // A changed fingerprint resends the full effective set because delivery merges
+        // entries into the machine's environment. The ledger still retains the held-back
+        // name, so a later revoke can remove it reliably.
+        #expect(try await vault.plan(machineID: "m1").sendNames == ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"])
 
         try await vault.remove(names: ["OPENAI_API_KEY"], scope: .all)
         #expect(try await vault.plan(machineID: "m1").toRemove == ["OPENAI_API_KEY"])

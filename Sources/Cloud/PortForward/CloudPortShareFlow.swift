@@ -169,7 +169,7 @@ enum CloudPortShareFlow {
 
     private static func teamID(for audience: CloudPortShareAudience) throws -> String? {
         guard audience == .team else { return nil }
-        guard let teamID = AppDelegate.shared?.auth?.resolvedTeamID, !teamID.isEmpty else {
+        guard let teamID = AppDelegate.shared?.auth?.coordinator.resolvedTeamID, !teamID.isEmpty else {
             throw CloudPortShareError.signedOut
         }
         return teamID
