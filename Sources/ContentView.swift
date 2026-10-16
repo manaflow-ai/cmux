@@ -12164,7 +12164,7 @@ struct VerticalTabsSidebar: View, Equatable {
 
     private var chiefHomeSidebarOverlay: some View {
         let settings = tabItemSettingsStore.snapshot
-        Group {
+        return Group {
             if isPresented && showsChiefHome {
                 ZStack(alignment: .top) {
                     if isChiefHomeSelected, let chiefHome {
