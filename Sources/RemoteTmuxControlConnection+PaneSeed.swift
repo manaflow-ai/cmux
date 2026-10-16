@@ -343,6 +343,10 @@ extension RemoteTmuxControlConnection {
             }
             deferredPaneSeedBudgetRecoveryPaneIDs.remove(paneId)
         }
+        // A queued pane the budget refused was handed over here, and the panes queued behind
+        // it may have no queued seed in flight to start them when it finishes. The budget
+        // that just let recoveries through is the edge that lets them through too.
+        pumpQueuedPaneSeeds()
     }
 
     /// Defers recovery out of the failing reservation and coalesces duplicate requests.
