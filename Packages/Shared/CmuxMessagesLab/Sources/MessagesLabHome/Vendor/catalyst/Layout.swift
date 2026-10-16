@@ -844,7 +844,7 @@ enum RowBuilder {
     /// measure exactly; others may use estimates (nil: all exact).
     static func rows(_ s: AppState, messages: [Message], now: Date, threadMode: Bool = false, range: Range<Int>? = nil,
                      previousRow: RowSpec.Kind? = nil, width: CGFloat = Metrics.current.width, exact: Range<Int>? = nil,
-                     scale: CGFloat = Fixture.renderScale) -> [RowSpec] {
+                     scale: CGFloat = Fixture.renderScale, threadCounts: [ID: Int]? = nil) -> [RowSpec] {
         let me = s.me
         var rows: [RowSpec] = []
         let receipts = receiptTargets(messages, me: me)
@@ -857,6 +857,13 @@ enum RowBuilder {
             }
             for m in s.conversation.messages {
                 if let r = m.replyTo, m.retractedAt == nil, let c = replyCount[r.messageId] { replyCount[r.messageId] = c + 1 }
+            }
+            // ThreadMode.tree: every reply of a tree stores its root in `replyTo`, so the count above
+            // is the root's whole subtree; the host's count wins when it gives one (Message.replyCount).
+            if s.ui.threadMode == .tree {
+                for m in s.conversation.messages where replyCount[m.id] != nil {
+                    if let n = m.replyCount { replyCount[m.id] = max(0, n) }
+                }
             }
         }
         // A message's thread: a reply's root, or the message itself when it has a reply that is not unsent or deleted
@@ -1002,6 +1009,12 @@ enum RowBuilder {
                                         gap: 1, height: 14))
                 }
                 if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
+                    rows.append(RowSpec(key: "replies:\(m.id)", kind: .replies(count: n, root: PartRef(messageId: m.id, partIndex: 0),
+                                                                               outgoing: outgoing), gap: 0, height: 22))
+                }
+                // ThreadMode.tree thread view: "N Replies" under a reply that has replies opens its
+                // branch (drill-in). `threadCounts` is nil in `.messages` mode and in the transcript.
+                if threadMode, let n = threadCounts?[m.id], n >= 1 {
                     rows.append(RowSpec(key: "replies:\(m.id)", kind: .replies(count: n, root: PartRef(messageId: m.id, partIndex: 0),
                                                                                outgoing: outgoing), gap: 0, height: 22))
                 }
@@ -1201,8 +1214,16 @@ enum Strings {
     static var unsentMine: String { MessagesLabLocalization.string("row.unsent.mine", "You unsent a message") }
     static var unsentTheirs: String { MessagesLabLocalization.string("row.unsent.theirs", "A message was unsent") }
     static func replies(_ n: Int) -> String {
-        String(format: MessagesLabLocalization.string("label.replies", "%lld Replies"), n)
+        // One reply: only a `.tree` thread view's drill-in label shows it (Messages labels 2 or more).
+        if n == 1 { return MessagesLabLocalization.string("label.replies.one", "1 Reply") }
+        return String(format: MessagesLabLocalization.string("label.replies", "%lld Replies"), n)
     }
+    /// The `.tree` thread view's back control (cmux only).
+    static var threadBack: String { MessagesLabLocalization.string("thread.back", "Back") }
+    /// The host thread header's status chip and owner placeholder (cmux only).
+    static var threadOpen: String { MessagesLabLocalization.string("thread.status.open", "Open") }
+    static var threadResolved: String { MessagesLabLocalization.string("thread.status.resolved", "Resolved") }
+    static var threadUnassigned: String { MessagesLabLocalization.string("thread.owner.none", "Unassigned") }
     static var location: String { MessagesLabLocalization.string("preview.location", "Location") }
     static func fileKind(_ a: Attachment) -> String {
         switch (a.fileName as NSString).pathExtension.lowercased() {

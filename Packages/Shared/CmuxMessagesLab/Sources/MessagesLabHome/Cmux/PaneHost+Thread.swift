@@ -26,7 +26,7 @@ final class PaneThread {
     func note(_ a: Action) {
         switch a {
         case .send: sentInView = openThread
-        case .reply, .closeThread: sentInView = nil
+        case .reply, .closeThread, .openThreadPath: sentInView = nil
         default: break
         }
     }

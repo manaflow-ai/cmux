@@ -836,15 +836,23 @@ notarization are not on it: no signing run on an owned Mac has been proven,
 and the retired self-hosted fleet failed `codesign` with
 `errSecInternalComponent` (#6264).
 
-NEXT nightly routing has separate `CI_NIGHTLY_NEXT_TRUSTED_POOL` and
-`CI_NIGHTLY_NEXT_TRUSTED_RUNNER` variables, restricted to the same trusted-pool
-and runner-name shapes as main's pair. Main's rescue watches attempt 1 of
-same-repository `nightly-next` pushes, moves refused or stalled jobs to their
-hosted retry, and compares newer pending runs only within that branch.
-A schedule on `nightly-next` is never admitted. These variables must remain
-unset until the NEXT workflow supports the route and an eligible worker's hook
-admits exactly its workflow, job and ref. They authorize no PR-pool or signing
-work on the trusted worker. Main's nightly runner selection is unchanged.
+NEXT uses separate `CI_NIGHTLY_NEXT_TRUSTED_POOL` and
+`CI_NIGHTLY_NEXT_TRUSTED_RUNNER` variables with the same trusted-pool and
+runner-name shapes. The selector also requires `glaeda-trusted-next-nightly`,
+a capability label installed only with the narrow NEXT admission wrapper. Both
+variables and that capability are required on attempt 1 of a same-repository
+`nightly-next` push. The worker hook must explicitly admit only that workflow,
+job and ref, and the worker must have no pull request runners or dev-build
+worker under the same user. Do not activate these variables until that hook is
+deployed and main's rescue and variable-policy support is green. Empty variables,
+retries, dispatches and fast builds use Blacksmith. The main-only
+`ci-cache-writer` environment stays on main; NEXT's trusted job skips shared cache
+restores and writes. It retains its own Release build database, intermediates,
+products and Swift packages under `~/Library/Caches/cmux-nightly-next`, separated
+by runner, source path and Xcode/SDK. Checkout cleanup removes only the links.
+The forced web build still runs; identical source and resource bytes regain the
+prior input timestamps, while changed inputs are dated now. This permits warm
+incremental builds without trusting an old bundle stamp.
 
 | Jobs | Route | Why |
 | --- | --- | --- |
@@ -867,7 +875,7 @@ work on the trusted worker. Main's nightly runner selection is unchanged.
 | `relay-tls` `system-keychain` | Blacksmith | edits the System keychain trust store |
 | `plain-paste-worker`, `ci-macos-compat`, `seed-swiftpm-manifests`, release and nightly Ghostty helpers | Blacksmith macOS 15 / 14 | an OS or SDK the minis lack |
 | `release.yml`, nightly sign/notarize, `ios-testflight`, `ios-app-store`, `ios-appstore-upload` | Blacksmith | signing and store secrets; signing on an owned Mac is unproven |
-| `nightly.yml` `build-nightly-app` | one trusted runner (`CI_SEED_TRUSTED_POOL` plus `CI_NIGHTLY_TRUSTED_RUNNER`, cmux15) on attempt 1 of main's push and schedule runs; Blacksmith 12 vCPU otherwise, for `rc/**`, dispatches and fast dogfood, and on every re-run | ci-owned-pool-rescue.yml watches it (`NIGHTLY_WORKFLOW_PATH`): stuck one queue round past `CI_OWNED_POOL_RESCUE_SECONDS`, or refused, its failed jobs re-run on Blacksmith. Its compilation cache keys its own lineage (the mini's workspace path) |
+| `nightly.yml` `build-nightly-app` | one trusted runner on attempt 1: main push/schedule uses `CI_SEED_TRUSTED_POOL` plus `CI_NIGHTLY_TRUSTED_RUNNER`; a `nightly-next` push uses `CI_NIGHTLY_NEXT_TRUSTED_POOL` plus `CI_NIGHTLY_NEXT_TRUSTED_RUNNER`; Blacksmith 12 vCPU for `rc/**`, dispatches, fast dogfood and every re-run | ci-owned-pool-rescue.yml watches it (`NIGHTLY_WORKFLOW_PATH`): stuck one queue round past `CI_OWNED_POOL_RESCUE_SECONDS`, or refused, its failed jobs re-run on Blacksmith. Its compilation cache keys its own lineage (the mini's workspace path) |
 | `seed-derived-data` trusted pool | trusted owned pool, push to main | the minis' own j14 seed |
 | `nightly.yml` `refresh-compilation-cache`, `refresh-test-compilation-cache`, `seed-derived-data` Blacksmith pools | Blacksmith | they seed Blacksmith's own lanes: the release cache the nightly fallback restores, and the pull request admission seeds for each Blacksmith pool |
 | `build-ghosttykit`, `cmux-tui-build-package` (artifacts, nightly, release), `relay-publish-npm` | Blacksmith | publish with R2 or release secrets |

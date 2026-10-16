@@ -36,7 +36,8 @@ run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow
 #   vars.CI_SEED_TRUSTED_POOL names a glaeda-trusted-* pool and
 #   vars.CI_NIGHTLY_TRUSTED_RUNNER a glaeda-runner-* label, attempt 1 of every
 #   push or schedule run on main asks for that one trusted mini, so every such
-#   run is watched (owned_pool_rescue.NIGHTLY_WORKFLOW_PATH).
+#   run is watched (owned_pool_rescue.NIGHTLY_WORKFLOW_PATH). NEXT uses its
+#   own CI_NIGHTLY_NEXT_TRUSTED_POOL/RUNNER pair for nightly-next pushes.
 # Side lanes have no picker, and a gated job can appear after the requested
 # event. They wake this rescue directly as well as remaining in the periodic
 # sweeper, so a late runner-hook refusal is not missed.

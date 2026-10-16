@@ -98,7 +98,9 @@ export const classify = async (env: Env, hand: string, owner: string, agent: str
   }
   const ctx: Context = { systemPrompt: SYSTEM, messages: [{ role: "user", content: [{ type: "text", text: summary.text }], timestamp: Date.now() }] } as Context
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  // HAND_CLASSIFIER_TIMEOUT_MS: a shorter limit proves the timeout path on a test deployment.
+  const limit = Math.min(Math.max(Number(env.HAND_CLASSIFIER_TIMEOUT_MS ?? TIMEOUT_MS) || TIMEOUT_MS, 1), TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), limit)
   try {
     const reply = await models.models.completeSimple(model, ctx, { maxTokens: 200, signal: controller.signal })
     const text = (reply.content ?? []).map((c) => (c.type === "text" ? c.text : "")).join("")

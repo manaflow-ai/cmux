@@ -58,6 +58,15 @@ struct Message: Codable, Equatable {
     /// plain text, always (the default: a user's message with `*` or `|` stays as typed).
     /// `.markdown`: the host marks it (an agent's reply), and the markdown engine renders it.
     var format: MessageFormat? = nil
+    /// `ThreadMode.tree` (a host option): the message this reply answers, when it is not the thread
+    /// root (`replyTo` stays the root, so the transcript groups the reply with its thread). nil in
+    /// `.messages` mode (macOS Messages: a reply answers its thread) and for a reply to the root.
+    /// The host sends it as the reply's parent (cmux: `reply_to`; ThreadHost.swift).
+    var parent: PartRef? = nil
+    /// `ThreadMode.tree`: the host's count of the replies under this message (a root: its whole
+    /// thread; a reply: its branch), when the loaded window may not hold them all (cmux: the
+    /// daemon's `reply_count`). nil: counted from the loaded messages. Ignored in `.messages` mode.
+    var replyCount: Int? = nil
 
     struct Edit: Codable, Equatable { var text: String; var at: String }
 
