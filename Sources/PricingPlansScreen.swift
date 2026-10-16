@@ -262,18 +262,14 @@ private struct NativeBillingPlanResponse: Decodable {
     let user: User?
     /// Present while the account is on a Pro free trial (`subscriptionPlanId`
     /// is then "pro"). The trial is named "Pro trial" and sold nothing.
-    let trial: Trial?
+    let trial: CmuxProTrial?
     let teamPlanId: String?
-
-    struct Trial: Decodable {
-        let endsAt: String?
-    }
 
     /// The personal trial, unless a team plan of Pro or higher outranks it
     /// (the same rule as the account's billing plan in Settings).
     var proTrial: CmuxProTrial? {
         guard let trial, !(CmuxPlanTier(planID: teamPlanId) ?? .free).includesPro else { return nil }
-        return CmuxProTrial(endsAt: CmuxProTrial.endDate(fromISO8601: trial.endsAt))
+        return trial
     }
 
     /// The plan the pricing cards mark as current.
@@ -586,21 +582,24 @@ private struct NativePricingPlansView: View {
                     String(localized: "pricing.native.max.feature.pro", defaultValue: "Unlimited workspaces and the iOS app"),
                 ]
             )
-            NativePricingPlanCard(
-                name: String(localized: "pricing.native.plan.team", defaultValue: "Team"),
-                price: String(localized: "pricing.native.team.price", defaultValue: "$60"),
-                period: String(localized: "pricing.native.period.userMonth", defaultValue: "/user/month"),
-                isCurrent: false,
-                actionTitle: String(localized: "pricing.native.team.cta", defaultValue: "Get Teams"),
-                action: snapshot.isProTrial ? nil : { NSWorkspace.shared.open(AuthEnvironment.websiteOrigin) },
-                features: [
-                    String(localized: "pricing.native.team.feature.billing", defaultValue: "Unified billing for the whole team"),
-                    String(localized: "pricing.native.team.feature.seats", defaultValue: "Centralized seat management"),
-                    String(localized: "pricing.native.team.feature.compute", defaultValue: "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team"),
-                    String(localized: "pricing.native.team.feature.gateway", defaultValue: "Team-wide model gateway analytics"),
-                    String(localized: "pricing.native.team.feature.support", defaultValue: "Priority email support"),
-                ]
-            )
+            // A Pro free trial is sold nothing, so Teams is not shown to it.
+            if !snapshot.isProTrial {
+                NativePricingPlanCard(
+                    name: String(localized: "pricing.native.plan.team", defaultValue: "Team"),
+                    price: String(localized: "pricing.native.team.price", defaultValue: "$60"),
+                    period: String(localized: "pricing.native.period.userMonth", defaultValue: "/user/month"),
+                    isCurrent: false,
+                    actionTitle: String(localized: "pricing.native.team.cta", defaultValue: "Get Teams"),
+                    action: { NSWorkspace.shared.open(AuthEnvironment.websiteOrigin) },
+                    features: [
+                        String(localized: "pricing.native.team.feature.billing", defaultValue: "Unified billing for the whole team"),
+                        String(localized: "pricing.native.team.feature.seats", defaultValue: "Centralized seat management"),
+                        String(localized: "pricing.native.team.feature.compute", defaultValue: "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team"),
+                        String(localized: "pricing.native.team.feature.gateway", defaultValue: "Team-wide model gateway analytics"),
+                        String(localized: "pricing.native.team.feature.support", defaultValue: "Priority email support"),
+                    ]
+                )
+            }
             NativePricingPlanCard(
                 name: String(localized: "pricing.native.plan.enterprise", defaultValue: "Enterprise"),
                 price: String(localized: "pricing.native.enterprise.price", defaultValue: "Custom"),

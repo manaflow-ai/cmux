@@ -137,7 +137,7 @@ public struct BillingPlanClient: Sendable {
         // higher outranks it; the team plan is then what the person has.
         let teamTier = CmuxPlanTier(planID: decoded.teamPlanId) ?? .free
         let proTrial = decoded.trial.flatMap { trial in
-            teamTier.includesPro ? nil : CmuxProTrial(endsAt: CmuxProTrial.endDate(fromISO8601: trial.endsAt))
+            teamTier.includesPro ? nil : trial
         }
         return BillingPlanDetails(isPro: isPro, canManageBilling: canManageBilling, tier: tier, proTrial: proTrial)
     }
@@ -152,12 +152,6 @@ public struct BillingPlanClient: Sendable {
         let billingManagement: String?
         let teamPlanId: String?
         let teamBillingManagement: String?
-        let trial: Trial?
-    }
-
-    /// `trial` of the plan response; `limits` is not read because every
-    /// surface states the fixed trial allowance in its own copy.
-    private struct Trial: Decodable {
-        let endsAt: String?
+        let trial: CmuxProTrial?
     }
 }

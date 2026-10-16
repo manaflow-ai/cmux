@@ -5140,5 +5140,17 @@
         ]
       }
     }
+  },
+  "plan.proTrial.machines": {
+    "source": "%d machines",
+    "identityLocales": {
+      "fr": {
+        "reason": "French spells machine and machines the same as English. The translated French entry is still required.",
+        "values": [
+          "%d machine",
+          "%d machines"
+        ]
+      }
+    }
   }
 }

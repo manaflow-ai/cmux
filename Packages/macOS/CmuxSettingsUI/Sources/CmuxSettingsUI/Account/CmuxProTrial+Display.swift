@@ -9,13 +9,36 @@ public extension CmuxProTrial {
         String(localized: "plan.proTrial.name", defaultValue: "Pro trial", bundle: .module)
     }
 
-    /// What the trial includes. The allowance is fixed by the Cloud service
-    /// (one machine of 2 vCPU and 4 GB, 20 VM-hours) and enforced there.
-    static var allowanceText: String {
-        String(
-            localized: "plan.proTrial.allowance",
-            defaultValue: "1 machine with 2 vCPU and 4 GB RAM, and 20 VM-hours",
-            bundle: .module
+    /// What the trial includes, from the service's numbers: "1 machine with
+    /// 2 vCPU and 4 GB RAM, and 20 VM-hours". When any number is missing, the
+    /// standard trial allowance is stated instead.
+    var allowanceText: String {
+        guard let machines = limits.machines, let vcpus = limits.vcpus,
+              let memoryGb = limits.memoryGb, let vmHours = limits.vmHours else {
+            return String(
+                localized: "plan.proTrial.allowance",
+                defaultValue: "1 machine with 2 vCPU and 4 GB RAM, and 20 VM-hours",
+                bundle: .module
+            )
+        }
+        let machinesText = String(
+            format: String(localized: "plan.proTrial.machines", defaultValue: "%d machines", bundle: .module),
+            machines
+        )
+        let sizeText = String(
+            format: String(localized: "plan.proTrial.size", defaultValue: "%1$@ vCPU and %2$@ GB RAM", bundle: .module),
+            vcpus.formatted(),
+            memoryGb.formatted()
+        )
+        let hoursText = String(
+            format: String(localized: "plan.proTrial.vmHours", defaultValue: "%d VM-hours", bundle: .module),
+            vmHours
+        )
+        return String(
+            format: String(localized: "plan.proTrial.allowanceFormat", defaultValue: "%1$@ with %2$@, and %3$@", bundle: .module),
+            machinesText,
+            sizeText,
+            hoursText
         )
     }
 
@@ -25,12 +48,12 @@ public extension CmuxProTrial {
         guard let endsAt else {
             return String(
                 format: String(localized: "plan.proTrial.summary", defaultValue: "Pro trial: %@.", bundle: .module),
-                Self.allowanceText
+                allowanceText
             )
         }
         return String(
             format: String(localized: "plan.proTrial.summaryEnds", defaultValue: "Pro trial: %1$@. Ends %2$@.", bundle: .module),
-            Self.allowanceText,
+            allowanceText,
             endsAt.formatted(date: .abbreviated, time: .omitted)
         )
     }
@@ -38,10 +61,10 @@ public extension CmuxProTrial {
     /// "1 machine with 2 vCPU and 4 GB RAM, and 20 VM-hours. Ends Oct 22, 2026."
     /// for a surface whose title already names the trial.
     var detailText: String {
-        guard let endsAt else { return Self.allowanceText }
+        guard let endsAt else { return allowanceText }
         return String(
             format: String(localized: "plan.proTrial.detailEnds", defaultValue: "%1$@. Ends %2$@.", bundle: .module),
-            Self.allowanceText,
+            allowanceText,
             endsAt.formatted(date: .abbreviated, time: .omitted)
         )
     }
