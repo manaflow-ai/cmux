@@ -143,9 +143,9 @@ class GitHub:
             if error.status != 404:
                 raise
             # The tags endpoint 404s for drafts, so a rerun must find its
-            # staged draft by listing. Adopt the lowest id, the one the
-            # publish action finalizes, so the published assets and the
-            # appcast this run uploads describe the same files.
+            # staged draft by listing. Adopt the lowest id; the workflow
+            # publishes the id this script outputs, so the published assets
+            # and the appcast this run uploads describe the same files.
             drafts = [
                 release["id"]
                 for release in self.request("GET", f"{self.api_url}/repos/{self.repo}/releases?per_page=100")
@@ -409,6 +409,11 @@ def main() -> int:
     client = GitHub(args.repo, os.environ.get("GH_TOKEN", ""))
     release_id = args.release_id if args.release_id is not None else client.release_id(args.tag)
     publish(client, release_id, phases)
+    # The stable workflow publishes this exact release. Looking the tag up again
+    # misses drafts, and the publish action then created an empty release (v0.65.2).
+    if output := os.environ.get("GITHUB_OUTPUT"):
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(f"release_id={release_id}\n")
     return 0
 
 

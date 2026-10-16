@@ -143,7 +143,8 @@ class ReleasePerArchStableTest(unittest.TestCase):
         self.assertIn("sort -V", decide)
         self.assertIn("make_latest=", decide)
         publish = steps()["Publish verified release"]
-        self.assertIn("make_latest: ${{ steps.latest_release.outputs.make_latest }}", publish)
+        self.assertIn("MAKE_LATEST: ${{ steps.latest_release.outputs.make_latest }}", publish)
+        self.assertIn('make_latest="$MAKE_LATEST"', publish)
         self.assertLess(order("Decide whether this release is latest"), order("Publish verified release"))
 
     def test_local_release_publishes_per_arch_feeds(self):

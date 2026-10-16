@@ -298,13 +298,18 @@ class PublicationTests(unittest.TestCase):
         finalize = text.index("- name: Publish verified release")
         self.assertLess(upload, finalize)
         self.assertIn("--tag", text[upload:finalize])
-        self.assertIn("draft: false", text[finalize:])
-        self.assertIn("prerelease: false", text[finalize:])
+        step = text[finalize:text.index("- name: Upload release appcast to R2")]
+        # v0.65.2: the publish action looked the tag up, missed the draft and
+        # published a new empty release. Publish the uploaded release by id.
+        self.assertIn("steps.upload_assets.outputs.release_id", step)
+        self.assertIn("refusing to publish", step)
+        self.assertIn("-F draft=false -F prerelease=false", step)
+        self.assertNotIn("softprops/action-gh-release", step)
 
     def test_stable_release_clears_staged_prerelease_before_finalizing(self):
         # publish-release-assets.py stages a missing release as a draft
         # prerelease. GitHub refuses make_latest on a prerelease, and the
-        # publish action does not clear the flag on the draft it adopts, so
+        # old publish action did not clear the flag on the draft, so
         # v0.65.1 failed with "Latest release cannot be draft or prerelease".
         text = (ROOT / ".github/workflows/release.yml").read_text()
         upload = text.index("- name: Upload release asset")
