@@ -229,6 +229,7 @@ Chief, the Home agent: whether it is shown and which harness, model, and effort 
 | `chief.harness` | `"claude"` or `"codex"` | `"claude"` | Agent harness Chief runs on: `claude` (Claude Code) or `codex` (Codex). |
 | `chief.model` | string | `""` | Model passed to the harness. Leave empty to use the harness default. |
 | `chief.effort` | string | `""` | Reasoning effort passed to the harness, such as `low`, `medium`, or `high`. Leave empty to use the harness default. |
+| `chief.dangerouslySkipPermissions` | boolean | `false` | Allow Chief's selected agent to bypass permission prompts and sandbox guardrails. Off by default. |
 
 ## browser
 
