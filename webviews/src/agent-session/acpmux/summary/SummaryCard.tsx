@@ -20,6 +20,7 @@ export function SummaryCard({
   card,
   rows,
   onOpenOutput,
+  onFollow,
   onOpenImage,
   changes,
   onOpenChanges,
@@ -28,6 +29,8 @@ export function SummaryCard({
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
   onOpenOutput?: (path: string) => void;
+  /// Opens a source or pull-request URL in cmux's browser. Omit for quick chat, whose host has no browser pane.
+  onFollow?: (url: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
   /// The last turn that edited files, with its counts and files; the Changes rows open its diff,
   /// or a file's.
@@ -120,6 +123,7 @@ export function SummaryCard({
               onOpenChanges={onOpenChanges}
               subagents={agents.length > 0 ? <></> : undefined}
               onOpenOutput={onOpenOutput}
+              onFollow={onFollow}
             />
           </div>
         )}
