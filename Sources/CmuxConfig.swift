@@ -3013,7 +3013,7 @@ final class CmuxConfigStore: ObservableObject {
             return CmuxSnippetMenuEntry(
                 actionID: action.id,
                 title: action.title,
-                category: action.category,
+                category: action.category, keywords: action.keywords,
                 payload: payload
             )
         }
