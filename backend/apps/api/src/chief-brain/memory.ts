@@ -192,7 +192,10 @@ export class Memory {
    */
   foldDue(): boolean {
     const json = this.sql.exec<{ json: string }>(`SELECT json FROM oc_frozen WHERE id = 1`).toArray()[0]?.json;
-    if (!json) return false;
+    // No frozen view yet: this turn renders one, which then stays frozen, so it may wait (briefly) for summaries.
+    if (!json) return !this.core.settled();
+    // A heuristic of the core's rule: this count also includes this turn's new and imported messages, so it can
+    // only be high (an early, at most 3 s wait), never low; the core decides the re-render itself.
     const front = Number((JSON.parse(json) as { front?: unknown }).front ?? 0);
     const bytes = Number(this.sql.exec<{ n: number | null }>(`SELECT SUM(size) AS n FROM oc_message WHERE i >= ?`, front).one().n ?? 0);
     return bytes > DELTA_HARD;
