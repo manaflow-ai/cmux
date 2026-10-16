@@ -39,8 +39,11 @@ export const drainOutboxChannels = async <S>(
 ): Promise<void> => {
     const outbox = engine.outbox
     // Each channel (PlanetScale projections, or one target object) reads, fails and backs off on
-    // its own, so a dead target cannot stop projections or healthy targets.
-    for (const channel of outbox.dueChannels(Date.now())) {
+    // its own, so a dead target cannot stop projections or healthy targets. Target objects go first:
+    // a Durable Object call is short and is on a person's wait (a Chief wake), while the database
+    // projection is a mirror nobody waits on (staging: the wake waited 1-3 s behind it).
+    const due = [...outbox.dueChannels(Date.now())]
+    for (const channel of [...due.filter((c) => c !== ""), ...due.filter((c) => c === "")]) {
       // After a failure a target channel sends its head alone, so a poison item is found by itself.
       const rows = outbox.pending(channel, channel !== "" && outbox.isolating(channel) ? 1 : 100)
       if (rows.length === 0) continue
