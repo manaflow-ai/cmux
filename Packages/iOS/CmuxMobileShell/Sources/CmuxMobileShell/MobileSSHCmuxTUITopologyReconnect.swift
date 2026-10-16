@@ -11,10 +11,10 @@ import Foundation
 /// results that belong to a superseded control.
 @MainActor
 final class MobileSSHCmuxTUITopologyReconnect<Control: AnyObject & Sendable> {
-    typealias Open = @MainActor () async throws -> Control
-    typealias Subscribe = @MainActor (Control) async throws -> AsyncStream<CmuxTUIControlEvent>
-    typealias Close = @MainActor (Control) async -> Void
-    typealias TransportIsOpen = @MainActor () -> Bool
+    typealias Open = () async throws -> Control
+    typealias Subscribe = (Control) async throws -> AsyncStream<CmuxTUIControlEvent>
+    typealias Close = (Control) async -> Void
+    typealias TransportIsOpen = () -> Bool
     typealias Sleep = (Duration) async throws -> Void
 
     /// The first retry delay after a topology control disconnects.
