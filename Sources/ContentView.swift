@@ -12226,6 +12226,7 @@ struct VerticalTabsSidebar: View, Equatable {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         // Workspace publisher observations and the snapshot refresh feed BOTH
         // list implementations, so they live on the shared parent. Both use one snapshot cache; material updates publish a generation,
         // never a second retained copy of every workspace snapshot.
