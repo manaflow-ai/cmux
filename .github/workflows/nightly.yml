@@ -281,7 +281,8 @@ jobs:
           # "Team is not yet configured for notarization" from 2026-10-07 12:34Z).
           NIGHTLY_NEXT_NOTARY_PAUSED: ${{ vars.NIGHTLY_NEXT_NOTARY_PAUSED || '' }}
           # `1` holds nightly-next: no build and no publish until it is cleared (2026-10-10: the
-          # feat-cmux-next tip app trapped at launch). Clear: gh variable delete NIGHTLY_NEXT_HOLD.
+          # feat-cmux-next tip app trapped at launch). Clear: gh variable set NIGHTLY_NEXT_HOLD --body 0
+          # (publish-nightly reads it live and refuses unless it is set and not 1).
           NIGHTLY_NEXT_HOLD: ${{ vars.NIGHTLY_NEXT_HOLD || '' }}
           # `1` stops EVERY nightly-next notary submission, including builds
           # without the import and notary tests, while Apple's queue for the
@@ -641,7 +642,7 @@ jobs:
             const appBuildSelected = shouldBuild && !pushThrottled && !scheduledCacheOnly;
             const nextHold = track === 'nightly-next' && process.env.NIGHTLY_NEXT_HOLD === '1';
             if (nextHold) {
-              core.warning('nightly-next is on hold (repository variable NIGHTLY_NEXT_HOLD=1): no build, nothing published. Clear it with: gh variable delete NIGHTLY_NEXT_HOLD --repo manaflow-ai/cmux');
+              core.warning('nightly-next is on hold (repository variable NIGHTLY_NEXT_HOLD=1): no build, nothing published. Clear it with: gh variable set NIGHTLY_NEXT_HOLD --body 0 --repo manaflow-ai/cmux');
             }
             core.setOutput('should_build', shouldBuild && !pushThrottled && !nextHold ? 'true' : 'false');
             core.setOutput('head_sha', headSha);
@@ -2121,7 +2122,7 @@ jobs:
       - name: Keep the nightly-next dSYMs (90 days)
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.build_only != 'true')
         continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nightly-next-dsyms-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           path: build-universal/Build/Products/Release/**/*.dSYM
@@ -2939,6 +2940,17 @@ jobs:
             --archs "$(lipo -archs "$CHANNEL_APP_PATH/Contents/MacOS/cmux")" \
             --require-signed
 
+      # The bundle carries Rust, Zig, C++ and CEF binaries built outside Xcode,
+      # so the Xcode deployment target alone does not prove they load on the
+      # declared floor. Fail before notarization when any Mach-O needs a newer
+      # macOS than LSMinimumSystemVersion, strong-loads a system library the
+      # floor lacks, or a nested helper declares a newer floor. cmux-next pins
+      # the floor to macOS 14 (Lawrence 2026-10-16: "Make sure it works on
+      # Sequoia, macOS 14+"); raising it is a decision, not a build accident.
+      - name: Check every bundled Mach-O loads on the macOS floor
+        if: env.TRACK == 'nightly-next'
+        run: python3 scripts/ci/macho_minos.py scan "$CHANNEL_APP_PATH" --floor 14.0
+
       - name: Smoke launch signed app before notarization
         run: |
           set -euo pipefail
@@ -3562,7 +3574,9 @@ jobs:
       # Another run already published the recovered build, or the final gate
       # refused (see refused): this run published nothing.
       already_published: ${{ steps.recheck.outputs.already_published == 'true' || steps.gate.outputs.refused == 'true' }}
-      # The final gate refused: a recovered build failed its lineage check.
+      # The final gate refused: a recovered build failed its lineage check, or
+      # nightly-next is on hold (NIGHTLY_NEXT_HOLD read live: 1, empty or
+      # unreadable).
       refused: ${{ steps.gate.outputs.refused }}
     if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true') || needs.recover-nightly-next-notarization.outputs.accepted == 'true')"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -3809,8 +3823,27 @@ jobs:
             python3 "$PUBLISH_TOOLING/ci/nightly-next-guard.py" appcast "nightly-out/$appcast"
           done
 
-      # Last check before the first write to the release or the feed: a
-      # recovered build is checked again against the live feed. It must contain
+      # cx-f76kf: decide reads NIGHTLY_NEXT_HOLD only when the run starts, and
+      # the HQ Linux pipeline publishes nightly-next while it is 1, so the gate
+      # reads it again live. vars.* is fixed at run start and GITHUB_TOKEN
+      # cannot read variables: the release App reads it (Variables: read).
+      # A failed mint leaves the token empty, and the gate refuses.
+      - name: Mint release App token
+        id: hold-token
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true'
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      # Last check before the first write to the release or the feed. On
+      # nightly-next, NIGHTLY_NEXT_HOLD read live must be set and not 1 (1,
+      # empty or unreadable: the hold is on, or may be). A recovered build is
+      # checked again against the live feed: it must contain
       # NIGHTLY_LEGACY_REQUIRED_COMMITS and descend from the commit the NEXT
       # feed serves. A refusal publishes nothing and is not a failure.
       - name: Final publication gate
@@ -3818,11 +3851,30 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          HOLD_TOKEN: ${{ steps.hold-token.outputs.token }}
           REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
           SOURCE: ${{ steps.source.outputs.source }}
           BUILD_SHA: ${{ steps.source.outputs.build_sha }}
         run: |
           set -euo pipefail
+          if [ "$TRACK" = nightly-next ]; then
+            hold="" why=""
+            if [ -z "$HOLD_TOKEN" ]; then
+              why="the release App token could not be minted"
+            elif ! hold="$(GH_TOKEN="$HOLD_TOKEN" gh api "repos/$GITHUB_REPOSITORY/actions/variables/NIGHTLY_NEXT_HOLD" --jq .value 2>"$RUNNER_TEMP/hold.err")"; then
+              hold="" why="it is unreadable: $(tr '\n' ' ' < "$RUNNER_TEMP/hold.err")"
+            fi
+            hold="$(tr -d '[:space:]' <<<"$hold")"
+            if [ -z "$why" ] && [ -z "$hold" ]; then why="it is empty"; fi
+            if [ -z "$why" ] && [ "$hold" = 1 ]; then why="it is 1"; fi
+            if [ -n "$why" ]; then
+              echo "::warning title=Publication refused::$SOURCE build $NIGHTLY_BUILD ($BUILD_SHA): NIGHTLY_NEXT_HOLD read live: $why; nightly-next is on hold, nothing published"
+              echo "- refused: NIGHTLY_NEXT_HOLD read live: $why" >> "$GITHUB_STEP_SUMMARY"
+              echo "refused=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "NIGHTLY_NEXT_HOLD read live: '$hold'; nightly-next is not on hold"
+          fi
           if [ "$SOURCE" = recovered ]; then
             status=0
             verdict="$(bash "$PUBLISH_TOOLING/ci/nightly-next-recovery-lineage.sh" "$GITHUB_REPOSITORY" "$CHANNEL_RELEASE_TAG" "$BUILD_SHA" </dev/null)" || status=$?
@@ -5224,6 +5276,67 @@ jobs:
               cell = f"[{pr.get('tour') or 'clip'}]({clip})" if clip.startswith("https://") else "no clip"
               print(f"| #{pr['pr']} | {title} | {cell} |")
           PY
+
+  # The published NEXT DMG on macOS 15 (Sequoia), the oldest major a hosted
+  # runner offers (GitHub retired macos-14; macOS 14 runs in the fleet's Tart
+  # VMs, scripts/cmux-next/os-smoke/run.sh). The pre-notarization smoke runs
+  # on macOS 26 only. This job downloads exactly what users get, checks every
+  # Mach-O against the macOS 14 floor, launches the app with a scratch HOME,
+  # opens a terminal, browser, Settings and agent chat tab through the debug
+  # socket, checks it is alive after 60 s, dyld-loads every bundled Mach-O,
+  # and uploads the screenshots, crash reports and unified log.
+  nightly-next-macos15-launch:
+    needs: [decide, publish-nightly, resolve-nightly-cmux-tui-client]
+    if: "!cancelled() && github.repository_owner == 'manaflow-ai' && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true'"
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 30
+    # Advisory until its first green run: the runner's Screen Recording grant
+    # for screencapture is not proven yet. The macOS 14/15/26 Tart smoke and
+    # the pre-notarization Mach-O floor check are the gates.
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          persist-credentials: false
+          sparse-checkout: scripts
+      - name: Download and mount the published DMG
+        env:
+          BUILD: ${{ needs.publish-nightly.outputs.build }}
+          DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
+          RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          sw_vers
+          out="$RUNNER_TEMP/launch"; mkdir -p "$out/dmg" "$out/app"
+          url="https://github.com/$REPOSITORY/releases/download/$RELEASE_TAG/${DMG_PREFIX}-arm64-${BUILD}.dmg"
+          echo "$url"
+          curl -fsSL --retry 4 -o "$out/dmg/next.dmg" "$url"
+          hdiutil attach -nobrowse -readonly -mountpoint "$out/mnt" "$out/dmg/next.dmg" >/dev/null
+          app="$(find "$out/mnt" -maxdepth 1 -name '*.app' -print -quit)"
+          ditto "$app" "$out/app/$(basename "$app")"
+          hdiutil detach "$out/mnt" >/dev/null
+          echo "APP=$out/app/$(basename "$app")" >> "$GITHUB_ENV"
+          echo "OUT=$out" >> "$GITHUB_ENV"
+      - name: Check every bundled Mach-O loads on macOS 14
+        run: python3 scripts/ci/macho_minos.py scan "$APP" --floor 14.0
+      - name: Launch on macOS 15 and open each tab kind
+        run: |
+          set -euo pipefail
+          home="$RUNNER_TEMP/scratch-home"; mkdir -p "$home"
+          HOME="$home" OS_SMOKE_LAUNCH_DEADLINE=180 OS_SMOKE_TAB_DEADLINE=120 \
+            /usr/bin/python3 -I scripts/cmux-next/os-smoke/guest-probe.py "$APP" "$OUT/probe"
+      - name: Upload screenshots, crash reports and logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-next-macos15-launch
+          path: ${{ runner.temp }}/launch/probe
+          if-no-files-found: warn
+          retention-days: 14
 
   # A cancelled job (a timeout reports as cancelled) counts as a failure. On
   # nightly-next the signed release notes are part of the publication: a

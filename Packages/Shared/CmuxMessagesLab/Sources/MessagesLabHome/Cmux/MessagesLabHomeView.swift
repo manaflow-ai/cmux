@@ -136,6 +136,13 @@ public final class MessagesLabHomeView: NSView {
         set { controller.onAppLink = newValue }
     }
 
+    /// cmux: a click on any other link in the transcript (`otherTarget`: Shift-Command held).
+    /// Defaults to the system; the host routes it (cmux: its link setting).
+    public var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void {
+        get { controller.onOpenLink }
+        set { controller.onOpenLink = newValue }
+    }
+
     /// A click (or Space/Return with the keyboard) on the header's name
     /// pill: cmux shows the Chief's settings sidebar there.
     public var onNamePill: () -> Void {

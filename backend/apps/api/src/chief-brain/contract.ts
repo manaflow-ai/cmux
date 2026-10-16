@@ -252,6 +252,8 @@ export interface HandsShape {
   readonly list: () => Effect.Effect<ReadonlyArray<HandSummary>, HandsError>
   /** A single-use pairing code (10 min) and the install line for a new machine. */
   readonly pairCode: (name: string, profile: Profile) => Effect.Effect<Minted, HandsError>
+  /** Sets a hand's permission level; a Chief only lowers it (hand-levels.ts). */
+  readonly setLevel: (hand: string, level: string) => Effect.Effect<unknown, HandsError>
   /** A new Freestyle sandbox with its hand installed and paired (hand-sandbox.ts). */
   readonly newSandbox: (name: string) => Effect.Effect<Sandbox, HandsError>
   /**

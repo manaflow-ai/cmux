@@ -51,6 +51,10 @@ export interface HandSummary {
   readonly online: boolean
   /** A sandbox hand (its VM was made for it and is deleted with it). */
   readonly sandbox?: boolean
+  /** Its permission level (hand-levels.ts). */
+  readonly level?: string
+  /** Requests waiting for the owner's answer (the app shows them; GET /v1/hands/<hand>/approvals). */
+  readonly pending_approvals?: number
 }
 
 export interface HandError {

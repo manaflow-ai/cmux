@@ -7,13 +7,17 @@
 # missing, take the fleet host lock exclusively, clone, boot headless
 # (--no-graphics), copy the build in, run guest-probe.py over SSH (launch with
 # CMUX_NEXT_NO_ACTIVATE=1 and CMUX_NEXT_SOCKET_MODE=automation, wait for the
-# first window and the control socket, open one terminal and one browser tab,
-# debug.window_snapshot, quit), copy the artifacts out, stop and delete the
+# first window and the control socket, open terminal, browser, Settings and
+# agent chat tabs, snapshot each, check it lives 60 s, quit, dyld-load every
+# bundled Mach-O), copy the artifacts out, stop and delete the
 # clone, release the lock. Base images stay. Majors run one at a time (the
 # Apple license allows at most two macOS VMs per host).
 #
 # Usage: run.sh [--majors 14,15,26] [--work DIR] [--keep-vm] BUILD
-#   BUILD    a cmux-next .app or a zip that contains one (cmux-ci artifact).
+#   BUILD    a cmux-next .app or a zip that contains one (cmux-ci artifact, or
+#            the app copied out of a shipped DMG: a release build has no debug.*
+#            methods, so the probe drives it through the public socket methods
+#            and takes screenshots with screencapture).
 #   --work   state root (default /Volumes/ephemeral0/cmux-agent-work/mfloor).
 #   --keep-vm  leave the clone stopped but not deleted (debugging only).
 # Env: TART_BIN (default: tart on PATH, else <work>/tools/tart-*/tart.app),
@@ -42,7 +46,7 @@ while [[ $# -gt 0 ]]; do
     --work) WORK=$2; shift 2 ;;
     --keep-vm) KEEP_VM=1; shift ;;
     --vm-cycle) CYCLE=$2; shift 2 ;;  # internal: one major, already under the host lock
-    -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,34p' "$0"; exit 0 ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) BUILD=$1; shift ;;
   esac
@@ -122,6 +126,9 @@ if [[ -n "$CYCLE" ]]; then
   t_boot=$(now); record boot_s "$(elapsed "$t_clone" "$t_boot")"
   scp "${SSH_OPTS[@]}" -q "$BUILD_ZIP" "$HERE/guest-probe.py" "admin@$ip:/Users/admin/" </dev/null
   gssh 'set -e; rm -rf ~/smoke && mkdir -p ~/smoke/app && ditto -x -k ~/build.zip ~/smoke/app && test -x /usr/bin/python3 && /usr/bin/python3 -c 1'
+  # The base images restore windows of their own setup (System Settings on 14, Terminal on
+  # 26) that would cover the app in the release-build screenshots; quit them in the clone.
+  gssh 'pkill -x "System Settings"; pkill -x Terminal; true'
   t_copy=$(now); record copy_s "$(elapsed "$t_boot" "$t_copy")"
   probe_rc=0
   gssh "app=\$(ls -d ~/smoke/app/*.app | head -1); OS_SMOKE_LAUNCH_DEADLINE=${OS_SMOKE_LAUNCH_DEADLINE:-180} OS_SMOKE_TAB_DEADLINE=${OS_SMOKE_TAB_DEADLINE:-120} /usr/bin/python3 -I ~/guest-probe.py \"\$app\" ~/smoke/out" \
