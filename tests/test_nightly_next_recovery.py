@@ -540,6 +540,7 @@ def run_continue_step(notary: str) -> subprocess.CompletedProcess[str]:
                 "DMG_NAME=next.dmg IMMUTABLE_NAME=next-49801.dmg\n"
             ),
             ci / "nightly_version.py": "exit 0\n",
+            ci / "nightly-next-recovery-lineage.sh": "echo ok\n",
             ci / "notarize-nightly-dmg.sh": (
                 'case "$FIXTURE_NOTARY" in\n'
                 '  accepted-then-failed) echo notary_status=Accepted >> "$GITHUB_OUTPUT"; exit 1 ;;\n'
