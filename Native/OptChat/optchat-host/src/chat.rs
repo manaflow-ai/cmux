@@ -577,10 +577,13 @@ impl OptChat {
 
     /// A turn's input after the system prompt (spec 5a, optchat-core
     /// `turn_input`): the frozen view `frozen` and the delta after it, or a
-    /// new view. `new`: how many entries at the log's end are the turn's new
-    /// ones (logged before this call). Also the log length the delta runs to.
-    pub fn turn_input(&self, frozen: Option<&Frozen>, new: u64) -> (TurnInput, u64) {
+    /// new view. `first_new`: the log id of the turn's first new entry (logged
+    /// before this call); the count of new entries is taken under the same
+    /// lock as the input, so an entry logged meanwhile cannot shift it. Also
+    /// the log length the delta runs to.
+    pub fn turn_input(&self, frozen: Option<&Frozen>, first_new: u64) -> (TurnInput, u64) {
         let st = self.shared.lock();
+        let new = st.memory.len().saturating_sub(first_new);
         let input = optchat_core::turn_input(&st.memory, &st.store, frozen, new);
         (input, st.memory.len())
     }

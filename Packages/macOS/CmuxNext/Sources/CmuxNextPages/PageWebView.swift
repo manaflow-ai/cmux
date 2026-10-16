@@ -61,6 +61,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public internal(set) var countsTouches = true
     /// A navigation to any other origin (a link in the page): the host opens it in a browser tab.
     public var onOpenExternal: ((URL) -> Void)?
+    /// The modifier keys of the click whose link ``onOpenExternal`` is opening (Shift-Command: the other browser).
+    public internal(set) var externalLinkModifiers: NSEvent.ModifierFlags = []
     /// Decides navigations outside the page's origin (``PageNavigation/policy(for:page:userClicked:mainFrame:hook:)``).
     public var onNavigate: ((PageNavigation) -> PageNavigation.Policy)?
     /// The page's web content crashed. `reloading` is false once it crashed more often than
@@ -431,7 +433,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         case .allow:
             return .allow
         case .openExternal:
-            if let url { onOpenExternal?(url) }
+            // A page whose host routes nothing itself (Settings, What's New, Cloud, Keybindings...)
+            // opens the link through the shared rule; Shift-Command asks for the other browser.
+            externalLinkModifiers = action.modifierFlags
+            let other = LinkRouter.isOtherTarget(action.modifierFlags)
+            if let url { (onOpenExternal ?? { LinkRouter.shared.open($0, otherTarget: other) })(url) }
             return .cancel
         case .cancel:
             return .cancel

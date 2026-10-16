@@ -13,7 +13,15 @@ export const handName = (hand: string) => `h:${hand}`
 export const createIndexTables = (sql: SqlStorage) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS hand_index (hand TEXT PRIMARY KEY, body TEXT NOT NULL)`)
   sql.exec(`CREATE TABLE IF NOT EXISTS hand_grant_index (agent TEXT PRIMARY KEY, at INTEGER NOT NULL)`)
+  sql.exec(`CREATE TABLE IF NOT EXISTS hand_default_level (profile TEXT PRIMARY KEY, level TEXT NOT NULL)`)
 }
+
+/** The owner's default level for new hands of `profile`, if set. */
+export const indexDefaultLevel = (sql: SqlStorage, profile: string): string | undefined =>
+  sql.exec<{ level: string }>(`SELECT level FROM hand_default_level WHERE profile = ?`, profile).toArray()[0]?.level
+
+export const indexSetDefaultLevel = (sql: SqlStorage, profile: string, level: string) =>
+  sql.exec(`INSERT INTO hand_default_level (profile, level) VALUES (?, ?) ON CONFLICT(profile) DO UPDATE SET level = excluded.level`, profile, level)
 
 export const indexPut = (sql: SqlStorage, summary: HandSummary | { hand: string; removed: true }) => {
   if ("removed" in summary) {

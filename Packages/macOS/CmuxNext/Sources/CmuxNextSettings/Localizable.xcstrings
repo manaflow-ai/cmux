@@ -1,6 +1,1054 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.group.openingLinks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening Links"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح الروابط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvaranje linkova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbning af links"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apertura de enlaces"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouverture des liens"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apertura dei link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リンクを開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបើកតំណ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "링크 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpning av lenker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwieranie linków"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abertura de links"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открытие ссылок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การเปิดลิงก์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlantıları Açma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкриття посилань"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở liên kết"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開啟連結"
+          }
+        }
+      }
+    },
+    "settings.browser.openLinks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Links in cmux Browser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح الروابط في متصفح cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvaraj linkove u cmux pregledniku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn links i cmux-browser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links im cmux-Browser öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir enlaces en el navegador de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir les liens dans le navigateur cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri i link nel browser di cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リンクを cmux ブラウザで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកតំណក្នុងកម្មវិធីរុករក cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 브라우저에서 링크 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne lenker i cmux-nettleser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwieraj linki w przeglądarce cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir links no navegador do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открывать ссылки в браузере cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดลิงก์ในเบราว์เซอร์ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlantıları cmux Tarayıcısında Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкривати посилання в браузері cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở liên kết trong trình duyệt cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 浏览器中打开链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 瀏覽器中開啟連結"
+          }
+        }
+      }
+    },
+    "settings.browser.openLinks.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عند إيقافه، تُفتح الروابط التي تنقر عليها في الطرفيات ومحادثات الوكلاء والصفحة الرئيسية وصفحات cmux في متصفحك الافتراضي. يفتح النقر مع Shift-Command الرابط في المتصفح الآخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kada je isključeno, linkovi na koje kliknete u terminalima, chatovima s agentima, na Početnoj i na cmux stranicama otvaraju se u zadanom pregledniku. Shift-Command-klik otvara link u drugom pregledniku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når det er slået fra, åbnes links, du klikker på i terminaler, agentchats, Hjem og cmux-sider, i din standardbrowser. Shift-Command-klik åbner et link i den anden browser."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wenn deaktiviert, öffnen sich Links, die du in Terminals, Agent-Chats, Home und cmux-Seiten anklickst, in deinem Standardbrowser. Shift-Command-Klick öffnet einen Link im jeweils anderen Browser."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Si está desactivado, los enlaces en los que haces clic en terminales, chats de agentes, Inicio y páginas de cmux se abren en tu navegador predeterminado. Mayúsculas-Comando-clic abre un enlace en el otro navegador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Désactivé, les liens sur lesquels vous cliquez dans les terminaux, les discussions d'agents, l'Accueil et les pages cmux s'ouvrent dans votre navigateur par défaut. Maj-Commande-clic ouvre un lien dans l'autre navigateur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se disattivato, i link su cui fai clic nei terminali, nelle chat degli agenti, nella Home e nelle pagine di cmux si aprono nel browser predefinito. Maiusc-Comando-clic apre un link nell'altro browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オフにすると、ターミナル、エージェントチャット、ホーム、cmux ページでクリックしたリンクはデフォルトのブラウザで開きます。Shift-Command-クリックすると、もう一方のブラウザでリンクを開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេលបិទ តំណដែលអ្នកចុចក្នុងទែមីណាល់ ការជជែកជាមួយភ្នាក់ងារ ទំព័រដើម និងទំព័រ cmux បើកក្នុងកម្មវិធីរុករកលំនាំដើមរបស់អ្នក។ Shift-Command-ចុច បើកតំណក្នុងកម្មវិធីរុករកផ្សេងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "끄면 터미널, 에이전트 채팅, 홈 및 cmux 페이지에서 클릭한 링크가 기본 브라우저에서 열립니다. Shift-Command-클릭하면 다른 브라우저에서 링크를 엽니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når dette er av, åpnes lenker du klikker i terminaler, agentchatter, Hjem og cmux-sider i standardnettleseren. Shift-Command-klikk åpner en lenke i den andre nettleseren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Po wyłączeniu linki klikane w terminalach, czatach z agentami, na stronie głównej i na stronach cmux otwierają się w domyślnej przeglądarce. Shift-Command-kliknięcie otwiera link w drugiej przeglądarce."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando desativado, os links em que você clica em terminais, chats de agentes, Início e páginas do cmux abrem no navegador padrão. Shift-Command-clique abre um link no outro navegador."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Если выключено, ссылки, по которым вы щёлкаете в терминалах, чатах с агентами, на главной и на страницах cmux, открываются в браузере по умолчанию. Shift-Command-щелчок открывает ссылку в другом браузере."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อปิด ลิงก์ที่คุณคลิกในเทอร์มินัล แชทเอเจนต์ หน้าหลัก และหน้า cmux จะเปิดในเบราว์เซอร์เริ่มต้น การคลิกพร้อม Shift-Command จะเปิดลิงก์ในเบราว์เซอร์อีกตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kapalıyken terminallerde, ajan sohbetlerinde, Ana Sayfa'da ve cmux sayfalarında tıkladığınız bağlantılar varsayılan tarayıcınızda açılır. Shift-Command ile tıklamak bağlantıyı diğer tarayıcıda açar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Якщо вимкнено, посилання, на які ви клацаєте в терміналах, чатах з агентами, на головній і на сторінках cmux, відкриваються в типовому браузері. Shift-Command-клацання відкриває посилання в іншому браузері."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi tắt, các liên kết bạn nhấp trong terminal, trò chuyện với tác nhân, Trang chủ và các trang cmux sẽ mở trong trình duyệt mặc định. Shift-Command-nhấp mở liên kết trong trình duyệt còn lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭后，你在终端、代理聊天、主页和 cmux 页面中点击的链接会在默认浏览器中打开。按住 Shift-Command 点按会在另一个浏览器中打开链接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉後，你在終端機、代理聊天、首頁和 cmux 頁面中點按的連結會在預設瀏覽器中開啟。按住 Shift-Command 點按會在另一個瀏覽器中開啟連結。"
+          }
+        }
+      }
+    },
+    "settings.browser.externalLinkPatterns.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تُفتح الروابط المطابقة في متصفحك الافتراضي. يطابق النص أي جزء من عنوان URL، و* و? أحرف بدل، وre: تبدأ تعبيرًا نمطيًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linkovi koji se podudaraju otvaraju se u zadanom pregledniku. Tekst se podudara bilo gdje u URL-u, * i ? su zamjenski znakovi, a re: započinje regularni izraz."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links, der matcher, åbnes i din standardbrowser. Tekst matcher hvor som helst i URL'en, * og ? er jokertegn, og re: starter et regulært udtryk."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passende Links öffnen sich in deinem Standardbrowser. Text passt an jeder Stelle der URL, * und ? sind Platzhalter, und re: beginnt einen regulären Ausdruck."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los enlaces que coinciden se abren en tu navegador predeterminado. El texto coincide en cualquier parte de la URL, * y ? son comodines, y re: inicia una expresión regular."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les liens correspondants s'ouvrent dans votre navigateur par défaut. Le texte correspond n'importe où dans l'URL, * et ? sont des jokers, et re: commence une expression régulière."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I link corrispondenti si aprono nel browser predefinito. Il testo corrisponde in qualsiasi punto dell'URL, * e ? sono caratteri jolly e re: inizia un'espressione regolare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一致するリンクはデフォルトのブラウザで開きます。テキストは URL のどこにでも一致し、* と ? はワイルドカード、re: は正規表現の開始です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តំណដែលត្រូវគ្នាបើកក្នុងកម្មវិធីរុករកលំនាំដើម។ អត្ថបទត្រូវគ្នានៅកន្លែងណាក៏បានក្នុង URL, * និង ? ជាតួអក្សរជំនួស ហើយ re: ចាប់ផ្ដើមកន្សោមធម្មតា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "일치하는 링크는 기본 브라우저에서 열립니다. 텍스트는 URL의 어느 부분과도 일치하며, *와 ?는 와일드카드이고 re:는 정규 표현식을 시작합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lenker som samsvarer åpnes i standardnettleseren. Tekst samsvarer hvor som helst i URL-en, * og ? er jokertegn, og re: starter et regulært uttrykk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pasujące linki otwierają się w domyślnej przeglądarce. Tekst pasuje w dowolnym miejscu adresu URL, * i ? to symbole wieloznaczne, a re: rozpoczyna wyrażenie regularne."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links correspondentes abrem no navegador padrão. O texto corresponde a qualquer parte da URL, * e ? são curingas, e re: inicia uma expressão regular."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подходящие ссылки открываются в браузере по умолчанию. Текст совпадает в любом месте URL, * и ? — подстановочные знаки, а re: начинает регулярное выражение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลิงก์ที่ตรงกันจะเปิดในเบราว์เซอร์เริ่มต้น ข้อความตรงกับส่วนใดก็ได้ของ URL, * และ ? เป็นไวลด์การ์ด และ re: เริ่มนิพจน์ทั่วไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eşleşen bağlantılar varsayılan tarayıcınızda açılır. Metin URL'nin herhangi bir yerinde eşleşir, * ve ? joker karakterdir, re: bir düzenli ifade başlatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відповідні посилання відкриваються в типовому браузері. Текст збігається будь-де в URL, * і ? — символи підстановки, а re: починає регулярний вираз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các liên kết khớp sẽ mở trong trình duyệt mặc định. Văn bản khớp ở bất kỳ đâu trong URL, * và ? là ký tự đại diện, còn re: bắt đầu một biểu thức chính quy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "匹配的链接会在默认浏览器中打开。文本可匹配 URL 中的任意位置，* 和 ? 为通配符，re: 表示正则表达式。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "符合的連結會在預設瀏覽器中開啟。文字可符合 URL 中的任何位置，* 和 ? 為萬用字元，re: 表示正規表示式。"
+          }
+        }
+      }
+    },
+    "settings.browser.externalLinkPatterns.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Links that open in your default browser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "روابط تُفتح في متصفحك الافتراضي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linkovi koji se otvaraju u zadanom pregledniku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links, der åbnes i din standardbrowser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links, die sich im Standardbrowser öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enlaces que se abren en tu navegador predeterminado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liens qui s'ouvrent dans votre navigateur par défaut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Link che si aprono nel browser predefinito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "デフォルトのブラウザで開くリンク"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តំណដែលបើកក្នុងកម្មវិធីរុករកលំនាំដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기본 브라우저에서 열리는 링크"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lenker som åpnes i standardnettleseren"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linki otwierane w domyślnej przeglądarce"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links que abrem no navegador padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ссылки, открываемые в браузере по умолчанию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลิงก์ที่เปิดในเบราว์เซอร์เริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Varsayılan tarayıcıda açılan bağlantılar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Посилання, що відкриваються в типовому браузері"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liên kết mở trong trình duyệt mặc định"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在默认浏览器中打开的链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在預設瀏覽器中開啟的連結"
+          }
+        }
+      }
+    },
+    "settings.group.files": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الملفات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datoteke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Filer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dateien"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fichiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "File"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ファイル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "파일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Filer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pliki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arquivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файлы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosyalar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файли"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tệp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "檔案"
+          }
+        }
+      }
+    },
+    "settings.files.textEditor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text Editor"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "محرر النصوص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uređivač teksta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teksteditor"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Texteditor"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editor de texto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Éditeur de texte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editor di testo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "テキストエディタ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីកែអត្ថបទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "텍스트 편집기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tekstredigerer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Edytor tekstu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editor de texto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Текстовый редактор"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรแกรมแก้ไขข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Metin Düzenleyici"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Текстовий редактор"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình soạn thảo văn bản"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "文本编辑器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "文字編輯器"
+          }
+        }
+      }
+    },
+    "settings.files.textEditor.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التطبيق الذي يستخدمه «فتح في محرر النصوص» لمسار: اسم تطبيق أو معرّف حزمة أو مسار تطبيق. الفارغ يستخدم التطبيق الذي يفتح الشفرة المصدرية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aplikacija koju Otvori u uređivaču teksta koristi za putanju: naziv aplikacije, ID paketa ili putanja aplikacije. Prazno koristi aplikaciju koja otvara izvorni kod."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Appen, som Åbn i teksteditor bruger til en sti: et appnavn, et bundle-id eller stien til en app. Tom bruger den app, der åbner kildekode."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die App, die „Im Texteditor öffnen“ für einen Pfad verwendet: ein App-Name, eine Bundle-ID oder der Pfad einer App. Leer verwendet die App, die Quellcode öffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La app que usa Abrir en el editor de texto para una ruta: un nombre de app, un ID de paquete o la ruta de una app. Vacío usa la app que abre código fuente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'app qu'utilise Ouvrir dans l'éditeur de texte pour un chemin : un nom d'app, un identifiant de bundle ou le chemin d'une app. Vide utilise l'app qui ouvre le code source."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'app che Apri nell'editor di testo usa per un percorso: un nome di app, un ID bundle o il percorso di un'app. Vuoto usa l'app che apre il codice sorgente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "パスの「テキストエディタで開く」に使うアプリ: アプリ名、バンドル ID、またはアプリのパス。空の場合はソースコードを開くアプリを使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីដែល «បើកក្នុងកម្មវិធីកែអត្ថបទ» ប្រើសម្រាប់ផ្លូវ៖ ឈ្មោះកម្មវិធី លេខសម្គាល់បណ្ដុំ ឬផ្លូវរបស់កម្មវិធី។ ទទេប្រើកម្មវិធីដែលបើកកូដប្រភព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "경로의 텍스트 편집기에서 열기가 사용하는 앱: 앱 이름, 번들 ID 또는 앱 경로. 비워 두면 소스 코드를 여는 앱을 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Appen Åpne i tekstredigerer bruker for en bane: et appnavn, en pakke-ID eller banen til en app. Tom bruker appen som åpner kildekode."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aplikacja, której używa Otwórz w edytorze tekstu dla ścieżki: nazwa aplikacji, identyfikator pakietu lub ścieżka aplikacji. Puste używa aplikacji otwierającej kod źródłowy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O app que Abrir no editor de texto usa para um caminho: um nome de app, um ID de pacote ou o caminho de um app. Vazio usa o app que abre código-fonte."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Приложение, которое «Открыть в текстовом редакторе» использует для пути: имя приложения, идентификатор пакета или путь к приложению. Пусто — приложение, открывающее исходный код."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แอปที่ «เปิดในโปรแกรมแก้ไขข้อความ» ใช้กับพาธ: ชื่อแอป Bundle ID หรือพาธของแอป ว่างไว้จะใช้แอปที่เปิดซอร์สโค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Metin Düzenleyicide Aç'ın bir yol için kullandığı uygulama: bir uygulama adı, paket kimliği veya bir uygulamanın yolu. Boş bırakılırsa kaynak kodu açan uygulama kullanılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Програма, яку «Відкрити в текстовому редакторі» використовує для шляху: назва програми, ідентифікатор пакета або шлях до програми. Порожньо — програма, що відкриває вихідний код."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ứng dụng mà Mở trong trình soạn thảo văn bản dùng cho một đường dẫn: tên ứng dụng, ID gói hoặc đường dẫn của ứng dụng. Để trống sẽ dùng ứng dụng mở mã nguồn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“在文本编辑器中打开”用于路径的 App：App 名称、Bundle ID 或 App 的路径。留空则使用打开源代码的 App。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「在文字編輯器中打開」用於路徑的 App：App 名稱、Bundle ID 或 App 的路徑。留空則使用開啟原始碼的 App。"
+          }
+        }
+      }
+    },
     "settings.group.freeModel": {
       "extractionState": "manual",
       "localizations": {
