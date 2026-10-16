@@ -50,6 +50,91 @@ import Testing
             "the pipe took the first two chunks, so a third fits in the budget"
         )
     }
+
+    /// A clock the test moves by hand, so the stall limit is exercised without waiting it out.
+    private final class ManualClock: @unchecked Sendable {
+        private let lock = NSLock()
+        private let start = ContinuousClock.now
+        private var offset: Duration = .zero
+        func set(_ value: Duration) { lock.lock(); offset = value; lock.unlock() }
+        func now() -> ContinuousClock.Instant { lock.lock(); defer { lock.unlock() }; return start + offset }
+    }
+
+    /// Larger than any pipe buffer, so a write of it blocks until someone reads.
+    private static let blockingSize = 1 << 20
+
+    /// A pipe that takes no bytes for the stall limit is dead; before that it is only slow.
+    @Test func aPipeThatStopsTakingBytesIsReportedDeadAfterTheStallLimit() throws {
+        let pipe = Pipe()
+        let clock = ManualClock()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting, label: "remote-tmux-writer-stall-test",
+            maxPendingBytes: 8 << 20, stallLimit: .seconds(30), now: { clock.now() }, onFailure: {}
+        )
+
+        #expect(writer.enqueue(Data(count: Self.blockingSize)))
+        clock.set(.seconds(29))
+        #expect(writer.enqueue(Data("x\n".utf8)), "29 s without progress is a slow pipe, not a dead one")
+        clock.set(.seconds(30))
+        #expect(!writer.enqueue(Data("y\n".utf8)), "30 s without any write returning is a dead pipe")
+
+        writer.close()
+        _ = try pipe.fileHandleForReading.readToEnd()
+    }
+
+    /// Every write that returns is progress. A long transfer through a slow pipe keeps
+    /// finishing writes, so it is never mistaken for a dead one, and an idle writer has
+    /// nothing waiting that could stall.
+    @Test func eachFinishedWriteRestartsTheStallLimit() throws {
+        let pipe = Pipe()
+        let clock = ManualClock()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting, label: "remote-tmux-writer-progress-test",
+            maxPendingBytes: 8 << 20, stallLimit: .seconds(30), now: { clock.now() }, onFailure: {}
+        )
+        let finished = DispatchSemaphore(value: 0)
+        writer.writeFinishedForTesting = { finished.signal() }
+
+        #expect(writer.enqueue(Data(count: Self.blockingSize)))
+        #expect(writer.enqueue(Data(count: Self.blockingSize)))
+        clock.set(.seconds(25))
+        // Take the first payload; its write returns at t=25 while the second still waits.
+        let reader = pipe.fileHandleForReading
+        let firstTaken = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            var taken = 0
+            while taken < Self.blockingSize {
+                let chunk = reader.readData(ofLength: Self.blockingSize - taken)
+                if chunk.isEmpty { break }
+                taken += chunk.count
+            }
+            firstTaken.signal()
+        }
+        #expect(firstTaken.wait(timeout: .now() + 10) == .success)
+        #expect(finished.wait(timeout: .now() + 10) == .success)
+
+        clock.set(.seconds(50))
+        #expect(writer.enqueue(Data("x\n".utf8)), "the last write returned 25 s ago, under the limit")
+        clock.set(.seconds(55))
+        #expect(!writer.enqueue(Data("y\n".utf8)), "30 s since the last write returned")
+
+        writer.close()
+        _ = try reader.readToEnd()
+    }
+
+    /// Unwritten bytes past the memory ceiling are refused even on a pipe that is moving.
+    @Test func theMemoryCeilingStillHolds() throws {
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting, label: "remote-tmux-writer-ceiling-test",
+            maxPendingBytes: Self.blockingSize * 2, onFailure: {}
+        )
+        #expect(writer.enqueue(Data(count: Self.blockingSize)))
+        #expect(writer.enqueue(Data(count: Self.blockingSize)))
+        #expect(!writer.enqueue(Data(count: 1)), "neither 1 MiB write can finish with nobody reading, so 2 MiB is still unwritten")
+        writer.close()
+        _ = try pipe.fileHandleForReading.readToEnd()
+    }
 }
 
 /// Connection-level: every mirrored session publishing its identity at once, through the real

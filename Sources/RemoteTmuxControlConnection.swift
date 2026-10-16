@@ -526,10 +526,10 @@ final class RemoteTmuxControlConnection {
     }()
     /// Cap on captured stderr (bytes) so a noisy/hostile remote can't grow it unbounded.
     private static let maxStderrBytes = 8 * 1024
-    /// Cap queued stdin bytes while the dedicated writer is backpressured. Above
-    /// this, mutations are rejected and the connection reconnects instead of
-    /// accepting unbounded user input that may never reach tmux.
-    static let maxPendingStdinBytes = 256 * 1024
+    /// Memory ceiling on stdin bytes the pipe has not taken yet; the writer also gives up on a pipe
+    /// that stops taking bytes (see ``RemoteTmuxControlPipeWriter``). Far above the attach burst of
+    /// a host with many sessions, which a 256 KiB cap turned into a reconnect on every attach.
+    static let maxPendingStdinBytes = 8 * 1024 * 1024
     /// Cap pending stdout between SSH's pipe callback and the main-actor parser.
     /// Initial attach can legitimately burst one `capture-pane -S 5000` block per
     /// mirrored pane, so the chunk cap absorbs pipe delivery jitter while the byte
