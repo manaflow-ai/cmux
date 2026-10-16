@@ -66,6 +66,11 @@ if (spawnOptions?.env?.CMUX_AGENT_LAUNCH_KIND !== "opencode") throw new Error("s
 if (!spawnOptions?.env?.CMUX_AGENT_LAUNCH_EXECUTABLE) throw new Error("session admission dropped launch executable");
 if (!spawnOptions?.env?.CMUX_AGENT_LAUNCH_ARGV_B64) throw new Error("session admission dropped launch argv");
 if (spawnOptions.env.CMUX_AGENT_LAUNCH_ARGV_B64 === parentLaunchArgv) throw new Error("session admission reused a parent OpenCode launch capture");
+if (spawnOptions?.env?.CMUX_AGENT_MANAGED_SUBAGENT) throw new Error("top-level session admission was tagged as a subagent");
+let subagentOptions;
+const subagentSpawn = (_command, _args, options) => { subagentOptions = options; return { stdin: { end() {}, on() { return this; } }, on() { return this; }, unref() {} }; };
+if (!mod.dispatchSessionHook("stop", { session_id: "opencode-child-of-child-a", cwd: "/tmp", subagent: true }, subagentSpawn, dispatchEnvironment)) throw new Error("subagent session admission was skipped");
+if (subagentOptions?.env?.CMUX_AGENT_MANAGED_SUBAGENT !== "1") throw new Error("subagent session admission was not tagged with CMUX_AGENT_MANAGED_SUBAGENT");
 
 const socketPath = "/tmp/cmux-opencode-v2-" + process.pid + ".sock";
 try { await fs.unlink(socketPath); } catch (_) {}
