@@ -3170,17 +3170,17 @@ jobs:
           # published 0664bd98 from 10-14 over newer builds). The run head is an
           # upper bound of its build commit, so a refusal here is never wrong;
           # recover and publish-nightly check the exact build commit again.
-          kept="[]"
+          keep=""
           while IFS=$'\t' read -r run_id head; do
             [ -n "$run_id" ] || continue
-            if verdict="$(bash scripts/ci/nightly-next-recovery-lineage.sh "$GITHUB_REPOSITORY" "$CHANNEL_RELEASE_TAG" "$head")"; then
-              kept="$(python3 -I -c 'import json, sys; c = json.loads(sys.argv[1]); k = json.loads(sys.argv[2]); print(json.dumps(k + [x for x in c if str(x["run_id"]) == sys.argv[3]]))' "$candidates" "$kept" "$run_id")"
+            if verdict="$(bash scripts/ci/nightly-next-recovery-lineage.sh "$GITHUB_REPOSITORY" "$CHANNEL_RELEASE_TAG" "$head" </dev/null)"; then
+              keep="$keep $run_id"
             else
               echo "::notice title=Recovery refused::run $run_id: $verdict"
               echo "- refused run $run_id: $verdict" >> "$GITHUB_STEP_SUMMARY"
             fi
-          done < <(python3 -I -c 'import json, sys; [print("%s\t%s" % (c["run_id"], c["head_sha"])) for c in json.loads(sys.argv[1])]' "$candidates")
-          candidates="$kept"
+          done < <(python3 -I -c 'import json, sys; [print("%s\t%s" % (c["run_id"], c["head_sha"])) for c in json.load(sys.stdin)]' <<<"$candidates")
+          candidates="$(KEEP="$keep" python3 -I -c 'import json, os, sys; keep = set(os.environ.get("KEEP", "").split()); print(json.dumps([c for c in json.load(sys.stdin) if str(c["run_id"]) in keep]))' <<<"$candidates")"
           echo "candidates=$candidates" >> "$GITHUB_OUTPUT"
           if [ "$candidates" = "[]" ]; then
             echo "found=false" >> "$GITHUB_OUTPUT"
@@ -3263,7 +3263,7 @@ jobs:
             fi
             # shellcheck disable=SC1090
             source "$dir/manifest.env"
-            if ! verdict="$(bash scripts/ci/nightly-next-recovery-lineage.sh "$GITHUB_REPOSITORY" "$CHANNEL_RELEASE_TAG" "$BUILD_SHA")"; then
+            if ! verdict="$(bash scripts/ci/nightly-next-recovery-lineage.sh "$GITHUB_REPOSITORY" "$CHANNEL_RELEASE_TAG" "$BUILD_SHA" </dev/null)"; then
               echo "::notice title=Recovery refused::run $run_id: build $BUILD: $verdict; skipping"
               echo "::endgroup::"; continue
             fi
@@ -3367,7 +3367,8 @@ jobs:
       source: ${{ steps.source.outputs.source }}
       # The published build, for publish-nightly-identity-legacy (cx-x7hwx).
       build: ${{ steps.source.outputs.build }}
-      # Another run already published the recovered build; this one published nothing.
+      # Another run already published the recovered build, or the final gate
+      # refused (see refused): this run published nothing.
       already_published: ${{ steps.recheck.outputs.already_published == 'true' || steps.gate.outputs.refused == 'true' }}
       # The final gate refused: NIGHTLY_NEXT_HOLD=1, or a recovered build failed its lineage check.
       refused: ${{ steps.gate.outputs.refused }}
@@ -3619,9 +3620,9 @@ jobs:
       # reads NIGHTLY_NEXT_HOLD only at its start: run 38865696305 passed decide
       # before HOLD=1 was set (08:10:56Z) and published at 08:11:50Z. vars are
       # fixed at job start and the job token cannot read variables, so the
-      # release App (its variables permission, read only) reads it live, as
-      # cmuxterm-hq's nightly-next-legacy.yml does. An unreadable hold fails
-      # closed.
+      # manaflow-glaeda-route App (the one installation on this repository with
+      # the variables permission; the release App has none) reads it live. An
+      # unreadable hold fails closed.
       - name: Mint the hold-check token
         id: hold-token
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true'
@@ -3629,8 +3630,8 @@ jobs:
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
-          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           # The action has no input for the variables permission, and any
@@ -3675,10 +3676,16 @@ jobs:
             fi
           fi
           if [ "$SOURCE" = recovered ]; then
-            if ! verdict="$(bash "$PUBLISH_TOOLING/ci/nightly-next-recovery-lineage.sh" "$GITHUB_REPOSITORY" "$CHANNEL_RELEASE_TAG" "$BUILD_SHA")"; then
+            status=0
+            verdict="$(bash "$PUBLISH_TOOLING/ci/nightly-next-recovery-lineage.sh" "$GITHUB_REPOSITORY" "$CHANNEL_RELEASE_TAG" "$BUILD_SHA" </dev/null)" || status=$?
+            if [ "$status" = 3 ]; then
               echo "::warning title=Publication refused::recovered build $NIGHTLY_BUILD ($BUILD_SHA): $verdict"
               echo "refused=true" >> "$GITHUB_OUTPUT"
               exit 0
+            elif [ "$status" != 0 ]; then
+              # The check could not run: publish nothing, and say so in red.
+              echo "::error title=Recovered build not checked::recovered build $NIGHTLY_BUILD ($BUILD_SHA): $verdict; nothing published"
+              exit 1
             fi
             echo "$verdict"
           fi

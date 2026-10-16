@@ -613,12 +613,12 @@ class ShellSnippetTests(unittest.TestCase):
         found = []
         for name in ("find-nightly-next-recovery", "recover-nightly-next-notarization"):
             for item in jobs[name]["steps"]:
-                found += re.findall(r"python3 -c '[^']*'", item.get("run", ""))
+                found += re.findall(r"python3 (?:-I )?-c '[^']*'", item.get("run", ""))
         return found
 
     def test_every_inline_python_runs_under_bash(self):
         snippets = self.snippets()
-        self.assertEqual(len(snippets), 2, snippets)
+        self.assertEqual(len(snippets), 4, snippets)
         outputs = []
         for snippet in snippets:
             result = subprocess.run(["bash", "-c", snippet], input=self.CANDIDATES, capture_output=True, text=True)

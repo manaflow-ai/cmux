@@ -44,7 +44,8 @@ fi
 # contains <ancestor> <label>: is <ancestor> in $sha?
 contains() {
   local status
-  if ! status="$(gh api "repos/$repo/compare/$1...$sha" --jq .status 2>&1)"; then
+  # per_page=1: only the status is read; keep the response small.
+  if ! status="$(gh api "repos/$repo/compare/$1...$sha?per_page=1" --jq .status 2>&1)"; then
     echo "error could not compare $1 with $sha (${status//$'\n'/ })"
     exit 1
   fi
