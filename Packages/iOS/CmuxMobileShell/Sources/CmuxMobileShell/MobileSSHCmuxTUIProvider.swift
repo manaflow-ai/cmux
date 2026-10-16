@@ -38,6 +38,9 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
     private let route: Route
     /// Owns the one control and its session-wide notification subscription.
     private var topologyReconnect: MobileSSHCmuxTUITopologyReconnect<CmuxTUIControl>!
+    /// Bounds relists when the control keeps changing during every snapshot.
+    nonisolated static let maximumStableListingAttempts = 3
+
     private func makeTopologyReconnect() -> MobileSSHCmuxTUITopologyReconnect<CmuxTUIControl> {
         MobileSSHCmuxTUITopologyReconnect<CmuxTUIControl>(
         open: { [weak self] in
@@ -128,18 +131,43 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
     }
 
     func listWorkspaces() async throws -> [MobileSSHWorkspace] {
-        while true {
-            // This listing observes every change reported by this control
-            // generation. A reconnect that races the request forces a fresh
-            // snapshot rather than applying rows from the old control.
-            let generation = topologyReconnect.generation
-            topology.listed(generation: generation)
-            let workspaces = try await withControl { control in
-                try await control.listWorkspaces().map(Self.workspace)
+        try await Self.stableWorkspaceListing(
+            generation: { [topologyReconnect] in topologyReconnect.generation },
+            load: { [weak self] in
+                guard let self else { throw CancellationError() }
+                // This listing observes every change reported by this control
+                // generation. A reconnect that races the request forces a
+                // fresh snapshot rather than applying rows from the old
+                // control.
+                let generation = self.topologyReconnect.generation
+                self.topology.listed(generation: generation)
+                return try await self.withControl { control in
+                    try await control.listWorkspaces().map(Self.workspace)
+                }
             }
-            guard topologyReconnect.generation == generation else { continue }
+        )
+    }
+
+    /// Returns a snapshot only when its control generation stayed stable.
+    ///
+    /// The generation check prevents rows from a superseded control from
+    /// replacing a newer snapshot. The bound keeps a continuously changing
+    /// owner from making discovery wait forever.
+    static func stableWorkspaceListing(
+        generation: @escaping @MainActor () -> UInt64,
+        load: @escaping @MainActor () async throws -> [MobileSSHWorkspace]
+    ) async throws -> [MobileSSHWorkspace] {
+        for _ in 0..<maximumStableListingAttempts {
+            let currentGeneration = generation()
+            let workspaces = try await load()
+            guard generation() == currentGeneration else { continue }
             return workspaces
         }
+        throw CmuxTUIError.commandFailed(
+            command: "list-workspaces",
+            message: "workspace topology changed during snapshot",
+            code: "topology-unstable"
+        )
     }
 
     /// Maps a cmux-tui workspace to its row: terminals in layout order, one

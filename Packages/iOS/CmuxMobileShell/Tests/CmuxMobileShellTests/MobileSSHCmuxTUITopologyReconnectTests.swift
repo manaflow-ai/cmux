@@ -5,6 +5,30 @@ import CmuxMobileSSH
 
 @MainActor
 @Suite struct MobileSSHCmuxTUITopologyReconnectTests {
+    actor Gate {
+        private var waiting: CheckedContinuation<Void, Never>?
+        private var signaled = false
+
+        func wait() async {
+            if signaled {
+                signaled = false
+                return
+            }
+            await withCheckedContinuation { continuation in
+                waiting = continuation
+            }
+        }
+
+        func signal() {
+            if let waiting {
+                self.waiting = nil
+                waiting.resume()
+            } else {
+                signaled = true
+            }
+        }
+    }
+
     @MainActor
     final class FakeControl: Sendable {
         let id: Int
@@ -155,5 +179,60 @@ import CmuxMobileSSH
         #expect(snapshotAfterGap)
         let admittedOld = gate.admit(.treeChanged, generation: 2)
         #expect(!admittedOld)
+    }
+
+    @Test func providerListingDiscardsRowsFromAStaleGeneration() async throws {
+        let gate = Gate()
+        var generation: UInt64 = 1
+        var loadCount = 0
+        let stale = MobileSSHWorkspace(id: "stale", name: "stale", terminals: [])
+        let current = MobileSSHWorkspace(id: "current", name: "current", terminals: [])
+
+        let listing = Task { @MainActor in
+            try await MobileSSHCmuxTUIProvider.stableWorkspaceListing(
+                generation: { generation },
+                load: {
+                    loadCount += 1
+                    if loadCount == 1 {
+                        await gate.signal()
+                        await gate.wait()
+                        return [stale]
+                    }
+                    return [current]
+                }
+            )
+        }
+
+        await gate.wait()
+        generation = 2
+        await gate.signal()
+        let result = try await listing.value
+        #expect(result == [current])
+        #expect(loadCount == 2)
+    }
+
+    @Test func providerListingBoundsContinuousGenerationChurn() async {
+        var generation: UInt64 = 1
+        var loadCount = 0
+        do {
+            _ = try await MobileSSHCmuxTUIProvider.stableWorkspaceListing(
+                generation: { generation },
+                load: {
+                    loadCount += 1
+                    generation += 1
+                    return []
+                }
+            )
+            Issue.record("a continuously changing topology must not return a stale snapshot")
+        } catch let error as CmuxTUIError {
+            #expect(error == .commandFailed(
+                command: "list-workspaces",
+                message: "workspace topology changed during snapshot",
+                code: "topology-unstable"
+            ))
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+        #expect(loadCount == MobileSSHCmuxTUIProvider.maximumStableListingAttempts)
     }
 }
