@@ -13,6 +13,13 @@ import Foundation
 /// wanted. An unmarked window in the view alone is left alone. The option name carries the
 /// view's name, because one window can be linked into the views of several cmux installs and a
 /// shared value would let them overwrite each other's marks.
+///
+/// Invariant: every window this connection links into the view is held either by an
+/// acknowledged mark in tmux or in ``unconfirmedMarkWindowIds``, and the bringup adopts both.
+/// A mark is a tracked write, so tmux's `%error` (or a stream reset) keeps the window in the
+/// set; the bringup writes those marks again before it reads the view, and a window whose mark
+/// is still refused is adopted from the set. A link whose mark failed therefore cannot become
+/// an orphan the bringup refuses to remove. Windows that are gone from the view leave the set.
 extension RemoteTmuxViewConnection {
     nonisolated static func windowMarkOption(viewSessionName: String) -> String {
         "@cmux_link_\(viewSessionName)"
@@ -34,14 +41,18 @@ extension RemoteTmuxViewConnection {
     /// that are cmux's. The placeholder is the first window that is neither linked elsewhere nor
     /// marked; see ``readBringupRows(_:)`` for why it is not simply the first row. A view where
     /// no window carries a mark was left by a cmux that did not set them, and keeps that rule.
+    ///
+    /// `knownMarked` holds windows this connection linked whose mark tmux has not confirmed;
+    /// they count as marked.
     nonisolated static func readMarkedBringupRows(
-        _ lines: [String]
+        _ lines: [String], knownMarked: Set<String> = []
     ) -> (placeholder: String?, adopted: Set<String>, unmarkedLinked: [String]) {
         let rows = lines.compactMap { line -> (id: String, isLinked: Bool, mark: String)? in
             let fields = line.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
                 .map(String.init)
             guard let id = fields.first, !id.isEmpty else { return nil }
-            return (id, fields.count > 1 && fields[1] == "1", fields.count > 2 ? fields[2] : "")
+            let mark = knownMarked.contains(id) ? "1" : (fields.count > 2 ? fields[2] : "")
+            return (id, fields.count > 1 && fields[1] == "1", mark)
         }
         let unmarkedLinked = rows.filter { $0.isLinked && $0.mark != "1" }.map(\.id)
         guard rows.contains(where: { $0.mark == "1" }) else {
@@ -59,14 +70,39 @@ extension RemoteTmuxViewConnection {
     /// Links `windowId` into the view and marks it as linked by this view.
     func linkIntoView(_ conn: RemoteTmuxControlConnection, windowId: String) -> Bool {
         let commands = Self.linkCommands(windowId: windowId, viewSessionName: view.sessionName)
-        return conn.send(commands[0]) && conn.send(commands[1])
+        return conn.send(commands[0]) && markWindow(conn, windowId)
     }
 
     /// Marks windows cmux holds in a real session that do not carry this view's mark yet, so the
     /// next bringup still knows them as cmux's if their session is killed meanwhile.
     func markLinkedWindows(_ conn: RemoteTmuxControlConnection, _ windowIds: [String]) {
-        for windowId in windowIds {
-            _ = conn.send(Self.linkCommands(windowId: windowId, viewSessionName: view.sessionName)[1])
+        for windowId in windowIds { _ = markWindow(conn, windowId) }
+    }
+
+    /// Writes the marks tmux has not confirmed again. Sent ahead of the bringup's window query,
+    /// so by the time tmux answers the query it has answered these too.
+    func rewriteUnconfirmedMarks(_ conn: RemoteTmuxControlConnection) {
+        for windowId in unconfirmedMarkWindowIds.sorted() { _ = markWindow(conn, windowId) }
+    }
+
+    /// Reads the bringup's window rows, counting a window this connection linked as marked
+    /// while its mark is unconfirmed, and forgetting unconfirmed windows the view no longer has.
+    func readBringupRowsKeepingUnconfirmedMarks(
+        _ conn: RemoteTmuxControlConnection, _ lines: [String]
+    ) -> (placeholder: String?, adopted: Set<String>) {
+        let present = Set(lines.compactMap { $0.split(separator: " ").first.map(String.init) })
+        unconfirmedMarkWindowIds.formIntersection(present)
+        let read = Self.readMarkedBringupRows(lines, knownMarked: unconfirmedMarkWindowIds)
+        markLinkedWindows(conn, read.unmarkedLinked)
+        return (read.placeholder, read.adopted)
+    }
+
+    /// Sends the mark as a tracked write; only tmux's `%end` takes the window out of the set.
+    private func markWindow(_ conn: RemoteTmuxControlConnection, _ windowId: String) -> Bool {
+        unconfirmedMarkWindowIds.insert(windowId)
+        let command = Self.linkCommands(windowId: windowId, viewSessionName: view.sessionName)[1]
+        return conn.sendTracked(command) { [weak self] accepted in
+            if accepted { self?.unconfirmedMarkWindowIds.remove(windowId) }
         }
     }
 }

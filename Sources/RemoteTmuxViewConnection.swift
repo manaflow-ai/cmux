@@ -164,6 +164,7 @@ final class RemoteTmuxViewConnection {
     private let initialRows: Int
     /// Window ids cmux has itself linked into the view (ownership for safe unlink).
     private var ownedWindowIds: Set<String> = []
+    var unconfirmedMarkWindowIds: Set<String> = [] // linked here, mark not yet acknowledged; see WindowMarks
     private var placeholderWindowId: String?
     /// Whether the over-the-stream view bringup has completed: the ownership options are
     /// stamped (each write acknowledged) and ``placeholderWindowId``/``ownedWindowIds``
@@ -288,8 +289,7 @@ final class RemoteTmuxViewConnection {
         // we come back to: it can be killed during the outage and recreated by the re-attach,
         // and an unstamped view classifies as not ours.
         didBootstrapView = false
-        // A fresh connect gets a fresh budget; the old stream's refusals say nothing about
-        // whether this one will take the writes.
+        // A fresh connect gets a fresh budget: the old stream's refusals say nothing about this one.
         bringupRetries = 0
     }
 
@@ -537,6 +537,7 @@ final class RemoteTmuxViewConnection {
                 self.bootstrapWritesAcknowledged += 1
             }) else { return false }
         }
+        rewriteUnconfirmedMarks(conn)
         guard let lines = await reconcileListQuery(conn, "list-windows -t \(quoted(view.sessionName)) -F "
             + quoted(Self.markedBringupListFormat(viewSessionName: view.sessionName))) else { return false }
         // No separate wait for the writes: tmux answers commands in the order it received
@@ -544,10 +545,9 @@ final class RemoteTmuxViewConnection {
         // stream that reset in between fails every pending tracked send, which lands here
         // as a missing acknowledgement.
         guard bootstrapWritesAcknowledged == writes.count else { return false }
-        let read = Self.readMarkedBringupRows(lines)
+        let read = readBringupRowsKeepingUnconfirmedMarks(conn, lines)
         placeholderWindowId = read.placeholder
         ownedWindowIds = read.adopted
-        markLinkedWindows(conn, read.unmarkedLinked)
         return true
     }
 
