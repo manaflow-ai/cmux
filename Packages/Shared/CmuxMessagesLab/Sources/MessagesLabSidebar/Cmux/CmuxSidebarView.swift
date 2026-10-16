@@ -106,6 +106,10 @@ public final class CmuxSidebarView: NSView {
     /// Removes a conversation from the host's list. The host owns the policy
     /// (archive, hide, or delete) and calls ``show`` after changing it.
     public var onDelete: (String) -> Void = { _ in }
+    /// Whether the host can remove a conversation. Hosts can keep a required
+    /// default thread (such as Chief) visible while still exposing delete for
+    /// ordinary rows.
+    public var canDelete: (String) -> Bool = { _ in true }
     /// Host items for a conversation's context menu after the built-in actions (MessagesLab
     /// v1.1 `menuItemsFor`).
     public var menuItems: (String) -> [NSMenuItem] = { _ in [] }
@@ -282,7 +286,8 @@ private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurre
     // controller picks the title from the entry's unread count; the host keeps the mark), and
     // Delete, which the host handles as archive/hide.
     func sidebar(_ sidebar: SidebarController, actionsFor id: ConversationID) -> SidebarActions {
-        owner?.entries.contains { $0.id == id } == true ? [.pin, .markRead, .delete] : [.pin]
+        guard owner?.entries.contains(where: { $0.id == id }) == true else { return [.pin] }
+        return owner?.canDelete(id) == true ? [.pin, .markRead, .delete] : [.pin, .markRead]
     }
     func sidebar(_ sidebar: SidebarController, menuItemsFor id: ConversationID) -> [NSMenuItem] { owner?.menuItems(id) ?? [] }
 

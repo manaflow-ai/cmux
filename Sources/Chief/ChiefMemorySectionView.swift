@@ -88,7 +88,13 @@ final class ChiefMemorySectionView: NSView {
         let recent = ChiefMemoryStore.shared.recent(Self.shownCount)
         for fact in recent {
             let row = ChiefMemoryNoteRow(fact: fact, width: width, compact: true)
-            row.onForget = { id in ChiefMemoryStore.shared.forget(id) }
+            row.onForget = { [weak self] id in
+                // Keep the small settings list responsive even when the file
+                // watcher is coalescing a burst of edits. `forget` remains the
+                // single mutation path and its notification updates other views.
+                _ = ChiefMemoryStore.shared.forget(id)
+                self?.reload()
+            }
             row.apply(theme)
             rows.addArrangedSubview(row)
         }
@@ -236,7 +242,10 @@ final class ChiefMemoryNoteRow: NSView {
     }
 
     private func updateHover() {
-        forgetButton.alphaValue = compact && !hovering ? 0 : 1
+        // The settings list is narrow and has no reliable hover affordance on
+        // trackpads. Keep Forget visible there so a note can always be removed;
+        // the full memory sheet still uses hover to keep its rows quiet.
+        forgetButton.alphaValue = compact ? 1 : (hovering ? 1 : 0)
         layer?.backgroundColor = hovering ? theme.hoverFill.cgColor : nil
     }
 

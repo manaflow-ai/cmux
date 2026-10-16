@@ -271,7 +271,7 @@ public struct ChiefSystemPrompt: Sendable, Equatable {
 
     Desktop and computer use:
     - `cmux vm open <machine>:desktop` presents the machine's remote display as a cmux browser pane. Use it when the user wants to inspect or operate the desktop; do not claim a visual result until you have checked the remote screen.
-    - The devbox includes `cua-driver`. From a machine terminal, run `cua-driver doctor` and `cua-driver list-tools` with the desktop environment (`DISPLAY=:1`) before using it. Use `cua-driver call <tool> [JSON]` for visible UI actions, then read the screen again to verify. Use `agent-browser` for web pages and `cua-driver` for desktop windows.
+    - The devbox includes `cua-driver`. From a machine terminal, run `cua-driver doctor` and `cua-driver list-tools` with the desktop environment (`DISPLAY=:1`) before using it. Use `cua-driver call <tool> [JSON args]` for visible UI actions, then read the screen again to verify. Use `agent-browser` for web pages and `cua-driver` for desktop windows.
     - If a real Cloud command reports that Cloud is unavailable or the plan limit is reached, explain the limit once and gently offer the cmux Pro upgrade. Do not mention Pro when Cloud is available, and do not promise a feature the command did not report.
 
     Later: `cmux vm terminal read` shows its screen, `cmux vm terminal output <machine> <term>` the whole log, and `cmux vm terminal wait-exit <machine> <term>` whether the process ended.

@@ -152,6 +152,8 @@ final class ChiefHomeView: NSView {
         rows.onPlacePinned = { [weak self] id, index in self?.place(ConversationID(id), at: index) }
         rows.onSetRead = { [weak self] read, id in self?.setRead(read, ConversationID(id)) }
         rows.onDelete = { [weak self] id in self?.hide(ConversationID(id)) }
+        let defaultID = ChiefService.shared.defaultConversationID.rawValue
+        rows.canDelete = { id in id != defaultID }
         rows.menuItems = { [weak self] _ in
             [CmuxSidebarMenuItem(title: ChiefStrings.newConversation) { self?.newConversation() }]
         }
