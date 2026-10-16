@@ -146,10 +146,11 @@ def run(output):
     output.mkdir(parents=True, exist_ok=True)
     ready, submitted = queue.Queue(), queue.Queue()
     page = b'''<!doctype html><title>cmux CUA image verification</title>
-<style>body{background:#e6f4ea;font:24px sans-serif}input{position:fixed;inset:0;
+<style>body{background:#e6f4ea;font:24px sans-serif}input:not([type=hidden]){position:fixed;inset:0;
 box-sizing:border-box;width:100%;height:100%;font:32px sans-serif;padding:40px}</style>
 <form method="post"><input name="text" placeholder="Computer use: click, type, press Enter"
-autocomplete="off" autofocus></form><script>fetch('/ready')</script>'''
+autocomplete="off" readonly onclick="this.readOnly=false;this.focus();document.getElementById('clicked').value='yes'">
+<input type="hidden" id="clicked" name="clicked" value="no"></form><script>fetch('/ready')</script>'''
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *_args):
@@ -165,7 +166,7 @@ autocomplete="off" autofocus></form><script>fetch('/ready')</script>'''
 
         def do_POST(self):
             body = self.rfile.read(int(self.headers["Content-Length"]))
-            submitted.put(urllib.parse.parse_qs(body.decode()).get("text", []))
+            submitted.put(urllib.parse.parse_qs(body.decode()))
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
@@ -202,6 +203,7 @@ autocomplete="off" autofocus></form><script>fetch('/ready')</script>'''
                     })
                     client.send({"method": "notifications/initialized"})
                     tools = client.request("tools/list", {})["tools"]
+                    (output / (name + "-tools.json")).write_text(json.dumps(tools, indent=2) + "\n")
                     names = {tool["name"] for tool in tools}
                     assert {"get_desktop_state", "click", "type_text", "press_key"} <= names, names
                     before = screenshot(client, output / (name + "-before.png"))
@@ -210,7 +212,7 @@ autocomplete="off" autofocus></form><script>fetch('/ready')</script>'''
                     client.call("type_text", {"scope": "desktop", "text": text})
                     screenshot(client, output / (name + "-typed.png"))
                     client.call("press_key", {"scope": "desktop", "key": "Return"})
-                    assert submitted.get(timeout=15) == [text], "desktop did not receive the exact MCP input"
+                    assert submitted.get(timeout=15) == {"text": [text], "clicked": ["yes"]}, "desktop did not receive the MCP click and exact input"
                     ready.get(timeout=15)
                     report[name] = {"tools": len(tools), "screenshot": before, "input": "verified"}
                     print("CUA_MCP_PASS " + name, flush=True)
