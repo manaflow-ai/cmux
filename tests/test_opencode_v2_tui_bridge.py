@@ -322,7 +322,8 @@ await fs.chmod(captureBin, 0o755);
 const liveCapture = makeLive("a", { CMUX_SOCKET_PATH: socketPath, CMUX_SURFACE_ID: "surface-capture", CMUX_WORKSPACE_ID: "workspace-capture", CMUX_OPENCODE_CMUX_BIN: captureBin, CMUX_TEST_CAPTURE_FILE: captureFile }, {});
 const cleanupCapture = await mod.createCMUXTUIBridge(liveCapture, { environment: liveCapture.environment });
 const captureLine = async (sessionID) => {
-  for (let attempt = 0; attempt < 200; attempt++) {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
     let text = "";
     try { text = await fs.readFile(captureFile, "utf8"); } catch (_) {}
     const line = text.split("\n").find((entry) => entry.includes('"session_id":"' + sessionID + '"'));
