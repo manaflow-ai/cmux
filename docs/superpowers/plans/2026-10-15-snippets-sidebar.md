@@ -41,7 +41,7 @@
 - Consumes: `CmuxSnippetMenuEntry(actionID:title:category:payload:)`, `CmuxTextActionPayload(text:submit:)`.
 - Produces: `CmuxSnippetMenuEntry.keywords: [String]` (init parameter `keywords: [String] = []`, placed after `category`); `public enum CmuxSnippetSearch { public static func filter(_ entries: [CmuxSnippetMenuEntry], query: String) -> [CmuxSnippetMenuEntry] }`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `Packages/macOS/CmuxTextActions/Tests/CmuxTextActionsTests/CmuxSnippetSearchTests.swift`:
 
@@ -128,12 +128,12 @@ struct CmuxSnippetSearchTests {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd /Users/tzgambo/Developer/cmux/Packages/macOS/CmuxTextActions && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter CmuxSnippetSearchTests 2>&1 | tail -5`
 Expected: compile error, `cannot find 'CmuxSnippetSearch' in scope` and `extra argument 'keywords'`.
 
-- [ ] **Step 3: Add `keywords` to the entry**
+- [x] **Step 3: Add `keywords` to the entry**
 
 In `CmuxSnippetMenuModel.swift` replace the `CmuxSnippetMenuEntry` struct (lines 4-16) with:
 
@@ -163,7 +163,7 @@ public struct CmuxSnippetMenuEntry: Sendable, Hashable {
 }
 ```
 
-- [ ] **Step 4: Write the search**
+- [x] **Step 4: Write the search**
 
 Create `Packages/macOS/CmuxTextActions/Sources/CmuxTextActions/CmuxSnippetSearch.swift`:
 
@@ -231,12 +231,12 @@ public enum CmuxSnippetSearch {
 }
 ```
 
-- [ ] **Step 5: Run all package tests to verify they pass**
+- [x] **Step 5: Run all package tests to verify they pass**
 
 Run: `cd /Users/tzgambo/Developer/cmux/Packages/macOS/CmuxTextActions && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test 2>&1 | grep -E '✘|Test run|error:'`
 Expected: `Test run with 24 tests in 3 suites passed` (18 existing + 6 new), no `✘`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /Users/tzgambo/Developer/cmux && python3 scripts/swift_file_length_budget.py && \
@@ -263,7 +263,7 @@ defaulted init parameter so the context-menu callers compile unchanged."
 - Consumes: `CmuxConfigStore(globalConfigPath:localConfigPath:startFileWatchers:)`, `.loadAll()`, `@Published configRevision: UInt64`, `snippetMenuEntries() -> [CmuxSnippetMenuEntry]`, `CmuxResolvedConfigAction.keywords: [String]`, `CmuxSnippetSearch.filter`.
 - Produces: `@MainActor final class SnippetsSidebarStore: ObservableObject` with `@Published var query: String`, `@Published private(set) var entries: [CmuxSnippetMenuEntry]`, `@Published private(set) var results: [CmuxSnippetMenuEntry]`, `@Published private(set) var selectedActionID: String?`, `var selectedEntry: CmuxSnippetMenuEntry?`, `func attach(configStore: CmuxConfigStore)`, `func detach()`, `func select(actionID: String)`, `func moveSelection(by delta: Int)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `cmuxTests/SnippetsSidebarStoreTests.swift`:
 
@@ -366,13 +366,13 @@ struct SnippetsSidebarStoreTests {
 }
 ```
 
-- [ ] **Step 2: Wire the test file and verify it fails to compile**
+- [x] **Step 2: Wire the test file and verify it fails to compile**
 
 Run: `cd /Users/tzgambo/Developer/cmux && scripts/sync-test-wiring && ./scripts/lint-pbxproj-test-wiring.sh | tail -1`
 Expected: wiring ok. Then run the build command from Global Constraints with `-only-testing:cmuxTests/SnippetsSidebarStoreTests`.
 Expected: `error: cannot find 'SnippetsSidebarStore' in scope`.
 
-- [ ] **Step 3: Pass keywords from the config store (line-neutral edit)**
+- [x] **Step 3: Pass keywords from the config store (line-neutral edit)**
 
 In `Sources/CmuxConfig.swift` inside `snippetMenuEntries()` (around line 3013), replace
 
@@ -390,7 +390,7 @@ with
 
 (The file is over budget, so the two lines stay two lines.)
 
-- [ ] **Step 4: Write the store**
+- [x] **Step 4: Write the store**
 
 Create `Sources/SnippetsSidebarStore.swift`:
 
@@ -468,7 +468,7 @@ final class SnippetsSidebarStore: ObservableObject {
 }
 ```
 
-- [ ] **Step 5: Wire the source file and run the suite**
+- [x] **Step 5: Wire the source file and run the suite**
 
 Run: `cd /Users/tzgambo/Developer/cmux && python3 scripts/wire-app-sources.py && python3 scripts/wire-app-sources.py --check && ./scripts/check-pbxproj.sh | tail -1`
 Expected: the new file is added to the `cmux` target; checks pass.
@@ -476,7 +476,7 @@ Expected: the new file is added to the `cmux` target; checks pass.
 Run the build command with `-only-testing:cmuxTests/SnippetsSidebarStoreTests -only-testing:cmuxTests/CmuxTextActionConfigTests`.
 Expected: `TEST SUCCEEDED`, both suites `✔`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /Users/tzgambo/Developer/cmux && python3 scripts/swift_file_length_budget.py && \
@@ -509,7 +509,7 @@ the fallback). snippetMenuEntries now carries the action keywords."
 **Interfaces:**
 - Produces: `RightSidebarMode.snippets` (rawValue `"snippets"`, label key `rightSidebar.mode.snippets`, symbol `text.badge.plus`, `shortcutAction == .switchRightSidebarToSnippets`, not a pane mode, always available, listed after `.machines` so existing positional digits do not move); `KeyboardShortcutSettings.Action.switchRightSidebarToSnippets`; `final class SnippetsKeyboardFocusView: NSView` with `var focusSearchField: (() -> Bool)?`, `var ownsResponder: ((NSResponder) -> Bool)?`, `func focusFirstItemFromCoordinator()`, `func focusHostFromCoordinator() -> Bool`, `func ownsKeyboardFocus(_:) -> Bool`, `func registerWithKeyboardFocusCoordinatorIfNeeded()`; `MainWindowFocusController.registerSnippetsHost(_:)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `cmuxTests/SnippetsSidebarModeTests.swift`:
 
@@ -568,12 +568,12 @@ struct SnippetsSidebarModeTests {
 
 `RightSidebarTabPreferences.setHidden(_:mode:defaults:)` returns a Bool (discarded above); `hasPriorityShortcutRouting` is in `Sources/KeyboardShortcutActionContext.swift:233`.
 
-- [ ] **Step 2: Wire the test and verify it fails**
+- [x] **Step 2: Wire the test and verify it fails**
 
 Run: `cd /Users/tzgambo/Developer/cmux && scripts/sync-test-wiring`, then the build command with `-only-testing:cmuxTests/SnippetsSidebarModeTests`.
 Expected: `error: type 'RightSidebarMode' has no member 'snippets'`.
 
-- [ ] **Step 3: Add the mode**
+- [x] **Step 3: Add the mode**
 
 In `Sources/RightSidebarMode.swift`, add the case after `case machines` and a line in each of the three switches, mirroring `.machines`:
 
@@ -601,7 +601,7 @@ In `Sources/RightSidebarMode+Availability.swift`, find the `func isAvailable(fee
             return true
 ```
 
-- [ ] **Step 4: Add the shortcut action (line-neutral in the 2605-line file)**
+- [x] **Step 4: Add the shortcut action (line-neutral in the 2605-line file)**
 
 In `Sources/KeyboardShortcutSettings.swift`:
 
@@ -623,7 +623,7 @@ In `Sources/KeyboardShortcutSettings.swift`:
 
 In `Sources/KeyboardShortcutSettings+ActionVisibility.swift`, `Sources/KeyboardShortcutActionContext.swift` (both lists, lines 236-238 and 261-262) and `Sources/AppDelegate+DockShortcutRouting.swift` (line 115), add `.switchRightSidebarToSnippets` directly after `.switchRightSidebarToMachines` in each list (these files are under 500 lines).
 
-- [ ] **Step 5: Teach the tool panel and the focus controller about the mode**
+- [x] **Step 5: Teach the tool panel and the focus controller about the mode**
 
 `Sources/RightSidebarToolPanel.swift` (391 lines): in the three `switch mode` statements (`syncWorkspaceRoot`, `focus`, `ownedFocusIntent`) change each `case .feed, .dock, .machines, .customSidebar:` to `case .feed, .dock, .machines, .snippets, .customSidebar:`.
 
@@ -716,7 +716,7 @@ Offsets (the edits above add 15 lines and remove 2): rewrite the two accessors o
 ```
 Then run `python3 scripts/swift_file_length_budget.py`; if the file is still over its 865-line budget, join the multi-line `dlog(` string concatenations inside `#if DEBUG` blocks in `focusRightSidebar(mode:target:terminalYieldReason:)` onto single lines until it passes (no behavior change).
 
-- [ ] **Step 6: Localize the two strings**
+- [x] **Step 6: Localize the two strings**
 
 Run this once (adds `rightSidebar.mode.snippets` and `shortcut.switchRightSidebarToSnippets.label` with all nine locales):
 
@@ -743,13 +743,13 @@ python3 scripts/lint-xcstrings.py && python3 scripts/localization_catalog.py che
 
 Expected: both checks pass. If `lint-xcstrings.py` complains about key ordering or formatting, run the repo's formatter it names and re-check.
 
-- [ ] **Step 7: Build, run the mode tests and the existing sidebar tests**
+- [x] **Step 7: Build, run the mode tests and the existing sidebar tests**
 
 Run `python3 scripts/wire-app-sources.py && python3 scripts/wire-app-sources.py --check`, then the build command with
 `-only-testing:cmuxTests/SnippetsSidebarModeTests -only-testing:cmuxTests/RightSidebarModeShortcutHintTests -only-testing:cmuxTests/RightSidebarTabCustomizationTests -only-testing:cmuxTests/RightSidebarCommandPaletteTests -only-testing:cmuxTests/DevicesSidebarModeTests`.
 Expected: `TEST SUCCEEDED`. If an existing test enumerates every mode and now fails on the extra entry, fix its expectation in place (`cmuxTests/ShortcutAndCommandPaletteTests.swift` may not grow; edit existing lines only, e.g. append `.switchRightSidebarToSnippets,` to an existing list line). Machines keeps ctrl+6 because Snippets is listed after it.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 cd /Users/tzgambo/Developer/cmux && python3 scripts/swift_file_length_budget.py && \
@@ -783,7 +783,7 @@ whose first item is the search field, mirroring the Dock host."
 - Consumes: `SnippetsSidebarStore`, `SnippetsKeyboardFocusView`, `SidebarSearchFieldView(text:placeholder:accessibilityIdentifier:onSubmit:onCommandSubmit:)`, `SidebarSearchField.visibleHeight/.leadingPadding/.topPadding`, `RightSidebarChromeMetrics.headerTrailingPadding/.barVerticalPadding`, `RightSidebarKeyboardNavigation.moveDelta(for:)/.isPlainSlash(_:)`, `CmuxConfigStore.resolvedAction(id:)`, `CmuxConfigExecutor.deliverTextActionIfAuthorized(...)`, `CmuxConfigExecutor.deliver(_:to:)`, `TabManager.selectedWorkspace?.focusedTerminalInputTarget()?.panel`, `AppDelegate.shared?.keyboardFocusCoordinator(for:)?.restoreFocusedPanelFocusFromRightSidebarIfNeeded()`.
 - Produces: `struct SnippetsSidebarView: View` with `init(tabManager: TabManager)`.
 
-- [ ] **Step 1: Localize the view strings**
+- [x] **Step 1: Localize the view strings**
 
 ```bash
 cd /Users/tzgambo/Developer/cmux && python3 - <<'EOF'
@@ -815,7 +815,7 @@ EOF
 python3 scripts/lint-xcstrings.py && python3 scripts/localization_catalog.py check
 ```
 
-- [ ] **Step 2: Write the row view**
+- [x] **Step 2: Write the row view**
 
 Create `Sources/SnippetsSidebarRow.swift`:
 
@@ -875,7 +875,7 @@ struct SnippetsSidebarRow: View {
 
 `cmuxFont` is a `View` extension in `Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/View+CmuxFont.swift` (hence `import CmuxFoundation`); check its parameter labels there if the compiler rejects a call.
 
-- [ ] **Step 3: Write the focus bridge**
+- [x] **Step 3: Write the focus bridge**
 
 Create `Sources/SnippetsSidebarFocusBridge.swift`:
 
@@ -980,7 +980,7 @@ struct SnippetsSidebarFocusBridge: NSViewRepresentable {
 }
 ```
 
-- [ ] **Step 4: Write the sidebar view**
+- [x] **Step 4: Write the sidebar view**
 
 Create `Sources/SnippetsSidebarView.swift`:
 
@@ -1139,7 +1139,7 @@ struct SnippetsSidebarView: View {
 
 Check two names before building: `grep -n 'globalConfigPath' Sources/CmuxConfig.swift | head -3` (the store property used by the context menu is `store.globalConfigPath`), and `grep -n 'func keyboardFocusCoordinator(for' Sources/AppDelegate*.swift`. Use the exact spellings found.
 
-- [ ] **Step 5: Mount the view (line-neutral edit to the 673-line panel view)**
+- [x] **Step 5: Mount the view (line-neutral edit to the 673-line panel view)**
 
 In `Sources/RightSidebarPanelView.swift` `contentForMode`, replace
 
@@ -1161,13 +1161,13 @@ with
 
 (−3 +2: the file shrinks by one line.)
 
-- [ ] **Step 6: Wire, build, and run every text-action suite**
+- [x] **Step 6: Wire, build, and run every text-action suite**
 
 Run: `cd /Users/tzgambo/Developer/cmux && python3 scripts/wire-app-sources.py && python3 scripts/wire-app-sources.py --check && python3 scripts/swift_file_length_budget.py`, then the build command with
 `-only-testing:cmuxTests/SnippetsSidebarStoreTests -only-testing:cmuxTests/SnippetsSidebarModeTests -only-testing:cmuxTests/CmuxTextActionConfigTests -only-testing:cmuxTests/CmuxTextActionTrustGateTests`.
 Expected: `BUILD SUCCEEDED`, `TEST SUCCEEDED`. Fix any compile error at the named site (Swift 6 strict concurrency will flag non-`@MainActor` closures touching the store; the bridge's `Coordinator` is `@MainActor`, and `NSEvent.addLocalMonitorForEvents` handlers run on the main thread, so wrap the body in `MainActor.assumeIsolated { ... }` if the compiler requires it).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 cd /Users/tzgambo/Developer/cmux && \
@@ -1192,18 +1192,18 @@ beeps and keeps the sidebar."
 - Modify: `skills/cmux-customization/references/examples.md` (the "Prompt Snippets" section's closing paragraph)
 - Modify: `docs/superpowers/plans/2026-10-15-snippets-sidebar.md` (tick boxes as you go)
 
-- [ ] **Step 1: Static sweep and localization audit**
+- [x] **Step 1: Static sweep and localization audit**
 
 Run: `cd /Users/tzgambo/Developer/cmux && python3 scripts/verify-local.py 2>&1 | tail -3 && python3 scripts/localization_catalog.py check`
 Expected: `PASSED: N/N selected checks ran` and the localization check clean.
 
-- [ ] **Step 2: Full build of the two new suites plus the four existing sidebar suites**
+- [x] **Step 2: Full build of the two new suites plus the four existing sidebar suites**
 
 Run the build command with
 `-only-testing:cmuxTests/SnippetsSidebarStoreTests -only-testing:cmuxTests/SnippetsSidebarModeTests -only-testing:cmuxTests/RightSidebarModeShortcutHintTests -only-testing:cmuxTests/RightSidebarTabCustomizationTests -only-testing:cmuxTests/RightSidebarCommandPaletteTests -only-testing:cmuxTests/DevicesSidebarModeTests`.
 Expected: `TEST SUCCEEDED`.
 
-- [ ] **Step 3: Dogfood in the tagged build**
+- [x] **Step 3: Dogfood in the tagged build**
 
 ```bash
 cd /Users/tzgambo/Developer/cmux && export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH" && \
@@ -1222,7 +1222,7 @@ Then, in the `cmux DEV snippets` app (never the user's `/Applications/cmux.app`)
 
 Record each outcome in the commit message of step 5 (pass/fail per item). A failure in 2–4 is a focus-coordinator issue: check `rightSidebarModeOwning` and the bridge's `ownsResponder` before anything else.
 
-- [ ] **Step 4: Document the tool**
+- [x] **Step 4: Document the tool**
 
 In `skills/cmux-customization/references/examples.md`, in the "Prompt Snippets" section, append this sentence to the paragraph that begins "Both entries appear in Cmd+Shift+P":
 
@@ -1230,7 +1230,7 @@ In `skills/cmux-customization/references/examples.md`, in the "Prompt Snippets" 
 The right sidebar's **Snippets** tool (show it from Settings > Sidebar tabs) lists them with a search field; typing filters by title, category, keywords, and text, and Return pastes the highlighted snippet.
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /Users/tzgambo/Developer/cmux && git add skills/cmux-customization/references/examples.md docs/superpowers/plans/2026-10-15-snippets-sidebar.md && \

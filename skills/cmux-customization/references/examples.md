@@ -189,7 +189,7 @@ Text actions paste reusable prompts into the focused terminal, preserving newlin
 }
 ```
 
-Both entries appear in Cmd+Shift+P, can be bound to a shortcut, and can be referenced from `ui.surfaceTabBar.buttons` like any other action. They also appear under **Snippets** in the terminal right-click menu; entries with a `category` are grouped into a sub-submenu named after it, uncategorised ones sit at the top.
+Both entries appear in Cmd+Shift+P, can be bound to a shortcut, and can be referenced from `ui.surfaceTabBar.buttons` like any other action. They also appear under **Snippets** in the terminal right-click menu; entries with a `category` are grouped into a sub-submenu named after it, uncategorised ones sit at the top. The right sidebar's **Snippets** tool (show it from Settings > Sidebar tabs) lists them with a search field; typing filters by title, category, keywords, and text, and Return pastes the highlighted snippet.
 
 ## CI Watch
 
