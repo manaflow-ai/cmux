@@ -236,10 +236,25 @@ public final class CEFBrowserPage: BrowserPage {
         let sources = pendingUserScriptSources
         pendingUserScriptSources.removeAll()
         guard !sources.isEmpty, let shim = shimProvider() else { return }
+        // CEF's DevTools agent can acknowledge a new-document script while
+        // silently dropping it unless the Page domain is enabled first. This
+        // path runs synchronously before the initial navigation, so enable the
+        // domain through the shim before registering telemetry, init scripts,
+        // and other page-start hooks.
+        let methods = Self.pendingUserScriptMethods()
+        _ = shim.devToolsCall(browserID, methods[0], "{}")
         for source in sources {
             let params = Self.json(["source": source])
-            _ = shim.devToolsCall(browserID, "Page.addScriptToEvaluateOnNewDocument", params)
+            _ = shim.devToolsCall(browserID, methods[1], params)
         }
+    }
+
+    /// The DevTools methods needed to install queued page-start scripts.
+    ///
+    /// Keeping this small protocol sequence in one value makes the ordering
+    /// testable without loading the CEF dylib in package tests.
+    nonisolated static func pendingUserScriptMethods() -> [String] {
+        ["Page.enable", "Page.addScriptToEvaluateOnNewDocument"]
     }
 
     /// The script source as Chromium runs it: `documentEnd` waits for

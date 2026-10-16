@@ -48,4 +48,11 @@ struct CEFBrowserPageUserScriptTests {
         page.registerPendingUserScripts(browserID: 7)
         #expect(page.pendingUserScriptSources.isEmpty)
     }
+
+    @Test func pendingScriptsEnableThePageDomainBeforeRegistration() {
+        #expect(CEFBrowserPage.pendingUserScriptMethods() == [
+            "Page.enable",
+            "Page.addScriptToEvaluateOnNewDocument",
+        ])
+    }
 }
