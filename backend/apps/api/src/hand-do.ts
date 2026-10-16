@@ -63,6 +63,13 @@ const capJson = (v: unknown, max: number): string => {
   return JSON.stringify({ kind: (v as { kind?: unknown } | null)?.kind ?? null, truncated: true })
 }
 
+/** Mac hands take Cloud requests only where HANDS_MAC_ENABLED is "1" and, when HANDS_MAC_OWNERS lists owners, only for them. */
+const macEnabledFor = (env: Env, owner: string): boolean => {
+  if (env.HANDS_MAC_ENABLED !== "1") return false
+  const only = (env.HANDS_MAC_OWNERS ?? "").split(",").map((x) => x.trim()).filter(Boolean)
+  return only.length === 0 || only.includes(owner)
+}
+
 const refuse = (code: string, message: string): { readonly ok: false; readonly error: HandError } => ({ ok: false, error: { code, message } })
 
 export class HandDO extends DurableObject<Env> {
@@ -249,7 +256,7 @@ export class HandDO extends DurableObject<Env> {
       if (!granted) return "hand.no_grant"
     }
     // The Mac trust post (#13742) comes first: until then a mac hand takes no Cloud request.
-    if (r.profile === "mac" && this.env.HANDS_MAC_ENABLED !== "1") return "hand.mac_disabled"
+    if (r.profile === "mac" && !macEnabledFor(this.env, r.owner)) return "hand.mac_disabled"
     return null
   }
 
@@ -313,10 +320,11 @@ export class HandDO extends DurableObject<Env> {
     return { ok: true, value: this.ctx.storage.sql.exec(`SELECT seq, at, req, action, who, verdict, reason, model, ms, summary FROM hand_verdict ORDER BY seq DESC LIMIT ?`, Math.min(Math.max(limit, 1), 1000)).toArray() }
   }
 
-  /** The sweep (hand-sweep.ts): "live" (keep), "gone" (this hand no longer holds it: delete), or "unknown" (no such hand here: keep). */
+  /** The sweep (hand-sweep.ts): "live" (keep) or "gone" (no live hand holds it: delete); the sweep keeps it when this call fails. */
   async ownsVm(vm: string): Promise<"live" | "gone" | "unknown"> {
     const r = this.row()
-    if (!r) return "unknown"
+    // No row: the hand's code expired or its install failed (the VM carries this deployment's tag).
+    if (!r) return "gone"
     return r.revoked_at === null && this.sandboxVm() === vm ? "live" : "gone"
   }
 

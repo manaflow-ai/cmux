@@ -57,12 +57,16 @@ export interface Env {
   readonly HAND_DO: DurableObjectNamespace<HandDO>
   /** "1": Cloud requests may reach a `mac` profile hand. Off until the Mac hand trust post (#13742) is confirmed. */
   readonly HANDS_MAC_ENABLED?: string
+  /** Comma list of user ids: with HANDS_MAC_ENABLED, only their mac hands take Cloud requests (a scoped test). */
+  readonly HANDS_MAC_OWNERS?: string
   /** Base URL of the published acpmux files the hand installer downloads (default https://files.cmux.com/cmux-tui). */
   readonly HAND_RELEASE_BASE?: string
   /** Secret: the hands-only Freestyle key (hand-sandbox.ts is its only reader). Never logged. */
   readonly HAND_FREESTYLE_API_KEY?: string
   /** The mac-hand classifier's model (hand-classify.ts; default claude-haiku-5-5, else the route's model). */
   readonly HAND_CLASSIFIER_MODEL?: string
+  /** The classifier's time limit in ms (at most and by default 8000); a test sets it low to prove the timeout path. */
+  readonly HAND_CLASSIFIER_TIMEOUT_MS?: string
   /** Most live sandbox hands one owner may have (default 3). */
   readonly HAND_SANDBOX_MAX?: string
   /** Freestyle snapshot (slug) for Chief sandboxes with a hand (hand-sandbox.ts); baked by scripts/bake-hand-sandbox.ts; unset: no sandbox creation. */
