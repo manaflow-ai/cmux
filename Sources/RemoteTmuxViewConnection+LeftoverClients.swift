@@ -30,16 +30,27 @@ extension RemoteTmuxViewConnection {
         }
     }
 
+    /// Both queries and every detach belong to the stream that was current when the cleanup
+    /// started. A reconnect in between hands the second query to a new client with a new name,
+    /// and comparing that list with the old name would detach this install's own new client,
+    /// so any change of stream ends the cleanup; the new stream's bringup runs its own.
     func detachLeftoverViewClients(_ conn: RemoteTmuxControlConnection) async {
+        let generation = conn.processGeneration
+        let sameStream = { [weak self] in
+            self?.connection === conn && conn.processGeneration == generation && conn.connectionState == .connected
+        }
         guard let own = await reconcileListQuery(conn, "display-message -p '#{client_name}'")?.first,
+              sameStream(),
               let rows = await reconcileListQuery(
-                conn, "list-clients -F \(RemoteTmuxHost.shellSingleQuoted(Self.clientListFormat))")
+                conn, "list-clients -F \(RemoteTmuxHost.shellSingleQuoted(Self.clientListFormat))"),
+              sameStream()
         else { return }
         let leftovers = Self.leftoverViewClients(
             rows: rows, viewSessionName: view.sessionName, ownClientName: own)
         guard !leftovers.isEmpty else { return }
         conn.record("detach-leftover-view-clients count=\(leftovers.count)")
         for name in leftovers {
+            guard sameStream() else { return }
             _ = conn.send("detach-client -t \(RemoteTmuxHost.shellSingleQuoted(name))")
         }
     }
