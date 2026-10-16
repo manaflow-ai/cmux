@@ -30,6 +30,7 @@ import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
 import { useEscapingPopup } from "../../ui/popupHost";
 import { usePopupHost } from "../../ui/UiProvider";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
+import { isMousePress } from "../../ui/pressRelease";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -1022,12 +1023,15 @@ export function Picker({
     };
   }, [open]);
 
+  // A mouse press is opening it (cg-composer click polish): the focus it moves here is not drawn.
+  const byPointer = useRef(false);
   const show = () => {
     const current = rows.findIndex((row) => row.choice.id === sections[row.section].current);
     setActive(Math.max(current, 0));
     setOpen(true);
-    // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt.
-    trigger.current?.focus();
+    // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt. After a
+    // key was typed WebKit draws a programmatic focus as keyboard focus, so a press says it is not.
+    trigger.current?.focus(byPointer.current ? { focusVisible: false } : undefined);
   };
   const showRef = useRef(show);
   showRef.current = show;
@@ -1111,6 +1115,11 @@ export function Picker({
         onKeyDown={keyDown}
         onKeyUp={keyUp}
         {...press}
+        onPointerDown={(event) => {
+          byPointer.current = isMousePress(event);
+          press.onPointerDown(event);
+          byPointer.current = false;
+        }}
       >
         {button}
       </button>
