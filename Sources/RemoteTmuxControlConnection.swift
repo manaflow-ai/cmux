@@ -338,9 +338,9 @@ final class RemoteTmuxControlConnection {
     /// unreachable". Reset at the start of each spawn.
     private var stderrBuffer = ""
     private var preControlOutputBuffer = ""
-    /// When the current spawn last produced anything on stdout or stderr, or when it was
-    /// started if it has produced nothing. Read by ``attachProgress(now:)``.
+    /// When this spawn last produced output, or when it started if none. Read by ``attachProgress(now:)``.
     private var lastTransportOutputAt: ContinuousClock.Instant?
+    var reconnectQuietLimits = RemoteTmuxAttachProgress.QuietLimits.standard
     /// Set the first time the pre-control region looks like an unanswered prompt, and never unset for
     /// this process.
     ///
