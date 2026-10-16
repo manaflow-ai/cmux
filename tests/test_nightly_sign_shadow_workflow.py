@@ -7,9 +7,11 @@ nightly-sign.yml runs from main on every completed "Nightly macOS build" run
 - every job is gated `vars.NIGHTLY_SIGN == 'shadow' && (...)`, so with the
   variable unset (the default) or set to any other value no job runs;
 - a shadow job holds no environment and no secret, asks only for read
-  permissions, runs on Linux (no keychain), checks out only main (no `ref`,
-  no `repository`), uses no action but checkout, and runs exactly one
-  command: main's admit tool. So no signing, notary or publish step exists;
+  permissions, runs on the literal label ubuntu-24.04 (no keychain), checks
+  out only main (no `ref`, no `repository`), uses no action but checkout,
+  has no container, services, defaults or shell override, and runs exactly
+  one fixed command: main's admit tool. So no signing, notary or publish
+  step exists;
 - the admit tool starts no process and unpacks no tarball;
 - no job is gated on another mode yet (the step that adds signing jobs must
   change this test on purpose);
@@ -38,15 +40,21 @@ import nightly_sign_admit  # noqa: E402
 SHADOW_GATE = "vars.NIGHTLY_SIGN == 'shadow' && ("
 CHECKOUT = re.compile(r"^actions/checkout@[0-9a-f]{40}$")
 READ_PERMISSIONS = {"actions", "checks", "contents"}
-ADMIT_COMMAND = "python3 -I scripts/ci/nightly_sign_admit.py "
+ADMIT_COMMAND = (
+    'python3 -I scripts/ci/nightly_sign_admit.py --repo "$GITHUB_REPOSITORY" '
+    '--source-run-id "$SOURCE_RUN_ID" --source-run-attempt "$SOURCE_RUN_ATTEMPT" '
+    '--out "$RUNNER_TEMP/nightly-sign-source"'
+)
+JOB_KEYS = {"name", "if", "runs-on", "timeout-minutes", "permissions", "steps"}
+STEP_KEYS = {"name", "id", "uses", "with", "env", "run"}
+WORKFLOW_KEYS = {"name", "on", True, "permissions", "env", "concurrency", "jobs"}
 # Expression contexts a shadow job may read. Nothing that names the source
 # run's ref, commit or pull requests: the tool reads those from the API.
 ALLOWED_CONTEXTS = re.compile(
     r"^(github\.token|github\.ref|github\.event_name|github\.repository_owner|"
     r"github\.event\.workflow_run\.(id|run_attempt|conclusion)|"
-    r"inputs\.source_run_(id|attempt)|vars\.(NIGHTLY_SIGN|LINUX_RUNNER))$"
+    r"inputs\.source_run_(id|attempt)|vars\.NIGHTLY_SIGN)$"
 )
-SHELL_CONTROL = re.compile(r"[;&|`\n]|\$\(")
 FORBIDDEN_IN_TOOL = re.compile(
     r"\b(subprocess|os\.system|os\.exec\w*|os\.spawn\w*|popen|tarfile|extractall|codesign|notary\w*|"
     r"stapler|keychain|upload|release)\b",
@@ -97,7 +105,9 @@ def check_workflow() -> None:
     check(workflow_run.get("types") == ["completed"], "nightly-sign.yml must trigger on completed runs")
     check(set(on) <= {"workflow_run", "workflow_dispatch"}, f"nightly-sign.yml has extra triggers: {sorted(on)}")
     check(document.get("permissions") == {}, "nightly-sign.yml must grant no workflow-level permissions")
-    check("secrets." not in text and "secrets:" not in text, "nightly-sign.yml must not read a secret")
+    check(not re.search(r"\bsecrets\b", text), "nightly-sign.yml must not name secrets in any form")
+    check(set(document) <= WORKFLOW_KEYS, f"nightly-sign.yml has unexpected top-level keys {sorted(map(str, document))}")
+    check(set(document.get("env") or {}) == {"SOURCE_WORKFLOW_PATHS"}, "nightly-sign.yml workflow env holds only SOURCE_WORKFLOW_PATHS")
     check("NIGHTLY_SIGN" in text, "nightly-sign.yml must be gated on vars.NIGHTLY_SIGN")
     check(document.get("env", {}).get("SOURCE_WORKFLOW_PATHS") == ".github/workflows/nightly.yml",
           "nightly-sign.yml must declare SOURCE_WORKFLOW_PATHS")
@@ -106,6 +116,7 @@ def check_workflow() -> None:
     check(bool(jobs), "nightly-sign.yml has no jobs")
     for job_id, job in jobs.items():
         where = f"nightly-sign.yml job {job_id}"
+        check(set(job) <= JOB_KEYS, f"{where}: only {sorted(JOB_KEYS)} are allowed (got {sorted(job)})")
         gate = str(job.get("if", ""))
         check(gate_is_shadow_conjunct(gate),
               f"{where}: `if` must be `{SHADOW_GATE}...)` so an unset NIGHTLY_SIGN runs nothing (got {gate!r}); "
@@ -116,14 +127,15 @@ def check_workflow() -> None:
         check(isinstance(permissions, dict) and set(permissions) <= READ_PERMISSIONS
               and set(permissions.values()) == {"read"},
               f"{where}: permissions must be read-only actions/checks/contents (got {permissions!r})")
-        check("macos" not in str(job.get("runs-on", "")).lower(), f"{where}: a shadow job runs on Linux, with no keychain")
-        for name in contexts(yaml.safe_dump(job)):
+        check(job.get("runs-on") == "ubuntu-24.04", f"{where}: a shadow job runs on the literal Linux label ubuntu-24.04")
+        for name in contexts(yaml.safe_dump(job)) | contexts("${{ " + gate + " }}"):
             check(bool(ALLOWED_CONTEXTS.match(name)), f"{where}: reads {name}, which a shadow job must not use")
         steps = job.get("steps") or []
         check(bool(steps), f"{where}: has no steps")
         ran_admit = False
         for step in steps:
             label = f"{where} step {step.get('name', '?')!r}"
+            check(set(step) <= STEP_KEYS, f"{label}: only {sorted(STEP_KEYS)} are allowed (got {sorted(step)})")
             uses = step.get("uses")
             if uses is not None:
                 check(bool(CHECKOUT.match(str(uses))), f"{label}: only a pinned actions/checkout may run (got {uses})")
@@ -133,10 +145,8 @@ def check_workflow() -> None:
                 check(options.get("persist-credentials") is False, f"{label}: checkout must not persist credentials")
                 continue
             run = " ".join(str(step.get("run", "")).split())
-            check(run.startswith(ADMIT_COMMAND), f"{label}: the only command a shadow job runs is main's admit tool (got {run!r})")
-            check(not SHELL_CONTROL.search(run), f"{label}: the admit command must not chain other commands")
-            check("shell" not in step and "working-directory" not in step, f"{label}: must run in the default shell and directory")
-            ran_admit = ran_admit or run.startswith(ADMIT_COMMAND)
+            check(run == ADMIT_COMMAND, f"{label}: the only command a shadow job runs is exactly main's admit tool (got {run!r})")
+            ran_admit = ran_admit or run == ADMIT_COMMAND
         check(ran_admit, f"{where}: does not run the admit tool")
 
 
@@ -169,9 +179,14 @@ def check_nightly_producer() -> None:
     run = record_step["run"]
     check(f"shasum -a 256 prepared-app-handoff/{nightly_sign_admit.TARBALL}" in run,
           "nightly.yml must hash the uploaded tarball")
-    echo = f"::notice title={nightly_sign_admit.DIGEST_TITLE}::variant=${{NIGHTLY_VARIANT}} artifact=${{PREPARED_APP_ARTIFACT}} sha256=${{digest}}"
+    echo = (
+        f"::notice title={nightly_sign_admit.DIGEST_TITLE}::variant=${{NIGHTLY_VARIANT}} artifact=${{PREPARED_APP_ARTIFACT}} "
+        "sha256=${digest} publish=${NIGHTLY_SHOULD_PUBLISH} fast=${NIGHTLY_FAST_BUILD}"
+    )
     check(echo in run, "nightly.yml must record the digest in the format the admit tool parses")
-    sample = "variant=arm64 artifact=cmux-nightly-prepared-app-arm64-cc2280f sha256=" + "a" * 64
+    check(record_step["env"].get("NIGHTLY_SHOULD_PUBLISH") == "${{ needs.decide.outputs.should_publish }}",
+          "nightly.yml must record decide's should_publish")
+    sample = "variant=arm64 artifact=cmux-nightly-prepared-app-arm64-cc2280f sha256=" + "a" * 64 + " publish=true fast=false"
     check(bool(nightly_sign_admit.DIGEST_MESSAGE.match(sample)), "the admit tool must parse the recorded format")
 
 

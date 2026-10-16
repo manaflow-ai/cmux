@@ -13,9 +13,13 @@ producing job recorded; an artifact zip whose sha256 is not the API digest; a
 source run of another workflow path or id; a head SHA that is not on
 nightly-next (or main); a fork head; a non-publishing event; an attempt
 record for another attempt; an unknown branch; a missing or malformed digest
-record; an artifact of another channel; a zip with extra members.
-Skipped (exit 0, admitted=false): a failed source run, a superseded attempt,
-a run that prepared no app. Admitted: main, nightly-next and rc runs.
+record; an artifact of another channel; a zip with extra members; a head
+SHA that is only on a tag with the branch's name; a run that built an app but
+prepared none; prepare jobs that disagree on publishing; a job from a newer
+attempt; an API redirect (never followed with the token).
+Skipped (exit 0, admitted=false): a failed source run, a superseded attempt
+(before or during the downloads), a run that prepared no app, a run that does
+not publish (fast build). Admitted: main, nightly-next and rc runs.
 """
 
 from __future__ import annotations
@@ -52,7 +56,8 @@ def zip_of(members: dict[str, bytes]) -> bytes:
     return buf.getvalue()
 
 
-def scenario(branch: str = "main", variants: tuple[str, ...] = ("arm64", "universal")) -> dict:
+def scenario(branch: str = "main", variants: tuple[str, ...] = ("arm64", "universal"),
+             publish: str = "true", fast: str = "false") -> dict:
     channel = "rc" if branch.startswith("rc/") else "nightly"
     run = {
         "id": RUN_ID,
@@ -68,8 +73,9 @@ def scenario(branch: str = "main", variants: tuple[str, ...] = ("arm64", "univer
         "conclusion": "success",
     }
     jobs = [
-        {"id": 100, "name": "decide", "conclusion": "success", "run_id": RUN_ID, "head_sha": HEAD},
-        {"id": 101, "name": "build-nightly-app", "conclusion": "success", "run_id": RUN_ID, "head_sha": HEAD},
+        {"id": 100, "name": "decide", "conclusion": "success", "run_id": RUN_ID, "head_sha": HEAD, "run_attempt": ATTEMPT},
+        {"id": 101, "name": "build-nightly-app", "conclusion": "success" if variants else "skipped",
+         "run_id": RUN_ID, "head_sha": HEAD, "run_attempt": ATTEMPT},
     ]
     annotations: dict[int, list] = {}
     artifacts = []
@@ -84,11 +90,12 @@ def scenario(branch: str = "main", variants: tuple[str, ...] = ("arm64", "univer
         blob = zip_of({"cmux-prepared-app.tar.gz": tarball})
         blobs[artifact_id] = blob
         jobs.append({"id": job_id, "name": f"prepare-nightly-variant ({variant})", "conclusion": "success",
-                     "run_id": RUN_ID, "head_sha": HEAD})
+                     "run_id": RUN_ID, "head_sha": HEAD, "run_attempt": ATTEMPT})
         annotations[job_id] = [
             {"annotation_level": "warning", "title": "Node.js 20 is deprecated", "message": "..."},
             {"annotation_level": "notice", "title": "nightly-prepared-app",
-             "message": f"variant={variant} artifact={name} sha256={hashlib.sha256(tarball).hexdigest()}"},
+             "message": f"variant={variant} artifact={name} sha256={hashlib.sha256(tarball).hexdigest()}"
+                        f" publish={publish} fast={fast}"},
         ]
         artifacts.append({
             "id": artifact_id,
@@ -104,8 +111,9 @@ def scenario(branch: str = "main", variants: tuple[str, ...] = ("arm64", "univer
         "run": run,
         "latest_attempt": ATTEMPT,
         "workflow": {"id": WORKFLOW_ID, "path": ".github/workflows/nightly.yml"},
-        # compare/<base>...<head> status, keyed "base...head".
-        "compare": {f"{HEAD}...{branch}": "ahead"},
+        # compare/<base>...<head> status, keyed "base...head". The tool must
+        # compare against the full branch ref; a bare name can resolve to a tag.
+        "compare": {f"{HEAD}...refs/heads/{branch}": "ahead"},
         "jobs": jobs,
         "annotations": annotations,
         "artifacts": artifacts,
@@ -156,11 +164,18 @@ class FakeGitHub:
         rest = path[len(repo):]
         run = d["run"]
         if rest == f"/actions/runs/{RUN_ID}/attempts/{ATTEMPT}":
+            if d.get("redirect_attempt"):
+                return 302, b"", {"Location": f"{self.base}/blob/elsewhere"}
             return 200, run, {}
         if rest.startswith(f"/actions/runs/{RUN_ID}/attempts/"):
             return 404, {"message": "Not Found"}, {}
         if rest == f"/actions/runs/{RUN_ID}":
-            return 200, {**run, "run_attempt": d["latest_attempt"]}, {}
+            d["run_reads"] = d.get("run_reads", 0) + 1
+            latest = d["latest_attempt"]
+            # A new attempt that starts while the tool downloads.
+            if d.get("new_attempt_after_reads") and d["run_reads"] > d["new_attempt_after_reads"]:
+                latest += 1
+            return 200, {**run, "run_attempt": latest}, {}
         if rest == "/actions/workflows/nightly.yml":
             return 200, d["workflow"], {}
         if rest.startswith("/compare/"):
@@ -168,7 +183,7 @@ class FakeGitHub:
             status = d["compare"].get(key)
             if status is None:
                 return 404, {"message": "No common ancestor"}, {}
-            return 200, {"status": status, "commits": []}, {}
+            return 200, {"status": status, "ahead_by": 3 if status == "ahead" else 0, "commits": []}, {}
         if rest == f"/actions/runs/{RUN_ID}/jobs":
             assert query.get("filter") == ["latest"], query
             return 200, {"total_count": len(d["jobs"]), "jobs": d["jobs"] if page == 1 else []}, {}
@@ -186,6 +201,8 @@ class FakeGitHub:
         if rest.startswith("/actions/artifacts/") and rest.endswith("/zip"):
             artifact_id = int(rest.split("/")[3])
             return 302, b"", {"Location": f"{self.base}/blob/{artifact_id}"}
+        if path == "/blob/elsewhere":
+            return 200, {"message": "followed"}, {}
         if path.startswith("/blob/"):
             return 200, d["blobs"][int(path.split("/")[2])], {}
         return 404, {"message": f"unexpected {path}"}, {}
@@ -252,12 +269,12 @@ class AdmitCase(unittest.TestCase):
 
     def test_nightly_next_run_on_the_tip_is_admitted(self) -> None:
         data = scenario("nightly-next", ("arm64",))
-        data["compare"] = {f"{HEAD}...nightly-next": "identical"}
+        data["compare"] = {f"{HEAD}...refs/heads/nightly-next": "identical"}
         self.assert_admitted(self.run_tool(data), data, "nightly", "nightly-next")
 
     def test_nightly_next_run_behind_the_tip_is_admitted(self) -> None:
         data = scenario("nightly-next", ("arm64",))
-        data["compare"] = {f"{HEAD}...nightly-next": "ahead"}
+        data["compare"] = {f"{HEAD}...refs/heads/nightly-next": "ahead"}
         self.assert_admitted(self.run_tool(data), data, "nightly", "nightly-next")
 
     def test_rc_run_is_admitted_on_the_rc_channel(self) -> None:
@@ -343,7 +360,7 @@ class AdmitCase(unittest.TestCase):
         for status in ("diverged", "behind"):
             with self.subTest(status=status):
                 data = scenario("nightly-next", ("arm64",))
-                data["compare"] = {f"{HEAD}...nightly-next": status}
+                data["compare"] = {f"{HEAD}...refs/heads/nightly-next": status}
                 result = self.run_tool(data)
                 self.assert_refused(result, f"is not on nightly-next (compare status '{status}')")
                 self.assertFalse(any(path.startswith("/blob/") for path, _ in result["requests"]))
@@ -355,7 +372,7 @@ class AdmitCase(unittest.TestCase):
 
     def test_head_sha_not_on_main_is_refused(self) -> None:
         data = scenario("main")
-        data["compare"] = {f"{HEAD}...main": "diverged"}
+        data["compare"] = {f"{HEAD}...refs/heads/main": "diverged"}
         self.assert_refused(self.run_tool(data), "is not on main")
 
     def test_fork_head_is_refused(self) -> None:
@@ -385,6 +402,36 @@ class AdmitCase(unittest.TestCase):
         data["jobs"][2]["name"] = "prepare-nightly-variant (ppc)"
         self.assert_refused(self.run_tool(data), "unknown variant 'ppc'")
 
+    def test_head_sha_on_a_same_named_tag_but_not_on_the_branch_is_refused(self) -> None:
+        data = scenario("nightly-next", ("arm64",))
+        # The tag nightly-next contains the SHA; the branch nightly-next does not.
+        data["compare"] = {f"{HEAD}...nightly-next": "ahead", f"{HEAD}...refs/tags/nightly-next": "ahead",
+                           f"{HEAD}...refs/heads/nightly-next": "diverged"}
+        self.assert_refused(self.run_tool(data), "is not on nightly-next (compare status 'diverged')")
+
+    def test_run_that_built_an_app_but_prepared_none_is_refused(self) -> None:
+        data = scenario("main", ())
+        data["jobs"][1]["conclusion"] = "success"
+        self.assert_refused(self.run_tool(data), "but no prepare-nightly-variant job prepared one")
+
+    def test_prepare_jobs_that_disagree_on_publishing_are_refused(self) -> None:
+        data = scenario("main")
+        record = data["annotations"][201][1]
+        record["message"] = record["message"].replace("publish=true", "publish=false")
+        self.assert_refused(self.run_tool(data), "disagree on whether the run publishes")
+
+    def test_job_from_a_newer_attempt_is_refused(self) -> None:
+        data = scenario("main")
+        data["jobs"][2]["run_attempt"] = ATTEMPT + 1
+        self.assert_refused(self.run_tool(data), f"is from attempt {ATTEMPT + 1}")
+
+    def test_api_redirect_is_not_followed_with_the_token(self) -> None:
+        data = scenario("main")
+        data["redirect_attempt"] = True
+        result = self.run_tool(data)
+        self.assert_refused(result, "answered HTTP 302")
+        self.assertFalse(any(path == "/blob/elsewhere" for path, _ in result["requests"]))
+
     def test_invalid_run_id_is_refused_without_api_calls(self) -> None:
         result = self.run_tool(scenario("main"), run_id="1 2")
         self.assert_refused(result, "invalid source run id")
@@ -401,6 +448,17 @@ class AdmitCase(unittest.TestCase):
         data = scenario("main")
         data["latest_attempt"] = ATTEMPT + 1
         self.assert_skipped(self.run_tool(data), "newer attempt (3)")
+
+    def test_fast_build_is_skipped(self) -> None:
+        self.assert_skipped(self.run_tool(scenario("main", ("arm64",), fast="true")), "does not publish")
+
+    def test_run_that_does_not_publish_is_skipped(self) -> None:
+        self.assert_skipped(self.run_tool(scenario("main", publish="false")), "does not publish")
+
+    def test_attempt_superseded_during_downloads_is_skipped(self) -> None:
+        data = scenario("main")
+        data["new_attempt_after_reads"] = 1
+        self.assert_skipped(self.run_tool(data), "newer attempt (3) during admission")
 
     def test_run_that_prepared_no_app_is_skipped(self) -> None:
         data = scenario("main", ())
