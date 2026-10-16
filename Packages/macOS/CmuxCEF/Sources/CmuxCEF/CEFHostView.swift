@@ -69,6 +69,14 @@ public final class CEFHostView: NSView {
         if changed { postGeometryChange() }
     }
 
+    /// A tab switch removes the host from one container and adds it to another.
+    /// The frame can be identical in both containers, so frame setters alone do
+    /// not tell Chromium that its coordinate space changed.
+    public override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        postGeometryChange()
+    }
+
     private func updateBackground() {
         guard showsPlaceholder else {
             layer?.backgroundColor = nil
