@@ -4817,8 +4817,12 @@ jobs:
     if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.build != '' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
     continue-on-error: true
     environment: release-next
-    # A nightly_next_continue_only run has its own workflow group: one old-feed
-    # writer at a time across runs.
+    # One signing attempt at a time across runs (a nightly_next_continue_only
+    # run has its own workflow group). publish-nightly-identity-legacy writes the
+    # old feed under its own group. Accepted race (cx-vws1x): a newer run's
+    # signing job can start while this run's publish job is still pending, and
+    # then submits the same build to Apple again; the publish job's order check
+    # keeps the old feed right, the extra submission only costs Apple time.
     concurrency:
       group: nightly-next-legacy-identity
       cancel-in-progress: false
@@ -5250,7 +5254,9 @@ jobs:
 
   publish-nightly-identity-legacy:
     needs: [decide, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy]
-    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.build != '' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    # A signing job that a newer run's concurrency slot cancelled tried
+    # nothing: no resolve, no failure count.
+    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.build != '' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off' && needs.sign-nightly-identity-legacy.result != 'cancelled'"
     continue-on-error: true
     environment: release-next
     # One old-feed writer at a time across runs (its own group: a second
@@ -5290,6 +5296,7 @@ jobs:
       # prunes them itself.
       LEGACY_DMG_PREFIX: cmux-nightly-next-macos-nightlyid-arm64-
       LEGACY_APPCAST: appcast-arm64.xml
+      SIGN_RESULT: ${{ needs.sign-nightly-identity-legacy.result }}
       SIGN_SKIP: ${{ needs.sign-nightly-identity-legacy.outputs.skip }}
       SIGN_OK: ${{ needs.sign-nightly-identity-legacy.outputs.signed_ok }}
       SIGN_PENDING: ${{ needs.sign-nightly-identity-legacy.outputs.pending }}
@@ -5302,7 +5309,9 @@ jobs:
           persist-credentials: false
 
       # Checked again here: another run may have moved the old feed while this
-      # build was signed and verified.
+      # build was signed and verified. A continued submission skipped here is
+      # not retired: its artifacts expire (3 days), and the target and signing
+      # jobs skip a build the old feed already has.
       - name: Skip a build the old feed already has
         id: order
         if: env.SIGN_SKIP == 'false'
@@ -5511,14 +5520,12 @@ jobs:
           JOB_STATUS: ${{ job.status }}
         run: |
           set -euo pipefail
-          failed=false
-          if [ "$SIGN_SKIP" != false ] || [ "$SIGN_OK" != true ] || [ "$JOB_STATUS" != success ]; then
-            failed=true
-          elif [ "$SIGN_PENDING" != true ] && [ "$PUBLISHED" != true ]; then
-            failed=true
-          fi
-          echo "failed=$failed" >> "$GITHUB_OUTPUT"
-          echo "attempt failed: $failed (sign skip=$SIGN_SKIP ok=$SIGN_OK pending=$SIGN_PENDING; tested=${TESTED_SHA256:-none}; published=$PUBLISHED)"
+          job_ok=false
+          if [ "$JOB_STATUS" = success ]; then job_ok=true; fi
+          decision="$(python3 scripts/ci/nightly-next-legacy-attempt.py --sign-result "$SIGN_RESULT" --sign-skip "$SIGN_SKIP" \
+            --signed-ok "$SIGN_OK" --pending "$SIGN_PENDING" --published "$PUBLISHED" --job-ok "$job_ok")"
+          echo "$decision" >> "$GITHUB_OUTPUT"
+          echo "attempt: sign $SIGN_RESULT skip=$SIGN_SKIP ok=$SIGN_OK pending=$SIGN_PENDING; tested=${TESTED_SHA256:-none}; published=$PUBLISHED -> $decision"
 
       - name: Find the failure issue
         id: failure-issue

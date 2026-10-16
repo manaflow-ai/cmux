@@ -1018,6 +1018,37 @@ legacy_resolve "false false false" "a submission still in Apple's queue must be 
   --action new --pending true --notarize success --published false --apple unknown
 legacy_resolve "false false true" "a failed new attempt must count" \
   --action new --pending false --notarize failure --published false --apple unknown
+# Did the attempt fail (cx-vws1x)? It drives the failure report and the
+# publish job's red result after the sign, verify and publish split.
+legacy_attempt() {  # <expected true|false> <message> <args...>
+  local expected="$1" message="$2"; shift 2
+  local actual
+  actual="$(python3 "$ROOT_DIR/scripts/ci/nightly-next-legacy-attempt.py" "$@" | sed -n 's/^failed=//p')"
+  if [ "$actual" != "$expected" ]; then
+    echo "FAIL: $message (expected failed=$expected, got '$actual')"
+    exit 1
+  fi
+}
+legacy_attempt false "a published attempt must not fail" \
+  --sign-result success --sign-skip false --signed-ok true --pending false --published true --job-ok true
+legacy_attempt false "a submission still in Apple's queue must not fail" \
+  --sign-result success --sign-skip false --signed-ok true --pending true --published false --job-ok true
+legacy_attempt true "a final build whose smoke, digest check or upload failed must fail" \
+  --sign-result success --sign-skip false --signed-ok true --pending false --published false --job-ok true
+legacy_attempt true "a failed signing job must fail" \
+  --sign-result failure --sign-skip false --signed-ok false --pending false --published false --job-ok true
+legacy_attempt true "a signing job that failed before its order check must fail" \
+  --sign-result failure --sign-skip "" --signed-ok "" --pending "" --published false --job-ok true
+legacy_attempt true "a pending submission that could not be kept must fail (resolve.py does not count it)" \
+  --sign-result failure --sign-skip false --signed-ok false --pending true --published false --job-ok true
+legacy_attempt false "a signing job cancelled by a newer run must not fail" \
+  --sign-result cancelled --sign-skip "" --signed-ok "" --pending "" --published false --job-ok true
+legacy_attempt false "a signing job that never ran must not fail" \
+  --sign-result skipped --sign-skip "" --signed-ok "" --pending "" --published false --job-ok true
+legacy_attempt false "a build the old feed already has must not fail" \
+  --sign-result success --sign-skip true --signed-ok true --pending "" --published false --job-ok true
+legacy_attempt true "a failed step of the publish job must fail" \
+  --sign-result success --sign-skip false --signed-ok true --pending false --published true --job-ok false
 # An accepted bundle is continued with no time limit and its build is never
 # submitted again; two counted failures stop that build, not a newer one.
 legacy_feed "$legacy_dir/next.xml" 3850073942601
@@ -1235,7 +1266,7 @@ for expected in \
   "./scripts/ci/nightly-next-legacy-orphan-meta.sh" \
   'xcrun stapler validate "legacy-app/cmux NIGHTLY.app"'; do
   if ! grep -Fq -- "$expected" <<<"$legacy_job"; then
-    echo "FAIL: publish-nightly-identity-legacy must contain: $expected"
+    echo "FAIL: the cmux NIGHTLY-identity jobs (sign, verify, publish) must contain: $expected"
     exit 1
   fi
 done
@@ -1283,7 +1314,9 @@ for expected in \
   "needs: [decide, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy]" \
   "TESTED_SHA256: \${{ needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}" \
   './scripts/ci/nightly-next-legacy-tested-digest.sh' \
-  "group: nightly-next-legacy-identity-publish"; do
+  "group: nightly-next-legacy-identity-publish" \
+  "needs.sign-nightly-identity-legacy.result != 'cancelled'" \
+  "scripts/ci/nightly-next-legacy-attempt.py --sign-result"; do
   grep -Fq -- "$expected" <<<"$publish_job" || { echo "FAIL: publish-nightly-identity-legacy must contain: $expected"; exit 1; }
 done
 # Every publishing step of the publish job needs the tested digest, after the check.
