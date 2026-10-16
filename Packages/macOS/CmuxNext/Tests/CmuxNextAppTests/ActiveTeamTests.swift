@@ -35,8 +35,18 @@ struct ActiveTeamTests {
             return availableTeams.first?.id
         }
 
+        /// Saves wait for ``releaseSaves()``.
+        var holdSaves = false
+        private var held: [CheckedContinuation<Void, Never>] = []
+        var heldCount: Int { held.count }
+        func releaseSaves() {
+            held.forEach { $0.resume() }
+            held = []
+        }
+
         func selectTeam(id: String?) async throws {
             if let saveFailure { throw saveFailure }
+            if holdSaves { await withCheckedContinuation { held.append($0) } }
             saved.append(id)
             selectedTeamID = id
         }
@@ -72,6 +82,25 @@ struct ActiveTeamTests {
         let active = ActiveTeam(source: source)
         await #expect(throws: SaveFailed.self) { try await active.select("b") }
         #expect(active.id == "a")
+        #expect(!active.isSwitching)
+    }
+
+    @Test func aSecondSwitchWhileOneIsSavingIsRefused() async throws {
+        let source = Source(teams: ["a", "b", "c"], selected: "a")
+        source.holdSaves = true
+        let active = ActiveTeam(source: source)
+        let first = Task { try await active.select("b") }
+        for _ in 0..<100 where source.heldCount == 0 { await Task.yield() }
+        #expect(source.heldCount == 1)
+        #expect(active.isSwitching)
+        let second = Task { try await active.select("c") }
+        for _ in 0..<100 { await Task.yield() }
+        #expect(active.isSwitching, "the first save is still in progress")
+        source.releaseSaves()
+        await #expect(throws: ActiveTeam.Refusal.switching) { try await second.value }
+        try await first.value
+        #expect(active.id == "b")
+        #expect(source.saved == ["b"])
         #expect(!active.isSwitching)
     }
 
