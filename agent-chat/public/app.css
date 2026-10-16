@@ -887,6 +887,16 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 .orchestration-toggle-dot.active { background: var(--accent); color: var(--accent); }
 .orchestration-toggle-note { color: var(--text-faint); font: 400 calc(var(--font-size-code) - 2px) var(--font-mono); }
 .orchestration-toggle-state { color: var(--text-faint); font: 500 calc(var(--font-size-code) - 1.5px) var(--font-mono); }
+.gallery-focused .orchestration-toggle { border-color: color-mix(in srgb, var(--accent) 62%, var(--border)); color: var(--text); }
+.gallery-focused .orchestration-toggle-note,
+.gallery-focused .orchestration-toggle-state { color: var(--text); }
+.orchestration-focus-signal {
+  display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 12px; padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-left: 3px solid var(--accent);
+  border-radius: 8px; background: color-mix(in srgb, var(--accent) 11%, var(--bg-input));
+  color: var(--text); font: 500 calc(var(--font-size-code) - 1px) / 1.35 var(--font-mono);
+}
+.orchestration-focus-signal strong { color: var(--accent); font-weight: 700; }
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
   clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
@@ -912,6 +922,7 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 .orchestration-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .orchestration-card-title { font: 500 var(--font-size-base) var(--font-sans); }
 .orchestration-card-description { color: var(--text-faint); font: calc(var(--font-size-base) - 1px) / 1.35 var(--font-sans); }
+.gallery-focused .orchestration-card-description { color: var(--text-dim); }
 .orchestration-status {
   flex: none; border-radius: 999px; padding: 2px 7px; color: var(--text-dim);
   font: 500 calc(var(--font-size-code) - 1.5px) var(--font-mono); text-transform: uppercase;
@@ -921,8 +932,8 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 .orchestration-status-queued { background: color-mix(in srgb, var(--text-faint) 15%, transparent); }
 .orchestration-fields { display: grid; gap: 7px; margin: 0; padding: 12px; }
 .orchestration-fields > div { display: grid; grid-template-columns: minmax(86px, .7fr) minmax(0, 1.3fr); gap: 8px; }
-.orchestration-fields dt { color: var(--text-faint); font: calc(var(--font-size-code) - 1.5px) / 1.3 var(--font-mono); }
-.orchestration-fields dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--text-dim); font: calc(var(--font-size-code) - 1px) / 1.3 var(--font-mono); }
+.orchestration-fields dt { color: var(--text-dim); font: 600 calc(var(--font-size-code) - 1.5px) / 1.3 var(--font-mono); }
+.orchestration-fields dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--text); font: 500 calc(var(--font-size-code) - 1px) / 1.3 var(--font-mono); }
 .orchestration-inspector {
   display: flex; flex-direction: column; gap: 13px; padding: 14px;
   border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 12px;
@@ -937,8 +948,8 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
   display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 9px 14px; margin: 0;
 }
 .orchestration-receipt-summary > div { min-width: 0; }
-.orchestration-receipt-summary dt { color: var(--text-faint); font: calc(var(--font-size-code) - 1.5px) / 1.3 var(--font-mono); }
-.orchestration-receipt-summary dd { min-width: 0; margin: 2px 0 0; overflow-wrap: anywhere; color: var(--text-dim); font: calc(var(--font-size-code) - 1px) / 1.35 var(--font-mono); }
+.orchestration-receipt-summary dt { color: var(--text-dim); font: 600 calc(var(--font-size-code) - 1.5px) / 1.3 var(--font-mono); }
+.orchestration-receipt-summary dd { min-width: 0; margin: 2px 0 0; overflow-wrap: anywhere; color: var(--text); font: 500 calc(var(--font-size-code) - 1px) / 1.35 var(--font-mono); }
 .orchestration-admission {
   display: flex; flex-direction: column; gap: 10px; padding: 12px;
   border: 1px solid var(--border); border-radius: 10px;
@@ -954,27 +965,28 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 .orchestration-admission-hold { background: color-mix(in srgb, #d9a441 18%, transparent); color: #d9a441; }
 .orchestration-admission-wait { background: color-mix(in srgb, var(--text-faint) 16%, transparent); color: var(--text-dim); }
 .orchestration-admission-reject { background: color-mix(in srgb, #d85b5b 17%, transparent); color: #d85b5b; }
-.orchestration-admission-reason { margin: 0; color: var(--text-dim); font: calc(var(--font-size-base) - 1px) / 1.4 var(--font-sans); }
+.orchestration-admission-reason { margin: 0; color: var(--text); font: 500 calc(var(--font-size-base) - 1px) / 1.4 var(--font-sans); }
 .orchestration-admission-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 9px 14px; margin: 0; }
 .orchestration-admission-fields > div { min-width: 0; }
-.orchestration-admission-fields dt { color: var(--text-faint); font: calc(var(--font-size-code) - 1.5px) / 1.3 var(--font-mono); }
-.orchestration-admission-fields dd { margin: 2px 0 0; overflow-wrap: anywhere; color: var(--text-dim); font: calc(var(--font-size-code) - 1px) / 1.35 var(--font-mono); }
+.orchestration-admission-fields dt { color: var(--text-dim); font: 600 calc(var(--font-size-code) - 1.5px) / 1.3 var(--font-mono); }
+.orchestration-admission-fields dd { margin: 2px 0 0; overflow-wrap: anywhere; color: var(--text); font: 500 calc(var(--font-size-code) - 1px) / 1.35 var(--font-mono); }
 .orchestration-admission-fields ul { display: flex; flex-wrap: wrap; gap: 5px; margin: 0; padding: 0; list-style: none; }
 .orchestration-admission-fields li { padding: 2px 6px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-dim); }
 .orchestration-admission-fields li.met { border-color: color-mix(in srgb, var(--accent) 38%, var(--border)); }
 .orchestration-admission-fields li.missing { border-color: color-mix(in srgb, #d9a441 45%, var(--border)); color: #d9a441; }
-.orchestration-action-kind { color: var(--text-faint); font-weight: 600; text-transform: uppercase; }
+.orchestration-action-kind { color: var(--accent); font-weight: 700; text-transform: uppercase; }
 .orchestration-proposal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
 .orchestration-proposal, .orchestration-authorization { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 9px 10px; border-radius: 8px; background: color-mix(in srgb, var(--bg-input) 78%, transparent); }
 .orchestration-proposal { border-left: 2px solid color-mix(in srgb, var(--accent) 65%, transparent); }
 .orchestration-authorization { border-left: 2px solid color-mix(in srgb, #d9a441 65%, transparent); }
 .orchestration-proposal-label { color: var(--text-faint); font: 600 calc(var(--font-size-code) - 2px) / 1.2 var(--font-mono); letter-spacing: .03em; text-transform: uppercase; }
-.orchestration-proposal strong, .orchestration-authorization strong { color: var(--text-dim); font: 400 calc(var(--font-size-code) - 1px) / 1.4 var(--font-mono); overflow-wrap: anywhere; }
+.orchestration-proposal strong, .orchestration-authorization strong { color: var(--text); font: 500 calc(var(--font-size-code) - 1px) / 1.4 var(--font-mono); overflow-wrap: anywhere; }
 .orchestration-receipt-preview {
   max-height: 270px; margin: 0; overflow: auto; padding: 11px 12px; border-radius: 8px;
   background: color-mix(in srgb, var(--bg-code) 88%, var(--bg-input)); color: var(--text-dim);
   font: calc(var(--font-size-code) - 1px) / 1.45 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere;
 }
+.gallery-focused .orchestration-receipt-preview { color: var(--text); border: 1px solid var(--border); }
 .gallery-tooltip-row {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 46px;
 }

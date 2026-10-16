@@ -673,6 +673,13 @@ export function GalleryApp() {
           <p>{focusedOrchestration
             ? "A focused routing, admission, and receipt preview. No task is dispatched."
             : "Mock-driven visual QA surface. No WebSocket, no provider process, no live sessions."}</p>
+          {focusedOrchestration && (
+            <div className="orchestration-focus-signal" role="note" aria-label="Orchestration preview guard">
+              <span><strong>Signal</strong> decision → blocker → next safe action</span>
+              <span><strong>Trust override</strong> preview only</span>
+              <span><strong>Authorization</strong> disabled</span>
+            </div>
+          )}
           {!focusedOrchestration && (
             <div className="gallery-viewports">
               {["320px", "480px", "660px", "900px", "1120px", "1400px"].map((w) => (
