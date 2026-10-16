@@ -56,6 +56,7 @@ const INTERPOSER: &str = r#"
 #include <fcntl.h>
 #include <string.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #define DYLD_INTERPOSE(_replacement, _replacee) \
   __attribute__((used)) static struct { const void *replacement; const void *replacee; } \
@@ -64,6 +65,15 @@ const INTERPOSER: &str = r#"
 
 /* Read once at load: a forked child only uses open/write/close (no malloc). */
 static char log_path[1024];
+/* KEYCHAIN_FAKE_SECURITY: a start of `security` is logged and fails (ENOENT)
+   instead of running, so no keychain is read and no dialog can show. */
+static int fake_security;
+
+static int is_security(const char *path) {
+  if (!fake_security || !path) return 0;
+  const char *base = strrchr(path, '/');
+  return strcmp(base ? base + 1 : path, "security") == 0;
+}
 
 static size_t add(char *line, size_t n, size_t cap, const char *text) {
   while (text && *text && n + 2 < cap) line[n++] = *text++;
@@ -94,6 +104,7 @@ __attribute__((constructor)) static void loaded(void) {
   /* Only this process: its children (platform arm64e programs such as
      /bin/bash) cannot load this arm64 dylib. */
   if (getenv("KEYCHAIN_LOG_SELF_ONLY")) unsetenv("DYLD_INSERT_LIBRARIES");
+  fake_security = getenv("KEYCHAIN_FAKE_SECURITY") != NULL;
   put("loaded", getprogname(), NULL);
 }
 
@@ -166,20 +177,30 @@ DYLD_INTERPOSE(my_SecKeychainItemDelete, SecKeychainItemDelete)
 
 static int my_posix_spawn(pid_t *pid, const char *path, const posix_spawn_file_actions_t *fa,
     const posix_spawnattr_t *at, char *const argv[], char *const envp[]) {
-  put("spawn", path, argv); return posix_spawn(pid, path, fa, at, argv, envp);
+  put("spawn", path, argv);
+  if (is_security(path)) return ENOENT;
+  return posix_spawn(pid, path, fa, at, argv, envp);
 }
 static int my_posix_spawnp(pid_t *pid, const char *file, const posix_spawn_file_actions_t *fa,
     const posix_spawnattr_t *at, char *const argv[], char *const envp[]) {
-  put("spawn", file, argv); return posix_spawnp(pid, file, fa, at, argv, envp);
+  put("spawn", file, argv);
+  if (is_security(file)) return ENOENT;
+  return posix_spawnp(pid, file, fa, at, argv, envp);
 }
 static int my_execve(const char *path, char *const argv[], char *const envp[]) {
-  put("spawn", path, argv); return execve(path, argv, envp);
+  put("spawn", path, argv);
+  if (is_security(path)) { errno = ENOENT; return -1; }
+  return execve(path, argv, envp);
 }
 static int my_execv(const char *path, char *const argv[]) {
-  put("spawn", path, argv); return execv(path, argv);
+  put("spawn", path, argv);
+  if (is_security(path)) { errno = ENOENT; return -1; }
+  return execv(path, argv);
 }
 static int my_execvp(const char *file, char *const argv[]) {
-  put("spawn", file, argv); return execvp(file, argv);
+  put("spawn", file, argv);
+  if (is_security(file)) { errno = ENOENT; return -1; }
+  return execvp(file, argv);
 }
 DYLD_INTERPOSE(my_posix_spawn, posix_spawn)
 DYLD_INTERPOSE(my_posix_spawnp, posix_spawnp)
@@ -662,6 +683,9 @@ fn remote_chain_log(dir: &Path, dylib: &Path, name: &str, settings: Value) -> St
         // The sandbox canary's /bin/bash is arm64e: only the hub's own
         // process is watched, which is where the keychain read would run.
         .env("KEYCHAIN_LOG_SELF_ONLY", "1")
+        // A `security` start is logged and fails without running: no
+        // keychain read and no dialog on a shared test Mac.
+        .env("KEYCHAIN_FAKE_SECURITY", "1")
         .stdin(Stdio::null())
         .output()
         .unwrap();
@@ -678,7 +702,8 @@ fn remote_chain_log(dir: &Path, dylib: &Path, name: &str, settings: Value) -> St
     text
 }
 
-/// Whether the log shows the keychain read of Claude's login.
+/// Whether the log shows the keychain read of Claude's login (its attempted
+/// `security` start; the interposer makes it fail without running).
 fn reads_claude_login(text: &str) -> bool {
     text.lines().any(|l| {
         l.starts_with("spawn ")
@@ -710,7 +735,7 @@ async fn a_remote_chain_reads_the_keychain_only_with_the_setting_on() {
         let calls: Vec<&str> = text.lines().filter(|l| l.starts_with("call ")).collect();
         assert!(calls.is_empty(), "keychain calls ({name}): {calls:?}");
     }
-    // On (either form the settings owner writes): the read happens.
+    // On (either form the settings owner writes): the read is attempted.
     for (name, settings) in [
         ("on", json!({"agents": {"remoteChains": {"claudeKeychainLogin": true}}})),
         ("flat", json!({"agents.remoteChains.claudeKeychainLogin": true})),
