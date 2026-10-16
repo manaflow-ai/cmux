@@ -1095,7 +1095,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 self.updateDocument()
             }
             self.applyScroll()
-            if self.freezeView != nil, self.readingMark == nil { self.unfreeze() }
+            if let held = self.freezeView, self.readingMark == nil { self.releaseHeldFrameAtCap(ObjectIdentifier(held), recover: true) }
         }
     }
 
@@ -1219,7 +1219,36 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 self.updateDocument()
                 self.applyScroll()
             }
-            self.unfreeze()
+            self.releaseHeldFrameAtCap(held, recover: true)
+        }
+    }
+
+    /// The held frame at its cap (termqa N1): it goes only once the frame
+    /// placed covers the rows the page shows, else the frame is placed again
+    /// (by the report, or asked for) and the held frame stays until a
+    /// present releases it (`heldFrameMayGo`) or `coverCap` passes.
+    private func releaseHeldFrameAtCap(_ held: ObjectIdentifier, recover: Bool) {
+        guard let view = freezeView, ObjectIdentifier(view) == held else { return }
+        let elapsed = CACurrentMediaTime() - freezeStarted
+        guard !model.isTUI, cell.height > 0, surfaceRows > 0, let document else {
+            unfreeze()
+            return
+        }
+        let visible = visibleRowRange
+        if TerminalHeldFrame.releasesAtCap(isAlternate: false, cover: TerminalFrameCover(presentedTop: presentedTop, surfaceRows: surfaceRows),
+                                           visibleTop: visible.lowerBound, visibleBottom: visible.upperBound,
+                                           documentRows: document.originRow..<document.endRow, elapsed: elapsed) {
+            unfreeze()
+            return
+        }
+        if recover {
+            sizingLog.notice("held frame kept at the cap: rows \(visible.lowerBound, privacy: .public)..<\(visible.upperBound, privacy: .public) not in the frame at \(self.presentedTop, privacy: .public) (report \(self.scrollbar.offset, privacy: .public), request \(self.viewportTop, privacy: .public))")
+            placeFrameAgain(visible: visible)
+        }
+        // The next present releases it once its frame covers the page; this
+        // is the bound.
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, TerminalHeldFrame.coverCap - elapsed)) { [weak self] in
+            self?.releaseHeldFrameAtCap(held, recover: false)
         }
     }
 
@@ -1500,7 +1529,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         presentDebug = ""
         #endif
         let match = TerminalPresentMatch(presentedTop: presentedTop, reportedTop: scrollbar.offset, requestedTop: viewportTop,
-                                         recentRequests: recentTops, activeTop: max(0, scrollbar.total - surfaceRows))
+                                         recentRequests: recentTops, activeTop: max(0, scrollbar.total - surfaceRows),
+                                         requestIsNewer: viewportTop >= 0 && !viewportTracker.reportedSinceRequest)
         let epoch = surface.viewportEpoch
         if !placesFromReport, let known = match.knownTop(steady: steadyViewport, epoch: epoch) {
             // Reading scrollback while output streams: the viewport has not
@@ -1515,6 +1545,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if let previous = presentedRows {
                 let result = match.match(previous: previous, current: rows)
                 top = result.top
+                #if DEBUG
+                if !result.matched, top != presentedTop, TerminalFrameLog.isEnabled {
+                    sizingLog.notice("present: no match, placed at \(top, privacy: .public) (was \(self.presentedTop, privacy: .public), report \(self.scrollbar.offset, privacy: .public), request \(self.viewportTop, privacy: .public)\(match.requestIsNewer ? ", newer" : "", privacy: .public))")
+                }
+                #endif
                 steadyViewport = placesFromReport ? nil : match.confirmed(result, epoch: epoch)
                 #if DEBUG
                 if CommandLine.arguments.contains("-CnxPresentLog") {
@@ -1714,6 +1749,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let reportCovers = TerminalBlankWatch.covers(presentedTop: scrollbar.offset, surfaceRows: surfaceRows, visibleTop: visible.lowerBound,
                                                      visibleBottom: visible.upperBound, documentRows: originRow..<(document?.endRow ?? Int.max))
         sizingLog.notice("blank page: rows \(visible.lowerBound, privacy: .public)..<\(visible.upperBound, privacy: .public) not in the frame at \(self.presentedTop, privacy: .public) (report \(self.scrollbar.offset, privacy: .public), request \(self.viewportTop, privacy: .public)) for \(Int((self.blankWatch.uncoveredSince.map { CACurrentMediaTime() - $0 } ?? 0) * 1000), privacy: .public) ms: \(reportCovers ? "placed by the report" : "asked again", privacy: .public) (event \(self.blankWatch.events, privacy: .public))")
+        placeFrameAgain(visible: visible)
+    }
+
+    /// Places the frame by Ghostty's report when that covers `visible`, forgets
+    /// the frame used for matching, and asks Ghostty for a viewport and a frame.
+    private func placeFrameAgain(visible: Range<Int>) {
+        let reportCovers = TerminalBlankWatch.covers(presentedTop: scrollbar.offset, surfaceRows: surfaceRows, visibleTop: visible.lowerBound,
+                                                     visibleBottom: visible.upperBound, documentRows: originRow..<(document?.endRow ?? Int.max))
         steadyViewport = nil
         presentedRows = nil
         if reportCovers {

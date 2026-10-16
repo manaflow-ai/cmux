@@ -44,7 +44,7 @@ public struct TerminalPresentMatch: Equatable, Sendable {
     }
 
     /// The frame's top row: the best matching candidate (at least 90 % of the
-    /// non-blank rows equal), else the last report.
+    /// non-blank rows equal), else the newer of the last request and report.
     public func top(previous: [UInt64], current: [UInt64]) -> Int {
         match(previous: previous, current: current).top
     }
@@ -63,6 +63,12 @@ public struct TerminalPresentMatch: Equatable, Sendable {
             if score > (best?.score ?? -1) + 0.02 { best = (shift, score) }
         }
         if let best, best.score >= 0.9 { return (presentedTop + best.shift, true) }
+        // No candidate matched (a jump: the frame shares no rows with the
+        // one on screen). Ghostty's viewport is the request when it is newer
+        // than the report (termqa N1: a restore's first frame came before
+        // the report for its request, was placed at the report's end of
+        // the replay, and every later frame matched it there).
+        if requestIsNewer, requestedTop >= 0 { return (min(requestedTop, max(0, activeTop)), false) }
         return (reportedTop, false)
     }
 

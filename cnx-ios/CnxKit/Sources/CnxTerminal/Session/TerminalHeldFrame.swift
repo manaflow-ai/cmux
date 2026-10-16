@@ -49,7 +49,9 @@ public struct TerminalHeldFrame: Sendable {
     /// 250 ms until the blank watch placed it.
     static func releasesAtCap(isAlternate: Bool, cover: TerminalFrameCover, visibleTop: Int, visibleBottom: Int,
                               documentRows: Range<Int>, elapsed: TimeInterval) -> Bool {
-        true
+        if isAlternate || elapsed >= coverCap { return true }
+        return TerminalBlankWatch.covers(presentedTop: cover.presentedTop, surfaceRows: cover.surfaceRows, visibleTop: visibleTop,
+                                         visibleBottom: visibleBottom, documentRows: documentRows)
     }
 
     /// Rows with text in Ghostty's plain text of a screen (one line per row;
