@@ -23,6 +23,7 @@ import "./markdownField.css";
 import "./modelPicker.css";
 import "./keys.css";
 import "./newtab/screen.css";
+import "./newtab/topStripVariants.css";
 import "./newtab/history.css";
 import "./threadMinimap/threadMinimap.css";
 import { devHostParams, installDevHost } from "../../dev-host/host";

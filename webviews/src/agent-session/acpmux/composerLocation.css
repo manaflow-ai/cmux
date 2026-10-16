@@ -598,16 +598,18 @@
      ink on the card's content edge (where the prompt's text starts), as Codex and Claude Code
      desktop show the context above their prompt.
    - tray: a filled tray tucked under the card's top edge, the card's whole rim drawn over it, as
-     ChatGPT desktop's Codex tray (cg-design-judge, 2026-10-15). */
-:root[data-top-strip] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box,
+     ChatGPT desktop's Codex tray (cg-design-judge, 2026-10-15).
+   - fitted, cursor: New Tab designs (newtab/topStripVariants.css); a started chat keeps the
+     default strip under them, so the chat composer's rules here leave them out. */
+:root[data-top-strip]:not([data-top-strip="fitted"], [data-top-strip="cursor"]) .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box,
 :root[data-top-strip] .nt-composer:has(.acpmux-composer-strip) .nt-box {
   box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-shadow, var(--elevation-1));
 }
-:root[data-top-strip] .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box::before,
+:root[data-top-strip]:not([data-top-strip="fitted"], [data-top-strip="cursor"]) .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box::before,
 :root[data-top-strip] .nt-composer:has(.acpmux-composer-strip) .nt-box::before {
   content: none;
 }
-:root[data-top-strip] .acpmux-composer { --acpmux-strip-gap: 4px; }
+:root[data-top-strip]:not([data-top-strip="fitted"], [data-top-strip="cursor"]) .acpmux-composer { --acpmux-strip-gap: 4px; }
 :root[data-top-strip] .nt-composer { --acpmux-strip-gap: 4px; }
 
 /* bump */
