@@ -45,7 +45,7 @@ final class HandApprovalWire {
         // wakeup-allow: one pass per connection; each pass awaits the socket and, after a failure, a Backoff delay.
         while !Task.isCancelled, generation == self.generation {
             do {
-                try await session(sink: sink, onSubscribed: { backoff.reset() })
+                try await session(generation, sink: sink, onSubscribed: { backoff.reset() })
             } catch is CancellationError {
                 return
             } catch {}
@@ -54,38 +54,48 @@ final class HandApprovalWire {
         }
     }
 
-    private func session(sink: @MainActor (Event) -> Void, onSubscribed: () -> Void) async throws {
+    private func session(_ generation: Int, sink: @MainActor (Event) -> Void, onSubscribed: () -> Void) async throws {
         var request = URLRequest(url: url)
         request.setValue("cmux.wire.v1", forHTTPHeaderField: "Sec-WebSocket-Protocol")
         request.setValue("Bearer \(try await token())", forHTTPHeaderField: "Authorization")
+        // updates.minimumVersion: an owner refuses a client that does not name its version.
+        if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
+            request.setValue(version, forHTTPHeaderField: "x-cmux-client-version")
+        }
         let task = URLSession.shared.webSocketTask(with: request)
         // The subscribe answer is the user owner's snapshot (up to about 1.5 MB).
         task.maximumMessageSize = 8 << 20
         task.resume()
         defer { task.cancel(with: .goingAway, reason: nil) }
-        // wakeup-allow: each turn awaits the next frame; a closed socket throws and ends the loop.
-        while !Task.isCancelled {
-            let message = try await task.receive()
-            let data: Data
-            switch message {
-            case let .string(text): data = Data(text.utf8)
-            case let .data(bytes): data = bytes
-            @unknown default: continue
+        // receive() ignores task cancellation: stop() closes the socket, so a stopped run posts nothing more.
+        try await withTaskCancellationHandler {
+            // wakeup-allow: each turn awaits the next frame; a closed socket throws and ends the loop.
+            while !Task.isCancelled {
+                let message = try await task.receive()
+                let data: Data
+                switch message {
+                case let .string(text): data = Data(text.utf8)
+                case let .data(bytes): data = bytes
+                @unknown default: continue
+                }
+                let frame = await Task.detached(priority: .utility) { Frame.decode(data) }.value
+                guard generation == self.generation else { throw CancellationError() }
+                switch frame {
+                case .welcome:
+                    try await task.send(.string(#"{"t":"subscribe"}"#))
+                case .snapshot:
+                    onSubscribed()
+                    sink(.connected)
+                case let .event(event):
+                    sink(event)
+                case .ignored:
+                    break
+                }
             }
-            let frame = await Task.detached(priority: .utility) { Frame.decode(data) }.value
-            switch frame {
-            case .welcome:
-                try await task.send(.string(#"{"t":"subscribe"}"#))
-            case .snapshot:
-                onSubscribed()
-                sink(.connected)
-            case let .event(event):
-                sink(event)
-            case .ignored:
-                break
-            }
+            throw CancellationError()
+        } onCancel: {
+            task.cancel(with: .goingAway, reason: nil)
         }
-        throw CancellationError()
     }
 
     /// One frame, decoded off the main actor (a snapshot is large; only its type is read).

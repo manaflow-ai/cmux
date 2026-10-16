@@ -45,11 +45,6 @@ public struct HandPresenceKeyStore: Sendable {
         try OwnerOnlyFile.write(JSONEncoder().encode(record), to: file(for: user))
     }
 
-    /// Forgets `user`'s key (sign-out): the next sign-in makes and registers a new one.
-    public func forget(user: String) {
-        unlink(file(for: user).path)
-    }
-
     /// `user`'s key record, made in the enclave when there is none.
     func recordOrCreate(for user: String) throws -> Record {
         if let record = record(for: user) { return record }
@@ -76,7 +71,7 @@ enum HandPresenceKey {
         do {
             key = try SecureEnclave.P256.Signing.PrivateKey(accessControl: try accessControl())
         } catch {
-            throw HandPresenceError.unavailable
+            throw HandPresenceError.failed(String(describing: error))
         }
         let jwk = try PublicJWK(x963: key.publicKey.x963Representation)
         return HandPresenceKeyStore.Record(blob: key.dataRepresentation, x: jwk.x, y: jwk.y, install: nil)
@@ -97,8 +92,13 @@ enum HandPresenceKey {
             throw HandPresenceError.failed(error.localizedDescription)
         }
         // The evaluated context carries the presence: the signature itself asks for nothing more.
-        let key = try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob, authenticationContext: context)
-        return try key.signature(for: Data(message.utf8)).rawRepresentation.base64URLEncoded
+        do {
+            let key = try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob, authenticationContext: context)
+            return try key.signature(for: Data(message.utf8)).rawRepresentation.base64URLEncoded
+        } catch {
+            // Also a cancel between the prompt and the signature (it invalidates the context).
+            throw HandPresenceError.failed(String(describing: error))
+        }
     }
 }
 

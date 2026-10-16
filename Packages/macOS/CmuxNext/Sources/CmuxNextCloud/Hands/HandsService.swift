@@ -27,7 +27,10 @@ public final class HandsService {
     /// What happened, newest last (bounded; for `debug.hands`).
     public private(set) var log: [String] = []
     /// A request now waits: post its banner (the hand's name for the title).
-    @ObservationIgnored public var onPending: (@MainActor (HandApproval, _ handName: String) -> Void)?
+    /// Set after ``start()`` ran, it posts the requests that already wait.
+    @ObservationIgnored public var onPending: (@MainActor (HandApproval, _ handName: String) -> Void)? {
+        didSet { for approval in pending.values.sorted(by: { $0.at < $1.at }) { onPending?(approval, name(of: approval.hand)) } }
+    }
     /// A request ended (nil outcome: the app stopped following it): withdraw its banner.
     @ObservationIgnored public var onSettled: (@MainActor (HandApproval, HandApprovalOutcome?) -> Void)?
     /// The presence prompt's reasons (raising hand `name` to `level`; raising the default of new
@@ -44,6 +47,8 @@ public final class HandsService {
     @ObservationIgnored private var reads: Task<Void, Never>?
     /// When each waiting request arrived here, so a list read that started earlier never drops it.
     @ObservationIgnored private var arrived: [String: ContinuousClock.Instant] = [:]
+    /// When each request ended here, so a list read that started earlier never posts it again.
+    @ObservationIgnored private var ended: [String: ContinuousClock.Instant] = [:]
     private static let logLimit = 64
 
     public init(apiBaseURL: URL, accessToken: @escaping HandsAPIClient.AccessToken, identity: MacInstallIdentity,
@@ -64,9 +69,9 @@ public final class HandsService {
         reads?.cancel()
         reads = nil
         prompt?.cancel()
-        let ended = pending.values
+        let dropped = pending.values
         (pending, arrived, hands) = ([:], [:], [])
-        for approval in ended { onSettled?(approval, nil) }
+        for approval in dropped { onSettled?(approval, nil) }
     }
 
     private func handle(_ event: HandApprovalWire.Event) {
@@ -87,10 +92,13 @@ public final class HandsService {
         let began = ContinuousClock.now
         do {
             let listed = try await api.hands()
+            try Task.checkCancellation()
             hands = listed
             var seen: Set<String> = []
             for hand in listed where (hand.pendingApprovals ?? 1) > 0 {
-                for approval in try await api.approvals(hand: hand.hand) {
+                let waiting = try await api.approvals(hand: hand.hand)
+                try Task.checkCancellation()
+                for approval in waiting where ended[approval.key] == nil {
                     seen.insert(approval.key)
                     add(approval)
                 }
@@ -98,6 +106,7 @@ public final class HandsService {
             for key in pending.keys where !seen.contains(key) && (arrived[key] ?? began) < began {
                 remove(key, outcome: nil)
             }
+            ended = ended.filter { $0.value.duration(to: .now) < .seconds(600) }
             note("refreshed \(listed.count) hands, \(pending.count) waiting")
         } catch is CancellationError {
         } catch {
@@ -110,11 +119,16 @@ public final class HandsService {
         pending[approval.key] = approval
         arrived[approval.key] = .now
         note("pending \(approval.key)")
-        onPending?(approval, hands.first { $0.hand == approval.hand }?.name ?? approval.hand)
+        onPending?(approval, name(of: approval.hand))
+    }
+
+    private func name(of hand: String) -> String {
+        hands.first { $0.hand == hand }.map { $0.name.isEmpty ? hand : $0.name } ?? hand
     }
 
     private func remove(_ key: String, outcome: HandApprovalOutcome?) {
         arrived[key] = nil
+        ended[key] = .now
         guard let approval = pending.removeValue(forKey: key) else { return }
         note("settled \(key) \(outcome?.rawValue ?? "dropped")")
         onSettled?(approval, outcome)
@@ -134,9 +148,14 @@ public final class HandsService {
             } else {
                 try await api.answer(hand: approval.hand, id: approval.id, allow: false)
             }
-        } catch CloudAPIError.http(_, let code, _) where code == "hand.approval_answered" || code == "hand.approval_not_found" {
+        } catch CloudAPIError.http(_, let code, _) where ["hand.approval_answered", "hand.approval_not_found", "hand.not_found"].contains(code ?? "") {
             note("answer \(key): \(code ?? "") already")
             return remove(key, outcome: nil)
+        } catch {
+            // The system removed the banner when it was clicked: post it again, so the answer can be retried.
+            note("answer \(key) failed: \(error)")
+            if pending[key] != nil { onPending?(approval, name(of: approval.hand)) }
+            throw error
         }
         note("answered \(key) \(allow ? "allow" : "deny")")
         remove(key, outcome: allow ? .allowed : .denied)
@@ -166,7 +185,12 @@ public final class HandsService {
         guard let index = hands.firstIndex(where: { $0.hand == id }) else { throw Failure.unknownHand(id) }
         let hand = hands[index]
         if let from = hand.level, !from.isRaise(to: level) {
-            try await api.setLevel(target: id, level: level, proof: nil)
+            do {
+                try await api.setLevel(target: id, level: level, proof: nil)
+            } catch CloudAPIError.http(_, let code, _) where code == "hand.level_refused" {
+                // The known level was stale (a Chief lowered it): this is a raise after all.
+                try await raise(target: id, to: level, reason: texts.raiseHand(hand.name.isEmpty ? id : hand.name, level.rawValue))
+            }
         } else {
             try await raise(target: id, to: level, reason: texts.raiseHand(hand.name.isEmpty ? id : hand.name, level.rawValue))
         }

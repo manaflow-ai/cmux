@@ -38,17 +38,19 @@ extension HandsService {
             break
         }
         let report: [String: Any] = [
-            "hands": hands.map { ["hand": $0.hand, "name": $0.name, "profile": $0.profile?.rawValue ?? NSNull(),
-                                  "level": $0.level?.rawValue ?? NSNull(), "online": $0.online, "pending": $0.pendingApprovals ?? NSNull()] },
-            "pending": pending.values.sorted { $0.at < $1.at }.map { ["key": $0.key, "hand": $0.hand, "id": $0.id, "summary": $0.summary] },
-            "prompt": prompt?.reason ?? NSNull(),
+            "hands": hands.map { ["hand": $0.hand, "name": $0.name, "profile": Self.orNull($0.profile?.rawValue),
+                                  "level": Self.orNull($0.level?.rawValue), "online": $0.online, "pending": Self.orNull($0.pendingApprovals)] as [String: Any] },
+            "pending": pending.values.sorted { $0.at < $1.at }.map { ["key": $0.key, "hand": $0.hand, "id": $0.id, "summary": $0.summary] as [String: Any] },
+            "prompt": Self.orNull(prompt?.reason),
             "secure_enclave": SecureEnclave.isAvailable,
-            "result": result ?? NSNull(),
+            "result": Self.orNull(result),
             "log": log,
         ]
         let data = (try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])) ?? Data("{}".utf8)
         return String(decoding: data, as: UTF8.self)
     }
+
+    private static func orNull(_ value: Any?) -> Any { value ?? NSNull() }
 
     /// Runs `work` without waiting for it; the log records how it ended.
     private func start(_ label: String, _ work: @escaping @MainActor () async throws -> Void) {

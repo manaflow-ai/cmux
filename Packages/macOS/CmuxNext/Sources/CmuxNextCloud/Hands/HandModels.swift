@@ -43,9 +43,9 @@ public struct HandSummary: Sendable, Equatable, Decodable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         hand = try c.decode(String.self, forKey: .hand)
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
-        profile = (try? c.decodeIfPresent(String.self, forKey: .profile)).flatMap { $0.flatMap(HandProfile.init(rawValue:)) }
+        profile = (try? c.decodeIfPresent(String.self, forKey: .profile)).flatMap(HandProfile.init(rawValue:))
         online = (try? c.decodeIfPresent(Bool.self, forKey: .online)) ?? false
-        level = (try? c.decodeIfPresent(String.self, forKey: .level)).flatMap { $0.flatMap(HandLevel.init(rawValue:)) }
+        level = (try? c.decodeIfPresent(String.self, forKey: .level)).flatMap(HandLevel.init(rawValue:))
         pendingApprovals = try? c.decodeIfPresent(Int.self, forKey: .pendingApprovals)
     }
 }
