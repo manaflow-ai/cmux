@@ -102,7 +102,7 @@ extension SidebarView {
             let blocks = SidebarListBlocks(sections: Dictionary(docSections.map { ($0.id.rawValue, $0) }, uniquingKeysWith: { first, _ in first }),
                                            infos: selectedInfos.filter { shownIDs.contains($0.key) }, collapsed: model.collapsedLayoutSections, look: look, metrics: metrics,
                                            drawsLines: Borders.drawsLines, appHeights: appHeights(docSections, width: width))
-            aboveRegion.update(content(model.transientTopSection.map { [$0] } ?? []), width: width)
+            aboveRegion.update(content(model.placingTransientItems(in: [])), width: width)
             if list.blocks != blocks {
                 list.blocks = blocks
                 if reloadsList { list.reload(animated: true) }
