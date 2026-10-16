@@ -229,7 +229,17 @@ autocomplete="off" readonly onclick="this.readOnly=false;this.focus();document.g
                 os.killpg(browser.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
-            browser.wait(timeout=15)
+            try:
+                browser.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                # Chrome can leave a helper alive after the browser process
+                # receives SIGTERM. Kill the isolated process group so a
+                # slow cleanup never turns an otherwise valid CUA proof red.
+                try:
+                    os.killpg(browser.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                browser.wait(timeout=10)
             server.shutdown()
             server.server_close()
     (output / "result.json").write_text(json.dumps(report, indent=2) + "\n")
