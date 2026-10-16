@@ -139,7 +139,7 @@ final class BrowserEnginePageContainerView: NSView {
               eventWindow.chromiumActingWindow(fallback: nil) === window,
               !isHiddenOrHasHiddenAncestor else { return }
         let pagePoint = event.locationInWindow
-        let screenPoint = eventWindow.convertToScreen(pagePoint)
+        let screenPoint = eventWindow.convertToScreen(NSRect(origin: pagePoint, size: .zero)).origin
         let paneRect = window.convertToScreen(convert(bounds, to: nil))
         guard paneRect.contains(screenPoint) else { return }
         // A local monitor runs before the child window's normal mouse dispatch,
