@@ -42,6 +42,10 @@ type OrchestrationStrategy = {
   head: string;
   queue: string;
   lease: string;
+  stage: string;
+  state: string;
+  acceptance: string;
+  kind: string;
   health: string;
   guidance: string;
   evidence: string;
@@ -66,6 +70,10 @@ const orchestrationStrategies: OrchestrationStrategy[] = [
     head: "4ce7c9c1…",
     queue: "2 queued · 1/4 active",
     lease: "09:42 remaining",
+    stage: "working",
+    state: "running",
+    acceptance: "accepted",
+    kind: "progress",
     health: "healthy",
     guidance: "sha256:7d2a…",
     evidence: "receipt.json",
@@ -88,6 +96,10 @@ const orchestrationStrategies: OrchestrationStrategy[] = [
     head: "ce704bfb…",
     queue: "5 queued · 0/8 active",
     lease: "17:30 remaining",
+    stage: "acknowledged",
+    state: "running",
+    acceptance: "conditional",
+    kind: "review",
     health: "degraded",
     guidance: "sha256:14b8…",
     evidence: "rust-green-receipt.json",
@@ -110,6 +122,10 @@ const orchestrationStrategies: OrchestrationStrategy[] = [
     head: "a81f6de2…",
     queue: "12 queued · 0/32 active",
     lease: "starts on admission",
+    stage: "submitted",
+    state: "submitted",
+    acceptance: "pending",
+    kind: "next-work",
     health: "unknown",
     guidance: "sha256:91c4…",
     evidence: "admission receipt",
@@ -132,8 +148,14 @@ function Section({ id, title, children }: { id: string; title: string; children:
   );
 }
 
-function OrchestrationLab() {
+function OrchestrationLab({ open }: { open: boolean }) {
   const [selectedId, setSelectedId] = useState(orchestrationStrategies[0].id);
+  const selectedStrategy = orchestrationStrategies.find((strategy) => strategy.id === selectedId) ?? orchestrationStrategies[0];
+
+  if (!open) {
+    return <div className="orchestration-collapsed" role="status">Orchestration lab hidden. Use the top-left toggle to reopen the fixture.</div>;
+  }
+
   return (
     <div className="gallery-stack orchestration-lab">
       <div className="gallery-label">Fixture-only comparison surface. Values are redacted examples; no task is dispatched.</div>
@@ -150,7 +172,9 @@ function OrchestrationLab() {
               >
                 <span className="orchestration-card-heading">
                   <span className="orchestration-card-title">{strategy.label}</span>
-                  <span className={`orchestration-status orchestration-status-${strategy.status}`}>{strategy.status}</span>
+                  <span className={`orchestration-status orchestration-status-${strategy.status}`} aria-label={`Route phase ${strategy.status}`}>
+                    <span className="sr-only">Route phase </span>{strategy.status}
+                  </span>
                 </span>
                 <span className="orchestration-card-description">{strategy.description}</span>
               </button>
@@ -171,6 +195,63 @@ function OrchestrationLab() {
           );
         })}
       </div>
+      <section className="orchestration-inspector" aria-label={`${selectedStrategy.label} receipt preview`} aria-live="polite">
+        <div className="orchestration-inspector-header">
+          <div>
+            <div className="orchestration-inspector-kicker">Focused receipt preview · display-only fixture</div>
+            <h3>{selectedStrategy.label}</h3>
+          </div>
+          <span className={`orchestration-status orchestration-status-${selectedStrategy.status}`}>{selectedStrategy.status}</span>
+        </div>
+        <dl className="orchestration-receipt-summary">
+          <div><dt>Task</dt><dd>{selectedStrategy.task}</dd></div>
+          <div><dt>Route</dt><dd>{selectedStrategy.transport} · {selectedStrategy.recipient}</dd></div>
+          <div><dt>Stage</dt><dd>{selectedStrategy.stage}</dd></div>
+          <div><dt>State</dt><dd>{selectedStrategy.state}</dd></div>
+          <div><dt>Acceptance</dt><dd>{selectedStrategy.acceptance}</dd></div>
+          <div><dt>Route health</dt><dd>{selectedStrategy.health}</dd></div>
+          <div><dt>Lease</dt><dd>{selectedStrategy.lease}</dd></div>
+          <div><dt>Guidance</dt><dd>{selectedStrategy.guidance}</dd></div>
+          <div><dt>Evidence</dt><dd>{selectedStrategy.evidence}</dd></div>
+          <div><dt>Next action</dt><dd>{selectedStrategy.nextAction}</dd></div>
+        </dl>
+        <pre className="orchestration-receipt-preview" aria-label="Redacted receipt JSON preview">{JSON.stringify({
+          receipt_mode: "display-only fixture · no dispatch",
+          schema_version: "fixture-1",
+          message_id: "redacted",
+          task_id: selectedStrategy.task,
+          in_reply_to: "redacted",
+          sender: selectedStrategy.sender,
+          recipient: selectedStrategy.recipient,
+          transport: selectedStrategy.transport,
+          host_id: selectedStrategy.recipient,
+          session_id: "redacted",
+          root_id: "gallery-fixture",
+          owner: selectedStrategy.sender,
+          authority_ref: "fixture-only",
+          stage: selectedStrategy.stage,
+          state: selectedStrategy.state,
+          kind: selectedStrategy.kind,
+          status: selectedStrategy.state,
+          acceptance: selectedStrategy.acceptance,
+          repository: selectedStrategy.repo,
+          worktree: selectedStrategy.worktree,
+          branch: selectedStrategy.branch,
+          base_sha: "display-only: redacted",
+          head_sha: `display-only: ${selectedStrategy.head}`,
+          command: "unavailable in gallery fixture",
+          assertion_count: null,
+          artifact_sha: "redacted",
+          queue: selectedStrategy.queue,
+          lease: selectedStrategy.lease,
+          health: selectedStrategy.health,
+          guidance: selectedStrategy.guidance,
+          evidence: selectedStrategy.evidence,
+          artifacts: selectedStrategy.artifacts,
+          gap: selectedStrategy.gap,
+          next_action: selectedStrategy.nextAction,
+        }, null, 2)}</pre>
+      </section>
     </div>
   );
 }
@@ -339,6 +420,7 @@ function GalleryPicker({ query = "" }: { query?: string }) {
 export function GalleryApp() {
   useOverlayScrollbars();
   const [viewport, setViewport] = useState("1120px");
+  const [orchestrationOpen, setOrchestrationOpen] = useState(true);
   const toc = useMemo(() => [
     ["orchestration-lab", "Orchestration lab"],
     ["status-row", "Status row"],
@@ -361,6 +443,18 @@ export function GalleryApp() {
   return (
     <Tooltip.Provider delay={500} closeDelay={80} timeout={800}>
       <main id="gallery-main">
+        <button
+          className="orchestration-toggle"
+          type="button"
+          aria-controls="orchestration-lab"
+          aria-expanded={orchestrationOpen}
+          onClick={() => setOrchestrationOpen((open) => !open)}
+        >
+          <span className={`orchestration-toggle-dot${orchestrationOpen ? " active" : ""}`} aria-hidden="true" />
+          <span>Orchestration preview</span>
+          <span className="orchestration-toggle-note">Fixture only</span>
+          <span className="orchestration-toggle-state">{orchestrationOpen ? "On" : "Off"}</span>
+        </button>
         <header className="gallery-header">
           <h1>Agent Chat Gallery</h1>
           <p>Mock-driven visual QA surface. No WebSocket, no provider process, no live sessions.</p>
@@ -376,7 +470,7 @@ export function GalleryApp() {
 
         <div className="gallery-viewport-frame" style={{ maxWidth: viewport }}>
         <Section id="orchestration-lab" title="Orchestration lab">
-          <OrchestrationLab />
+          <OrchestrationLab open={orchestrationOpen} />
         </Section>
         <Section id="status-row" title="Status row">
           <div className="gallery-stack">
