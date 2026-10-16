@@ -580,6 +580,37 @@ async fn remote_callers_can_cancel_sessions_they_started() {
     assert_eq!(wait_for_turn_end(&mut peer).await["msg"]["stopReason"], "cancelled");
 }
 
+#[tokio::test]
+async fn web_cancel_still_requires_web_control_of_remote_sessions() {
+    for form in ["request", "notification"] {
+        let hub = hub();
+        let mut web = Client::new(&hub, Origin::Web);
+        let id = session(&mut web, &format!("web-owned-{form}")).await;
+        let mut local = Client::new(&hub, Origin::Local);
+        let policy = local
+            .call(
+                "_acpmux/set_policy",
+                json!({"sessionId": id, "policy": "approve-all"}),
+            )
+            .await;
+        assert!(policy["error"].is_null(), "{policy}");
+
+        // Keep a turn running so the refusal is checked by its actual side effect.
+        start_until_cancel(&mut local, &id).await;
+        if form == "request" {
+            let (reply, _) =
+                web.call_with_notifications("session/cancel", json!({"sessionId": id})).await;
+            assert_eq!(reply["error"]["data"]["reason"], "remote.policy_not_asking", "{reply}");
+        } else {
+            web.notify("session/cancel", json!({"sessionId": id})).await;
+        }
+        assert_no_turn_end(&mut local).await;
+
+        local.notify("session/cancel", json!({"sessionId": id})).await;
+        assert_eq!(wait_for_turn_end(&mut local).await["msg"]["stopReason"], "cancelled");
+    }
+}
+
 async fn wait_for_turn_end_or_seen(c: &mut Client, seen: &[Value]) -> Value {
     if let Some(event) =
         seen.iter().find(|v| v["method"] == "_acpmux/event" && v["params"]["kind"] == "turn_end")
