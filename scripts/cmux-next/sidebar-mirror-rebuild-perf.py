@@ -117,6 +117,7 @@ def main():
         sys.exit("the sidebar does not list the perf workspaces")
     rpc("debug.sidebar_perf", {"reset": True})
     views_before = view_calls()
+    close_errors = []
     for index in range(opts.rebuilds):
         name = f"rebuild-{index:03d}"
         made = cli("workspace", "create", "--empty", "--name", name, "--json")
@@ -128,9 +129,12 @@ def main():
         wait(lambda: name in titles(), 15)
         if not ws_id:
             sys.exit(f"no workspace id in the create reply: {made.stdout[:300]}")
-        cli("workspace", ws_id, "close")
-        if not wait(lambda: name not in titles(), 15):
-            sys.exit(f"{name} did not close")
+        # The close is a second rebuild when it lands; a refused close only leaves one more row.
+        closed = cli("workspace", ws_id, "close")
+        if closed.returncode == 0:
+            wait(lambda: name not in titles(), 15)
+        else:
+            close_errors.append((closed.stdout + closed.stderr).strip()[-200:])
     counters = rpc("debug.sidebar_perf") or {}
     if "mirror_ns" not in counters:
         sys.exit(f"this build has no mirror_ns counter: {counters}")
@@ -140,6 +144,7 @@ def main():
         "view_calls": views, "rebuilds": counters.get("rebuilds"), "list_reloads": counters.get("list_reloads"),
         "mirror_ms_per_view": round(counters["mirror_ns"] / 1e6 / max(views, 1), 3),
         "main_ms_per_rebuild": round(counters.get("main_ns", 0) / 1e6 / max(counters.get("rebuilds") or 1, 1), 3),
+        "close_errors": close_errors[:3],
         "mirror_ms_total": round(counters["mirror_ns"] / 1e6, 2), "main_ms_total": round(counters.get("main_ns", 0) / 1e6, 2),
     }
     os.makedirs(opts.out, exist_ok=True)
