@@ -12,7 +12,7 @@ struct RemoteTerminalTitleTests {
 
         let titles = frames.map { RemoteTerminalTitle(processTitle: $0).processTitle }
 
-        #expect(Set(titles) == ["Building project"])
+        #expect(Set(titles) == Set(["Building project"]))
     }
 
     @Test("pool title uses a common trimmed view name")
