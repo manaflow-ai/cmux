@@ -89,6 +89,9 @@ on:
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
+      - scripts/ci/swiftpm_build_metrics.py
+      - scripts/ci/build_metrics.py
+      - tests/test_ci_swiftpm_build_metrics.py
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
@@ -251,6 +254,9 @@ on:
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
+      - scripts/ci/swiftpm_build_metrics.py
+      - scripts/ci/build_metrics.py
+      - tests/test_ci_swiftpm_build_metrics.py
       - scripts/ci/select_package_tests.py
       - scripts/ci/cmux_next_push_attribution.py
       - tests/test_cmux_next_route.py
@@ -1196,6 +1202,7 @@ jobs:
         continue-on-error: true
         run: |
           python3 tests/test_cmux_next_route.py
+          python3 tests/test_ci_swiftpm_build_metrics.py
           python3 tests/test_cmux_next_route_replay.py
 
       # The web bundle source key covers every file outside webviews/ that a bundle
@@ -1768,7 +1775,20 @@ jobs:
         id: build-tests
         if: env.SWIFT_TARGETS != ''
         working-directory: Packages/macOS/CmuxNext
-        run: swift build --build-tests
+        env:
+          CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
+          CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-cache.outputs.cache-hit }}
+        run: python3 ../../../scripts/ci/swiftpm_build_metrics.py --role swift-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+
+      - name: Upload the test build measurement and log
+        continue-on-error: true
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-build-metrics-swift-test-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-next-build-metrics
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Compile string catalogs into the resource bundles
         if: env.SWIFT_TARGETS != ''
@@ -1988,7 +2008,20 @@ jobs:
       - name: Build package and tests
         id: build-tests
         working-directory: Packages/macOS/CmuxNext
-        run: swift build --build-tests
+        env:
+          CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
+          CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-cache.outputs.cache-hit }}
+        run: python3 ../../../scripts/ci/swiftpm_build_metrics.py --role daemon-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+
+      - name: Upload the test build measurement and log
+        continue-on-error: true
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-build-metrics-daemon-test-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-next-build-metrics
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Compile string catalogs into the resource bundles
         working-directory: Packages/macOS/CmuxNext
@@ -2197,7 +2230,20 @@ jobs:
 
       - name: Build package and tests
         working-directory: Packages/macOS/CmuxNext
-        run: swift build --build-tests
+        env:
+          CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
+          CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-cache.outputs.cache-hit }}
+        run: python3 ../../../scripts/ci/swiftpm_build_metrics.py --role generated-files --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+
+      - name: Upload the test build measurement and log
+        continue-on-error: true
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-build-metrics-generated-files-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-next-build-metrics
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Check generated action catalog, surfaces and inventory
         id: actions
