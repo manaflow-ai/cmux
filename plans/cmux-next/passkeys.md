@@ -32,6 +32,7 @@ Every parity agent (cmux next Swift app, GPUI, the Chrome port, cmux-browser) mu
 | K16 | 2026-08-02 cmux-browser [#95](https://github.com/manaflow-ai/cmux-browser/pull/95) (Chromium fork, Linux) | WebAuthn fails in custom panes with `NotAllowedError`. | Chromium refuses a request unless the frame is active and `ChromeWebAuthenticationDelegate::IsFocused` holds, which is `web_contents->GetVisibility() == VISIBLE` (`chromium:chrome/browser/webauthn/chrome_web_authentication_delegate.cc:251`), checked at the start and again when the result returns (`chromium:content/browser/webauth/authenticator_common_impl.cc:1334`, `:3255`). The pane's WebContents visibility did not follow the real pane. | Fixed in cmux-browser by syncing visibility. Applies to our CEF panes: hidden, hibernated, scrolled-away or reported-occluded tabs fail, and a ceremony whose own system sheet makes us report the page occluded fails at completion. | CEF: visible tab passes; hidden tab gets `NotAllowedError`; a page partly covered by the system sheet or a cmux overlay keeps `VISIBLE` and completes. |
 | K17 | Gaps in the legacy bridge (not crashes) | Sites that need these fail or degrade. | No PRF, `largeBlob`, `credProps`, `getClientCapabilities`, `signal*` methods, `parseCreationOptionsFromJSON`; cross-origin iframes refused even with `allow="publickey-credentials-get"`; parent-domain RP IDs native only for `google.com` (`main:.../BrowserWebAuthnSecurityOrigin.swift:112`); U2F `appid` falls back to WebKit. | n/a | Feature matrix test (section 7) on every engine. |
 | K18 | Process | Each fix was "verified" on a tagged build that cannot run a real ceremony. | Tagged DEV bundle ids have no profile that grants the entitlement (stated in #6718 and #15525). | n/a | Every passkey change lists its signed-build manual checks as UNVERIFIED until a signed nightly passes them. |
+| **K19** | **2026-10-16, Lawrence: "This browser or device is reporting partial passkey support" on github.com in cmux-next** | **GitHub shows the text whenever `PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()` is false (its `webauthn-get` element, read from github.com's bundle). Every cmux-next build answered false in CEF, the signed NIGHTLY identity too.** | **CEF: Chromium 154 on macOS answers isUVPAA only from its profile (Touch ID) authenticator (`content/browser/webauth/is_uvpaa.cc`: `TouchIdAuthenticator::IsAvailable`), which needs the `"<team>.<bundle>.webauthn"` group in the signed app's `keychain-access-groups` (`touch_id_context.mm`). iCloud Keychain support and the browser entitlement do not count. The fork's `cmux_set_webauthn_keychain_access_group` (API 18/19, pinned cmux.25) was never called and no entitlements file had the group (D3 was never done). WebKit: isUVPAA stays false until the person allows passkeys once, which cmux asks only on a ceremony; and the authorization script unwrapped itself after a call it was not allowed to ask for (GitHub's conditional request on load), so the person's later click never asked.** | **2026-10-16: the shim hands Chromium the signed app's `.webauthn` group before CefInitialize; nightly, release and RC entitlements add `7WLXT3NR37.<bundle>.webauthn` (granted by the profiles' `7WLXT3NR37.*`; `scripts/ci/check-profile-keychain-groups.sh` refuses a group a profile does not grant, in nightly.yml, release.yml and the NIGHTLY-identity copy). WebKit: while undecided, with the browser entitlement, the page sees a platform authenticator; only a decided answer unwraps the script. The cmux NEXT identity (`com.cmuxterm.app.nightly.cmux-next`) has no profile, so it cannot have the group (11.2).** | **`passkeys-parity-e2e.py` (isUVPAA, capabilities against Chrome, the GitHub text), `uvpa-with-platform-authenticator` in the test RP, section 12.** |
 
 Related, not passkey bugs (do not confuse): [#2154](https://github.com/manaflow-ai/cmux/issues/2154) Apple Passwords autofill (no public API for third-party WKWebView browsers), [#10528](https://github.com/manaflow-ai/cmux/issues/10528) Extensible SSO (misattributed; closed by reporter), [#4033](https://github.com/manaflow-ai/cmux/issues/4033) mTLS client certificates (keychain access group), [#1491](https://github.com/manaflow-ai/cmux/issues/1491) and [#7513](https://github.com/manaflow-ai/cmux/issues/7513) Google/Duo user-agent checks.
 
@@ -320,3 +321,55 @@ existing passkey entitlement and profiles; no new App ID and no Apple request fo
 stays without platform passkeys until it goes away; its NIGHTLY-identity copy (cx-x7hwx) is the
 signed build where Touch ID / iCloud Keychain passkeys are checked. The hybrid race fix ships in CEF
 `cef-154.0.28-cmux.25` (cmux CEF fork branch `cmux/8037-cmux25-rc`).
+
+## 12. Partial passkey support (K19), the fix and the full test suite, 2026-10-16
+
+Lawrence 2026-10-16: "ensure 'This browser or device is reporting partial passkey support.' is fixed
+(i see it on github) ensure we have extremely comprehensive tests for passkeys/yubikey/1password etc".
+
+### 12.1 What decides the GitHub text, per build
+
+| Build | Bundle id | CEF isUVPAA before | CEF isUVPAA after | WebKit isUVPAA after (undecided) |
+| --- | --- | --- | --- | --- |
+| cmux NEXT (interim identity) | `com.cmuxterm.app.nightly.cmux-next` | false (no profile, no group) | false: no profile can grant the group | false (no browser entitlement) |
+| cmux NIGHTLY identity of cmux-next | `com.cmuxterm.app.nightly` | false (group missing) | true on a Mac with a login password and a Secure Enclave | true |
+| stable | `com.cmuxterm.app` | false | true | true |
+| RC | `com.cmuxterm.app.rc` | false | true (Touch ID profile passkeys; no iCloud Keychain until K14) | false (no browser entitlement) |
+| tagged DEV | per tag | false | false (no profile); the gate uses a virtual platform authenticator | false |
+
+Profile passkeys are stored in the app's own keychain group and listed on the Passwords page
+(fork API 18). Chromium's own sheet still offers iCloud Keychain (with the browser entitlement),
+security keys, phones (hybrid) and third-party providers (1Password, Bitwarden through the macOS
+credential-provider API, which comes with the iCloud Keychain request), the same set as Chrome.
+
+### 12.2 Automated suite (real browser boundaries)
+
+| Layer | Path | What runs | Where |
+| --- | --- | --- | --- |
+| Test RP | `tests/passkeys/rp/` | 41 scenarios: create/get platform, discoverable, allow list, 10 KB challenge (K12), no user handle (K11), round trips over virtual USB CTAP2.1, USB U2F, NFC, BLE and hybrid, a key with no PIN, uv discouraged / required on a key without uv, excludeCredentials, attestation none and direct, several credentials, timeout, unknown credential, abort conditional then modal and abort modal (K15), PRF, largeBlob, credProps, conditional mediation available, conditional create, isUVPAA with a platform authenticator (K19), capabilities, JSON helpers, signal methods, user id too long, insecure RP id, K8 transport routing, cross-origin iframes (get denied, create allowed, get allowed, create denied by policy), opaque and sandboxed frames (R122) | everywhere below |
+| Oracle | `tests/passkeys/run.mjs` | the RP in stock Chromium with a DevTools virtual authenticator per scenario | CI: `.github/workflows/cmux-next-passkeys.yml` on every push/PR that touches passkey files |
+| cmux matrix | `scripts/cmux-next/passkeys-matrix-e2e.py` | the RP in a real cmux CEF tab (virtual authenticator through `debug.cef.devtools`) and WebKit tab (authenticator-free scenarios) | GUI gate |
+| Roaming on a real RP | `scripts/cmux-next/passkeys-roaming-e2e.py` | webauthn.io register + sign in over virtual USB (CTAP2.1, U2F), NFC, BLE, hybrid | GUI gate |
+| Parity and GitHub | `scripts/cmux-next/passkeys-parity-e2e.py` | isUVPAA, isConditionalMediationAvailable, getClientCapabilities in CEF, WebKit and Google Chrome on the same Mac, on the RP, webauthn.io, passkeys.dev and github.com/login; the GitHub text must not show where a platform authenticator is expected | GUI gate |
+| Gate | `scripts/cmux-next/passkeys-gate.sh` | the three cmux steps above against the fleet build of the exact head | `nx-remote --detach --needs gui --priority gate --gate-head SHA --app-from-fleet cmux --tag TAG --ref SHA --timeout 2400 -- bash scripts/cmux-next/passkeys-gate.sh` |
+
+Rule: a push that changes WebAuthn, passkey, CEF shim, entitlement or signing files runs the gate
+and puts the job id in the landing note. Signed-build rows (real isUVPAA true, the GitHub text
+gone without a virtual authenticator) run on the next NIGHTLY-identity build of cmux-next:
+`python3 scripts/cmux-next/passkeys-parity-e2e.py --socket <sock> --app "/Applications/cmux NIGHTLY.app"`.
+
+### 12.3 Physical checklist (a person; no fleet Mac has a YubiKey or 1Password, 2026-10-16)
+
+Use the cmux NIGHTLY identity build of cmux-next (or stable). Do each in a CEF tab, then in a WebKit tab.
+
+1. github.com/login: the text "This browser or device is reporting partial passkey support" is gone. The username field offers saved passkeys (conditional UI).
+2. webauthn.io, Authenticator Attachment "Platform": Register, Touch ID (or the login password), then Authenticate. Expect both succeed. WebKit asks "Allow cmux to use passkeys" once.
+3. iCloud Keychain: in the Chromium sheet choose "iCloud Keychain"; register on webauthn.io; System Settings > Passwords shows the passkey.
+4. 1Password (macOS 14+: System Settings > General > AutoFill & Passwords > 1Password on): register on webauthn.io, choose 1Password in the system sheet, then sign in. Repeat with Bitwarden if installed.
+5. YubiKey 5 with a PIN: webauthn.io "Cross-Platform", Register, insert the key, type the PIN in the Chromium sheet, touch the key; then Authenticate with the username filled (allow list). Then "Discoverable Credential: Required" and Authenticate with an empty username.
+6. YubiKey with no PIN (or a U2F-only key): webauthn.io "Discoverable Credential: Discouraged", Register and Authenticate with a touch only.
+7. YubiKey PIN errors: type a wrong PIN once; the sheet shows the retries left; then the right PIN.
+8. Phone (hybrid): unplug every security key first (11.1), webauthn.io "Cross-Platform", choose "iPhone, iPad or Android device", scan the QR code, approve on the phone. Expect success. With Bluetooth off expect a "turn on Bluetooth" step.
+9. accounts.google.com > Security > Passkeys: Touch ID, no QR sheet (K8), no "Something went wrong" (K12).
+10. Agent refusal: ask an agent to click "Authenticate" on webauthn.io in a browser tab: no Touch ID sheet (3.5).
+
