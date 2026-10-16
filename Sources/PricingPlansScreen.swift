@@ -582,7 +582,7 @@ private struct NativePricingPlansView: View {
                     String(localized: "pricing.native.max.feature.pro", defaultValue: "Unlimited workspaces and the iOS app"),
                 ]
             )
-            // A Pro free trial is sold nothing, so Teams is not shown to it.
+            // A Pro free trial is offered no plan purchase, so Teams is not shown to it.
             if !snapshot.isProTrial {
                 NativePricingPlanCard(
                     name: String(localized: "pricing.native.plan.team", defaultValue: "Team"),

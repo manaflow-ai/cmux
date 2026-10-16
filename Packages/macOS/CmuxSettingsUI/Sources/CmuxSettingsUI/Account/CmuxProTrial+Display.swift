@@ -21,8 +21,8 @@ public extension CmuxProTrial {
                 bundle: .module
             )
         }
-        let machinesText = String(
-            format: String(localized: "plan.proTrial.machines", defaultValue: "%d machines", bundle: .module),
+        let machinesText = String.localizedStringWithFormat(
+            String(localized: "plan.proTrial.machines", defaultValue: "%d machines", bundle: .module),
             machines
         )
         let sizeText = String(
@@ -30,8 +30,8 @@ public extension CmuxProTrial {
             vcpus.formatted(),
             memoryGb.formatted()
         )
-        let hoursText = String(
-            format: String(localized: "plan.proTrial.vmHours", defaultValue: "%d VM-hours", bundle: .module),
+        let hoursText = String.localizedStringWithFormat(
+            String(localized: "plan.proTrial.vmHours", defaultValue: "%d VM-hours", bundle: .module),
             vmHours
         )
         return String(
