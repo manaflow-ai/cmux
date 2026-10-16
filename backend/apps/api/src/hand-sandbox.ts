@@ -49,7 +49,8 @@ export const createSandbox = async (env: Env, caller: HandCaller, name: string, 
   const stub = handStub(env, hand)
   await stub.setSandbox(vm)
   // The code and name are checked shapes (PAIR_CODE, SANDBOX_NAME), so the line needs no quoting beyond this.
-  const command = `sh -c 'curl -fsSL ${origin}/hand/install.sh | sh -s -- --pair ${code} --name ${name}'`
+  // A login shell: the image's tools (node, claude, opencode) are on its login PATH, which the hand's service keeps.
+  const command = `bash -lc 'curl -fsSL ${origin}/hand/install.sh | sh -s -- --pair ${code} --name ${name}'`
   const exec = await fetch(`${base(env)}/v5/vms/${encodeURIComponent(vm)}/exec-await`, {
     method: "POST",
     headers: headers(env),
