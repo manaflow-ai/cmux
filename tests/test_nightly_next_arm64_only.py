@@ -8,9 +8,16 @@ universal, and nightly-next leaves its x86_64, universal and legacy feeds on
 their last build (an Intel Mac must never be offered an arm64-only app).
 """
 
+import json
+import os
 import re
+import subprocess
+import tempfile
+import textwrap
 import sys
 from pathlib import Path
+
+from test_ci_nightly_push_throttle import NEXT_ENV, run_decide
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
@@ -54,6 +61,86 @@ if "--feeds" not in notes or "$NIGHTLY_FEEDS" not in notes:
 for name in ("Publish verified nightly release metadata", "Record verified nightly publication"):
     if "x86_64.dmg" in step(name):
         failures.append(f"{name!r} must take its download list from the notes step, which knows the track")
+
+def job(name):
+    start = TEXT.index(f"  {name}:\n")
+    end = re.search(r"^  [a-zA-Z0-9_-]+:", TEXT[start + len(name) + 4:], re.M)
+    return TEXT[start:] if end is None else TEXT[start:start + len(name) + 4 + end.start()]
+
+
+def build_env(body, outputs):
+    values = {}
+    for key, value in re.findall(r"^ +([A-Z_]+): (.+)$", body, re.M):
+        if key not in ("NIGHTLY_FAST_BUILD", "NIGHTLY_COMPILE_ARCHS", "CMUX_NEXT_ACPMUX_ARCHS"):
+            continue
+        value = value.strip('"')
+        match = re.fullmatch(r"\$\{\{ needs\.decide\.outputs\.([a-z_]+) \}\}", value)
+        values[key] = str(outputs.get(match[1], "")) if match else value
+    return values
+
+
+def compile_commands(outputs):
+    """Run the actual four build steps with recorder executables, never compilers."""
+    with tempfile.TemporaryDirectory(prefix="nightly-compile-archs-") as directory:
+        root = Path(directory)
+        stubs = {
+            "bin/python3": 'while [ "$1" != -- ]; do shift; done; shift; exec "$@"',
+            "bin/xcodebuild": 'printf "%s\\n" "$@" > "$CAPTURE/app"',
+            "bin/lipo": 'exit 0',
+            "scripts/ci/run-xcodebuild-with-diagnostics.sh": 'shift; exec "$@"',
+            "scripts/cmux-next/build-acpmux.sh": 'printf "%s" "$CMUX_NEXT_ACPMUX_ARCHS" > "$CAPTURE/acpmux"',
+            "scripts/cmux-next/build-optchat-chief.sh": 'printf "%s" "$CMUX_NEXT_OPTCHAT_CHIEF_ARCHS" > "$CAPTURE/chief"',
+            "scripts/build-ghostty-cli-helper.sh": 'printf "%s\\n" "$@" > "$CAPTURE/ghostty"',
+        }
+        for path, body in stubs.items():
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("#!/bin/bash\nset -eu\n" + body + "\n")
+            target.chmod(0o755)
+        capture = root / "capture"
+        capture.mkdir()
+        steps = (
+            ("build-nightly-ghostty-cli-helper", "Build Ghostty CLI helper"),
+            ("build-nightly-app", "Build in-tree acpmux for the compilation cache"),
+            ("build-nightly-app", "Build the OptChat Chief (cmux-next)"),
+            ("build-nightly-app", "Build nightly app (Release)"),
+        )
+        for owner, name in steps:
+            body = job(owner)
+            start = body.index(f"      - name: {name}\n")
+            next_step = body.find("\n      - name:", start + 10)
+            body_step = body[start:] if next_step < 0 else body[start:next_step]
+            script = textwrap.dedent(body_step.split("        run: |\n", 1)[1])
+            env = {**os.environ, **build_env(body.split("    steps:", 1)[0], outputs),
+                   **build_env(body_step, outputs),
+                   "PATH": str(root / "bin") + ":/usr/bin:/bin",
+                   "CAPTURE": str(capture), "RUNNER_TEMP": str(root),
+                   "GITHUB_ENV": str(root / "github-env"), "CHANNEL_ICON_NAME": "AppIcon-Nightly",
+                   "IMPORT_VARIANT": "full", "SWIFT_IMPORT_FLAGS": "", "EMPTY_BROWSER_SOURCES": "false"}
+            subprocess.run(["/bin/bash", "-c", script], cwd=root, env=env,
+                           capture_output=True, text=True, check=True)
+        return {path.name: path.read_text() for path in capture.iterdir()}
+
+
+# The publish matrix has been arm64-only since #18424, but the producer still
+# paid for both Swift whole-module compiles and universal embedded helpers.
+# Execute its commands with recorders so this catches the actual requested
+# architectures without building on a developer Mac.
+for ref, fast in (("nightly-next", False), ("main", False), ("rc/v1.2.3", False), ("main", True)):
+    outputs = run_decide(event="workflow_dispatch", ref=f"refs/heads/{ref}",
+                         extra_env={**NEXT_ENV, "FAST_BUILD": str(fast).lower()})["outputs"]
+    arm64_only = json.loads(outputs["variants"]) == ["arm64"]
+    commands = compile_commands(outputs)
+    expected = "arm64" if arm64_only else "arm64 x86_64"
+    if f"ARCHS={expected}" not in commands["app"].splitlines():
+        failures.append(f"{ref} fast={fast}: Xcode compiled an architecture the publish matrix does not need")
+    for helper in ("acpmux", "chief"):
+        if commands[helper].replace(",", " ").split() != expected.split():
+            failures.append(f"{ref} fast={fast}: {helper} built {commands[helper]!r}, expected {expected!r}")
+    helper_args = commands["ghostty"].splitlines()
+    if ("--universal" in helper_args) == arm64_only:
+        failures.append(f"{ref} fast={fast}: Ghostty CLI helper does not follow the publish architectures")
+
 
 if failures:
     print("FAIL: nightly-next arm64 only\n  " + "\n  ".join(failures))
