@@ -5,6 +5,7 @@ import { createRegistry, GenerationTask, Harness, hook, section, ToolTask } from
 import { PiHarness } from "agents/harness/pi"
 import { Lifecycle, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle"
 import type { Env } from "../env.ts"
+import { assertFaultHooks } from "../chief-fault.ts"
 import { ackWake, chiefPrincipal, chiefRecord, chiefRecordFresh, postReply, readConversation, runChanged, typing } from "./brain-io.ts"
 import { clip, clipInput, flushMarks, lastTalk, markPending, runError, readRun, readRuns, readSteps, type Run, type Step, type StepPatch, upsertStep } from "./brain-runs.ts"
 import { type BrainConfig, patchError, readConfig, SCHEMA, writeConfig } from "./brain-store.ts"
@@ -189,6 +190,12 @@ export class ChiefBrainDO extends DurableObject<Env> {
     writeConfig(this.sql, { agent, owner, ...(patch.enabled === undefined ? {} : { enabled: patch.enabled ? "1" : "0" }), ...(patch.chiefs === undefined ? {} : { chiefs: patch.chiefs ? "1" : "0" }) })
     writeConfig(this.sql, { model: patch.model, effort: patch.effort, compactor_model: patch.compactor_model, role: patch.role, personality: patch.personality, instructions: patch.instructions })
     return { ok: true, config: this.config() }
+  }
+
+  /** Test-only (chief-fault.ts, CHIEF_FAULT_HOOKS, never staging or production): abort this object as an eviction does. */
+  async fault(): Promise<void> {
+    assertFaultHooks(this.env)
+    this.ctx.abort("chief fault hook: evict")
   }
 
   async status(): Promise<{ config: BrainConfig; turns_today: number }> {

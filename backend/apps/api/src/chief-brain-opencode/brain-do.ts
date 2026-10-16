@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers"
 import type { Env } from "../env.ts"
+import { assertFaultHooks } from "../chief-fault.ts"
 import { ackWake, chiefPrincipal, typing } from "../chief-brain/brain-io.ts"
 import type { Admission } from "../chief-brain/brain-do.ts"
 import type { Step } from "../chief-brain/brain-runs.ts"
@@ -401,6 +402,14 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     if ("refused" in who) return Response.json({ type: "error", error: { type: "permission_error", message: who.refused } }, { status: 403 })
     // The host model gateway (model-gateway/http.ts): allow-list, prepaid credits of the owner's team, the Claude route.
     return gatewayMessages(this.env, { team: payerTeam(who.owner), chief: who.agent, owner: who.owner, run: "opencode" }, request)
+  }
+
+  /** Test-only (chief-fault.ts, CHIEF_FAULT_HOOKS, never staging or production): stop the container at once, as a crash. */
+  async fault(): Promise<{ stopped: boolean }> {
+    assertFaultHooks(this.env)
+    if (!this.ctx.container?.running) return { stopped: false }
+    this.ctx.container.signal(9)
+    return { stopped: true }
   }
 
   // ------------------------------------------------------------------ retries, turn guard and idle sleep
