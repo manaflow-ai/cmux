@@ -496,8 +496,9 @@ export class ChiefBrainDO extends DurableObject<Env> {
         }
         await this.harness.session().reset()
         this.sql.exec(`UPDATE cb_turn SET submitted = 1 WHERE id = ?`, id)
-        // Off the hot path: the turn starts with the cached tool set; a hand found now swaps in the full tools for
-        // the next model request (the entry tool also swaps before its own result returns).
+        // The tool set is fixed here for the whole turn (from the last check); the next check runs off the hot path
+        // and takes effect at the next turn boundary.
+        this.startTurnHands()
         this.ctx.waitUntil(this.refreshHands().catch(() => undefined))
         await this.harness.submit(blocks.map((text) => ({ type: "text" as const, text })), { operationId: id })
       }
@@ -606,20 +607,29 @@ export class ChiefBrainDO extends DurableObject<Env> {
   /**
    * The hands tools as their own extension: the full `hands` + `agent` pair when the Chief has a hand (or is a
    * child, which works on hands), else one compact `hands` entry (list, pair_code, new_sandbox): about 1.8k fewer
-   * input tokens per request for a Chief with no hand, without losing the way to get one. pi-durable sends the
-   * change as a tool update on the next request, so after new_sandbox the next step has the full tools.
+   * input tokens per request for a Chief with no hand, without losing the way to get one. The set changes only at a
+   * turn boundary (startTurnHands): after new_sandbox or pairing, the next turn has the full tools.
    */
   private installHands(): void {
-    const full = this.childOf() !== null || this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = 'hands_full'`).toArray()[0]?.value === "1"
+    const v = (k: string) => this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, k).toArray()[0]?.value
+    // The tools are fixed for a whole turn (a model signs its thinking for the tools list; a change inside the
+    // turn makes the next request a 400). The running turn's mode wins, also when the object opens again mid-turn.
+    const full = this.childOf() !== null || (v("hands_turn_mode") ?? v("hands_full")) === "1"
     this.registry.install({ name: "chief-hands", tools: full ? [...this.hands()] : [handsEntryTool(this.env, () => ({ ...this.config() }), () => this.refreshHands())] })
   }
 
-  /** Checks for a hand (one list call) and offers the full tools once there is one; it stays on after that. */
+  /** At a turn boundary only: this turn's hands mode (full once a hand was found), recorded for the whole turn. */
+  private startTurnHands(): void {
+    const full = this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = 'hands_full'`).toArray()[0]?.value === "1"
+    writeConfig(this.sql, { hands_turn_mode: full ? "1" : "0" })
+    this.installHands()
+  }
+
+  /** Checks for a hand (one list call) and records it; the full tools come at the next turn boundary, never inside a turn. */
   private async refreshHands(): Promise<void> {
     if (this.childOf() !== null || this.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = 'hands_full'`).toArray()[0]?.value === "1") return
     if (!(await hasHand(this.env, () => ({ ...this.config() })))) return
     writeConfig(this.sql, { hands_full: "1" })
-    this.installHands()
   }
 
   /** The hands tools; a child's caller and agent tokens name its own object (`<conversation>:spawn:<n>`), so a hand's session-end revoke reaches it. */

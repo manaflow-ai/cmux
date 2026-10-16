@@ -275,16 +275,16 @@ const callerOf = (who: Who) => (): HandCaller | null => {
 /**
  * The compact `hands` tool of a Chief with no hand yet (about 1.8k fewer tokens per request than the full
  * `hands` + `agent` pair): list, a pairing code for a machine, or a new cloud sandbox. Once a hand exists the
- * brain offers the full tools (from the next model step after new_sandbox, or the next turn after pairing).
+ * brain offers the full tools from the next turn (the tools list never changes inside a turn: thinking is signed for it).
  */
 export const handsEntryTool = (env: Env, who: Who, onHand: () => Promise<void>): ToolRegistration<typeof HandsEntryArgs> => ({
   name: "hands",
-  description: "You have no hand yet (a machine for files, programs and coding agents). list: your hands. pair_code: a code + install line for a machine (name, profile). new_sandbox: a cloud sandbox with its hand (name). Then the full hands and agent tools appear.",
+  description: "You have no hand yet (a machine for files, programs and coding agents). list: your hands. pair_code: a code + install line for a machine (name, profile). new_sandbox: a cloud sandbox with its hand (name). The full hands and agent tools appear from your next turn.",
   parameters: HandsEntryArgs,
   replay: "unsafe",
   execute: async (args) => {
     const text = await run(env, callerOf(who)(), handsProgram(args as HandsArgsT))
-    // Before the result goes back: the next model request sees the full tools when a hand exists now.
+    // Records a hand found now; the full tools come at the next turn boundary.
     if ((args.action === "new_sandbox" || args.action === "list") && !text.startsWith("hands error")) await onHand().catch(() => undefined)
     return { content: [{ type: "text", text }] }
   }
