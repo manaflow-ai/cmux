@@ -44,7 +44,6 @@ struct AgentRestoreRecoveryRegressionTests {
             updatedAt: 1_800_000_000
         )
         source.surfaceResumeBindingsByPanelId[sourcePanelID] = binding
-        source.managedAgentResumeBindingsByPanelId[sourcePanelID] = binding
         sourceTerminal.restoreRecovery.state = .failed(
             reason: "startup-admission-rejected",
             recoveryInput: " cmux restore codex \(sessionID)\n"
