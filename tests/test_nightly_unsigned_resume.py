@@ -156,16 +156,28 @@ class WorkflowRoutingTests(unittest.TestCase):
     def setUpClass(cls):
         cls.jobs = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())["jobs"]
 
-    def enabled(self, step, resuming):
+    def evaluate(self, expression, resuming):
         values = {"inputs.nightly_next_unsigned_run": "123" if resuming else "",
                   "needs.decide.outputs.track": "nightly-next", "needs.decide.outputs.fast_build": "false",
-                  "needs.decide.outputs.build_only": "false", "github.ref_name": "nightly-next"}
-        condition = step.get("if", "true").removeprefix("${{").removesuffix("}}").strip()
+                  "needs.decide.outputs.build_only": "false", "github.ref_name": "nightly-next",
+                  "github.repository_owner": "manaflow-ai"}
+        condition = expression.removeprefix("${{").removesuffix("}}").strip()
         condition = re.sub(r"\b(?:inputs|needs|steps|github|env)\.[\w.-]+", lambda m: repr(values.get(m[0], "")), condition)
+        condition = re.sub(r"\bvars\.[\w.-]+", "''", condition)
         condition = condition.replace("&&", " and ").replace("||", " or ")
-        return bool(eval(condition, {"__builtins__": {}}, {"always": lambda: True, "success": lambda: True,
-                                                           "failure": lambda: False, "cancelled": lambda: False,
-                                                           "true": True, "false": False}))
+        return eval(condition, {"__builtins__": {}}, {"always": lambda: True, "success": lambda: True,
+                                                      "failure": lambda: False, "cancelled": lambda: False,
+                                                      "true": True, "false": False})
+
+    def enabled(self, step, resuming):
+        return bool(self.evaluate(step.get("if", "true"), resuming))
+
+    def test_only_restore_workloads_take_linux_and_fresh_builds_keep_macos(self):
+        for name, native_runner in (("build-nightly-app", "blacksmith-12vcpu-macos-26"),
+                                    ("build-nightly-ghostty-cli-helper", "blacksmith-6vcpu-macos-15")):
+            with self.subTest(name=name):
+                self.assertEqual(self.evaluate(self.jobs[name]["runs-on"], True), "ubuntu-24.04")
+                self.assertEqual(self.evaluate(self.jobs[name]["runs-on"], False), native_runner)
 
     def test_resume_selects_restore_and_zero_native_or_cache_work(self):
         for name in ("build-nightly-app", "build-nightly-ghostty-cli-helper"):
