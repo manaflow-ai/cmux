@@ -277,6 +277,20 @@ function AdmissionDecision({ strategy }: { strategy: OrchestrationStrategy }) {
         </span>
       </div>
       <p className="orchestration-admission-reason">{admission.reason}</p>
+      <div className="orchestration-action-path" aria-label="Action path">
+        <div className="orchestration-action-step">
+          <span className="orchestration-action-index">1</span>
+          <span><strong>Decision</strong><b>{admission.decision}</b></span>
+        </div>
+        <div className="orchestration-action-step">
+          <span className="orchestration-action-index">2</span>
+          <span><strong>Blocker</strong><b>{admission.dependency.state === "none" ? admission.capacity_reason : admission.dependency.detail ?? admission.dependency.state}</b></span>
+        </div>
+        <div className="orchestration-action-step action-step-next">
+          <span className="orchestration-action-index">3</span>
+          <span><strong>Next safe action</strong><b>{admission.next_safe_action.kind} · {admission.next_safe_action.detail}</b></span>
+        </div>
+      </div>
       <dl className="orchestration-admission-fields">
         <div>
           <dt>Required capabilities</dt>
@@ -624,8 +638,13 @@ export function GalleryApp() {
       setFocusedOrchestration(typeof window !== "undefined" && window.location.hash === "#orchestration-lab");
     };
     updateFocus();
+    const previousTitle = document.title;
+    document.title = "Orchestration preview · Fixture only · No dispatch";
     window.addEventListener("hashchange", updateFocus);
-    return () => window.removeEventListener("hashchange", updateFocus);
+    return () => {
+      window.removeEventListener("hashchange", updateFocus);
+      document.title = previousTitle;
+    };
   }, []);
   const toc = useMemo(() => [
     ["orchestration-lab", "Orchestration lab"],
