@@ -14314,13 +14314,9 @@ fn handle_command_with_cancellation(
                         if matches!(frame, AttachFrame::Output(_)) {
                             let deadline = Instant::now() + ATTACH_OUTPUT_COALESCE_WINDOW;
                             loop {
-                                match attach
-                                    .stream
-                                    .recv_interruptible(&interrupt, Some(deadline))
-                                {
+                                match attach.stream.recv_interruptible(&interrupt, Some(deadline)) {
                                     Ok(next) => {
-                                        if let Err(next) =
-                                            try_merge_attach_output(&mut frame, next)
+                                        if let Err(next) = try_merge_attach_output(&mut frame, next)
                                         {
                                             pending_frame = Some(next);
                                             break;
@@ -14620,11 +14616,10 @@ mod tests {
         assert_eq!(current, AttachFrame::Output(vec![1, 2, 3, 4]));
 
         let colors = Arc::new(TerminalColors::default());
-        assert!(try_merge_attach_output(
-            &mut current,
-            AttachFrame::ColorsChanged(colors.clone())
-        )
-        .is_err());
+        assert!(
+            try_merge_attach_output(&mut current, AttachFrame::ColorsChanged(colors.clone()))
+                .is_err()
+        );
         assert_eq!(current, AttachFrame::Output(vec![1, 2, 3, 4]));
 
         let mut oversized = AttachFrame::Output(vec![0; ATTACH_OUTPUT_COALESCE_MAX_BYTES]);
