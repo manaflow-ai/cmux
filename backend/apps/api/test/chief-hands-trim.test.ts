@@ -56,33 +56,6 @@ const dmAndReply = async (token: string, chief: { id: string; main_conversation:
   throw new Error(`no reply ${n} from ${chief.id}`)
 }
 
-const ownerWithChief = async (sub: string) => {
-  const token = await sessionToken(sub)
-  const user = (await op(token, "user.ensure", {})).value.id as string
-  const chief = (await op(token, "chief.create", { display_name: "Hands Chief" }, `chief-${sub}`)).value as { id: string; main_conversation: string }
-  const userDO = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
-  for (let i = 0; i < 20; i++) {
-    await fireAlarm(userDO)
-    if ((await http("POST", "/v1/read", token, { op: "conversation.history", params: { conversation: chief.main_conversation, limit: 1 } })).status === 200) break
-  }
-  expect((await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, { enabled: true })).status).toBe(200)
-  return { token, chief }
-}
-
-/** Sends one DM and waits (bounded) for the Chief's n-th reply. */
-const dmAndReply = async (token: string, chief: { id: string; main_conversation: string }, text: string, n: number) => {
-  const key = `hands-${text.replace(/[^a-z0-9]+/g, "-")}`
-  const sent = await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: key, parts: [{ type: "text", text }] }, key)
-  expect(sent.ok, JSON.stringify(sent)).toBe(true)
-  const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(chief.main_conversation))
-  for (let i = 0; i < 200; i++) {
-    if ((await history(token, chief.main_conversation)).filter((m) => m.author === chief.id).length >= n) return
-    await fireAlarm(conv)
-    await new Promise((r) => setTimeout(r, 50))
-  }
-  throw new Error(`no reply ${n} from ${chief.id}`)
-}
-
 const sha = async (s: string) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s))), (b) => b.toString(16).padStart(2, "0")).join("")
 const turnTools = (marker: string) =>
   fakeCalls.filter((c) => c.kind === "turn" && (c.firstUser.join("\n").includes(marker) || c.laterUsers.join("\n").includes(marker))).map((c) => c.tools)
