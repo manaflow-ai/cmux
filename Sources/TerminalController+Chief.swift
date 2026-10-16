@@ -153,6 +153,9 @@ extension TerminalController {
     /// sidebar row); the window comes forward only when the
     /// command's focus policy allows it.
     private nonisolated func chiefOpen(_ target: ChiefControlWindowTarget) async throws -> V2CallResult {
+        guard try await v2MainAsync({ ChiefSettings.isEnabled }) else {
+            return .ok(["opened": false])
+        }
         let windowID: UUID?? = try await v2MainAsync { () -> UUID?? in
             guard let app = AppDelegate.shared else { return .some(nil) }
             let tabManager: TabManager?
@@ -178,7 +181,14 @@ extension TerminalController {
             if Self.socketCommandAllowsInAppFocusMutations() {
                 _ = app.focusMainWindow(windowId: windowID)
             }
+            self.scheduleSocketReadSnapshotRefresh()
             return .some(windowID)
+        }
+        // Chief's custom handler bypasses the normal mutation coordinator.
+        // Publish its selection before a subsequent list/current read can
+        // consult the worker's immutable mirror.
+        if let publication = try await v2MainAsync({ self.socketReadSnapshotRefreshTask }) {
+            await publication.value
         }
         switch windowID {
         case .none:

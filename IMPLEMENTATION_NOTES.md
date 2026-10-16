@@ -7,6 +7,12 @@
   `ChiefHomeNavigation` action on the main actor before replying. The live
   regression also explicitly returns to a local workspace before opening Home;
   ten warm v12 round trips passed, while the initial cold open failed.
+- V13 exposed the second half of that regression: the read-side socket mirror
+  could still return the pre-open selection after the main-actor action.
+  `chief.open` now schedules and awaits the existing snapshot publication
+  before returning, and reports `opened: false` when Chief is disabled.
+  The same cold-start regression failed on v13; the replacement artifact will
+  rerun it without delays or polling.
 - Read-only review found no healthy-state drag/focus blocker. A manually
   malformed persisted Home group (a canonical anchor assigned to another
   group) still needs a dedicated restore-repair path; normal grouping actions
