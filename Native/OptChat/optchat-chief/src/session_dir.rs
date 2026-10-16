@@ -249,7 +249,8 @@ pub const TURN_DENIED_TOOLS: [&str; 25] = [
 /// EXCLUDED). Every other cmux MCP tool is denied in the turn's settings
 /// and stays reachable through the `cmux` CLI. Names: `agents_*` and
 /// `render` (cmux mcp agent tools), `app_<cli words>` (action tools).
-pub const CHIEF_CMUX_TOOLS: [&str; 14] = [
+pub const CHIEF_CMUX_TOOLS: [&str; 15] = [
+    "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
     "agents_terminal_split",
@@ -270,54 +271,97 @@ pub const CHIEF_CMUX_TOOLS: [&str; 14] = [
 const TOOL_LIST_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// The cmux MCP tool names of the CLI the turn's env runs (`cmux --json
-/// mcp tools`, the list `cmux mcp serve` gives every agent chat), None when
-/// it fails or takes longer than `TOOL_LIST_LIMIT`.
-pub fn cmux_tool_names(env: &BTreeMap<String, String>) -> Option<Vec<String>> {
-    let mut command = std::process::Command::new("cmux");
-    command
+/// mcp tools`, the list `cmux mcp serve` gives every agent chat) and whether
+/// the app's action tools were in it (`app_actions`: false while the cmux
+/// app does not answer; its `app_*` tools then load later). None when it
+/// fails or takes longer than `TOOL_LIST_LIMIT`.
+pub fn cmux_tool_names(env: &BTreeMap<String, String>) -> Option<(Vec<String>, bool)> {
+    let mut child = std::process::Command::new("cmux")
         .args(["--json", "mcp", "tools"])
         .envs(env)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
-    let child = command.spawn().ok()?;
-    let pid = child.id();
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+    // Only the pipe goes to the reader; the child stays here unreaped, so a
+    // kill after the limit can never reach a reused pid.
+    let mut stdout = child.stdout.take()?;
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let _ = tx.send(child.wait_with_output());
+        let mut bytes = Vec::new();
+        let _ = tx.send(std::io::Read::read_to_end(&mut stdout, &mut bytes).map(|_| bytes));
     });
-    let Ok(output) = rx.recv_timeout(TOOL_LIST_LIMIT) else {
-        // Our own child, by its pid: it never answered.
-        let _ = std::process::Command::new("kill")
-            .arg(pid.to_string())
-            .status();
+    let Ok(Ok(bytes)) = rx.recv_timeout(TOOL_LIST_LIMIT) else {
+        let _ = child.kill();
+        let _ = child.wait();
         return None;
     };
-    let output = output.ok().filter(|o| o.status.success())?;
-    let value: Value = serde_json::from_slice(&output.stdout).ok()?;
-    value["tools"].as_array().map(|tools| {
+    let status = child.wait().ok()?;
+    if !status.success() {
+        return None;
+    }
+    let value: Value = serde_json::from_slice(&bytes).ok()?;
+    let names = value["tools"].as_array().map(|tools| {
         tools
             .iter()
             .filter_map(|t| t["name"].as_str().map(str::to_owned))
             .collect()
-    })
+    })?;
+    Some((names, value["app_actions"] == true))
 }
 
-/// Deny rules (`mcp__cmux__<name>`) for every cmux MCP tool of `env`'s CLI
-/// not in `CHIEF_CMUX_TOOLS`. When the list cannot be read, none: the turn
-/// keeps every tool (behind ToolSearch) and host.log says so.
-pub fn cmux_tool_denials(env: &BTreeMap<String, String>) -> Vec<String> {
-    let Some(names) = cmux_tool_names(env) else {
-        crate::log::log(
-            "reading the cmux MCP tool list (cmux --json mcp tools) failed; Chief turns keep every cmux tool",
-        );
-        return Vec::new();
-    };
+/// Deny rules (`mcp__cmux__<name>`) for every name not in `CHIEF_CMUX_TOOLS`.
+fn deny_rules(names: Vec<String>) -> Vec<String> {
     names
         .into_iter()
         .filter(|name| !CHIEF_CMUX_TOOLS.contains(&name.as_str()))
         .map(|name| format!("mcp__cmux__{name}"))
         .collect()
+}
+
+/// The pending marker: the env of a tool list taken before the cmux app
+/// answered. Each turn start (`set_session_cache`) lists again with it until
+/// the app's action tools are in, then adds their denials.
+const PENDING: &str = "cmux-tools-pending.json";
+
+/// Deny rules for every cmux MCP tool of `env`'s CLI not in
+/// `CHIEF_CMUX_TOOLS`. When the list cannot be read, none: the turn keeps
+/// every tool (behind ToolSearch) and host.log says so. When the app's
+/// action tools were not in the list, `session` gets the pending marker.
+pub fn cmux_tool_denials(session: &Path, env: &BTreeMap<String, String>) -> Vec<String> {
+    let pending = session.join(".claude").join(PENDING);
+    let Some((names, app)) = cmux_tool_names(env) else {
+        crate::log::log(
+            "reading the cmux MCP tool list (cmux --json mcp tools) failed; Chief turns keep every cmux tool",
+        );
+        return Vec::new();
+    };
+    if app {
+        let _ = std::fs::remove_file(&pending);
+    } else if let Ok(text) = serde_json::to_string(env) {
+        crate::log::log(
+            "the cmux app did not answer: its action tools are filtered from the next turn on",
+        );
+        if let Err(e) = write_private(&pending, text.as_bytes()) {
+            crate::log::log(format!("writing {}: {e}", pending.display()));
+        }
+    }
+    deny_rules(names)
+}
+
+/// With the pending marker in `dir` (a session's `.claude`): the denials of
+/// a list that now has the app's action tools (the marker goes), else None.
+fn pending_denials(dir: &Path) -> Option<Vec<String>> {
+    let pending = dir.join(PENDING);
+    let env: BTreeMap<String, String> =
+        serde_json::from_str(&std::fs::read_to_string(&pending).ok()?).ok()?;
+    let (names, app) = cmux_tool_names(&env)?;
+    if !app {
+        return None;
+    }
+    let _ = std::fs::remove_file(&pending);
+    Some(deny_rules(names))
 }
 
 /// The Claude Code env of every turn, in the turn directory's project
@@ -420,7 +464,7 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     // cx-68uof: only the Chief's cmux MCP tools load with a turn; the rest
     // are denied, so Claude Code lists none of them (the deferred-tool list
     // it appends after our cached input was 3,365 tokens for 165 tools).
-    let denied = cmux_tool_denials(&setup.env);
+    let denied = cmux_tool_denials(&paths.session, &setup.env);
     let deny: Vec<&str> = TURN_DENIED_TOOLS
         .iter()
         .copied()
@@ -534,6 +578,9 @@ pub fn set_session_cache(
 ) -> io::Result<()> {
     let dir = session.join(".claude");
     std::fs::create_dir_all(&dir)?;
+    // cx-68uof: the cmux app's action tools, when they were not listed at
+    // host start, are denied from the first turn that finds them.
+    let late = pending_denials(&dir);
     for name in ["settings.json", "settings.local.json"] {
         let path = dir.join(name);
         let mut value: Value = std::fs::read_to_string(&path)
@@ -541,6 +588,18 @@ pub fn set_session_cache(
             .and_then(|t| serde_json::from_str(&t).ok())
             .filter(Value::is_object)
             .unwrap_or_else(|| json!({}));
+        if let Some(late) = &late {
+            if !value["permissions"]["deny"].is_array() {
+                value["permissions"]["deny"] = json!([]);
+            }
+            if let Some(deny) = value["permissions"]["deny"].as_array_mut() {
+                for rule in late {
+                    if !deny.iter().any(|d| d == rule) {
+                        deny.push(json!(rule));
+                    }
+                }
+            }
+        }
         value["promptCacheTtl"] = json!(ttl.as_str());
         // At 5 minutes also FORCE_PROMPT_CACHING_5M, which wins over every
         // other source of Claude Code's TTL (a subscription login marks 1h).
