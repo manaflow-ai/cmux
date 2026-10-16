@@ -32,8 +32,8 @@ const humanMandateRef = "user-request:orchestration-lab-gallery-prototype";
 type AdmissionCapability = { id: string; label: string; met: boolean };
 type AdmissionReservation = {
   state: "none" | "held" | "pending" | "expired" | "released";
-  leaseId?: string;
-  expiresAt?: string;
+  lease_id?: string;
+  expires_at?: string;
 };
 type AdmissionDependency = {
   state: "none" | "pending" | "failed" | "unknown";
@@ -55,12 +55,12 @@ type AdmissionAuthorization = {
 type Admission = {
   decision: "admit" | "hold" | "wait" | "reject";
   displayLabel: string;
-  capacityReason: "available" | "reserved" | "dependency_blocked" | "capacity_unavailable" | "unknown";
+  capacity_reason: "available" | "reserved" | "dependency_blocked" | "capacity_unavailable" | "unknown";
   reason: string;
-  requiredCapabilities: AdmissionCapability[];
+  required_capabilities: AdmissionCapability[];
   reservation: AdmissionReservation;
   dependency: AdmissionDependency;
-  nextSafeAction: AdmissionAction;
+  next_safe_action: AdmissionAction;
   proposal: AdmissionProposal;
   authorization: AdmissionAuthorization;
 };
@@ -136,16 +136,16 @@ const orchestrationStrategies: OrchestrationStrategy[] = [
     admission: {
       decision: "admit",
       displayLabel: "Admit to local queue",
-      capacityReason: "available",
+      capacity_reason: "available",
       reason: "A local slot is available and the task stays within the bounded fixture budget.",
-      requiredCapabilities: [
+      required_capabilities: [
         { id: "loopback", label: "loopback transport", met: true },
         { id: "active-slot", label: "4 active slots", met: true },
         { id: "fixture-guidance", label: "fixture guidance", met: true },
       ],
-      reservation: { state: "held", leaseId: "lease-local-01", expiresAt: "fixture+09:42" },
+      reservation: { state: "held", lease_id: "lease-local-01", expires_at: "fixture+09:42" },
       dependency: { state: "none" },
-      nextSafeAction: { kind: "dispatch", detail: "Run the next bounded task and record its receipt." },
+      next_safe_action: { kind: "dispatch", detail: "Run the next bounded task and record its receipt." },
       proposal: { kind: "dispatch", detail: "Start orch-local-01 on the local supervisor" },
       authorization: { state: "not_required", detail: "Fixture scope permits preview only; dispatch remains disabled." },
     },
@@ -185,16 +185,16 @@ const orchestrationStrategies: OrchestrationStrategy[] = [
     admission: {
       decision: "hold",
       displayLabel: "Hold for cleanup review",
-      capacityReason: "dependency_blocked",
+      capacity_reason: "dependency_blocked",
       reason: "The host is reserved, but the controller cleanup proof is still held.",
-      requiredCapabilities: [
+      required_capabilities: [
         { id: "enrolled-ssh", label: "enrolled SSH host", met: true },
         { id: "linux-x86_64", label: "linux-x86_64", met: true },
         { id: "rust-toolchain", label: "Rust toolchain", met: true },
       ],
-      reservation: { state: "held", leaseId: "lease-huge-blue-07", expiresAt: "fixture+17:30" },
+      reservation: { state: "held", lease_id: "lease-huge-blue-07", expires_at: "fixture+17:30" },
       dependency: { state: "pending", ref: "controller-cleanup-receipt", detail: "Revised controller cleanup receipt" },
-      nextSafeAction: { kind: "reconcile", detail: "Reconcile cleanup evidence before requesting admission." },
+      next_safe_action: { kind: "reconcile", detail: "Reconcile cleanup evidence before requesting admission." },
       proposal: { kind: "request_authorization", detail: "Request orch-huge-blue-07 after cleanup proof" },
       authorization: { state: "pending", detail: "Proposal only; human authorization is required for admission." },
     },
@@ -234,16 +234,16 @@ const orchestrationStrategies: OrchestrationStrategy[] = [
     admission: {
       decision: "wait",
       displayLabel: "Wait for fair-share capacity",
-      capacityReason: "capacity_unavailable",
+      capacity_reason: "capacity_unavailable",
       reason: "No fair-share slot is available inside the current capacity budget.",
-      requiredCapabilities: [
+      required_capabilities: [
         { id: "durable-lease", label: "durable lease", met: true },
         { id: "fair-share", label: "fair-share queue", met: false },
         { id: "retry-budget", label: "retry budget", met: true },
       ],
       reservation: { state: "pending" },
       dependency: { state: "unknown", detail: "Capacity unavailable" },
-      nextSafeAction: { kind: "wait", detail: "Keep the proposal queued and re-evaluate when a slot opens." },
+      next_safe_action: { kind: "wait", detail: "Keep the proposal queued and re-evaluate when a slot opens." },
       proposal: { kind: "wait", detail: "Claim the next fair-share slot for orch-cloud-12" },
       authorization: { state: "pending", detail: "Proposal only; human authorization is required to wait or claim." },
     },
@@ -280,7 +280,7 @@ function AdmissionDecision({ strategy }: { strategy: OrchestrationStrategy }) {
       <dl className="orchestration-admission-fields">
         <div>
           <dt>Required capabilities</dt>
-          <dd><ul>{admission.requiredCapabilities.map((capability) => (
+          <dd><ul>{admission.required_capabilities.map((capability) => (
             <li className={capability.met ? "met" : "missing"} key={capability.id}>
               <span aria-hidden="true">{capability.met ? "✓" : "!"}</span> {capability.label}
             </li>
@@ -288,11 +288,11 @@ function AdmissionDecision({ strategy }: { strategy: OrchestrationStrategy }) {
         </div>
         <div>
           <dt>Capacity reason</dt>
-          <dd>{admission.capacityReason}</dd>
+          <dd>{admission.capacity_reason}</dd>
         </div>
         <div>
           <dt>Reservation</dt>
-          <dd>{admission.reservation.state}{admission.reservation.leaseId ? ` · ${admission.reservation.leaseId}` : ""}{admission.reservation.expiresAt ? ` · ${admission.reservation.expiresAt}` : ""}</dd>
+          <dd>{admission.reservation.state}{admission.reservation.lease_id ? ` · ${admission.reservation.lease_id}` : ""}{admission.reservation.expires_at ? ` · ${admission.reservation.expires_at}` : ""}</dd>
         </div>
         <div>
           <dt>Blocking dependency</dt>
@@ -300,7 +300,7 @@ function AdmissionDecision({ strategy }: { strategy: OrchestrationStrategy }) {
         </div>
         <div>
           <dt>Next safe action</dt>
-          <dd><span className="orchestration-action-kind">{admission.nextSafeAction.kind}</span> · {admission.nextSafeAction.detail}</dd>
+          <dd><span className="orchestration-action-kind">{admission.next_safe_action.kind}</span> · {admission.next_safe_action.detail}</dd>
         </div>
       </dl>
       <div className="orchestration-proposal-grid">
