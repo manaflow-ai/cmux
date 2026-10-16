@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { HOVER_INTENT } from "../src/ui/hoverIntent";
+import { configureSidebarPreviewVariant, type SidebarPreviewVariant } from "../src/agent-session/acpmux/sidebarPreview";
 
 const scope = globalThis as Record<string, unknown>;
 const saved: (readonly [string, boolean, unknown])[] = [];
@@ -75,12 +76,22 @@ const chat = (sessionId: string, preview?: string) => ({
   updatedAt: 1,
 });
 
-async function sidebar(preview?: string, enabled = true, count = 1, onSelect = (_id: string) => {}) {
+async function sidebar(
+  preview?: string,
+  enabled = true,
+  count = 1,
+  onSelect = (_id: string) => {},
+  previewVariant?: SidebarPreviewVariant,
+) {
   const { createRoot } = await import("react-dom/client");
   const { SessionSidebar } = await import("../src/agent-session/acpmux/SessionSidebar");
   root ??= createRoot(host);
   const sessions = Array.from({ length: count }, (_, index) => chat(`session-${index}`, preview));
-  await act(async () => root!.render(<SessionSidebar sessions={sessions} preview={enabled} onSelect={onSelect} />));
+  await act(async () =>
+    root!.render(
+      <SessionSidebar sessions={sessions} preview={enabled} previewVariant={previewVariant} onSelect={onSelect} />,
+    ),
+  );
   return host.querySelector<HTMLElement>(".acpmux-session-row")!;
 }
 
@@ -169,6 +180,42 @@ test("Escape dismisses the focused preview", async () => {
   await act(async () => row.focus());
   expect(document.querySelector(".acpmux-session-preview") !== null).toBe(true);
   await act(async () => row.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  expect(document.querySelector(".acpmux-session-preview") === null).toBe(true);
+});
+
+test("sidebar preview visual variants stay opt-in and preserve the shared card semantics", async () => {
+  const quietRow = await sidebar("A quieter preview treatment.", true, 1, undefined, "quiet");
+  await act(async () => quietRow.focus());
+  const quiet = document.querySelector<HTMLElement>(".acpmux-session-preview");
+  expect(quiet?.classList.contains("acpmux-session-preview-quiet")).toBe(true);
+  expect(quiet?.textContent).toContain("A quieter preview treatment.");
+
+  const outlineRow = await sidebar("An outlined preview treatment.", true, 1, undefined, "outline");
+  await act(async () => outlineRow.focus());
+  const outline = document.querySelector<HTMLElement>(".acpmux-session-preview");
+  expect(outline?.classList.contains("acpmux-session-preview-outline")).toBe(true);
+  expect(outline?.classList.contains("acpmux-session-preview-quiet")).toBe(false);
+
+  const defaultRow = await sidebar("The default card treatment.");
+  await act(async () => defaultRow.focus());
+  const card = document.querySelector<HTMLElement>(".acpmux-session-preview");
+  expect(card?.classList.contains("acpmux-session-preview-card")).toBe(true);
+});
+
+test("the sidebar preview Debug layout choice selects the default treatment without bypassing the preview gate", async () => {
+  await act(async () => configureSidebarPreviewVariant("quiet"));
+  const quietRow = await sidebar("A layout-selected quiet preview.");
+  await act(async () => quietRow.focus());
+  expect(document.querySelector(".acpmux-session-preview-quiet") !== null).toBe(true);
+
+  await act(async () => configureSidebarPreviewVariant("outline"));
+  const outlineRow = await sidebar("A layout-selected outline preview.");
+  await act(async () => outlineRow.focus());
+  expect(document.querySelector(".acpmux-session-preview-outline") !== null).toBe(true);
+
+  await act(async () => configureSidebarPreviewVariant("card"));
+  const disabledRow = await sidebar("Preview stays gated.", false);
+  await act(async () => disabledRow.focus());
   expect(document.querySelector(".acpmux-session-preview") === null).toBe(true);
 });
 

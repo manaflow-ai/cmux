@@ -19,6 +19,7 @@ import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { listRowKeyboardProps } from "../../ui/listRowKeyboard";
 import { AnchoredCard } from "../../ui/Tooltip";
 import { HOVER_INTENT, HoverGroup, useHoverIntent } from "../../ui/hoverIntent";
+import { useSidebarPreviewVariant, type SidebarPreviewVariant } from "./sidebarPreview";
 
 const MARK_LABELS = {
   input: "sidebar.markInput",
@@ -75,6 +76,7 @@ export function SessionSidebar({
   onNewChat,
   account,
   preview = false,
+  previewVariant,
   groupProjects = false,
   onContinue,
   onSettle,
@@ -91,6 +93,8 @@ export function SessionSidebar({
   account?: SidebarAccount;
   /** Preview features are on (`labs.previewFeatures`): show Pull requests and session hover cards. */
   preview?: boolean;
+  /** DEV/NIGHTLY visual trial; defaults to the shared `card` treatment. */
+  previewVariant?: SidebarPreviewVariant;
   /** Preserves project grouping as an option while keeping the default compact and ungrouped. */
   groupProjects?: boolean;
   onContinue?: (sessionIds: string[]) => void;
@@ -98,6 +102,7 @@ export function SessionSidebar({
   onShowMoreSettled?: () => void;
 }) {
   const t = useT();
+  const activePreviewVariant = useSidebarPreviewVariant(previewVariant);
   const [picked, setView] = useState<SidebarView>("sessions");
   // Pull requests turned off while shown falls back to the session list, and stays there.
   const view = picked === "pulls" && !preview ? "sessions" : picked;
@@ -161,12 +166,20 @@ export function SessionSidebar({
                 settledSessions={settledSessions}
                 groupProjects={groupProjects}
                 preview={preview}
+                previewVariant={activePreviewVariant}
                 onContinue={onContinue}
                 onSettle={onSettle}
                 onShowMoreSettled={onShowMoreSettled}
               />
             ) : (
-              <FlatView view={view} sessions={sessions} selectedId={selectedId} onSelect={onSelect} preview={preview} />
+              <FlatView
+                view={view}
+                sessions={sessions}
+                selectedId={selectedId}
+                onSelect={onSelect}
+                preview={preview}
+                previewVariant={activePreviewVariant}
+              />
             )}
           </div>
           {account && (
@@ -232,6 +245,7 @@ function SessionsView({
   onExpand,
   groupProjects,
   preview,
+  previewVariant,
   onContinue,
   onSettle,
   onShowMoreSettled,
@@ -247,6 +261,7 @@ function SessionsView({
   onExpand: (groupKey: string) => void;
   groupProjects: boolean;
   preview: boolean;
+  previewVariant: SidebarPreviewVariant;
   onContinue?: (sessionIds: string[]) => void;
   onSettle?: (sessionIds: string[]) => void;
   onShowMoreSettled?: () => void;
@@ -319,6 +334,7 @@ function SessionsView({
                 key={session.sessionId}
                 session={session}
                 preview={preview}
+                previewVariant={previewVariant}
                 selected={session.sessionId === selectedId}
                 onSelect={onSelect}
                 section="active"
@@ -339,6 +355,7 @@ function SessionsView({
                 key={session.sessionId}
                 session={session}
                 preview={preview}
+                previewVariant={previewVariant}
                 selected={session.sessionId === selectedId}
                 onSelect={onSelect}
                 section="active"
@@ -377,6 +394,7 @@ function SessionsView({
                       key={session.sessionId}
                       session={session}
                       preview={preview}
+                      previewVariant={previewVariant}
                       selected={session.sessionId === selectedId}
                       groupHost={group.host}
                       onSelect={onSelect}
@@ -417,6 +435,7 @@ function SessionsView({
                   key={session.sessionId}
                   session={session}
                   preview={preview}
+                  previewVariant={previewVariant}
                   selected={session.sessionId === selectedId}
                   onSelect={onSelect}
                   section="settled"
@@ -444,12 +463,14 @@ function FlatView({
   selectedId,
   onSelect,
   preview,
+  previewVariant,
 }: {
   view: Exclude<SidebarView, "sessions">;
   sessions: AcpmuxSessionEntry[];
   selectedId?: string;
   onSelect: (sessionId: string) => void;
   preview: boolean;
+  previewVariant: SidebarPreviewVariant;
 }) {
   const t = useT();
   // Pull requests appear once the session summary reports them; until then the view says so.
@@ -475,6 +496,7 @@ function FlatView({
               key={session.sessionId}
               session={session}
               preview={preview}
+              previewVariant={previewVariant}
               selected={session.sessionId === selectedId}
               onSelect={onSelect}
               flat
@@ -490,6 +512,7 @@ function FlatView({
 const SessionRow = memo(function SessionRow({
   session,
   preview,
+  previewVariant,
   selected,
   groupHost,
   onSelect,
@@ -501,6 +524,7 @@ const SessionRow = memo(function SessionRow({
 }: {
   session: AcpmuxSessionEntry;
   preview: boolean;
+  previewVariant: SidebarPreviewVariant;
   selected: boolean;
   groupHost?: string;
   onSelect: (sessionId: string) => void;
@@ -643,7 +667,7 @@ const SessionRow = memo(function SessionRow({
           anchor={placedPreview}
           open={previewIntent.shown !== null}
           side="inline-end"
-          className="acpmux-session-preview"
+          className={`acpmux-session-preview acpmux-session-preview-${previewVariant}`}
           instant={previewIntent.instant}
           onPointerEnter={cancelPreviewLeave}
           onPointerLeave={leavePreviewCard}
