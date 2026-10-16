@@ -124,6 +124,8 @@ struct Inner {
 pub struct Mailbox {
     inner: Arc<Mutex<Inner>>,
     notify: Arc<Notify>,
+    #[cfg(test)]
+    wait_page_hook: Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>,
 }
 
 impl Mailbox {
@@ -165,7 +167,12 @@ impl Mailbox {
     }
 
     fn from_state(state: PersistedState, path: Option<PathBuf>) -> Self {
-        Self { inner: Arc::new(Mutex::new(Inner { state, path })), notify: Arc::new(Notify::new()) }
+        Self {
+            inner: Arc::new(Mutex::new(Inner { state, path })),
+            notify: Arc::new(Notify::new()),
+            #[cfg(test)]
+            wait_page_hook: Arc::new(Mutex::new(None)),
+        }
     }
 
     pub fn send(&self, input: SendInput) -> std::result::Result<SendResult, MailboxError> {
@@ -306,13 +313,19 @@ impl Mailbox {
         let timeout = std::time::Duration::from_millis(timeout_ms.min(30_000));
         let deadline = tokio::time::Instant::now() + timeout;
         loop {
+            // Register before reading the page. A send that commits after the
+            // read but before the await is then retained by Notify rather than
+            // becoming a lost wakeup.
+            let notified = self.notify.notified();
             let page = self.page(recipient, after, limit)?;
+            #[cfg(test)]
+            self.run_wait_page_hook();
             if !page.rows.is_empty() || timeout.is_zero() {
                 return Ok(page);
             }
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             if remaining.is_zero()
-                || tokio::time::timeout(remaining, self.notify.notified()).await.is_err()
+                || tokio::time::timeout(remaining, notified).await.is_err()
             {
                 return self.page(recipient, after, limit);
             }
@@ -322,6 +335,27 @@ impl Mailbox {
     pub fn flush(&self) -> Result<()> {
         let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         persist(&inner).map_err(|e| anyhow::anyhow!(e))
+    }
+
+    #[cfg(test)]
+    fn set_wait_page_hook<F>(&self, hook: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        *self.wait_page_hook.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some(Box::new(hook));
+    }
+
+    #[cfg(test)]
+    fn run_wait_page_hook(&self) {
+        let hook = self
+            .wait_page_hook
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        if let Some(hook) = hook {
+            hook();
+        }
     }
 }
 
@@ -493,6 +527,18 @@ mod tests {
         b.send(input("m1", "b", "one")).unwrap();
         let page = task.await.unwrap();
         assert_eq!(page.rows[0].message.id, "m1");
+    }
+
+    #[tokio::test]
+    async fn wait_registers_before_a_send_after_the_empty_page() {
+        let b = Mailbox::memory();
+        let hook_mailbox = b.clone();
+        b.set_wait_page_hook(move || {
+            hook_mailbox.send(input("window", "b", "sent in the page/await window")).unwrap();
+        });
+        let page = b.wait("b", 0, 10, 1_000).await.unwrap();
+        assert_eq!(page.rows.len(), 1);
+        assert_eq!(page.rows[0].message.id, "window");
     }
 
     #[test]
