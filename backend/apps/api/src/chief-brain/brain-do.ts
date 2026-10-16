@@ -5,8 +5,8 @@ import { createRegistry, GenerationTask, Harness, hook, section, ToolTask } from
 import { PiHarness } from "agents/harness/pi"
 import { Lifecycle, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle"
 import type { Env } from "../env.ts"
-import { ackWake, chiefPrincipal, chiefRecord, postReply, readConversation, runChanged, typing } from "./brain-io.ts"
-import { clip, clipInput, lastTalk, readRun, readRuns, readSteps, type Run, type Step, type StepPatch, upsertStep } from "./brain-runs.ts"
+import { ackWake, chiefPrincipal, chiefRecord, chiefRecordFresh, postReply, readConversation, runChanged, typing } from "./brain-io.ts"
+import { clip, clipInput, flushMarks, lastTalk, markPending, readRun, readRuns, readSteps, type Run, type Step, type StepPatch, upsertStep } from "./brain-runs.ts"
 import { type BrainConfig, patchError, readConfig, SCHEMA, writeConfig } from "./brain-store.ts"
 import { AUTH_FAILED, holderAuth, holderInvalidate, holderTurn, HOLDER } from "./claude-auth.ts"
 import { Compactor, type CallRecord } from "./compactor.ts"
@@ -149,7 +149,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     return this.authing
   }
   /** Holder only: one Claude turn of `owner` (allow-list, daily cap for the whole deployment). */
-  async claudeTurn(owner: string, model?: string): Promise<boolean> { return holderTurn(this.env, this.sql, owner, model) }
+  async claudeTurn(owner: string, model?: string): Promise<string> { return holderTurn(this.env, this.sql, owner, model) }
   /** Holder only: the route answered 401, so the stored access token goes. */
   async claudeInvalidate(): Promise<void> { holderInvalidate(this.sql) }
   private holder = () => this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(HOLDER))
@@ -194,7 +194,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     const cfg = this.config()
     if (!cfg.enabled) return { ok: false, reason: "disabled" }
     if (cfg.agent !== agent || cfg.owner !== owner) return { ok: false, reason: "other_chief" }
-    const record = await chiefRecord(this.env, owner, agent).catch(() => undefined)
+    const record = await chiefRecordFresh(this.env, owner, agent).catch(() => undefined)
     if (record === undefined) return { ok: false, reason: "owner.unreachable" }
     if (!record) return { ok: false, reason: "chief_archived" }
     if (record.brain_place) return { ok: false, reason: "chief_placed" }
@@ -245,7 +245,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
   async wake(w: { agent: string; owner: string; conversation: string; seq: number; reason: string }): Promise<{ queued: number } | { skipped: string }> {
-    await this.lifecycle.start()
+    await (this.lifecycle.start(), markPending(this.sql, "wake"))
     const a = await this.admitted(w.agent, w.owner, false)
     if (!a.ok) return { skipped: a.reason }
     const view = await readConversation(this.env, w.conversation, chiefPrincipal(w.agent, w.owner))
@@ -350,7 +350,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
         if (cfg.agent && cfg.owner && rows.length > 0) await ackWake(this.env, cfg.agent, chiefPrincipal(cfg.agent, cfg.owner), woken.conversation, Math.max(...rows.map((r) => r.seq))).catch(() => undefined)
         continue
       }
-      await this.compactor.settle(AbortSignal.timeout(SETTLE_MS))
+      await (markPending(this.sql, "admitted"), this.compactor.settle(AbortSignal.timeout(SETTLE_MS)).finally(() => markPending(this.sql, "settled")))
       if (rows.length > 0) this.openTurn(woken.conversation, rows)
     }
   }
@@ -373,7 +373,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       )
     })
     this.compactor.pump()
-    this.announce(id, [])
+    this.announce(id, (flushMarks(this.sql, id), []))
   }
 
   private async runTurn(id: string): Promise<void> {
@@ -391,9 +391,9 @@ export class ChiefBrainDO extends DurableObject<Env> {
         const blocks = JSON.parse(row.input ?? "[]") as Array<string>
         // A paid model: an allowed owner, the route serves it, under the deployment's cap, with the route's sign-in; else the fallback, which passes the same gate when it is paid; else no turn.
         const owner = this.config().owner ?? ""
-        const picked = await pickTurnModel(row.model, this.env.CHIEF_BRAIN_FALLBACK_MODEL, (m) => this.holder().claudeTurn(owner, m).then((ok) => ok && (!isClaude(m) || this.holder().claudeAuth().then(() => true))).catch(() => false))
-        if (picked === null) throw (console.warn(AUTH_FAILED), new Error(AUTH_FAILED))
-        if (picked !== row.model) [console.warn(AUTH_FAILED), (row.model = picked), this.sql.exec(`UPDATE cb_turn SET model = ? WHERE id = ?`, row.model, id)]
+        const picked = await pickTurnModel(row.model, this.env.CHIEF_BRAIN_FALLBACK_MODEL, (m) => this.holder().claudeTurn(owner, m).then((v) => (v !== "ok" || !isClaude(m) ? v : this.holder().claudeAuth().then(() => "ok", () => "auth_failed"))).catch(() => "holder_unreachable"))
+        if (picked.reason) console.warn(picked.reason.includes("auth_failed") ? AUTH_FAILED : JSON.stringify({ msg: "chief_brain.paid_model_refused", reason: picked.reason }))
+        if (picked.model === null || picked.model !== row.model) [this.announce(id, [upsertStep(this.sql, id, { id: "note:model", kind: "note", text: picked.model === null ? `No model ran: ${picked.reason}` : `${picked.reason}; this turn runs on ${picked.model}` }, Date.now())]), picked.model === null ? (() => { throw new Error(`paid model refused (${picked.reason})`) })() : [(row.model = picked.model), this.sql.exec(`UPDATE cb_turn SET model = ? WHERE id = ?`, row.model, id)]]
         const model = this.models.model(row.model)
         const root = await (await this.harness.pi()).root(BACKGROUND_CONTEXT)
         await root.configure({ model: { provider: model.provider, modelId: model.id }, thinkingLevel: this.models.thinking(row.model) }, BACKGROUND_CONTEXT)
@@ -430,7 +430,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   private async postAndSchedule(id: string): Promise<void> {
-    const next = await this.post(id)
+    const next = await liveOf(this.ctx).after(async () => undefined).then(() => this.post(id)) // the final delta and the run end reach members before the reply
     if (next !== null) await this.schedule(`post:${id}`, "post", next)
   }
 
