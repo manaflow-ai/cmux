@@ -19,7 +19,6 @@
   --polish-hover: color-mix(in srgb, var(--polish-ink) 5%, transparent);
   --polish-pressed: color-mix(in srgb, var(--polish-ink) 9%, transparent);
   --polish-focus: color-mix(in srgb, var(--polish-ink) 40%, transparent);
-  --polish-shadow: 0 8px 24px light-dark(rgb(0 0 0 / 10%), rgb(0 0 0 / 25%));
   --polish-duration: 140ms;
 }
 
