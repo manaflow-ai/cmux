@@ -87,9 +87,14 @@ public nonisolated struct SidebarPriority: Sendable {
                     group.workspaces = ordered(group.workspaces)
                     return .group(group)
                 }
+                .enumerated()
                 .sorted { lhs, rhs in
-                    nodeRank(lhs) < nodeRank(rhs)
+                    let leftRank = nodeRank(lhs.element)
+                    let rightRank = nodeRank(rhs.element)
+                    if leftRank != rightRank { return leftRank < rightRank }
+                    return lhs.offset < rhs.offset
                 }
+                .map(\.element)
             return result
         }
     }

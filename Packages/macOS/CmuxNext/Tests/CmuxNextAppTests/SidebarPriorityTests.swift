@@ -53,4 +53,16 @@ struct SidebarPriorityTests {
         guard case let .group(reorderedGroup) = sections[1].nodes[0] else { return #expect(Bool(false)) }
         #expect(reorderedGroup.workspaces.map(\.id) == [.init("waiting"), .init("idle")])
     }
+
+    @Test func samePriorityNodesRetainTheirManualOrder() {
+        let first = SidebarWorkspace(id: .init("first"), title: "first")
+        let second = SidebarWorkspace(id: .init("second"), title: "second")
+        let section = SidebarSection(kind: .machine(.init(id: .local, name: "This Mac", kind: .local)), nodes: [
+            .workspace(second),
+            .workspace(first),
+        ])
+
+        let result = SidebarPriority().reordered([section])
+        #expect(result[0].nodes.map(\.id) == [.workspace(.init("second")), .workspace(.init("first"))])
+    }
 }
