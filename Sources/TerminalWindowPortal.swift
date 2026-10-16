@@ -1246,7 +1246,8 @@ final class WindowTerminalPortal: NSObject {
         // after the frames have returned to the last settled values.
         // Compare the measured geometry before and after this pass so genuine
         // Cloud materialization changes still get a follow-up pass.
-        return settled.withoutPendingLayoutViews == signature.withoutPendingLayoutViews
+        return settled.pendingLayoutViews.isEmpty &&
+            settled.withoutPendingLayoutViews == signature.withoutPendingLayoutViews
     }
 
     private var lastHierarchySyncSignature: ExternalGeometrySignature?
