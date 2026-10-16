@@ -117,14 +117,14 @@ export function ChiefDock({
           {cards.map((session, index) => {
             const selected = session.sessionId === currentId;
             const title = sessionTitle(session);
-              const queued = queueCounts?.get(session.sessionId) ?? 0;
-              const steering = steeringIds?.has(session.sessionId) === true;
+            const queued = queueCounts?.get(session.sessionId) ?? 0;
+            const steering = steeringIds?.has(session.sessionId) === true;
             return (
               <article
                 className="acpmux-chief-card"
                 data-selected={selected}
                 data-status={status(session)}
-                  data-steering={steering || queued > 0 ? "true" : undefined}
+                data-steering={steering || queued > 0 ? "true" : undefined}
                 data-depth={index}
                 key={session.sessionId}
               >
@@ -139,7 +139,7 @@ export function ChiefDock({
                     <strong>{title}</strong>
                     <small>{session.preview || session.branch || session.cwd || t("sidebar.sessions")}</small>
                   </span>
-                    {queued > 0 && <span className="acpmux-chief-card-queue">{queued}</span>}
+                  {queued > 0 && <span className="acpmux-chief-card-queue">{queued}</span>}
                 </button>
                 <button
                   type="button"
