@@ -76,7 +76,10 @@ const fakeRoute = () => {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = new Request(input, init)
     if (req.url.startsWith("https://claude.test/")) {
-      seen.push({ headers: Object.fromEntries(req.headers.entries()), body: await req.json() })
+      const body = await req.json()
+      // A body the route refuses (Bedrock's validation answer).
+      if (JSON.stringify(body).includes("FORCE_400")) return Response.json({ message: "tools.0.custom.defer_loading: Extra inputs are not permitted" }, { status: 400 })
+      seen.push({ headers: Object.fromEntries(req.headers.entries()), body })
       return new Response(eventStream(`Routed answer ${seen.length}`), { headers: { "content-type": "application/vnd.amazon.eventstream", "x-bedrock-region": "us-west-2" } })
     }
     return real(input, init)
@@ -224,20 +227,34 @@ describe("Model gateway: service-key route, credits, usage, paid fallback", { ti
     for (let i = 0; i < 50 && after.balance_micros === before.balance_micros; i++) [await new Promise((r) => setTimeout(r, 20)), (after = await meter(team).creditBalance(team, 0, 5))]
     expect(after.balance_micros).toBeLessThan(before.balance_micros)
     expect(after.held_micros).toBe(0)
+    // Claude Code's request shape: betas in the header map into Bedrock's anthropic_beta (unknown ones dropped),
+    // fields Bedrock does not take (context_management) are dropped, not forwarded.
+    const cc = await call({ authorization: `Bearer ${token}`, "anthropic-beta": "interleaved-thinking-2025-05-14,claude-code-20250219,oauth-2025-04-20" }, { ...body, context_management: { edits: [] }, metadata: { user_id: "u" }, thinking: { type: "enabled", budget_tokens: 1024 } })
+    expect(cc.status, await cc.clone().text()).toBe(200)
+    await cc.text()
+    const ccBody = seen.at(-1)!.body
+    expect(ccBody.anthropic_beta).toEqual(["interleaved-thinking-2025-05-14"])
+    expect(ccBody.context_management).toBeUndefined()
+    expect(ccBody.metadata).toBeUndefined()
+    expect(ccBody.thinking).toEqual({ type: "enabled", budget_tokens: 1024 })
+    // A refusal of the route reaches the caller with its reason (Claude Code shows it), not a bare status.
+    const refused = await call({ authorization: `Bearer ${token}` }, { ...body, messages: [{ role: "user", content: "FORCE_400" }] })
+    expect(refused.status).toBe(400)
+    expect(((await refused.json()) as any).error.message).toContain("defer_loading: Extra inputs are not permitted")
     // x-api-key works too (stock clients); refusals: no token, a person's session token, a model it does not serve, no streaming.
     expect((await call({ "x-api-key": token })).status).toBe(200)
     expect((await call({})).status).toBe(401)
     expect((await call({ authorization: `Bearer ${await sessionToken("brain-gateway-http")}` })).status).toBe(401)
     expect((await call({ authorization: `Bearer ${token}` }, { ...body, model: "gpt-5" })).status).toBe(400)
     expect((await call({ authorization: `Bearer ${token}` }, { ...body, stream: false })).status).toBe(400)
-    expect(seen).toHaveLength(2)
+    expect(seen).toHaveLength(3)
     // Spend cap: a token minted with a tiny budget is refused (429) before the route, the run still running.
     const tiny = (await mintRunToken(testEnv as any, { team, chief: chief.id, owner: ownerId, run: "run_500", conversation: chief.main_conversation }, { capUsd: 0.0001 })).token
     expect((await call({ authorization: `Bearer ${tiny}` })).status).toBe(429)
     // Revoke: the run ends, and the same token stops working at once (401), long before its expiry.
     await runState(chief.id, chief.main_conversation, "run_500", "done")
     expect((await call({ authorization: `Bearer ${token}` })).status).toBe(401)
-    expect(seen).toHaveLength(2)
+    expect(seen).toHaveLength(3)
   })
 
   it("keeps an agent token working while its agent session lives, past the Chief's turn, and stops it when the session ends", async () => {

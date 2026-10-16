@@ -23,6 +23,9 @@ const MAX_TIMEOUT_MS = 15 * 60_000
 const APPROVAL_WINDOW_MS = 11 * 60_000
 const KEEP_EVENTS = 5_000
 const KEEP_AUDIT = 10_000
+/** A sandbox hand is removed (its VM deleted) this long after it was made. */
+const SANDBOX_LIFETIME_MS = 24 * 3600_000
+const SANDBOX_DELETE_RETRY_MS = 5 * 60_000
 
 interface Pending {
   readonly resolve: (r: HandReply) => void
@@ -91,7 +94,8 @@ export class HandDO extends DurableObject<Env> {
   }
 
   private summary(r: HandRow): HandSummary {
-    return { hand: r.hand, name: r.name, profile: (r.profile as Profile | null) ?? null, created_at: r.created_at, paired_at: r.paired_at, revoked_at: r.revoked_at, last_seen: r.last_seen, online: this.socket() !== undefined }
+    const sandbox = this.ctx.storage.sql.exec(`SELECT 1 FROM hand_sandbox WHERE id = 1`).toArray().length > 0
+    return { hand: r.hand, name: r.name, profile: (r.profile as Profile | null) ?? null, created_at: r.created_at, paired_at: r.paired_at, revoked_at: r.revoked_at, last_seen: r.last_seen, online: this.socket() !== undefined, sandbox }
   }
 
   private index(user: string) {
@@ -147,22 +151,60 @@ export class HandDO extends DurableObject<Env> {
       return { ok: false, error: { code: "hand.pair_invalid", message: "the pairing code is wrong, used or expired" } }
     }
     this.ctx.storage.sql.exec(`UPDATE hand SET code_sha = NULL, key_sha = ?, paired_at = ?, name = ?, profile = ? WHERE id = 1`, keySha, now, info.name || r.name, info.profile)
-    await this.ctx.storage.deleteAlarm()
+    // A sandbox lives at most SANDBOX_LIFETIME_MS; any other hand needs no alarm.
+    if (this.sandboxVm()) await this.ctx.storage.setAlarm(r.created_at + SANDBOX_LIFETIME_MS)
+    else await this.ctx.storage.deleteAlarm()
     await this.publish(this.row()!)
     return { ok: true, value: { hand: r.hand, owner: r.owner } }
   }
 
-  override async alarm(): Promise<void> {
-    const r = this.row()
-    if (r && r.paired_at === null) {
-      this.ctx.storage.sql.exec(`DELETE FROM hand WHERE id = 1`)
-      await this.index(r.owner).indexUpdate({ hand: r.hand, removed: true })
-    }
+  private sandboxVm(): string | undefined {
+    return this.ctx.storage.sql.exec<{ vm: string }>(`SELECT vm FROM hand_sandbox WHERE id = 1`).toArray()[0]?.vm
   }
 
-  /** The Freestyle VM this hand runs in (hand-sandbox.ts); deleted with the hand. */
+  /** Deletes this hand's sandbox VM by exact id; keeps the row (and retries by alarm) until the provider confirms. */
+  private async dropSandbox(): Promise<boolean> {
+    const vm = this.sandboxVm()
+    if (!vm) return true
+    if (await deleteSandboxVm(this.env, vm)) {
+      this.ctx.storage.sql.exec(`DELETE FROM hand_sandbox WHERE id = 1`)
+      return true
+    }
+    await this.ctx.storage.setAlarm(Date.now() + SANDBOX_DELETE_RETRY_MS)
+    return false
+  }
+
+  /** Expired pairing code (the hand and its VM go), a sandbox past its lifetime (revoked), or a VM delete to retry. */
+  override async alarm(): Promise<void> {
+    const r = this.row()
+    if (r && r.paired_at === null && Date.now() >= r.created_at + PAIR_TTL_MS) {
+      if (!(await this.dropSandbox())) return
+      this.ctx.storage.sql.exec(`DELETE FROM hand WHERE id = 1`)
+      await this.index(r.owner).indexUpdate({ hand: r.hand, removed: true })
+      return
+    }
+    if (r && r.revoked_at === null && this.sandboxVm() && Date.now() >= r.created_at + SANDBOX_LIFETIME_MS) {
+      await this.revoke({ kind: "owner", user: r.owner }, "lifetime")
+      return
+    }
+    if (r?.revoked_at != null || !r) await this.dropSandbox()
+  }
+
+  /** The Freestyle VM this hand runs in (hand-sandbox.ts); deleted with the hand. A hand that is gone takes its VM with it now. */
   async setSandbox(vm: string): Promise<void> {
     this.ctx.storage.sql.exec(`INSERT INTO hand_sandbox (id, vm) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET vm = excluded.vm`, vm)
+    const r = this.row()
+    if (!r || r.revoked_at !== null) await this.dropSandbox()
+    else await this.publish(r)
+  }
+
+  /** A sandbox whose install failed: the hand, its code and its VM go now. */
+  async discard(): Promise<void> {
+    const r = this.row()
+    await this.dropSandbox()
+    if (!r) return
+    this.ctx.storage.sql.exec(`DELETE FROM hand WHERE id = 1`)
+    await this.index(r.owner).indexUpdate({ hand: r.hand, removed: true })
   }
 
   /** True once the hand is connected and said hello; waits up to `ms` (woken by the hello frame). */
@@ -316,15 +358,14 @@ export class HandDO extends DurableObject<Env> {
     return { ok: true, value: { id, allow } }
   }
 
-  async revoke(caller: HandCaller): Promise<HandReply<{ hand: string }>> {
+  async revoke(caller: HandCaller, why = "owner"): Promise<HandReply<{ hand: string }>> {
     const r = this.row()
     if (caller.kind !== "owner" || !r || r.owner !== caller.user) return refuse("hand.not_found", "no such hand")
     this.ctx.storage.sql.exec(`UPDATE hand SET revoked_at = ?, key_sha = NULL WHERE id = 1`, Date.now())
     for (const ws of this.ctx.getWebSockets()) ws.close(4403, "revoked")
     for (const req of [...this.pending.keys()]) this.settle(req, refuse("hand.revoked", "the hand was removed"))
-    this.audit(crypto.randomUUID(), "revoke", callerLabel(caller), "ok", null)
-    const sandbox = this.ctx.storage.sql.exec<{ vm: string }>(`SELECT vm FROM hand_sandbox WHERE id = 1`).toArray()[0]
-    if (sandbox) await deleteSandboxVm(this.env, sandbox.vm)
+    this.audit(crypto.randomUUID(), "revoke", why === "owner" ? callerLabel(caller) : why, "ok", null)
+    await this.dropSandbox()
     await this.publish(this.row()!)
     return { ok: true, value: { hand: r.hand } }
   }
