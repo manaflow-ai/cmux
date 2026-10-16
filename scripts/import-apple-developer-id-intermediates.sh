@@ -55,9 +55,13 @@ add_intermediate() {
       || openssl x509 -in "$cert_path" -noout -fingerprint -sha1)"
     fingerprint="${fingerprint#*=}"
     fingerprint="${fingerprint//:/}"
+    if [[ ! "$fingerprint" =~ ^[0-9A-Fa-f]{40}$ ]]; then
+      echo "$name: cannot read the SHA-1 fingerprint of $cert_path" >&2
+      exit 1
+    fi
     # Captured first: grep -q on a pipe would end security early under pipefail.
     hashes="$(security find-certificate -a -Z "$KEYCHAIN")"
-    if ! grep -qix "SHA-1 hash: $fingerprint" <<<"$hashes"; then
+    if ! grep -qixF "SHA-1 hash: $fingerprint" <<<"$hashes"; then
       echo "$output" >&2
       echo "$name: add-certificates reported a duplicate, but $KEYCHAIN has no certificate with SHA-1 $fingerprint" >&2
       exit 1
