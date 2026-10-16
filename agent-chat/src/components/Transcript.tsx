@@ -937,9 +937,10 @@ function TurnGroupView({
 }
 
 function PreviousMessagesDisclosure({ count, expanded, onToggle }: { count: number; expanded: boolean; onToggle: () => void }) {
+  const label = agentChatText("previousMessages").replace("{count}", String(count));
   return (
-    <button type="button" className="turn-history-disclosure" aria-expanded={expanded} aria-label={`Show ${count} previous messages`} onClick={onToggle}>
-      <span>{count} previous messages</span>
+    <button type="button" className="turn-history-disclosure" aria-expanded={expanded} aria-label={label} onClick={onToggle}>
+      <span>{label}</span>
       <span className="turn-history-chevron" aria-hidden="true"><Chevron /></span>
     </button>
   );
@@ -1021,7 +1022,7 @@ export function Blocks({
         );
       })}
       {virtualized ? <div style={{ height: virtual.range.bottom }} /> : null}
-      {canFoldHistory && historyExpanded ? <button type="button" className="turn-history-collapse" onClick={() => setHistoryExpanded(false)}>Hide older messages</button> : null}
+      {canFoldHistory && historyExpanded ? <button type="button" className="turn-history-collapse" onClick={() => setHistoryExpanded(false)}>{agentChatText("hideOlderMessages")}</button> : null}
       {activity.show ? <ActivityIndicatorBlock key={activityKey} label={activity.label} startedAt={activityStartedAt} /> : null}
     </div>
   );
