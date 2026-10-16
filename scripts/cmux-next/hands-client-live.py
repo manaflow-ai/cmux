@@ -117,7 +117,9 @@ def owner_credentials():
 
 def http(method, url, headers=None, body=None, timeout=60):
     data = json.dumps(body).encode() if body is not None else None
-    request = urllib.request.Request(url, data=data, method=method, headers={"content-type": "application/json", **(headers or {})})
+    # The API's edge refuses urllib's default User-Agent (HTTP 403, "error code: 1010").
+    request = urllib.request.Request(url, data=data, method=method, headers={
+        "content-type": "application/json", "user-agent": "cmux-hands-proof/1", **(headers or {})})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as r:
             raw = r.read()
@@ -237,7 +239,7 @@ teardown.install()
 try:
     # The hand: a mac hand of the owner, paired from this host, run as this script's child.
     status, minted = api("POST", "/v1/hands/pair-codes", {"name": f"hands-proof-{opts.tag}", "profile": "mac"})
-    if not check(status == 200, f"pair code minted (HTTP {status} {(minted.get('error') or {}).get('code', '')})"):
+    if not check(status == 200, f"pair code minted (HTTP {status} {(minted.get('error') or {}).get('code', '') or minted.get('raw', '')[:120]})"):
         raise SystemExit(1)
     HAND = minted["value"]["hand"]
     report["hand"] = HAND
