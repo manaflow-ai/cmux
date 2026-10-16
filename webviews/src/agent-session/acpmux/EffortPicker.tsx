@@ -20,7 +20,8 @@ export type SpeedSection = {
 /// with one checked row per level the model offers; then Ultracode and the speed section when the
 /// agent has them. The agent's own level ("default", `defaulted`) checks the level it resolves to,
 /// with a Default hint, and the chip names that level; unresolved, it says Reasoning, never the
-/// first level. The chip says Ultracode while that is on, plus "Fast" while fast mode is on.
+/// first level. The chip says Ultracode while that is on; fast mode shows on the bolt beside the
+/// mic (FastToggle.tsx), not on the chip.
 /// The menu is the shared popup layer's opaque surface (ui/Menu), so nothing shows through it.
 /// Picking sends chat.effort through `onPick` (and each section's own `onPick`).
 /// With `slider` (the Debug Settings toggle `agent.reasoningSlider`, off by default) the Reasoning
@@ -61,7 +62,6 @@ export function EffortPicker({
     ultracode && ultracode.current === ultracode.on
       ? ultracode.title
       : (selectedVisible?.name ?? t("picker.reasoning"));
-  const fast = speed !== undefined && speed.current === speed.on;
   // One level is nothing to slide between: the list shows it as a single checked row.
   const sliding = slider && visibleEfforts.length > 1;
   const recommended = visibleEfforts.find((choice) => choice.recommended);
@@ -115,7 +115,7 @@ export function EffortPicker({
     <span className="acpmux-picker acpmux-effort">
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-picker-button" label={t("effort.title")} data-menu={label} aria-haspopup="menu">
-          <span>{fast ? `${level} ${t("picker.chipFast")}` : level}</span>
+          <span>{level}</span>
           {chevron}
         </MenuButton>
         <MenuPopup side="top" align="start" className="acpmux-effort-menu">
