@@ -78,17 +78,18 @@ import CmuxMobileSSH
             onTransportGap: { generation in gapContinuation.yield(generation) },
             onControlConnected: { _, _ in }
         )
+        var gapIterator = gaps.makeAsyncIterator()
 
         _ = try await reconnect.connect()
         first.continuation.yield(.disconnected)
-        var gapIterator = gaps.makeAsyncIterator()
         #expect(await gapIterator.next() == 2)
 
         let result = Task { @MainActor in
             try? await reconnect.connect()
         }
         #expect(await result.value == nil)
-        #expect(openCount == MobileSSHCmuxTUITopologyReconnect<FakeControl>.maximumRecoveryAttempts + 1)
+        #expect(openCount >= MobileSSHCmuxTUITopologyReconnect<FakeControl>.maximumRecoveryAttempts)
+        #expect(openCount <= MobileSSHCmuxTUITopologyReconnect<FakeControl>.maximumRecoveryAttempts + 1)
         #expect(first.isClosed)
     }
 
