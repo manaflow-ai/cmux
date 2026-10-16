@@ -9,7 +9,7 @@ struct AgentPaneTopStripStyleTests {
         #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: .default).isEmpty)
     }
 
-    @Test(arguments: [AgentPaneTopStripStyle.bump, .plain])
+    @Test(arguments: [AgentPaneTopStripStyle.bump, .plain, .fitted, .cursor])
     func variantSetsItsAttribute(style: AgentPaneTopStripStyle) {
         #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: style) == ["top-strip": style.rawValue])
         #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: style)
