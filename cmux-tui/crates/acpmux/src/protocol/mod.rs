@@ -9,8 +9,8 @@
 //! Tests fail when the committed IR is stale or when the dispatcher serves
 //! a name this registry lacks (`protocol/tests.rs`).
 
-pub mod permission;
 pub mod mailbox;
+pub mod permission;
 pub mod session;
 #[cfg(test)]
 mod tests;
