@@ -7,7 +7,8 @@
    with a project or without, while the host's name loads and after, so nothing under it moves.
    Queued prompts stack above it (.acpmux-composer-queue), never over it. A control is a plain text
    button (no bezel, no fill, no weight change); hover and an open menu lay the bar's own wash under
-   it, and keyboard focus draws a ring in the theme's text color. */
+   it, and keyboard focus draws a ring in the theme's text color. The New Tab draws the same strip
+   as text over its card instead (newtab/screen.css, #21133). */
 .acpmux-composer-strip {
   --acpmux-strip-height: 30px;
   position: relative;
@@ -552,13 +553,13 @@
 
 /* The seam: under the strip the card draws its rim (--acpmux-card-ring, resting or focused) on a
    layer that leaves out the stretch the strip stands on, so the strip and the card read as one
-   surface; the card's edge meets the strip's sides. Leo: the card's top hairline showed under it. */
-.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box,
-.nt-composer:has(.acpmux-composer-strip) .nt-box {
+   surface; the card's edge meets the strip's sides. Leo: the card's top hairline showed under it.
+   The New Tab has no tab on its card (newtab/screen.css: its strip is text over the card), so its
+   card keeps its whole rim. */
+.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box {
   box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
 }
-.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box::before,
-.nt-composer:has(.acpmux-composer-strip) .nt-box::before {
+.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -590,7 +591,7 @@
 
 /* The top strip's Debug variants (agentPane.debug.topStripStyle, DEV and NIGHTLY; the app sets
    data-top-strip on <html>). Without the attribute nothing below applies, so the default is the
-   strip and queue above. "Top strip" is whatever stands on the card's top edge: the location strip
+   strip and queue above (and on the New Tab, newtab/screen.css's text over the card). "Top strip" is whatever stands on the card's top edge: the location strip
    on a new chat, or the queued prompts once the chat started.
    - bump: the strip (or the queue, with no strip) stands --acpmux-strip-gap above the card inside
      its own closed hairline, and the card draws its whole rim (#20789).

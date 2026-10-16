@@ -282,7 +282,17 @@ impl Level {
 }
 
 /// Actions that only read.
-const READ_ACTIONS: &[&str] = &["fs.read", "fs.list", "fs.glob", "fs.grep", "agent.events"];
+/// Reads, and the controls that only stop or refuse agent work.
+const READ_ACTIONS: &[&str] = &[
+    "fs.read",
+    "fs.list",
+    "fs.glob",
+    "fs.grep",
+    "agent.events",
+    "agent.cancel",
+    "agent.stop",
+    "agent.deny",
+];
 
 /// The decision for `action` on `paths` (already resolved). `level` and
 /// `verdict` come from the Cloud with the request (`_level`, `_verdict`); `argv`

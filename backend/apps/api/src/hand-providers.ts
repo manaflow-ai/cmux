@@ -32,8 +32,10 @@ export interface CreateInput {
 
 export interface SandboxProvider {
   readonly id: string
-  /** The provider's key and image are set on this deployment. */
+  /** The provider's key and image are set on this deployment (it can make sandboxes). */
   ready(env: Env): boolean
+  /** The provider's key is set (it can list and delete what was made, even with no image now). */
+  canManage(env: Env): boolean
   create(env: Env, input: CreateInput): Promise<{ id: string } | null>
   /** Runs `command` as root; the exit code, or null when the provider did not answer. */
   exec(env: Env, id: string, command: string, timeoutMs: number): Promise<number | null>
@@ -56,6 +58,7 @@ const freestyle = (env: Env, method: string, path: string, body?: unknown, ms = 
 export const freestyleProvider: SandboxProvider = {
   id: "freestyle",
   ready: (env) => Boolean(env.HAND_FREESTYLE_API_KEY && env.HAND_SANDBOX_SNAPSHOT),
+  canManage: (env) => Boolean(env.HAND_FREESTYLE_API_KEY),
   async create(env, input) {
     const res = await freestyle(env, "POST", "/v5/vms", {
       slug: input.name,
@@ -88,7 +91,7 @@ export const freestyleProvider: SandboxProvider = {
     for (let page = 0; page < 20; page++) {
       const res = await freestyle(env, "GET", `/v5/vms?limit=100&offset=${page * 100}`)
       if (!res?.ok) break
-      const vms = ((await res.json()) as { vms?: Array<{ id?: string; slug?: string | null; createdAt?: string; metadata?: Record<string, unknown> | null }> }).vms ?? []
+      const vms = ((await res.json().catch(() => ({}))) as { vms?: Array<{ id?: string; slug?: string | null; createdAt?: string; metadata?: Record<string, unknown> | null }> }).vms ?? []
       // A list that ignores the offset gives the same page again: stop there.
       if (vms.every((v) => !v.id || done.has(v.id))) break
       for (const v of vms) {
@@ -103,11 +106,29 @@ export const freestyleProvider: SandboxProvider = {
   }
 }
 
+/** A provider whose adapter is not written yet: it answers that no key is configured (docs/chief-hands.md). */
+const stub = (id: string, keyVar: string): SandboxProvider => {
+  const none = async () => {
+    throw new Error(`no key configured for the ${id} sandbox provider (${keyVar})`)
+  }
+  return { id, ready: () => false, canManage: () => false, create: none, exec: none, pause: none, remove: none, list: async () => [] }
+}
+
 /** Providers by id; only the ones whose key is on this deployment are offered. */
-export const PROVIDERS: Readonly<Record<string, SandboxProvider>> = { freestyle: freestyleProvider }
+export const PROVIDERS: Readonly<Record<string, SandboxProvider>> = {
+  freestyle: freestyleProvider,
+  e2b: stub("e2b", "HAND_E2B_API_KEY"),
+  daytona: stub("daytona", "HAND_DAYTONA_API_KEY"),
+  modal: stub("modal", "HAND_MODAL_TOKEN"),
+  blaxel: stub("blaxel", "HAND_BLAXEL_API_KEY"),
+  docker: stub("docker", "HAND_DOCKER_HOST"),
+  kubernetes: stub("kubernetes", "HAND_KUBERNETES_CONFIG"),
+  ssh: stub("ssh", "HAND_SSH_HOST")
+}
 
 /** The provider a person asked for (default: the first ready one), or null when none is ready. */
 export const sandboxProvider = (env: Env, wanted?: string): SandboxProvider | null => {
   if (wanted) return PROVIDERS[wanted]?.ready(env) ? PROVIDERS[wanted]! : null
+  // (an unknown or stub provider: the caller answers "not set up"; hand-sandbox.ts names the provider)
   return Object.values(PROVIDERS).find((p) => p.ready(env)) ?? null
 }

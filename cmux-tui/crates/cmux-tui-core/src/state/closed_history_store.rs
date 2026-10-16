@@ -535,6 +535,27 @@ pub(crate) fn record_ungrouped_group(
     insert_record(transaction, new_closed_id(), Vec::new(), window, Some(extra))
 }
 
+/// The sequence of the newest stored closed group (0: none, or no closed
+/// history yet). With [`closed_ids_after`] a close finds the groups its own
+/// transaction stored (`closed_ids`, GPUI Undo of a bulk close).
+pub(crate) fn closed_seq(connection: &Connection) -> anyhow::Result<i64> {
+    if !super::store::state_tables_ready(connection)? {
+        return Ok(0);
+    }
+    Ok(connection
+        .query_row("SELECT COALESCE(MAX(seq), 0) FROM closed_groups", [], |row| row.get(0))?)
+}
+
+/// The ids of the closed groups stored after sequence `seq`, oldest first.
+pub(crate) fn closed_ids_after(connection: &Connection, seq: i64) -> anyhow::Result<Vec<String>> {
+    if !super::store::state_tables_ready(connection)? {
+        return Ok(Vec::new());
+    }
+    let mut statement =
+        connection.prepare("SELECT closed_id FROM closed_groups WHERE seq > ?1 ORDER BY seq")?;
+    Ok(statement.query_map([seq], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?)
+}
+
 /// A new closed group id.
 pub(crate) fn new_closed_id() -> String {
     format!("closed_{}", new_uuid_v4().replace('-', ""))

@@ -3347,12 +3347,17 @@ Params:
 Result:
 
 ```text
-object{closed:array<Id>,terminals:array<object{terminal_id:string,terminal_incarnation:string|null}>,resource_revision:uint64,replayed:bool,transaction?:string}
+object{closed:array<Id>,terminals:array<object{terminal_id:string,terminal_incarnation:string|null}>,closed_ids?:array<string>,resource_revision:uint64,replayed:bool,transaction?:string}
 ```
 
 `closed` lists the removed placements in request order. `terminals` lists the
-terminals the commit ended. A retry with the same `origin` and `mutation_id`
-returns the original result with `replayed: true` and changes nothing.
+terminals the commit ended. `closed_ids` lists the `closed.list` groups the
+commit stored, oldest first (a workspace the close emptied joins its group;
+empty with `reason: "session_end"`): `closed.reopen` of each restores exactly
+what this close closed, so an Undo never reopens another close of the same
+name. It is absent only on a replay of a close committed before the field
+existed. A retry with the same `origin` and `mutation_id` returns the original
+result with `replayed: true` and changes nothing.
 
 Errors:
 
@@ -3854,13 +3859,21 @@ Params:
 | `end_terminals` | `bool` | default `false` | With `batch-close-v1`: also end, in the same commit, every terminal whose views all close and that is not kept |
 | `reason` | `CloseReason` (string enum) | optional | With `end_terminals`: `session_end` only (`close-reason-v1`), not recorded in the closed history (the app closing a workspace whose first tab did not start); without `end_terminals` it is a `bad request` |
 | `if_empty` | `bool` | default `false` | With `close-workspace-if-empty-v1`: close only when the workspace has no tab when the close commits; otherwise fail with `workspace_not_empty` and change nothing |
+| `report_closed_ids` | `bool` | default `false` | With `end_terminals`: the result names `closed_ids`. Opt-in, so older decoders (which refuse an unknown result field) keep the result shape; a daemon that predates it ignores it |
 | mutation fields | see common envelope | optional | Exactly-once retry and CAS |
 
 Result:
 
 ```text
-object{workspace:Id,key:string,index:usize,workspace_revision:uint64,changed:bool,replayed:bool,registry_id:string,generation:string}
+object{workspace:Id,key:string,index:usize,workspace_revision:uint64,changed:bool,replayed:bool,registry_id:string,generation:string,closed_ids?:array<string>}
 ```
+
+With `end_terminals` and `report_closed_ids: true`, `closed_ids` lists the
+`closed.list` groups the close stored, oldest first (empty for an ephemeral
+workspace or with `reason`), so `closed.reopen` of each restores exactly this
+workspace even when another closed workspace has the same name. A replay
+names the same ids. It is absent otherwise, and on a replay of a close
+committed before the groups were recorded.
 
 Errors:
 

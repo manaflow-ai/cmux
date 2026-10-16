@@ -107,7 +107,9 @@ def main():
     helper_script = open(os.path.join(ROOT, "scripts", "ci", "notarize-computer-use-helper.sh"), encoding="utf-8").read()
     _check("CMUX_COMPUTER_USE_NOTARY_WAIT_TIMEOUT" in helper_script,
            "notarize-computer-use-helper.sh bounds its notarytool wait")
-    arch_step = next((r for n, r in zip(names, runs) if n == "Verify nightly binary architectures"), "")
+    # The architecture gate runs in prepare-nightly-variant, before signing (#21024).
+    prepare_steps = workflow["jobs"]["prepare-nightly-variant"]["steps"]
+    arch_step = next((str(s.get("run", "")) for s in prepare_steps if s.get("name") == "Verify nightly binary architectures"), "")
     _check("cmux Computer Use.app/Contents/MacOS/cmux-cua" in arch_step,
            "the architecture gate covers the helper's executable")
 

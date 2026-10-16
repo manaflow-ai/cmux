@@ -502,8 +502,8 @@ export function NewTabScreen(props: Props) {
     >
       {/* One card, the agent composer's (Composer.tsx; Leo 2026-10-13): the field on top, then the
           bar with the agent's model chip, the mic and Send. The location strip with the project the
-          chat starts in heads it, a tab on its top edge (ComposerContext, the composer's own; hq#1957
-          composer location strip). */}
+          chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
+          composer location strip; newtab/screen.css). */}
       <div className="nt-composer">
         {/* Where the chat starts: the folder Enter asks in (askFolder), picked as in the agent
             composer's location strip; never the home ~ the tab inherited (cx-7fje0). */}
