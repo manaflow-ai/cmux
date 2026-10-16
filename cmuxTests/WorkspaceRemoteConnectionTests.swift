@@ -2792,6 +2792,43 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertNil(session)
     }
 
+    func testDetectsForcedTTYSSHSessionWithRemoteTmuxCommandForImagePaste() throws {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "ssh",
+                    "-tt",
+                    "my-host",
+                    "tmux",
+                    "new-session",
+                    "-A",
+                    "-s",
+                    "pastetest",
+                ],
+            ]
+        )
+
+        let detectedSession = try XCTUnwrap(session)
+        XCTAssertEqual(detectedSession.destination, "my-host")
+
+        let fileURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-21064.png")
+        try Data("image-payload".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        XCTAssertEqual(
+            TerminalImageTransferPlanner.plan(
+                fileURLs: [fileURL],
+                target: .remote(.detectedSSH(detectedSession))
+            ),
+            .uploadFiles([fileURL], .detectedSSH(detectedSession))
+        )
+    }
+
     func testDetectsForegroundSSHSessionWithShortControlPathFlag() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
