@@ -17,6 +17,19 @@ const FILE_SECRET_MAX: u64 = 8 * 1024;
 /// short-lived token another process rotates on disk; acpmux never records
 /// the value, only the reference.
 pub fn file_secret(path: &str) -> Result<String, String> {
+    let text = read_owner_only(path)?;
+    let text = text.strip_suffix('\n').unwrap_or(&text);
+    let text = text.strip_suffix('\r').unwrap_or(text);
+    if text.is_empty() || text.contains(['\n', '\r']) {
+        return Err(format!("{path}: holds no single-line secret"));
+    }
+    Ok(text.to_owned())
+}
+
+/// The file's text after the owner-only checks (Unix: one O_NOFOLLOW open,
+/// every check on that descriptor).
+#[cfg(unix)]
+fn read_owner_only(path: &str) -> Result<String, String> {
     let p = std::path::Path::new(path);
     if !p.is_absolute() {
         return Err(format!("{path}: a file reference needs an absolute path"));
@@ -58,12 +71,16 @@ pub fn file_secret(path: &str) -> Result<String, String> {
     let mut text = String::new();
     use std::io::Read;
     file.take(FILE_SECRET_MAX + 1).read_to_string(&mut text).map_err(|e| format!("{path}: {e}"))?;
-    let text = text.strip_suffix('\n').unwrap_or(&text);
-    let text = text.strip_suffix('\r').unwrap_or(text);
-    if text.is_empty() || text.contains(['\n', '\r']) {
-        return Err(format!("{path}: holds no single-line secret"));
-    }
-    Ok(text.to_owned())
+    Ok(text)
+}
+
+/// No owner-only check exists here yet (a Windows ACL check is separate
+/// work), so a `file:` reference is refused, never read unchecked.
+#[cfg(not(unix))]
+fn read_owner_only(path: &str) -> Result<String, String> {
+    Err(format!(
+        "{path}: file references are supported only on Unix (no owner-only check on this system)"
+    ))
 }
 
 /// Replace `${keychain:…}` and `${env:…}` in env values with their values.
