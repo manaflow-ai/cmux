@@ -174,11 +174,32 @@ struct TravelLaw {
 /// springs.json, bundled. Every animated element of the app takes its timing
 /// from here; nothing else defines a curve.
 enum Springs {
-    static let all: [String: SpringElement] = {
-        // cmux: a package resource (the app's main bundle does not hold it).
-        guard let url = Bundle.module.url(forResource: "springs", withExtension: "json"),
+    private final class Token {}
+    private static let lock = NSLock()
+    private static var current: Bundle?
+    /// Where springs.json is read from. A host that embeds this code sets it before the first motion (a Swift
+    /// package: `Bundle.module`), as `MessagesLabLocalization.bundle`. Default: the bundle that contains this
+    /// code, then `Bundle.main` (the app's own build). Not `Bundle.main` alone: in a host app Bundle.main has
+    /// no springs.json, and every curve would fall back to the default spring without a sign (cx-3cb, hq-6d).
+    static var bundle: Bundle? {
+        get { lock.lock(); defer { lock.unlock() }; return current }
+        set { lock.lock(); current = newValue; lock.unlock() }
+    }
+    /// springs.json, read once for `all` and `travelLaws`. A missing or unreadable file is a build fault: it
+    /// stops a debug build and logs in a release build (the curves then are the default spring).
+    private static let json: [String: [String: Any]] = {
+        let candidates = [bundle, Bundle(for: Token.self), Bundle.main].compactMap { $0 }
+        guard let url = candidates.lazy.compactMap({ $0.url(forResource: "springs", withExtension: "json") }).first,
               let data = try? Data(contentsOf: url),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] else { return [:] }
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] else {
+            NSLog("MessagesLab: springs.json missing or unreadable in %@; set Springs.bundle", candidates.map(\.bundlePath).joined(separator: ", "))
+            assertionFailure("springs.json missing or unreadable; set Springs.bundle")
+            return [:]
+        }
+        return obj
+    }()
+    static let all: [String: SpringElement] = {
+        let obj = json
         var out: [String: SpringElement] = [:]
         for (name, e) in obj {
             let comps = (e["components"] as? [[String: Any]] ?? []).map { c in
@@ -196,10 +217,7 @@ enum Springs {
     }()
     /// The `travelLaw` objects of springs.json, by element name.
     static let travelLaws: [String: TravelLaw] = {
-        // cmux: a package resource, as `all` (Bundle.main has no springs.json: no travel law, the old width).
-        guard let url = Bundle.module.url(forResource: "springs", withExtension: "json"),
-              let data = try? Data(contentsOf: url),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] else { return [:] }
+        let obj = json
         var out: [String: TravelLaw] = [:]
         for (name, e) in obj {
             guard let l = e["travelLaw"] as? [String: Double], let r = l["refPt"], let k0 = l["k0"], let q = l["q"], let d0 = l["d0"],
@@ -280,7 +298,7 @@ enum Springs {
             }
             // macOS 27, a 2-line text that shrinks the field: `.fieldShrink`'s width curve on a clock set by the
             // width change (cx-3cb send-width-typed, springs.json bubble.width.fieldShrinkMac2): a 158 pt change
-            // (2-line wide) runs 1.12x slower from 13.5 ms earlier, a 472 pt change (2-line narrow) 0.87x from
+            // (2-line wide) runs at the same speed 8 ms later, a 472 pt change (2-line narrow) 0.87x from
             // 12.8 ms later; between them ln-interpolated, outside clamped. The height keeps `.fieldShrink`.
             if !ComposeMetrics.macOS26, fieldShrinks, lines == 2, travel > 0,
                let w = Springs.all["bubble.width.fieldShrinkMac2"], let law = Springs.travelLaws["bubble.width.fieldShrinkMac2"] {
