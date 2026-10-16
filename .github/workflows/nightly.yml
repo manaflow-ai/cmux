@@ -3370,7 +3370,7 @@ jobs:
       # Another run already published the recovered build, or the final gate
       # refused (see refused): this run published nothing.
       already_published: ${{ steps.recheck.outputs.already_published == 'true' || steps.gate.outputs.refused == 'true' }}
-      # The final gate refused: NIGHTLY_NEXT_HOLD=1, or a recovered build failed its lineage check.
+      # The final gate refused: a recovered build failed its lineage check.
       refused: ${{ steps.gate.outputs.refused }}
     if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true') || needs.recover-nightly-next-notarization.outputs.accepted == 'true')"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -3616,65 +3616,20 @@ jobs:
             python3 "$PUBLISH_TOOLING/ci/nightly-next-guard.py" appcast "nightly-out/$appcast"
           done
 
-      # Last check before the first write to the release or the feed. decide
-      # reads NIGHTLY_NEXT_HOLD only at its start: run 38865696305 passed decide
-      # before HOLD=1 was set (08:10:56Z) and published at 08:11:50Z. vars are
-      # fixed at job start and the job token cannot read variables, so the
-      # manaflow-glaeda-route App (the one installation on this repository with
-      # the variables permission; the release App has none) reads it live. An
-      # unreadable hold fails closed.
-      - name: Mint the hold-check token
-        id: hold-token
-        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true'
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          # The action has no input for the variables permission, and any
-          # permission-* input would drop it, so the token carries the App's
-          # installation permissions. The gate uses it for one GET, then revokes it.
-          skip-token-revoke: true
-
-      # A recovered build is checked again against the live feed: it must
-      # contain NIGHTLY_LEGACY_REQUIRED_COMMITS and descend from the commit the
-      # NEXT feed serves. A refusal publishes nothing and is not a failure.
+      # Last check before the first write to the release or the feed: a
+      # recovered build is checked again against the live feed. It must contain
+      # NIGHTLY_LEGACY_REQUIRED_COMMITS and descend from the commit the NEXT
+      # feed serves. A refusal publishes nothing and is not a failure.
       - name: Final publication gate
         id: gate
         if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          HOLD_TOKEN: ${{ steps.hold-token.outputs.token }}
           REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
           SOURCE: ${{ steps.source.outputs.source }}
           BUILD_SHA: ${{ steps.source.outputs.build_sha }}
         run: |
           set -euo pipefail
-          if [ "$NIGHTLY_TRACK" = nightly-next ]; then
-            if [ -z "$HOLD_TOKEN" ]; then
-              echo "::error::could not mint a token to read NIGHTLY_NEXT_HOLD; refusing to publish"
-              exit 1
-            fi
-            read_ok=true
-            hold="$(GH_TOKEN="$HOLD_TOKEN" gh api "repos/$GITHUB_REPOSITORY/actions/variables/NIGHTLY_NEXT_HOLD" --jq .value 2>"$RUNNER_TEMP/hold.err")" || read_ok=false
-            GH_TOKEN="$HOLD_TOKEN" gh api -X DELETE installation/token >/dev/null 2>&1 || true
-            if [ "$read_ok" = true ]; then
-              :
-            elif grep -q "HTTP 404" "$RUNNER_TEMP/hold.err"; then
-              hold=""
-            else
-              echo "::error::could not read NIGHTLY_NEXT_HOLD ($(tr '\n' ' ' < "$RUNNER_TEMP/hold.err")); refusing to publish"
-              exit 1
-            fi
-            if [ "$hold" = 1 ]; then
-              echo "::warning title=Publication refused::nightly-next is on hold (NIGHTLY_NEXT_HOLD=1); build $NIGHTLY_BUILD is not published"
-              echo "refused=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
           if [ "$SOURCE" = recovered ]; then
             status=0
             verdict="$(bash "$PUBLISH_TOOLING/ci/nightly-next-recovery-lineage.sh" "$GITHUB_REPOSITORY" "$CHANNEL_RELEASE_TAG" "$BUILD_SHA" </dev/null)" || status=$?
