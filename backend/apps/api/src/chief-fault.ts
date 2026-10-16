@@ -1,6 +1,6 @@
 import type { Env } from "./env.ts"
 import { callerOf, type Fail } from "./home-attachments.ts"
-import { chiefOwnedBy } from "./chief-brain/brain-io.ts"
+import { chiefOwnedBy, chiefPrincipal, readConversation } from "./chief-brain/brain-io.ts"
 import { brainName } from "./chief-brain/brain-do.ts"
 
 /**
@@ -13,12 +13,14 @@ import { brainName } from "./chief-brain/brain-do.ts"
  * - `container`: the opencode brain's container (OpencodeBrainDO `<agent>`) is stopped at once, as a
  *   container crash; the host starts a new one and sends the same wake again.
  *
- * On only where CHIEF_FAULT_HOOKS is "1" AND the deployment is not staging or production (tests and
- * the development env). Off, the route answers 404 like any unknown path and the objects refuse.
+ * On only where CHIEF_FAULT_HOOKS is "1" AND ENVIRONMENT is test, local or development (an allowlist:
+ * staging, production and any unknown name are off). Off, the route answers 404 like any unknown path and
+ * the objects refuse. A signed-in owner session only (no API grants), for a conversation the Chief is in.
  */
 export const FAULT_PATH = /^\/v1\/chiefs\/(agent_[0-9A-HJKMNP-TV-Z]{26})\/fault$/
 
-export const faultHooksOn = (env: Env): boolean => env.CHIEF_FAULT_HOOKS === "1" && env.ENVIRONMENT !== "staging" && env.ENVIRONMENT !== "production"
+const FAULT_ENVIRONMENTS = new Set(["test", "local", "development"])
+export const faultHooksOn = (env: Env): boolean => env.CHIEF_FAULT_HOOKS === "1" && FAULT_ENVIRONMENTS.has(env.ENVIRONMENT)
 
 /** Inside a brain object: refuse unless the hooks are on. */
 export const assertFaultHooks = (env: Env): void => {
@@ -33,15 +35,20 @@ export const handleFault = async (request: Request, env: Env, agent: string): Pr
   if (request.method !== "POST") return fail({ status: 405, code: "method_not_allowed", message: "POST" })
   const caller = await callerOf(request, env, "read")
   if ("status" in caller) return fail(caller)
-  if (!(await chiefOwnedBy(env, agent, caller.principal))) return fail({ status: 403, code: "auth.forbidden", message: "only the chief's owner" })
+  if (caller.principal.kind !== "session") return fail({ status: 403, code: "auth.forbidden", message: "a signed-in session only" })
+  const owned = await chiefOwnedBy(env, agent, caller.principal)
+  if (!owned) return fail({ status: 403, code: "auth.forbidden", message: "only the chief's owner" })
   const body = (await request.json().catch(() => null)) as { conversation?: unknown; target?: unknown } | null
   const conversation = typeof body?.conversation === "string" ? body.conversation : ""
   if (!/^conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26}$/.test(conversation)) return fail({ status: 400, code: "validation.invalid", message: "conversation is required" })
+  // A conversation the Chief is in (read as the Chief), so the hook never touches another conversation's brain.
+  if ("refused" in (await readConversation(env, conversation, chiefPrincipal(agent, owned.owner), 1))) return fail({ status: 404, code: "not_found", message: "no such conversation" })
   const at = Date.now()
   if (body?.target === "brain") {
     const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, conversation))) as unknown as { fault(): Promise<void> }
     // The object aborts itself: the RPC that asked fails with that abort, which is the expected answer.
-    await brain.fault().catch(() => undefined)
+    const err = await brain.fault().then(() => null, (e: unknown) => String(e))
+    if (err !== null && !err.includes("chief fault hook")) return fail({ status: 500, code: "fault_failed", message: err.slice(0, 200) })
     return Response.json({ ok: true, value: { target: "brain", at } }, { headers: NO_STORE })
   }
   if (body?.target === "container") {

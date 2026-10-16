@@ -1,15 +1,16 @@
 import { env, exports } from "cloudflare:workers"
+import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /**
  * Crash in the middle of a turn (test-only fault hooks, chief-fault.ts), through the product boundary: the
- * owner's DM starts a turn, the pi brain object of that conversation is evicted while the turn runs, and the
+ * owner's DM starts a SLOW turn, the pi brain object of that conversation is evicted while the model streams, and the
  * Chief still answers exactly once (pi-durable resumes the turn; the reply's client_msg_id keeps it single).
  * The opencode target answers 409 where no container runs; only the owner may use the hook.
  */
-const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace; CONVERSATION_DO: DurableObjectNamespace }
+const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace; CONVERSATION_DO: DurableObjectNamespace; CHIEF_BRAIN_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
 const sessionToken = async (sub: string) =>
   new SignJWT({ email: `${sub}@example.com`, email_verified: true, name: sub })
@@ -57,36 +58,37 @@ const dmAndReply = async (token: string, chief: { id: string; main_conversation:
 describe("Chief crash in the middle of a turn", { timeout: 120_000 }, () => {
   it("an evicted pi brain resumes its turn and posts the reply exactly once", async () => {
     const { token, chief } = await ownerWithChief("fault-evict")
+    // A SLOW turn (the fake model streams it over a few seconds): fault while it runs, before any reply.
     const key = "fault-mid-turn"
-    expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: key, parts: [{ type: "text", text: "evict me mid turn" }] }, key)).ok).toBe(true)
-    // Evict the conversation's brain once the turn exists (its run row is there): the turn runs or has just run.
-    // (An eviction while MuxDO's wake RPC is in flight loses that wake: MuxDO does not deliver it again. That is
-    // a known gap, reported to the brain owners, not covered here.)
+    expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: key, parts: [{ type: "text", text: `SLOW evict me mid turn ${"word ".repeat(30)}` }] }, key)).ok).toBe(true)
     const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(chief.main_conversation))
-    let faults = 0
-    for (let i = 0; i < 200; i++) {
-      const mine = (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)
-      if (mine.length >= 1 && faults > 0) break
-      if (faults === 0) {
-        const runs = await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, token)
-        if (runs.status === 200 && runs.json.value.runs.length > 0) {
-          const f = await http("POST", `/v1/chiefs/${chief.id}/fault`, token, { conversation: chief.main_conversation, target: "brain" })
-          expect(f.status, JSON.stringify(f.json)).toBe(200)
-          faults++
-        }
-      }
-      await fireAlarm(conv)
-      await new Promise((r) => setTimeout(r, 50))
+    const brainStub = () => testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName(`${chief.id}/${chief.main_conversation}`))
+    let brain = brainStub()
+    let running = 0
+    for (let i = 0; i < 200 && running === 0; i++) {
+      running = Number(await runInDurableObject(brain, async (_i: unknown, st: DurableObjectState) => (st.storage.sql.exec(`SELECT name FROM sqlite_master WHERE name = 'cb_turn'`).toArray().length ? st.storage.sql.exec(`SELECT COUNT(*) AS n FROM cb_turn WHERE status = 'running' AND submitted = 1`).one().n : 0)))
+      if (running === 0) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 20))]
     }
-    expect(faults).toBeGreaterThan(0)
-    // Let any resumed or retried post land, then count: exactly one reply to the message.
-    for (let i = 0; i < 20; i++) {
-      await fireAlarm(conv)
-      await new Promise((r) => setTimeout(r, 50))
+    expect(running, "the turn never ran").toBe(1)
+    expect((await history(token, chief.main_conversation)).filter((m) => m.author === chief.id), "replied before the fault").toHaveLength(0)
+    const f = await http("POST", `/v1/chiefs/${chief.id}/fault`, token, { conversation: chief.main_conversation, target: "brain" })
+    expect(f.status, JSON.stringify(f.json)).toBe(200)
+    // A reset object takes a new stub; its alarm (lifecycle jobs) resumes the turn.
+    brain = brainStub()
+    let replies: Array<any> = []
+    for (let i = 0; i < 400 && replies.length === 0; i++) {
+      replies = (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)
+      if (replies.length === 0) [await fireAlarm(conv), i % 10 === 9 && (await fireAlarm(brain).catch(() => (brain = brainStub()))), await new Promise((r) => setTimeout(r, 25))]
     }
-    const replies = (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)
+    // Let any duplicate land, then count: exactly one reply, one run, done and posted under the run's key.
+    for (let i = 0; i < 20; i++) [await fireAlarm(conv), await fireAlarm(brain).catch(() => (brain = brainStub())), await new Promise((r) => setTimeout(r, 25))]
+    replies = (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)
     expect(replies, JSON.stringify(replies.map((m) => m.parts[0]?.text))).toHaveLength(1)
     expect(replies[0].parts[0].text).toContain("evict me mid turn")
+    const runs = (await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, token)).json.value.runs
+    expect(runs).toHaveLength(1)
+    expect(runs[0]).toMatchObject({ status: "done", reply: { state: "posted" } })
+    expect(replies[0].client_msg_id ?? runs[0].turn).toBe(runs[0].turn)
     // The next message is answered as usual.
     await dmAndReply(token, chief, "after the fault", 2)
 
