@@ -858,12 +858,14 @@ jobs:
           if-no-files-found: error
 
       - name: Upload release asset
+        id: upload_release
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/ci/publish-release-assets.py \
             --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" \
+            --github-output "$GITHUB_OUTPUT" \
             --immutable cmux-macos.dmg \
             --immutable cmux-macos-arm64.dmg \
             --immutable cmux-macos-x86_64.dmg \
@@ -891,33 +893,72 @@ jobs:
             echo "make_latest=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # publish-release-assets.py stages a missing release as a draft
-      # prerelease. GitHub refuses make_latest on a prerelease, and the publish
-      # action adopts an existing draft without clearing the flag, so clear it
-      # on every draft for this tag (reruns leave earlier drafts behind).
-      # Drafts stay hidden; only the next step publishes.
-      - name: Clear prerelease on staged drafts
+      # Publish the exact release object the upload step staged, by id. A tag
+      # lookup cannot see drafts: softprops/action-gh-release created a second
+      # release for v0.65.2 and published it with 0 assets while the 12 assets
+      # sat on the staged draft. Refuse any other release for this tag, then
+      # verify the published release by tag carries every uploaded asset.
+      - name: Publish verified release
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ steps.upload_release.outputs.release_id }}
+          EXPECTED_ASSETS: ${{ steps.upload_release.outputs.asset_count }}
+          MAKE_LATEST: ${{ steps.latest_release.outputs.make_latest }}
         run: |
           set -euo pipefail
-          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-            --jq ".[] | select(.draft and .prerelease and .tag_name == \"$GITHUB_REF_NAME\") | .id" |
-          while read -r release_id; do
-            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" -F prerelease=false --jq '"cleared prerelease on draft \(.id)"'
-          done
+          if ! [[ "$RELEASE_ID" =~ ^[0-9]+$ && "$EXPECTED_ASSETS" =~ ^[0-9]+$ && "$EXPECTED_ASSETS" -gt 0 ]]; then
+            echo "::error::Upload step did not report a staged release id and asset count"
+            exit 1
+          fi
+          if [[ "$MAKE_LATEST" != "true" && "$MAKE_LATEST" != "false" ]]; then
+            echo "::error::Latest-release decision is missing"
+            exit 1
+          fi
+          others="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\" and .id != $RELEASE_ID) | .id")"
+          if [ -n "$others" ]; then
+            echo "::error::Release $RELEASE_ID was staged for $GITHUB_REF_NAME, but other releases exist for the same tag: ${others//$'\n'/ }. Delete the duplicates, then rerun."
+            exit 1
+          fi
 
-      # Keep a new stable release hidden until its entire asset set is verified.
-      - name: Publish verified release
-        if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
-        with:
-          tag_name: ${{ github.ref_name }}
-          generate_release_notes: true
-          prerelease: false
-          draft: false
-          make_latest: ${{ steps.latest_release.outputs.make_latest }}
+          # Prints: id draft tag_name asset_count assets_not_uploaded
+          release_state() {
+            gh api "$1" --jq '"\(.id) \(.draft) \(.tag_name) \(.assets | length) \([.assets[] | select(.state != "uploaded")] | length)"'
+          }
+          check_assets() {
+            if ! [[ "$3" == "$EXPECTED_ASSETS" && "$4" == 0 ]]; then
+              echo "::error::$1 release $2 has $3 assets ($4 not uploaded); expected $EXPECTED_ASSETS"
+              exit 1
+            fi
+          }
+
+          read -r id draft tag count pending < <(release_state "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID")
+          if [ "$tag" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Release $RELEASE_ID is not for tag $GITHUB_REF_NAME"
+            exit 1
+          fi
+          check_assets Staged "$id" "$count" "$pending"
+          if [ "$draft" = "true" ]; then
+            notes="$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+              -f tag_name="$GITHUB_REF_NAME" --jq .body)"
+            # The upload step stages a draft prerelease and GitHub refuses
+            # make_latest on a prerelease, so clear the flag before publishing.
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+              -F prerelease=false -f body="$notes" --jq '"cleared prerelease on draft \(.id)"'
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+              -F draft=false -f make_latest="$MAKE_LATEST" --jq '"published release \(.id)"'
+          else
+            echo "Release $RELEASE_ID is already published"
+          fi
+
+          read -r id draft tag count pending < <(release_state "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME")
+          if [ "$id" != "$RELEASE_ID" ] || [ "$draft" != "false" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME resolves to release $id (draft=$draft), not the published staged release $RELEASE_ID"
+            exit 1
+          fi
+          check_assets Published "$id" "$count" "$pending"
+          echo "Verified $GITHUB_REF_NAME: release $RELEASE_ID with $EXPECTED_ASSETS assets"
 
       - name: Upload release appcast to R2
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')

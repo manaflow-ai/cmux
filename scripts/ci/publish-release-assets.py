@@ -143,22 +143,38 @@ class GitHub:
             if error.status != 404:
                 raise
             # The tags endpoint 404s for drafts, so a rerun must find its
-            # staged draft by listing. Adopt the lowest id, the one the
-            # publish action finalizes, so the published assets and the
-            # appcast this run uploads describe the same files.
-            drafts = [
-                release["id"]
-                for release in self.request("GET", f"{self.api_url}/repos/{self.repo}/releases?per_page=100")
+            # staged draft by listing. Exactly one staged draft may exist:
+            # with two, the assets and the release that gets published can
+            # be different objects (v0.65.2 shipped with 0 assets that way),
+            # so refuse before uploading anything.
+            drafts = sorted(
+                int(release["id"])
+                for release in self.releases()
                 if release.get("draft") and release.get("tag_name") == tag
-            ]
+            )
+            if len(drafts) > 1:
+                raise RuntimeError(
+                    f"Refusing to upload: {len(drafts)} staged draft releases exist for {tag} "
+                    f"(ids {', '.join(map(str, drafts))}). Delete the extra drafts, then rerun."
+                )
             if drafts:
-                return int(min(drafts))
+                return drafts[0]
             release = self.request(
                 "POST",
                 f"{self.api_url}/repos/{self.repo}/releases",
                 body=json.dumps({"tag_name": tag, "name": tag, "draft": True, "prerelease": True}).encode(),
             )
         return int(release["id"])
+
+    def releases(self) -> list[dict]:
+        result = []
+        page = 1
+        while True:
+            entries = self.request("GET", f"{self.api_url}/repos/{self.repo}/releases?per_page=100&page={page}")
+            result.extend(entries)
+            if len(entries) < 100:
+                return result
+            page += 1
 
     def assets(self, release_id: int) -> dict[str, dict]:
         result = {}
@@ -403,12 +419,18 @@ def main() -> int:
     parser.add_argument("--alias", action="append", default=[])
     parser.add_argument("--feed", action="append", default=[])
     parser.add_argument("--replace-feeds", action="store_true")
+    parser.add_argument("--github-output", type=Path,
+                        help="Append release_id and asset_count for later workflow steps")
     args = parser.parse_args()
     # Hash and validate every local file before any remote mutation.
     phases = plan(args.immutable, args.optional_immutable, args.alias, args.feed, replace_feeds=args.replace_feeds)
     client = GitHub(args.repo, os.environ.get("GH_TOKEN", ""))
     release_id = args.release_id if args.release_id is not None else client.release_id(args.tag)
     publish(client, release_id, phases)
+    if args.github_output:
+        # Later steps publish and verify this exact release id, never a tag lookup.
+        with args.github_output.open("a") as output:
+            output.write(f"release_id={release_id}\nasset_count={sum(map(len, phases))}\n")
     return 0
 
 
