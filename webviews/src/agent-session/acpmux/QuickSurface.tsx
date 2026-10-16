@@ -13,6 +13,7 @@ export function QuickSurface({
   asks,
   composer,
   floating,
+  chiefDock,
 }: {
   /// The chat's transcript, once there is one.
   transcript?: React.ReactNode;
