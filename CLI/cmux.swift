@@ -42021,6 +42021,13 @@ export default {
             promptLength: feedPromptLength(from: parsedInput.object, compacted: true)
         )
         enrichStopFeedEvent(&event, hookEventName: hookEventName, rawObject: parsedInput.rawObject)
+        if source == "claude",
+           hookEventName == "Stop" || hookEventName == "SubagentStop",
+           let rawObject = parsedInput.rawObject,
+           let backgroundTasks = claudeBackgroundTasksFeedValue(from: rawObject) {
+            // Custom sidebars list these (agents[j].backgroundTasks).
+            event["background_tasks"] = backgroundTasks
+        }
         event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
         if let agentID = firstString(in: fallbackObject, keys: ["agent_id", "agentId"]) {
             event["agent_id"] = agentID
