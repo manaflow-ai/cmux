@@ -19,9 +19,9 @@ public final class UpdateSheetModel: UpdateSheetSource {
     /// Opens Release Notes and Download Manually (the App routes it by its link setting).
     @ObservationIgnored let openLink: (URL) -> Void
 
-    public init(service: UpdaterService, openLink: @escaping (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }) {
+    public init(service: UpdaterService, openLink: ((URL) -> Void)? = nil) {
         self.service = service
-        self.openLink = openLink
+        self.openLink = openLink ?? { NSWorkspace.shared.openInBackground($0) }
     }
 
     public var content: UpdateSheetContent? {
