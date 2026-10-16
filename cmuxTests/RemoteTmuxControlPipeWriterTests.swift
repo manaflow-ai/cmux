@@ -122,6 +122,152 @@ import Testing
         _ = try reader.readToEnd()
     }
 
+    /// Stands in for the writer's watchdog timer: records each arm, and fires on demand.
+    private final class FakeScheduler: @unchecked Sendable {
+        private struct Entry {
+            let delay: Duration
+            let action: @Sendable () -> Void
+            var live = true
+        }
+        private let lock = NSLock()
+        private var entries: [Entry] = []
+
+        func schedule(_ delay: Duration, _ action: @escaping @Sendable () -> Void) -> @Sendable () -> Void {
+            lock.lock(); defer { lock.unlock() }
+            entries.append(Entry(delay: delay, action: action))
+            let index = entries.count - 1
+            return { [self] in
+                lock.lock(); entries[index].live = false; lock.unlock()
+            }
+        }
+
+        /// Delays of the timers armed and not cancelled or fired.
+        var armed: [Duration] {
+            lock.lock(); defer { lock.unlock() }
+            return entries.filter(\.live).map(\.delay)
+        }
+
+        /// Fires every live timer once, as the clock reaching them would.
+        func fireArmed() {
+            lock.lock()
+            let due = entries.indices.filter { entries[$0].live }
+            due.forEach { entries[$0].live = false }
+            let actions = due.map { entries[$0].action }
+            lock.unlock()
+            actions.forEach { $0() }
+        }
+    }
+
+    /// Counts `onFailure` calls, which arrive on the main actor.
+    private final class FailureCount: @unchecked Sendable {
+        var value = 0
+    }
+
+    /// Lets main-actor tasks queued by the writer run. Bounded by turns, not time.
+    private func settleMainActor() async {
+        for _ in 0..<20 { await Task { @MainActor in }.value }
+    }
+
+    /// A write that blocks with nothing else to send is still reported. The writer's own
+    /// watchdog fires at the stall limit and reports the pipe dead, which reconnects; no
+    /// further send is needed to notice.
+    @Test func aBlockedWriteIsReportedWithoutAnotherSend() async throws {
+        let pipe = Pipe()
+        let clock = ManualClock()
+        let scheduler = FakeScheduler()
+        let failures = FailureCount()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting, label: "remote-tmux-writer-watchdog-test",
+            maxPendingBytes: 8 << 20, stallLimit: .seconds(30), now: { clock.now() },
+            stallScheduler: scheduler.schedule, onFailure: { failures.value += 1 }
+        )
+
+        #expect(writer.enqueue(Data(count: Self.blockingSize)))
+        #expect(scheduler.armed == [.seconds(30)], "bytes started waiting, so the watchdog is armed")
+        clock.set(.seconds(30))
+        scheduler.fireArmed()
+        await settleMainActor()
+        #expect(failures.value == 1, "30 s with no write returning reports the pipe dead")
+
+        writer.close()
+        _ = try pipe.fileHandleForReading.readToEnd()
+    }
+
+    /// A write that returns is progress, and it moves the watchdog out to a full limit from then.
+    @Test func aFinishedWritePushesTheWatchdogOut() async throws {
+        let pipe = Pipe()
+        let clock = ManualClock()
+        let scheduler = FakeScheduler()
+        let failures = FailureCount()
+        let finished = DispatchSemaphore(value: 0)
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting, label: "remote-tmux-writer-watchdog-progress-test",
+            maxPendingBytes: 8 << 20, stallLimit: .seconds(30), now: { clock.now() },
+            stallScheduler: scheduler.schedule,
+            onWriteFinished: { finished.signal() }, onFailure: { failures.value += 1 }
+        )
+        #expect(writer.enqueue(Data(count: Self.blockingSize)))
+        #expect(writer.enqueue(Data(count: Self.blockingSize)))
+        clock.set(.seconds(25))
+        let reader = pipe.fileHandleForReading
+        DispatchQueue.global().async {
+            var taken = 0
+            while taken < Self.blockingSize {
+                let chunk = reader.readData(ofLength: Self.blockingSize - taken)
+                if chunk.isEmpty { break }
+                taken += chunk.count
+            }
+        }
+        #expect(finished.wait(timeout: .now() + 10) == .success)
+        #expect(scheduler.armed == [.seconds(30)], "the first write returned at 25 s and re-armed for a full limit")
+
+        clock.set(.seconds(50))
+        scheduler.fireArmed()
+        await settleMainActor()
+        #expect(failures.value == 0, "the last write returned 25 s ago")
+        #expect(scheduler.armed == [.seconds(5)], "the watchdog waits out the 5 s that remain")
+
+        clock.set(.seconds(55))
+        scheduler.fireArmed()
+        await settleMainActor()
+        #expect(failures.value == 1)
+
+        writer.close()
+        _ = try reader.readToEnd()
+    }
+
+    /// Nothing waiting means nothing to watch: a drained ledger and a closed writer cancel it.
+    @Test func aDrainedOrClosedWriterCancelsTheWatchdog() async throws {
+        let scheduler = FakeScheduler()
+        let failures = FailureCount()
+        let drained = Pipe()
+        drained.fileHandleForReading.readabilityHandler = { _ = $0.availableData }
+        let finished = DispatchSemaphore(value: 0)
+        let draining = RemoteTmuxControlPipeWriter(
+            handle: drained.fileHandleForWriting, label: "remote-tmux-writer-watchdog-drain-test",
+            maxPendingBytes: 8 << 20, stallScheduler: scheduler.schedule,
+            onWriteFinished: { finished.signal() }, onFailure: { failures.value += 1 }
+        )
+        #expect(draining.enqueue(Data("x\n".utf8)))
+        #expect(finished.wait(timeout: .now() + 10) == .success)
+        #expect(scheduler.armed.isEmpty, "the ledger drained, so the watchdog is cancelled")
+        drained.fileHandleForReading.readabilityHandler = nil
+        draining.close()
+
+        let blocked = Pipe()
+        let closing = RemoteTmuxControlPipeWriter(
+            handle: blocked.fileHandleForWriting, label: "remote-tmux-writer-watchdog-close-test",
+            maxPendingBytes: 8 << 20, stallScheduler: scheduler.schedule, onFailure: { failures.value += 1 }
+        )
+        #expect(closing.enqueue(Data(count: Self.blockingSize)))
+        #expect(scheduler.armed.count == 1)
+        closing.close()
+        #expect(scheduler.armed.isEmpty, "closing the writer cancels its watchdog")
+        await settleMainActor()
+        #expect(failures.value == 0)
+        _ = try blocked.fileHandleForReading.readToEnd()
+    }
+
     /// Unwritten bytes past the memory ceiling are refused even on a pipe that is moving.
     @Test func theMemoryCeilingStillHolds() throws {
         let pipe = Pipe()
