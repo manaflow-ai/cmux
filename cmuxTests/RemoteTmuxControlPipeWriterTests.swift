@@ -214,4 +214,33 @@ import Testing
         channels.forEach { $0.detach() }
         wire.connection.stop()
     }
+
+    /// The agent hook installer carries a 17 KB payload. Sending one copy per session made
+    /// every attach of a 15-session host queue about 255 KB of the same bytes. Sessions that
+    /// ask while an install is out wait for it and then share one payload.
+    @Test func sessionsShareOneAgentHookInstallerPayload() throws {
+        let wire = connectedWire()
+        let channels = makeChannels(wire.connection, count: 16)
+        for channel in channels {
+            channel.setMirrorEnvironment(["CMUX_WORKSPACE_ID": "workspace"])
+        }
+        // tmux answers each command; the first install's answer releases the rest.
+        answerEverything(wire.connection)
+
+        let installs = try collect(wire).filter { $0.contains("'\\''--install'\\''") }
+        // The first is the view session's own, sent and answered during the attach.
+        let sessionInstalls = Array(installs.dropFirst())
+        #expect(
+            sessionInstalls.count == 2,
+            "one install goes out at once and the other 15 sessions share the next"
+        )
+        for index in 1...16 {
+            #expect(
+                sessionInstalls.contains { $0.contains("'\\''$\(index)'\\''") },
+                "session $\(index) is installed"
+            )
+        }
+        channels.forEach { $0.detach() }
+        wire.connection.stop()
+    }
 }
