@@ -1623,9 +1623,11 @@ jobs:
           # each lineage restores only its own, and Blacksmith's key is
           # unchanged.
           identity="$(xcodebuild -version)"
-          if [ "${{ needs.decide.outputs.track }}" = nightly-next ]; then identity="$identity"$'\n'"track:nightly-next"; fi
           case "${RUNNER_NAME:-}" in
-            *-glaeda | *-glaeda-[0-9]*) identity="$identity"$'\n'"owned-workspace:$GITHUB_WORKSPACE" ;;
+            *-glaeda | *-glaeda-[0-9]*)
+              identity="$identity"$'\n'"owned-workspace:$GITHUB_WORKSPACE"
+              if [ "${{ needs.decide.outputs.track }}" = nightly-next ]; then identity="$identity"$'\n'"track:nightly-next"; fi
+              ;;
           esac
           echo "toolchain=$(printf '%s\n' "$identity" | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
