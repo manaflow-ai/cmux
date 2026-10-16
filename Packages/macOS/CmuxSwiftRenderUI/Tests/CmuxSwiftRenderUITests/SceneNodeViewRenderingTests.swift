@@ -10,9 +10,17 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct SceneNodeViewRenderingTests {
-    /// Runtime actions dispatch one main-queue turn after the event.
-    private func pumpActions() async {
-        for _ in 0..<5 { await Task.yield() }
+    /// Runtime actions dispatch asynchronously after the event. Wait for the
+    /// captured action, with a deadline so a broken dispatch still fails.
+    private func waitForAction(
+        _ expected: [ActionCommand],
+        captured: @escaping @MainActor () -> [ActionCommand]
+    ) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while captured() != expected, clock.now < deadline {
+            try? await clock.sleep(for: .milliseconds(1))
+        }
     }
 
     private func contextMenu(ofRoot runtime: SidebarJSRuntime) throws -> NSMenu {
@@ -139,9 +147,10 @@ struct SceneNodeViewRenderingTests {
         })
         #expect(runtime.store.node(menuId)?.type == "contextMenu")
         runtime.dispatchEvent(nodeId: rowId, event: "tap")
-        await pumpActions()
-        #expect(captured == [
+        let expected = [
             .cmux(method: "workspace.select", params: ["workspace_id": "w1"]),
-        ])
+        ]
+        await waitForAction(expected, captured: { captured })
+        #expect(captured == expected)
     }
 }
