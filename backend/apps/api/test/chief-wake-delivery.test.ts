@@ -104,21 +104,34 @@ describe("Chief wake delivery", { timeout: 120_000 }, () => {
     const key = "wake-local-1"
     expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: key, parts: [{ type: "text", text: "for the local host" }] }, key)).ok).toBe(true)
     let pending = 0
+    let last: unknown = null
     for (let i = 0; i < 100 && pending === 0; i++) {
-      const q = await http("POST", "/v1/read", token, { op: "mux.queue", params: { agent: chief.id } })
-      pending = q.json.value?.pending ?? 0
+      // The owner's mux.configure answers with the head (pending count); the same settings change nothing.
+      const q = await op(token, "mux.configure", { agent: chief.id, brain: "local", brain_host: "mac-test" })
+      last = q
+      pending = q.value?.pending ?? 0
       if (pending === 0) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 25))]
     }
-    expect(pending, "the wake was lost").toBe(1)
+    expect(pending, `the wake was lost: ${JSON.stringify(last).slice(0, 1500)}`).toBe(1)
     for (let i = 0; i < 5; i++) [await fireAlarm(mux), await new Promise((r) => setTimeout(r, 25))]
     expect(wakes.filter((a) => a === chief.id).length - before, "a local Chief's wake reached the cloud brain").toBe(0)
     expect((await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)).toHaveLength(0)
     const left = await runInDurableObject(mux, async (_i: unknown, st: DurableObjectState) => st.storage.sql.exec(`SELECT name FROM sqlite_master WHERE name = 'mux_wake_delivery'`).toArray().length ? Number(st.storage.sql.exec(`SELECT COUNT(*) AS n FROM mux_wake_delivery`).one().n) : 0)
     expect(left).toBe(0)
-    // The local host acks (mux.ack, the same op it sends through the cloud proxy): the queue clears.
+    // The local host acks with the Chief's install token (optchat-chief brain/mux_ack.rs -> daemon cloud-mux-ack -> mux.ack).
+    const owner = (await op(token, "user.ensure", {})).value.id as string
+    const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
+    const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
+    const install = (await op(token, "install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x!, y: jwk.y! }, kind: "mac", name: "mac", device_name: "mac", platform: "macos" })).value.id as string
+    const post = async (path: string, body: unknown) => (await worker.fetch(`https://api.test${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json() as Promise<any>
+    const ch = await post("/v1/auth/challenge", { user: owner, install })
+    const sig = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${ch.message_prefix}${ch.nonce}`)))
+    const b64u = btoa(String.fromCharCode(...sig)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+    const chiefToken = (await post("/v1/auth/token", { user: owner, install, nonce: ch.nonce, signature: b64u, agent: chief.id })).access_token as string
     const msg = (await history(token, chief.main_conversation)).find((m) => m.client_msg_id === key)
-    const acked = await op(token, "mux.ack", { agent: chief.id, conversation: chief.main_conversation, seq: msg.seq })
+    const acked = await op(chiefToken, "mux.ack", { agent: chief.id, conversation: chief.main_conversation, seq: msg.seq })
     expect(acked.ok, JSON.stringify(acked)).toBe(true)
-    expect((await http("POST", "/v1/read", token, { op: "mux.queue", params: { agent: chief.id } })).json.value.pending).toBe(0)
+    expect(acked.value).toMatchObject({ cleared: 1 })
+    expect((await op(token, "mux.configure", { agent: chief.id, brain: "local", brain_host: "mac-test" })).value.pending).toBe(0)
   })
 })
