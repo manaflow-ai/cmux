@@ -115,7 +115,7 @@ extension CloudSecretsService {
                    result.exitCode == 0 {
                     configuredGit = true
                 }
-            } else {
+            } else if plan.toRemove.contains(where: Self.gitTokenNames.contains) {
                 _ = try? await transport.exec(machineID, Self.gitCredentialHelperCleanupCommand)
             }
             return CloudSecretSyncResult(
@@ -166,7 +166,7 @@ extension CloudSecretsService {
                    result.exitCode == 0 {
                     configuredGit = true
                 }
-            } else {
+            } else if plan.toRemove.contains(where: Self.gitTokenNames.contains) {
                 // Do not leave a cmux helper that returns an empty password: it can
                 // prevent a user's own helper from being tried after token removal.
                 _ = try? await transport.exec(machineID, Self.gitCredentialHelperCleanupCommand)
