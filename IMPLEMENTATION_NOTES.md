@@ -1,3 +1,13 @@
+## 2026-10-15 Chief Home pane drag
+
+- The pinned Chief Home row now carries a live Bonsplit transfer lease for the
+  conversation Home is showing. Dropping it on a workspace or right Dock pane
+  uses the existing pane-transfer router, creates or focuses the matching
+  `ChiefPanel`, supports center and edge split zones, and leaves canonical Home
+  mounted. The conversation id stays process-local; stale pasteboard data cannot
+  create a pane. Added resolver and create/reuse coverage in
+  `ChiefPanelSessionTests`.
+
 ## 2026-10-15 interaction follow-up
 
 - Added a red-before-green cloud regression for a failed `vm wait`: the provisioning row retains its machine name while showing the failure state, so result copy never falls back to a raw VM id.

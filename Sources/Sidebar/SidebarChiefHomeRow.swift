@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxHomeCore
 import CmuxSettings
 import SwiftUI
 
@@ -25,12 +26,12 @@ struct SidebarChiefHomeRow: View {
     let isSelected: Bool
     let settings: SidebarTabItemSettingsSnapshot
     let globalFontMagnificationPercent: Int
+    /// The conversation Home currently shows when this row is dragged into a pane.
+    var conversationID: ConversationID?
     let onSelect: () -> Void
     /// Starts a new conversation; shown as the row's compose button while selected.
     var onNewConversation: (() -> Void)?
 
-    /// The Chief's name from its profile (renamed in Chief Settings).
-    @State private var chiefName = ChiefProfile.currentName()
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
@@ -39,8 +40,12 @@ struct SidebarChiefHomeRow: View {
             HStack(spacing: 7) {
                 Button(action: onSelect) {
                     HStack(spacing: 7) {
-                        SidebarChiefHomeAvatar(diameter: (16 * settings.sidebarFontScale).rounded())
-                        Text(chiefName)
+                        Image(systemName: "house.fill")
+                            .font(font(13, weight: .semibold))
+                            .foregroundColor(.secondary)
+                            .frame(width: (16 * settings.sidebarFontScale).rounded())
+                            .accessibilityHidden(true)
+                        Text(ChiefStrings.home)
                             .font(font(12.5, weight: .medium))
                             .foregroundColor(.primary)
                             .lineLimit(1)
@@ -66,7 +71,7 @@ struct SidebarChiefHomeRow: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text(chiefName))
+                .accessibilityLabel(Text(ChiefStrings.home))
                 .accessibilityValue(Text(verbatim: [
                     SidebarChiefHomeStatus.accessibilityValue(showsUnread: !isSelected),
                     isSelected ? nil : SidebarChiefHomeBackRow.shortcutKeys,
@@ -106,8 +111,24 @@ struct SidebarChiefHomeRow: View {
                     + SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
                 .accessibilityHidden(true)
         }
-        .onReceive(NotificationCenter.default.publisher(for: ChiefProfile.didChange)) { _ in
-            chiefName = ChiefProfile.currentName()
+        .onDrag {
+            guard let registry = AppDelegate.shared?.tabDragTransferRegistry,
+                  let provider = ChiefPaneDragPayload(conversationID: conversationID)
+                      .provider(with: registry) else {
+                return NSItemProvider()
+            }
+            return provider
+        } preview: {
+            HStack(spacing: 7) {
+                Image(systemName: "house.fill")
+                    .font(font(13, weight: .semibold))
+                Text(ChiefStrings.home)
+                    .font(font(12.5, weight: .medium))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
     }
 
@@ -268,30 +289,6 @@ private struct SidebarChiefHomeStatus: View {
         if needsYou { return ChiefStrings.homeRowNeedsYou }
         if !service.workingConversations.isEmpty { return ChiefStrings.homeRowWorking }
         return showsUnread && service.unreadCount > 0 ? ChiefStrings.homeRowUnread : ""
-    }
-}
-
-/// Chief's avatar in the Home row (``ChiefAvatarArtwork``), re-read when the
-/// profile changes. Its own view so a profile change re-renders only it.
-private struct SidebarChiefHomeAvatar: View {
-    let diameter: CGFloat
-
-    @Environment(\.colorScheme) private var colorScheme
-    /// Read on appear and on each profile change (not per render).
-    @State private var kind: ChiefAvatarArtwork.Kind?
-
-    var body: some View {
-        Image(nsImage: ChiefAvatarArtwork.image(kind ?? .chief, diameter: diameter, isDark: colorScheme == .dark))
-            .resizable()
-            .interpolation(.high)
-            .aspectRatio(contentMode: .fill)
-            .frame(width: diameter, height: diameter)
-            .clipShape(Circle())
-            .accessibilityHidden(true)
-            .onAppear { kind = ChiefAvatarArtwork.current() }
-            .onReceive(NotificationCenter.default.publisher(for: ChiefProfile.didChange)) { _ in
-                kind = ChiefAvatarArtwork.current()
-            }
     }
 }
 

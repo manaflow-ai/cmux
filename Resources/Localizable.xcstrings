@@ -669120,6 +669120,20 @@
           }
         }
       }
+    },
+    "sidebar.home.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Home" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Startseite" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Accueil" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "الصفحة الرئيسية" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Inicio" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "首頁" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "首页" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "홈" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ホーム" } }
+      }
     }
   },
   "version": "1.0"

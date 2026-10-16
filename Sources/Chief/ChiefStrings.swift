@@ -6,6 +6,11 @@ import Foundation
 enum ChiefStrings {
     // MARK: Names
 
+    /// The persistent Home destination in cmux's left sidebar.
+    static var home: String {
+        String(localized: "sidebar.home.title", defaultValue: "Home")
+    }
+
     /// The Chief's name: a new conversation's Chief and an untitled row's title.
     /// A proper name, never translated (cmux-next keeps "Chief" in every locale).
     static let chiefName = "Chief"

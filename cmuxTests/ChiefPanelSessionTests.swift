@@ -1,3 +1,5 @@
+import AppKit
+import Bonsplit
 import CmuxHomeCore
 import CmuxWorkspaces
 import Foundation
@@ -12,6 +14,53 @@ import Testing
 /// Chief as a workspace pane: session round trip, wire tokens, and Home not being persisted.
 @MainActor
 @Suite struct ChiefPanelSessionTests {
+    @Test func aHomeDragResolvesToItsConversationAndRetiresAfterDrop() throws {
+        let registry = TabDragTransferRegistry()
+        let conversation = ConversationID("conv_drag_test")
+        let payload = ChiefPaneDragPayload(conversationID: conversation)
+        let registration = try #require(payload.register(with: registry))
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name(
+            "ChiefPanelSessionTests.\(UUID().uuidString)"
+        ))
+        pasteboard.clearContents()
+        defer {
+            registry.end(registration)
+            pasteboard.clearContents()
+        }
+        #expect(registration.write(to: pasteboard))
+
+        let resolver = PaneTransferSourceResolver(
+            vaultSessionRegistry: { nil },
+            tabTransferRegistry: { registry },
+            filePreview: { _ in nil },
+            surfaceResource: { _ in nil },
+            surfaceIsLive: { _ in false },
+            workspaceMerge: { _ in nil }
+        )
+        let transfer = try #require(resolver.transfer(from: pasteboard))
+        #expect(resolver.source(for: transfer) == .chiefConversation(conversation))
+        resolver.finish(.chiefConversation(conversation), id: transfer.tabId)
+        #expect(resolver.source(for: transfer) == nil)
+    }
+
+    @Test func droppingAChiefConversationCreatesOnePaneAndReusesIt() throws {
+        let workspace = Workspace()
+        defer { for panel in workspace.panels.values { panel.close() } }
+        let pane = try #require(workspace.bonsplitController.focusedPaneId)
+        let conversation = ConversationID("conv_drop_test")
+        #expect(workspace.performChiefConversationDrop(
+            conversation,
+            destination: .insert(targetPane: pane, targetIndex: nil)
+        ))
+        let first = try #require(workspace.panels.values.compactMap { $0 as? ChiefPanel }.first)
+        #expect(first.conversationID == conversation)
+        #expect(workspace.performChiefConversationDrop(
+            conversation,
+            destination: .split(targetPane: pane, orientation: .horizontal, insertFirst: false)
+        ))
+        #expect(workspace.panels.values.compactMap { $0 as? ChiefPanel }.count == 1)
+    }
+
     @Test func chiefPaneRestoresItsConversation() throws {
         let workspace = Workspace()
         defer { for panel in workspace.panels.values { panel.close() } }

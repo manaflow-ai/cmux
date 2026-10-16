@@ -12108,6 +12108,7 @@ struct VerticalTabsSidebar: View, Equatable {
                         isSelected: isChiefHomeSelected,
                         settings: tabItemSettings,
                         globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
+                        conversationID: chiefHome?.selected,
                         onSelect: { selection = selection == .home ? .tabs : .home },
                         onNewConversation: chiefHome.map { home -> () -> Void in { home.newConversation() } }
                     )
