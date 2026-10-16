@@ -34,6 +34,7 @@ export const gatewayOptions = (ctx: DurableObjectState, env: Env, now: () => Bra
     hooks: {
       event: (e) => live.event(e),
       usage: (run, u) => addUsage(ctx.storage.sql, run, u),
+      region: (run, region) => void ctx.storage.sql.exec(`INSERT INTO cb_marks (turn, mark, at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, run, `region:${region}`, Date.now()),
       notice: async (conversation, text) => {
         const { agent, owner } = now().config
         if (agent && owner) await postText(env, chiefPrincipal(agent, owner), conversation, text, `credits-notice:${agent}:${conversation}:${new Date().toISOString().slice(0, 13)}`)
