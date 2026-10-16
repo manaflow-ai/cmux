@@ -128,13 +128,14 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
         expect(measured.locationInCard).toBe(0);
       });
 
+  // New Tab's card draws a condensed strip of its own (24 px, newtab/screen.css; new-tab-top-area),
+  // so only the chat composer's states are compared here.
   test("the strip is as tall with no project, with a project and while the host loads", async () => {
     const heights: Record<string, number> = {};
     for (const [entry, variant] of [
       ["agent-pane.composer-strip", "no-project"],
       ["agent-pane.composer-strip", "project"],
       ["agent-pane.composer-strip", "host-loading"],
-      ["agent-pane.new-tab", "empty"],
     ] as const) {
       const page = await open(entry, variant, 720);
       await page.locator(".acpmux-composer-strip").waitFor();

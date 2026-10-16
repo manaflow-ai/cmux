@@ -98,6 +98,7 @@
     "key.groupSelectedWorkspaces": ["shift+cmd+g"],
     "key.hideFind": ["opt+shift+cmd+f"],
     "key.hints.show": ["cmd+j f"],
+    "key.home.switchView": ["ctrl+opt+cmd+h"],
     "key.increaseWorkspaceTerminalFontSize": ["cmd+="],
     "key.inspectBrowserElement": ["opt+cmd+c"],
     "key.jumpToLastPrompt": ["ctrl+cmd+b"],

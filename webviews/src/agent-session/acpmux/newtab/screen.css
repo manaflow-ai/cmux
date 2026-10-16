@@ -1,6 +1,6 @@
 /* The new tab screen, variant B (plans/cmux-next/new-tab.md). Quiet: the theme's text tones over the shared page background, the composer's fill and edge (none under appearance.borders = none), the theme's red for a dropped chat; the theme accent only marks focus and the selected row. */
-.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:clamp(40px,14vh,140px) max(16px,calc((100% - 720px)/2)) 24px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
-/* A short pane gives the card's location strip (30px) back from the space above the card, so the
+.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:clamp(20px,7vh,72px) max(16px,calc((100% - 720px)/2)) 24px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
+/* A short pane gives the card's location strip (24px) back from the space above the card, so the
    All chats list keeps its room and stays the page's only scroller (new-tab-scroll). */
 @media (max-height:480px){.nt-screen{padding-top:12px}}
 .nt-screen>*{width:100%}
@@ -101,6 +101,21 @@
   );
   background: linear-gradient(var(--nt-box-fill), var(--nt-box-fill)),
     var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
+}
+/* The strip on New Tab is condensed (op-next-toolbar): 24px tall in caption type, its controls
+   20px, so the folder / host / branch line reads as a label on the card, not a second toolbar.
+   The chat composer's strip keeps composerLocation.css's 30px. */
+.nt-composer .acpmux-composer-strip {
+  --acpmux-strip-height: 24px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+.nt-composer .acpmux-composer-context { gap: 4px; padding: 0 2px; }
+.nt-composer .acpmux-location-button,
+.nt-composer .acpmux-location-readonly {
+  height: 20px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
 }
 .nt-composer:has(.nt-box:hover:not(:focus-within)) .acpmux-composer-strip {
   --nt-box-lift: 100%;
