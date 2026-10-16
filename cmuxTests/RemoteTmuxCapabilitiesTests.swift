@@ -24,6 +24,7 @@ import Testing
             "remote.tmux.state",
             "remote.tmux.attach_progress",
             "remote.tmux.mirror",
+            "remote.tmux.new",
             "remote.tmux.window",
         ].allSatisfy { advertisedMethods.contains($0) })
     }
