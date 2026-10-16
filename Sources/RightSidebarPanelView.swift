@@ -30,7 +30,7 @@ enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock, .machines, .customSidebar:
+        case .sessions, .feed, .dock, .machines, .snippets, .customSidebar:
             return false
         }
     }
@@ -460,9 +460,9 @@ struct RightSidebarPanelView: View {
                         sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexStore.currentDirectory)
                     }
             case .feed:
-                FeedPanelView(
-                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor
-                )
+                FeedPanelView(chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor)
+            case .snippets:
+                EmptyView()
             case .dock:
                 dockPanel(windowAppearance: windowAppearance)
             case .machines:

@@ -2459,6 +2459,7 @@ enum CmuxEmbeddedConfigSchema {
               "switchRightSidebarToFeed",
               "switchRightSidebarToDock",
               "switchRightSidebarToMachines",
+              "switchRightSidebarToSnippets",
               "triggerFlash",
               "nextSurface",
               "prevSurface",

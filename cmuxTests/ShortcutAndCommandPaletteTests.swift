@@ -1315,7 +1315,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         .switchRightSidebarToSessions,
         .switchRightSidebarToFeed,
         .switchRightSidebarToDock,
-        .switchRightSidebarToMachines,
+        .switchRightSidebarToMachines, .switchRightSidebarToSnippets,
     ]
     /// The digit defaults are positional over the visible tabs, so the
     /// expectations below pin every remaining mode gate on and clear any tab
@@ -1426,7 +1426,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
     }
 
     /// Hiding Feed and the standard Dock tab leaves Cloud as the 4th visible
-    /// tab, so ctrl+4 must select it.
+    /// tab and Snippets as the 5th, so ctrl+4 and ctrl+5 must select them.
     func testModeShortcutDigitsFollowVisibleTabPositions() {
         CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag)
         UserDefaults.standard.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
@@ -1436,8 +1436,8 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "4", modifiers: [.control], keyCode: 21)),
             .machines
         )
-        XCTAssertNil(
-            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "5", modifiers: [.control], keyCode: 23))
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "5", modifiers: [.control], keyCode: 23)), .snippets
         )
     }
 

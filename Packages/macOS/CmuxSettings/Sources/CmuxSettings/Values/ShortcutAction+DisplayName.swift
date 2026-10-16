@@ -47,6 +47,7 @@ extension ShortcutAction {
         case .switchRightSidebarToFeed: return "Show Sidebar Feed"
         case .switchRightSidebarToDock: return "Show Sidebar Dock"
         case .switchRightSidebarToMachines: return "Show Sidebar Cloud"
+        case .switchRightSidebarToSnippets: return "Show Sidebar Snippets"
         case .triggerFlash: return "Flash Focused Panel"
         case .nextSurface: return "Next Surface"
         case .prevSurface: return "Previous Surface"

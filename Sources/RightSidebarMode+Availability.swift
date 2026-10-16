@@ -19,6 +19,8 @@ extension RightSidebarMode {
             return .machines
         case "devices", "device", "macs":
             return .machines
+        case "snippets":
+            return .snippets
         case "custom", "custom-sidebar":
             return .customSidebar
         default:
@@ -105,6 +107,8 @@ extension RightSidebarMode {
             return true
         case .machines:
             return machinesEnabled
+        case .snippets:
+            return true
         case .customSidebar:
             // Available once the custom-sidebars beta is on AND a right-side
             // sidebar has been picked (right_sidebar set custom <name>); the

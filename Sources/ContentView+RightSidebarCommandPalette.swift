@@ -180,6 +180,8 @@ extension ContentView {
             return "palette.showRightSidebarDock"
         case .machines:
             return "palette.showRightSidebarMachines"
+        case .snippets:
+            return "palette.showRightSidebarSnippets"
         case .customSidebar:
             return "palette.showRightSidebarCustomSidebar"
         }
@@ -206,7 +208,7 @@ extension ContentView {
             return "palette.openVaultPane"
         case .machines:
             return "palette.openCloudPane"
-        case .feed, .dock, .customSidebar:
+        case .feed, .dock, .snippets, .customSidebar:
             return nil
         }
     }
@@ -221,7 +223,7 @@ extension ContentView {
             return String(localized: "command.openVaultPane.title", defaultValue: "Open Vault as Pane")
         case .machines:
             return String(localized: "command.openCloudPane.title", defaultValue: "Open Cloud as Pane")
-        case .feed, .dock, .customSidebar:
+        case .feed, .dock, .snippets, .customSidebar:
             return nil
         }
     }

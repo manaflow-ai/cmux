@@ -2449,6 +2449,7 @@
               "switchRightSidebarToFeed",
               "switchRightSidebarToDock",
               "switchRightSidebarToMachines",
+              "switchRightSidebarToSnippets",
               "triggerFlash",
               "nextSurface",
               "prevSurface",

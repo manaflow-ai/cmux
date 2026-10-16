@@ -29,20 +29,11 @@ final class MainWindowFocusController {
         case focused(mode: RightSidebarMode, target: RightSidebarFocusTarget)
 
         var mode: RightSidebarMode? {
-            switch self {
-            case .inactive:
-                return nil
-            case .requested(let request):
-                return request.mode
-            case .focused(let mode, _):
-                return mode
-            }
+            switch self { case .inactive: nil; case .requested(let r): r.mode; case .focused(let m, _): m }
         }
 
         var request: RightSidebarFocusRequest? {
-            if case .requested(let request) = self {
-                return request
-            }
+            if case .requested(let request) = self { return request }
             return nil
         }
     }
@@ -57,6 +48,7 @@ final class MainWindowFocusController {
     private weak var fileSearchHost: FileExplorerContainerView?
     private weak var feedHost: FeedKeyboardFocusView?
     private weak var dockHost: DockKeyboardFocusView?
+    private weak var snippetsHost: SnippetsKeyboardFocusView?
 
     private(set) var intent: MainWindowKeyboardFocusIntent? {
         didSet {
@@ -127,7 +119,7 @@ final class MainWindowFocusController {
             fileExplorerHost = host
         case .find:
             fileSearchHost = host
-        case .sessions, .feed, .dock, .machines, .customSidebar:
+        case .sessions, .feed, .dock, .machines, .snippets, .customSidebar:
             break
         }
         focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
@@ -142,6 +134,11 @@ final class MainWindowFocusController {
     func registerDockHost(_ host: DockKeyboardFocusView) {
         dockHost = host
         focusRegisteredRightSidebarEndpointIfNeeded(mode: .dock)
+    }
+
+    func registerSnippetsHost(_ host: SnippetsKeyboardFocusView) {
+        snippetsHost = host
+        focusRegisteredRightSidebarEndpointIfNeeded(mode: .snippets)
     }
 
     func noteRightSidebarInteraction(mode: RightSidebarMode) {
@@ -239,6 +236,9 @@ final class MainWindowFocusController {
             return true
         }
         if dockHost?.ownsKeyboardFocus(responder) == true {
+            return true
+        }
+        if snippetsHost?.ownsKeyboardFocus(responder) == true {
             return true
         }
         return false
@@ -749,9 +749,7 @@ final class MainWindowFocusController {
             return .searchField
         case .sessions, .machines, .customSidebar:
             return .host
-        case .feed:
-            return focusFirstItem ? .firstItem : .host
-        case .dock:
+        case .feed, .dock, .snippets:
             return focusFirstItem ? .firstItem : .host
         }
     }
@@ -765,20 +763,19 @@ final class MainWindowFocusController {
             return fileExplorerHost?.focusOutline() == true
         case .find:
             return fileSearchHost?.focusSearchField() == true
-        case .sessions, .customSidebar:
-            return mode == .customSidebar ? focusFallbackRightSidebarHost() : false
-        case .machines:
+        case .sessions:
+            return false
+        case .machines, .customSidebar:
             return focusFallbackRightSidebarHost()
         case .feed:
-            if target == .firstItem {
-                feedHost?.focusFirstItemFromCoordinator()
-            }
+            if target == .firstItem { feedHost?.focusFirstItemFromCoordinator() }
             return feedHost?.focusHostFromCoordinator() == true
         case .dock:
-            if target == .firstItem {
-                dockHost?.focusFirstItemFromCoordinator()
-            }
+            if target == .firstItem { dockHost?.focusFirstItemFromCoordinator() }
             return dockHost?.focusHostFromCoordinator() == true
+        case .snippets:
+            if target == .firstItem { snippetsHost?.focusFirstItemFromCoordinator() }
+            return snippetsHost?.focusHostFromCoordinator() == true
         }
     }
 
@@ -842,6 +839,9 @@ final class MainWindowFocusController {
         }
         if dockHost?.ownsKeyboardFocus(responder) == true {
             return .dock
+        }
+        if snippetsHost?.ownsKeyboardFocus(responder) == true {
+            return .snippets
         }
         return nil
     }

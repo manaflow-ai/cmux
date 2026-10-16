@@ -118,6 +118,7 @@ enum KeyboardShortcutSettings {
         case switchRightSidebarToFeed
         case switchRightSidebarToDock
         case switchRightSidebarToMachines
+        case switchRightSidebarToSnippets
         case triggerFlash
         // Navigation
         case nextSurface
@@ -277,6 +278,7 @@ enum KeyboardShortcutSettings {
             case .switchRightSidebarToFeed: return String(localized: "shortcut.switchRightSidebarToFeed.label", defaultValue: "Show Sidebar Feed")
             case .switchRightSidebarToDock: return String(localized: "shortcut.switchRightSidebarToDock.label", defaultValue: "Show Sidebar Dock")
             case .switchRightSidebarToMachines: return String(localized: "shortcut.switchRightSidebarToMachines.label", defaultValue: "Show Sidebar Cloud")
+            case .switchRightSidebarToSnippets: return String(localized: "shortcut.switchRightSidebarToSnippets.label", defaultValue: "Show Sidebar Snippets")
             case .triggerFlash: return String(localized: "shortcut.flashFocusedPanel.label", defaultValue: "Flash Focused Panel")
             case .nextSurface: return String(localized: "shortcut.nextSurface.label", defaultValue: "Next Surface")
             case .prevSurface: return String(localized: "shortcut.previousSurface.label", defaultValue: "Previous Surface")
@@ -486,18 +488,12 @@ enum KeyboardShortcutSettings {
                 return .unbound
             case .focusRightSidebar:
                 return StoredShortcut(key: "e", command: true, shift: true, option: false, control: false)
-            case .switchRightSidebarToFiles:
-                return KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(for: .files)
-            case .switchRightSidebarToFind:
-                return KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(for: .find)
-            case .switchRightSidebarToSessions:
-                return KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(for: .sessions)
-            case .switchRightSidebarToFeed:
-                return KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(for: .feed)
-            case .switchRightSidebarToDock:
-                return KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(for: .dock)
-            case .switchRightSidebarToMachines:
-                return KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(for: .machines)
+            case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions,
+                 .switchRightSidebarToFeed, .switchRightSidebarToDock, .switchRightSidebarToMachines,
+                 .switchRightSidebarToSnippets:
+                return KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(
+                    for: RightSidebarMode.allCases.first { $0.shortcutAction == self } ?? .files
+                )
             case .triggerFlash:
                 return StoredShortcut(key: "h", command: true, shift: true, option: false, control: false)
             case .nextSidebarTab:
