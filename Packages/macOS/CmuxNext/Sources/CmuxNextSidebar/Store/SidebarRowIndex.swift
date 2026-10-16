@@ -29,6 +29,8 @@ nonisolated struct SidebarRowIndex: Sendable {
                     for (m, ws) in group.workspaces.enumerated() {
                         paths[ws.id, default: []].append(Path(section: s, node: n, member: m))
                     }
+                case .item:
+                    continue
                 }
             }
         }
@@ -40,6 +42,7 @@ nonisolated struct SidebarRowIndex: Sendable {
         switch sections[path.section].nodes[path.node] {
         case let .workspace(ws): ws
         case let .group(group): group.workspaces[path.member ?? 0]
+        case let .item(item): SidebarWorkspace(id: WorkspaceID(item.id), title: item.title) // never indexed: no path names an item row
         }
     }
 
@@ -50,6 +53,8 @@ nonisolated struct SidebarRowIndex: Sendable {
         case var .group(group):
             group.workspaces[path.member ?? 0] = row
             sections[path.section].nodes[path.node] = .group(group)
+        case .item:
+            break
         }
     }
 
@@ -74,6 +79,8 @@ nonisolated struct SidebarRowIndex: Sendable {
                     guard group.workspaces.contains(where: { changed[$0.id] != nil }) else { continue }
                     group.workspaces = group.workspaces.map(patched)
                     result[s].nodes[n] = .group(group)
+                case .item:
+                    continue
                 }
             }
         }
@@ -88,6 +95,10 @@ extension SidebarListView {
     /// unread total, and its tab rows) is configured again. Only a row whose
     /// height changes reloads the layout; nothing rebuilds the sections.
     func patchRows(_ patched: [SidebarWorkspace]) {
+        // A drag, its settle or its landing runs: the rows keep their look until the card is gone (`SidebarRowHold`).
+        if holdsRowPatches { return holdRowPatches(patched) }
+        // Rows still held after the hold ended (its card went without a landing): they apply with these.
+        if !rowHold.isEmpty { return releaseRowHold(adding: patched) }
         SidebarPerfCounters.add(.rowPatches, patched.count)
         // A height change lays the list out again (outside the timed patch: `reload` times itself);
         // provisional rows swap in place, as on any reload (`SidebarView.animatesReload`).

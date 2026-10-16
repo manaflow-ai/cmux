@@ -13,21 +13,30 @@ public struct WorkspaceOrdering {
         let moved = Set(moving)
         let remaining = sections.flatMap(\.workspaces).map(\.id).filter { !moved.contains($0) }
         guard let section = sections.first(where: { $0.id == position.section }) else { return nil }
-        let siblings: [[SidebarWorkspaceID]]
+        let containers: [[SidebarWorkspaceID]]
         if let groupID = position.group {
             guard let group = section.nodes.lazy.compactMap({ node -> SidebarGroup? in
                 if case let .group(group) = node, group.id == groupID { return group }
                 return nil
             }).first else { return nil }
-            siblings = group.workspaces.map { [$0.id] }
+            // A group's index counts its member rows (`SidebarGroup.members`): a link, tab or app item keeps its
+            // slot (no workspace), a moved workspace leaves its own.
+            containers = group.members.compactMap { member in
+                guard case let .workspace(workspace) = member else { return [] }
+                return moved.contains(workspace.id) ? nil : [workspace.id]
+            }
         } else {
-            siblings = section.nodes.map { $0.workspaces.map(\.id) }
+            // Top-level slots count every node (as `SidebarRow.siblingIndex` does): an item or a group with no
+            // workspace keeps its slot; only a moved loose workspace leaves its own.
+            containers = section.nodes.compactMap { node in
+                if case let .workspace(workspace) = node, moved.contains(workspace.id) { return nil }
+                return node.workspaces.map(\.id).filter { !moved.contains($0) }
+            }
         }
-        let containers = siblings.map { $0.filter { !moved.contains($0) } }.filter { !$0.isEmpty }
-        if containers.indices.contains(position.index), let anchor = containers[position.index].first {
+        if position.index >= 0, let anchor = containers.dropFirst(position.index).first(where: { !$0.isEmpty })?.first {
             return remaining.firstIndex(of: anchor) ?? remaining.count
         }
-        if let last = containers.last?.last, let index = remaining.firstIndex(of: last) {
+        if let last = containers.last(where: { !$0.isEmpty })?.last, let index = remaining.firstIndex(of: last) {
             return index + 1
         }
         // Empty container: before the section's first remaining workspace.

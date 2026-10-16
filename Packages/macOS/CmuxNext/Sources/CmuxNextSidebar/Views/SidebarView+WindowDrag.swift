@@ -41,6 +41,7 @@ extension SidebarListView {
         switch drag.payload {
         case let .workspaces(ids): members = ids
         case let .group(group): members = model.group(group)?.workspaces.map(\.id) ?? []
+        case .item: members = [] // a link row stays in the sidebar
         }
         guard !members.isEmpty else { return false }
         let lift = drag.lift.frame

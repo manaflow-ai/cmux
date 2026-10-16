@@ -217,7 +217,8 @@ final class SidebarBridge {
         var sections = seed.merge(live, launching: launching, failed: failed)
         // After the merge, so a reconnecting machine's saved rows stand in first (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
-        model.ungroupedFirst = !usesMixedOrder
+        model.docDrag = SidebarDocWiring.docMachines(services.machines).drag() // the sidebar document's drag half, nil keeps the older resolver
+        model.ungroupedFirst = model.docDrag == nil && !usesMixedOrder
         if model.layout != layout { model.layout = layout }
         rows.show(sections, creating: (creating, NewWorkspacePlacements.home(services.machines)))
         selectionHold.flush()
@@ -264,9 +265,9 @@ final class SidebarBridge {
                                      selection: window.selection, newTabPages: newTabPages, muted: muted, top: top, pageFace: pageFace,
                                      tabTitle: tabTitle, rows: rows)
         if let creations { sections = CloudCreationRows.adding(creations.shown(in: window.id), to: sections) }
-        if machines.local.store.isProvisional { sections = SidebarSeed.stale(sections) }
+        if machines.local.store.isProvisional { sections = SidebarRowSection.stale(sections) }
         // Debug Settings: sample rows with 1 to 7 pending items, to compare the row badges.
-        if SidebarTunables.rowBadgePreview.value { sections += SidebarSection.rowBadgePreview() }
+        if SidebarTunables.rowBadgePreview.value { sections += SidebarRowSection.rowBadgePreview() }
         let failed = Set(machines.cloud.filter { $0.daemon.startup.isUnavailable }.map { MachineID($0.daemon.machineID) })
         return (sections, isLaunching(machines.local, registry: registry), failed)
     }

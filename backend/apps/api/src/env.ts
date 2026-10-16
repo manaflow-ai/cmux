@@ -61,6 +61,8 @@ export interface Env {
   readonly HAND_RELEASE_BASE?: string
   /** Secret: the hands-only Freestyle key (hand-sandbox.ts is its only reader). Never logged. */
   readonly HAND_FREESTYLE_API_KEY?: string
+  /** The mac-hand classifier's model (hand-classify.ts; default claude-haiku-5-5, else the route's model). */
+  readonly HAND_CLASSIFIER_MODEL?: string
   /** Most live sandbox hands one owner may have (default 3). */
   readonly HAND_SANDBOX_MAX?: string
   /** Freestyle snapshot (slug) for Chief sandboxes with a hand (hand-sandbox.ts); baked by scripts/bake-hand-sandbox.ts; unset: no sandbox creation. */

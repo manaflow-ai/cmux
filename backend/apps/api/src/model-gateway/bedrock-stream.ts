@@ -103,10 +103,13 @@ const marksOf = (v: unknown): Array<Block> => {
 const markCache = (out: Record<string, unknown>, ttl: string): void => {
   const first = (out.messages as Array<Msg>).find((m) => m.role === "user")
   const blocks = Array.isArray(first?.content) ? first.content : []
-  // [frozen view blocks..., "</chat>" block, delta blocks...] (OptChat 5a): the mark goes on the
-  // frozen view's end, which stays byte-identical until the next re-render; the request's end mark
-  // (the client's) reads the previous turn's entry by look-back.
-  const prefix = blocks.find((b) => b.type === "text" && typeof b.text === "string" && b.text.endsWith("</chat>"))
+  // [frozen view blocks..., "</chat>" block, delta blocks...] (OptChat 5a). Bedrock reads an entry
+  // only at a mark (measured on staging: no look-back), so the extra mark goes where the previous
+  // turn's request ended: its newest user block, the second to last user block of the delta. With
+  // no earlier user block (the turn after a re-render), it goes on the frozen view's end.
+  const end = blocks.findIndex((b) => b.type === "text" && typeof b.text === "string" && b.text.endsWith("</chat>"))
+  const users = end < 0 ? [] : blocks.slice(end + 1).filter((b) => b.type === "text" && /^\d+\+1\|user: /.test(b.text ?? ""))
+  const prefix = users.length >= 2 ? users[users.length - 2] : end >= 0 ? blocks[end] : undefined
   const marks = marksOf([out.system, out.tools, out.messages])
   if (prefix && prefix.type === "text" && prefix.cache_control === undefined && marks.length < MAX_MARKS) marks.push(Object.assign(prefix, { cache_control: { type: "ephemeral" } }))
   else if (prefix && prefix.cache_control === undefined) console.warn(JSON.stringify({ msg: "bedrock_body.view_mark_skipped", marks: marks.length }))
