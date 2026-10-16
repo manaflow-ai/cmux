@@ -54,6 +54,21 @@ while read -r meta_id meta_run; do
     echo "pending artifact $meta_id has no pending.json" >&2
     exit 1
   fi
+  # An accepted submission's metadata may be re-stored by a later run and
+  # names the original bundle run. If that bundle is confirmed gone, skip this
+  # stale candidate; an API error must fail closed so it cannot cause a
+  # duplicate Apple submission.
+  bundle_run="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1])).get("bundle_run") or sys.argv[2])' "$output/pending.json" "$meta_run")"
+  if ! bundles="$(gh api "repos/$repo/actions/runs/$bundle_run/artifacts?name=cmux-nightly-identity-pending-bundle" \
+      --jq '[.artifacts[] | select(.expired == false)] | length')"; then
+    echo "could not validate pending bundle for run $bundle_run" >&2
+    exit 1
+  fi
+  if [ "$bundles" = 0 ]; then
+    echo "skipping pending artifact $meta_id: bundle of run $bundle_run is gone" >&2
+    rm -f "$output/pending.json" "$output/meta.zip"
+    continue
+  fi
   printf 'pending_meta=%s\n' "$output/pending.json"
   printf 'pending_run=%s\n' "$meta_run"
   exit 0

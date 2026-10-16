@@ -68,47 +68,26 @@ on:
           - github
           - warp
           - r2
-      notary_test_without_password_import:
-        description: nightly-next only. One diagnostic notary submission (cx-f58x) of a build with the browser password-import readers compiled out (CMUX_NO_PASSWORD_IMPORT). Notarizes even with NIGHTLY_NEXT_NOTARY_PAUSED=1 and publishes nothing.
+      diagnostic:
+        description: "nightly-next diagnostic mode: off, one notary probe, or continue the newest accepted build. Use cookies, safe-storage, history or registry for the corresponding import bisect."
         required: false
-        default: false
-        type: boolean
-      notary_test_without_browser_data_import:
-        description: nightly-next only. Like notary_test_without_password_import, and also compiles out every read of another browser's files or Keychain items (CMUX_NO_BROWSER_DATA_IMPORT) and ships an empty browser-sources.json. One app notary submission (plus the Computer Use helper's), nothing published.
-        required: false
-        default: false
-        type: boolean
-      notary_test_import_part:
-        description: nightly-next only. cx-f58x notary bisect. One diagnostic notary submission of a build with exactly this one browser-import part compiled out (cookies = CMUX_NO_COOKIE_IMPORT, safe-storage = CMUX_NO_SAFE_STORAGE_READ, history = CMUX_NO_HISTORY_IMPORT, registry = empty browser-sources.json). Every other import part stays in. Nothing is published.
-        required: false
-        default: none
+        default: off
         type: choice
         options:
-          - none
+          - off
+          - passwords
+          - browser-data
           - cookies
           - safe-storage
           - history
           - registry
-      notary_probe_production_identity:
-        description: nightly-next only. One app notary submission (plus the Computer Use helper's) of this build as the production identity (com.cmuxterm.app, cmux.release.entitlements, release profile) with the browser-data import compiled out. There is no Sparkle key or feed, no DMG or app artifact, and no recovery artifact. Only text receipts are uploaded and nothing is published.
-        required: false
-        default: false
-        type: boolean
-      nightly_next_continue_only:
-        description: nightly-next only. Build nothing and submit nothing to Apple. Continue the newest earlier nightly-next build whose notarization Apple has since Accepted, and publish it through the normal guarded publication.
-        required: false
-        default: false
-        type: boolean
-      promote_nightly_next_sha:
-        description: Main only. Move branch nightly-next to this green feat-cmux-next commit (40 hex) and build nothing in this run; the push run on nightly-next publishes it.
+          - production-identity
+          - continue
+      promote_nightly_next:
+        description: Main only. Move nightly-next to this green feat-cmux-next SHA (40 lowercase hex). Append :debounce to skip promotion when a recent nightly-next build started.
         required: false
         default: ''
         type: string
-      promote_nightly_next_debounce:
-        description: Skip the promotion when a nightly-next build started within NIGHTLY_NEXT_MIN_INTERVAL_HOURS (set by the automatic request).
-        required: false
-        default: false
-        type: boolean
       probe_target_sha:
         description: Full SHA that directly changes a workflow file for the scratch-tag probe.
         required: false
@@ -140,7 +119,7 @@ concurrency:
   # Keep scheduled and manually requested cache seeds in different groups. A
   # scheduled tick may replace an older scheduled tick, but must never cancel
   # an explicit manual refresh that happens to be running at the same time.
-  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && format('continue-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import || inputs.notary_probe_production_identity || (inputs.notary_test_import_part || 'none') != 'none') && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'continue' && format('continue-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.diagnostic == 'passwords' || inputs.diagnostic == 'browser-data' || inputs.diagnostic == 'production-identity' || contains(fromJSON('["cookies","safe-storage","history","registry"]'), inputs.diagnostic)) && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   cancel-in-progress: false
 
 permissions: {}
@@ -184,7 +163,7 @@ jobs:
       contents: write
       attestations: write
       id-token: write
-    if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
+    if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next == '')
     # This gate only resolves the fixed revision and publication decision.
     # Keep its default on the hosted runner so a busy paid Linux pool cannot
     # delay every nightly before the macOS work is admitted; retain the normal
@@ -279,11 +258,11 @@ jobs:
           # run still publishes an earlier build Apple accepted, because it
           # submits nothing.
           NIGHTLY_NEXT_SUBMISSIONS_PAUSED: ${{ vars.NIGHTLY_NEXT_SUBMISSIONS_PAUSED || '' }}
-          NOTARY_TEST_PASSWORDS: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_without_password_import && 'true' || 'false' }}
-          NOTARY_TEST_BROWSER_DATA: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_without_browser_data_import && 'true' || 'false' }}
-          NOTARY_IMPORT_PART: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_test_import_part || 'none' }}
-          NOTARY_PROBE: ${{ github.event_name == 'workflow_dispatch' && inputs.notary_probe_production_identity && 'true' || 'false' }}
-          CONTINUE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && 'true' || 'false' }}
+          NOTARY_TEST_PASSWORDS: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'passwords' && 'true' || 'false' }}
+          NOTARY_TEST_BROWSER_DATA: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'browser-data' && 'true' || 'false' }}
+          NOTARY_IMPORT_PART: ${{ github.event_name == 'workflow_dispatch' && contains(fromJSON('["cookies","safe-storage","history","registry"]'), inputs.diagnostic) && inputs.diagnostic || 'none' }}
+          NOTARY_PROBE: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'production-identity' && 'true' || 'false' }}
+          CONTINUE_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'continue' && 'true' || 'false' }}
         with:
           script: |
             const forceBuild = process.env.FORCE_BUILD === 'true';
@@ -733,7 +712,7 @@ jobs:
   # a cmux-next.yml push run on feat-cmux-next for that exact SHA whose
   # "cmux-next Release compile (Xcode 26)" job passed.
   promote-nightly-next:
-    if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
+    if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
@@ -758,8 +737,8 @@ jobs:
       - name: Move nightly-next
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          REQUESTED_SHA: ${{ inputs.promote_nightly_next_sha }}
-          DEBOUNCE: ${{ inputs.promote_nightly_next_debounce && 'true' || 'false' }}
+          PROMOTION_REQUEST: ${{ inputs.promote_nightly_next }}
+          DEBOUNCE: ${{ contains(inputs.promote_nightly_next, ':debounce') && 'true' || 'false' }}
           MIN_INTERVAL_HOURS: ${{ vars.NIGHTLY_NEXT_MIN_INTERVAL_HOURS || '2' }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
         with:
@@ -768,7 +747,8 @@ jobs:
             const source = 'feat-cmux-next';
             const target = 'nightly-next';
             const requiredJob = 'cmux-next Release compile (Xcode 26)';
-            const sha = (process.env.REQUESTED_SHA || '').trim();
+            const request = (process.env.PROMOTION_REQUEST || '').trim();
+            const sha = request.split(':', 1)[0];
             if (!/^[0-9a-f]{40}$/.test(sha)) {
               core.setFailed(`promote_nightly_next_sha must be 40 lowercase hex characters, got ${sha}`);
               return;
@@ -3927,34 +3907,21 @@ jobs:
           # fork's) is continued (never resubmitted): under 6 hours always, up to
           # 48 hours while the cmux NEXT feed has no newer build.
           pending_args=()
-          # Newest first; the first candidate whose run is this repository's
-          # nightly.yml run on nightly-next wins, so a foreign or unreadable
-          # artifact never hides a valid pending submission.
-          candidates="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=cmux-nightly-identity-pending-meta&per_page=20" \
-            --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "nightly-next" and .workflow_run.head_repository_id == .workflow_run.repository_id)] | sort_by(.created_at) | reverse | .[] | "\(.id) \(.workflow_run.id)"' || true)"
-          for candidate in $(tr ' ' ':' <<<"$candidates"); do
-            meta_id="${candidate%%:*}" meta_run="${candidate##*:}"
-            origin="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$meta_run" --jq '"\(.path) \(.event)"' 2>/dev/null || true)"
-            case "$origin" in
-              ".github/workflows/nightly.yml push"|".github/workflows/nightly.yml workflow_dispatch") ;;
-              *) echo "::warning::skipping pending artifact $meta_id of run $meta_run ($origin)"; continue ;;
-            esac
-            rm -rf pending && mkdir -p pending
-            if gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$meta_id/zip" > pending/meta.zip && unzip -o -q pending/meta.zip -d pending && [ -f pending/pending.json ]; then
-              # An accepted submission's metadata is re-stored by later runs and
-              # names the original bundle run. A meta whose bundle is confirmed
-              # gone (expired or deleted) is skipped; an API error keeps it.
-              bundle_run="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1])).get("bundle_run") or sys.argv[2])' pending/pending.json "$meta_run")"
-              if bundles="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$bundle_run/artifacts?name=cmux-nightly-identity-pending-bundle" --jq '[.artifacts[] | select(.expired == false)] | length')" \
-                 && [ "$bundles" = 0 ]; then
-                echo "::warning::skipping pending artifact $meta_id of run $meta_run: the bundle of run $bundle_run is gone"
-                continue
-              fi
-              pending_args=(--pending-meta pending/pending.json --pending-run "$meta_run" --now "$(date +%s)")
-              break
-            fi
-            echo "::warning::could not read pending artifact $meta_id of run $meta_run; trying an older one"
-          done
+          # A failed artifact lookup must stop this target job. Starting a new
+          # submission after an API error could discard a valid submission that
+          # Apple is still processing. The helper prints empty outputs only
+          # after a successful search proves that no pending artifact exists.
+          if ! pending_info="$(./scripts/ci/nightly-next-legacy-pending.sh "$GITHUB_REPOSITORY" pending)"; then
+            echo "::warning::could not safely inspect pending cmux NIGHTLY-identity submissions; deferring this run"
+            { echo "action=none"; echo "pending_run="; echo "bundle_run="; echo "build="; } >> "$GITHUB_OUTPUT"
+            echo "### cmux NIGHTLY-identity: pending lookup failed; no new submission started (cx-x7hwx)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          pending_meta="$(sed -n 's/^pending_meta=//p' <<<"$pending_info")"
+          pending_run="$(sed -n 's/^pending_run=//p' <<<"$pending_info")"
+          if [ -n "$pending_meta" ]; then
+            pending_args=(--pending-meta "$pending_meta" --pending-run "$pending_run" --now "$(date +%s)")
+          fi
           # Only real failures count (comments "Build N failed:" on the failure
           # issue): Apple refused the copy, or a check, the smoke or the
           # publication failed. A submission still in Apple's queue never counts.

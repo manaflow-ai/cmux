@@ -1071,6 +1071,65 @@ if [ "$(orphan 0)" != retired ] || ! grep -q 'artifacts/4242' "$legacy_dir/gh.lo
   echo "FAIL: a pending metadata artifact whose bundle is confirmed gone must be retired"
   exit 1
 fi
+# Pending-artifact discovery fails closed: an Actions API error must not be
+# treated as an empty result and trigger a duplicate Apple submission.
+pending_gh_dir="$legacy_dir/pending-gh"
+pending_fixture="$legacy_dir/pending-fixture"
+mkdir -p "$pending_gh_dir" "$pending_fixture"
+printf '{"build":"3850073942601","submission_id":"fixture-id","submitted_epoch":1800000000}\n' > "$pending_fixture/pending.json"
+(cd "$pending_fixture" && zip -q "$legacy_dir/pending.zip" pending.json)
+cat > "$pending_gh_dir/gh" <<'GH'
+#!/usr/bin/env bash
+set -euo pipefail
+case "$*" in
+  *"actions/artifacts?name=cmux-nightly-identity-pending-meta"*)
+    if [ "${PENDING_GH_MODE:-}" = list-error ]; then exit 1; fi
+    if [ "${PENDING_GH_MODE:-}" = empty ]; then exit 0; fi
+    echo '99 123'
+    ;;
+  *"actions/runs/123"*"artifacts?name=cmux-nightly-identity-pending-bundle"*)
+    if [ "${PENDING_GH_MODE:-}" = bundle-error ]; then exit 1; fi
+    if [ "${PENDING_GH_MODE:-}" = bundle-gone ]; then echo 0; else echo 1; fi
+    ;;
+  *"actions/runs/123"*)
+    if [ "${PENDING_GH_MODE:-}" = origin-error ]; then exit 1; fi
+    echo '.github/workflows/nightly.yml push nightly-next manaflow-ai/cmux'
+    ;;
+  *"actions/artifacts/99/zip"*) cat "$PENDING_ZIP" ;;
+  *) exit 1 ;;
+esac
+GH
+chmod +x "$pending_gh_dir/gh"
+pending_lookup() {
+  rm -rf "$legacy_dir/pending-out"
+  PATH="$pending_gh_dir:$PATH" PENDING_GH_MODE="$1" PENDING_ZIP="$legacy_dir/pending.zip" \
+    bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-pending.sh" manaflow-ai/cmux "$legacy_dir/pending-out"
+}
+if pending_lookup list-error >"$legacy_dir/pending-error.out" 2>/dev/null; then
+  echo "FAIL: pending artifact API errors must stop discovery"
+  exit 1
+fi
+if pending_lookup origin-error >"$legacy_dir/pending-error.out" 2>/dev/null; then
+  echo "FAIL: pending run validation API errors must stop discovery"
+  exit 1
+fi
+if pending_lookup bundle-error >"$legacy_dir/pending-error.out" 2>/dev/null; then
+  echo "FAIL: pending bundle validation API errors must stop discovery"
+  exit 1
+fi
+if [ "$(pending_lookup empty | tr '\n' ' ')" != "pending_meta= pending_run= " ]; then
+  echo "FAIL: a successful empty pending-artifact search must return no candidate"
+  exit 1
+fi
+pending_result="$(pending_lookup valid)"
+if ! grep -Fxq "pending_run=123" <<<"$pending_result" || ! test -f "$legacy_dir/pending-out/pending.json"; then
+  echo "FAIL: a valid pending-artifact search must return and unpack its candidate"
+  exit 1
+fi
+if [ "$(pending_lookup bundle-gone | tr '\n' ' ')" != "pending_meta= pending_run= " ]; then
+  echo "FAIL: a pending artifact whose bundle is gone must be skipped"
+  exit 1
+fi
 # The failure issue is found with GitHub search and an exact title match, not a
 # one-page listing of open issues (it may be past the first 100 open issues
 # and pull requests); a failed search is an error, never "no issue".
@@ -1218,12 +1277,11 @@ for expected in \
   fi
 done
 for expected in \
+  'scripts/ci/nightly-next-legacy-pending.sh "$GITHUB_REPOSITORY" pending' \
+  "pending lookup failed; no new submission started" \
   "scripts/ci/nightly-next-legacy-target.py next.xml old.xml" \
   "--max-pending-hours 6 --max-same-build-hours 48" \
-  '.workflow_run.head_branch == "nightly-next" and .workflow_run.head_repository_id == .workflow_run.repository_id' \
-  "for candidate in" \
   "--failure-log failures.txt --max-failures 2" \
-  "the bundle of run \$bundle_run is gone" \
   "REQUIRED: \${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}" \
   "scripts/ci/nightly-next-legacy-requirement.sh" \
   "requirement in use: required: " \

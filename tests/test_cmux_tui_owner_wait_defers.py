@@ -335,8 +335,10 @@ def main():
     result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1", FAKE_OWNER_STATUS="completed")
     _check(result.returncode == 0 and "unmarked=false" in out, f"a marked tree is not flagged ({out.strip()!r})")
 
-    _check({"macos-cross-shadow", "macos-cross-runtime-x86_64"} <= set(job("notify-unpublished-tree")["needs"]),
-           "the hand-off runs after the jobs that keep the owner in progress")
+    # Compare-only cross-compile jobs must stay out of this hand-off's needs:
+    # waiting for them would turn shadows into publication dependents.
+    _check(not {"macos-cross-shadow", "macos-cross-runtime-x86_64"} & set(job("notify-unpublished-tree")["needs"]),
+           "the hand-off does not wait for compare-only shadow jobs")
     _check(int(job("tree-owner-wait")["timeout-minutes"]) <= 10, "the owner check holds a runner for at most 10 minutes")
 
     promote = job("request-nightly-next")
