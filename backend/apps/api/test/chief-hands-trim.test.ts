@@ -96,11 +96,17 @@ describe("Chief hands tools by hand", { timeout: 120_000 }, () => {
     let replies: Array<any> = []
     for (let i = 0; i < 200 && replies.length < 2; i++) [(replies = (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)), await fireAlarm(conv), await new Promise((r) => setTimeout(r, 25))]
     expect(replies.length).toBe(2)
-    expect(replies[1].parts[0].text, "the turn failed").toContain("tool said")
-    const second = turnTools("marker-two")
-    expect(second.length, "the tool call took no second request").toBeGreaterThanOrEqual(2)
-    expect(new Set(second.map((t) => JSON.stringify(t))).size, `the tools changed inside the turn: ${JSON.stringify(second)}`).toBe(1)
-    expect(second[0]!.map((t) => t.name)).not.toContain("agent")
+    expect(replies[1].parts[0].text, "the turn failed").not.toContain("could not reach the model")
+    // The pi turn that found the hand kept one tools list; the run's one continuation has the full tools.
+    const calls = fakeCalls.filter((c) => c.kind === "turn" && c.tools.length > 0 && c.firstUser.join("\n").includes("marker-two"))
+    const inTurn = calls.filter((c) => !c.laterUsers.join("\n").includes("Your new hand is ready")).map((c) => JSON.stringify(c.tools))
+    const continued = calls.filter((c) => c.laterUsers.join("\n").includes("Your new hand is ready"))
+    expect(inTurn.length, "the tool call took no second request").toBeGreaterThanOrEqual(2)
+    expect(new Set(inTurn).size, `the tools changed inside the turn: ${JSON.stringify(inTurn)}`).toBe(1)
+    expect(inTurn[0]).not.toContain('"agent"')
+    expect(continued.length, "no continuation").toBeGreaterThanOrEqual(1)
+    expect(continued[0]!.tools.map((t) => t.name)).toEqual(expect.arrayContaining(["hands", "agent"]))
+    expect((await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, token)).json.value.runs).toHaveLength(2)
 
     // The next turn has the full tools from its first request.
     await dmAndReply(token, chief, "SIGNED marker-three", 3)
