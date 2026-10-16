@@ -14,6 +14,13 @@ if [ "$(uname -s)" != Darwin ]; then
   echo "SKIP: the real keychain import test needs macOS"
   exit 0
 fi
+# The tool replaces the user keychain search list while the test runs. Run it
+# only on a CI runner (or with an explicit opt-in), never by accident on a
+# developer Mac whose login keychain a killed run would leave out of the list.
+if [ "${GITHUB_ACTIONS:-}" != true ] && [ "${CMUX_SIGNING_KEYCHAIN_REAL_TEST:-}" != 1 ]; then
+  echo "SKIP: set CMUX_SIGNING_KEYCHAIN_REAL_TEST=1 to run the real keychain test outside CI"
+  exit 0
+fi
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TOOL="$ROOT_DIR/scripts/ci/signing-keychain.sh"
@@ -27,7 +34,7 @@ SAVED_LIST=()
 while IFS= read -r line; do
   line="${line#"${line%%[![:space:]]*}"}"
   line="${line%\"}"; line="${line#\"}"
-  [ -n "$line" ] && SAVED_LIST+=("$line")
+  if [ -n "$line" ]; then SAVED_LIST+=("$line"); fi
 done < <(security list-keychains -d user)
 
 cleanup() {
@@ -58,7 +65,8 @@ keyUsage = critical,digitalSignature
 extendedKeyUsage = critical,codeSigning
 CNF
 "$OPENSSL" req -x509 -newkey rsa:2048 -nodes -days 1 \
-  -config "$TMP_DIR/req.cnf" -keyout "$TMP_DIR/key.pem" -out "$TMP_DIR/cert.pem" >/dev/null 2>&1
+  -config "$TMP_DIR/req.cnf" -keyout "$TMP_DIR/key.pem" -out "$TMP_DIR/cert.pem" >/dev/null \
+  || fail "openssl could not make the throwaway identity"
 PASSWORD="$("$OPENSSL" rand -hex 16)"
 p12_args=(-export -inkey "$TMP_DIR/key.pem" -in "$TMP_DIR/cert.pem" -out "$TMP_DIR/identity.p12"
   -passout "pass:$PASSWORD" -name "$SUBJECT" -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1)

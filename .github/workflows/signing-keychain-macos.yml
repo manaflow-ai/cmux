@@ -4,7 +4,10 @@ name: Signing keychain (macOS)
 # self-signed identity, so it needs no secret and no environment, and it runs
 # on a fresh macOS runner for every change to the keychain tool.
 on:
+  # Pull requests cover branches; push runs only for main, so a PR commit
+  # does not run twice.
   push:
+    branches: [main]
     paths:
       - scripts/ci/signing-keychain.sh
       - scripts/ci/lib/signing-runtime-guard.sh
