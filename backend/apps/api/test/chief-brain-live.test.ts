@@ -132,6 +132,11 @@ describe("Live Chief frames on the conversation socket", { timeout: 120_000 }, (
     expect(liveStep.text + after.map((f) => f.text).join("")).toBe(text)
     expect(liveRun.activity?.line).toBeTypeOf("string")
 
+    // Order (cx-zz30r): the final delta, then the run's end, then the reply message.
+    const replyAt = early.frames.findIndex((f) => f.t === "event" && JSON.stringify(f).includes(reply.id))
+    const endAt = early.frames.findIndex((f) => f.t === "conversation-run-changed" && f.run.id === d[0].run && f.run.status !== "running")
+    expect(early.frames.indexOf(d.at(-1))).toBeLessThan(endAt)
+    expect(endAt).toBeLessThan(replyAt)
     // After the run: nothing is live; the run's talk step holds the text.
     await drive(conversation, `${chief.id}/${conversation}`, () => early.frames.some((f) => f.t === "conversation-run-changed" && f.run.id === d[0].run && f.run.status !== "running"), "the run end")
     early.ws.send(JSON.stringify({ t: "run.live.get", conversation }))

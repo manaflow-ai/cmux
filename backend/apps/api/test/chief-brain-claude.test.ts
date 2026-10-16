@@ -183,6 +183,8 @@ describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }
     expect(route.refreshes()).toBeGreaterThanOrEqual(1)
     const run = await http("GET", `/v1/chiefs/${chief.id}/runs/${reply.parts[1].session}?conversation=${chief.main_conversation}`, token)
     expect(run.json.value.run.model).toBe("fake")
+    // The fallback's reason is on the run (a note step), not only in the Worker log.
+    expect(run.json.value.steps.find((s: { id: string }) => s.id === "note:model")?.text).toContain("claude-opus-5-5: auth_failed")
     expect(logs).toContain("claude-david auth failed")
     for (const body of [...logs, run.text, JSON.stringify(reply)]) expect(body).not.toContain(REFRESH)
   })
