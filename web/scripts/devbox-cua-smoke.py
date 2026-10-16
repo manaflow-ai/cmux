@@ -13,6 +13,7 @@ import json
 import os
 import pathlib
 import queue
+import re
 import signal
 import struct
 import subprocess
@@ -110,6 +111,34 @@ def registrations(home):
     }
 
 
+def native_clients():
+    """Have the real agent hosts load the saved server and its tool schemas."""
+    claude = subprocess.run(
+        ["claude", "--bare", "mcp", "get", "cua-computer-use"],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert claude.returncode == 0 and re.search(r"Status:.*Connected", claude.stdout), claude.stdout + claude.stderr
+    codex = McpClient(["codex", "app-server"])
+    try:
+        codex.request("initialize", {"clientInfo": {"name": "cmux-cua-image-probe", "version": "1"}})
+        codex.send({"method": "initialized"})
+        status = codex.request("mcpServerStatus/list", {"detail": "full"})
+        server = next(item for item in status["data"] if item["name"] == "cua-driver")
+        tools = {tool["name"] for tool in server["tools"].values()}
+        assert {"get_desktop_state", "click", "type_text", "press_key"} <= tools, server
+    finally:
+        codex.close()
+    # The model-plane launcher needs the create-time authenticated network.
+    # The actual OpenCode MCP client needs no model account or inference call.
+    opencode = subprocess.run(
+        ["/usr/local/libexec/cmux-opencode-real", "mcp", "list"],
+        capture_output=True, text=True, timeout=60,
+    )
+    health = re.sub(r"\x1b\[[0-9;]*m", "", opencode.stdout).lower()
+    assert opencode.returncode == 0 and "cua-driver" in health and re.search(r"\bconnected\b", health), opencode.stdout + opencode.stderr
+    print("CUA_NATIVE_CLIENTS_PASS claude codex opencode", flush=True)
+
+
 def run(output):
     assert os.getuid() != 0, "the probe must run as the desktop user"
     assert os.environ.get("DISPLAY") == ":1", "login shell did not inherit the desktop"
@@ -143,6 +172,7 @@ autocomplete="off" autofocus></form><script>fetch('/ready')</script>'''
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     commands = registrations(pathlib.Path.home())
+    native_clients()
     report = {}
     with tempfile.TemporaryDirectory(prefix="cmux-cua-chrome-") as profile:
         browser = subprocess.Popen([
