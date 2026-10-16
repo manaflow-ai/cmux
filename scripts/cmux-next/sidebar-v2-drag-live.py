@@ -331,10 +331,11 @@ try:
         # Focused rerun: the spacing edit, its Cmd-Z and redo (the toasts the full run has just before), then the step.
         def gap():
             return next((s for s in window().get("layout_sections", []) if s.get("id") == "sec_pinned"), {}).get("gap")
-        for _ in range(opts.repeat):
-            toast(perform="sidebar.section.setGap", target_kind="sidebar-section", target_id="sec_pinned", arguments={"gap": 12})
-            wait(lambda: gap() == 12 or None, 5)
-            undo("spacing goes to the document", lambda: gap() is None)
+        for run in range(opts.repeat):
+            value, was = (12, None) if run == 0 else (16, 12) if run % 2 else (12, 16)
+            toast(perform="sidebar.section.setGap", target_kind="sidebar-section", target_id="sec_pinned", arguments={"gap": value})
+            wait(lambda: gap() == value or None, 5)
+            undo("spacing goes to the document", lambda: gap() == was)
             remove_from_sidebar()
             toast(perform="sidebar.item.removeEverywhere", target_kind="sidebar-item", target_id=next(iter(marked()), {}).get("id", ""))
             wait(lambda: not marked() or None, 5)
