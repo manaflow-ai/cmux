@@ -453,10 +453,31 @@ class FailureIssueTests(unittest.TestCase):
         self.OUTPUTS = {"decide": self.OUTPUTS["decide"], "publish-nightly": {"tag_status": "", "already_published": "true"}}
         self.assertEqual(self.publication("recovered", **outcome), (False, False))
 
+    def test_an_already_published_own_build_neither_reports_nor_closes(self):
+        outcome = {"republish-nightly-deltas": "skipped", "sign-release-notes": "skipped",
+                   "publish-release-notes": "skipped"}
+        self.OUTPUTS = {"decide": self.OUTPUTS["decide"],
+                        "publish-nightly": {"tag_status": "", "already_published": "true"}}
+        self.assertEqual(self.publication("own", **outcome), (False, False))
+        for result in ("failure", "cancelled"):
+            with self.subTest(result=result):
+                self.assertEqual(self.publication("own", **dict(outcome, **{"build-nightly-app": result})),
+                                 (True, False))
+        self.OUTPUTS["publish-nightly"]["tag_status"] = "stale"
+        self.assertEqual(self.publication("own", **outcome), (True, False))
 
-def run_recheck(build: int, next_builds: tuple, legacy_builds: tuple = (), classic_builds: tuple = ()):
-    """Run the real recheck step against local copies of the three feeds."""
-    script = step(workflow()["jobs"]["publish-nightly"], "Recheck the recovered build against both feeds")["run"]
+
+def run_recheck(build: int, next_builds: tuple, legacy_builds: tuple = (), classic_builds: tuple = (),
+                *, source: str = "recovered", track: str = "nightly-next"):
+    """Apply the workflow gate, then run its real recheck against local feeds.
+
+    A local publication marker stands in for the later mutable feed writes;
+    it must remain absent when the locked recheck refuses an older build.
+    """
+    recheck = step(workflow()["jobs"]["publish-nightly"], "Recheck the recovered build against both feeds")
+    condition = recheck["if"].replace("steps.source.outputs.source", repr(source))
+    condition = condition.replace("needs.decide.outputs.track", repr(track)).replace("||", "or")
+    script = recheck["run"] if eval(condition, {"__builtins__": {}}, {}) else ":"
     with tempfile.TemporaryDirectory() as temp:
         work = Path(temp)
         for name, builds in (("next", next_builds), ("legacy", legacy_builds), ("classic", classic_builds)):
@@ -476,6 +497,10 @@ def run_recheck(build: int, next_builds: tuple, legacy_builds: tuple = (), class
         )
         result = subprocess.run(["bash", "-c", script], cwd=ROOT, env=env, capture_output=True, text=True)
         result.output = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)  # type: ignore[attr-defined]
+        publication = work / "published-build"
+        if result.returncode == 0 and result.output.get("already_published") != "true":
+            publication.write_text(str(build))
+        result.published_build = publication.read_text() if publication.exists() else None  # type: ignore[attr-defined]
         return result
 
 
@@ -484,6 +509,36 @@ class RecheckTests(unittest.TestCase):
     continuation 38689412336). The second one finds its build already on the
     feed: that ends its publication as a no-op, not as a failure, while a build
     below the feed still fails."""
+
+    def test_an_older_own_build_cannot_publish_after_a_newer_run(self):
+        # Own build 49801 passed its early version check, then spent time in
+        # signing/notarization while another run published build 49901.
+        for feeds in (((49901,), (), ()), ((), (49901,), ()), ((), (), (49901,))):
+            with self.subTest(feeds=feeds):
+                result = run_recheck(49801, *feeds, source="own")
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIsNone(result.published_build)
+
+    def test_an_own_build_above_every_feed_can_publish(self):
+        result = run_recheck(49801, (49701,), (49601,), (49501,), source="own")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.published_build, "49801")
+
+    def test_an_own_build_already_published_by_another_run_writes_nothing(self):
+        result = run_recheck(49801, (49801,), source="own")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.output.get("already_published"), "true")
+        self.assertIsNone(result.published_build)
+
+    def test_classic_own_publication_keeps_its_existing_routing(self):
+        result = run_recheck(49801, (49901,), source="own", track="nightly")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.published_build, "49801")
+
+    def test_classic_recovered_publication_keeps_its_floor_check(self):
+        result = run_recheck(49801, (49901,), track="nightly")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIsNone(result.published_build)
 
     def test_a_build_above_every_feed_publishes(self):
         result = run_recheck(49801, (49701,), (49601,), (49501,))
@@ -516,6 +571,21 @@ class RecheckTests(unittest.TestCase):
         outputs = {"decide": {"should_publish": "true", "track": "nightly-next"},
                    "publish-nightly": {"source": "recovered", "already_published": "true"}}
         self.assertFalse(job_runs("republish-nightly-deltas", outcome, outputs))
+
+    def test_an_already_published_own_build_publishes_no_release_notes(self):
+        for name in ("sign-release-notes", "publish-release-notes"):
+            with self.subTest(job=name):
+                outcome = dict.fromkeys(workflow()["jobs"][name]["needs"], "success")
+                outputs = {"decide": {"should_publish": "true", "track": "nightly-next"},
+                           "publish-nightly": {"source": "own", "already_published": "true"}}
+                self.assertFalse(job_runs(name, outcome, outputs))
+                outputs["publish-nightly"]["already_published"] = ""
+                self.assertTrue(job_runs(name, outcome, outputs))
+
+    def test_the_recheck_holds_the_release_tag_publication_lock(self):
+        lock = workflow()["jobs"]["publish-nightly"]["concurrency"]
+        self.assertEqual(lock["group"], "release-publish-${{ needs.decide.outputs.release_tag }}")
+        self.assertFalse(lock["cancel-in-progress"])
 
 
 def run_continue_step(notary: str) -> subprocess.CompletedProcess[str]:
