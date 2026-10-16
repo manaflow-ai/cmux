@@ -860,6 +860,9 @@ final class SessionIndexStore: ObservableObject {
         /// user/assistant lines seen in the head window. Only an exact
         /// message count when the head window covered the whole file.
         var headMessageLines: Int = 0
+        /// The first-prompt label, kept apart from `title` so a later
+        /// `custom-title` record can either replace it or clear back to it.
+        var promptTitle: String = ""
         /// Whether the tail window held a `custom-title` line. When it did
         /// not and the head was capped, a newer name may sit between the
         /// two windows.
@@ -1020,6 +1023,7 @@ final class SessionIndexStore: ObservableObject {
         // again on every rename, so the last one seen is the current name. A
         // name outranks the first prompt, which is all `/login` or a
         // continuation preamble would otherwise show. An empty name clears it.
+        out.promptTitle = out.title
         if let latestCustomTitle, !latestCustomTitle.isEmpty {
             out.title = latestCustomTitle
         }
@@ -1031,14 +1035,19 @@ final class SessionIndexStore: ObservableObject {
     }
 
     /// How far back from the end of a transcript the between-windows scan
-    /// for a `custom-title` line looks. Bounds the cost for the few
-    /// transcripts that run to hundreds of megabytes.
+    /// for a `custom-title` line looks. The scan reruns whenever a capped
+    /// transcript changes, which an active session does on every turn, so it
+    /// is bounded rather than reading the few transcripts that run to hundreds
+    /// of megabytes in full. A name followed by more than this much activity
+    /// falls back to the first prompt, the label every session had before.
     nonisolated static let customTitleScanByteCap = 16 * 1024 * 1024
 
     /// The latest `custom-title` line in the last `customTitleScanByteCap`
     /// bytes of a transcript, for a session named between the head and tail
     /// windows. Searches the mapped file backwards for the record marker, so
     /// a name near the end costs one short scan; nil when there is none.
+    /// Every lookup stays inside the window, so a line that starts before it
+    /// cannot pull the rest of the file in.
     nonisolated static func lastClaudeCustomTitle(url: URL) -> String? {
         guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return nil }
         let marker = Data("\"custom-title\"".utf8)
@@ -1046,8 +1055,16 @@ final class SessionIndexStore: ObservableObject {
         var searchEnd = data.endIndex
         while searchEnd > scanStart,
               let hit = data.range(of: marker, options: .backwards, in: scanStart..<searchEnd) {
-            let lineStart = data[data.startIndex..<hit.lowerBound].lastIndex(of: 0x0a)
-                .map { $0 + 1 } ?? data.startIndex
+            let lineStart: Data.Index
+            if let newline = data[scanStart..<hit.lowerBound].lastIndex(of: 0x0a) {
+                lineStart = newline + 1
+            } else if scanStart == data.startIndex {
+                lineStart = data.startIndex
+            } else {
+                // The line began before the window: a partial record, and
+                // nothing earlier is in reach.
+                return nil
+            }
             let lineEnd = data[hit.upperBound...].firstIndex(of: 0x0a) ?? data.endIndex
             if let object = try? JSONSerialization.jsonObject(with: data[lineStart..<lineEnd]) as? [String: Any],
                let name = claudeCustomTitle(from: object) {
@@ -1838,10 +1855,12 @@ final class SessionIndexStore: ObservableObject {
                     if let cwdFilter, parsed.cwd != cwdFilter { return (idx, nil, false) }
                     // A session named a few turns in and then used for a while
                     // keeps its name between the two windows; the mtime cache
-                    // makes this one scan per change to the file.
+                    // makes this one scan per change to the file. That record
+                    // is newer than anything in the head, so it sets the name
+                    // or, when empty, clears it back to the first prompt.
                     if !parsed.tailSawCustomTitle, head.utf8.count >= headByteCap,
                        let name = lastClaudeCustomTitle(url: candidate.url) {
-                        parsed.title = name.isEmpty ? parsed.title : name
+                        parsed.title = name.isEmpty ? parsed.promptTitle : name
                     }
                     let sid = candidate.url.deletingPathExtension().lastPathComponent
                     // The head window is the whole file only when it came back
