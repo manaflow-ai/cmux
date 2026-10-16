@@ -14,6 +14,11 @@ final class RemoteTmuxControlPipeWriter {
     private let onFailure: @MainActor @Sendable () -> Void
     private var closed = false
     private var pendingBytes = 0
+    #if DEBUG
+    /// Called on the write queue after each write returns, so a test can wait for the pipe to
+    /// take its bytes instead of guessing how long that takes.
+    var writeFinishedForTesting: (@Sendable () -> Void)?
+    #endif
 
     init(
         handle: FileHandle,
@@ -35,6 +40,9 @@ final class RemoteTmuxControlPipeWriter {
         }
         pendingBytes += data.count
 
+        #if DEBUG
+        let writeFinished = writeFinishedForTesting
+        #endif
         queue.async { [weak self, handle, data] in
             var didFail = false
             do {
@@ -42,6 +50,9 @@ final class RemoteTmuxControlPipeWriter {
             } catch {
                 didFail = true
             }
+            #if DEBUG
+            writeFinished?()
+            #endif
             Task { @MainActor [weak self] in
                 self?.finishWrite(byteCount: data.count, didFail: didFail)
             }
