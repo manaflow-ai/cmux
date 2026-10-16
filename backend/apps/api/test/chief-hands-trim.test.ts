@@ -137,6 +137,18 @@ describe("Chief hands tools by hand", { timeout: 120_000 }, () => {
     expect(turnTools("turn four")[0]!.map((t) => t.name)).toEqual(expect.arrayContaining(["hands", "agent"]))
   })
 
+  it("a run whose first answer is a tool call only: first_token_at is that first output, before the tool step", async () => {
+    const { token, chief } = await ownerWithChief("hands-first-token")
+    await dmAndReply(token, chief, 'first-token tool:hands {"action":"list"}', 1)
+    const run = (await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, token)).json.value.runs[0]
+    const steps = (await http("GET", `/v1/chiefs/${chief.id}/runs/${run.id}?conversation=${chief.main_conversation}`, token)).json.value.steps as Array<any>
+    const tool = steps.find((st) => st.kind === "tool")
+    const talk = steps.find((st) => st.kind === "talk")
+    expect(run.timing.first_token_at, JSON.stringify(run.timing)).toBeLessThanOrEqual(tool.at)
+    expect(tool.ended_at).toBeGreaterThanOrEqual(tool.at)
+    expect(talk.ended_at).toBeGreaterThanOrEqual(tool.ended_at)
+  })
+
   it("one message makes a sandbox and starts an agent: one run, one reply, no 400 (the run continues once with the full tools)", async () => {
     const { token, chief } = await ownerWithChief("hands-one-msg")
     expect((await http("PUT", `/v1/hands/grants/${chief.id}`, token, { on: true })).status).toBe(200)
