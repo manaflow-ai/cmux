@@ -159,6 +159,7 @@ autocomplete="off" autofocus></form><script>fetch('/ready')</script>'''
             if self.path == "/ready":
                 ready.put(True)
             self.send_response(200)
+            self.send_header("Content-Type", "text/html" if self.path == "/" else "text/plain")
             self.end_headers()
             self.wfile.write(page if self.path == "/" else b"ok")
 
@@ -166,6 +167,7 @@ autocomplete="off" autofocus></form><script>fetch('/ready')</script>'''
             body = self.rfile.read(int(self.headers["Content-Length"]))
             submitted.put(urllib.parse.parse_qs(body.decode()).get("text", []))
             self.send_response(200)
+            self.send_header("Content-Type", "text/html")
             self.end_headers()
             self.wfile.write(page)
 
