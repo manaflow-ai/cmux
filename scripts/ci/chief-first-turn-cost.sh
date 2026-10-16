@@ -199,10 +199,12 @@ if rows:
     u = rows[0].get("turn_usage") or {}
     first = sum(u.get(k) or 0 for k in ("input", "cache_read", "cache_write"))
     requests = rows[0].get("chat_calls") or 1
-    # The provider's own usage of the first turn, per request.
-    print("FIRST-TURN-COST " + json.dumps({"limit": limit, "first_turn_tokens": first, "requests": requests, "source": "provider usage"}))
+    # The provider's own usage of the first turn, averaged over its requests
+    # (the driver records the turn's sum only; a later request may be larger).
+    print("FIRST-TURN-COST " + json.dumps({"limit": limit, "first_turn_tokens": first, "requests": requests,
+                                           "average_per_request": first // requests, "source": "provider usage"}))
     if first / requests > limit:
-        bad.append(f"the first turn read {first} input tokens over {requests} request(s), over the limit {limit}")
+        bad.append(f"the first turn averaged {first // requests} input tokens per request ({first} over {requests}), over the limit {limit}")
 warm = rows[1:]
 tot = {k: sum((r.get("turn_usage") or {}).get(k) or 0 for r in warm) for k in ("input", "cache_read", "cache_write")}
 den = sum(tot.values())
@@ -230,7 +232,10 @@ then
   status=1
 fi
 count_status=0
-python3 -I Native/OptChat/optchat-chief/measure/first_turn_cost.py count "$work/cap" --url "$count_url" --limit "$limit" || count_status=$?
+count_timeout=120
+# A route that is not ready: fall back to the estimate quickly.
+if [[ "$ready" != 200 ]]; then count_timeout=10; fi
+python3 -I Native/OptChat/optchat-chief/measure/first_turn_cost.py count "$work/cap" --url "$count_url" --limit "$limit" --timeout "$count_timeout" || count_status=$?
 if [[ "$count_status" == 3 || "$count_status" == 4 ]]; then
   echo "FIRST-TURN-COST router failure (exit $count_status); the turn's own status was $status" >&2
   exit "$count_status"

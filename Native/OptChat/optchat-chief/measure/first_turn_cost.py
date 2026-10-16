@@ -148,14 +148,33 @@ ESTIMATE_BYTES_PER_TOKEN = 3.2
 ESTIMATE_RULE = "ceil(bytes of the request JSON without defer_loading tools / 3.2)"
 
 
+def referenced(messages):
+    """Tool names a ToolSearch result loaded (tool_reference blocks): counted in full."""
+    names = set()
+    stack = [messages]
+    while stack:
+        v = stack.pop()
+        if isinstance(v, dict):
+            if v.get("type") == "tool_reference" and isinstance(v.get("tool_name"), str):
+                names.add(v["tool_name"])
+            stack.extend(v.values())
+        elif isinstance(v, list):
+            stack.extend(v)
+    return names
+
+
 def estimate(payload):
+    """None when the request has tools the bytes do not hold (mcp_servers): no safe estimate."""
+    if payload.get("mcp_servers"):
+        return None
     p = dict(payload)
     if p.get("tools"):
-        p["tools"] = [t for t in p["tools"] if not t.get("defer_loading")]
+        loaded = referenced(p.get("messages"))
+        p["tools"] = [t for t in p["tools"] if not t.get("defer_loading") or t.get("name") in loaded]
     return math.ceil(len(json.dumps(p).encode()) / ESTIMATE_BYTES_PER_TOKEN)
 
 
-def count(out, url, limit):
+def count(out, url, limit, timeout=120):
     rows = []
     for name, head, body in requests(out):
         req = json.loads(body)
@@ -169,12 +188,16 @@ def count(out, url, limit):
                                    headers=send, method="POST")
         source = "count_tokens"
         try:
-            with urllib.request.urlopen(r, timeout=120) as resp:
+            with urllib.request.urlopen(r, timeout=timeout) as resp:
                 tokens = json.load(resp)["input_tokens"]
         except urllib.error.HTTPError as e:
             tokens = estimate(payload)
             source = "estimate"
-            why = f"count_tokens {e.code}: {e.read()[:200].decode('utf-8', 'replace')}"
+            try:
+                detail = e.read()[:200].decode("utf-8", "replace")
+            except OSError as read_error:
+                detail = repr(read_error)
+            why = f"count_tokens {e.code}: {detail}"
             print(f"FIRST-TURN-COST WARNING {name}: {why}; using the local estimate {ESTIMATE_RULE} = {tokens}",
                   file=sys.stderr)
         except (urllib.error.URLError, TimeoutError, OSError, KeyError, ValueError) as e:
@@ -182,6 +205,10 @@ def count(out, url, limit):
             source = "estimate"
             print(f"FIRST-TURN-COST WARNING {name}: count_tokens failed ({e!r}); using the local estimate "
                   f"{ESTIMATE_RULE} = {tokens}", file=sys.stderr)
+        if tokens is None:
+            print(f"FIRST-TURN-COST FAIL: {name}: count_tokens failed and the request names mcp_servers, whose tools "
+                  "its bytes do not hold: no safe estimate", file=sys.stderr)
+            return 1
         names = [t.get("name", "") for t in req.get("tools") or []]
         rows.append({"request": name, "model": req.get("model"), "bytes": len(body), "tools": len(names),
                      "deferred_tools": sum(1 for t in req.get("tools") or [] if t.get("defer_loading")),
@@ -217,11 +244,12 @@ def main():
     c.add_argument("dir")
     c.add_argument("--url", required=True)
     c.add_argument("--limit", type=int, default=50000)
+    c.add_argument("--timeout", type=float, default=120, help="seconds per count_tokens call (short when the route is down)")
     a = ap.parse_args()
     if a.cmd == "proxy":
         proxy(a.dir)
     else:
-        sys.exit(count(a.dir, a.url, a.limit))
+        sys.exit(count(a.dir, a.url, a.limit, a.timeout))
 
 
 if __name__ == "__main__":
