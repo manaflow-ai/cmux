@@ -135,7 +135,7 @@ public final class SidebarModel {
     public var groupsByComputer = SidebarSectionsPreferences.defaults.groupsByComputer
     /// Whether actionable workspace states are projected ahead of idle rows.
     /// Manual order is retained for rows with the same priority.
-    public var priorityOrdering = false
+    public var priorityOrdering: Bool { DesignSettings.shared.attention.movesToTop }
     /// Machine sections list loose workspaces before groups (a daemon-backed
     /// sidebar: cmux-tui keeps no slot for one after a group), so a drag
     /// never offers a slot past the first group.

@@ -45,10 +45,7 @@ final class SidebarRows {
             shown.isCollapsed = fold.collapsed
             sections[s].nodes[n] = .group(shown)
         }
-        if model.priorityOrdering {
-            sections = SidebarPriority().reordered(sections)
-        }
-        model.setSections(sections)
+        model.setSections(model.priorityOrdering ? SidebarPriority().reordered(sections) : sections)
     }
 
     /// Row content of listed workspaces changed (`SidebarRowFeed`): written in place, or shown again when it moves rows.
