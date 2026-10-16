@@ -1,5 +1,8 @@
-import { InMemoryMailBroker, MailConflictError, MailFanoutError, MailUnknownParentError, createMail } from "../mail";
-import { test } from "bun:test";
+import { JsonlMailJournal, InMemoryMailBroker, MailConflictError, MailFanoutError, MailUnknownParentError, createMail } from "../mail";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, test } from "bun:test";
 
 test("mail broker append, threading, delivery, and fan-out", () => {
 const broker = new InMemoryMailBroker();
@@ -184,6 +187,32 @@ test("append stays idempotent when a retry reorders the recipients", () => {
     if (!(error instanceof MailConflictError)) throw error;
   }
   console.log("mail recipient-order assertions passed");
+});
+
+
+test("JSONL journal replays queued mail and delivery receipts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cmux-mail-journal-"));
+  const path = join(root, "mail.jsonl");
+  try {
+    const first = await JsonlMailJournal.open(path);
+    const appended = first.append({ id: "persisted", sender: "codex", recipients: ["review"], body: "check this" });
+    await first.flush();
+    const delivered = first.markDelivered(appended.envelope.id, "review");
+    await first.flush();
+    const second = await JsonlMailJournal.open(path);
+    const row = second.inbox("review")[0];
+    if (!row || row.envelope.body !== "check this" || row.delivery.state !== "delivered" || row.delivery.attempts !== delivered.attempts) throw new Error(`journal replay lost mail state: ${JSON.stringify(row)}`);
+    if (!second.append({ id: "persisted", sender: "codex", recipients: ["review"], body: "check this" }).duplicate) throw new Error("replayed append should remain idempotent");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("JSONL journal rejects malformed receipts with a line number", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cmux-mail-journal-invalid-"));
+  const path = join(root, "mail.jsonl");
+  try {
+    await writeFile(path, JSON.stringify({ kind: "delivery", receipt: { messageId: "m", recipient: "review", state: "delivered" } }) + "\n");
+    await expect(JsonlMailJournal.open(path)).rejects.toThrow("line 1");
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 export {};
