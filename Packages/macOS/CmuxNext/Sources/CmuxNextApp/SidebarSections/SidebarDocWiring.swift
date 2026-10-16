@@ -15,7 +15,8 @@ enum SidebarDocWiring {
     /// `daemon`'s sections in the document's order, or nil when the document is not shown.
     static func sections(of daemon: DaemonService, room: ProfileID, machines: MachineRegistry) -> [CmuxNextDaemon.SidebarSection]? {
         guard let shown = SidebarDocStore.current?.shown, let session = daemon.store.registryID else { return nil }
-        return docSections.sections(shown, session: session, workspaces: WindowProfiles.workspaces(of: daemon, in: room, machines: machines))
+        return docSections.sections(shown, session: session, workspaces: WindowProfiles.workspaces(of: daemon, in: room, machines: machines),
+                                    unplacedOrder: { PersonalSidebar.personalOrder($0, of: daemon, machines: machines) })
     }
 
     static func start(_ services: AppServices, layout: SidebarLayoutService) {
@@ -74,7 +75,9 @@ enum SidebarDocWiring {
     }
 
     /// Every workspace of `daemon` in the document's order (window membership order), whatever its room; nil off the document path.
-    static func orderedIDs(of daemon: DaemonService) -> [String]? { docSections.orderedIDs(of: daemon.store) }
+    static func orderedIDs(of daemon: DaemonService, machines: MachineRegistry) -> [String]? {
+        docSections.orderedIDs(of: daemon.store, unplacedOrder: { PersonalSidebar.personalOrder($0, of: daemon, machines: machines) })
+    }
 
     /// The document item that places sidebar workspace `id`.
     static func item(workspace id: String, _ machines: MachineRegistry) -> String? { docMachines(machines).item(workspace: id) }

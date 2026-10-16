@@ -100,9 +100,9 @@ public struct SidebarDocMachines {
 extension SidebarDocSections {
     /// Every workspace of `store` in the document's order (window membership order), whatever its room; nil off the
     /// document path.
-    public func orderedIDs(of store: DaemonStore) -> [String]? {
+    public func orderedIDs(of store: DaemonStore, unplacedOrder: ([WorkspaceModel]) -> [WorkspaceModel] = { $0 }) -> [String]? {
         guard let doc = SidebarDocStore.current, doc.isActive, let shown = doc.shown, let session = store.registryID else { return nil }
-        let listed = sections(shown, session: session, workspaces: store.workspaces).flatMap(\.workspaces).map(\.id)
+        let listed = sections(shown, session: session, workspaces: store.workspaces, unplacedOrder: unplacedOrder).flatMap(\.workspaces).map(\.id)
         let seen = Set(listed)
         return listed + store.workspaces.map(\.id).filter { !seen.contains($0) }
     }

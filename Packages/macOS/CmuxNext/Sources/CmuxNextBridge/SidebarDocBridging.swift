@@ -82,7 +82,11 @@ public final class SidebarDocSections {
     /// live workspace the document does not place yet follows last (its
     /// adopt is on the way); one placed in another section (Pinned, a
     /// custom section) lists only as a member of its group there.
-    public func sections(_ projection: SidebarDocProjection, session: String, workspaces: [WorkspaceModel]) -> [CmuxNextDaemon.SidebarSection] {
+    /// `unplacedOrder` orders those last rows (the App's personal order: a new
+    /// workspace keeps its press slot while its adopt is on the way); it runs
+    /// only when there are some.
+    public func sections(_ projection: SidebarDocProjection, session: String, workspaces: [WorkspaceModel],
+                         unplacedOrder: ([WorkspaceModel]) -> [WorkspaceModel] = { $0 }) -> [CmuxNextDaemon.SidebarSection] {
         let byResource = Dictionary(workspaces.compactMap { w in w.resourceID.map { ($0.rawValue, w) } }, uniquingKeysWith: { first, _ in first })
         var sections: [CmuxNextDaemon.SidebarSection] = []
         var loose: [WorkspaceModel] = []
@@ -119,7 +123,8 @@ public final class SidebarDocSections {
             sections.append(CmuxNextDaemon.SidebarSection(group: model(group), workspaces: members))
         }
         let placed = Set(projection.items.keys.filter { $0.sessionID == session }.map(\.workspaceID))
-        loose += workspaces.filter { w in !listed.contains(w.id) && !(w.resourceID.map { placed.contains($0.rawValue) } ?? false) }
+        let unplaced = workspaces.filter { w in !listed.contains(w.id) && !(w.resourceID.map { placed.contains($0.rawValue) } ?? false) }
+        if !unplaced.isEmpty { loose += unplacedOrder(unplaced) }
         flush()
         if sections.isEmpty { sections.append(CmuxNextDaemon.SidebarSection(group: nil, workspaces: [])) }
         return sections
