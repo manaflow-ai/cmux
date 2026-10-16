@@ -73,6 +73,21 @@ public final class ActiveTeam {
         case notMember
         /// Another switch is being saved.
         case switching
+        /// A call named a team that is not the active one.
+        case notActive
+    }
+
+    /// Why a call naming `requested` (nil or blank: the active team) may not act in it:
+    /// everything acts in the active team, and a managed device only in its managed team.
+    public func refusal(requesting requested: String?) -> Refusal? {
+        Self.refusal(requesting: requested, active: id, managed: managedTeamID)
+    }
+
+    nonisolated static func refusal(requesting requested: String?, active: String?, managed: String?) -> Refusal? {
+        let named = requested.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
+        if let managed, active != managed || (named != nil && named != managed) { return .managed }
+        if let named, named != active { return .notActive }
+        return nil
     }
 
     /// Makes `id` the active team: saved for the account first, so a refused

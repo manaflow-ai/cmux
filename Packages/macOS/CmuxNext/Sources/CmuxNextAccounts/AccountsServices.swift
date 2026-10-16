@@ -1,3 +1,4 @@
+public import CmuxNextCloud
 public import CmuxNextCodeRouter
 public import Foundation
 
@@ -15,12 +16,9 @@ public protocol AccountsServices: AnyObject {
     /// Starts the hosted cmux sign-in.
     func signInToCmux()
 
-    /// The account's teams and the active one; empty when signed out.
-    var teams: AccountsTeams { get }
-    /// Makes `id` the active team (everything team-scoped follows it).
-    func selectTeam(_ id: String) async throws
-    /// Re-reads the account's teams (one left or joined in the browser).
-    func refreshTeams() async
+    /// The team cmux works in while signed in (nil when signed out): the
+    /// screen lists its teams and switches through it.
+    var activeTeam: ActiveTeam? { get }
 
     /// The team's CodeRouter accounts this user may see.
     func linkedAccounts() async throws -> [LinkedAccount]

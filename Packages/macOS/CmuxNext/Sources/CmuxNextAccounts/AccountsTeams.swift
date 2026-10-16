@@ -1,30 +1,22 @@
-public import Foundation
+public import CMUXAuthCore
+public import CmuxNextCloud
+import Foundation
+import Observation
 
-/// The cmux account's teams as Settings > Accounts shows them. The active
-/// team is the one CodeRouter and every other team-scoped feature use; the
-/// App reads it from its one source (`ActiveTeam`), never picks one here.
-public struct AccountsTeams: Equatable, Sendable {
-    public struct Team: Equatable, Sendable {
-        public let id: String
-        public let name: String
+/// The demo account's teams for ``MockAccountsServices``: Personal (active) and Acme.
+@MainActor @Observable
+final class MockTeamSource: ActiveTeamSource {
+    var isAuthenticated = true
+    var availableTeams = [CMUXAuthTeam(id: "team-personal", displayName: "Personal"), CMUXAuthTeam(id: "team-acme", displayName: "Acme")]
+    var selectedTeamID: String? = "team-personal"
+    var failure: (any Error)?
 
-        public init(id: String, name: String) {
-            self.id = id
-            self.name = name
-        }
+    var resolvedTeamID: String? { selectedTeamID ?? availableTeams.first?.id }
+
+    func selectTeam(id: String?) async throws {
+        if let failure { throw failure }
+        selectedTeamID = id
     }
 
-    public var teams: [Team]
-    public var activeID: String?
-    /// The device is restricted to its organization's team: no switching.
-    public var isManaged: Bool
-    /// A switch is being saved.
-    public var isSwitching: Bool
-
-    public init(teams: [Team] = [], activeID: String? = nil, isManaged: Bool = false, isSwitching: Bool = false) {
-        self.teams = teams
-        self.activeID = activeID
-        self.isManaged = isManaged
-        self.isSwitching = isSwitching
-    }
+    func refreshTeams() async {}
 }

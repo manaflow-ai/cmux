@@ -66,11 +66,8 @@ extension CloudHandlers {
         bind("palette.auth.signOut", registry, reason: { cloud.isSignedIn ? nil : CloudStrings.signInFirst }) { _ in
             run("sign out", context) { await cloud.signOut() }
         }
-        // Switch Active Team: the same ActiveTeam.select as Settings > Accounts; what follows the
-        // team (machines, CodeRouter accounts, phone access) reacts in AppServices.startCloud.
         bind("openTeamPicker", registry, reason: { cloud.isSignedIn ? nil : CloudStrings.signInFirst }) { _ in
-            let active = cloud.auth.activeTeam
-            let teams = active.teams
+            let active = cloud.auth.activeTeam, teams = active.teams
             guard !teams.isEmpty else { throw ActionFailure(message: CloudStrings.noTeams) }
             CloudPresenter.choose(CloudStrings.teamPickerTitle, teams.map { ($0.displayName, $0.id) }, selected: active.id,
                                   in: window(context)) { id in

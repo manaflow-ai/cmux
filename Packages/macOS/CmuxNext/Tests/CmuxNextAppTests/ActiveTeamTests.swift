@@ -164,15 +164,16 @@ struct ActiveTeamTests {
         #expect(!teams.disabled)
         let action = try #require(AccountsPageAction(action: "selectTeam", provider: nil, account: nil, secret: nil, team: "team-acme"))
         await model.perform(action)
-        #expect(services.calls.contains("selectTeam:team-acme"))
+        #expect(services.activeTeam?.id == "team-acme")
         #expect(model.pageState.teams?.options.map(\.active) == [false, true])
     }
 
     @Test func accountsPageTeamsAreOffWhenManagedAndHiddenWhenSignedOut() throws {
         let services = MockAccountsServices()
-        services.teams.isManaged = true
+        services.activeTeam?.managedTeamID = "team-personal"
         let model = AccountsModel(services: services)
         let teams = try #require(model.pageState.teams)
+        #expect(teams.options.map(\.id) == ["team-personal"])
         #expect(teams.disabled)
         #expect(teams.note != nil)
         services.isSignedInToCmux = false
@@ -181,7 +182,7 @@ struct ActiveTeamTests {
 
     @Test func aFailedSwitchShowsOnThePage() async throws {
         let services = MockAccountsServices()
-        services.failure = SaveFailed()
+        services.teamFailure = SaveFailed()
         let model = AccountsModel(services: services)
         await model.selectTeam("team-acme")
         #expect(model.pageState.teams?.error != nil)
@@ -193,16 +194,16 @@ struct ActiveTeamTests {
         #expect(AccountsPageAction(action: "selectTeam", provider: nil, account: nil, secret: nil, team: "") == nil)
     }
 
-    // MARK: coderouter.* over the socket
+    // MARK: coderouter.* over the socket (AppControl.passthrough)
 
-    @Test func coderouterCallsActOnlyInTheActiveTeam() {
-        #expect(AppControl.teamRefusal(requested: nil, active: "a", managed: nil) == nil)
-        #expect(AppControl.teamRefusal(requested: " ", active: "a", managed: nil) == nil)
-        #expect(AppControl.teamRefusal(requested: "a", active: "a", managed: nil) == nil)
-        #expect(AppControl.teamRefusal(requested: "b", active: "a", managed: nil)?.code == "not_active_team")
-        #expect(AppControl.teamRefusal(requested: "b", active: nil, managed: nil)?.code == "not_active_team")
-        #expect(AppControl.teamRefusal(requested: nil, active: "a", managed: "m")?.code == "managed")
-        #expect(AppControl.teamRefusal(requested: "a", active: "m", managed: "m")?.code == "managed")
-        #expect(AppControl.teamRefusal(requested: "m", active: "m", managed: "m") == nil)
+    @Test func callsActOnlyInTheActiveTeam() {
+        #expect(ActiveTeam.refusal(requesting: nil, active: "a", managed: nil) == nil)
+        #expect(ActiveTeam.refusal(requesting: " ", active: "a", managed: nil) == nil)
+        #expect(ActiveTeam.refusal(requesting: "a", active: "a", managed: nil) == nil)
+        #expect(ActiveTeam.refusal(requesting: "b", active: "a", managed: nil) == .notActive)
+        #expect(ActiveTeam.refusal(requesting: "b", active: nil, managed: nil) == .notActive)
+        #expect(ActiveTeam.refusal(requesting: nil, active: "a", managed: "m") == .managed)
+        #expect(ActiveTeam.refusal(requesting: "a", active: "m", managed: "m") == .managed)
+        #expect(ActiveTeam.refusal(requesting: "m", active: "m", managed: "m") == nil)
     }
 }

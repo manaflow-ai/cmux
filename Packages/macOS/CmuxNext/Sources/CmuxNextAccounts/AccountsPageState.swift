@@ -174,12 +174,11 @@ extension AccountsModel {
     }
 
     private var pageTeams: AccountsPageState.Teams? {
-        let teams = services.teams
-        guard isSignedInToCmux, !teams.teams.isEmpty else { return nil }
+        guard let active = services.activeTeam, !active.teams.isEmpty else { return nil }
+        let activeID = active.id, managed = active.managedTeamID != nil
         return .init(title: AccountsStrings.teamTitle, help: AccountsStrings.teamHelp,
-                     options: teams.teams.map { .init(id: $0.id, name: $0.name, active: $0.id == teams.activeID) },
-                     disabled: teams.isManaged || teams.isSwitching,
-                     note: teams.isManaged ? AccountsStrings.teamManaged : nil, error: teamError)
+                     options: active.teams.map { .init(id: $0.id, name: $0.displayName, active: $0.id == activeID) },
+                     disabled: managed || active.isSwitching, note: managed ? AccountsStrings.teamManaged : nil, error: teamError)
     }
 
     private func pageRow(_ row: AccountRowState) -> AccountsPageState.Row {

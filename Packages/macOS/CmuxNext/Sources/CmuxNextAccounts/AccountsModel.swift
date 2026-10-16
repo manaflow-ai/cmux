@@ -59,7 +59,7 @@ public final class AccountsModel {
             let detecting = Task { await services.detect() }
             let loading = Task { await Self.loadLinked(services) }
             // Membership re-reads on its own; the team list updates when it lands.
-            Task { await services.refreshTeams() }
+            if let active = services.activeTeam { Task { await active.refresh() } }
             let found = await detecting.value, accounts = await loading.value
             guard let self, current == self.generation, !Task.isCancelled else { return }
             for detection in found { self.apply(.detected(detection), to: detection.provider) }
@@ -76,8 +76,9 @@ public final class AccountsModel {
     /// (this screen's CodeRouter accounts included) when the switch lands.
     public func selectTeam(_ id: String) async {
         teamError = nil
+        guard let active = services.activeTeam else { return }
         do {
-            try await services.selectTeam(id)
+            try await active.select(id)
         } catch {
             teamError = AccountsStrings.teamSwitchFailed
         }
