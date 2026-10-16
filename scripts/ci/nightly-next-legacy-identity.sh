@@ -88,6 +88,9 @@ security cms -D -i "$NIGHTLY_PROFILE_PATH" > "$profile_plist"
 profile_app_id="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.application-identifier" "$profile_plist")"
 [[ "$profile_app_id" == "$TEAM_ID.$LEGACY_ID" ]] || { echo "NIGHTLY profile targets $profile_app_id" >&2; exit 1; }
 [[ "$(/usr/libexec/PlistBuddy -c "Print :ProvisionsAllDevices" "$profile_plist")" == true ]] || { echo "NIGHTLY profile is not Developer ID" >&2; exit 1; }
+# Every keychain group cmux.nightly.entitlements asks for (its own and the
+# platform authenticator's ".webauthn" group) must be in the profile.
+"$ROOT_DIR/scripts/ci/check-profile-keychain-groups.sh" "$LEGACY_ENTITLEMENTS" "$profile_plist"
 rm -f "$profile_plist"
 cp "$NIGHTLY_PROFILE_PATH" "$app/Contents/embedded.provisionprofile"
 

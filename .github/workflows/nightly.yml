@@ -3008,6 +3008,11 @@ jobs:
             echo "$CHANNEL entitlements do not request the WebAuthn browser entitlement; skipping the profile check"
           fi
 
+          # Every keychain group the channel asks for (its own and the platform
+          # authenticator's ".webauthn" group, passkeys.md K19) must be granted
+          # by the profile, or the notarized app does not launch.
+          ./scripts/ci/check-profile-keychain-groups.sh "$CHANNEL_ENTITLEMENTS" "$TMP_PLIST"
+
           # Refuse an expired profile (an unparsable date is only reported).
           EXPIRES="$(/usr/libexec/PlistBuddy -c "Print :ExpirationDate" "$TMP_PLIST" 2>/dev/null || true)"
           EXPIRES_EPOCH="$(date -j -f '%a %b %d %T %Z %Y' "$EXPIRES" +%s 2>/dev/null || true)"

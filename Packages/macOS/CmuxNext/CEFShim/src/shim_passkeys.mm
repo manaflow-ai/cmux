@@ -2,8 +2,20 @@
 // 1.4): the fork's cmux_profile_passkeys_list and cmux_profile_passkey_delete
 // (API 18). Metadata only: relying party, credential id and user names. No key
 // material crosses this file.
+//
+// Also the keychain group of Chromium's macOS platform authenticator
+// (plans/cmux-next/passkeys.md K19). On macOS, Chromium answers
+// PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable() only
+// from its profile (Touch ID) authenticator, which needs the
+// "<team>.<bundle>.webauthn" group in the signed app's keychain-access-groups;
+// iCloud Keychain support does not count. Without the group every cmux build
+// answered false, and GitHub showed "This browser or device is reporting
+// partial passkey support".
 
 #include <string>
+
+#include <CoreFoundation/CoreFoundation.h>
+#include <Security/Security.h>
 
 #include "include/cef_cookie.h"
 #include "include/cef_request_context.h"
@@ -76,7 +88,45 @@ int StartPasskeyRequest(const char* profile_cache_path, std::string credential_i
   return 1;
 }
 
+// The ".webauthn" entry of the running app's keychain-access-groups
+// entitlement, or "" (unsigned, ad-hoc and DEV builds have none).
+std::string WebAuthnGroupFromEntitlements() {
+  SecTaskRef task = SecTaskCreateFromSelf(kCFAllocatorDefault);
+  if (!task) return std::string();
+  CFTypeRef value = SecTaskCopyValueForEntitlement(task, CFSTR("keychain-access-groups"), nullptr);
+  CFRelease(task);
+  std::string group;
+  static const std::string kSuffix = ".webauthn";
+  if (value && CFGetTypeID(value) == CFArrayGetTypeID()) {
+    CFArrayRef groups = static_cast<CFArrayRef>(value);
+    for (CFIndex i = 0; i < CFArrayGetCount(groups) && group.empty(); ++i) {
+      CFTypeRef item = CFArrayGetValueAtIndex(groups, i);
+      if (!item || CFGetTypeID(item) != CFStringGetTypeID()) continue;
+      char buffer[256];
+      if (!CFStringGetCString(static_cast<CFStringRef>(item), buffer, sizeof(buffer), kCFStringEncodingUTF8)) continue;
+      std::string entry(buffer);
+      if (entry.size() > kSuffix.size() && entry.compare(entry.size() - kSuffix.size(), kSuffix.size(), kSuffix) == 0) {
+        group = entry;
+      }
+    }
+  }
+  if (value) CFRelease(value);
+  return group;
+}
+
 }  // namespace
+
+namespace cmux_shim {
+
+void ConfigureWebAuthnKeychainAccessGroup() {
+  // The setter returns int from fork API 19 (void before); the pinned fork is newer.
+  if (fork_api().version < 19 || !fork_api().set_webauthn_keychain_access_group) return;
+  const std::string group = WebAuthnGroupFromEntitlements();
+  if (group.empty()) return;  // Chromium keeps its own group, which no cmux build has
+  fork_api().set_webauthn_keychain_access_group(group.c_str());
+}
+
+}  // namespace cmux_shim
 
 extern "C" {
 

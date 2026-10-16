@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import WebKit
 
 /// The page's first WebAuthn call while browser passkey authorization is
@@ -12,7 +13,8 @@ enum WebKitPasskeyInstaller {
 
     static func install(_ tab: WebKitTab, into controller: WKUserContentController) {
         guard authorization(for: tab).state == .notDetermined else { return }
-        controller.addUserScript(WKUserScript(source: WebKitPasskeyScript.source, injectionTime: .atDocumentStart,
+        let source = WebKitPasskeyScript.source(platformAuthenticatorPending: WebKitPasskeyEntitlement.present)
+        controller.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart,
                                               forMainFrameOnly: false, in: .page))
         controller.addScriptMessageHandler(WeakPasskeyReplyHandler(tab), contentWorld: .page, name: WebKitPasskeyScript.messageHandlerName)
     }
@@ -26,6 +28,17 @@ enum WebKitPasskeyInstaller {
         }
         return await authorization(for: tab).requestIfNeeded().rawValue
     }
+}
+
+/// Whether the running app is signed with
+/// `com.apple.developer.web-browser.public-key-credential` (signed nightly and
+/// release builds; tagged DEV builds are not). Read once.
+nonisolated enum WebKitPasskeyEntitlement {
+    static let present: Bool = {
+        guard let task = SecTaskCreateFromSelf(nil) else { return false }
+        let value = SecTaskCopyValueForEntitlement(task, "com.apple.developer.web-browser.public-key-credential" as CFString, nil)
+        return (value as? Bool) == true
+    }()
 }
 
 /// When a page's WebAuthn call may raise the authorization prompt.

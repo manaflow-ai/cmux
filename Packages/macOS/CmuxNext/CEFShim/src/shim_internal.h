@@ -79,6 +79,9 @@ struct ForkApi {
   // API version 18: profile (Touch ID) passkeys, metadata only.
   int (*profile_passkeys_list)(const char*, void (*)(void*, const char*), void*) = nullptr;
   int (*profile_passkey_delete)(const char*, const char*, void (*)(void*, int), void*) = nullptr;
+  // API version 18 (int return from 19): the keychain group of the profile
+  // (Touch ID) authenticator. Before CefInitialize only (shim_passkeys.mm).
+  int (*set_webauthn_keychain_access_group)(const char*) = nullptr;
   // API version 18: password manager core (shim_password_core.mm).
   int (*password_list)(const char*, void (*)(void*, const char*), void*) = nullptr;
   int (*password_remove)(const char*, const char* const*, int, void (*)(void*, int), void*) = nullptr;
@@ -230,6 +233,10 @@ void InstallWindowRequestHandler();
 void InstallExtensionUIHandlers();
 // Sends Chromium's password save and update prompts to the host (API 20),
 // so Chromium's bubble does not show (shim_password_core.mm).
+// Before CefInitialize: hands Chromium the signed app's "<team>.<bundle>.webauthn"
+// keychain group, so its macOS platform authenticator (and with it
+// isUserVerifyingPlatformAuthenticatorAvailable) works (shim_passkeys.mm).
+void ConfigureWebAuthnKeychainAccessGroup();
 void InstallPasswordPromptHandler();
 void RemovePasswordPromptHandler();
 // The visible entry's virtual URL when it is chrome://newtab (the New Tab
