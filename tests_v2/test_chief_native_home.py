@@ -24,9 +24,33 @@ def main():
         home = next((row for row in after if row["selected"] and row["title"] == "Home"), None)
         assert home is not None, "chief.open must select a native Home workspace, not an overlay"
         assert {row["id"] for row in before} <= {row["id"] for row in after}, "Home removed local workspaces"
+        groups = client._call("workspace.group.list")["groups"]
+        group = next((row for row in groups if row.get("external_id") == "cmux.chief.home"), None)
+        assert group is not None, "Home must belong to the ordinary sidebar group list"
+        assert group["name"] == "Home", "The parent must be named Home, not Chief"
+        assert group["is_pinned"], "Home must stay pinned above local workspaces"
+        assert group["anchor_workspace_id"] == home["id"]
+        members = set(group["member_workspace_ids"])
+        assert local["id"] not in members, "Local workspaces must stay outside Home"
+        for method, collapsed in [("collapse", True), ("expand", False)]:
+            client._call(f"workspace.group.{method}", {"group_id": group["id"]})
+            updated = client._call("workspace.group.list")["groups"]
+            updated = next(row for row in updated if row["id"] == group["id"])
+            assert updated["is_collapsed"] == collapsed
+            assert set(updated["member_workspace_ids"]) == members, "Disclosure must preserve Chief panes"
         surfaces = client._call("surface.list", {"workspace_id": home["id"]})["surfaces"]
         chiefs = [row for row in surfaces if row["type"] == "chief"]
         assert len(chiefs) == 1, "Home needs its canonical Chief pane"
+        split = client._call("surface.split", {"workspace_id": home["id"], "direction": "right", "type": "terminal"})
+        split_id = split["surface_id"]
+        try:
+            split_surfaces = client._call("surface.list", {"workspace_id": home["id"]})["surfaces"]
+            assert any(row["id"] == split_id and row["type"] == "terminal" for row in split_surfaces)
+            assert any(row["id"] == chiefs[0]["id"] for row in split_surfaces), "Splitting Home removed its Chief"
+            selected = next(row for row in client._call("workspace.list")["workspaces"] if row["selected"])
+            assert selected["id"] == home["id"], "A split must stay in Home's native pane layout"
+        finally:
+            client._call("surface.close", {"workspace_id": home["id"], "surface_id": split_id, "force": True})
         for method, params in [
             ("surface.close", {"workspace_id": home["id"], "surface_id": chiefs[0]["id"], "force": True}),
             ("workspace.close", {"workspace_id": home["id"]}),
