@@ -423,11 +423,13 @@ def live_frames(conversation, session):
     settled_ok = bool(before and after) and abs(before["balloon"]["height"] - after["balloon"]["height"]) <= 0.5 \
         and incoming_after == incoming_before
     tops = [edges(f["bubble"])[1] for f in frames if f["bubble"]]
-    in_place = bool(landed) and held and settled_ok
+    # cx-06vn1: the line closes after the frame that first shows the reply (the app's display link count).
+    line_close_frames = drive("texts").get("lineCloseFrames")
+    in_place = bool(landed) and held and settled_ok and (line_close_frames or 0) >= 2
     result = {"checks": [{"check": c["check"], "ok": c["ok"]} for c in checks], "bubble_before": before,
               "bubble_after": after, "incoming_rows": [incoming_before, incoming_after],
               "top_range_during_handoff": [min(tops), max(tops)] if tops else None, "held_before_reply": held,
-              "line_at_handoff": line_at_handoff, "settled_ok": settled_ok, "in_place": in_place}
+              "line_at_handoff": line_at_handoff, "line_close_frames": line_close_frames, "settled_ok": settled_ok, "in_place": in_place}
     json.dump({"result": result, "checks": checks, "handoff": frames}, open(os.path.join(opts.out, "live-frames.json"), "w"), indent=1)
     print(json.dumps(result, indent=1), flush=True)
     if not all(c["ok"] for c in checks) or not in_place:
@@ -615,10 +617,17 @@ def main():
             result["handoff"] = {"before": {k: pre[-1][k] for k in ("t", "bubble_top", "bubble_bottom", "status_line")},
                                  "after": {k: post[0][k] for k in ("t", "bubble_top", "bubble_bottom", "status_line")},
                                  "settled": {k: post[-1][k] for k in ("t", "bubble_top", "bubble_bottom")}}
+    # cx-06vn1: the activity line closes on a display frame after the one that first shows the reply in the
+    # bubble's place (lineCloseFrames >= 2: the frame that presents the hand-off commit still has the line).
+    # Sampling the socket cannot see one frame; the app counts its display link fires.
+    result["line_close_frames"] = drive("texts").get("lineCloseFrames")
     json.dump(owner_events, open(os.path.join(opts.out, "owner-events.json"), "w"), indent=1)
     shutil.copy(os.path.join(MUX_HOME, "host.log"), os.path.join(opts.out, "chief-host.log")) if os.path.exists(os.path.join(MUX_HOME, "host.log")) else None
     json.dump({"result": result, "samples": samples}, open(os.path.join(opts.out, "timeline.json"), "w"), indent=1)
     print(json.dumps(result, indent=1), flush=True)
+    if (result["line_close_frames"] or 0) < 2:
+        sys.exit(f"FAIL: the activity line closed {result['line_close_frames']} display frame(s) after the reply's hand-off; "
+                 "it must stay through the frame that first shows the reply (cx-06vn1, timeline.json)")
 
 
 if __name__ == "__main__":

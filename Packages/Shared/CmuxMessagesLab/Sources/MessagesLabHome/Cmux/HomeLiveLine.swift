@@ -42,12 +42,18 @@ final class HomeLiveLine {
     func hide(after controller: ChatController) {
         guard activity != nil, !hiding else { return }
         hiding = true
-        controller.nextFrame { [weak self] in
+        let asked = controller.frameTick.fires
+        controller.nextFrame { [weak self, weak controller] in
             guard let self, self.hiding else { return }
             self.hiding = false
             self.show(nil)
+            self.closeFrames = controller.map { $0.frameTick.fires - asked }
         }
     }
+
+    /// Automation (DEBUG socket): the display frames from the refresh that asked the line to close (the one
+    /// that landed the reply) to its close; nil until a line closed that way.
+    private(set) var closeFrames: Int?
 
     /// The transcript's store was made again (install): it shows the line again.
     func resend() {
@@ -94,4 +100,6 @@ extension MessagesLabHomeView {
     public var debugRebuilds: Int { projection.rebuilds }
     /// Automation (DEBUG socket): the streaming bubbles' texts (ask 11), oldest first.
     public var debugStreamTexts: [String] { controller.store?.state.ui.streams.filter { !$0.parts.isEmpty }.map(\.text) ?? [] }
+    /// Automation (DEBUG socket): display frames between the reply's hand-off refresh and the activity line's close.
+    public var debugLineCloseFrames: Int? { projection.liveLine.closeFrames }
 }

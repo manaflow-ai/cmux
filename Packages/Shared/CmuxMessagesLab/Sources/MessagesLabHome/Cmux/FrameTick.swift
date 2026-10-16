@@ -13,6 +13,8 @@ final class FrameTick: NSObject {
     private weak var view: NSView?
     private var link: CADisplayLink?
     private var work: [() -> Void] = []
+    /// cmux: display frames this link fired (automation: how many frames a hand-off kept the line).
+    private(set) var fires = 0
 
     init(view: NSView) { self.view = view }
 
@@ -26,6 +28,7 @@ final class FrameTick: NSObject {
     }
 
     @objc private func fire(_ l: CADisplayLink) {
+        fires += 1
         let w = work
         work.removeAll(keepingCapacity: true)
         l.isPaused = work.isEmpty

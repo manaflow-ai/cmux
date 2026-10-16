@@ -111,6 +111,7 @@ extension HomeNativeTranscriptView {
     public var debugStatusLine: String? { transcript.debugStatusLine }
     public var debugRebuilds: Int { transcript.debugRebuilds }
     public var debugStreamTexts: [String] { transcript.debugStreamTexts }
+    public var debugLineCloseFrames: Int? { transcript.debugLineCloseFrames }
     /// Clicks the newest thread's "N Replies" or preview (the click's path); the open thread's root.
     public func debugOpenNewestThread() -> String? { transcript.debugOpenNewestThread() }
     /// The open thread's root (the transcript's id), nil when none is open.
