@@ -348,11 +348,6 @@ impl FreeTier {
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
         });
-        write
-            .write_all(
-                format!("{}\n", json!({"provider": true, "pid": std::process::id()})).as_bytes(),
-            )
-            .await?;
         {
             let mut inner = self.lock();
             // The old provider's connection ends (its serve loop waits on `replaced`).
@@ -372,6 +367,15 @@ impl FreeTier {
             if register.signed_in {
                 Self::set_state(&mut inner, FreeState::Off, None);
             }
+        }
+        // The provider line comes after the registration is applied: when the app reads it, the
+        // relay's state already reflects this registration (its events follow through the writer).
+        // A write error (the app went away right now) ends this provider like an EOF does: never
+        // an early return that leaves a dead connection registered with a live token.
+        let line = format!("{}\n", json!({"provider": true, "pid": std::process::id()}));
+        if write.write_all(line.as_bytes()).await.is_err() {
+            self.end_provider(&provider);
+            return Ok(());
         }
         let writer = tokio::spawn(async move {
             while let Some(line) = outgoing.recv().await {
@@ -412,19 +416,25 @@ impl FreeTier {
                 }
             }
         }
+        self.end_provider(&provider);
+        writer.abort();
+        Ok(())
+    }
+
+    /// The provider's connection ended: when it is still the registered one, drop it with the
+    /// free token (the token never outlives its provider) and report off. Pending waiters see a
+    /// closed channel (Gone).
+    fn end_provider(&self, provider: &Provider) {
         {
             let mut inner = self.lock();
-            if inner.provider.as_ref().is_some_and(|p| p.generation == generation) {
+            if inner.provider.as_ref().is_some_and(|p| p.generation == provider.generation) {
                 inner.provider = None;
                 inner.token = None;
                 inner.state = FreeState::Off;
                 inner.until_ms = None;
             }
         }
-        // Pending waiters see a closed channel (Gone).
         provider.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
-        writer.abort();
-        Ok(())
     }
 
     fn apply_setting(inner: &mut Inner, enabled: bool, managed: bool, registered: bool) {

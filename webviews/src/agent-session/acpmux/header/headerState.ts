@@ -35,13 +35,22 @@ export interface HeaderState {
   readonly lit: readonly string[];
   /// The "..." menu offers Move to Floating Chat (Start Agent's floating chat is on, cx-b9qi).
   readonly floatingChat: boolean;
+  /// The header offers the session side rail (Debug Settings `agent.sessionRail`, cx-ncc.101).
+  readonly sessionRail: boolean;
   /// The chip beside the tools; the App sends `null` when the chat's folder has none.
   readonly pullRequest?: HeaderPullRequest;
   /// Rises with each change the App sees: a `pane.tabState` reply that arrives after a newer push is dropped.
   readonly version: number;
 }
 
-let current: HeaderState = { pinned: false, sideTabs: false, lit: [], floatingChat: false, version: 0 };
+let current: HeaderState = {
+  pinned: false,
+  sideTabs: false,
+  lit: [],
+  floatingChat: false,
+  sessionRail: false,
+  version: 0,
+};
 const listeners = new Set<() => void>();
 
 /// The App's state (a `pane.tabState` reply or a `headerState` push); fields it leaves out keep their value.
@@ -51,6 +60,7 @@ export function setHeaderState(value: unknown): void {
     sideTabs?: unknown;
     lit?: unknown;
     floatingChat?: unknown;
+    sessionRail?: unknown;
     pullRequest?: unknown;
     version?: unknown;
   };
@@ -61,6 +71,7 @@ export function setHeaderState(value: unknown): void {
     sideTabs: typeof raw.sideTabs === "boolean" ? raw.sideTabs : current.sideTabs,
     lit: Array.isArray(raw.lit) ? raw.lit.filter((id): id is string => typeof id === "string") : current.lit,
     floatingChat: typeof raw.floatingChat === "boolean" ? raw.floatingChat : current.floatingChat,
+    sessionRail: typeof raw.sessionRail === "boolean" ? raw.sessionRail : current.sessionRail,
     pullRequest: "pullRequest" in raw ? pullRequestOf(raw.pullRequest) : current.pullRequest,
     version,
   };

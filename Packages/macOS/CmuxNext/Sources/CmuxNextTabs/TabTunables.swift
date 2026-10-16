@@ -14,6 +14,10 @@ public nonisolated enum TabTunables {
 
     public static let compactTabWidth = points("compactTabWidth", "Compact style tab width", help: "Width of every unpinned tab in compact style. Default: 3/4 of the max width.",
                                                range: 40...400) { (Metrics.tabMaxWidth * 3 / 4).rounded() }
+    // Scrolling tabs (`tabs.overflow` scroll, cx-kp9b4): Chrome's scrollable tab strip keeps tabs this
+    // wide and scrolls; 7/10 of the max width (140 compact, 168 comfortable) shows a whole short title.
+    public static let scrollTabMinWidth = points("scrollTabMinWidth", "Scrolling tab width", help: "Narrowest an unpinned tab gets with Tab Overflow set to Scroll. Default: 7/10 of the max width.",
+                                                 range: 40...400) { (Metrics.tabMaxWidth * 7 / 10).rounded() }
     public static let pinnedGroupGap = points("pinnedGroupGap", "Pinned gap", help: "Extra space after the last pinned tab.") { Metrics.space2 }
     public static let contentTrailingInset = points("contentTrailingInset", "Tab trailing inset", help: "Inset of the close button from a tab's trailing edge.") { Metrics.space2 }
     public static let closeButtonSize = points("closeButtonSize", "Close button size", help: "Side of a tab's close button.") { Metrics.space6 }
@@ -64,7 +68,7 @@ public nonisolated enum TabTunables {
         help: "Full shows a thumbnail on a tab's hover card; Compact shows only its facts.",
         default: .full, code: "TabTunables.hoverPreviews")
     public static var all: [TunableDescriptor] {
-        [compactTabWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
+        [compactTabWidth, scrollTabMinWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
             + [separators.descriptor, separatorOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,

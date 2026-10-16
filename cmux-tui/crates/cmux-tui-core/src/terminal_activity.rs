@@ -78,6 +78,18 @@ impl CommandActivity {
     }
 }
 
+/// A terminal's shell state as it crosses the terminal-host protocol
+/// (`FLAG_SHELL_ACTIVITY`, cx-6so.59), so a daemon that adopts the host after
+/// a restart still sees the prompt or the running command. The times are
+/// Unix ms, so they mean the same in both processes.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ShellActivitySnapshot {
+    pub(crate) busy_since_ms: Option<u64>,
+    pub(crate) interactive: bool,
+    pub(crate) line_modes_armed: bool,
+    pub(crate) prompt_since_ms: Option<u64>,
+}
+
 /// The shell command state of one terminal, from OSC 133 marks and the
 /// terminal modes the command set.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -152,6 +164,26 @@ impl ShellActivity {
     /// When the shell drew the prompt it sits at, if it does.
     pub(crate) fn prompt_since(&self) -> Option<u64> {
         self.prompt_since_ms
+    }
+
+    /// The state a terminal host hands to the daemon that adopts it.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    pub(crate) fn snapshot(&self) -> ShellActivitySnapshot {
+        ShellActivitySnapshot {
+            busy_since_ms: self.busy_since_ms,
+            interactive: self.interactive,
+            line_modes_armed: self.line_modes_armed,
+            prompt_since_ms: self.prompt_since_ms,
+        }
+    }
+
+    /// Takes a terminal host's state. The facts publish as a change on the
+    /// next `take_change`.
+    pub(crate) fn restore(&mut self, snapshot: ShellActivitySnapshot) {
+        self.busy_since_ms = snapshot.busy_since_ms;
+        self.interactive = snapshot.busy_since_ms.is_some() && snapshot.interactive;
+        self.line_modes_armed = snapshot.busy_since_ms.is_some() && snapshot.line_modes_armed;
+        self.prompt_since_ms = snapshot.prompt_since_ms;
     }
 
     /// Whether the command or prompt fact changed since the last call (marks

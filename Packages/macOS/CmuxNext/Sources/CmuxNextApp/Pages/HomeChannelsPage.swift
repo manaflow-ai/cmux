@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -20,7 +21,7 @@ extension PageDescriptor {
     /// daemon's own listener (`GET /attachments/<token>`, ws-attachments-v1); images come as data URLs.
     static let homeChannels = PageDescriptor(
         id: "cmux.home-channels", resource: "home-channels", namespaces: ["cmux.host.credential.", ChiefProfilePageRoute.prefix, HomeSwitchPageRoute.prefix],
-        nativeOps: [PageNativeOp.edit],
+        nativeOps: [PageNativeOp.edit], commands: PageNativeOp.commands.union([PageSelectionMenu.quoteCommand]),
         csp: PageCSP(connect: ["ws://127.0.0.1:*"], media: ["http://127.0.0.1:*"]), acceptsFirstMouse: true) // Archive and message delete confirm in the page
 }
 
@@ -38,6 +39,18 @@ extension PageFactory {
         // The composers' right-click Cut, Copy and Paste run as the page view's own edits.
         edits.run = { [weak page] command in
             if let view = page?.webKitView { NSApp.sendAction(command.selector, to: view, from: nil) }
+        }
+        // Selected message text: Copy, Quote in Reply, Search the Web and Look Up, not Copy alone.
+        let registry = services.registry
+        page.contextMenuEditor = { [weak page] menu in
+            PageSelectionMenu(
+                quote: { page?.send(command: PageSelectionMenu.quoteCommand) },
+                search: {
+                    page?.webKitView.evaluateJavaScript("String(getSelection())") { value, _ in
+                        guard let text = value as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                        _ = registry.perform("browser.selection.search", invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
+                    }
+                }).rebuild(menu)
         }
         services.home.homeDidOpen(asked: true)
         return page
