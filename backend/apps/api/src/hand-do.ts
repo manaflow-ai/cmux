@@ -1,5 +1,7 @@
 import { DurableObject } from "cloudflare:workers"
 import type { Env } from "./env.ts"
+import { deleteSandboxVm } from "./hand-sandbox.ts"
+import { revokeAgentSession } from "./model-gateway/run-token.ts"
 import { createIndexTables, handName, indexGrants, indexList, indexName, indexPut, indexSetGrant } from "./hand-index.ts"
 import { callerLabel, isHandAction, PAIR_TTL_MS, sameHex, type AgentEvent, type HandCaller, type HandError, type HandReply, type HandSummary, type Profile, type StoredEvent } from "./hand-wire.ts"
 
@@ -21,6 +23,9 @@ const MAX_TIMEOUT_MS = 15 * 60_000
 const APPROVAL_WINDOW_MS = 11 * 60_000
 const KEEP_EVENTS = 5_000
 const KEEP_AUDIT = 10_000
+/** A sandbox hand is removed (its VM deleted) this long after it was made. */
+const SANDBOX_LIFETIME_MS = 24 * 3600_000
+const SANDBOX_DELETE_RETRY_MS = 5 * 60_000
 
 interface Pending {
   readonly resolve: (r: HandReply) => void
@@ -62,6 +67,7 @@ const refuse = (code: string, message: string): { readonly ok: false; readonly e
 export class HandDO extends DurableObject<Env> {
   private readonly pending = new Map<string, Pending>()
   private readonly waiters = new Set<() => void>()
+  private readonly helloWaiters = new Set<() => void>()
   private inserts = 0
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -71,6 +77,8 @@ export class HandDO extends DurableObject<Env> {
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_grant (agent TEXT PRIMARY KEY)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_audit (seq INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, req TEXT NOT NULL, action TEXT NOT NULL, who TEXT NOT NULL, outcome TEXT NOT NULL, ms INTEGER)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_approval (id TEXT PRIMARY KEY, req TEXT NOT NULL, summary TEXT NOT NULL, at INTEGER NOT NULL, answered_at INTEGER, allow INTEGER, who TEXT)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS hand_agent (session TEXT PRIMARY KEY, chief TEXT NOT NULL, conversation TEXT NOT NULL, at INTEGER NOT NULL)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS hand_sandbox (id INTEGER PRIMARY KEY CHECK (id = 1), vm TEXT NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_event (seq INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT NOT NULL, at INTEGER NOT NULL, body TEXT NOT NULL)`)
     createIndexTables(sql)
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"))
@@ -86,7 +94,8 @@ export class HandDO extends DurableObject<Env> {
   }
 
   private summary(r: HandRow): HandSummary {
-    return { hand: r.hand, name: r.name, profile: (r.profile as Profile | null) ?? null, created_at: r.created_at, paired_at: r.paired_at, revoked_at: r.revoked_at, last_seen: r.last_seen, online: this.socket() !== undefined }
+    const sandbox = this.ctx.storage.sql.exec(`SELECT 1 FROM hand_sandbox WHERE id = 1`).toArray().length > 0
+    return { hand: r.hand, name: r.name, profile: (r.profile as Profile | null) ?? null, created_at: r.created_at, paired_at: r.paired_at, revoked_at: r.revoked_at, last_seen: r.last_seen, online: this.socket() !== undefined, sandbox }
   }
 
   private index(user: string) {
@@ -142,17 +151,76 @@ export class HandDO extends DurableObject<Env> {
       return { ok: false, error: { code: "hand.pair_invalid", message: "the pairing code is wrong, used or expired" } }
     }
     this.ctx.storage.sql.exec(`UPDATE hand SET code_sha = NULL, key_sha = ?, paired_at = ?, name = ?, profile = ? WHERE id = 1`, keySha, now, info.name || r.name, info.profile)
-    await this.ctx.storage.deleteAlarm()
+    // A sandbox lives at most SANDBOX_LIFETIME_MS; any other hand needs no alarm.
+    if (this.sandboxVm()) await this.ctx.storage.setAlarm(r.created_at + SANDBOX_LIFETIME_MS)
+    else await this.ctx.storage.deleteAlarm()
     await this.publish(this.row()!)
     return { ok: true, value: { hand: r.hand, owner: r.owner } }
   }
 
+  private sandboxVm(): string | undefined {
+    return this.ctx.storage.sql.exec<{ vm: string }>(`SELECT vm FROM hand_sandbox WHERE id = 1`).toArray()[0]?.vm
+  }
+
+  /** Deletes this hand's sandbox VM by exact id; keeps the row (and retries by alarm) until the provider confirms. */
+  private async dropSandbox(): Promise<boolean> {
+    const vm = this.sandboxVm()
+    if (!vm) return true
+    if (await deleteSandboxVm(this.env, vm)) {
+      this.ctx.storage.sql.exec(`DELETE FROM hand_sandbox WHERE id = 1`)
+      return true
+    }
+    await this.ctx.storage.setAlarm(Date.now() + SANDBOX_DELETE_RETRY_MS)
+    return false
+  }
+
+  /** Expired pairing code (the hand and its VM go), a sandbox past its lifetime (revoked), or a VM delete to retry. */
   override async alarm(): Promise<void> {
     const r = this.row()
-    if (r && r.paired_at === null) {
+    if (r && r.paired_at === null && Date.now() >= r.created_at + PAIR_TTL_MS) {
+      if (!(await this.dropSandbox())) return
       this.ctx.storage.sql.exec(`DELETE FROM hand WHERE id = 1`)
       await this.index(r.owner).indexUpdate({ hand: r.hand, removed: true })
+      return
     }
+    if (r && r.revoked_at === null && this.sandboxVm() && Date.now() >= r.created_at + SANDBOX_LIFETIME_MS) {
+      await this.revoke({ kind: "owner", user: r.owner }, "lifetime")
+      return
+    }
+    if (r?.revoked_at != null || !r) await this.dropSandbox()
+  }
+
+  /** The Freestyle VM this hand runs in (hand-sandbox.ts); deleted with the hand. A hand that is gone takes its VM with it now. */
+  async setSandbox(vm: string): Promise<void> {
+    this.ctx.storage.sql.exec(`INSERT INTO hand_sandbox (id, vm) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET vm = excluded.vm`, vm)
+    const r = this.row()
+    if (!r || r.revoked_at !== null) await this.dropSandbox()
+    else await this.publish(r)
+  }
+
+  /** A sandbox whose install failed: the hand, its code and its VM go now. */
+  async discard(): Promise<void> {
+    const r = this.row()
+    await this.dropSandbox()
+    if (!r) return
+    this.ctx.storage.sql.exec(`DELETE FROM hand WHERE id = 1`)
+    await this.index(r.owner).indexUpdate({ hand: r.hand, removed: true })
+  }
+
+  /** True once the hand is connected and said hello; waits up to `ms` (woken by the hello frame). */
+  async waitOnline(ms: number): Promise<boolean> {
+    const online = () => this.socket() !== undefined && this.row()?.hello != null
+    if (online()) return true
+    await new Promise<void>((resolve) => {
+      const wake = () => {
+        clearTimeout(timer)
+        this.helloWaiters.delete(wake)
+        resolve()
+      }
+      const timer = setTimeout(wake, Math.min(ms, 60_000))
+      this.helloWaiters.add(wake)
+    })
+    return online()
   }
 
   async setGrants(agents: ReadonlyArray<string>): Promise<void> {
@@ -207,12 +275,19 @@ export class HandDO extends DurableObject<Env> {
             }
           })
     this.audit(req, action, callerLabel(caller), result.ok ? "ok" : result.error.code, Date.now() - started)
+    // A Chief's agent session: its gateway tokens are revoked in its conversation when the hand reports its end.
+    const session = (result.ok && action === "agent.start" ? (result.value as { session?: unknown } | null)?.session : undefined)
+    if (typeof session === "string" && caller.agent && caller.conversation) {
+      this.ctx.storage.sql.exec(`INSERT INTO hand_agent (session, chief, conversation, at) VALUES (?, ?, ?, ?) ON CONFLICT(session) DO NOTHING`, session, caller.agent, caller.conversation, Date.now())
+    }
     return result
   }
 
   private settle(req: string, reply: HandReply) {
     const p = this.pending.get(req)
     if (!p) return
+    // An approval nobody answered ends with its request: it never shows as waiting again.
+    this.ctx.storage.sql.exec(`UPDATE hand_approval SET answered_at = ?, allow = 0, who = 'expired' WHERE req = ? AND answered_at IS NULL`, Date.now(), req)
     clearTimeout(p.timer)
     this.pending.delete(req)
     p.resolve(reply)
@@ -283,15 +358,26 @@ export class HandDO extends DurableObject<Env> {
     return { ok: true, value: { id, allow } }
   }
 
-  async revoke(caller: HandCaller): Promise<HandReply<{ hand: string }>> {
+  async revoke(caller: HandCaller, why = "owner"): Promise<HandReply<{ hand: string }>> {
     const r = this.row()
     if (caller.kind !== "owner" || !r || r.owner !== caller.user) return refuse("hand.not_found", "no such hand")
     this.ctx.storage.sql.exec(`UPDATE hand SET revoked_at = ?, key_sha = NULL WHERE id = 1`, Date.now())
     for (const ws of this.ctx.getWebSockets()) ws.close(4403, "revoked")
     for (const req of [...this.pending.keys()]) this.settle(req, refuse("hand.revoked", "the hand was removed"))
-    this.audit(crypto.randomUUID(), "revoke", callerLabel(caller), "ok", null)
+    this.audit(crypto.randomUUID(), "revoke", why === "owner" ? callerLabel(caller) : why, "ok", null)
+    await this.dropSandbox()
     await this.publish(this.row()!)
     return { ok: true, value: { hand: r.hand } }
+  }
+
+  /** The hand says an agent session ended: its agent tokens stop now (model-gateway/run-token.ts). */
+  private async sessionEnded(session: string): Promise<void> {
+    const r = this.row()
+    const a = this.ctx.storage.sql.exec<{ chief: string; conversation: string }>(`SELECT chief, conversation FROM hand_agent WHERE session = ?`, session).toArray()[0]
+    if (!r || !a) return
+    const answer = await revokeAgentSession(this.env, a.chief, a.conversation, r.hand, session).catch((e: unknown) => ({ ok: false, error: String(e) }))
+    this.audit(crypto.randomUUID(), "agent.session_end", "hand", (answer as { ok?: boolean }).ok === false ? "revoke_failed" : "revoked", null)
+    this.ctx.storage.sql.exec(`DELETE FROM hand_agent WHERE session = ?`, session)
   }
 
   /** Socket upgrade. The Worker passes `x-cmux-hand-key-sha256`, the hash of the bearer key. */
@@ -328,6 +414,7 @@ export class HandDO extends DurableObject<Env> {
         const profile = f.profile === "mac" ? "mac" : "sandbox"
         sql.exec(`UPDATE hand SET hello = ?, profile = ?, last_seen = ? WHERE id = 1`, capJson(f, 16_000), profile, now)
         const r = this.row()
+        for (const wake of [...this.helloWaiters]) wake()
         if (r) await this.publish(r)
         return
       }
@@ -350,6 +437,7 @@ export class HandDO extends DurableObject<Env> {
         sql.exec(`INSERT INTO hand_event (session, at, body) VALUES (?, ?, ?)`, session, now, capJson(f.event, 64_000))
         if (++this.inserts % 100 === 0) sql.exec(`DELETE FROM hand_event WHERE seq <= (SELECT MAX(seq) FROM hand_event) - ?`, KEEP_EVENTS)
         for (const wake of [...this.waiters]) wake()
+        if ((f.event as { kind?: unknown }).kind === "session_end") await this.sessionEnded(session)
         return
       }
     }

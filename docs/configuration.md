@@ -734,6 +734,28 @@ Behavior notes:
 - Removing a declaration is safe, and has the same effect: the capture keeps the recorded id, but nothing is re-supplied.
 - Hooks keep working for the wrapped agent. When the prefix replaces the agent executable, cmux puts its per-surface agent shim first on `PATH` for the restored process, so the wrapper's own `claude` lookup still finds the hook-injecting shim. A wrapper that ignores `PATH` (an absolute path to the real binary, for example) needs the global fallback instead: `cmux agent hook install claude`.
 
+## `agents.remoteChains.claudeKeychainLogin`
+
+A remote chain is an agent session that a paired device or a peer starts on this Mac. Its
+Claude Code runs in the remote chain sandbox, which cannot open the macOS keychain. When this
+setting is `true`, acpmux reads this Mac's Claude login (the keychain item
+`Claude Code-credentials`) for each remote chain spawn and gives its access token to that Claude
+Code by env. The default is `false`: a remote party never causes a keychain read. Then a remote
+chain's Claude Code signs in only with a credential in its harness profile env (for example a
+long-lived `claude setup-token` token as `CLAUDE_CODE_OAUTH_TOKEN`) or the login shell; without
+one, it reports that it is not logged in.
+
+```json
+{
+  "agents": {
+    "remoteChains": { "claudeKeychainLogin": true }
+  }
+}
+```
+
+acpmux reads the key at each spawn. Only the value `true` turns it on; a settings file that
+cannot be read keeps it off.
+
 ## `browser.searchEngine`, `browser.customSearchEngine` and `browser.omnibar.*`
 
 The address bar's search engine and suggestions. Settings > Browser > Address Bar
@@ -752,11 +774,12 @@ shows the same keys.
       "inlineAutocomplete": true,
       "maxRows": 8,
       "calculator": true,
-      "glass": "transparent",
+      "glass": "off",
       "glassTint": "background",
       "glassTintStrength": 0.35,
       "cornerRadius": "theme",
-      "shadow": false
+      "shadow": false,
+      "backgroundOpacity": 0
     }
   }
 }
@@ -780,11 +803,13 @@ shows the same keys.
 - `omnibar.calculator`: show the answer to arithmetic you type (`+ - * / % ^`,
   parentheses) as a row; arrow to it and press Return to copy the answer. Default: `true`.
 
-- `omnibar.glass`: the address bar's material. `transparent` (default) draws no fill: the toolbar
-  shows through, and only the hover lift, the focus ring and the suggestion card draw. `regular`
-  is Liquid Glass on macOS 26 and later and a blur before it; `clear` is glass that shows more of
-  what is behind the bar; `off` draws the flat theme color. With Reduce Transparency the glass
-  looks draw the flat color. Browser tabs and the New Tab page use the same bar.
+- `omnibar.glass`: the address bar's material. `off` (default) draws the flat theme color: a
+  step of the theme's text color over the toolbar, stronger on hover; while you edit, the bar
+  is the suggestion card's color with a neutral focus ring. `transparent` draws no fill: the
+  toolbar shows through, and only the hover lift, the focus ring and the suggestion card draw.
+  `regular` is Liquid Glass on macOS 26 and later and a blur before it; `clear` is glass that
+  shows more of what is behind the bar. With Reduce Transparency the glass looks draw the flat
+  color. Browser tabs and the New Tab page use the same bar.
 - `omnibar.glassTint`: the color over the glass (`regular` and `clear` only), from the terminal theme. `background`
   (default) is the theme's background; `accent` is the theme's own accent color, or its
   focus gray when the theme names none; `none` leaves the glass untinted.
@@ -792,9 +817,15 @@ shows the same keys.
 - `omnibar.cornerRadius`: `theme` (default, the standard 8 pt bar radius), `capsule` (fully
   round ends), or points from `0` to `16`.
 - `omnibar.shadow`: a soft shadow under the glass bar. Default: `false`.
+- `omnibar.backgroundOpacity`: how much the flat bar covers a see-through window
+  (`background-opacity` below `1`, a background image or window glass), `0` to `1`. At `0`
+  (default) the bar is as see-through as the window and only shifts its tone; cmux raises it
+  only as far as the bar's text needs to stay readable (4.5:1 over a black or a white desktop).
+  `1` makes the bar solid. An opaque window with the theme's toolbar color looks the same at any
+  value.
 
 Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows`, `calculator` and the look
-keys (`glass`, `glassTint`, `glassTintStrength`, `cornerRadius`, `shadow`); the search
+keys (`glass`, `glassTint`, `glassTintStrength`, `cornerRadius`, `shadow`, `backgroundOpacity`); the search
 engine and remote suggestions decide what leaves the Mac, so only you change them.
 
 ## `agentPane.editedFiles.*`

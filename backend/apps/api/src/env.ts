@@ -59,6 +59,14 @@ export interface Env {
   readonly HANDS_MAC_ENABLED?: string
   /** Base URL of the published acpmux files the hand installer downloads (default https://files.cmux.com/cmux-tui). */
   readonly HAND_RELEASE_BASE?: string
+  /** Secret: the hands-only Freestyle key (hand-sandbox.ts is its only reader). Never logged. */
+  readonly HAND_FREESTYLE_API_KEY?: string
+  /** Most live sandbox hands one owner may have (default 3). */
+  readonly HAND_SANDBOX_MAX?: string
+  /** Freestyle snapshot (slug) for Chief sandboxes with a hand (hand-sandbox.ts); baked by scripts/bake-hand-sandbox.ts; unset: no sandbox creation. */
+  readonly HAND_SANDBOX_SNAPSHOT?: string
+  /** The cmux-tui v2 tree key whose published acpmux the installer installs (wins over HAND_RELEASE_COMMIT). */
+  readonly HAND_RELEASE_TREE?: string
   /** The cmux-tui commit whose acpmux the installer installs (its manifest.json lists the SHA-256 of each file). */
   readonly HAND_RELEASE_COMMIT?: string
   /** Single-use wire tickets for browser sockets, 256 shards (wire-ticket.ts). */
@@ -227,9 +235,12 @@ export interface Env {
   readonly CHIEF_BRAIN_CLAUDE_DAILY_TURNS?: string
   /** Overrides of the Claude route, its sign-in refresh URL and project (tests). */
   readonly CHIEF_BRAIN_CLAUDE_URL?: string
-  /** The Claude route's auth: "stack" (default, X-Stack-Auth) or "bearer" (secret CHIEF_BRAIN_CLAUDE_TOKEN); model-routes.ts. */
+  /** The Claude route's auth: "stack-session" (default), "service-key" (secret CHIEF_BRAIN_CLAUDE_SERVICE_KEY) or "bearer" (secret CHIEF_BRAIN_CLAUDE_TOKEN); model-gateway/routes.ts. */
   readonly CHIEF_BRAIN_CLAUDE_AUTH?: string
   readonly CHIEF_BRAIN_CLAUDE_TOKEN?: string
+  readonly CHIEF_BRAIN_CLAUDE_SERVICE_KEY?: string
+  /** Spend cap of one per-run gateway token, USD (default 5; model-gateway/run-token.ts). */
+  readonly CHIEF_RUN_TOKEN_CAP_USD?: string
   /** Claude names the route serves, comma separated (default "claude-opus-5-5"). */
   readonly CHIEF_BRAIN_CLAUDE_MODELS?: string
   /** "1": send effort + thinking display in the Claude route's Bedrock body ("0" off; default on only for a bearer route). */

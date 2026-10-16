@@ -39,7 +39,7 @@ except OSError as e:
 PY
   fi
   if [[ -n "$daemon_pid" ]]; then
-    ACPMUX_HOME="$home" ACPMUX_SOCKET="$home/s.sock" "$acpmux" daemon shutdown >/dev/null 2>&1 || echo "daemon shutdown failed (pid $daemon_pid)" >>"$out/host.txt"
+    ACPMUX_HOME="$home" ACPMUX_SOCKET="$home/s.sock" "$acpmux" daemon shutdown --end-agents >/dev/null 2>&1 || echo "daemon shutdown failed (pid $daemon_pid)" >>"$out/host.txt"
   fi
   if [[ -n "${bundle_id:-}" ]]; then
     security delete-generic-password -s "com.cmuxterm.next.free-tier.app-attest.$bundle_id" -a key >/dev/null 2>&1

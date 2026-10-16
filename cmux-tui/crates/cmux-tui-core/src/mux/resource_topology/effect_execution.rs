@@ -377,6 +377,7 @@ impl Mux {
                     optional_owned_string(fields, "name")?,
                     effect_cell_size(fields)?,
                     effect_on_exit(fields)?,
+                    None,
                 )
                 .map(|created| created.path)
             }
@@ -391,6 +392,7 @@ impl Mux {
                         optional_owned_string(fields, "name")?,
                         effect_cell_size(fields)?,
                         None,
+                        tab_strip::tab_slot::effect_index(fields),
                     ),
                     None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
                         intent,
@@ -624,6 +626,7 @@ impl Mux {
         // `workspace.create {ephemeral: true}` stages the flag with the
         // workspace row; the request's fields are part of its fingerprint.
         let ephemeral = intent["fields"]["ephemeral"].as_bool().unwrap_or(false);
+        crate::debug_spans::mark("effect.workspace_reserved");
         let placement = self.create_empty_workspace_for_resource_effect(
             workspace_name,
             Some(workspace_key),
@@ -631,6 +634,7 @@ impl Mux {
             &workspace_mutation,
             crate::state::home_store::EmptyWorkspaceMark::ephemeral(ephemeral),
         )?;
+        crate::debug_spans::mark("effect.workspace_created");
         self.effect_create_terminal_in_workspace(intent, placement.workspace, options)
     }
 
@@ -654,6 +658,7 @@ impl Mux {
             on_exit,
         )?;
         let terminal_hex = reservation.terminal_id.to_hex();
+        crate::debug_spans::mark("effect.terminal_reserved");
         // The reservation's env is the creation's own (`env` field), so a
         // create into a fresh workspace gets it like one into a pane.
         let result = self.create_terminal_in_workspace_with_mutation_env(
@@ -669,6 +674,7 @@ impl Mux {
             on_exit,
             reservation.env.clone(),
         )?;
+        crate::debug_spans::mark("effect.terminal_created");
         let surface =
             result.created_surface.context("created terminal result omitted its local surface")?;
         if let Some(name) = created_screen_name {
@@ -692,6 +698,7 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
         on_exit: Option<TerminalOnExit>,
+        index: Option<usize>,
     ) -> anyhow::Result<CreatedTerminalEffect> {
         let workspace_key = self
             .workspace_key_for_pane(target)
@@ -717,10 +724,12 @@ impl Mux {
             let mut state = self.state.lock().unwrap();
             let delta = match state.panes.get_mut(&target) {
                 Some(pane) => {
-                    pane.tabs.push(surface.id);
-                    pane.active_tab = pane.tabs.len() - 1;
+                    // At its end, or at the strip index the creation names
+                    // (`tab_slot`: Reopen Closed puts a tab back in place).
+                    let index = tab_strip::tab_slot::slot(index, pane.tabs.len());
+                    pane.tabs.insert(index, surface.id);
+                    pane.active_tab = index;
                     pane.active_at = active_at;
-                    let index = pane.tabs.len() - 1;
                     fence_layout_undo_for_tab_membership(&mut state, &[target]);
                     state.register_placed_tab_identity(surface.id);
                     let (workspace_index, screen_index) =

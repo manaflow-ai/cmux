@@ -259,6 +259,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/process/tail",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/process/kill",
       "params": true,
       "result": true
@@ -1817,6 +1823,13 @@
         "shown": {
           "description": "Some attached client shows the chat.",
           "type": "boolean"
+        },
+        "spawnedBy": {
+          "description": "The session whose agent started this one (its `spawnedBy` tag), kept\nonly while that parent is listed; one level.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "stateSeq": {
           "format": "uint64",

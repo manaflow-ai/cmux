@@ -2,7 +2,7 @@
 //! including base url etc. profiles … switch from proxy A to proxy B without
 //! quit/restarting"). A route is how a harness reaches its model provider:
 //! data in `<cmux config>/routes/<id>.toml`, never code, secrets only as
-//! references (`keychain:ITEM`, `env:VAR`). acpmux owns the store; the CLI
+//! references (`keychain:ITEM`, `env:VAR`, `file:/PATH`). acpmux owns the store; the CLI
 //! (`cmux route …`) and the daemon RPC (`_acpmux/route/*`, server/routes.rs)
 //! share this file.
 //!
@@ -184,7 +184,9 @@ pub struct RouteFile {
     pub openai_base_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth: Option<Auth>,
-    /// `keychain:ITEM` or `env:VAR`; never the secret itself.
+    /// `keychain:ITEM`, `env:VAR` or `file:/ABSOLUTE/PATH` (an owner-only
+    /// file read at each spawn: a short-lived token another process rotates);
+    /// never the secret itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secret: Option<String>,
     /// Extra request headers (Claude Code: ANTHROPIC_CUSTOM_HEADERS). A
@@ -359,7 +361,14 @@ fn valid_id(id: &str) -> bool {
 }
 
 fn is_reference(value: &str) -> bool {
-    value.starts_with("keychain:") || value.starts_with("env:")
+    value.starts_with("keychain:")
+        || value.starts_with("env:")
+        || value.strip_prefix("file:").is_some_and(|p| Path::new(p).is_absolute())
+}
+
+/// Whether `id` names a route (lowercase letters, digits and `-`, at most 64).
+pub fn is_route_id(id: &str) -> bool {
+    valid_id(id)
 }
 
 fn secret_looking(name: &str) -> bool {
@@ -392,7 +401,7 @@ pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
         }
         Some(s) if !is_reference(s) => {
             return Err(RouteError::SecretInline(
-                "secret must be a reference (keychain:ITEM or env:VAR), never the secret itself: store it with `cmux harness secret set NAME` and pass keychain:NAME".into(),
+                "secret must be a reference (keychain:ITEM, env:VAR or file:/ABSOLUTE/PATH), never the secret itself: store it with `cmux harness secret set NAME` and pass keychain:NAME".into(),
             ));
         }
         _ => {}
@@ -406,14 +415,14 @@ pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
         }
         if secret_looking(name) && !is_reference(value) {
             return Err(RouteError::SecretInline(format!(
-                "header {name} looks secret: its value must be keychain:ITEM or env:VAR"
+                "header {name} looks secret: its value must be keychain:ITEM, env:VAR or file:/ABSOLUTE/PATH"
             )));
         }
     }
     let auth = file.auth.unwrap_or_else(|| file.kind.default_auth());
     if matches!(auth, Auth::ApiKey | Auth::Bearer) && file.secret.is_none() && !uses_relay(file) {
         return Err(RouteError::BadParams(format!(
-            "auth {} needs secret (keychain:ITEM or env:VAR)",
+            "auth {} needs secret (keychain:ITEM, env:VAR or file:/ABSOLUTE/PATH)",
             auth.as_str()
         )));
     }
@@ -586,10 +595,25 @@ pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, Route
         .map(|d| d.as_millis())
         .unwrap_or(0);
     let name = format!("{id}.{stamp}.toml");
-    std::fs::rename(&route.path, backups.join(&name))
-        .map_err(|e| RouteError::Failed(e.to_string()))?;
+    if id.starts_with(ONE_RUN_PREFIX) {
+        // A one-run route (cmux-hand's gateway route) leaves no backup: it
+        // names only a token file that is removed with it.
+        std::fs::remove_file(&route.path).map_err(|e| RouteError::Failed(e.to_string()))?;
+    } else {
+        std::fs::rename(&route.path, backups.join(&name))
+            .map_err(|e| RouteError::Failed(e.to_string()))?;
+    }
+    // Chats bound to it fall back to their inherited route, except a one-run
+    // route's chat: it keeps the binding, so its next spawn fails ("route is
+    // gone") instead of running on the owner's own provider without a word.
+    if !id.starts_with(ONE_RUN_PREFIX) {
+        update_bindings(home, |b| b.chats.retain(|_, r| r != id))?;
+    }
     Ok(name)
 }
+
+/// Route ids a hand makes for one agent run (crates/acpmux/src/hand/gateway.rs).
+pub const ONE_RUN_PREFIX: &str = "cmux-gateway-";
 
 pub fn restore(dir: Option<&Path>, home: &Path, backup: &str) -> Result<Route, RouteError> {
     if backup.contains('/') || backup.contains("..") || !backup.ends_with(".toml") {
@@ -725,8 +749,8 @@ fn reference_value(secret: &str) -> String {
 }
 
 /// The local CodeRouter's loopback base URL and a key it minted for acpmux.
-/// Read from the running router (crate cmux-coderouter: its admin socket in
-/// `<acpmux home>/router/router.sock`), never from a settings copy. One key
+/// Read from the running router (crate cmux-coderouter: its admin socket at
+/// `cmux_coderouter::admin_socket_path`), never from a settings copy. One key
 /// per family per router run (minting the same id again would revoke the key
 /// running harnesses hold), so a spawn's env stays the same and the session
 /// pool's env key still matches.
@@ -744,7 +768,7 @@ pub fn local_router_with(
     use crate::router_socket::UnixStream;
     use std::io::{BufRead, BufReader, Write};
     static MINTED: Mutex<BTreeMap<(u64, String), String>> = Mutex::new(BTreeMap::new());
-    let socket = home.join("router").join("router.sock");
+    let socket = cmux_coderouter::admin_socket_path(home);
     let unavailable = |what: String| {
         RouteError::Unavailable(format!(
             "the local CodeRouter is not running ({what}); start it with `acpmux router serve`"
@@ -942,6 +966,9 @@ fn resolve_reference(value: &str) -> Result<String, String> {
         return crate::login_env::allowed_var(var)
             .or_else(|| std::env::var(var).ok())
             .ok_or_else(|| format!("{var} is not set in the login environment"));
+    }
+    if let Some(path) = value.strip_prefix("file:") {
+        return crate::config::profiles::file_secret(path);
     }
     if let Some(item) = value.strip_prefix("keychain:") {
         let (service, account) = match item.split_once('/') {

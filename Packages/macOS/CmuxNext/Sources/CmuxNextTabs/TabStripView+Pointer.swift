@@ -69,13 +69,15 @@ extension TabStripView {
     public func showHoverCard(for id: TabID) -> Bool {
         guard model.tab(id) != nil, let cell = cells[id], cell.frame.width > 0.5, let window else { return false }
         let target = HoverTarget(id: TabHoverCardController.targetID(id), window: window.windowNumber,
-                                 delay: hoverCard.delay)
+                                 delay: hoverCard.delay, leave: hoverCard.leave)
         hoverCards.pin(target, from: hoverCard)
         return hoverCards.isShowing(target.id)
     }
 
     public override func mouseEntered(with event: NSEvent) {
+        if closingModeTrackingEvent(event, entered: true) { return }
         buttonReveal.pointerInStrip = true
+        closingModePointerReturned()
         updateHover(at: convert(event.locationInWindow, from: nil), moved: true)
     }
 
@@ -85,6 +87,7 @@ extension TabStripView {
     }
 
     public override func mouseExited(with event: NSEvent) {
+        if closingModeTrackingEvent(event, entered: false) { return }
         pointerLeft()
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
     }
@@ -94,11 +97,8 @@ extension TabStripView {
         buttonReveal.pointerInStrip = false
         clearHover()
         newTabButton.isHovered = false
-        if closingModeWidth != nil, drag == nil {
-            // Deferred relayout: tabs resize once the pointer leaves.
-            closingModeWidth = nil
-            relayout(animated: !reduceMotion)
-        }
+        // Deferred relayout: tabs resize once the pointer has left the extended strip for the delay.
+        if closingModeWidth != nil, drag == nil { closingModePointerLeft() }
     }
 
     // MARK: - Clicks

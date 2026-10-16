@@ -190,7 +190,7 @@ fn active_tab_of(value: &Value, pane: &str) -> Option<String> {
     }
 }
 
-fn route(params: &Map<String, Value>) -> Map<String, Value> {
+pub(super) fn route(params: &Map<String, Value>) -> Map<String, Value> {
     ["machine", "session"]
         .into_iter()
         .filter_map(|key| params.get(key).map(|value| (key.to_string(), value.clone())))
@@ -253,7 +253,7 @@ fn unregistered_terminal(terminal: &str) -> Failure {
 
 /// A `session.events` stream of the request's session on its own
 /// connection, or `None` when the daemon cannot give one before `deadline`.
-fn session_events(
+pub(super) fn session_events(
     socket: &SocketRoute<'_>,
     route: &Map<String, Value>,
     deadline: Instant,
