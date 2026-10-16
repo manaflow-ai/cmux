@@ -43,7 +43,8 @@ pub(super) async fn handle(
         }
         crate::rpc::method::MUX_MAIL_READ | crate::rpc::method::MUX_MAIL_WAIT => {
             let recipient = required_string(params, "recipient")?;
-            let operation = if method == crate::rpc::method::MUX_MAIL_WAIT { "wait" } else { "read" };
+            let operation =
+                if method == crate::rpc::method::MUX_MAIL_WAIT { "wait" } else { "read" };
             require_attached(is_attached(conn, &recipient), operation, &recipient)?;
             let after = params.get("after").and_then(Value::as_u64).unwrap_or(0);
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
@@ -70,10 +71,10 @@ pub(super) async fn handle(
 
 fn require_local_origin(origin: Origin) -> Result<(), RpcError> {
     if origin.web_class() {
-        return Err(
-            RpcError::invalid_params("mailbox RPCs are available only on the local daemon")
-                .with_data(json!({"reason": "mailbox_remote_refused"})),
-        );
+        return Err(RpcError::invalid_params(
+            "mailbox RPCs are available only on the local daemon",
+        )
+        .with_data(json!({"reason": "mailbox_remote_refused"})));
     }
     Ok(())
 }
@@ -150,7 +151,8 @@ mod tests {
 
     #[test]
     fn detached_wait_reports_wait_operation() {
-        let error = require_attached(false, "wait", "session-b").expect_err("detached wait must fail");
+        let error =
+            require_attached(false, "wait", "session-b").expect_err("detached wait must fail");
         assert!(error.message.contains("mailbox wait"));
     }
 }
