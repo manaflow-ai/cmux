@@ -43,7 +43,7 @@ public final class SidebarMirror {
         return SidebarMirror(handle: handle)
     }
 
-    deinit {
+    nonisolated deinit {
         cmux_sidebar_mirror_free(owned.pointer)
     }
 
