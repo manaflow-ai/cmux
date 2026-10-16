@@ -46,6 +46,8 @@ pub async fn run(cfg: HandConfig) -> Result<()> {
     // One running hand per hand home: a second copy (a service plus a manual
     // run) would take turns replacing each other's socket.
     let _lock = single_instance()?;
+    // One-run gateway routes whose token expired while the hand was down.
+    super::gateway::sweep().await;
     let _ = rustls::crypto::ring::default_provider().install_default();
     let cfg = Arc::new(cfg);
     let agents = Agents::default();
