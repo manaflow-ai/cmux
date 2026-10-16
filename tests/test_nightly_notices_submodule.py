@@ -20,7 +20,7 @@ CHECKERS = ("verify-app-bundle-licenses.sh", "notarize-nightly-dmg.sh", "resume-
 INIT = "init-submodule.sh ghostty-next"
 # hq-a3 owns this job (cx-x7hwx). It has the same gap; reported to them rather
 # than edited here.
-EXEMPT = {"publish-nightly-identity-legacy"}
+EXEMPT = {"sign-nightly-identity-legacy"}
 
 text = WORKFLOW.read_text()
 jobs_text = text[text.index("\njobs:\n"):]

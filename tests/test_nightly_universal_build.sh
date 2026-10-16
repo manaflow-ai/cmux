@@ -1197,7 +1197,15 @@ legacy_feed "$legacy_dir/next.xml" 3851000000001 3850073942601
 # Wiring: the macOS job takes its build and mode from legacy-identity-target,
 # not from this run's publish-nightly; a pending submission is stored and
 # continued, never counted as a failure.
-legacy_job="$(awk '/^  publish-nightly-identity-legacy:/{on=1} on && /^  [a-z0-9-]+:$/ && !/publish-nightly-identity-legacy/{exit} on' "$WORKFLOW_FILE")"
+# The cmux NIGHTLY-identity chain is three jobs (cx-vws1x): sign, a secret-free
+# verify, and publish.
+legacy_job_text() {  # <job id>
+  awk -v job="  $1:" '$0 == job {on=1; print; next} on && /^  [a-z0-9-]+:$/ {exit} on' "$WORKFLOW_FILE"
+}
+sign_job="$(legacy_job_text sign-nightly-identity-legacy)"
+verify_job="$(legacy_job_text verify-nightly-identity-legacy)"
+publish_job="$(legacy_job_text publish-nightly-identity-legacy)"
+legacy_job="$sign_job$verify_job$publish_job"
 target_job="$(awk '/^  legacy-identity-target:/{on=1} on && /^  [a-z0-9-]+:$/ && !/legacy-identity-target/{exit} on' "$WORKFLOW_FILE")"
 for expected in \
   "needs: [decide, legacy-identity-target]" \
@@ -1214,7 +1222,7 @@ for expected in \
   "name: cmux-nightly-identity-pending-meta" \
   "name: cmux-nightly-identity-pending-bundle" \
   "Build \${process.env.BUILD} failed:" \
-  "if: failure() && steps.resolve.outputs.real != 'false'" \
+  "if: always() && steps.failed.outputs.failed == 'true' && steps.resolve.outputs.real != 'false'" \
   ".github/workflows/nightly.yml push nightly-next \$GITHUB_REPOSITORY" \
   "BUNDLE_RUN: \${{ needs.legacy-identity-target.outputs.bundle_run }}" \
   "- name: Store the accepted submission's metadata" \
@@ -1248,6 +1256,56 @@ for expected in \
     exit 1
   fi
 done
+# Split contract (cx-vws1x): the signing job holds the secrets and runs no
+# bundle code; the verify job smokes the exact DMG with no environment and no
+# secret on a literal ephemeral label; publish takes only the tested digest.
+for expected in \
+  "environment: release-next" \
+  "CMUX_DEFER_LAUNCH_SMOKES: \"true\"" \
+  "name: cmux-nightly-identity-signed" \
+  "dmg_sha256: \${{ steps.handoff.outputs.dmg_sha256 }}" \
+  "signed_ok: \${{ steps.attempt.outputs.signed_ok }}" \
+  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}"; do
+  grep -Fq -- "$expected" <<<"$sign_job" || { echo "FAIL: sign-nightly-identity-legacy must contain: $expected"; exit 1; }
+done
+for expected in \
+  "needs: [legacy-identity-target, sign-nightly-identity-legacy]" \
+  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}" \
+  './scripts/ci/smoke-dmg.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256"' \
+  "tested_sha256: \${{ steps.smoke.outputs.tested_sha256 }}"; do
+  grep -Fq -- "$expected" <<<"$verify_job" || { echo "FAIL: verify-nightly-identity-legacy must contain: $expected"; exit 1; }
+done
+if grep -Eq 'environment:|secrets\.|vars\.[A-Z_]*RUNNER' <<<"$verify_job"; then
+  echo "FAIL: verify-nightly-identity-legacy must hold no environment or secret and use a literal runner label"
+  exit 1
+fi
+for expected in \
+  "needs: [decide, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy]" \
+  "TESTED_SHA256: \${{ needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}" \
+  './scripts/ci/nightly-next-legacy-tested-digest.sh' \
+  "group: nightly-next-legacy-identity-publish"; do
+  grep -Fq -- "$expected" <<<"$publish_job" || { echo "FAIL: publish-nightly-identity-legacy must contain: $expected"; exit 1; }
+done
+# Every publishing step of the publish job needs the tested digest, after the check.
+for step in "Generate the old feed's appcast" "Publish the cmux NIGHTLY DMG, release notes and the old feed"; do
+  step_if="$(awk -v name="      - name: $step" '$0 == name { found=1; next } found && /^        if: / { sub(/^        if: /, ""); print; exit }' <<<"$publish_job")"
+  if [ "$step_if" != "steps.order.outputs.skip == 'false' && env.TESTED_SHA256 != ''" ]; then
+    echo "FAIL: '$step' must run only with a tested digest: $step_if"
+    exit 1
+  fi
+done
+check_line="$(grep -n 'nightly-next-legacy-tested-digest.sh' <<<"$publish_job" | head -1 | cut -d: -f1)"
+publish_line="$(grep -n 'gh release upload' <<<"$publish_job" | head -1 | cut -d: -f1)"
+if [ -z "$check_line" ] || [ -z "$publish_line" ] || [ "$check_line" -ge "$publish_line" ]; then
+  echo "FAIL: publish-nightly-identity-legacy must check the tested digest before it uploads"
+  exit 1
+fi
+if grep -Eq 'smoke-dmg\.sh|smoke-launch|signing-keychain\.sh create' <<<"$publish_job"; then
+  echo "FAIL: publish-nightly-identity-legacy must run no bundle code and import no signing keychain"
+  exit 1
+fi
+bash "$ROOT_DIR/tests/test_nightly_next_legacy_tested_digest.sh"
+
 if grep -Fq "publish-nightly.result == 'success'" <<<"$legacy_job$target_job" || grep -Fq "should_publish == 'true'" <<<"$target_job"; then
   echo "FAIL: the cmux NIGHTLY-identity jobs must not require a publication in the same run (recovered builds publish later)"
   exit 1
