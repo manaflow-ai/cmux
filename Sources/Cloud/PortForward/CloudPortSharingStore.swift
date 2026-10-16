@@ -22,6 +22,9 @@ final class CloudPortSharingStore {
 
     @ObservationIgnored private var freshness: CloudPortSharingFreshness
     @ObservationIgnored private var fetchTask: Task<Void, Never>?
+    /// An invalidation that arrives during a read must trigger a second read
+    /// after that read settles; otherwise the stale result can remain visible.
+    @ObservationIgnored private var refreshAfterFetch = false
     @ObservationIgnored private let fetch: @MainActor () async throws -> [CloudPortPublicationRef]
     @ObservationIgnored private let now: () -> Date
 
@@ -46,6 +49,10 @@ final class CloudPortSharingStore {
 
     /// Reads publications in the background when the policy says the list is stale.
     func requestRefresh() {
+        if fetchTask != nil {
+            refreshAfterFetch = true
+            return
+        }
         guard freshness.shouldFetch(now: now()) else { return }
         let token = freshness.begin()
         fetchTask = Task { @MainActor [weak self] in
@@ -57,6 +64,10 @@ final class CloudPortSharingStore {
                 self.freshness.fail(now: self.now())
             }
             self.fetchTask = nil
+            if self.refreshAfterFetch {
+                self.refreshAfterFetch = false
+                self.requestRefresh()
+            }
         }
     }
 
@@ -79,7 +90,11 @@ final class CloudPortSharingStore {
     /// A publication changed somewhere: read again now, ignoring TTL and backoff.
     func invalidate() {
         freshness.invalidate()
-        requestRefresh()
+        if fetchTask != nil {
+            refreshAfterFetch = true
+        } else {
+            requestRefresh()
+        }
     }
 
     /// Socket writes (`cmux cloud domains`, `cmux vm share`) land here after they succeed.

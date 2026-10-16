@@ -94,6 +94,34 @@ import Testing
         #expect(CloudTreePortPresentation.audienceBadge(.public)?.kind == .public)
     }
 
+    @Test func invalidationDuringAReadSchedulesAnAuthoritativeFollowUp() async throws {
+        var listed = Self.refs([Self.publication("a", .team)])
+        var reads = 0
+        var releaseFirst: CheckedContinuation<Void, Never>?
+        let store = CloudPortSharingStore(now: { Date(timeIntervalSince1970: 1_000) }) {
+            reads += 1
+            if reads == 1 {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    releaseFirst = continuation
+                }
+            }
+            return listed
+        }
+
+        store.requestRefresh()
+        await Task.yield()
+        #expect(reads == 1)
+        listed = Self.refs([Self.publication("a", .public)])
+        store.invalidate()
+        releaseFirst?.resume()
+
+        for _ in 0..<100 where reads < 2 {
+            await Task.yield()
+        }
+        #expect(reads == 2)
+        #expect(store.sharing(machineID: "vm-1", port: 3000) == .public)
+    }
+
     @Test func theBadgeIsPrivateTeamOrPublic() {
         #expect(CloudTreePortPresentation.audienceBadge(.unshared)?.kind == .private)
         #expect(CloudTreePortPresentation.audienceBadge(.personal)?.kind == .private)

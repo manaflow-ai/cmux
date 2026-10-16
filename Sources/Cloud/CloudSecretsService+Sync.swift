@@ -492,13 +492,13 @@ def value_from_line(line):
         raw = bytes(raw[1:-1], "utf-8").decode("unicode_escape")
     return raw
 
-key = None
+keys = []
 with open(env_path, encoding="utf-8") as stream:
     for line in stream:
         candidate = value_from_line(line)
         if candidate and candidate != placeholder:
-            key = candidate
-if not key:
+            keys.append(candidate)
+if not keys:
     raise SystemExit(0)
 
 try:
@@ -520,9 +520,10 @@ if not isinstance(responses, dict):
 approved = responses.get("approved")
 if not isinstance(approved, list):
     approved = []
-suffix = key[-20:]
-if suffix not in approved:
-    approved.append(suffix)
+for key in keys:
+    suffix = key[-20:]
+    if suffix not in approved:
+        approved.append(suffix)
 responses["approved"] = approved
 if not isinstance(responses.get("rejected"), list):
     responses["rejected"] = []

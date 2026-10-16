@@ -145,24 +145,34 @@ enum CloudPortShareFlow {
         for step in steps {
             switch step {
             case .create(let audience):
+                let teamID = try teamID(for: audience)
                 let created = try await client.createPublication(
                     vmID: context.machineID,
                     port: context.port,
                     hostname: nil,
                     accessMode: audience == .public ? .personal : audience.accessMode,
-                    teamID: nil
+                    teamID: audience == .public ? nil : teamID
                 )
                 if audience == .public {
                     _ = try await client.updatePublicationAccess(id: created.id, accessMode: .public, teamID: nil, confirmPublic: true)
                 }
             case .update(let id, let audience):
+                let teamID = try teamID(for: audience)
                 _ = try await client.updatePublicationAccess(
-                    id: id, accessMode: audience.accessMode, teamID: nil, confirmPublic: audience == .public
+                    id: id, accessMode: audience.accessMode, teamID: teamID, confirmPublic: audience == .public
                 )
             case .delete(let id):
                 try await client.deletePublication(id: id)
             }
         }
+    }
+
+    private static func teamID(for audience: CloudPortShareAudience) throws -> String? {
+        guard audience == .team else { return nil }
+        guard let teamID = AppDelegate.shared?.auth?.resolvedTeamID, !teamID.isEmpty else {
+            throw CloudPortShareError.signedOut
+        }
+        return teamID
     }
 
     /// The explicit second step before anything becomes public. It names the
