@@ -93,6 +93,8 @@ export default defineConfig({
           STRIPE_USAGE_KEY: "sk_test_fake-usage-sync-key",
           // Chief brains (chief-brain/brain-do.ts): wakes reach the brain; the fake model (no AI binding in tests).
           CHIEF_BRAIN_ENABLED: "1",
+          // The opencode brain (O) is selectable; no container binds here, so an O Chief falls back to P (chief-brain-opencode-route.test.ts).
+          CHIEF_OPENCODE_ENABLED: "1",
           // The metered Claude route and its sign-in refresh, faked at their HTTP boundary in
           // test/chief-brain-claude.test.ts. Test-only values: an expired fake access token and a fake refresh token.
           CHIEF_BRAIN_CLAUDE_URL: "https://claude.test/api/claude-david",

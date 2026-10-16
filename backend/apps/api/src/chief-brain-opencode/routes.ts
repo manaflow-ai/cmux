@@ -35,7 +35,10 @@ export const handleBrainImpl = async (request: Request, env: Env, agent: string)
   if (request.method === "GET") return ok({ impl: await brain.impl() })
   const body = (await request.json().catch(() => null)) as { impl?: unknown } | null
   if (body?.impl !== "pi" && body?.impl !== "opencode") return fail({ status: 400, code: "validation.invalid", message: 'impl is "pi" or "opencode"' })
-  return ok(await brain.setImpl(agent, owned.owner, body.impl))
+  const set = await brain.setImpl(agent, owned.owner, body.impl)
+  // MuxDO routes each wake by this cache; it is written after the brain object took the setting.
+  await (env.MUX_DO.get(env.MUX_DO.idFromName(agent)) as unknown as { setBrainImpl(impl: "pi" | "opencode"): Promise<void> }).setBrainImpl(body.impl)
+  return ok(set)
 }
 
 /** Container -> host: the DO checks the container token. */

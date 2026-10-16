@@ -268,7 +268,7 @@ export interface Env {
   readonly CHIEF_BRAIN_VIEW_BUDGET?: string
   /** One OpencodeBrainDO per chief: the opencode brain (implementation O, chief-brain-opencode/) and its container. Absent: O is off. */
   readonly OPENCODE_BRAIN_DO?: DurableObjectNamespace<OpencodeBrainDO>
-  /** "1": a Chief's owner may pick the opencode brain (`brain_impl`), and MuxDO asks it first. */
+  /** "1": a Chief's owner may pick the opencode brain (`brain_impl`); MuxDO sends that Chief's wakes there only. */
   readonly CHIEF_OPENCODE_ENABLED?: string
   /** "1": the deployment has the brain container image bound to OpencodeBrainDO. */
   readonly CHIEF_OPENCODE_CONTAINER?: string
