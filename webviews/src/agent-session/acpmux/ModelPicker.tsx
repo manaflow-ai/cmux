@@ -447,10 +447,12 @@ export function ModelPicker(props: ModelPickerProps) {
       if (!root.current?.contains(event.target as Node)) close(false);
     };
     const blur = () => close(false);
-    document.addEventListener("pointerdown", away);
+    // In the capture phase, as Base UI's menus close: a press outside only closes the picker, and
+    // nothing under it sees the press (menuPressGuard.ts).
+    document.addEventListener("pointerdown", away, true);
     window.addEventListener("blur", blur);
     return () => {
-      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("pointerdown", away, true);
       window.removeEventListener("blur", blur);
     };
   }, [close, open]);
