@@ -532,6 +532,8 @@ operational proof, not a provider migration.
 
 ## Phase 8: CI/CD Guardrails
 
+- [x] Cloud VM backend changes run the migration metadata and isolated database
+  preflight in the required web CI workflow before they can merge.
 - [ ] PR checks should run web typecheck, Bun tests, and the remote-state contract tests.
 - [ ] PR checks should not call paid providers by default.
 - [ ] Provider tests should use a `MockVMProvider` by default. Only the explicit
