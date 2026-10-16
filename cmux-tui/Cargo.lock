@@ -1008,7 +1008,6 @@ dependencies = [
  "libc",
  "reqwest",
  "rustls",
- "security-framework",
  "serde",
  "serde_json",
  "sha2 0.10.9",
