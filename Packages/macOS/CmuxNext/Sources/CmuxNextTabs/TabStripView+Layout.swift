@@ -114,6 +114,7 @@ extension TabStripView {
         TabSeparatorVisibility.apply(to: self)
         startAnimating()
         applyFrames()
+        updateOverflowHint()
     }
 
     /// A closing tab's left edge stays on the previous tab's right edge minus the close width (0: our
