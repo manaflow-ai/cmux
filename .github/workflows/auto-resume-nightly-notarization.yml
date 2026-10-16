@@ -286,18 +286,15 @@ jobs:
       contents: read
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 90
+    # Secrets and the job token are set only on the steps that use them, so the
+    # steps that launch the recovered app do not inherit them.
     env:
-      GH_TOKEN: ${{ github.token }}
       SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
       SOURCE_RUN_ATTEMPT: ${{ needs.preflight.outputs.source_run_attempt }}
       SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
       CHANNEL: ${{ needs.preflight.outputs.channel }}
       SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
       VARIANT: ${{ matrix.variant }}
-      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
-      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
-      ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
     steps:
       - name: Set outer notarization receipt paths
         run: |
@@ -336,26 +333,9 @@ jobs:
           chmod +x "$wrapper_dir/create-dmg"
           echo "$wrapper_dir" >> "$GITHUB_PATH"
 
-      - name: Import signing certificate for recovered DMG
-        env:
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          set -euo pipefail
-          [ -n "$APPLE_CERTIFICATE_BASE64" ] || { echo "Missing APPLE_CERTIFICATE_BASE64" >&2; exit 1; }
-          [ -n "$APPLE_CERTIFICATE_PASSWORD" ] || { echo "Missing APPLE_CERTIFICATE_PASSWORD" >&2; exit 1; }
-          KEYCHAIN_PASSWORD="$(uuidgen)"
-          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > /tmp/cert.p12
-          security delete-keychain build.keychain >/dev/null 2>&1 || true
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -lut 21600 build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-          ./scripts/import-apple-developer-id-intermediates.sh build.keychain
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-          security list-keychains -d user -s build.keychain
-
       - name: Download exact recovery artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           artifact="cmux-${CHANNEL}-notarization-recovery-${VARIANT}-${SHORT_SHA}"
@@ -373,8 +353,25 @@ jobs:
             printf '%s=%s\n' "$key" "$value" >> "$GITHUB_ENV"
           done < "$RUNNER_TEMP/recovery.env"
 
+      # Only a recovered Computer Use helper needs a signature here: the helper
+      # re-seals the app and the outer DMG is signed. A recovered DMG is
+      # already signed, so that path never imports the certificate.
+      # notarize-nightly-dmg.sh deletes the keychain after the DMG signature,
+      # before the continuation launches the stapled app.
+      - name: Import signing certificate for recovered DMG
+        if: env.RECOVERY_KIND == 'computer-use-helper'
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: ./scripts/ci/signing-keychain.sh create
+
       - name: Wait, staple, and validate exact submitted DMG
         id: wait-staple
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
           mkdir -p verified
@@ -533,7 +530,9 @@ jobs:
 
       - name: Cleanup signing keychain
         if: always()
-        run: security delete-keychain build.keychain >/dev/null 2>&1 || true
+        run: |
+          ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
+            || security delete-keychain build.keychain >/dev/null 2>&1 || true
 
   poll-outer:
     needs: [preflight, wait-and-staple]
