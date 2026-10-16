@@ -20,6 +20,8 @@ public final class MockAccountsServices: AccountsServices {
                       account: AccountLabel.demo("codex", display: "d…@e…"), state: "active"),
     ]
     public var isSignedInToCmux = true
+    public var teams = AccountsTeams(teams: [.init(id: "team-personal", name: "Personal"), .init(id: "team-acme", name: "Acme")],
+                                     activeID: "team-personal")
     public var failure: (any Error)?
     public private(set) var calls: [String] = []
 
@@ -35,6 +37,14 @@ public final class MockAccountsServices: AccountsServices {
         calls.append("signIn")
         isSignedInToCmux = true
     }
+
+    public func selectTeam(_ id: String) async throws {
+        calls.append("selectTeam:\(id)")
+        if let failure { throw failure }
+        teams.activeID = id
+    }
+
+    public func refreshTeams() async { calls.append("teams") }
 
     public func linkedAccounts() async throws -> [LinkedAccount] {
         calls.append("linked")

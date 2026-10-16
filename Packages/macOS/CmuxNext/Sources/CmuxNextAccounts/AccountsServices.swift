@@ -15,6 +15,13 @@ public protocol AccountsServices: AnyObject {
     /// Starts the hosted cmux sign-in.
     func signInToCmux()
 
+    /// The account's teams and the active one; empty when signed out.
+    var teams: AccountsTeams { get }
+    /// Makes `id` the active team (everything team-scoped follows it).
+    func selectTeam(_ id: String) async throws
+    /// Re-reads the account's teams (one left or joined in the browser).
+    func refreshTeams() async
+
     /// The team's CodeRouter accounts this user may see.
     func linkedAccounts() async throws -> [LinkedAccount]
     /// Builds the credential (from the local sign-in, the environment, the

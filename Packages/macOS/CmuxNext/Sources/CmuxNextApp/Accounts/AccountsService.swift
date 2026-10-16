@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAccounts
+import CmuxNextCloud
 import CmuxNextCodeRouter
 import CmuxNextDaemon
 import Foundation
@@ -104,6 +105,24 @@ final class AccountsService: AccountsServices {
             _ = await cloud.auth.signIn()
             self?.model.refresh()
         }
+    }
+
+    var teams: AccountsTeams {
+        if let showcaseMock { return showcaseMock.teams }
+        guard services.cloud.isSignedIn else { return AccountsTeams() }
+        let active = services.cloud.auth.activeTeam
+        return AccountsTeams(teams: active.teams.map { AccountsTeams.Team(id: $0.id, name: $0.displayName) }, activeID: active.id,
+                             isManaged: active.managedTeamID != nil, isSwitching: active.isSwitching)
+    }
+
+    func selectTeam(_ id: String) async throws {
+        if let showcaseMock { try await showcaseMock.selectTeam(id); return }
+        try await services.cloud.auth.activeTeam.select(id)
+    }
+
+    func refreshTeams() async {
+        if showcaseMock != nil { return }
+        await services.cloud.auth.activeTeam.refresh()
     }
 
     func linkedAccounts() async throws -> [LinkedAccount] {
