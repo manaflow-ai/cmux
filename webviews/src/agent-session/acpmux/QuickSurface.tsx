@@ -1,6 +1,7 @@
 import React from "react";
 import { FloatingCompactBar, FloatingHeader, useFloatingKeys, type QuickFloating } from "./FloatingChat";
 import { QuickKeyHints } from "./QuickKeyHints";
+import { ChiefDock, type ChiefDockProps } from "./ChiefDock";
 
 /// The Quick Composer panel's page: the composer filling the panel, and once the chat has a
 /// first prompt its transcript above, scrolling within what the panel leaves it. No session
@@ -20,6 +21,8 @@ export function QuickSurface({
   composer: React.ReactNode;
   /// The floating chat around the page, when the panel holds the chat.
   floating?: QuickFloating;
+  /// The optional Chief Dock, enabled by the named experiment while the design is dogfooded.
+  chiefDock?: ChiefDockProps;
 }) {
   useFloatingKeys(floating);
   const holding = floating?.state.holding === true;
@@ -27,6 +30,7 @@ export function QuickSurface({
     return (
       <div className="acpmux-quick" data-floating="compact">
         <FloatingCompactBar floating={floating} />
+        {chiefDock && <ChiefDock {...chiefDock} />}
       </div>
     );
   return (
@@ -40,6 +44,7 @@ export function QuickSurface({
       {asks}
       {composer}
       <QuickKeyHints floating={holding} />
+      {chiefDock && <ChiefDock {...chiefDock} />}
     </div>
   );
 }
