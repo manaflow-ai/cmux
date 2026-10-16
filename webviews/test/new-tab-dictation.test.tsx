@@ -113,10 +113,14 @@ test("auto-send routes finalized dictation through the normal New Tab prompt act
   const { configureDictation, deliverDictation } = await import("../src/agent-session/acpmux/dictation");
   configureDictation({ dictation: { autoSend: true } });
   try {
-    await renderNewTab(calls, (...ask) => asks.push(ask));
+    await renderNewTab(calls, (harness, text, cwd, model) => asks.push([harness, text, cwd, model]));
     await act(async () => deliverDictation({ state: "starting", text: "", level: 0, cancelled: false }));
-    await act(async () => deliverDictation({ state: "listening", text: "open the voice settings", level: 0.4, cancelled: false }));
-    await act(async () => deliverDictation({ state: "idle", text: "open the voice settings", level: 0, cancelled: false }));
+    await act(async () =>
+      deliverDictation({ state: "listening", text: "open the voice settings", level: 0.4, cancelled: false }),
+    );
+    await act(async () =>
+      deliverDictation({ state: "idle", text: "open the voice settings", level: 0, cancelled: false }),
+    );
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(asks).toHaveLength(1);
     expect(asks[0]?.[0]).toBe("claude");
