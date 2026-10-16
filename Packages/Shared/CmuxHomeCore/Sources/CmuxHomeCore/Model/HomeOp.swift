@@ -7,7 +7,9 @@ public enum HomeOp: Hashable, Sendable {
     /// `message.send`. The key is the message's client id. `threadRoot` set:
     /// a reply in that message's thread (both owners carry it as `reply_to`
     /// part 0 of the root, so the root must be in the same conversation).
-    case sendMessage(conversation: ConversationID, parts: [MessagePart], threadRoot: MessageID? = nil)
+    /// `parent` set (with `threadRoot`): the reply answers that message of the thread, at any
+    /// depth (the daemon's `reply_to`, conversation-tree-v1); nil: it answers the root.
+    case sendMessage(conversation: ConversationID, parts: [MessagePart], threadRoot: MessageID? = nil, parent: MessageID? = nil)
     /// `message.edit`: the user's own message gets new parts (`editedAt` set).
     case editMessage(message: MessageID, conversation: ConversationID, parts: [MessagePart])
     /// `message.retract`: the user's own message is unsent (`retractedAt` set, parts cleared).
@@ -44,7 +46,7 @@ public enum HomeOp: Hashable, Sendable {
     /// The stream this op writes. Its result's `rev` is a revision of this stream.
     public var stream: HomeStream {
         switch self {
-        case .sendMessage(let conversation, _, _),
+        case .sendMessage(let conversation, _, _, _),
              .editMessage(_, let conversation, _),
              .retractMessage(_, let conversation),
              .setReadCursor(let conversation, _),
@@ -61,7 +63,7 @@ public enum HomeOp: Hashable, Sendable {
     /// The conversation this op writes, when it targets one.
     public var conversation: ConversationID? {
         switch self {
-        case .sendMessage(let conversation, _, _),
+        case .sendMessage(let conversation, _, _, _),
              .editMessage(_, let conversation, _),
              .retractMessage(_, let conversation),
              .setReadCursor(let conversation, _),

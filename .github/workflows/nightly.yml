@@ -2677,7 +2677,7 @@ jobs:
     # best-effort lane, so it cannot delay the first update users can install.
     # A cx-f58x notary test waits up to 160 minutes for Apple (52c6c12d took
     # over 90) because it has no recovery hand-off.
-    timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 235 || 115 }}
+    timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 235 || 160 }}
     # One universal Xcode build feeds every variant: the thin variants are cut
     # from it with lipo, so each user downloads only their architecture.
     strategy:
@@ -3202,7 +3202,11 @@ jobs:
         # waits and the DMG's pending state is always written before a timeout.
         # A helper Apple still holds after 15m is not a failure: the DMG ticket
         # covers it, and that is checked (cx-urd.68), and a slow DMG is handed off.
-        timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 205 || 85 }}
+        # Outside notary tests, the DMG that ships is a second DMG built around
+        # the app stapled from the first ticket, with its own submission and
+        # the same wait (CMUX_STAPLE_APP_IN_DMG); a slow second DMG is handed
+        # off the same way (the next run continues the accepted first one).
+        timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 205 || 130 }}
         env:
           CMUX_NOTARY_WAIT_TIMEOUT: ${{ needs.decide.outputs.notary_test == 'true' && '160m' || needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && '20m' || '40m' }}
           CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE: ${{ runner.temp }}/cmux-computer-use-notarization.state
@@ -3211,6 +3215,11 @@ jobs:
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # The DMG around the stapled app is signed after Apple's wait.
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # A notary test publishes nothing and keeps its one DMG submission.
+          CMUX_STAPLE_APP_IN_DMG: ${{ needs.decide.outputs.notary_test == 'true' && 'false' || 'true' }}
           # Only a build that may publish hands a pending submission to a
           # later run; a notary test waits here and is never continued.
           CMUX_NOTARY_PENDING_ON_TIMEOUT: ${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && 'true' || 'false' }}
@@ -3657,7 +3666,7 @@ jobs:
           release="final-dmg/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}.dmg"
           [ -f "$release" ] || { echo "no final DMG for $NIGHTLY_VARIANT" >&2; exit 1; }
           # The DMG was signed and checked for the signing channel (cmux NEXT signs as next).
-          ./scripts/ci/smoke-dmg.sh "$release" "$SIGN_CHANNEL" 3>"$RUNNER_TEMP/tested.line"
+          ./scripts/ci/smoke-dmg.sh "$release" "$SIGN_CHANNEL" --require-stapled-app 3>"$RUNNER_TEMP/tested.line"
           tested="$(awk '$1 == "tested" {print $2}' "$RUNNER_TEMP/tested.line")"
           [ -n "$tested" ] || { echo "smoke-dmg.sh reported no tested digest" >&2; exit 1; }
           # The immutable DMG is a copy of the release DMG: require the same bytes.
@@ -3747,7 +3756,10 @@ jobs:
     needs: [decide, find-nightly-next-recovery]
     if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.find-nightly-next-recovery.outputs.found == 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 45
+    # An accepted continuation builds, signs and notarizes the DMG around the
+    # stapled app (notarize-nightly-dmg.sh, CMUX_STAPLE_APP_IN_DMG): a 20m wait
+    # and packaging per candidate; a failed one moves on to the next of 3.
+    timeout-minutes: 90
     permissions:
       actions: read
       contents: read
@@ -3784,6 +3796,28 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # The DMG around the stapled app is built with the same create-dmg as
+      # build-sign-notarize-nightly.
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
+      - name: Install create-dmg
+        run: |
+          CMUX_NODE_BIN="$(command -v node)"
+          export npm_config_prefix="$RUNNER_TEMP/npm-global"
+          mkdir -p "$npm_config_prefix"
+          npm install --global "create-dmg@${CREATE_DMG_VERSION}"
+          wrapper_dir="$RUNNER_TEMP/create-dmg-wrapper"
+          mkdir -p "$wrapper_dir"
+          cat > "$wrapper_dir/create-dmg" <<EOF
+          #!/usr/bin/env bash
+          exec "$CMUX_NODE_BIN" "$npm_config_prefix/lib/node_modules/create-dmg/cli.js" "\$@"
+          EOF
+          chmod +x "$wrapper_dir/create-dmg"
+          echo "$wrapper_dir" >> "$GITHUB_PATH"
+
       - name: Continue the newest accepted pending notarization
         id: continue
         env:
@@ -3793,6 +3827,14 @@ jobs:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          # notarize-nightly-dmg.sh signs the DMG around the stapled app and
+          # waits 20m for it; one still queued is pending, and a later run
+          # continues the same accepted candidate (no older one is published).
+          CMUX_STAPLED_DMG_WAIT_TIMEOUT: 20m
+          CMUX_NOTARY_PENDING_ON_TIMEOUT: "true"
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           # This job holds notarization secrets, so it runs no bundle code:
           # verify-recovered-nightly-next smokes the continued DMG (#21024).
           CMUX_DEFER_LAUNCH_SMOKES: "true"
@@ -3844,6 +3886,12 @@ jobs:
               echo "::endgroup::"; continue
             fi
             if grep -Fxq "submission_pending=true" "$pending"; then
+              if grep -Fxq "stapled_app_pending=true" "$pending"; then
+                # Apple accepted it; the DMG around the stapled app is still
+                # queued. A later run continues this build, not an older one.
+                echo "::notice::run $run_id: submission $SUBMISSION_ID is accepted and the DMG around the stapled app is still in Apple's queue; a later run continues it"
+                echo "::endgroup::"; break
+              fi
               echo "::notice::run $run_id: submission $SUBMISSION_ID is still in progress"
               echo "::endgroup::"; continue
             fi
@@ -3871,6 +3919,10 @@ jobs:
           done < <(echo "$CANDIDATES" | python3 -c 'import json, sys; [print("%s\t%s" % (c["run_id"], c["artifact"])) for c in json.load(sys.stdin)]')
           echo "accepted=false" >> "$GITHUB_OUTPUT"
           echo "No pending nightly-next notarization was accepted; nothing to continue." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Delete the stapled-app DMG signing keychain
+        if: always()
+        run: ./scripts/ci/signing-keychain.sh delete --keychain build.keychain
 
       - name: Generate the recovered Sparkle appcast
         if: steps.continue.outputs.accepted == 'true'
@@ -3946,7 +3998,7 @@ jobs:
           : > tested/tested-recovered-arm64.sha256
           release="recovered/${CHANNEL_DMG_PREFIX}-arm64.dmg"
           [ -f "$release" ] || { echo "no recovered release DMG at $release" >&2; exit 1; }
-          ./scripts/ci/smoke-dmg.sh "$release" "$SIGN_CHANNEL" 3>"$RUNNER_TEMP/tested.line"
+          ./scripts/ci/smoke-dmg.sh "$release" "$SIGN_CHANNEL" --require-stapled-app 3>"$RUNNER_TEMP/tested.line"
           tested="$(awk '$1 == "tested" {print $2}' "$RUNNER_TEMP/tested.line")"
           [ -n "$tested" ] || { echo "smoke-dmg.sh reported no tested digest" >&2; exit 1; }
           # The immutable DMG is a copy of the release DMG: require the same bytes.
@@ -4853,8 +4905,9 @@ jobs:
     # -bundle) and a later run continues that exact submission
     # (legacy-identity-target: action continue, up to 48 h while no newer
     # cmux NEXT build exists; artifacts kept 3 days); it is never resubmitted and
-    # never counted as a failure.
-    timeout-minutes: 75
+    # never counted as a failure. The DMG around the stapled app adds one more
+    # submission with the same 20 min wait (CMUX_STAPLE_APP_IN_DMG).
+    timeout-minutes: 100
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -5044,6 +5097,9 @@ jobs:
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # The DMG around the stapled app is signed after Apple's wait.
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           # This job holds signing and notarization secrets, so it runs no
           # bundle code (#21024 guard rule 6): the launch smokes are deferred
           # to verify-nightly-identity-legacy, which smokes this exact DMG.
@@ -5155,7 +5211,8 @@ jobs:
           if grep -Eq '"status" *: *"(Invalid|Rejected)"' "$RUNNER_TEMP/legacy.notarization.log" 2>/dev/null; then
             apple=refused
           elif grep -Eq '"status" *: *"Accepted"' "$RUNNER_TEMP/legacy.notarization.log" 2>/dev/null \
-             || { [ -d "legacy-app/cmux NIGHTLY.app" ] && xcrun stapler validate "legacy-app/cmux NIGHTLY.app" >/dev/null 2>&1; }; then
+             || { [ -d "legacy-app/cmux NIGHTLY.app" ] && ! grep -Fxq stapled_app=true "$RUNNER_TEMP/legacy.notarization.state" 2>/dev/null \
+                  && xcrun stapler validate "legacy-app/cmux NIGHTLY.app" >/dev/null 2>&1; }; then
             apple=accepted
           fi
           refused=false
@@ -5246,7 +5303,7 @@ jobs:
           [[ "$SIGNED_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "the signing job recorded no sha256" >&2; exit 1; }
           dmg="legacy-signed/${LEGACY_DMG_PREFIX}${NIGHTLY_BUILD}.dmg"
           [ -f "$dmg" ] || { echo "no stapled DMG at $dmg" >&2; exit 1; }
-          ./scripts/ci/smoke-dmg.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" 3>"$RUNNER_TEMP/tested.line"
+          ./scripts/ci/smoke-dmg.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" --require-stapled-app 3>"$RUNNER_TEMP/tested.line"
           tested="$(awk '$1 == "tested" {print $2}' "$RUNNER_TEMP/tested.line")"
           [ "$tested" = "$SIGNED_SHA256" ] || { echo "smoke-dmg.sh tested '$tested', not the signed $SIGNED_SHA256" >&2; exit 1; }
           echo "tested_sha256=$tested" >> "$GITHUB_OUTPUT"

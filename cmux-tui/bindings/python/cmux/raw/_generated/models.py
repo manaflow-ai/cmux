@@ -2043,6 +2043,7 @@ class WorkspaceMutationResult:
     replayed: bool
     workspace_revision: int
     changed: Union[bool, MissingType] = field(default=MISSING)
+    closed_ids: Union[List[str], MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2364,6 +2365,7 @@ class CloseWorkspaceRequest:
     end_terminals: Union[bool, MissingType] = field(default=MISSING)
     if_empty: Union[bool, MissingType] = field(default=MISSING)
     reason: Union[CloseReason, None, MissingType] = field(default=MISSING)
+    report_closed_ids: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "de1dd75268c7da924fcaf7eda0f26de8ea329aed8a163a93b7632a8a37953d16";
+inline constexpr std::string_view kProtocolIrSha256 = "3e78f3e194548aac7f9e7f81957ff350654e85fddc3bc348a88555a59dc93fc8";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -1506,6 +1506,7 @@ struct CloseWorkspaceRequest {
     Field<std::string> mutation_id{};
     Field<std::string> origin{};
     Field<CloseReason> reason{};
+    std::optional<bool> report_closed_ids{};
     Field<Id> workspace{};
     friend bool operator==(const CloseWorkspaceRequest&, const CloseWorkspaceRequest&) = default;
 };
@@ -5695,6 +5696,7 @@ struct WorkspaceMovedEvent {
 
 struct WorkspaceMutationResult {
     std::optional<bool> changed{};
+    std::optional<std::vector<std::string>> closed_ids{};
     std::string generation{};
     std::uint64_t index{};
     std::string key{};
