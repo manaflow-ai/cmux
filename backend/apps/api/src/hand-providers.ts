@@ -106,11 +106,29 @@ export const freestyleProvider: SandboxProvider = {
   }
 }
 
+/** A provider whose adapter is not written yet: it answers that no key is configured (docs/chief-hands.md). */
+const stub = (id: string, keyVar: string): SandboxProvider => {
+  const none = async () => {
+    throw new Error(`no key configured for the ${id} sandbox provider (${keyVar})`)
+  }
+  return { id, ready: () => false, canManage: () => false, create: none, exec: none, pause: none, remove: none, list: async () => [] }
+}
+
 /** Providers by id; only the ones whose key is on this deployment are offered. */
-export const PROVIDERS: Readonly<Record<string, SandboxProvider>> = { freestyle: freestyleProvider }
+export const PROVIDERS: Readonly<Record<string, SandboxProvider>> = {
+  freestyle: freestyleProvider,
+  e2b: stub("e2b", "HAND_E2B_API_KEY"),
+  daytona: stub("daytona", "HAND_DAYTONA_API_KEY"),
+  modal: stub("modal", "HAND_MODAL_TOKEN"),
+  blaxel: stub("blaxel", "HAND_BLAXEL_API_KEY"),
+  docker: stub("docker", "HAND_DOCKER_HOST"),
+  kubernetes: stub("kubernetes", "HAND_KUBERNETES_CONFIG"),
+  ssh: stub("ssh", "HAND_SSH_HOST")
+}
 
 /** The provider a person asked for (default: the first ready one), or null when none is ready. */
 export const sandboxProvider = (env: Env, wanted?: string): SandboxProvider | null => {
   if (wanted) return PROVIDERS[wanted]?.ready(env) ? PROVIDERS[wanted]! : null
+  // (an unknown or stub provider: the caller answers "not set up"; hand-sandbox.ts names the provider)
   return Object.values(PROVIDERS).find((p) => p.ready(env)) ?? null
 }

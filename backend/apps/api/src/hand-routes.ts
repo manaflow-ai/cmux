@@ -24,11 +24,12 @@ import { chiefOwnedBy } from "./chief-brain/brain-io.ts"
  *   GET    /v1/hands/<hand>/events?session=&after_seq=&wait_ms=   the person: agent events (waits up to 30 s for the next)
  *   POST   /v1/hands/<hand>/level-challenge          the person: a single-use nonce for raising the level
  *   PUT    /v1/hands/<hand>/level                    the person: {level, install?, nonce?, signature?}; raising needs the app proof
+ *   PUT    /v1/hands/presence-key                    the person: {install, public_jwk, signature}: a Touch ID / Face ID key for raises
  *   POST   /v1/hands/defaults/<profile>/challenge    the person: a nonce for raising the default level of new hands
  *   PUT    /v1/hands/defaults/<profile>              the person: {level, ...proof} the default level of new hands
  *   GET    /v1/hands/<hand>/verdicts                 the person: the classifier's verdicts (mac hands), newest first
  *   GET    /v1/hands/<hand>/approvals                the person: requests waiting for them (mac hands)
- *   POST   /v1/hands/<hand>/approvals/<id>           the person: {allow: boolean}
+ *   POST   /v1/hands/<hand>/approvals/<id>           the person: {allow, install?, signature?}; an allow needs the app proof over `sign`
  *
  * "The person" is a Stack session (no install or Chief token): a Chief reaches hands only through
  * its brain's tools (chief-brain/brain-hands.ts), which build the caller in server code.
@@ -38,7 +39,7 @@ export const HAND_PATH = /^\/(?:hand\/install\.sh|v1\/hands(?:\/.*)?)$/
 const NO_STORE = { "cache-control": "no-store" }
 const fail = (status: number, code: string, message: string) => Response.json({ ok: false, error: { code, message } }, { status, headers: NO_STORE })
 const ok = (value: unknown) => Response.json({ ok: true, value }, { headers: NO_STORE })
-const STATUS: Readonly<Record<string, number>> = { "hand.level_refused": 403, "hand.read_only": 403, "hand.not_found": 404, "hand.no_grant": 403, "hand.revoked": 410, "hand.mac_disabled": 403, "hand.offline": 409, "hand.timeout": 504, "hand.pair_invalid": 400, "auth.forbidden": 403 }
+const STATUS: Readonly<Record<string, number>> = { "hand.level_refused": 403, "hand.presence_refused": 403, "hand.approval_proof": 403, "hand.read_only": 403, "hand.not_found": 404, "hand.no_grant": 403, "hand.revoked": 410, "hand.mac_disabled": 403, "hand.offline": 409, "hand.timeout": 504, "hand.pair_invalid": 400, "auth.forbidden": 403 }
 const reply = (r: HandReply) => (r.ok ? ok(r.value) : Response.json({ ok: false, error: r.error }, { status: STATUS[r.error.code] ?? 400, headers: NO_STORE }))
 
 const person = async (request: Request, env: Env): Promise<{ caller: HandCaller; principal: Parameters<typeof chiefOwnedBy>[2] } | Response> => {
@@ -103,6 +104,13 @@ export const handleHands = async (request: Request, env: Env, path: string): Pro
     return reply(await createSandbox(env, caller, typeof b.name === "string" ? b.name : "", typeof b.provider === "string" ? b.provider : undefined))
   }
   if (path === "/v1/hands") return request.method === "GET" ? reply(await listHands(env, caller)) : fail(405, "method_not_allowed", "GET")
+  // The presence key (Touch ID / Face ID) of one of the owner's app installs, signed by its install key (hand-levels.ts).
+  if (path === "/v1/hands/presence-key") {
+    if (request.method !== "PUT") return fail(405, "method_not_allowed", "PUT")
+    const b = await body(request)
+    if (typeof b?.install !== "string" || typeof b.signature !== "string") return fail(400, "validation.invalid", "body is {install, public_jwk, signature}")
+    return reply(await indexStub(env, caller.user).registerPresence(caller, caller.user, b.install, b.public_jwk, b.signature))
+  }
   // The owner's default level for new hands of a profile (hand-levels.ts).
   const defaults = path.match(/^\/v1\/hands\/defaults\/(sandbox|mac)(\/challenge)?$/)
   if (defaults) {
@@ -152,5 +160,5 @@ export const handleHands = async (request: Request, env: Env, path: string): Pro
   if (request.method !== "POST") return fail(405, "method_not_allowed", "POST")
   const b = await body(request)
   if (typeof b?.allow !== "boolean") return fail(400, "validation.invalid", "body is {allow: boolean}")
-  return reply(await stub.answer(caller, approval, b.allow))
+  return reply(await stub.answer(caller, approval, b.allow, { install: typeof b.install === "string" ? b.install : undefined, signature: typeof b.signature === "string" ? b.signature : undefined }))
 }
