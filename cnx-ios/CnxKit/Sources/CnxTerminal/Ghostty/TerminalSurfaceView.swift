@@ -323,18 +323,6 @@ final class TerminalSurfaceView: UIView {
         return (Int(size.columns), Int(size.rows))
     }
 
-    /// The cursor's absolute row (0 = oldest scrollback row) given Ghostty's
-    /// total rows, when the cursor is in the viewport; nil otherwise. It no
-    /// longer moves the viewport to the active area to look: Ghostty renders
-    /// on its own thread and could present a frame of the active area in
-    /// between, which the page showed for a frame over the rows being read
-    /// (user reports 2026-10-14, frames of another region while scrolling).
-    func cursorAbsoluteRow(totalRows: Int) -> Int? {
-        guard surface != nil, let row = cursorViewportRow else { return nil }
-        let activeTop = max(0, totalRows - grid.rows)
-        return min(pinnedRow ?? activeTop, activeTop) + row
-    }
-
     /// The cursor's cell in this view's coordinates, when it is in the viewport.
     var visibleCursorCell: CGRect? {
         guard let surface else { return nil }

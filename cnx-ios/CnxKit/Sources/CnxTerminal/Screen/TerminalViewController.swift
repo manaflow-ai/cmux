@@ -100,6 +100,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// First absolute row of the document (content y 0).
     private var originRow: Int { document?.originRow ?? 0 }
     private var viewportTop = -1
+    /// Ghostty's viewport for reading the cursor's row (termqa N3).
+    private var viewportTracker = TerminalViewportTop()
     /// The viewport top row of the frame on screen.
     private var presentedTop = 0
     private var documentTotal = 0
@@ -177,9 +179,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard TerminalFrameLog.isEnabled, following, let document, cell.height > 0 else { return }
         let lastRowBottom = document.contentY(ofRow: document.endRow, cellHeight: cell.height) - scrollView.contentOffset.y
         let composerTop = bottomStack.frame.minY
-        let line = String(format: "pin: last row bottom %.1f, composer top %.1f, gap %.1f pt (keyboard %@, composer %.0f pt, rows %d)",
-                          lastRowBottom, composerTop, composerTop - lastRowBottom, model.keyboardVisible ? "up" : "down",
-                          composerHost?.view.bounds.height ?? 0, document.rowCount)
+        // What is drawn: the cursor's cell in the frame on screen (termqa N3:
+        // the document's end said gap 0 while the cursor row was drawn under
+        // the card).
+        let cursorBottom = surface.visibleCursorCell.map { surface.convert($0, to: view).maxY }
+        let gap = TerminalDocumentLayout.drawnGap(composerTop: composerTop, lastRowBottom: lastRowBottom, cursorRowBottom: cursorBottom)
+        let line = String(format: "pin: last row bottom %.1f, cursor row bottom %@, composer top %.1f, gap %.1f pt (keyboard %@, composer %.0f pt, rows %d)",
+                          lastRowBottom, cursorBottom.map { String(format: "%.1f", $0) } ?? "-", composerTop, gap,
+                          model.keyboardVisible ? "up" : "down", composerHost?.view.bounds.height ?? 0, document.rowCount)
         guard line != lastPinLog else { return }
         lastPinLog = line
         sizingLog.notice("\(line, privacy: .public)")
@@ -973,6 +980,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         scroll.shiftRows(by: -rows)
         presentedTop -= rows
         viewportTop = max(0, viewportTop - rows)
+        viewportTracker.shiftRows(by: -rows)
         recentTops = recentTops.map { max(0, $0 - rows) }
         steadyViewport = nil
         restoredMark = nil
@@ -1151,6 +1159,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // numbering (in the old one, a followed end looked far below the
         // rows on screen and was asked to move into the scrollback).
         scrollbar = (total, offset, visible)
+        viewportTracker.report()
         if !model.isTUI, !replayGate.isReplaying,
            let pruned = TerminalHistoryPrune.prunedRows(previousTotal: previous.total, previousOffset: previous.offset,
                                                          total: total, offset: offset, requestedTop: viewportTop,
@@ -1353,7 +1362,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The cursor's row: read when it is in the viewport; while the page
         // shows older rows, its last distance from the end (an inline TUI
         // keeps its input box at the same place from the bottom).
-        var cursor = surface.cursorAbsoluteRow(totalRows: scrollbar.total)
+        // Against Ghostty's viewport as last reported, or as last asked for
+        // when the request is newer: a request inside the active area
+        // follows it, so an older request put the cursor rows above where
+        // it is drawn (termqa N3).
+        var cursor = surface.cursorViewportRow.map {
+            viewportTracker.cursorRow(viewportRow: $0, reportedOffset: scrollbar.offset, totalRows: scrollbar.total,
+                                      gridRows: surface.grid.rows)
+        }
         if let cursor {
             cursorRowsFromEnd = max(0, scrollbar.total - 1 - cursor)
         } else if let distance = cursorRowsFromEnd {
@@ -1459,6 +1475,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #if DEBUG
         if CommandLine.arguments.contains("-CnxTermLog") { NSLog("cnxterm request %d (current %d visibleTop %d)", top, current, visibleTop) }
         #endif
+        viewportTracker.request(top)
         measured("viewport-request") { surface.scroll(toRow: top) }
     }
 
@@ -1741,6 +1758,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             tuiClip.isHidden = false
             tuiHost.addSubview(surface)
             surface.frame = CGRect(x: 0, y: 0, width: view.bounds.width - 2 * Self.sidePadding, height: CGFloat(surfaceRows) * cell.height)
+            viewportTracker.request(0)
             surface.scroll(toRow: 0)
             scrollButtonVisibility = JumpToBottomVisibility()
             setScrollButton(visible: false)

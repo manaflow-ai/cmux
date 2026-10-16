@@ -21,19 +21,28 @@ public struct TerminalViewportTop: Equatable, Sendable {
     /// A `scroll_to_row` for `row` was sent.
     public mutating func request(_ row: Int) {
         requestedRow = row
+        reportedSinceRequest = false
     }
 
-    /// A scrollbar report arrived.
-    public mutating func report() {}
+    /// A scrollbar report arrived: it shows Ghostty's viewport, including
+    /// any following of the active area since the request.
+    public mutating func report() {
+        reportedSinceRequest = true
+    }
 
     /// Ghostty pruned or renumbered rows: the request moves with them.
-    public mutating func shiftRows(by delta: Int) {}
+    public mutating func shiftRows(by delta: Int) {
+        requestedRow = requestedRow.map { max(0, $0 + delta) }
+    }
 
     /// The viewport's top row for a measure with the last report
-    /// (`reportedOffset`, `totalRows`) and the grid's rows.
+    /// (`reportedOffset`, `totalRows`) and the grid's rows: the report once
+    /// it is newer than the request, else the request (a request inside the
+    /// active area is the active area's top).
     public func top(reportedOffset: Int, totalRows: Int, gridRows: Int) -> Int {
         let activeTop = max(0, totalRows - gridRows)
-        return min(requestedRow ?? activeTop, activeTop)
+        guard let requestedRow, !reportedSinceRequest else { return min(max(0, reportedOffset), activeTop) }
+        return min(requestedRow, activeTop)
     }
 
     /// The cursor's absolute row for its viewport row `viewportRow`.
@@ -48,6 +57,6 @@ extension TerminalDocumentLayout {
     /// drawn cursor row (nil: the cursor is not in the frame). Negative: the
     /// drawn row is under the card.
     public static func drawnGap(composerTop: CGFloat, lastRowBottom: CGFloat, cursorRowBottom: CGFloat?) -> CGFloat {
-        composerTop - lastRowBottom
+        composerTop - max(lastRowBottom, cursorRowBottom ?? lastRowBottom)
     }
 }
