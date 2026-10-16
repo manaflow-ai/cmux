@@ -135,6 +135,21 @@ extension RemoteTmuxControlConnection {
         return true
     }
 
+    /// Sends the pane-title watcher with the same admission and exactly-once
+    /// acknowledgement contract as ``sendTracked(_:completion:)``.
+    ///
+    /// A `false` return means nothing was queued and `completion` is not called.
+    @discardableResult
+    func sendPaneTitleSubscription(_ command: String, completion: @escaping (Bool) -> Void) -> Bool {
+        let token = UUID()
+        trackedSendCompletions[token] = completion
+        guard sendInternal(command, kind: .paneTitleSubscription(token)) else {
+            trackedSendCompletions.removeValue(forKey: token)
+            return false
+        }
+        return true
+    }
+
     func failPendingTrackedSends() {
         let completions = Array(trackedSendCompletions.values)
         trackedSendCompletions.removeAll()
@@ -449,10 +464,8 @@ extension RemoteTmuxControlConnection {
         requestPaneReflow(paneId: paneId)
         let seedID = capturePane(paneId: paneId, clearScrollback: clearScrollback)
         requestPanePath(paneId: paneId)
-        // One batched refresh-client for all four live subscriptions
-        // instead of four separate sends — see subscribePaneAll. Under
-        // churn this is the difference between the command FIFO keeping up
-        // with tmux and backing up into minutes-long non-convergence.
+        // Register the per-pane subscriptions in one FIFO entry plus the
+        // one-time session title watcher; see `subscribePaneAll`.
         subscribePaneAll(paneId: paneId)
         return seedID
     }

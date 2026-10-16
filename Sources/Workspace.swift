@@ -3152,6 +3152,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// An entry may be absent for a title carried across panel moves or
     /// restored from older snapshots; absent provenance is treated as `.user`.
     var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
+    /// Most recent optimistic remote-tmux rename request for each projected pane.
+    /// A rejected older request must not roll back a newer request with the same
+    /// title text.
+    var remoteTmuxRenameGenerationByPanelID: [UUID: UInt64] = [:]
     /// Transient labels an automation session puts in front of a panel's
     /// title (`<label> · <title>`); never persisted, and a custom title wins.
     var panelAutomationLabels: [UUID: String] = [:]
@@ -10042,10 +10046,35 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Updates a mirrored remote tmux tab's title (e.g. after a tmux
     /// `%window-renamed`). No-ops if the panel is no longer mounted.
     func updateRemoteTmuxTabTitle(panelId: UUID, title: String) {
-        guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        let tabId = surfaceIdFromPanelId(panelId)
+            ?? (remoteTmuxControlPane(surfaceID: panelId) == nil ? nil : TabID(uuid: panelId))
+        guard let tabId else { return }
         panelTitles[panelId] = title
-        guard let existing = bonsplitController.tab(tabId), existing.title != title else { return }
+        guard let existing = bonsplitController.tab(tabId),
+              existing.title != title || existing.hasCustomTitle else { return }
         bonsplitController.updateTab(tabId, title: title, icon: nil, isDirty: nil)
+    }
+
+    /// Updates one projected pane after tmux changes `pane_title`. Pane titles
+    /// are tmux-authoritative; unlike a `%window-renamed`, this settles and
+    /// clears a local pending pane-title intent.
+    func updateRemoteTmuxPaneTitle(panelId: UUID, title: String) {
+        guard let remoteTmuxPane = remoteTmuxControlPane(surfaceID: panelId) else { return }
+        panelCustomTitles.removeValue(forKey: panelId)
+        panelCustomTitleSources.removeValue(forKey: panelId)
+        panelTitles[panelId] = title
+        if let windowMirror = remoteTmuxPane.windowMirror {
+            windowMirror.updatePaneTabTitle(
+                title,
+                forPane: remoteTmuxPane.pane.tmuxPaneID,
+                hasCustomTitle: false
+            )
+            return
+        }
+        let tabId = TabID(uuid: panelId)
+        guard let existing = bonsplitController.tab(tabId),
+              existing.title != title || existing.hasCustomTitle else { return }
+        bonsplitController.updateTab(tabId, title: title, hasCustomTitle: false)
     }
 
     @discardableResult

@@ -547,6 +547,49 @@ import Testing
                 == "refresh-client -B 'cmux_sessions::#{S:#{session_id}=#{session_name},}'"
         )
     }
+
+    @Test @MainActor func allPaneTitleSubscribeCommandKeepsFormatQuoted() {
+        #expect(
+            RemoteTmuxControlConnection.paneTitleSubscriptionCommand()
+                == "refresh-client -B \"cmux_title_all:%*:#{pane_title}\""
+        )
+    }
+
+    @Test func subscriptionChangedRetainsTmuxTargetPane() {
+        var parser = RemoteTmuxControlStreamParser()
+
+        let messages = parser.feed(Data(
+            "%subscription-changed cmux_title_all $0 @1 1 %5 : tests\n".utf8
+        ))
+
+        #expect(messages == [.subscriptionChanged(
+            name: "cmux_title_all", paneId: 5, value: "tests"
+        )])
+    }
+
+    @Test func emptySubscriptionValueStillRetainsTmuxTargetPane() {
+        var parser = RemoteTmuxControlStreamParser()
+
+        let messages = parser.feed(Data(
+            "%subscription-changed cmux_title_all $0 @1 1 %5 : \n".utf8
+        ))
+
+        #expect(messages == [.subscriptionChanged(
+            name: "cmux_title_all", paneId: 5, value: ""
+        )])
+    }
+
+    @Test func separatorlessEmptySubscriptionStillRetainsTmuxTargetPane() {
+        var parser = RemoteTmuxControlStreamParser()
+
+        let messages = parser.feed(Data(
+            "%subscription-changed cmux_title_all $0 @1 1 %5\n".utf8
+        ))
+
+        #expect(messages == [.subscriptionChanged(
+            name: "cmux_title_all", paneId: 5, value: ""
+        )])
+    }
 }
 
 /// Close-time activity queries: the wire commands (same quoting constraint as

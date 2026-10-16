@@ -93,6 +93,10 @@ extension RemoteTmuxControlConnection {
                let completion = trackedSendCompletions.removeValue(forKey: token) {
                 completion(false)
             }
+            if case let .paneTitleSubscription(token) = kind,
+               let completion = trackedSendCompletions.removeValue(forKey: token) {
+                completion(false)
+            }
             if case let .rawQuery(token) = kind {
                 rawQueryTimeoutTasks.removeValue(forKey: token)?.cancel()
                 rawQueryCompletions.removeValue(forKey: token)?(.error(lines))
@@ -304,6 +308,12 @@ extension RemoteTmuxControlConnection {
                 case nil:
                     break
                 }
+                // Pane rectangles can be reconciled while the attach result is
+                // still draining, when `send` deliberately rejects subscription
+                // writes to preserve FIFO alignment. Install the session-wide
+                // title watcher again now that this control client is connected
+                // and the attach block is known to be drained.
+                subscribePaneTitlesIfNeeded()
                 pendingPostAttachAction = nil
                 // First-connect coverage for the attach redraw kick happens at
                 // the publication point (each window's rects reply): here
@@ -416,6 +426,8 @@ extension RemoteTmuxControlConnection {
         case let .windowReorder(isLast):
             completeWindowReorderCommand(isLast: isLast, failed: false)
         case let .tracked(token):
+            trackedSendCompletions.removeValue(forKey: token)?(true)
+        case let .paneTitleSubscription(token):
             trackedSendCompletions.removeValue(forKey: token)?(true)
         case .paneColorReport, .other:
             break

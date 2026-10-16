@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxRemoteSession
 import Foundation
 
 /// Identifies a remote host whose tmux server cmux mirrors over SSH.
@@ -368,6 +369,13 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
+    /// `select-pane -T` expands tmux formats in its title argument even after
+    /// the command parser has consumed shell quoting. Double each format marker
+    /// so a title entered in cmux remains literal on the remote pane.
+    static func tmuxFormatLiteral(_ value: String) -> String {
+        value.replacingOccurrences(of: "#", with: "##")
+    }
+
     /// Builds a remote shell command that resolves `tmux` before executing it.
     ///
     /// OpenSSH runs remote commands under the account's shell, but not as an
@@ -390,6 +398,14 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     static func controlModeCommandName(_ value: String?) -> String? {
         let trimmed = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return controlModeLineSafeName(trimmed)
+    }
+
+    /// Builds a line-safe `select-pane -T` command for one tmux pane.
+    ///
+    /// The title is validated and format-escaped before shell quoting so the
+    /// caller cannot accidentally turn a literal title into a tmux expansion.
+    static func selectPaneTitleCommand(paneID: Int, title: String) -> String? {
+        RemoteTmuxPaneTitleCommand.make(paneID: paneID, title: title)
     }
 
     /// Validates a name already received from tmux. Unlike

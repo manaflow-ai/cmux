@@ -2,6 +2,15 @@ import CmuxRemoteSession
 import Testing
 
 struct RemoteTmuxPaneTitleMetadataTests {
+    @Test func paneTitleCommandEscapesFormatsAndQuotes() {
+        #expect(RemoteTmuxPaneTitleCommand.make(paneID: 5, title: "it's #{pane_id}")
+            == "select-pane -t %5 -T 'it'\\''s ##{pane_id}'")
+        #expect(RemoteTmuxPaneTitleCommand.make(paneID: 0, title: "  ")
+            == "select-pane -t %0 -T ''")
+        #expect(RemoteTmuxPaneTitleCommand.make(paneID: -1, title: "x") == nil)
+        #expect(RemoteTmuxPaneTitleCommand.make(paneID: 1, title: "x\ny") == nil)
+    }
+
     @Test func parsesWireValueWithEmptyFieldsPreserved() {
         let metadata = RemoteTmuxPaneTitleMetadata(wireValue: "build\u{1f}host.example\u{1f}host")
 
@@ -34,5 +43,78 @@ struct RemoteTmuxPaneTitleMetadataTests {
     @Test(arguments: ["", "build", "build\u{1f}host"])
     func rejectsMalformedWireValues(_ wireValue: String) {
         #expect(RemoteTmuxPaneTitleMetadata(wireValue: wireValue) == nil)
+    }
+
+    @Test func liveTitleRetainsSnapshotHostMetadata() {
+        let snapshot = RemoteTmuxPaneTitleMetadata(
+            title: "host",
+            host: "host.example",
+            hostShort: "host"
+        )
+
+        let updated = RemoteTmuxPaneTitleMetadata.applyingLiveWireValue("logs", to: snapshot)
+
+        #expect(updated == RemoteTmuxPaneTitleMetadata(
+            title: "logs",
+            host: "host.example",
+            hostShort: "host"
+        ))
+    }
+
+    @Test func liveTitleBeforeSnapshotIsMergedWithSnapshotDefaults() {
+        let live = RemoteTmuxPaneTitleMetadata.applyingLiveWireValue("logs", to: nil)
+        let snapshot = RemoteTmuxPaneTitleMetadata(title: "host", host: "host.example", hostShort: "host")
+
+        #expect(live?.applyingSnapshotDefaults(snapshot) == RemoteTmuxPaneTitleMetadata(
+            title: "logs", host: "host.example", hostShort: "host"
+        ))
+    }
+
+    @Test func newerLiveTitlePreventsStaleSnapshotReplacement() {
+        #expect(!RemoteTmuxPaneTitleMetadata.snapshotMayReplace(liveRevision: 4, snapshotRevision: 3))
+        #expect(RemoteTmuxPaneTitleMetadata.snapshotMayReplace(liveRevision: 3, snapshotRevision: 3))
+    }
+
+    @Test func parsesPaneRectLabelMetadataWithoutConfusingTitleMarkerText() {
+        let parsed = RemoteTmuxPaneTitleMetadata.paneRectLabel(
+            from: "0 \"suffix cmux_title_metadata_v1\\037\"cmux_title_metadata_v1\\037build\\037host.example\\037host"
+        )
+
+        #expect(parsed?.header == "0 \"suffix cmux_title_metadata_v1\\037\"")
+        #expect(parsed?.metadata == RemoteTmuxPaneTitleMetadata(
+            title: "build", host: "host.example", hostShort: "host"
+        ))
+    }
+
+}
+
+struct RemoteTmuxSubscriptionChangeTests {
+    @Test func retainsThePaneTargetAndValue() {
+        let change = RemoteTmuxSubscriptionChange(
+            controlModeLine: "%subscription-changed cmux_title_all $0 @1 1 %5 : tests"
+        )
+
+        #expect(change?.name == "cmux_title_all")
+        #expect(change?.paneID == 5)
+        #expect(change?.value == "tests")
+    }
+
+    @Test func preservesEmptyAndSeparatorlessValues() {
+        let empty = RemoteTmuxSubscriptionChange(
+            controlModeLine: "%subscription-changed cmux_title_all $0 @1 1 %5 : "
+        )
+        let separatorless = RemoteTmuxSubscriptionChange(
+            controlModeLine: "%subscription-changed cmux_title_all $0 @1 1 %5"
+        )
+
+        #expect(empty?.paneID == 5)
+        #expect(empty?.value == "")
+        #expect(separatorless?.paneID == 5)
+        #expect(separatorless?.value == "")
+    }
+
+    @Test func rejectsNonSubscriptionControlLines() {
+        #expect(RemoteTmuxSubscriptionChange(controlModeLine: "%window-add @1") == nil)
+        #expect(RemoteTmuxSubscriptionChange(controlModeLine: "%subscription-changed") == nil)
     }
 }

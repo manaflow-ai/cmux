@@ -313,6 +313,7 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
     func unsubscribePaneReflow(paneId: Int) { underlying.unsubscribePaneReflow(paneId: paneId) }
     func unsubscribePaneHeader(paneId: Int) { underlying.unsubscribePaneHeader(paneId: paneId) }
     func unsubscribePaneAgent(paneId: Int) { underlying.unsubscribePaneAgent(paneId: paneId) }
+    func subscribePaneTitlesIfNeeded() { underlying.subscribePaneTitlesIfNeeded() }
     func setPaneColors(_ colors: RemoteTmuxPaneColors, paneId: Int) {
         underlying.setPaneColors(colors, paneId: paneId)
     }
