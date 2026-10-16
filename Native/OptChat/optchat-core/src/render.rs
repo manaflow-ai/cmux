@@ -240,6 +240,10 @@ pub struct Frozen {
     /// block once sent is sent again byte for byte (spec 5a.2) even when the next entry has the same
     /// kind (an approval answer, a resume note, a steer logged after the turn's messages).
     pub cuts: Vec<u64>,
+    /// Log indexes where a turn's new messages began (a forced block start), ascending. Kept apart
+    /// from `cuts` (request ends) so a block sent once keeps its start even when a user entry that is
+    /// not new (an approval answer) came right before the new messages.
+    pub starts: Vec<u64>,
 }
 
 /// The frozen view's text: the parts as rendered at the freeze (unbuilt ones as the placeholder).
@@ -317,8 +321,9 @@ pub fn delta_range(
     new_from: u64,
     end: u64,
     cuts: &[u64],
+    starts: &[u64],
 ) -> Vec<String> {
-    delta_blocks(memory, store, front, new_from, end, cuts).0
+    delta_blocks(memory, store, front, new_from, end, cuts, starts).0
 }
 
 fn delta_blocks(
@@ -328,27 +333,35 @@ fn delta_blocks(
     new_from: u64,
     end: u64,
     cuts: &[u64],
+    starts: &[u64],
 ) -> (Vec<String>, usize) {
     let mut blocks: Vec<String> = Vec::new();
     let mut last_user: Option<bool> = None;
     let mut bytes = 0;
     let mut prev: Option<u64> = None;
     for i in front..end.min(memory.len()) {
-        // An unbuilt imported message stays out, as in the view (zoom opens it).
-        if memory.is_imported(i) && !memory.is_built(NodeId::new(0, i)) {
+        // An imported message stays out of the delta, built or not: its build state changes later,
+        // and a block once sent must not change (spec 5a.2). The view shows it after a re-render,
+        // and zoom opens it.
+        if memory.is_imported(i) {
             continue;
         }
         // The turn's new messages always start a block, and so does the entry after an earlier
         // request's end (also when the entry at the cut was left out), so those ends stay block ends.
         let cut = prev.is_some_and(|p| cuts.iter().any(|c| p < *c && *c <= i));
-        if i == new_from || cut {
+        let start = prev.is_some_and(|p| starts.iter().any(|s| p < *s && *s <= i));
+        if i == new_from || cut || start {
             last_user = None;
         }
         prev = Some(i);
         let (kind, text) = store.message(i);
         let user = kind == crate::Kind::User;
         let line = delta_line(i, kind, &text);
-        bytes += line.len() + 1;
+        // Only what earlier turns added counts toward a re-render: a turn's own new messages (a long
+        // paste) never force one, or every turn with a big message would render again (spec 5a.4).
+        if i < new_from {
+            bytes += line.len() + 1;
+        }
         match blocks.last_mut() {
             Some(b) if last_user == Some(user) => {
                 b.push_str(&line);
@@ -373,7 +386,7 @@ pub fn turn_input(
 ) -> TurnInput {
     let new_from = memory.len().saturating_sub(new);
     if let Some(f) = frozen.filter(|f| f.front <= new_from) {
-        let (delta, bytes) = delta_blocks(memory, store, f.front, new_from, memory.len(), &f.cuts);
+        let (delta, bytes) = delta_blocks(memory, store, f.front, new_from, memory.len(), &f.cuts, &f.starts);
         // A fold past the front: a built view line above level 0 now covers the front message, so a
         // re-render is shorter than view + delta (a short message built at pump alone does not count).
         let built_past = f.front < memory.len()
@@ -384,6 +397,9 @@ pub fn turn_input(
             let mut next = f.clone();
             if memory.len() > f.front && next.cuts.last() != Some(&memory.len()) {
                 next.cuts.push(memory.len());
+            }
+            if new_from > f.front && new_from < memory.len() && next.starts.last() != Some(&new_from) {
+                next.starts.push(new_from);
             }
             return TurnInput {
                 view: frozen_text(f, store),
@@ -400,7 +416,7 @@ pub fn turn_input(
         .collect();
     let v = render_parts(&shown, store);
     let front = v.parts.last().map_or(0, |p| p.end());
-    let (delta, _) = delta_blocks(memory, store, front, new_from, memory.len(), &[]);
+    let (delta, _) = delta_blocks(memory, store, front, new_from, memory.len(), &[], &[]);
     let unbuilt = v
         .parts
         .iter()
@@ -414,6 +430,11 @@ pub fn turn_input(
             unbuilt,
             cuts: if memory.len() > front {
                 vec![memory.len()]
+            } else {
+                Vec::new()
+            },
+            starts: if new_from > front && new_from < memory.len() {
+                vec![new_from]
             } else {
                 Vec::new()
             },

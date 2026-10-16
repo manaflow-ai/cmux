@@ -598,6 +598,7 @@ impl OptChat {
                 new_from,
                 end,
                 &frozen.cuts,
+                &frozen.starts,
             ),
         )
     }
