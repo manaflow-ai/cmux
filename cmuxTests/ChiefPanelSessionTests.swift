@@ -11,7 +11,7 @@ import Testing
 @testable import cmux
 #endif
 
-/// Chief as a workspace pane: session round trip, wire tokens, and Home not being persisted.
+/// Chief as a workspace pane: session round trip, canonical Home protection, and wire tokens.
 @MainActor
 @Suite struct ChiefPanelSessionTests {
     @Test func aHomeDragResolvesToItsConversationAndRetiresAfterDrop() throws {
@@ -80,8 +80,47 @@ import Testing
         let restoredId = try #require(restoredIds[chief.id])
         let restoredPanel = try #require(restored.panels[restoredId] as? ChiefPanel)
         #expect(restoredPanel.conversationID == ConversationID("conv_chief_test"))
+        #expect(!restoredPanel.isHome)
         let restoredSurfaceId = try #require(restored.surfaceIdFromPanelId(restoredId))
         #expect(restored.bonsplitController.tab(restoredSurfaceId)?.kind == SurfaceKind.chief.rawValue)
+    }
+
+    @Test func canonicalHomeIsPinnedAndRestoresAsTheWorkspaceAnchor() throws {
+        let workspace = Workspace()
+        defer { for panel in workspace.panels.values { panel.close() } }
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let home = try #require(workspace.newChiefSurface(inPane: paneId, isHome: true, focus: false))
+        let tabId = try #require(workspace.surfaceIdFromPanelId(home.id))
+        #expect(home.isHome)
+        #expect(workspace.isChiefHome)
+        #expect(workspace.bonsplitController.tab(tabId)?.isPinned == true)
+        #expect(!workspace.closePanel(home.id, force: true))
+
+        let saved = try JSONDecoder().decode(
+            SessionWorkspaceSnapshot.self,
+            from: JSONEncoder().encode(workspace.sessionSnapshot(includeScrollback: false))
+        )
+        let restored = Workspace()
+        defer { for panel in restored.panels.values { panel.close() } }
+        let restoredIDs = restored.restoreSessionSnapshot(saved)
+        let restoredID = try #require(restoredIDs[home.id])
+        let restoredHome = try #require(restored.panels[restoredID] as? ChiefPanel)
+        #expect(restoredHome.isHome)
+        #expect(restored.isChiefHome)
+        let restoredTab = try #require(restored.surfaceIdFromPanelId(restoredID))
+        #expect(restored.bonsplitController.tab(restoredTab)?.isPinned == true)
+    }
+
+    @Test func movingCanonicalHomeWithinAWorkspaceCreatesAnOrdinaryCopy() throws {
+        let workspace = Workspace()
+        defer { for panel in workspace.panels.values { panel.close() } }
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let home = try #require(workspace.newChiefSurface(inPane: paneId, isHome: true, focus: false))
+        #expect(workspace.moveSurface(panelId: home.id, toPane: paneId, focus: false))
+        let chiefs = workspace.panels.values.compactMap { $0 as? ChiefPanel }
+        #expect(chiefs.count == 2)
+        #expect(chiefs.contains { $0.isHome })
+        #expect(chiefs.contains { !$0.isHome && $0.conversationID == home.conversationID })
     }
 
     @Test func openOrFocusReusesTheChiefPaneForTheSameConversation() throws {

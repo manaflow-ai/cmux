@@ -5,6 +5,28 @@ import Foundation
 
 /// Workspace surface creation for Chief panes: a Chief conversation as a tab or a split.
 extension Workspace {
+    /// True when this workspace owns its protected canonical Chief Home pane.
+    var isChiefHome: Bool {
+        panels.values.contains { ($0 as? ChiefPanel)?.isHome == true }
+    }
+
+    /// Duplicates a Chief pane into a destination within this workspace.
+    /// Canonical Home remains in place; the created pane is an ordinary copy.
+    @discardableResult
+    func duplicateChiefSurface(
+        _ home: ChiefPanel,
+        inPane paneId: PaneID,
+        atIndex index: Int? = nil,
+        focus: Bool = true
+    ) -> Bool {
+        newChiefSurface(
+            inPane: paneId,
+            conversationID: home.conversationID,
+            focus: focus,
+            targetIndex: index
+        ) != nil
+    }
+
     /// Adds a Chief tab to `paneId`.
     ///
     /// - Parameter conversationID: The conversation to show; nil shows Chief's default conversation.
@@ -12,6 +34,7 @@ extension Workspace {
     func newChiefSurface(
         inPane paneId: PaneID,
         conversationID: ConversationID? = nil,
+        isHome: Bool = false,
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> ChiefPanel? {
@@ -20,7 +43,7 @@ extension Workspace {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
-        let chiefPanel = ChiefPanel(conversationID: conversationID)
+        let chiefPanel = ChiefPanel(conversationID: conversationID, isHome: isHome)
         panels[chiefPanel.id] = chiefPanel
         panelTitles[chiefPanel.id] = chiefPanel.displayTitle
 
@@ -31,7 +54,9 @@ extension Workspace {
             kind: SurfaceKind.chief.rawValue,
             isDirty: false,
             isLoading: false,
-            isPinned: false,
+            // Bonsplit hides the close affordance and excludes pinned tabs from
+            // close-others paths. The Workspace delegate remains the final guard.
+            isPinned: isHome,
             inPane: paneId
         ) else {
             panels.removeValue(forKey: chiefPanel.id)
@@ -71,6 +96,7 @@ extension Workspace {
         newChiefSurface(
             inPane: paneId,
             conversationID: snapshot.conversationID.map(ConversationID.init(rawValue:)),
+            isHome: snapshot.isHome ?? false,
             focus: false
         )
     }

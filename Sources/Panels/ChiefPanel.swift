@@ -12,6 +12,9 @@ final class ChiefPanel: Panel {
     let id: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .chief
+    /// Whether this pane is the canonical Chief Home anchor for its workspace.
+    /// Home is protected in the split tree; dragged copies are ordinary Chief panes.
+    let isHome: Bool
 
     /// The conversation this pane shows; nil means Chief's default conversation.
     @Published var conversationID: ConversationID?
@@ -34,9 +37,10 @@ final class ChiefPanel: Panel {
     /// its compact mark size, beside the other tabs' glyphs.
     static let iconAssetName = "ChiefAvatar"
 
-    init(id: UUID = UUID(), conversationID: ConversationID? = nil) {
+    init(id: UUID = UUID(), conversationID: ConversationID? = nil, isHome: Bool = false) {
         self.id = id
         self.conversationID = conversationID
+        self.isHome = isHome
     }
 
     func close() {}

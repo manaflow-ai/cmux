@@ -1718,6 +1718,9 @@ struct SessionNotificationsPanelSnapshot: Codable, Sendable {}
 struct SessionChiefPanelSnapshot: Codable, Sendable {
     /// Raw `ConversationID`; nil is Chief's default conversation.
     var conversationID: String?
+    /// Whether this is the workspace's canonical Chief Home pane. Missing in
+    /// older manifests, which restore as an ordinary Chief pane.
+    var isHome: Bool? = nil
 }
 struct SessionProjectPanelSnapshot: Codable, Sendable {
     var projectPath: String
