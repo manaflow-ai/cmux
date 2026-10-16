@@ -104,6 +104,9 @@ if [ -n "$CONTINUE_STATE" ]; then
     awk -F= -v key="$1" '$1 == key { print substr($0, index($0, "=") + 1); exit }' "$CONTINUE_STATE"
   }
   CONTINUE_SUBMISSION_ID="$(state_value submission_id)"
+  # stapled_app=true: the saved DMG is already the one around the stapled app
+  # (its submission was handed off below), so no further DMG is built.
+  CONTINUE_STAPLED_APP="$(state_value stapled_app)"
   if ! [[ "$CONTINUE_SUBMISSION_ID" =~ ^[A-Za-z0-9._-]+$ ]]; then
     echo "Notarization state $CONTINUE_STATE names no valid Apple submission id" >&2
     exit 1
@@ -176,9 +179,14 @@ elif [ "$helper_exit" -ne 0 ]; then
   exit "$helper_exit"
 fi
 
-# package_signed_dmg <app> <out-dmg> <empty work dir>: create-dmg, LZMA, sign.
+# package_signed_dmg <app> <out-dmg> <empty work dir> [create-keychain]:
+# create-dmg, LZMA, sign. create-keychain makes the signing keychain just
+# before the signature (the DMG around the stapled app, after Apple's wait).
 package_signed_dmg() {
-  local app="$1" out="$2" work="$3" created format
+  local app="$1" out="$2" work="$3" keychain="${4:-}" created format
+  # create-dmg copies the app with the process umask. The notary sidecar
+  # writers set 077, and an app copied under it is readable only by its owner.
+  umask 022
   "$CREATE_DMG_TOOL" --no-code-sign "$app" "$work"
   created="$(find "$work" -maxdepth 1 -name '*.dmg' -print -quit)"
   if [ -z "$created" ]; then
@@ -195,6 +203,12 @@ package_signed_dmg() {
     exit 1
   fi
 
+  if [ "$keychain" = create-keychain ]; then
+    RESTAPLE_KEYCHAIN_OPEN=true
+    "$SIGNING_KEYCHAIN_TOOL" create
+    # No later child process needs the certificate.
+    unset APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD
+  fi
   # The helper wait can pass the CI keychain's short idle lock.
   "$SIGNING_KEYCHAIN_TOOL" unlock
   "$CODESIGN_TOOL" --force --timestamp --keychain build.keychain \
@@ -300,6 +314,9 @@ write_notary_state() {
     printf 'variant=%s\n' "${NIGHTLY_VARIANT:-}"
     printf 'channel=%s\n' "$CHANNEL"
     printf 'output_file=%s\n' "$NOTARY_OUTPUT_FILE"
+    if [ "${STATE_STAPLED_APP:-false}" = true ]; then
+      printf 'stapled_app=true\n'
+    fi
     if [ "$NOTARY_WAIT_TIMED_OUT" = true ]; then
       printf 'wait_timed_out=true\n'
     fi
@@ -420,27 +437,35 @@ fi
 # The DMG that ships carries the stapled app (CMUX_STAPLE_APP_IN_DMG, above).
 FINAL_DMG="$DMG_RELEASE"
 WROTE_ACCEPTED_STATE=false
-if [ "$STAPLE_APP_IN_DMG" = true ]; then
+if [ "$STAPLE_APP_IN_DMG" = true ] && [ "${CONTINUE_STAPLED_APP:-}" = true ]; then
+  echo "Continued submission $DMG_SUBMIT_ID is the DMG around the stapled app"
+elif [ "$STAPLE_APP_IN_DMG" = true ]; then
   if [ -z "$CONTINUE_STATE" ]; then
-    # Record the accepted first submission: when the second one fails or is
-    # still in Apple's queue, a later run continues this one (the first DMG
-    # stays at $DMG_RELEASE) and builds and submits the stapled-app DMG again.
+    # Record the accepted first submission: when the second one fails, a
+    # later run continues this one (the first DMG stays at $DMG_RELEASE) and
+    # builds and submits the stapled-app DMG again.
     write_notary_state
+    # The recovery artifact needs the log beside the state, whatever fails next.
+    save_notary_output
     WROTE_ACCEPTED_STATE=true
   fi
+  # Keep the second submission's evidence with the first one's (the legacy
+  # resolve step reads Apple's verdict from this log).
   restaple_handoff() {
-    if [ "$WROTE_ACCEPTED_STATE" = true ]; then
-      save_notary_output
-    fi
+    {
+      printf '\n--- notarytool output for the DMG around the stapled app ---\n'
+      cat "$restaple_output"
+      if [ -n "$restaple_id" ]; then
+        printf '\n--- notarytool log for submission %s ---\n' "$restaple_id"
+        "$XCRUN_TOOL" notarytool log "$restaple_id" "${NOTARY_AUTH_ARGS[@]}" || true
+      fi
+    } >> "$NOTARY_OUTPUT_FILE" 2>&1
+    cat "$restaple_output" >&2
   }
   restaple_dir="$DMG_TMP_DIR/stapled-app"
   mkdir -p "$restaple_dir/work"
   FINAL_DMG="$restaple_dir/$(basename "$DMG_RELEASE")"
-  RESTAPLE_KEYCHAIN_OPEN=true
-  "$SIGNING_KEYCHAIN_TOOL" create
-  # No later child process needs the certificate.
-  unset APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD
-  package_signed_dmg "$APP_PATH" "$FINAL_DMG" "$restaple_dir/work"
+  package_signed_dmg "$APP_PATH" "$FINAL_DMG" "$restaple_dir/work" create-keychain
   "$SIGNING_KEYCHAIN_TOOL" delete
   RESTAPLE_KEYCHAIN_OPEN=false
   restaple_output="$NOTARY_DIR/stapled-app-dmg-submit-output"
@@ -452,15 +477,27 @@ if [ "$STAPLE_APP_IN_DMG" = true ]; then
   restaple_id="$(extract_notary_value "$restaple_output" id || true)"
   restaple_status="$(extract_notary_value "$restaple_output" status || true)"
   if [ "$restaple_exit" -ne 0 ] || [ "$restaple_status" != "Accepted" ]; then
-    cat "$restaple_output" >&2
-    if [ -n "$restaple_id" ]; then
-      "$XCRUN_TOOL" notarytool log "$restaple_id" "${NOTARY_AUTH_ARGS[@]}" >&2 || true
-    fi
     if [ "$restaple_exit" -ne 0 ] && [ "$PENDING_ON_TIMEOUT" = true ] \
       && { [ "$WROTE_ACCEPTED_STATE" = true ] || [ -n "$CONTINUE_STATE" ]; } \
       && grep -Eiq 'timeout|timed out' "$restaple_output"; then
       restaple_handoff
-      echo "The DMG around the stapled app (submission ${restaple_id:-unknown}) did not finish within $STAPLED_DMG_WAIT_TIMEOUT; a later run continues accepted submission $DMG_SUBMIT_ID and submits that DMG again" >&2
+      if [ "$WROTE_ACCEPTED_STATE" = true ] && [ -n "$restaple_id" ]; then
+        # Hand off the second submission itself: the DMG around the stapled
+        # app takes the release path, and the state names its submission, so
+        # a later run asks Apple about it instead of submitting a new one.
+        /bin/mv -f "$FINAL_DMG" "$DMG_RELEASE"
+        DMG_SUBMIT_ID="$restaple_id"
+        DMG_STATUS="In Progress"
+        NOTARY_SUBMIT_EXIT="$restaple_exit"
+        NOTARY_WAIT_TIMED_OUT=true
+        STATE_STAPLED_APP=true
+        write_notary_state
+        echo "The DMG around the stapled app (submission $restaple_id) did not finish within $STAPLED_DMG_WAIT_TIMEOUT; a later run continues that submission" >&2
+      else
+        # A continuation cannot hand off a new artifact: a later run continues
+        # the accepted first submission and submits the stapled-app DMG again.
+        echo "The DMG around the stapled app (submission ${restaple_id:-unknown}) did not finish within $STAPLED_DMG_WAIT_TIMEOUT; a later run continues accepted submission $DMG_SUBMIT_ID and submits that DMG again" >&2
+      fi
       if [ -n "${GITHUB_OUTPUT:-}" ]; then
         echo "submission_pending=true" >> "$GITHUB_OUTPUT"
       fi
@@ -510,6 +547,6 @@ if [ "$FINAL_DMG" != "$DMG_RELEASE" ]; then
 fi
 if [ "$WROTE_ACCEPTED_STATE" = true ]; then
   # Nothing is pending: drop the handoff record of the first submission.
-  rm -f "$NOTARY_SUBMISSION_FILE"
+  rm -f "$NOTARY_SUBMISSION_FILE" "$NOTARY_OUTPUT_FILE"
 fi
 cp "$DMG_RELEASE" "$DMG_IMMUTABLE"
