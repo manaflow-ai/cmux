@@ -14,6 +14,26 @@ import Testing
 /// Chief as a workspace pane: session round trip, canonical Home protection, and wire tokens.
 @MainActor
 @Suite struct ChiefPanelSessionTests {
+    @Test func homeRendersOnceWithoutAGroupHeaderOrHiddenWorkspaceRows() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        defer { manager.finalizeAllWorkspacesForWindowClose() }
+        let home = try makeChiefOnlyWorkspace(in: manager, name: "Home", isHome: true)
+        let child = try makeChiefOnlyWorkspace(in: manager, name: "Saved conversation")
+        let other = try makeChiefOnlyWorkspace(in: manager, name: "Other workspace")
+        let groupID = try #require(manager.createWorkspaceGroup(
+            name: "Home", childWorkspaceIds: [home.id, child.id], selectAnchor: false,
+            externalID: ChiefHomeNavigation.homeGroupExternalID
+        ))
+        var group = try #require(manager.workspaceGroups.first { $0.id == groupID })
+        group.isCollapsed = true
+        let items = SidebarWorkspaceRenderItem.renderItems(
+            tabs: manager.tabs, groupsById: [groupID: group]
+        )
+        #expect(items.map(\.rowWorkspaceId) == [home.id, child.id, other.id])
+        #expect(!items.contains { if case .groupHeader = $0 { return true }; return false })
+        #expect(SidebarWorkspaceRenderItem.numberedWorkspaceIds(from: items) == [child.id, other.id])
+    }
+
     @Test func changingHomeConversationKeepsTheListBesideTheTranscript() throws {
         let suite = "ChiefPanelSessionTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
