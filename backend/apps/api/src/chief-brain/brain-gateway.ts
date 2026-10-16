@@ -70,12 +70,23 @@ export const TURN_FAILED_NOTICE = "I could not reach the model, so I stopped her
 export const turnFailedNotice = async (env: Env, config: BrainConfig, conversation: string, run: string, reason: string, error: string | undefined): Promise<void> => {
   if (/credits/i.test(`${reason} ${error ?? ""}`) || !config.agent || !config.owner) return
   const principal = chiefPrincipal(config.agent, config.owner)
+  const postText = (e: Env, p: typeof principal, c: string, text: string, key: string) => postNotice(e, p, c, text, key)
   // Over today's model limit: say why, once per conversation per UTC day; later refused turns stay quiet.
   if (/daily_cap/.test(reason)) {
     const day = new Date().toISOString().slice(0, 10)
     return void (await postText(env, principal, conversation, DAILY_CAP_NOTICE, `daily-cap:${config.agent}:${conversation}:${day}`).catch(() => undefined))
   }
   await postText(env, principal, conversation, TURN_FAILED_NOTICE, `turn-failed:${config.agent}:${run}`).catch(() => undefined)
+}
+
+/** The loop guard refuses a Chief that spoke under 2 s ago (agent_rate): a notice right after a reply waits that gap, twice at most. */
+const NOTICE_GAP_MS = 2_500
+const postNotice = async (env: Env, principal: ReturnType<typeof chiefPrincipal>, conversation: string, text: string, key: string, tries = 3): Promise<void> => {
+  for (let i = 0; i < tries; i++) {
+    const r = await postText(env, principal, conversation, text, i === 0 ? key : `${key}:r${i}`)
+    if (r.ok || r.code !== "agent_rate") return
+    await new Promise((resolve) => setTimeout(resolve, NOTICE_GAP_MS))
+  }
 }
 
 /** The notice for a Chief over today's model limit (no vendor names). */
