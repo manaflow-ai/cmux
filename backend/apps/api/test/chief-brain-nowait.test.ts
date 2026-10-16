@@ -28,10 +28,12 @@ const http = async (method: string, path: string, token: string, body?: unknown)
 const op = async (token: string, name: string, params: unknown, key: string = crypto.randomUUID()) => (await http("POST", "/v1/ops", token, { op: name, params, idempotency_key: key, origin: "user" })).json
 const history = async (token: string, conversation: string) => (await http("POST", "/v1/read", token, { op: "conversation.history", params: { conversation, limit: 50 } })).json.value.messages as Array<any>
 let release: (() => void) | undefined
-afterEach(() => release?.())
+afterEach(() => [release?.(), delete testEnv.CHIEF_BRAIN_VIEW_BUDGET])
 
 describe("a Cloud Chief turn never waits on the compactor", { timeout: 120_000 }, () => {
   it("answers each message at once while the compactor hangs", async () => {
+    // A small view budget (test only): every turn's view needs the compactor to fold, as a view near 128 KB does.
+    testEnv.CHIEF_BRAIN_VIEW_BUDGET = "400"
     const token = await sessionToken("brain-nowait")
     const user = (await op(token, "user.ensure", {})).value.id as string
     const chief = (await op(token, "chief.create", { display_name: "Fast Chief" }, "chief-nowait")).value as { id: string; main_conversation: string }
@@ -42,7 +44,7 @@ describe("a Cloud Chief turn never waits on the compactor", { timeout: 120_000 }
     // The compactor hangs (as a rate-limited one did): no compactor call ever answers during the test.
     release = holdCompacts()
     const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(chief.main_conversation))
-    for (const [n, text] of ["first: a long team note ".repeat(40), "second question", "third question"].entries()) {
+    for (const [n, text] of ["first: a long team note ".repeat(40), "second: another long note ".repeat(40), "third question"].entries()) {
       const t0 = Date.now()
       expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: `nw-${n}`, parts: [{ type: "text", text }] }, `nw-${n}`)).ok).toBe(true)
       for (let i = 0; i < 300 && (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id).length <= n; i++) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 20))]
