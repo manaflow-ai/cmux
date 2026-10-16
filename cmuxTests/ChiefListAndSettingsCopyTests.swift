@@ -40,6 +40,16 @@ import Testing
                                           selectedIsShown: false, visible: [other], manuallyMarked: false) == 0)
     }
 
+    @Test func deletingAConversationHidesItButKeepsTheChiefThreadAvailable() {
+        let chief = ConversationID("chief")
+        let other = ConversationID("other")
+        let hidden: Set<String> = [other.rawValue]
+        #expect(!ChiefHomeView.shouldShow(other, hidden: hidden, selected: chief, defaultID: chief))
+        #expect(ChiefHomeView.shouldShow(chief, hidden: hidden, selected: chief, defaultID: chief))
+        // A selected row remains during the transition while Home moves to Chief.
+        #expect(ChiefHomeView.shouldShow(other, hidden: hidden, selected: other, defaultID: chief))
+    }
+
     @Test func activityNamesTheHarnessAndPrintsNoPath() {
         #expect(ChiefSettingsStrings.harnessName("claude") == CmuxChief.ChiefHarness.claude.displayName)
         #expect(ChiefSettingsStrings.harnessName("codex") == CmuxChief.ChiefHarness.codex.displayName)
@@ -54,6 +64,25 @@ import Testing
         #expect(settings.normalized.effort.isEmpty)
         #expect(ChiefEngineSettings(harness: "codex", model: "gpt-5.5", effort: "max").normalized.effort.isEmpty)
         #expect(ChiefEngineSettings(harness: "codex", model: "gpt-5.5", effort: "xhigh").normalized.effort == "xhigh")
+    }
+
+    @Test func dangerousPermissionBypassDefaultsOffAndPersistsOnlyWhenEnabled() {
+        let suiteName = "cmux.chief.permissions.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let access = ChiefSettingsAccess(defaults: defaults)
+        #expect(!access.current.dangerouslySkipPermissions)
+
+        var enabled = access.current
+        enabled.dangerouslySkipPermissions = true
+        access.write(enabled)
+        #expect(access.current.dangerouslySkipPermissions)
+
+        var disabled = access.current
+        disabled.dangerouslySkipPermissions = false
+        access.write(disabled)
+        #expect(!access.current.dangerouslySkipPermissions)
+        #expect(defaults.object(forKey: ChiefSettingsAccess.dangerouslySkipPermissionsKey) == nil)
     }
 
     @Test func memorySourcesTellChiefFromTheCommandLine() {

@@ -14,6 +14,7 @@ struct ChiefSettingsCard: View {
     @State private var modelModel: DefaultsValueModel<String>
     @State private var effortModel: DefaultsValueModel<String>
     @State private var dangerousPermissionsModel: DefaultsValueModel<Bool>
+    @State private var showingDangerousPermissionsConfirmation = false
     private let controlWidth: CGFloat
 
     init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, controlWidth: CGFloat) {
@@ -47,8 +48,17 @@ struct ChiefSettingsCard: View {
                 subtitle: String(localized: "settings.automation.chief.dangerousPermissions.subtitle",
                                   defaultValue: "Let Chief's agent run commands without approval cards. Off by default.", bundle: .module)
             ) {
-                Toggle("", isOn: Binding(get: { dangerousPermissionsModel.current },
-                                         set: { dangerousPermissionsModel.set($0) }))
+                Toggle("", isOn: Binding(
+                    get: { dangerousPermissionsModel.current },
+                    set: { enabled in
+                        guard enabled != dangerousPermissionsModel.current else { return }
+                        if enabled {
+                            showingDangerousPermissionsConfirmation = true
+                        } else {
+                            dangerousPermissionsModel.set(false)
+                        }
+                    }
+                ))
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsChiefDangerousPermissionsToggle")
@@ -97,6 +107,29 @@ struct ChiefSettingsCard: View {
                 .frame(width: 200)
                 .accessibilityIdentifier("SettingsChiefEffortField")
             }
+        }
+        .confirmationDialog(
+            String(localized: "settings.automation.chief.dangerousPermissions.confirm.title",
+                   defaultValue: "Skip permission prompts?", bundle: .module),
+            isPresented: $showingDangerousPermissionsConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(
+                String(localized: "settings.automation.chief.dangerousPermissions.confirm.enable",
+                       defaultValue: "Turn On", bundle: .module),
+                role: .destructive
+            ) {
+                dangerousPermissionsModel.set(true)
+            }
+            Button(
+                String(localized: "settings.automation.chief.dangerousPermissions.confirm.cancel",
+                       defaultValue: "Cancel", bundle: .module),
+                role: .cancel
+            ) {}
+        } message: {
+            Text(String(localized: "settings.automation.chief.dangerousPermissions.confirm.message",
+                        defaultValue: "The selected agent can run commands and make changes without approval cards. This is a dangerous setting.",
+                        bundle: .module))
         }
         .task {
             startSettingsObservation([enabledModel, harnessModel, modelModel, effortModel, dangerousPermissionsModel])

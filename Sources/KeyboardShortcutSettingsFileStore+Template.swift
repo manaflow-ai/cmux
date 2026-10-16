@@ -231,6 +231,7 @@ extension CmuxSettingsFileStore {
                     "harness": ChiefCatalogSection().harness.defaultValue,
                     "model": ChiefCatalogSection().model.defaultValue,
                     "effort": ChiefCatalogSection().effort.defaultValue,
+                    "dangerouslySkipPermissions": ChiefCatalogSection().dangerouslySkipPermissions.defaultValue,
                 ],
             ],
             [

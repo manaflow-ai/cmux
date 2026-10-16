@@ -199,6 +199,7 @@ enum SettingsSearchIndex {
         setting(.automation, "chief-harness", String(localized: "settings.automation.chief.harness", defaultValue: "Chief Harness"), "chief.harness home agent claude code codex provider"),
         setting(.automation, "chief-model", String(localized: "settings.automation.chief.model", defaultValue: "Chief Model"), "chief.model home agent model opus sonnet gpt"),
         setting(.automation, "chief-effort", String(localized: "settings.automation.chief.effort", defaultValue: "Chief Effort"), "chief.effort home agent reasoning effort thinking low medium high"),
+        setting(.automation, "chief-dangerous-permissions", ChiefStrings.settingsDangerousPermissions, "chief.dangerouslySkipPermissions skip permission prompts bypass approval cards dangerous full access yolo"),
         setting(.automation, "canonical-agent-scratch", String(localized: "settings.automation.canonicalAgentScratch", defaultValue: "Canonical Agent Scratch"), "agent artifacts temporary files cleanup retention claude codex opencode storage"),
         setting(.automation, "cursor", String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), "agent hooks notifications"),
         setting(.automation, "gemini", String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"), "agent hooks notifications"),

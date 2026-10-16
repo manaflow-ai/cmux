@@ -234,6 +234,7 @@ extension CmuxSettingsFileStore {
         "chief.harness",
         "chief.model",
         "chief.effort",
+        "chief.dangerouslySkipPermissions",
         "shortcuts.bindings",
         "shortcuts.showModifierHoldHints",
         "rightSidebar.beta.feed.enabled",

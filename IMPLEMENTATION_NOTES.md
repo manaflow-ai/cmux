@@ -1,5 +1,19 @@
 ## 2026-10-15 current verification and dogfood
 
+- 2026-10-15 continuation: the dangerous permission bypass is now exposed in
+  General Settings and Chief Settings, persisted at `chief.dangerouslySkipPermissions`,
+  and guarded by a localized confirmation; it remains off by default. Chief's
+  cloud prompt now keeps remote launches safe by default, teaches `vm open
+  <machine>:desktop` plus `cua-driver` verification/action loops, and offers a
+  gentle Pro upgrade only when Cloud reports a real availability or plan limit.
+  The Home sidebar's built-in swipe/context delete action now hides a
+  conversation durably on this device and returns to the default Chief thread
+  when the selected conversation is removed. A focused projection test covers
+  that transition. `verify-local.py --affected`, localization parity, test
+  wiring, app-source wiring, feature-flag policy, and Swift syntax all pass;
+  the dedicated package host was unavailable in this session, so hosted CI is
+  the native compilation/test proof.
+
 - 2026-10-15 permission safety follow-up: Chief now persists
   `chief.dangerouslySkipPermissions` (off by default) in the catalog, cmux.json
   schema, general Settings card, and the in-Home Chief Settings panel. Turning

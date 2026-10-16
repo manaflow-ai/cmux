@@ -45,10 +45,16 @@ enum ChiefSettings {
         nonEmpty(keys.effort.value(in: defaults))
     }
 
+    /// `chief.dangerouslySkipPermissions`: whether new turns may bypass agent permission prompts.
+    static func dangerouslySkipPermissions(in defaults: UserDefaults) -> Bool {
+        keys.dangerouslySkipPermissions.value(in: defaults)
+    }
+
     static var isEnabled: Bool { isEnabled(in: .standard) }
     static var harness: ChiefHarnessSetting { harness(in: .standard) }
     static var model: String? { model(in: .standard) }
     static var effort: String? { effort(in: .standard) }
+    static var dangerouslySkipPermissions: Bool { dangerouslySkipPermissions(in: .standard) }
 
     /// Persists `chief.enabled`.
     static func setEnabled(_ enabled: Bool, in defaults: UserDefaults = .standard) {

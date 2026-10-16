@@ -412,7 +412,7 @@ extension CmuxSettingsFileStore {
         }
     }
 
-    /// `chief.*`: the Home agent switch and its harness, model and effort.
+    /// `chief.*`: the Home agent switch, engine selection and permission mode.
     func parseChiefSection(
         _ section: [String: Any],
         sourcePath: String,
@@ -438,6 +438,12 @@ extension CmuxSettingsFileStore {
                 logInvalid("chief.\(jsonKey)", sourcePath: sourcePath)
             }
         }
+        applyBooleanSettings(
+            ChiefSettingsFileMapping.booleanSettings,
+            from: section,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
     }
 
     func parseSidebarWorkspaceTodosBeta(
