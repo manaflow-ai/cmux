@@ -241,33 +241,29 @@ pub const TURN_DENIED_TOOLS: [&str; 25] = [
     "Workflow",
 ];
 
-/// The cmux MCP tools a Chief turn keeps (cx-68uof, hq-6d 2026-10-16):
-/// conversations, Chiefs, workspaces and panes, agents. The Chief's own
-/// `optchat` server (spawn, tell, zoom, date, chiefs, profile) always loads.
-/// Every other cmux MCP tool is denied in the turn's settings and stays
-/// reachable through the `cmux` CLI.
-pub const CHIEF_CMUX_TOOLS: [&str; 21] = [
-    "conversation_list",
-    "conversation_get",
-    "conversation_history",
-    "conversation_search",
-    "conversation_send",
-    "chief_profile_list",
-    "chief_profile_get",
-    "chief_profile_create",
-    "chief_profile_update",
-    "chief_engine_get",
-    "session_list",
+/// The cmux MCP tools a Chief turn keeps (cx-68uof, hq-6d 2026-10-16): open
+/// and focus workspaces, panes, tabs, pages and files, answer dialogs, and
+/// follow agents. Chiefs, conversations, memory and subagents are the
+/// Chief's own `optchat` server (chiefs, profile, spawn, tell, zoom, date),
+/// which always loads; cmux MCP has no conversation or Chief tools (v2_tools
+/// EXCLUDED). Every other cmux MCP tool is denied in the turn's settings
+/// and stays reachable through the `cmux` CLI. Names: `agents_*` and
+/// `render` (cmux mcp agent tools), `app_<cli words>` (action tools).
+pub const CHIEF_CMUX_TOOLS: [&str; 14] = [
     "agents_workspace_create",
     "agents_workspace_select",
     "agents_terminal_split",
     "agents_terminal_focus",
     "agents_tab_select",
+    "agents_dialog_list",
+    "agents_dialog_answer",
     "agents_events",
     "agents_wait",
-    "agent_message_list",
-    "agent_message_send",
     "render",
+    "app_show_pane",
+    "app_show_tab",
+    "app_tab_new_page",
+    "app_file_open",
 ];
 
 /// How long `cmux mcp tools` may take before a turn keeps every tool.
