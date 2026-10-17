@@ -176,7 +176,7 @@ body {
 }
 .proto-workspace-actions {
   position: absolute;
-  z-index: 1;
+  z-index: var(--layer-overlay);
   top: 4px;
   right: 12px;
   display: inline-flex;
