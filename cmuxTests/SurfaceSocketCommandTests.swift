@@ -121,9 +121,8 @@ struct SurfaceSocketCommandTests {
         }.value
         let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
         let error = try Self.error(object)
-        #expect(error["code"] as? String != "vm_tui_daemon_unavailable")
-        #expect((error["message"] as? String)?.contains("cmux-tui") == false)
-        #expect((error["message"] as? String)?.contains("remote workspace is unavailable") == true)
+        #expect(error["code"] as? String == "vm_error")
+        #expect(error["message"] as? String == Self.requestFailedMessage)
     }
 
     @Test func clientExitBeforeSocketDoesNotUseDaemonCategory() async throws {
@@ -134,10 +133,8 @@ struct SurfaceSocketCommandTests {
         }.value
         let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
         let error = try Self.error(object)
-        #expect(error["code"] as? String != "vm_tui_daemon_unavailable")
-        #expect(error["message"] as? String != Self.daemonUnavailableMessage)
-        #expect((error["message"] as? String)?.contains("cmux-tui") == false)
-        #expect((error["message"] as? String)?.contains("unknown flag --carrier") == true)
+        #expect(error["code"] as? String == "vm_error")
+        #expect(error["message"] as? String == Self.requestFailedMessage)
     }
 
     @Test func providerErrorCopyKeepsDetailsWithoutInternalProductNames() {
@@ -384,6 +381,11 @@ struct SurfaceSocketCommandTests {
     private static let daemonUnavailableMessage = String(
         localized: "socket.cloudVM.daemonUnavailable",
         defaultValue: "The Cloud VM connection is unavailable. Wake the machine or retry the command."
+    )
+
+    private static let requestFailedMessage = String(
+        localized: "socket.cloudVM.requestFailed",
+        defaultValue: "The Cloud VM request failed. Retry, or check the machine's status with `cmux vm ls`."
     )
 
     private static let workspaceDaemonUnavailableMessage = String(
