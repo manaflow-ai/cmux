@@ -24,7 +24,13 @@ public final class PhoneTCPServer: @unchecked Sendable {
         guard let endpointPort = NWEndpoint.Port(rawValue: port) else {
             throw PhoneDriverError.transport("invalid TCP port")
         }
-        listener = try NWListener(using: .tcp, on: endpointPort)
+        let parameters = NWParameters.tcp
+        let localPort: NWEndpoint.Port = endpointPort.rawValue == 0 ? .any : endpointPort
+        parameters.requiredLocalEndpoint = .hostPort(
+            host: NWEndpoint.Host("127.0.0.1"),
+            port: localPort
+        )
+        listener = try NWListener(using: parameters)
         self.queue = queue
         controlServer = PhoneControlServer(driver: driver)
     }
