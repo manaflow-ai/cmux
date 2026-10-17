@@ -317,7 +317,16 @@ public actor AgentChatTranscriptTailer {
         var appended: [ChatMessage] = []
         var updated: [ChatMessage] = []
         if !didReset {
-            appended = result.messages.filter { previous[$0.id] == nil }
+            // `cache` is intentionally bounded. Once the initial read has
+            // trimmed the head, comparing only by id would classify every
+            // retained historical row as a fresh append on the next SQLite
+            // invalidation. OpenCode appends parts in transcript order, so
+            // the last cached seq is the high-water mark for new rows; in-place
+            // updates still reconcile by their stable id below.
+            let previousMaxSeq = previous.values.map(\.seq).max() ?? -1
+            appended = result.messages.filter {
+                $0.seq > previousMaxSeq && previous[$0.id] == nil
+            }
             updated = result.messages.filter {
                 guard let old = previous[$0.id] else { return false }
                 return old != $0
