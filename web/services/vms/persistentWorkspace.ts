@@ -342,6 +342,10 @@ export function persistentWorkspaceService(): PersistentWorkspaceService | null 
   return configuredService;
 }
 
+function reusableWorkspace(record: PersistentWorkspaceRecord): boolean {
+  return record.lifecycle === "running" || record.lifecycle === "suspended" || record.lifecycle === "stopped";
+}
+
 export function createPersistentWorkspaceService(input: {
   readonly store: PersistentWorkspaceStore;
   readonly provider: PersistentWorkspaceProvider;
@@ -384,6 +388,12 @@ export function createPersistentWorkspaceService(input: {
     return redactedAttachTarget(record, raw ?? fallback);
   }
 
+  async function replayExisting(record: PersistentWorkspaceRecord, digest: string): Promise<PersistentWorkspaceView | null> {
+    if (record.requestDigest !== digest) throw new PersistentWorkspaceIdempotencyConflictError();
+    if (!reusableWorkspace(record)) return null;
+    return viewOf(record, record.lifecycle === "running" || record.lifecycle === "suspended" ? await attachTarget(record) : null);
+  }
+
   async function create(request: PersistentWorkspaceCreateInput): Promise<PersistentWorkspaceView> {
     const tenantId = requiredText(request.tenantId, "tenantId");
     const ownerId = requiredText(request.ownerId, "ownerId");
@@ -421,9 +431,9 @@ export function createPersistentWorkspaceService(input: {
     }
     let record = reservation.record;
     assertOwned(record, { tenantId, ownerId });
-    if (!reservation.created && record.requestDigest !== digest) throw new PersistentWorkspaceIdempotencyConflictError();
-    if (!reservation.created && (record.lifecycle === "running" || record.lifecycle === "suspended" || record.lifecycle === "stopped")) {
-      return viewOf(record, record.lifecycle === "running" || record.lifecycle === "suspended" ? await attachTarget(record) : null);
+    if (!reservation.created) {
+      const replay = await replayExisting(record, digest);
+      if (replay) return replay;
     }
 
     try {
@@ -510,9 +520,9 @@ export function createPersistentWorkspaceService(input: {
     }
     let record = reservation.record;
     assertOwned(record, { tenantId, ownerId });
-    if (!reservation.created && record.requestDigest !== digest) throw new PersistentWorkspaceIdempotencyConflictError();
-    if (!reservation.created && (record.lifecycle === "running" || record.lifecycle === "suspended" || record.lifecycle === "stopped")) {
-      return viewOf(record, record.lifecycle === "running" || record.lifecycle === "suspended" ? await attachTarget(record) : null);
+    if (!reservation.created) {
+      const replay = await replayExisting(record, digest);
+      if (replay) return replay;
     }
     if (!input.provider.adopt) {
       throw new PersistentWorkspaceProviderError("promote", new Error("persistent workspace provider adoption is not configured"));

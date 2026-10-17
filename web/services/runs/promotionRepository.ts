@@ -43,8 +43,8 @@ function sameTarget(marker: PromotionMarker, input: { runId: string; attemptId: 
   return marker.runId === input.runId && marker.attemptId === input.attemptId;
 }
 
-function storedPromotion(marker: PromotionMarker): PromotionView | null {
-  return marker.status === "completed" && marker.promotion ? marker.promotion : null;
+function storedPromotion(marker: PromotionMarker | null): PromotionView | null {
+  return marker?.status === "completed" && marker.promotion ? marker.promotion : null;
 }
 
 /**

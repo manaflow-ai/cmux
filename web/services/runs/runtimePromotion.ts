@@ -54,7 +54,7 @@ export function createRuntimePromotionAdapter(): AttemptPromotionRuntimePort {
       return {
         runtimeId: runtime.id,
         workspaceId: workspace.workspaceId,
-        state: current?.lifecycleState === "paused" ? "paused" : "ready",
+        state: current?.lifecycleState === "suspended" ? "paused" : "ready",
         sessionId: input.sessionId,
         transport: "cmux-remote",
       };

@@ -4,8 +4,11 @@ import { cloudRuntimeWorkspaces, cloudRuntimes } from "../../db/schema";
 import { createRuntime, getRuntime, updateRuntime } from "./runtimeRepository";
 import type { PersistentWorkspaceRecord, PersistentWorkspaceStore } from "./persistentWorkspace";
 
-function lifecycleState(value: PersistentWorkspaceRecord["lifecycle"]): "provisioning" | "running" | "suspended" | "stopped" | "failed" {
-  return value;
+function lifecycleState(value: string): PersistentWorkspaceRecord["lifecycle"] {
+  if (value === "provisioning" || value === "running" || value === "suspended" || value === "stopped" || value === "failed") {
+    return value;
+  }
+  throw new Error(`invalid persistent workspace lifecycle: ${value}`);
 }
 
 function toRecord(row: typeof cloudRuntimeWorkspaces.$inferSelect): PersistentWorkspaceRecord {
@@ -15,7 +18,7 @@ function toRecord(row: typeof cloudRuntimeWorkspaces.$inferSelect): PersistentWo
     tenantId: row.ownerTeamId,
     ownerId: row.ownerId,
     provider: "freestyle",
-    lifecycle: row.lifecycle as PersistentWorkspaceRecord["lifecycle"],
+    lifecycle: lifecycleState(row.lifecycle),
     providerVmId: row.providerVmId,
     providerWorkspaceId: row.providerWorkspaceId,
     providerTerminalId: row.providerTerminalId,
@@ -74,7 +77,7 @@ export function persistentWorkspaceStoreFromRuntime(): PersistentWorkspaceStore 
           .where(and(eq(cloudRuntimeWorkspaces.runtimeId, runtimeId), ...(expectedVersion === undefined ? [] : [eq(cloudRuntimeWorkspaces.version, expectedVersion)])))
           .for("update").limit(1);
         if (!current) throw new Error("workspace version is stale or missing");
-        const nextLifecycle = patch.lifecycle ? lifecycleState(patch.lifecycle) : current.lifecycle;
+        const nextLifecycle = patch.lifecycle ? lifecycleState(patch.lifecycle) : lifecycleState(current.lifecycle);
         const [updated] = await tx.update(cloudRuntimeWorkspaces).set({
           ...patch,
           lifecycle: nextLifecycle,
