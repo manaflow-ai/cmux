@@ -15,6 +15,24 @@ type ParsedRunBody = {
   readonly routing: RunRoutingRequest;
 };
 
+type ParsedProviderRouting = {
+  readonly provider: "cloud-vm";
+  readonly routing: RunRoutingRequest;
+};
+
+function parseProviderRouting(body: Record<string, unknown>): ParsedProviderRouting | Response {
+  if (body.provider !== undefined && body.provider !== "cloud-vm") return runJson({ error: "run_provider_invalid", message: "The MVP provider is cloud-vm." }, 400);
+  const routingBody = jsonBodyObject(body.routing);
+  const requestedProvider = routingBody?.requestedProvider;
+  if (requestedProvider !== undefined && requestedProvider !== "freestyle" && requestedProvider !== "huge-blue" && requestedProvider !== "unknown") {
+    return runJson({ error: "run_provider_invalid", message: "routing.requestedProvider must be freestyle, huge-blue, or unknown." }, 400);
+  }
+  return {
+    provider: "cloud-vm",
+    routing: { ...(requestedProvider !== undefined ? { requestedProvider } : {}) },
+  };
+}
+
 function parseCreateRunBody(body: Record<string, unknown>): ParsedRunBody | Response {
   const source = jsonBodyObject(body.source);
   const repository = typeof source?.repository === "string" ? source.repository.trim() : "";
@@ -26,22 +44,14 @@ function parseCreateRunBody(body: Record<string, unknown>): ParsedRunBody | Resp
   if (!repository || repository.length > 512) return runJson({ error: "run_source_required", message: "source.repository is required." }, 400);
   if (!ALLOWED_RUN_RECIPES.includes(recipe as (typeof ALLOWED_RUN_RECIPES)[number])) return runJson({ error: "run_recipe_required", message: "recipe must be an allowlisted internal recipe." }, 400);
   if (desiredAttempts < 1 || desiredAttempts > 32) return runJson({ error: "run_attempts_invalid", message: "desiredAttempts must be between 1 and 32." }, 400);
-  if (body.provider !== undefined && body.provider !== "cloud-vm") return runJson({ error: "run_provider_invalid", message: "The MVP provider is cloud-vm." }, 400);
-  const routingBody = jsonBodyObject(body.routing);
-  const requestedProvider = ({
-    freestyle: "freestyle",
-    "huge-blue": "huge-blue",
-    unknown: "unknown",
-    undefined: undefined,
-  } as const)[String(routingBody?.requestedProvider)];
+  const providerRouting = parseProviderRouting(body);
+  if (providerRouting instanceof Response) return providerRouting;
   return {
     source: { repository, ref: typeof source?.ref === "string" ? source.ref.trim() : undefined, commit },
     recipe,
     desiredAttempts,
-    provider: "cloud-vm",
-    routing: {
-      requestedProvider,
-    },
+    provider: providerRouting.provider,
+    routing: providerRouting.routing,
   };
 }
 
