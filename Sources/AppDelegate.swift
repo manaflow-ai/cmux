@@ -934,7 +934,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Shared result for the one crash-artifact scan used by both the
     /// diagnostic notification and the rare missing-primary recovery probe.
     private var pendingCrashScanTask: Task<GhosttyCrashBreadcrumb.PendingCrash?, Never>?
-    private var isWaitingForStartupCrashRecoveryProbe = false
+    private var isWaitingForStartupSessionPreparation = false
+    private var didStartSessionPersistence = false
+    private var startupSessionPreparationTask: Task<Void, Never>?
+    private weak var deferredStartupSessionRestoreWindow: NSWindow?
     private var deferredInitialMainWindowBootstrapDebugSource: String?
     struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
@@ -2236,7 +2239,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             || mirrorsOwingDetach > 0
         let hasLocalTerminalSurfaces = hasLocalTerminalSurfacesForQuit
         guard hasOwnedRuntimeCleanup || hasLocalTerminalSurfaces
-            || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites else { return false }
+            || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites
+            || isWaitingForStartupSessionPreparation else { return false }
         if !isAwaitingTerminateCleanup {
             isAwaitingTerminateCleanup = true
             terminateCleanupPhase = .ownedRuntimeCleanup
@@ -2274,6 +2278,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     return
                 }
                 self.terminateCleanupPhase = .freshSnapshot
+                await self.awaitStartupSessionPreparationIfNeeded()
+                guard !Task.isCancelled else { return }
                 let ttyDeviceBindings = self.currentSurfaceTTYDeviceBindings()
                 // A complete census is useful when it is already warm, but it is
                 // not worth holding AppKit's terminate-later run loop for a slow
@@ -2385,6 +2391,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isQuitWarningConfirmed = false
         replyToTerminateOnce(false)
         startSudoApprovalCoordinator()
+        resumeStartupAfterSessionPreparationIfNeeded()
 
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -2456,6 +2463,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Reset so that the next quit attempt can show the dialog again.
             isTerminatingApp = false
             clearMarkedRemoteTmuxKills()
+            resumeStartupAfterSessionPreparationIfNeeded()
             StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "0"])
         }
         if shouldQuit {
@@ -2581,7 +2589,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         mainWindowLifecycleCoordinator.cancelAllWindowlessRouteFreezeTasks()
         MemoryPressureMonitor.shared.stop()
         computerUseUXCoordinator.teardownForTermination()
-        if needsTerminationSnapshotBackstop {
+        if needsTerminationSnapshotBackstop, !isWaitingForStartupSessionPreparation {
             _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         }
         ClosedItemHistoryStore.shared.flushPendingSaves()
@@ -2636,6 +2644,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
         mainWindowLifecycleCoordinator.cancelAllWindowlessRouteFreezeTasks()
+        if isWaitingForStartupSessionPreparation {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.awaitStartupSessionPreparationIfNeeded()
+                guard self.isTerminatingApp else { return }
+                _ = self.saveSessionSnapshotUsingCachedProcessDetectedIndexes(
+                    includeScrollback: true,
+                    removeWhenEmpty: false
+                )
+                ClosedItemHistoryStore.shared.flushPendingSaves()
+            }
+            return
+        }
         _ = saveSessionSnapshotUsingCachedProcessDetectedIndexes(
             includeScrollback: true,
             removeWhenEmpty: false
@@ -2812,10 +2833,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         lastVisibleFrameFitTopologySignature = MainWindowVisibleFrameFitCore()
             .trustedTopologySignature(of: currentDisplayGeometries().available)
         prepareStartupSessionSnapshotIfNeeded()
-        sessionAutosaveCoordinator.startIfNeeded()
-        if !isRunningUnderXCTest(ProcessInfo.processInfo.environment) {
-            startSessionScrollbackCheckpointsIfNeeded(environment: ProcessInfo.processInfo.environment)
-        }
 #if DEBUG
         setupJumpUnreadUITestIfNeeded()
         setupTerminalCmdClickUITestIfNeeded()
@@ -3827,32 +3844,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        if shouldAwaitCrashRecoveryProbe() {
-            isWaitingForStartupCrashRecoveryProbe = true
-            let pendingCrashScanTask = pendingCrashScanTaskIfNeeded()
-            Task { @MainActor [weak self] in
-                let pendingCrash = await pendingCrashScanTask.value
-                guard let self, !Task.isCancelled, !self.isTerminatingApp else { return }
-                if pendingCrash != nil {
-                    self.previousSessionLaunchWasUnclean = true
-                }
-#if DEBUG
-                cmuxDebugLog(
-                    "session.restore.crashProbe pending=\(pendingCrash != nil ? 1 : 0)"
-                )
-#endif
-                self.isWaitingForStartupCrashRecoveryProbe = false
-                self.finishPreparingStartupSessionSnapshot()
-                self.resumeDeferredInitialMainWindowBootstrapIfNeeded()
+        isWaitingForStartupSessionPreparation = true
+        let crashProbe = shouldAwaitCrashRecoveryProbe() ? pendingCrashScanTaskIfNeeded() : nil
+        // The barrier includes the probe, file work and application of its result.
+        // Explicit-open windows may register meanwhile, but restore and every
+        // snapshot write wait for the same task.
+        startupSessionPreparationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            if let crashProbe, await crashProbe.value != nil {
+                self.previousSessionLaunchWasUnclean = true
             }
-            return
+            let preparation = StartupSessionSnapshotPreparation(
+                store: self.sessionSnapshotStore,
+                previousLaunchWasUnclean: self.previousSessionLaunchWasUnclean,
+                crashOnlyPrimarySnapshotRemovalMarker: Self.hasCrashOnlyPrimarySnapshotRemovalMarker(),
+                shouldAttemptRestore: SessionRestorePolicy.shouldAttemptRestore(),
+                didHandleExplicitOpenIntent: self.didHandleExplicitOpenIntentAtStartup,
+                shouldInstallOverwriteGuard: !isRunningUnderXCTest(environment)
+                    && !isRunningUnderXCTestCached,
+                environment: environment
+            )
+            let result = await Task.detached(priority: .utility) {
+                await preparation.run()
+            }.value
+            self.applyStartupSessionPreparationResult(result)
         }
-        finishPreparingStartupSessionSnapshot()
     }
 
     /// A missing primary with a backup is ambiguous until the asynchronous
     /// crash-artifact probe completes. Replay-file cleanup runs independently
-    /// in a detached utility task and does not participate in this restore gate.
+    /// in a detached utility task; snapshot preparation remains behind the
+    /// barrier below so restore and persistence observe one settled state.
     private func shouldAwaitCrashRecoveryProbe() -> Bool {
         guard SessionRestorePolicy.shouldAttemptRestore(),
               !didHandleExplicitOpenIntentAtStartup,
@@ -3867,33 +3889,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             && FileManager.default.fileExists(atPath: backupURL.path)
     }
 
-    private func finishPreparingStartupSessionSnapshot() {
-        // Decode the primary once: the archive, the `-previous` sync, and the
-        // restore below all read it, and none of them rewrites it.
-        let primaryOutcome = sessionSnapshotStore.defaultSnapshotFileURL().map {
-            sessionSnapshotStore.loadOutcome(fileURL: $0)
+    private func applyStartupSessionPreparationResult(
+        _ result: StartupSessionSnapshotPreparation.Result
+    ) {
+        sessionSnapshotOverwriteGuard = result.overwriteGuard
+        if result.clearsCrashOnlyPrimarySnapshotRemovalMarker {
+            Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
         }
-        installSessionSnapshotOverwriteGuardIfNeeded(primaryOutcome: primaryOutcome)
-        syncManualRestoreSnapshotCachePruningCrashDiagnostics(
-            preserveExistingBackup: previousSessionLaunchWasUnclean,
-            primaryOutcome: primaryOutcome
-        )
-        let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics(
-            primaryOutcome: primaryOutcome
-        )
-        // Before the restore guard, so a skipped restore still drops stale checkpoints.
-        prepareSessionScrollbackCheckpointsForLaunch(previousLaunchWasUnclean: previousSessionLaunchWasUnclean)
-        guard SessionRestorePolicy.shouldAttemptRestore(),
-              !didHandleExplicitOpenIntentAtStartup else { return }
-        // After a crash the primary snapshot comes from the 8 s autosave, which
-        // never carries scrollback; recover it from the latest checkpoints. A
-        // clean exit already wrote scrollback and discarded them above.
-        if previousSessionLaunchWasUnclean,
-           let sanitizedStartupSnapshot,
-           let checkpointStore = sessionScrollbackCheckpointStore() {
-            startupSessionSnapshot = checkpointStore.merging(into: sanitizedStartupSnapshot)
-        } else {
-            startupSessionSnapshot = sanitizedStartupSnapshot
+        startupSessionSnapshot = didAttemptStartupSessionRestore
+            ? nil
+            : result.startupSnapshot
+        isWaitingForStartupSessionPreparation = false
+        startupSessionPreparationTask = nil
+        resumeStartupAfterSessionPreparationIfNeeded()
+    }
+
+    /// Also called after canceled termination: a completed preparation must not
+    /// leave autosave stopped or lose the window that registered while awaiting it.
+    private func resumeStartupAfterSessionPreparationIfNeeded() {
+        guard didPrepareStartupSessionSnapshot,
+              !isWaitingForStartupSessionPreparation,
+              !isTerminatingApp else { return }
+        startSessionPersistenceIfNeeded()
+        if let deferredWindow = deferredStartupSessionRestoreWindow {
+            deferredStartupSessionRestoreWindow = nil
+            attemptStartupSessionRestoreAndSaveIfNeeded(primaryWindow: deferredWindow)
+        }
+        resumeDeferredInitialMainWindowBootstrapIfNeeded()
+    }
+
+    /// Quit and power-event saves join the full preparation barrier without
+    /// blocking the main actor. The existing quit watchdog can still time out;
+    /// its synchronous fallback skips writing while preparation owns the files.
+    private func awaitStartupSessionPreparationIfNeeded() async {
+        await startupSessionPreparationTask?.value
+    }
+
+    private func startSessionPersistenceIfNeeded() {
+        guard !didStartSessionPersistence else { return }
+        didStartSessionPersistence = true
+        sessionAutosaveCoordinator.startIfNeeded()
+        if !isRunningUnderXCTest(ProcessInfo.processInfo.environment) {
+            startSessionScrollbackCheckpointsIfNeeded(environment: ProcessInfo.processInfo.environment)
         }
     }
 
@@ -3903,7 +3940,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func installSessionSnapshotOverwriteGuardIfNeeded(
         primaryOutcome: SessionSnapshotLoadOutcome<AppSessionSnapshot>? = nil
     ) {
-        guard sessionSnapshotOverwriteGuard == nil,
+        guard !isWaitingForStartupSessionPreparation,
+              sessionSnapshotOverwriteGuard == nil,
               !isRunningUnderXCTest(ProcessInfo.processInfo.environment),
               !isRunningUnderXCTestCached else { return }
         archiveSessionSnapshotAndInstallOverwriteGuard(
@@ -3923,56 +3961,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         deferredInitialMainWindowBootstrapDebugSource = nil
         scheduleInitialMainWindowBootstrap(debugSource: debugSource)
-    }
-
-    private func loadStartupSessionSnapshotPruningCrashDiagnostics(
-        primaryOutcome: SessionSnapshotLoadOutcome<AppSessionSnapshot>? = nil
-    ) -> AppSessionSnapshot? {
-        guard let primaryURL = sessionSnapshotStore.defaultSnapshotFileURL() else { return nil }
-        switch primaryOutcome ?? sessionSnapshotStore.loadOutcome(fileURL: primaryURL) {
-        case .loaded(let snapshot):
-            if let prunedSnapshot = SessionPersistencePolicy
-                .pruningCmuxCrashDiagnosticWindows(from: snapshot)
-                .snapshot {
-                return prunedSnapshot
-            }
-            return loadManualRestoreSessionSnapshotPruningCrashDiagnostics()
-        case .missing:
-            if Self.shouldRecoverMissingPrimarySessionSnapshot(
-                previousLaunchWasUnclean: previousSessionLaunchWasUnclean,
-                crashOnlyPrimarySnapshotRemovalMarker: Self.hasCrashOnlyPrimarySnapshotRemovalMarker()
-            ) {
-                return loadManualRestoreSessionSnapshotPruningCrashDiagnostics()
-            }
-            return nil
-        case .unusable:
-            // Session data exists but cannot be restored: never start empty
-            // while the backup or an archived launch can still be restored.
-            if let backup = loadManualRestoreSessionSnapshotPruningCrashDiagnostics() {
-                return backup
-            }
-            guard let recovered = sessionSnapshotStore.newestRestorableHistorySnapshot({
-                SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: $0).snapshot
-            }) else {
-                return nil
-            }
-            // The launch baseline came from files that could not be read;
-            // hold poorer saves back against the layout actually restored.
-            if let overwriteGuard = sessionSnapshotOverwriteGuard,
-               overwriteGuard.baseline < recovered.richness {
-                sessionSnapshotOverwriteGuard = SessionSnapshotOverwriteGuard(
-                    baseline: recovered.richness,
-                    launchDate: overwriteGuard.launchDate
-                )
-            }
-            return recovered
-        }
-    }
-
-    private func loadManualRestoreSessionSnapshotPruningCrashDiagnostics() -> AppSessionSnapshot? {
-        sessionSnapshotStore.loadReopenSessionSnapshot(fileURL: nil).flatMap {
-            SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: $0).snapshot
-        }
     }
 
     private func persistedWindowGeometry(defaults: UserDefaults = .standard) -> PersistedWindowGeometry? {
@@ -4069,6 +4057,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func attemptStartupSessionRestoreAndSaveIfNeeded(primaryWindow: NSWindow) {
+        guard !isWaitingForStartupSessionPreparation else {
+            deferredStartupSessionRestoreWindow = primaryWindow
+            return
+        }
         let didApplyStartupSessionRestore = attemptStartupSessionRestoreIfNeeded(
             primaryWindow: primaryWindow
         )
@@ -4233,6 +4225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func reopenPreviousSession(shouldActivate: Bool = true) -> Bool {
+        guard !isWaitingForStartupSessionPreparation else { return false }
         guard let snapshot = sessionSnapshotStore.loadReopenSessionSnapshot(fileURL: nil) else {
             return false
         }
@@ -4619,6 +4612,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isTerminatingApp = true
+                await self.awaitStartupSessionPreparationIfNeeded()
                 let ttyDeviceBindings = self.currentSurfaceTTYDeviceBindings()
                 let resumeIndexes = await ProcessDetectedResumeIndexes.loadFresh(
                     ttyDeviceBindings: ttyDeviceBindings
@@ -4641,6 +4635,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                await self.awaitStartupSessionPreparationIfNeeded()
                 if self.isTerminatingApp {
                     _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
                     ClosedItemHistoryStore.shared.flushPendingSaves()
@@ -4834,6 +4829,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> Bool {
+        guard !isWaitingForStartupSessionPreparation else {
+#if DEBUG
+            cmuxDebugLog(
+                "session.save.skipped reason=startup_session_preparation " +
+                    "includeScrollback=\(includeScrollback ? 1 : 0)"
+            )
+#endif
+            return false
+        }
         if Self.shouldSkipSessionSaveDuringStartupTransition(
             isStartupSessionRestorePending: !didAttemptStartupSessionRestore,
             isApplyingSessionRestore: isApplyingSessionRestore,
@@ -5102,11 +5106,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let ttyDeviceBindings = currentSurfaceTTYDeviceBindings()
 
         Task { @MainActor [weak self] in
+            guard let self else { return }
             let resumeIndexes = await ProcessDetectedResumeIndexes.load(
                 ttyDeviceBindings: ttyDeviceBindings
             )
-            guard let self,
-                  !self.isTerminatingApp,
+            await self.awaitStartupSessionPreparationIfNeeded()
+            guard !self.isTerminatingApp,
                   self.sessionAutosaveCoordinator.isCurrentProcessDetectedSaveGeneration(generation) else { return }
             _ = self.saveSessionSnapshot(
                 includeScrollback: includeScrollback,
@@ -5167,7 +5172,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         synchronously: Bool,
         preserveManualRestoreBackupOnMissingPrimary: Bool = false
     ) {
-        guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
+        guard !isWaitingForStartupSessionPreparation,
+              snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
         installSessionSnapshotOverwriteGuardIfNeeded()
         let snapshot = snapshotAllowedByOverwriteGuard(snapshot)
         sessionSnapshotPersistenceWriter.persist(
@@ -8462,7 +8468,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.didScheduleInitialMainWindowBootstrap = false
                 return
             }
-            if self.isWaitingForStartupCrashRecoveryProbe {
+            if self.isWaitingForStartupSessionPreparation {
                 self.didScheduleInitialMainWindowBootstrap = false
                 if self.deferredInitialMainWindowBootstrapDebugSource == nil {
                     self.deferredInitialMainWindowBootstrapDebugSource = debugSource
