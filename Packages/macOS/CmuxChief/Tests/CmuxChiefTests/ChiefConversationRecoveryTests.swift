@@ -207,10 +207,14 @@ import Testing
         let catalogURL = packageRoot.appendingPathComponent("Sources/CmuxChief/Resources/Localizable.xcstrings")
         let catalog = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: catalogURL)) as? [String: Any])
         let entry = try #require((catalog["strings"] as? [String: Any])?["chief.turn.failed"] as? [String: Any])
-        let japanese = (entry["localizations"] as? [String: Any])?["ja"] as? [String: Any]
-        let failed = try #require((japanese?["stringUnit"] as? [String: Any])?["value"] as? String)
+        let localizations = try #require(entry["localizations"] as? [String: Any])
+        func value(_ language: String) throws -> String {
+            let unit = (localizations[language] as? [String: Any])?["stringUnit"] as? [String: Any]
+            return try #require(unit?["value"] as? String)
+        }
+        let failed = try value("ja"), english = try value("en")
         #expect(failed != "chief.turn.failed")
-        #expect(failed.contains("%@") && !failed.contains("could not finish"))
+        #expect(failed.contains("%@") && failed != english)
         #expect(ChiefText.turnFailed("boom").contains("boom"))
     }
 }
