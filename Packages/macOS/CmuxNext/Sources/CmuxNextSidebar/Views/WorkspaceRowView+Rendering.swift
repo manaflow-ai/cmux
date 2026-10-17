@@ -25,8 +25,7 @@ extension WorkspaceRowView {
 
     override func hoverChanged() {
         super.hoverChanged()
-        let list = superview as? SidebarListView
-        let suppressEffects = list?.hoverFollowsScroll == true || list?.suppressHoverEffects == true
+        let suppressEffects = suppressesHoverEffects
         if !suppressEffects { needsLayout = true }
         guard isHovered, !renaming, !isPlaceholderRow, !suppressEffects else {
             title.stopMarquee()
