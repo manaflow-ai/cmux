@@ -170,6 +170,34 @@ struct CEFUnownedTabsTests {
         #expect(!tab.2)
     }
 
+    /// `chrome.windows.create` from a background worker: its tab waits for
+    /// an extension popup window (1.5 s) and then goes to the anchor page.
+    /// Its address and title arrived while it waited; the cmux tab showed
+    /// "New tab" at about:blank over the loaded page.
+    @Test
+    func aDeferredOrphanKeepsTheEventsItSentWhileItWaited() throws {
+        let (runtime, _) = Self.runtime()
+        runtime.popupWindowsEnabled = true
+        let anchor = Self.page(runtime, id: 7, profile: UUID())
+        runtime.unownedTabAnchor = { _ in anchor }
+        var adopted: [CEFBrowser] = []
+        anchor.onEvent = { event in
+            if case .newBrowser(let tab, _, _, _) = event { adopted.append(tab) }
+        }
+        let created = CEFCreatedBy(opener: 0, disposition: .unknown, features: nil)
+
+        runtime.handle(.afterCreated(browser: 42, request: 0, window: 5, created: created))
+        #expect(runtime.deferredOrphans.contains(42))
+        runtime.handle(.address(browser: 42, url: "http://127.0.0.1:19190/created.html"))
+        runtime.handle(.title(browser: 42, title: "probe created"))
+        runtime.resolveOrphan(42, created: created)
+
+        let tab = try #require(adopted.first)
+        #expect(tab.state.url?.absoluteString == "http://127.0.0.1:19190/created.html")
+        #expect(tab.state.title == "probe created")
+        #expect(runtime.unplacedEvents[42] == nil)
+    }
+
     @Test
     func withoutAnAnchorAnOrphanTabsURLOpensAsACmuxTab() async {
         let (runtime, _) = Self.runtime()
