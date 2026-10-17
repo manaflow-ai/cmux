@@ -427,17 +427,19 @@ public final class ConversationModel {
         // host registers its live stream before we request the projection.
         streamTask = Task { [weak self] in
             let stream = await client.events(sessionID: id, after: cursor)
-            guard let self, self.generation == expectedGeneration, self.selectedSessionID == id else { return }
-            self.beginSnapshot(client: client, id: id, cursor: cursor, expectedGeneration: expectedGeneration)
+            guard self?.generation == expectedGeneration, self?.selectedSessionID == id else { return }
+            self?.beginSnapshot(client: client, id: id, cursor: cursor, expectedGeneration: expectedGeneration)
             do {
                 for try await event in stream {
-                    guard self.generation == expectedGeneration, self.selectedSessionID == id else { return }
+                    // Keep the model weak across the stream's suspension points. A discarded
+                    // task screen must be reclaimable even when its transport remains connected.
+                    guard let self, self.generation == expectedGeneration, self.selectedSessionID == id else { return }
                     self.receive(event)
                 }
-                guard self.generation == expectedGeneration, self.selectedSessionID == id else { return }
+                guard let self, self.generation == expectedGeneration, self.selectedSessionID == id else { return }
                 self.connectionState = .disconnected
             } catch {
-                guard self.generation == expectedGeneration, self.selectedSessionID == id else { return }
+                guard let self, self.generation == expectedGeneration, self.selectedSessionID == id else { return }
                 self.connectionState = .failed(message: Self.userMessage(for: error))
                 self.errorMessage = Self.userMessage(for: error)
                 self.recoverSnapshotAfterStreamFailure(client: client, id: id, expectedGeneration: expectedGeneration)
@@ -524,7 +526,9 @@ public final class ConversationModel {
         guard event.sessionID == selectedSessionID else { return }
         guard event.sequence > currentCursor else { return }
         if event.generation != currentProviderGeneration {
-            // A restarted provider invalidates old requests and cursors.
+            // A restart event establishes the new generation. Other events from
+            // an old provider connection must not mutate the replacement task.
+            guard currentProviderGeneration == nil || event.kind == .restarted else { return }
             if currentProviderGeneration != nil { requests.removeAll() }
             currentProviderGeneration = event.generation
         }
@@ -589,17 +593,31 @@ public final class ConversationModel {
             do {
                 let receipt = try await client.execute(envelope)
                 guard let self, self.generation == expectedGeneration else { return }
-                self.apply(receipt: receipt)
-                draftToRestore = receipt.draftText ?? restoreDraft
-                if receipt.state == .rejected || receipt.state == .uncertain,
-                   let draftToClear, self.draft.isEmpty { self.updateDraft(draftToClear) }
+                if self.selectedSessionID == sessionID {
+                    self.apply(receipt: receipt)
+                    draftToRestore = receipt.draftText ?? restoreDraft
+                    if receipt.state == .rejected || receipt.state == .uncertain,
+                       let draftToClear, self.draft.isEmpty { self.updateDraft(draftToClear) }
+                } else if receipt.state == .rejected || receipt.state == .uncertain {
+                    if let draftToClear, self.draftBySession[sessionID]?.isEmpty != false {
+                        self.draftBySession[sessionID] = draftToClear
+                    }
+                } else if receipt.state == .applied,
+                          let restored = receipt.draftText ?? restoreDraft,
+                          self.draftBySession[sessionID]?.isEmpty != false {
+                    self.draftBySession[sessionID] = restored
+                }
             } catch {
                 guard let self, self.generation == expectedGeneration else { return }
-                if let draftToClear, self.draft.isEmpty { self.updateDraft(draftToClear) }
-                self.errorMessage = Self.userMessage(for: error)
+                if self.selectedSessionID == sessionID {
+                    if let draftToClear, self.draft.isEmpty { self.updateDraft(draftToClear) }
+                    self.errorMessage = Self.userMessage(for: error)
+                } else if let draftToClear, self.draftBySession[sessionID]?.isEmpty != false {
+                    self.draftBySession[sessionID] = draftToClear
+                }
             }
             if let self, self.generation == expectedGeneration {
-                if self.draft.isEmpty, let draftToRestore {
+                if self.selectedSessionID == sessionID, self.draft.isEmpty, let draftToRestore {
                     self.updateDraft(draftToRestore)
                 }
                 self.isSubmitting = false
@@ -620,14 +638,18 @@ public final class ConversationModel {
             do {
                 let receipt = try await client.execute(envelope)
                 guard let self, self.generation == expectedGeneration else { return }
-                self.apply(receipt: receipt)
-                if receipt.state == .applied, case .setArchived(true) = command {
-                    self.sessions.removeAll { $0.id == sessionID }
-                    if self.selectedSessionID == sessionID { self.selectSession(id: nil) }
+                if self.selectedSessionID == sessionID {
+                    self.apply(receipt: receipt)
+                    if receipt.state == .applied, case .setArchived(true) = command {
+                        self.sessions.removeAll { $0.id == sessionID }
+                        self.selectSession(id: nil)
+                    }
+                    if receipt.state == .applied { self.refreshSessions() }
                 }
-                if receipt.state == .applied { self.refreshSessions() }
             } catch {
-                self?.errorMessage = Self.userMessage(for: error)
+                if let self, self.generation == expectedGeneration, self.selectedSessionID == sessionID {
+                    self.errorMessage = Self.userMessage(for: error)
+                }
             }
             if let self, self.generation == expectedGeneration {
                 self.isSubmitting = false

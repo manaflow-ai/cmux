@@ -75,8 +75,10 @@ private struct ConversationDetailView: View {
             ConversationTranscriptView(model: model)
             if let receipt = model.lastReceipt, receipt.state == .accepted || receipt.state == .applied {
                 ConversationNoticeView(
-                    text: ConversationL10n.value("conversation.receipt.applied", "Command applied"),
-                    style: .receipt
+                    text: receipt.state == .accepted
+                        ? ConversationL10n.value("conversation.receipt.accepted", "Command received")
+                        : ConversationL10n.value("conversation.receipt.applied", "Command applied"),
+                    style: receipt.state == .accepted ? .accepted : .receipt
                 )
             }
             if let errorMessage = model.errorMessage {
@@ -172,23 +174,23 @@ private struct ConversationHeaderView: View {
 }
 
 private struct ConversationNoticeView: View {
-    enum Style { case warning, uncertain, receipt }
+    enum Style { case warning, uncertain, accepted, receipt }
     let text: String
     let style: Style
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: style == .uncertain ? "questionmark.circle" : style == .receipt ? "checkmark.circle" : "exclamationmark.triangle")
+            Image(systemName: style == .uncertain ? "questionmark.circle" : style == .receipt ? "checkmark.circle" : style == .accepted ? "arrow.down.circle" : "exclamationmark.triangle")
             Text(text)
                 .font(.footnote)
                 .multilineTextAlignment(.leading)
             Spacer(minLength: 0)
         }
-        .foregroundStyle(style == .uncertain ? .orange : style == .receipt ? .green : .secondary)
+        .foregroundStyle(style == .uncertain ? .orange : style == .receipt ? .green : style == .accepted ? .blue : .secondary)
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .background(.thinMaterial)
-        .accessibilityIdentifier(style == .uncertain ? "ConversationUncertainReceipt" : style == .receipt ? "ConversationReceiptApplied" : "ConversationErrorNotice")
+        .accessibilityIdentifier(style == .uncertain ? "ConversationUncertainReceipt" : style == .receipt ? "ConversationReceiptApplied" : style == .accepted ? "ConversationReceiptAccepted" : "ConversationErrorNotice")
     }
 }
 

@@ -6143,6 +6143,16 @@
           }
         }
       }
+    },
+    "conversation.receipt.accepted": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command received"
+          }
+        }
+      }
     }
   }
 }
