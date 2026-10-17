@@ -1,5 +1,6 @@
 import CmuxConversation
 import CmuxConversationHost
+import CmuxControlSocket
 import CmuxCore
 import Foundation
 
@@ -135,5 +136,57 @@ extension TerminalController {
 
     private func validConversationID(_ value: String) -> Bool {
         !value.isEmpty && value.utf8.count <= 256 && !value.contains("\0")
+    }
+}
+
+extension TerminalController {
+    /// Handles one bounded, idempotent terminal-composer attachment chunk.
+    /// This lane remains independent from the native agent conversation
+    /// protocol; it preserves the existing terminal file-paste behavior.
+    func v2MobileTaskAttachmentUpload(params: [String: Any]) -> V2CallResult {
+        guard let operationIDString = v2RawString(params, "operation_id"),
+              let operationID = UUID(uuidString: operationIDString),
+              let uploadIDString = v2RawString(params, "upload_id"),
+              let uploadID = UUID(uuidString: uploadIDString),
+              let fileName = v2RawString(params, "file_name"),
+              let totalBytes = v2Int(params, "total_bytes"),
+              let offset = v2Int(params, "offset"),
+              let dataBase64 = v2RawString(params, "data_b64"),
+              let isLast = params["last"] as? Bool else {
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid attachment upload parameters",
+                data: nil
+            )
+        }
+        let store = MobileTaskAttachmentStore(
+            rootURL: MobileTaskAttachmentStore.defaultRootURL(
+                homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+            ),
+            now: Date(),
+            fileManager: FileManager.default
+        )
+        do {
+            let result = try store.upload(MobileTaskAttachmentUploadRequest(
+                operationID: operationID,
+                uploadID: uploadID,
+                fileName: fileName,
+                totalBytes: totalBytes,
+                offset: offset,
+                dataBase64: dataBase64,
+                isLast: isLast
+            ))
+            var payload: [String: Any] = ["received_bytes": result.receivedBytes]
+            if let path = result.path { payload["path"] = path }
+            return .ok(payload)
+        } catch let error as MobileTaskAttachmentStoreError {
+            return .err(code: error.code, message: error.message, data: nil)
+        } catch {
+            return .err(
+                code: "internal_error",
+                message: "Could not store task attachment",
+                data: nil
+            )
+        }
     }
 }

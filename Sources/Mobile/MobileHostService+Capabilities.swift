@@ -69,6 +69,7 @@ extension MobileHostService {
         "mobile.simulator.stream.start",
         "mobile.simulator.stream.stop",
         "mobile.sync.fetch",
+        "mobile.task.attachment.upload",
         "mobile.terminal.artifact.fetch",
         "mobile.terminal.artifact.list",
         "mobile.terminal.artifact.scan",
@@ -124,7 +125,8 @@ extension MobileHostService {
     /// `DisableFileTransfer` refuses them before dispatch on every lane.
     nonisolated static func methodTransfersFiles(_ method: String) -> Bool {
         switch method {
-        case "mobile.conversation.artifact",
+        case "mobile.task.attachment.upload",
+             "mobile.conversation.artifact",
              "mobile.workspace.changes.file_fetch",
              "mobile.terminal.paste_image",
              "terminal.paste_image":
@@ -147,6 +149,8 @@ extension MobileHostService {
     nonisolated static let phonePushTestCapability = "phone_push.test.v1"
     /// Read and mutate cmux's process-scoped idle-sleep assertion.
     nonisolated static let caffeineControlCapability = "caffeine.control.v1"
+    /// Chunked terminal-composer file uploads from the paired phone.
+    nonisolated static let taskAttachmentCapability = "task.attachments.v1"
 
     /// The single source of truth for the capabilities advertised to mobile
     /// clients via `mobile.host.status`. Every status path (the public-status
@@ -262,6 +266,7 @@ extension MobileHostService {
             // drag-and-drop and group-create affordances enabled after ticket
             // expiry only against hosts that advertise this.
             "workspace.mutations.account_auth.v1",
+            Self.taskAttachmentCapability,
             Self.caffeineControlCapability,
             "chat.artifact.v1",
             "chat.artifact.folders.v1",
