@@ -578,7 +578,8 @@ private final class AgentChatConversationStore {
         }
         guard !questionRepliesInFlight.contains(requestID) else { return }
 
-        let orderedSelections = questions.compactMap { candidateMessage, candidateQuestion in
+        let orderedSelections = questions.compactMap { pair -> String? in
+            let (candidateMessage, candidateQuestion) = pair
             guard let selectedID = selections[questionSelectionKey(message: candidateMessage, question: candidateQuestion)] else {
                 return nil
             }
