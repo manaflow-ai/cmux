@@ -49,9 +49,9 @@ public final class ConversationModel {
 
     private var client: (any ConversationClient)?
     private(set) var scopeID: String
-    private var streamTask: Task<Void, Never>?
-    private var snapshotTask: Task<Void, Never>?
-    private var commandTasks: [String: Task<Void, Never>] = [:]
+    /// Task storage has its own non-actor-isolated lifetime object so its
+    /// deinitializer can cancel suspended streams when the model is released.
+    private let lifetime = ConversationModelLifetime()
     private var generation = 0
     /// Token for the currently selected task. This is separate from the
     /// client generation: a late stream from A must stay stale after a quick
@@ -84,12 +84,6 @@ public final class ConversationModel {
         connectionState = client == nil ? .disconnected : .connecting
     }
 
-    deinit {
-        streamTask?.cancel()
-        snapshotTask?.cancel()
-        commandTasks.values.forEach { $0.cancel() }
-    }
-
     /// Replaces the transport when pairing or the selected host changes.
     /// Replacing within the same scope preserves task selection and drafts;
     /// crossing scopes clears selection and transcript before any new snapshot.
@@ -97,10 +91,10 @@ public final class ConversationModel {
         let scopeChanged = self.scopeID != scopeID
         generation &+= 1
         selectionGeneration &+= 1
-        streamTask?.cancel()
-        snapshotTask?.cancel()
-        commandTasks.values.forEach { $0.cancel() }
-        commandTasks.removeAll()
+        lifetime.streamTask?.cancel()
+        lifetime.snapshotTask?.cancel()
+        lifetime.commandTasks.values.forEach { $0.cancel() }
+        lifetime.commandTasks.removeAll()
         isSubmitting = false
         self.client = client
         self.scopeID = scopeID
@@ -209,8 +203,8 @@ public final class ConversationModel {
         guard selectedSessionID != id else { return }
         if let previousSessionID = selectedSessionID { draftBySession[previousSessionID] = draft }
         selectionGeneration &+= 1
-        streamTask?.cancel()
-        snapshotTask?.cancel()
+        lifetime.streamTask?.cancel()
+        lifetime.snapshotTask?.cancel()
         selectedSessionID = id
         items = []
         requests = []
@@ -440,7 +434,7 @@ public final class ConversationModel {
         let cursor = currentCursor
         // events() is awaited before snapshot() is started, guaranteeing the
         // host registers its live stream before we request the projection.
-        streamTask = Task { [weak self] in
+        lifetime.streamTask = Task { [weak self] in
             let stream = await client.events(sessionID: id, after: cursor)
             guard !Task.isCancelled,
                   self?.generation == expectedGeneration,
@@ -497,8 +491,8 @@ public final class ConversationModel {
         expectedGeneration: Int,
         expectedSelectionGeneration: Int
     ) {
-        snapshotTask?.cancel()
-        snapshotTask = Task { [weak self] in
+        lifetime.snapshotTask?.cancel()
+        lifetime.snapshotTask = Task { [weak self] in
             do {
                 let snapshot = try await client.snapshot(sessionID: id)
                 guard !Task.isCancelled,
@@ -526,8 +520,8 @@ public final class ConversationModel {
         expectedGeneration: Int,
         expectedSelectionGeneration: Int
     ) {
-        snapshotTask?.cancel()
-        snapshotTask = Task { [weak self] in
+        lifetime.snapshotTask?.cancel()
+        lifetime.snapshotTask = Task { [weak self] in
             do {
                 let snapshot = try await client.snapshot(sessionID: id)
                 guard !Task.isCancelled,
@@ -689,10 +683,10 @@ public final class ConversationModel {
             }
             if !Task.isCancelled, let self, self.generation == expectedGeneration {
                 self.isSubmitting = false
-                self.commandTasks.removeValue(forKey: commandID.rawValue)
+                self.lifetime.commandTasks.removeValue(forKey: commandID.rawValue)
             }
         }
-        commandTasks[commandID.rawValue] = task
+        lifetime.commandTasks[commandID.rawValue] = task
     }
 
     private func sendGlobal(_ command: ConversationCommand, sessionID: ConversationID) {
@@ -736,10 +730,10 @@ public final class ConversationModel {
             }
             if !Task.isCancelled, let self, self.generation == expectedGeneration {
                 self.isSubmitting = false
-                self.commandTasks.removeValue(forKey: commandID.rawValue)
+                self.lifetime.commandTasks.removeValue(forKey: commandID.rawValue)
             }
         }
-        commandTasks[commandID.rawValue] = task
+        lifetime.commandTasks[commandID.rawValue] = task
     }
 
     private func apply(receipt: ConversationReceipt) {
@@ -756,6 +750,21 @@ public final class ConversationModel {
     private var connectionStateMessage: String {
         if case .failed(let message) = connectionState { return message }
         return ConversationL10n.value("conversation.error.event_overflow", "The event stream changed too quickly. Reopen the task to continue.")
+    }
+}
+
+/// Owns model tasks outside the main-actor-isolated model. `deinit` is
+/// nonisolated, so this is the place where suspended streams are cancelled
+/// when a discarded conversation screen releases its model.
+private final class ConversationModelLifetime {
+    var streamTask: Task<Void, Never>?
+    var snapshotTask: Task<Void, Never>?
+    var commandTasks: [String: Task<Void, Never>] = [:]
+
+    deinit {
+        streamTask?.cancel()
+        snapshotTask?.cancel()
+        commandTasks.values.forEach { $0.cancel() }
     }
 }
 
