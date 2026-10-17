@@ -77,3 +77,36 @@ test("a file the turn's checkpoint lists shows once, under Changes", async () =>
     await sourcesRows([file("~/code/x/src/upload.sh", 1), file("~/code/x/README.md", 4)], [checkpoint]),
   );
 });
+
+test("summary links are handed to the host instead of navigating the pane", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { SummaryBody } = await import("../src/agent-session/acpmux/summary/SummaryBody");
+  let followed = "";
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const summary = {
+    scheduled: [],
+    pullRequests: [
+      { url: "https://github.com/acme/app/pull/42", repo: "acme/app", number: 42, state: "open" as const },
+    ],
+    outputs: [],
+    subagents: [],
+    sources: [{ url: "https://docs.example.test/guide", label: "docs.example.test/guide" }],
+    backgroundTasks: [],
+  };
+  await act(async () =>
+    root!.render(
+      <SummaryBody
+        summary={summary}
+        onFollow={(url) => {
+          followed = url;
+        }}
+      />,
+    ),
+  );
+  const link = host.querySelector<HTMLAnchorElement>('a[href="https://docs.example.test/guide"]')!;
+  const event = new window.MouseEvent("click", { bubbles: true, cancelable: true });
+  link.dispatchEvent(event);
+  expect(followed).toBe("https://docs.example.test/guide");
+  expect(event.defaultPrevented).toBe(true);
+});

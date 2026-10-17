@@ -639,6 +639,14 @@ const PREVIEW_TURNS = 8;
 /// Asks the host for a browser tab on a turn's local web page; a host without one (the quick
 /// panel) refuses, and the card's address still opens outside the pane.
 const openPreview = (url: string) => void callNative("browser.open", { url }).catch(() => undefined);
+/// A source or pull-request link in the summary opens in cmux's browser when the pane has one.
+/// SummaryBody prevents document navigation only for panes that pass this callback; quick chat
+/// omits it and keeps the normal external-link behavior.
+const openSummaryLink = (url: string) =>
+  void callNative("browser.open", { url }).catch(() => {
+    // A browser-less host can still honor the link if its native action refuses.
+    window.open(url, "_blank", "noopener,noreferrer");
+  });
 /// A turn's local web page, live (conversation/PreviewCard.tsx).
 const PreviewRow = memo(
   function PreviewRow({ row }: RowProps) {
@@ -5483,6 +5491,7 @@ function AcpmuxPane() {
                   changes={quick ? undefined : lastChanges}
                   onOpenChanges={toggleLastChanges}
                   onOpenOutput={quick ? undefined : openOutput}
+                  onFollow={quick ? undefined : openSummaryLink}
                   onOpenImage={quick ? undefined : openImage}
                   subagents={cardSubagents}
                 />

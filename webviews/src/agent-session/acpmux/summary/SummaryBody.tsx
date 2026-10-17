@@ -16,7 +16,8 @@ const ROW_ICON = rowIconSize(12);
 /// tasks and wakeups follow when there are any.
 /// Pull requests and sources are links, so they open, copy and open in a new tab as links do;
 /// an output opens the changes view at that file. A file the last turn changed is listed under
-/// Changes only. Following a link calls `onFollow`. A chat
+/// Changes only. Following a link calls `onFollow` with the URL and lets the host route it into
+/// cmux's browser. A chat
 /// with images or renders offers its gallery under Outputs (GalleryDialog.tsx). A chat whose
 /// subagents acpmux reports lists them with their live state (SubagentStatusList.tsx) in the
 /// Subagents place. The summary card (SummaryCard.tsx) draws it.
@@ -52,7 +53,7 @@ export function SummaryBody({
   onOpenChanges?: (path?: string) => void;
   onOpenOutput?: (path: string) => void;
   onOpenGallery?: () => void;
-  onFollow?: () => void;
+  onFollow?: (url: string) => void;
   /// The Subagents section, when acpmux reports the chat's subagents.
   subagents?: ReactNode;
 }) {
@@ -64,6 +65,11 @@ export function SummaryBody({
     changed.length > 0
       ? summary.outputs.filter((output) => !changed.some((file) => changedByTools(file, [output])))
       : summary.outputs;
+  const follow = (event: React.MouseEvent<HTMLAnchorElement>, url: string) => {
+    if (!onFollow) return;
+    event.preventDefault();
+    onFollow(url);
+  };
   return (
     <>
       <SummarySection
@@ -118,7 +124,11 @@ export function SummaryBody({
         row={(source) => (
           <li key={source.url ?? source.label}>
             {source.url ? (
-              <a className="acpmux-summary-row acpmux-summary-link" href={source.url} onClick={onFollow}>
+              <a
+                className="acpmux-summary-row acpmux-summary-link"
+                href={source.url}
+                onClick={(event) => follow(event, source.url!)}
+              >
                 <Icon name="link.web" size={ROW_ICON} row />
                 <span className="acpmux-summary-text">{source.label}</span>
               </a>
@@ -175,7 +185,7 @@ export function SummaryBody({
             <a
               className="acpmux-summary-row acpmux-summary-link"
               href={pr.url}
-              onClick={onFollow}
+              onClick={(event) => follow(event, pr.url)}
               data-state={pr.state}
             >
               <Icon name="git.pullrequest" size={ROW_ICON} row />
