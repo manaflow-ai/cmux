@@ -30,6 +30,9 @@ public final class TerminalSurfaceView: NSView {
     /// the PTY owner's announced grid once there is one; the view's grid is
     /// only reported.
     private var geometry = TerminalGridPolicy(ownsGeometry: true)
+    /// The next view size reaches the surface at once: the view is new or
+    /// just joined a window, where the host gives it its first real frame.
+    private var sizesAtOnce = true
 
     /// Whether this view reports its grid to the PTY owner. Followers only
     /// render the announced grid (shell.md 2.3).
@@ -169,6 +172,7 @@ public final class TerminalSurfaceView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        sizesAtOnce = true
         updateContentScale()
         updateSurfaceSize()
         updateOcclusion()
@@ -189,6 +193,9 @@ public final class TerminalSurfaceView: NSView {
 
     public override func viewDidHide() {
         super.viewDidHide()
+        // Parked hidden in its pane (a tab switch): shown again at a new size, it takes it at
+        // once, as on entering a window; nothing on screen moves to settle against meanwhile.
+        sizesAtOnce = true
         updateOcclusion()
     }
 
@@ -204,9 +211,24 @@ public final class TerminalSurfaceView: NSView {
     }
 
     public override func setFrameSize(_ newSize: NSSize) {
+        let resized = newSize != frame.size
         super.setFrameSize(newSize)
-        updateSurfaceSize()
+        if resized { sizeFollowsFrame() }
         copyMode.syncCursor()
+    }
+
+    /// A new view size reaches the surface at once for a live window resize
+    /// (the owner's grid follows the edge), the first size in a window or a
+    /// view out of a window; else once the size is still
+    /// (`TerminalSurfaceSizeSettle`): a drag frame does not resize the
+    /// terminal or report its grid.
+    private func sizeFollowsFrame() {
+        if Motion.isLiveResizing || window == nil || sizesAtOnce {
+            if window != nil { sizesAtOnce = false }
+            updateSurfaceSize()
+        } else {
+            TerminalSurfaceSizeSettle.shared.submit(self)
+        }
     }
 
     /// `ghostty_surface_set_content_scale` + `ghostty_surface_set_display_id`
@@ -255,9 +277,11 @@ public final class TerminalSurfaceView: NSView {
     /// says what would fit. The owner decides; the surface follows its
     /// announcement.
     func updateSurfaceSize(forceReport: Bool = false) {
+        TerminalSurfaceSizeSettle.shared.cancel(self)
         guard let surface else { return }
         let pixels = convertToBacking(bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
+        defer { copyMode.syncCursor() }
         ghostty_surface_set_size(surface, UInt32(pixels.width), UInt32(pixels.height))
         let size = ghostty_surface_size(surface)
         publish(size: size)

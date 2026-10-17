@@ -113,6 +113,7 @@ final class TerminalEntry {
         watch.stop()
         session.close()
         io.close()
+        session.view.removeFromSuperview() // parked hidden in a pane until now
     }
 }
 

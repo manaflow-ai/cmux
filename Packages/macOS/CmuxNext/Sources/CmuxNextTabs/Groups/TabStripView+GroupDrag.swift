@@ -29,7 +29,7 @@ extension TabStripView {
         setHovered(nil)
         setHoveredChip(nil)
         hoverCards.dismiss(.action)
-        installEscapeMonitor()
+        escapeMonitor.install()
         TabSeparatorVisibility.apply(to: self)
     }
 
@@ -79,7 +79,7 @@ extension TabStripView {
     func endGroupDrag() {
         guard let drag = groups.drag else { return }
         groups.drag = nil
-        removeEscapeMonitor()
+        escapeMonitor.remove()
         setLifted(drag.groupID, false)
         if drag.currentTabIndex != drag.originalTabIndex {
             var ids = displayed.map(\.id).filter { !drag.memberIDs.contains($0) }
@@ -123,7 +123,7 @@ extension TabStripView {
             snapshot: snapshot(of: layers, frame: frame)
         )
         groups.drag = nil
-        removeEscapeMonitor()
+        escapeMonitor.remove()
         setLifted(drag.groupID, false)
         groups.detachedGroupID = drag.groupID
         sync(fromModel: false)

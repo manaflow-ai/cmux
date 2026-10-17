@@ -12,11 +12,11 @@ import Foundation
     /// has nothing left to show.
     static func daemonPlaces(_ provisional: ProvisionalPane, in store: DaemonStore) -> Bool {
         guard let pane = daemonPane(provisional, in: store) else { return false }
-        return store.screensByHandle.values.contains { $0.layout.paneIDs.contains(pane.handle) }
+        return store.screen(containing: pane.handle)?.layout.paneIDs.contains(pane.handle) == true
     }
 
     private static func daemonPane(_ provisional: ProvisionalPane, in store: DaemonStore) -> PaneModel? {
-        store.panesByHandle.values.first { $0.resourceID?.rawValue == provisional.paneID && $0.handle != provisional.handle }
+        store.index.panesByResource[ResourceID(rawValue: provisional.paneID)].flatMap { $0.handle != provisional.handle ? $0 : nil }
     }
 
     static func apply(target: PaneID, direction: SplitDirection, ratio: Double, provisional: ProvisionalPane,
@@ -26,7 +26,7 @@ import Foundation
         let leaf = daemon?.handle ?? provisional.handle
         guard store.panesByHandle[target] != nil,
               daemon != nil || (store.panesByHandle[provisional.handle] == nil && store.tabsBySurface[provisional.surface] == nil),
-              let screen = store.screensByHandle.values.first(where: { $0.pane(target) != nil }),
+              let screen = store.screen(containing: target),
               let layout = split(screen.layout, target, direction, ratio, leaf) else { return nil }
         // The target's column tree (and row tree) take the split too; a tree the split cannot
         // reach leaves the intent unapplied, as cmux-tui would refuse it.
@@ -64,8 +64,7 @@ import Foundation
                                           tabs: [tab]))
         let after = (screen.panes.firstIndex { $0.handle == target } ?? screen.panes.count - 1) + 1
         screen.panes.insert(pane, at: min(after, screen.panes.count))
-        store.panesByHandle[pane.handle] = pane
-        for model in pane.tabs { store.tabsBySurface[model.surface] = model }
+        store.index.insert(pane, in: screen)
         return undo
     }
 
@@ -79,9 +78,8 @@ import Foundation
             guard let model = store.panesByHandle[pane] else {
                 return store.reportMirrorViolation("intent overlay undo found provisional pane \(pane) missing")
             }
-            for tab in model.tabs { store.tabsBySurface[tab.surface] = nil }
-            store.panesByHandle[pane] = nil
-            screen.panes.removeAll { $0.handle == pane }
+            store.index.remove(model)
+            screen.panes.removeAll { $0 === model }
         }
         screen.layout = layout
         if screen.columns != columns { screen.columns = columns }

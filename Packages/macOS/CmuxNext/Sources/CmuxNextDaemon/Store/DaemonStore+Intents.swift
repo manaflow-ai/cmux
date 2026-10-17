@@ -30,6 +30,7 @@ extension DaemonStore {
         guard intentLog.append(intent, transaction: transaction) else { return }
         if !intentLog.setUndo(IntentOverlay.apply(intent, to: self), at: intentLog.entries.count - 1) { reportMirrorViolation("intent log is empty after an append") }
         recomputeSidebarIfNeeded()
+        publishTabListChange()
         recordMirror()
         workspaceListMayHaveChanged()
     }
@@ -110,6 +111,7 @@ extension DaemonStore {
         restoreOverlay()
         overlayLifted = false
         recomputeSidebarIfNeeded()
+        publishTabListChange()
         checkOverlayConservation(confirmed: confirmedTabs)
         recordMirror()
         workspaceListMayHaveChanged()

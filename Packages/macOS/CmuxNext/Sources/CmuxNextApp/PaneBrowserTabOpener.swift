@@ -128,7 +128,7 @@ struct PaneBrowserTabOpener {
         if !controller.daemon.isLocal, !onMachine {
             browserTabs.setNotice(notice ?? RemoteStrings.browserRunsOnThisMac(browserTabs.machineName(controller.daemon)), forKey: local.id)
         }
-        controller.state?.localBrowserTabs[controller.paneKey, default: []].append(local)
+        controller.state?.localBrowserTabs[controller.paneKey].append(local)
         controller.apply(controller.snapshot())
         if background { return true }
         controller.select(StripTabID(local.id))

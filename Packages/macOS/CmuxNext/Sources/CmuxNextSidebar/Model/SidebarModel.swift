@@ -52,6 +52,8 @@ public final class SidebarModel {
     }
     /// Where each workspace sits in `sections`; rebuilt on the first patch after a set.
     @ObservationIgnored var rowIndex: SidebarRowIndex?
+    /// `itemOrder` and the inputs it was made from.
+    @ObservationIgnored var itemOrderCache: (inputs: SidebarItemOrderInputs, order: SidebarItemOrder)?
     /// Told the workspaces `patchWorkspaces` changed in place (the list reconfigures their rows).
     @ObservationIgnored public var onRowsPatched: (([SidebarWorkspace]) -> Void)?
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
@@ -321,6 +323,25 @@ public final class SidebarModel {
     private static func movesRows(from old: SidebarWorkspace, to new: SidebarWorkspace, groupsByFolder: Bool, listsTabs: Bool) -> Bool {
         if groupsByFolder && old.folder != new.folder { return true }
         return listsTabs && !old.tabs.elementsEqual(new.tabs) { $0.id == $1.id && $0.kind == $1.kind }
+    }
+
+    /// Whether these sections list workspace `id`: O(1) through `rowIndex`
+    /// (built once per structural set), never a walk of every row.
+    public func lists(_ id: WorkspaceID) -> Bool { !listedPaths(of: id).isEmpty }
+
+    /// Whether `id` sits in a collapsed group: the list then draws its row
+    /// only while it is the active workspace, so a selection change there
+    /// moves rows.
+    func isInCollapsedGroup(_ id: WorkspaceID) -> Bool {
+        listedPaths(of: id).contains { path in
+            guard path.member != nil, case let .group(group) = storedSections[path.section].nodes[path.node] else { return false }
+            return group.isCollapsed
+        }
+    }
+
+    private func listedPaths(of id: WorkspaceID) -> [SidebarRowIndex.Path] {
+        if rowIndex == nil { rowIndex = SidebarRowIndex(storedSections) }
+        return rowIndex?.paths(of: id) ?? []
     }
 
     /// Clears closed workspaces from the selection and picks a new active one.

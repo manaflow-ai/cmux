@@ -981,7 +981,7 @@ impl Mux {
             }
         };
         self.emit_tree_delta(delta, false);
-        self.emit(MuxEvent::LayoutChanged(changed_screen));
+        self.emit_layout_changed(changed_screen, None);
         self.reap_if_dead(&surface);
         Ok(created)
     }
