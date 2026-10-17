@@ -389,7 +389,7 @@ final class AgentChatTranscriptService {
         switch record.agentKind {
         case .codex:
             return true
-        case .claude, .other:
+        case .claude, .openCode, .other:
             return endedListability.shouldList(record, resolver: resolver, now: now())
         }
     }

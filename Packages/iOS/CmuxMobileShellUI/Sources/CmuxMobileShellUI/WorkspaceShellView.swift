@@ -223,7 +223,6 @@ struct WorkspaceShellView: View {
     var showComputers: () -> Void = {}
     /// Present the SSH computer form (PRD D6). `nil` hides SSH add actions.
     var showAddSSHComputer: (() -> Void)? = nil
-    var taskComposerPresentation = MobileChildSheetPresentation()
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
@@ -364,13 +363,6 @@ struct WorkspaceShellView: View {
                     consumePendingPrimarySearchNavigation(for: selectedPrimaryTab)
                 }
             }
-            .onChange(of: displaySettings.feedReplacesNotifications, initial: true) { _, replaces in
-                // A hidden destination cannot stay selected; the Feed is its
-                // replacement.
-                if replaces, selectedPrimaryTab == .notifications {
-                    selectedPrimaryTab = .feed
-                }
-            }
             .onChange(of: selectedPrimaryTab) { oldValue, newValue in
                 store.recordAppEvent(
                     .primaryTabSelected,
@@ -430,25 +422,16 @@ struct WorkspaceShellView: View {
             selection: $selectedPrimaryTab,
             searchCoordinator: primarySearchCoordinator,
             notificationUnreadCount: presentation.notificationUnreadCount,
-            feedNeedsInputCountProvider: {
-                presentation.selectionScope.agentFeedNeedsInputCount(
-                    from: store.agentFeedItems
-                )
-            },
-            showsNotificationsTab: !displaySettings.feedReplacesNotifications,
-            taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
-                ? nil
-                : taskComposerAction
+            feedNeedsInputCountProvider: { 0 },
+            showsNotificationsTab: true,
+            taskComposerAction: nil
         ) {
             workspaceTabContent(
                 presentation: presentation
             )
         } feed: {
             NavigationStack(path: $feedNavigationPath) {
-                agentFeedStoreView(
-                    for: presentation,
-                    isActive: selectedPrimaryTab == .feed
-                )
+                agentChatView()
                     .toolbar {
                         if feedNavigationPath.isEmpty {
                             rootToolbarContent
@@ -464,7 +447,7 @@ struct WorkspaceShellView: View {
                     }
             }
             // The root stack owns the shared picker toolbar. Keep its title
-            // region inline so the list and Feed start directly below it.
+            // region inline so the list starts directly below it.
             .mobileInlineNavigationTitle()
         } notifications: {
             if !usesCompactStack {
@@ -567,7 +550,7 @@ struct WorkspaceShellView: View {
                             )
                         }
                     case .feed:
-                        agentFeedStoreView(for: presentation)
+                        agentChatView()
                     case .notifications:
                         NotificationFeedStoreView(
                             store: store,
@@ -649,17 +632,6 @@ struct WorkspaceShellView: View {
             compactNavigationPath = [selectedWorkspaceID]
         }
         #if os(iOS)
-        .taskComposerPresentation(
-            isPresented: taskComposerPresentation.isPresented,
-            onDismiss: taskComposerPresentation.didDismiss
-        ) { launch, switchDraft in
-            TaskComposerSheet(
-                store: store,
-                launchIntent: launch.intent,
-                onSwitchDraft: switchDraft,
-                submitTaskComposer: submitTaskComposerFromShell
-            )
-        }
         // Wait for the first remote-list attempt before presenting, so a
         // cached native page cannot overtake a newer remote announcement.
         // A failed fetch still permits the cached/offline pages.
@@ -814,7 +786,7 @@ struct WorkspaceShellView: View {
         NavigationStack(path: $compactNavigationPath) {
             MobilePrimaryWorkspaceSearchHost(
                 searchCoordinator: primarySearchCoordinator,
-                taskComposerAction: taskComposerAction
+                taskComposerAction: nil
             ) { searchText in
                 workspaceList(
                     navigationStyle: .push,
@@ -907,15 +879,6 @@ struct WorkspaceShellView: View {
         }
     }
 
-    private func openTaskComposer() {
-        taskComposerPresentation.present()
-    }
-
-    private var taskComposerAction: (() -> Void)? {
-        guard store.supportsTaskComposer else { return nil }
-        return openTaskComposer
-    }
-
     #if os(iOS)
     private func splitLayout(presentation: WorkspaceShellRenderPresentation) -> some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
@@ -925,7 +888,7 @@ struct WorkspaceShellView: View {
             #else
             MobilePrimaryWorkspaceSearchHost(
                 searchCoordinator: primarySearchCoordinator,
-                taskComposerAction: taskComposerAction
+                taskComposerAction: nil
             ) { searchText in
                 workspaceList(
                     navigationStyle: .sidebar,
@@ -965,7 +928,7 @@ struct WorkspaceShellView: View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
             MobilePrimaryWorkspaceSearchHost(
                 searchCoordinator: primarySearchCoordinator,
-                taskComposerAction: taskComposerAction
+                taskComposerAction: nil
             ) { searchText in
                 workspaceList(
                     navigationStyle: .sidebar,
@@ -1001,7 +964,7 @@ struct WorkspaceShellView: View {
         return Group {
             switch splitSidebarDestination {
             case .feed:
-                agentFeedStoreView(for: presentation)
+                agentChatView()
             case .notifications:
                 NotificationFeedStoreView(
                     store: store,
@@ -1094,9 +1057,9 @@ struct WorkspaceShellView: View {
             WorkspaceSidebarDestinationControl(
                 selection: splitSidebarDestinationSelection,
                 workspacesTitle: L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
-                feedTitle: L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
+                feedTitle: L10n.string("mobile.tabs.chat", defaultValue: "Chat"),
                 notificationsTitle: notificationsSegmentTitle(unreadCount: unreadCount),
-                showsNotifications: !displaySettings.feedReplacesNotifications,
+                showsNotifications: true,
                 cloudTitle: cloudTabContent == nil
                     ? nil
                     : L10n.string("mobile.tabs.cloud", defaultValue: "Cloud")
@@ -1104,20 +1067,6 @@ struct WorkspaceShellView: View {
         }
         if #available(iOS 26.0, *) {
             ToolbarSpacer(.flexible, placement: .bottomBar)
-        }
-        if let taskComposerAction {
-            ToolbarItem(placement: .bottomBar) {
-                Button(action: taskComposerAction) {
-                    Image(systemName: "square.and.pencil")
-                }
-                .accessibilityLabel(
-                    L10n.string("mobile.taskComposer.button.accessibilityLabel", defaultValue: "New Task")
-                )
-                .accessibilityHint(
-                    L10n.string("mobile.taskComposer.button.accessibilityHint", defaultValue: "Opens the task composer.")
-                )
-                .accessibilityIdentifier("MobileTaskComposerButton")
-            }
         }
     }
 
@@ -1502,6 +1451,15 @@ struct WorkspaceShellView: View {
             selectionScope: presentation.selectionScope,
             isActive: isActive,
             searchCoordinator: primarySearchCoordinator
+        )
+    }
+
+    /// First-class agent chat destination. The legacy Feed remains compiled
+    /// for migration fixtures, but is no longer mounted by production routes.
+    private func agentChatView() -> MobileChatRootView {
+        MobileChatRootView(
+            sourceProvider: { store.makeChatEventSource() },
+            showSettings: showSettings
         )
     }
 
