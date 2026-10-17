@@ -86,6 +86,9 @@ extension TerminalController {
                 "extensions": store.extensions.map(v2BrowserExtensionPayload),
                 "commands": store.commands.map(v2BrowserExtensionCommandPayload),
                 "actions": host.extensionActions.map(\.id),
+                // The extension whose action popup is open on this page, so a
+                // caller can tell whether `run` opened one.
+                "open_popup": v2OrNull(host.openExtensionPopup),
             ]))
         }
         if operation == .openWebStore || operation == .openManagement {
