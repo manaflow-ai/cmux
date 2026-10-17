@@ -27,15 +27,26 @@ const replacements: Record<string, unknown> = {
   IS_REACT_ACT_ENVIRONMENT: true,
 };
 for (const key of Object.getOwnPropertyNames(dom.window))
-  if (/^(HTML|SVG|CSS|Shadow|Document|Mutation|KeyboardEvent|PointerEvent|MouseEvent|FocusEvent)/.test(key) && !(key in scope))
+  if (
+    /^(HTML|SVG|CSS|Shadow|Document|Mutation|KeyboardEvent|PointerEvent|MouseEvent|FocusEvent)/.test(
+      key,
+    ) &&
+    !(key in scope)
+  )
     replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
-const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
+const saved = Object.keys(replacements).map(
+  (key) => [key, key in scope, scope[key]] as const,
+);
 Object.assign(scope, replacements);
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
-const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
+const { UserBubble } = await import(
+  "../src/agent-session/acpmux/conversation/UserBubble"
+);
+const { TurnActionsContext } = await import(
+  "../src/agent-session/acpmux/conversation/turnActions"
+);
 
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
@@ -71,7 +82,9 @@ try {
       render(async () => "data:image/png;base64,AA==");
       await Promise.resolve();
     });
-    expect(host.querySelector(".cv-user__images img")?.getAttribute("src")).toBe("data:image/png;base64,AA==");
+    expect(
+      host.querySelector(".cv-user__images img")?.getAttribute("src"),
+    ).toBe("data:image/png;base64,AA==");
     await act(async () => {
       render(async () => {
         throw new Error("session closed");
