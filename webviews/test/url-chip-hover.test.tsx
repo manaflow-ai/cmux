@@ -111,9 +111,11 @@ test("link inspection bounds burst requests and coalesces store notifications", 
 
   function Probe() {
     renders += 1;
-    for (const path of paths) usePathInfo(path);
-    for (const url of urls) useSiteInfo(url);
-    return null;
+    const pathInfo = paths.map((path) => usePathInfo(path).info?.place ?? "pending");
+    const siteInfo = urls.map((url) => useSiteInfo(url)?.title ?? "pending");
+    return createElement("output", {
+      "data-state": `${pathInfo[0]}|${pathInfo[64]}|${siteInfo[0]}|${siteInfo[64]}`,
+    });
   }
 
   resetLinkStore();
@@ -142,18 +144,26 @@ test("link inspection bounds burst requests and coalesces store notifications", 
   expect(maxInFlight).toBe(1);
 
   await act(async () => {
-    pending.shift()!.resolve({ paths: {}, sites: {} });
+    pending.shift()!.resolve({
+      paths: { [paths[0]]: { place: "root", folder: false } },
+      sites: { [urls[0]]: { title: "First" } },
+    });
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
   expect(calls).toHaveLength(2);
   expect(calls[1]).toMatchObject({ paths: paths.slice(64), urls: urls.slice(64) });
   expect(maxInFlight).toBe(1);
+  expect(rootElement.querySelector("output")?.getAttribute("data-state")).toBe("root|pending|First|pending");
 
   await act(async () => {
-    pending.shift()!.resolve({ paths: {}, sites: {} });
+    pending.shift()!.resolve({
+      paths: { [paths[64]]: { place: "outside", folder: false } },
+      sites: { [urls[64]]: { title: "Last" } },
+    });
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
   expect(inFlight).toBe(0);
+  expect(rootElement.querySelector("output")?.getAttribute("data-state")).toBe("root|outside|First|Last");
 
   const beforeSeedRenders = renders;
   seedLinkStore({ paths: { "/workspace/seed-a.md": { place: "root", folder: false } } });
