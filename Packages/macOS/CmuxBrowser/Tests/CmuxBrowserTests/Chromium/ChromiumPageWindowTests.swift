@@ -118,4 +118,33 @@ private final class HeldButtons {
         gate.release()
         #expect(page.ignoresMouseEvents)
     }
+
+    /// A held press whose window went away (closed before its release was
+    /// seen) must not strand the gate: a press in another window releases
+    /// the first window's pages and holds, then releases, its own.
+    @Test func aPressInAnotherWindowReleasesTheFirstAndIsReleasedItself() {
+        defer { NSWindow.resetChromiumRuntimeForTesting() }
+        let second = FakeChromiumRuntime.makeWindow()
+        let secondPage = FakeChromiumRuntime.makePageWindow()
+        second.addChildWindow(secondPage, ordered: .above)
+        defer { second.removeChildWindow(secondPage) }
+        let buttons = HeldButtons()
+        let gate = ChromiumPagePressGate(pressedMouseButtons: { buttons.mask })
+
+        // The first window closes while its press is held.
+        autoreleasepool {
+            let first = FakeChromiumRuntime.makeWindow()
+            let firstPage = FakeChromiumRuntime.makePageWindow()
+            first.addChildWindow(firstPage, ordered: .above)
+            gate.pressBegan(in: first)
+            first.removeChildWindow(firstPage)
+        }
+        gate.pressBegan(in: second)
+        #expect(secondPage.ignoresMouseEvents)
+
+        buttons.mask = 0
+        NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: second)
+        #expect(!secondPage.ignoresMouseEvents)
+        #expect(!gate.isHolding)
+    }
 }
