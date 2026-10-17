@@ -108,5 +108,5 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
         );
       }
     }
-  });
+  }, [list, rows, signature]);
 }
