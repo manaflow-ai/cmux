@@ -66,6 +66,10 @@ public final class AgentPaneView: NSView {
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
     private var motionObservation: Task<Void, Never>?
+    /// The theme last pushed to the page (I5: a push only when it changed since then; a page load
+    /// pushes again with `force`).
+    private var deliveredThemeEvent: AgentPageEvent?
+    private var deliveredThemeScript: String?
     private var uiScaleObservation: Task<Void, Never>?
     public var zoom: Double = 1 {
         didSet { guard zoom != oldValue else { return }; applyZoom() }
@@ -341,7 +345,8 @@ public final class AgentPaneView: NSView {
         popupHostStorage?.dismiss()
     }
 
-    /// Shown again in its pane (parked there while another tab showed): a theme change meanwhile.
+    /// Shown again in its pane (parked there while another tab showed): a theme change meanwhile
+    /// (a push only when the theme moved since the last one).
     public override func viewDidUnhide() {
         super.viewDidUnhide()
         applyTheme()
@@ -382,8 +387,10 @@ public final class AgentPaneView: NSView {
     }
 
     /// Pushes this view's scope tokens to the page (and to the area WebKit
-    /// shows before the page paints); again when `surfaceKind` changes.
-    public func applyTheme() {
+    /// shows before the page paints); again when `surfaceKind` changes. The page gets a push
+    /// only when its theme differs from the last one it got; `force` pushes it anyway (a page
+    /// that just loaded has none).
+    public func applyTheme(force: Bool = false) {
         let tokens = themeTokens
         let surface = surfaceKind
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
@@ -391,8 +398,15 @@ public final class AgentPaneView: NSView {
         otherInstallNotice?.textColor = tokens.textSecondary.nsColor
         themeLoadingState(tokens)
         page?.themeSurface = surface
-        deliver(AgentPageEvent.theme(tokens, surface: surface).map { [$0] } ?? [],
-                scripts: AgentPaneTheme.script(tokens, surface: surface).map { [$0] } ?? [])
+        if let pageEvents {
+            guard let event = AgentPageEvent.theme(tokens, surface: surface), force || event != deliveredThemeEvent else { return }
+            deliveredThemeEvent = event
+            pageEvents.publish(event)
+        } else {
+            guard let script = AgentPaneTheme.script(tokens, surface: surface), force || script != deliveredThemeScript else { return }
+            deliveredThemeScript = script
+            evaluateScript(script)
+        }
     }
 
     /// Sends a push to the page: events on the page host, scripts on the old host (only built there).

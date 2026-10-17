@@ -219,13 +219,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // one draws in the same frame, its sidebar row already listed (a parked one's is) and selected.
         sidebar.sameTurn.syncNow(rows: index == nil)
         root.show(controller.contentView)
-        // The workspace's theme first, so the chrome repaints once. The chrome (sidebar, titlebar)
-        // fades from what it shows now and the backdrop blends (appearance.colorTransition); the
-        // content swap itself never fades.
-        let before = themeScope.tokens
+        // The workspace's theme first, so the chrome repaints once: only the room's own views (sidebar,
+        // titlebar, backdrop) run their theme hook, and their layer colors blend from the ones on
+        // screen (appearance.colorTransition); the content swap itself never blends.
         services.themes.contentDidShow(controller)
-        if controller.themeScope.tokens != before, let window { ColorTransition.current.fade(window, regions: [root.sidebar, root.titlebar]) }
-        themeScope.show(controller.themeScope)
+        themeScope.show(controller.themeScope, animated: true)
         trimParked()
         startupObservation?.cancel()
         startupObservation = nil

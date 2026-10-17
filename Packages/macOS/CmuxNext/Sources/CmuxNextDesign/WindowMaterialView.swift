@@ -76,6 +76,9 @@ public final class WindowMaterialView: NSView {
         videoView.frame = bounds
         videoView.autoresizingMask = [.width, .height]
         addSubview(videoView)
+        glassTint.overlay.frame = bounds
+        glassTint.overlay.autoresizingMask = [.width, .height]
+        addSubview(glassTint.overlay)
         tintView.wantsLayer = true
         tintView.frame = bounds
         tintView.autoresizingMask = [.width, .height]
@@ -150,7 +153,16 @@ public final class WindowMaterialView: NSView {
     private func updateInactiveTint() {
         let glass = materialView as? GlassPanelView
         let alpha = glass?.tintColor.map { Self.inactiveTintAlpha(isGlass: true, isKeyWindow: !resignedKey, tint: $0) } ?? 0
-        inactiveTintView.layer?.backgroundColor = alpha > 0 ? glass?.tintColor?.cgColor : nil
+        let wash = alpha > 0 ? glass?.tintColor?.cgColor : nil
+        // A tint change blends the wash like the glass under it; showing or hiding it applies at once.
+        if let layer = inactiveTintView.layer, layer.backgroundColor != wash {
+            if wash != nil, layer.backgroundColor != nil, !inactiveTintView.isHidden, window?.isVisible == true {
+                ColorTransition.current.animate(layer, to: wash)
+            } else {
+                layer.removeAnimation(forKey: ColorTransition.layerKey)
+                layer.backgroundColor = wash
+            }
+        }
         inactiveTintView.alphaValue = alpha
         inactiveTintView.isHidden = alpha == 0
     }
@@ -208,18 +220,16 @@ public final class WindowMaterialView: NSView {
             if let materialView {
                 materialView.frame = bounds
                 materialView.autoresizingMask = [.width, .height]
-                addSubview(materialView, positioned: .below, relativeTo: tintView)
+                addSubview(materialView, positioned: .below, relativeTo: glassTint.overlay)
             }
         }
         // Over art the tuner thins the glass only down to the legible tint.
         let alpha = max(backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency), backdrop.legibleTintOpacity)
         let color = tunedTint(tint, tuning: backdrop.tuning).withAlphaComponent(alpha)
         let glass = materialView as? GlassPanelView
-        // Liquid Glass blends its tint on the window's motion clock (appearance.colorTransition).
-        if let glass {
-            glassTint.onStep = { [weak self] in self?.updateInactiveTint() }
-            glassTint.set(glass, to: color, in: self)
-        }
+        // Liquid Glass takes the new tint once; an overlay blends from the old one on the render
+        // server (appearance.colorTransition).
+        if let glass { glassTint.set(glass, to: color, in: self) }
         // Glass tints itself; a tint view over it would dim the desktop twice.
         let shows = material != .opaque && glass == nil
         tintView.isHidden = !shows

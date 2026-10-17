@@ -148,6 +148,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
       // color syntax (CSS Color 4 mixes two rgb() or hex values in sRGB). Code that reads computed
       // colors gets a second `cmux-theme` event once the blend ends.
       var registered = {};
+      var applied = {};
       var transitionStyle = null;
       // rgb()/rgba() parsed without a regular expression: the literal stays free of backslashes
       // (Swift escapes), so the gallery runs the same script (webviews/dev-server/galleryHost.ts).
@@ -184,10 +185,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           (document.head || document.documentElement).appendChild(transitionStyle);
         }
         var duration = (transition && transition.duration) || '0ms';
-        transitionStyle.textContent = names.length && duration !== '0ms'
+        var text = names.length && duration !== '0ms'
           ? 'html{transition-property:' + names.join(',') + ';transition-duration:' + duration +
             ';transition-timing-function:' + ((transition && transition.easing) || 'ease-out') + '}'
           : '';
+        // A rewrite restyles the whole document: only when the rule changed.
+        if (transitionStyle.textContent !== text) transitionStyle.textContent = text;
       }
       function settled(payload) {
         var root = document.documentElement;
@@ -210,7 +213,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           // land with no transition, a style read commits them, then the transition turns on.
           if (first) setTransition(null, names);
           for (var name in payload.variables) {
-            root.style.setProperty(name, registered[name] ? colorValue(payload.variables[name], space) : payload.variables[name]);
+            var value = registered[name] ? colorValue(payload.variables[name], space) : payload.variables[name];
+            // Only the variables that changed: an unchanged one restyles nothing.
+            if (applied[name] === value) continue;
+            applied[name] = value;
+            root.style.setProperty(name, value);
           }
           if (first && names.length) getComputedStyle(root).getPropertyValue(names[0]);
           setTransition(payload.transition, names);

@@ -7,9 +7,9 @@ public import CmuxTheme
 ///
 /// One value, read by every place a color changes: a layer color blends from the color on screen
 /// (``animate(_:to:)``: OKLab or sRGB keyframes on the render server, so a quick A, B, C
-/// switch retargets from the blend in flight and never jumps back), a view subtree whose colors
-/// cannot be interpolated one by one (terminal surfaces, chrome drawn in `draw(_:)`) crossfades
-/// (``fade(_:regions:)``), and web pages transition their theme variables with the same duration
+/// switch retargets from the blend in flight and never jumps back; a theme repaint blends every
+/// layer color its views' hooks change the same way, `ThemeRepaint`), colors drawn in `draw(_:)`
+/// (text, terminal surfaces) switch at once, and web pages transition their theme variables with the same duration
 /// and curve (``cssTransition``). Every curve, the spring's timing and the color mix come from
 /// cmux-motion (`CCmuxMotionFFI`: `cmux_motion_ease`, `cmux_motion_cubic_bezier`,
 /// `cmux_motion_spring_progress_monotone`, `cmux_motion_mix_rgba`); nothing here keeps its own
@@ -50,7 +50,7 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
     /// samples differ from the true path by less than one 8-bit step.
     static let keyframes = 24
     /// The layer animation key of a background color blend.
-    public static let layerKey = "cmux.colorTransition.backgroundColor"
+    public static let layerKey = LayerColor.backgroundColor.animationKey
 
     public init(enabled: Bool = true, duration: TimeInterval = MotionTunables.colorTransitionDefaultDuration, curve: Curve = .easeOut,
                 space: ThemeColorSpace = .oklab, reduceMotion: ReduceMotion = .crossfade) {
@@ -143,34 +143,31 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
     /// ``curve``. Instant: the model value only, and any blend in flight stops.
     @MainActor
     public func animate(_ layer: CALayer, to color: CGColor?) {
-        let key = Self.layerKey
-        let shown = (layer.animation(forKey: key) != nil ? layer.presentation()?.backgroundColor : nil) ?? layer.backgroundColor
+        let shown = LayerColor.backgroundColor.shown(in: layer)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer.backgroundColor = color
         CATransaction.commit()
+        blend(layer, .backgroundColor, from: shown, to: color)
+    }
+
+    /// Blends `property` of `layer`, whose model value is already `color`, from `shown` (what the
+    /// screen showed before the change) on the render server: keyframes at even times, each the
+    /// color at the curve's progress there (cmux-motion), so the render server only steps
+    /// linearly between them. Instant, a change to or from no color, or no change: any blend of
+    /// `property` in flight stops and the model value shows.
+    @MainActor
+    func blend(_ layer: CALayer, _ property: LayerColor, from shown: CGColor?, to color: CGColor?) {
+        let key = property.animationKey
         guard !isInstant, let from = Self.rgb(shown), let to = Self.rgb(color), from != to else {
             layer.removeAnimation(forKey: key)
             return
         }
         let count = Self.keyframes
-        // Keyframes at even times, each the color at the curve's progress there (cmux-motion), so
-        // the render server only steps linearly between them.
         var values: [CGColor] = progressSamples(count: count).map { Self.cgColor(mix(from, to, fraction: $0)) }
         // The exact colors at both ends, so removing the animation changes nothing on screen.
         if let shown, let color { values[0] = shown; values[count - 1] = color }
-        let animation = Motion.sampledKeyframes("backgroundColor", values: values, duration: seconds)
-        layer.add(animation, forKey: key)
-    }
-
-    /// Fades `window` (or only `regions` of it) from what it shows now to its next frame: for what
-    /// has no single color to blend (terminal surfaces, views that draw their own colors). The
-    /// window's current composited frame lies over it and fades out on ``curve``
-    /// (`WindowColorFade`), so a second change mid-fade starts from the blend on screen. Call it
-    /// before the change commits. Instant: nothing.
-    @MainActor
-    public func fade(_ window: NSWindow, regions: [NSView]? = nil) {
-        WindowColorFade.forWindow(window).fade(window, regions: regions, transition: self)
+        layer.add(Motion.sampledKeyframes(property.rawValue, values: values, duration: seconds), forKey: key)
     }
 
     // MARK: Web pages
