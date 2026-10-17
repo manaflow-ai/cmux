@@ -277,6 +277,9 @@ final class TranscriptSelection {
 
     /// cmux: the text offset of a body-local point (origin at the bubble's top-left) in a text row.
     static func offset(in row: PartRow, at p: CGPoint) -> Int? {
+        // cmux: a markdown row's `text` is a one-line proxy of its display string; its lines,
+        // tables and code blocks are in the markdown layout, at the same offsets.
+        if let md = row.markdown { return md.offset(at: p) }
         guard let tl = row.text else { return nil }
         let x = p.x - Fixture.bubblePadX, y = p.y - Fixture.bubblePadY
         let i = min(tl.lines.count - 1, max(0, CrashGuard.int(floor(y / Fixture.lineHeight), in: CrashGuard.countRange))) // cmux: no trap on NaN
@@ -289,6 +292,7 @@ final class TranscriptSelection {
 
     /// cmux: the body-local highlight rects of a selected range of a text row.
     static func highlightRects(in row: PartRow, range sel: NSRange) -> [CGRect] {
+        if let md = row.markdown { return md.selectionRects(sel, visible: -CGFloat.greatestFiniteMagnitude...CGFloat.greatestFiniteMagnitude) } // cmux
         guard let tl = row.text else { return [] }
         var out: [CGRect] = []
         for (i, line) in tl.lines.enumerated() {
