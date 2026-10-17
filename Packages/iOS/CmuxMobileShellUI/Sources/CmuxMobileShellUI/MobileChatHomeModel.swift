@@ -532,8 +532,9 @@ final class MobileChatHomeModel {
     private func startSessionEvents(from source: MobileChatEventSource, generation: UUID) {
         sessionEventsTask = Task { [weak self] in
             defer {
-                guard let self, self.refreshGeneration == generation else { return }
-                self.sessionListStreamActive = false
+                if let self, self.refreshGeneration == generation {
+                    self.sessionListStreamActive = false
+                }
             }
             let events = await source.sessionEvents()
             guard !Task.isCancelled,
