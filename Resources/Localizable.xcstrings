@@ -655729,6 +655729,242 @@
           }
         }
       }
+    },
+    "cli.sshTmux.error.killConnectionOptionsOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux kill only accepts connection options"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يقبل ssh-tmux kill خيارات الاتصال فقط"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux kill akzeptiert nur Verbindungsoptionen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux kill solo acepta opciones de conexión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux kill n’accepte que les options de connexion"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux kill は接続オプションのみ指定できます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux kill은 연결 옵션만 허용합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux kill 只接受连接选项"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux kill 只接受連線選項"
+          }
+        }
+      }
+    },
+    "cli.sshTmux.error.killRequiresSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux kill requires a session name"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب ssh-tmux kill اسم جلسة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux kill erfordert einen Sitzungsnamen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux kill requiere un nombre de sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux kill nécessite un nom de session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux kill にはセッション名が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux kill에는 세션 이름이 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux kill 需要会话名称"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh-tmux kill 需要工作階段名稱"
+          }
+        }
+      }
+    },
+    "cli.help.ssh-tmux.sessionCommands": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session commands (accept the connection flags above):\n  cmux ssh-tmux <destination> list            List the host's tmux sessions\n  cmux ssh-tmux <destination> attach <name>   Mirror only the named session\n  cmux ssh-tmux <destination> kill <name>     Terminate the named session\n\nkill ends exactly the named session on the remote tmux server (tmux\nkill-session): every window and pane in it closes and the programs running\nthere exit. Other sessions and the tmux server keep running. It needs no\nmirror; a mirrored copy of the session closes. Detaching a mirror instead\nleaves the session running on the host. kill exits nonzero when no session\nhas that exact name or SSH fails."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أوامر الجلسات (تقبل خيارات الاتصال أعلاه):\n  cmux ssh-tmux <destination> list            عرض جلسات tmux على المضيف\n  cmux ssh-tmux <destination> attach <name>   عكس الجلسة المسماة فقط\n  cmux ssh-tmux <destination> kill <name>     إنهاء الجلسة المسماة\n\nينهي kill الجلسة المسماة بالضبط على خادم tmux البعيد (tmux kill-session):\nتُغلق كل النوافذ والأجزاء فيها وتنتهي البرامج التي تعمل هناك. تستمر الجلسات\nالأخرى وخادم tmux في العمل. لا يحتاج إلى مرآة؛\nوتُغلق أي نسخة معكوسة من الجلسة.\nأما فصل المرآة فيُبقي الجلسة قيد التشغيل على المضيف. ينتهي kill برمز غير صفري\nإذا لم توجد جلسة بهذا الاسم بالضبط أو فشل SSH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungsbefehle (akzeptieren die obigen Verbindungsoptionen):\n  cmux ssh-tmux <destination> list            tmux-Sitzungen des Hosts auflisten\n  cmux ssh-tmux <destination> attach <name>   Nur die genannte Sitzung spiegeln\n  cmux ssh-tmux <destination> kill <name>     Die genannte Sitzung beenden\n\nkill beendet genau die genannte Sitzung auf dem entfernten tmux-Server (tmux\nkill-session): Alle Fenster und Bereiche darin werden geschlossen, und die dort\nlaufenden Programme werden beendet. Andere Sitzungen und der tmux-Server laufen\nweiter. Ein Spiegel ist nicht nötig; eine gespiegelte Kopie der Sitzung wird geschlossen. Wird ein Spiegel stattdessen getrennt, läuft die Sitzung auf dem\nHost weiter. kill endet mit einem Fehlercode, wenn keine Sitzung genau diesen\nNamen hat oder SSH fehlschlägt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comandos de sesión (aceptan las opciones de conexión anteriores):\n  cmux ssh-tmux <destination> list            Listar las sesiones tmux del host\n  cmux ssh-tmux <destination> attach <name>   Reflejar solo la sesión indicada\n  cmux ssh-tmux <destination> kill <name>     Terminar la sesión indicada\n\nkill termina exactamente la sesión indicada en el servidor tmux remoto (tmux\nkill-session): se cierran todas sus ventanas y paneles y los programas que se\nejecutan allí terminan. Las demás sesiones y el servidor tmux siguen en marcha.\nNo necesita un reflejo; una copia reflejada de la sesión se cierra. En cambio,\ndesconectar un reflejo deja la sesión en marcha en el host. kill sale con un\ncódigo distinto de cero si ninguna sesión tiene exactamente ese nombre o si SSH falla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commandes de session (acceptent les options de connexion ci-dessus) :\n  cmux ssh-tmux <destination> list            Lister les sessions tmux de l’hôte\n  cmux ssh-tmux <destination> attach <name>   Refléter uniquement la session nommée\n  cmux ssh-tmux <destination> kill <name>     Terminer la session nommée\n\nkill met fin exactement à la session nommée sur le serveur tmux distant (tmux\nkill-session) : toutes ses fenêtres et tous ses volets se ferment, et les\nprogrammes qui y tournent s’arrêtent. Les autres sessions et le serveur tmux\ncontinuent de tourner. Aucun miroir n’est nécessaire ; une copie miroir de la session se ferme. Détacher un miroir laisse au contraire la session active sur\nl’hôte. kill renvoie un code non nul si aucune session ne porte exactement ce\nnom ou si SSH échoue."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションコマンド（上記の接続オプションを指定できます）:\n  cmux ssh-tmux <destination> list            ホストの tmux セッションを一覧表示\n  cmux ssh-tmux <destination> attach <name>   指定したセッションだけをミラー\n  cmux ssh-tmux <destination> kill <name>     指定したセッションを終了\n\nkill はリモートの tmux サーバー上で名前が完全に一致するセッションを終了します\n（tmux kill-session）。その中のすべてのウィンドウとペインが閉じ、そこで動いている\nプログラムも終了します。ほかのセッションと tmux サーバーは動き続けます。ミラーは\n不要で、セッションのミラーは閉じます。ミラーを切断した場合はセッションがホスト上で\n動き続けます。名前が完全に一致するセッションがない場合や SSH が失敗した場合、kill は\n0 以外の終了ステータスを返します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 명령(위의 연결 옵션을 사용할 수 있음):\n  cmux ssh-tmux <destination> list            호스트의 tmux 세션 나열\n  cmux ssh-tmux <destination> attach <name>   지정한 세션만 미러링\n  cmux ssh-tmux <destination> kill <name>     지정한 세션 종료\n\nkill은 원격 tmux 서버에서 이름이 정확히 일치하는 세션을 종료합니다(tmux\nkill-session). 세션의 모든 창과 패인이 닫히고 그 안에서 실행 중인 프로그램이\n종료됩니다. 다른 세션과 tmux 서버는 계속 실행됩니다. 미러가 필요하지 않으며,\n세션의 미러 사본은 닫힙니다. 반면 미러를 분리하면 세션은 호스트에서 계속\n실행됩니다. 이름이 정확히 일치하는 세션이 없거나 SSH가 실패하면 kill은 0이 아닌\n상태로 종료됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话命令（接受上方的连接选项）：\n  cmux ssh-tmux <destination> list            列出主机上的 tmux 会话\n  cmux ssh-tmux <destination> attach <name>   仅镜像指定的会话\n  cmux ssh-tmux <destination> kill <name>     终止指定的会话\n\nkill 会在远程 tmux 服务器上终止名称完全匹配的会话（tmux kill-session）：\n其中所有窗口和窗格都会关闭，在其中运行的程序也会退出。其他会话和 tmux\n服务器继续运行。不需要镜像；\n该会话的镜像副本会关闭。若改为分离镜像，\n会话会继续在主机上运行。若没有名称完全匹配的会话或 SSH 失败，kill\n会以非零状态退出。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段指令（接受上方的連線選項）：\n  cmux ssh-tmux <destination> list            列出主機上的 tmux 工作階段\n  cmux ssh-tmux <destination> attach <name>   只鏡像指定的工作階段\n  cmux ssh-tmux <destination> kill <name>     終止指定的工作階段\n\nkill 會在遠端 tmux 伺服器上終止名稱完全相符的工作階段（tmux kill-session）：\n其中所有視窗與窗格都會關閉，在其中執行的程式也會結束。其他工作階段與 tmux\n伺服器會繼續執行。不需要鏡像；\n該工作階段的鏡像副本會關閉。若改為分離鏡像，\n工作階段會繼續在主機上執行。若沒有名稱完全相符的工作階段或 SSH 失敗，kill\n會以非零狀態結束。"
+          }
+        }
+      }
+    },
+    "remoteTmux.error.sessionNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no tmux session named '%@' on %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد جلسة tmux باسم '%@' على %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "keine tmux-Sitzung mit dem Namen '%@' auf %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no hay ninguna sesión tmux llamada '%@' en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aucune session tmux nommée '%@' sur %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ に '%1$@' という名前の tmux セッションはありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@에 이름이 '%1$@'인 tmux 세션이 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 上没有名为“%1$@”的 tmux 会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 上沒有名為「%1$@」的 tmux 工作階段"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

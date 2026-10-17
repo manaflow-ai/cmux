@@ -28,6 +28,10 @@ enum RemoteTmuxError: Error, Sendable, Equatable {
     /// ``unreachable`` on purpose: the host answered, and telling the user to check the network
     /// sends them to the wrong place. Carries the destination for the message.
     case authenticationRequired(String)
+
+    /// The remote tmux server has no session with this exact name (or no server
+    /// is running at all), so there was nothing to terminate.
+    case sessionNotFound(session: String, destination: String)
 }
 
 extension RemoteTmuxError {
@@ -94,6 +98,12 @@ extension RemoteTmuxError {
                 defaultValue: "%@ asked for credentials and cmux has nowhere to type them. Log in to the host, then try again."
             )
             return String(format: format, Self.sanitizedDetail(detail))
+        case let .sessionNotFound(session, destination):
+            let format = String(
+                localized: "remoteTmux.error.sessionNotFound",
+                defaultValue: "no tmux session named '%@' on %@"
+            )
+            return String(format: format, Self.sanitizedDetail(session), Self.sanitizedDetail(destination))
         case let .tmuxNotFound(destination):
             let format = String(
                 localized: "remoteTmux.error.tmuxNotFound",

@@ -459,6 +459,54 @@ extension TerminalController {
         }
     }
 
+    /// `remote.tmux.kill_session` — terminate one named session on a host's tmux server.
+    ///
+    /// Unlike `remote.tmux.detach`, this ends the remote session and every window and
+    /// pane in it. It runs as a one-shot `tmux kill-session` over SSH, so it needs no
+    /// mirror; a mirror of the session closes when its control client sees the exit.
+    ///
+    /// Params: `host` (required), `session` (required exact session name), plus the
+    /// optional connection params `remote.tmux.sessions` accepts. An unknown session
+    /// fails with `not_found`.
+    nonisolated func v2RemoteTmuxKillSession(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
+        guard RemoteTmuxController.isEnabled else {
+            return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
+        }
+        guard let host = Self.remoteTmuxHost(from: params),
+              let session = Self.remoteTmuxSessionName(from: params),
+              !Self.remoteTmuxValueHasHiddenCharacter(session)
+        else {
+            if let brokerFailure = Self.remoteTmuxBrokerFailureMessage(from: params) {
+                return v2Error(id: id, code: "invalid_params", message: brokerFailure)
+            }
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostAndSessionRequired", defaultValue: "host and session are required"))
+        }
+        return v2VmCall(id: id, timeoutSeconds: 30) {
+            guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
+            else {
+                throw RemoteTmuxError.unreachable("app not ready")
+            }
+            do {
+                try await controller.killSession(host: host, sessionName: session)
+            } catch let error as RemoteTmuxError {
+                if case .commandFailed(_, let stderr) = error,
+                   RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(stderr),
+                   host.transportProfile.authenticationIsSSHShaped {
+                    return [
+                        "host": host.destination,
+                        "auth_required": true,
+                        "ssh_argv": host.interactiveAuthInvocation(),
+                    ]
+                }
+                throw error
+            }
+            return ["host": host.destination, "session": session, "killed": true]
+        }
+    }
+
     /// `remote.tmux.state` — report a control client's observed control-mode state.
     ///
     /// Diagnostics surface for verifying the ghostty → cmux event pipe end to end.

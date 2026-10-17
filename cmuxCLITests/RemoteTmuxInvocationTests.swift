@@ -5,7 +5,7 @@ import Testing
 // import here makes cmuxCLITests resolve the app's modules (Sparkle, Iroh, ...), which it
 // does not link, and the target fails to build.
 
-/// Focused coverage for the `ssh-tmux` list/attach argument contract.
+/// Focused coverage for the `ssh-tmux` list/attach/kill argument contract.
 @Suite struct RemoteTmuxInvocationTests {
     @Test func defaultsToTheExistingBulkMirror() throws {
         let invocation = try RemoteTmuxInvocation.parse(["dev@host", "--no-focus"])
@@ -29,6 +29,30 @@ import Testing
 
         let longForm = try RemoteTmuxInvocation.parse(["dev@host", "--session", "work"])
         #expect(longForm.action == .attach(session: "work"))
+    }
+
+    @Test func killAcceptsPositionalAndLongFormSelectorsWithConnectionOptions() throws {
+        let positional = try RemoteTmuxInvocation.parse(["dev@host", "kill", "work", "--port", "2222"])
+        #expect(positional.action == .kill(session: "work"))
+        #expect(positional.port == 2222)
+
+        let longForm = try RemoteTmuxInvocation.parse(["dev@host", "kill", "--session", "work"])
+        #expect(longForm.action == .kill(session: "work"))
+    }
+
+    @Test(arguments: [
+        ["dev@host", "kill"],
+        ["dev@host", "kill", "  "],
+        ["dev@host", "kill", "work", "extra"],
+        ["dev@host", "kill", "work", "--session", "other"],
+        ["dev@host", "kill", "work", "--name", "title"],
+        ["dev@host", "kill", "work", "--new-window"],
+        ["dev@host", "kill", "work", "--no-focus"],
+    ])
+    func killRejectsMissingSessionsAndWorkspaceOptions(_ arguments: [String]) {
+        #expect(throws: CLIError.self) {
+            try RemoteTmuxInvocation.parse(arguments)
+        }
     }
 
     @Test(arguments: [

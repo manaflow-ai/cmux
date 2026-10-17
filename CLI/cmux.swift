@@ -13692,6 +13692,11 @@ struct CMUXCLI {
             try runRemoteTmuxList(invocation: invocation, client: client, jsonOutput: jsonOutput)
             return
         }
+        if case let .kill(session) = invocation.action {
+            try runRemoteTmuxKill(
+                invocation: invocation, session: session, client: client, jsonOutput: jsonOutput)
+            return
+        }
         let destination = invocation.destination
         let port = invocation.port
         let identityFile = invocation.identityFile
@@ -13781,12 +13786,61 @@ struct CMUXCLI {
         }
     }
 
-    /// Lists remote tmux sessions without creating a mirror workspace.
-    private func runRemoteTmuxList(
+    /// Terminates one named remote tmux session without creating a mirror workspace.
+    ///
+    /// An unknown session or SSH failure arrives as a socket error, which the client
+    /// throws, so the command exits nonzero.
+    private func runRemoteTmuxKill(
         invocation: RemoteTmuxInvocation,
+        session: String,
         client: SocketClient,
         jsonOutput: Bool
     ) throws {
+        var params = remoteTmuxConnectionParams(invocation)
+        params["session"] = session
+
+        var didAuthenticate = false
+        while true {
+            let result = try client.sendV2(
+                method: "remote.tmux.kill_session",
+                params: params,
+                waitUntilCompletion: true
+            )
+            if (result["auth_required"] as? Bool) == true {
+                guard !didAuthenticate else {
+                    throw CLIError(message: String(
+                        localized: "cli.ssh.authenticationFailed",
+                        defaultValue: "SSH authentication did not open the connection. Check your SSH credentials and retry."
+                    ))
+                }
+                guard let sshArgv = result["ssh_argv"] as? [String], !sshArgv.isEmpty else {
+                    throw CLIError(message: String(
+                        localized: "cli.ssh.authenticationSystemExecutableRequired",
+                        defaultValue: "SSH authentication requires the system SSH executable."
+                    ))
+                }
+                try runInteractiveAuthSSH(
+                    sshArgv: sshArgv,
+                    destination: invocation.destination,
+                    marksRemoteTmuxAuthentication: true
+                )
+                didAuthenticate = true
+                continue
+            }
+            guard (result["killed"] as? Bool) == true else {
+                throw CLIError(message: "ssh-tmux: unexpected response from cmux")
+            }
+            if jsonOutput {
+                print(jsonString(result))
+            } else {
+                print("OK host=\(invocation.destination) session=\(session) killed")
+            }
+            return
+        }
+    }
+
+    /// The SSH/transport params shared by the remote-tmux one-shot commands.
+    private func remoteTmuxConnectionParams(_ invocation: RemoteTmuxInvocation) -> [String: Any] {
         var params: [String: Any] = ["host": invocation.destination]
         if let port = invocation.port { params["port"] = port }
         if let identityFile = invocation.identityFile, !identityFile.isEmpty {
@@ -13796,6 +13850,16 @@ struct CMUXCLI {
         if let transportPort = invocation.transportPort { params["transport_port"] = transportPort }
         if let helperPath = invocation.transportHelperPath { params["transport_helper_path"] = helperPath }
         if let broker = invocation.broker { params["transport_broker"] = broker }
+        return params
+    }
+
+    /// Lists remote tmux sessions without creating a mirror workspace.
+    private func runRemoteTmuxList(
+        invocation: RemoteTmuxInvocation,
+        client: SocketClient,
+        jsonOutput: Bool
+    ) throws {
+        let params = remoteTmuxConnectionParams(invocation)
 
         if !jsonOutput {
             print(localizedFormat(
@@ -22282,7 +22346,23 @@ struct CMUXCLI {
                 localized: "cli.help.ssh-tmux.helperPath",
                 defaultValue: "--transport-helper-path <path>  Absolute path to etterminal on the remote host (direct ET only). Omit to use ET's PATH lookup; a broker supplies its own helper path."
             )
-            return "\(help)\n\n\(newWindowHelp)\n\n\(helperPathHelp)\n\n\(Self.openFocusFlagsHelp)"
+            let sessionCommandsHelp = String(
+                localized: "cli.help.ssh-tmux.sessionCommands",
+                defaultValue: """
+                Session commands (accept the connection flags above):
+                  cmux ssh-tmux <destination> list            List the host's tmux sessions
+                  cmux ssh-tmux <destination> attach <name>   Mirror only the named session
+                  cmux ssh-tmux <destination> kill <name>     Terminate the named session
+
+                kill ends exactly the named session on the remote tmux server (tmux
+                kill-session): every window and pane in it closes and the programs running
+                there exit. Other sessions and the tmux server keep running. It needs no
+                mirror; a mirrored copy of the session closes. Detaching a mirror instead
+                leaves the session running on the host. kill exits nonzero when no session
+                has that exact name or SSH fails.
+                """
+            )
+            return "\(help)\n\n\(sessionCommandsHelp)\n\n\(newWindowHelp)\n\n\(helperPathHelp)\n\n\(Self.openFocusFlagsHelp)"
         case "local-tmux", "tmux":
             return LocalTmuxInvocation.usage
         case "local-zellij":
