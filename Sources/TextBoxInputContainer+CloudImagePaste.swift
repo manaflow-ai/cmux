@@ -11,6 +11,53 @@ extension TextBoxInputContainer {
         if let window = surface.hostedView.window { alert.beginSheetModal(for: window) }
         else { NSSound.beep() }
     }
+
+    /// Inserts Cloud image attachments into the composer without sending them
+    /// to the terminal until the user submits the prompt.
+    @discardableResult
+    func insertCloudComposerImages(
+        _ fileURLs: [URL],
+        into textView: TextBoxInputTextView
+    ) -> Bool {
+        let attachments = fileURLs.map {
+            TextBoxAttachment(
+                localURL: $0.standardizedFileURL,
+                submissionText: TextBoxAttachment.submissionText(forLocalFileURL: $0),
+                cleanupLocalURLWhenDisposed: TextBoxAttachment.shouldCleanupLocalURLWhenDisposed($0)
+            )
+        }
+        guard !attachments.isEmpty, attachments.allSatisfy(\.isImage) else { return false }
+        textView.insertAttachments(attachments)
+        self.attachments = textView.inlineAttachments()
+        text = textView.plainText()
+        return true
+    }
+
+    /// Inserts prepared Cloud image attachments without reopening their source
+    /// files on the main actor.
+    @discardableResult
+    func insertPreparedCloudComposerImages(
+        _ preparedAttachments: [TextBoxPreparedAttachment],
+        into textView: TextBoxInputTextView,
+        replacingPlaceholderID placeholderID: UUID
+    ) -> Bool {
+        let attachments = preparedAttachments.map {
+            TextBoxAttachment(
+                preparedAttachment: $0,
+                submissionText: TextBoxAttachment.submissionText(forLocalFileURL: $0.fileURL),
+                cleanupLocalURLWhenDisposed: TextBoxAttachment.shouldCleanupLocalURLWhenDisposed($0.fileURL)
+            )
+        }
+        guard !attachments.isEmpty, attachments.allSatisfy(\.isImage) else { return false }
+        guard textView.replacePendingAttachmentUploadPlaceholder(
+            id: placeholderID,
+            with: attachments
+        ) else { return false }
+        self.attachments = textView.inlineAttachments()
+        text = textView.plainText()
+        return true
+    }
+
     func attachFileURLs(_ fileURLs: [URL], into textView: TextBoxInputTextView) -> Bool {
         let standardizedURLs = fileURLs
             .filter(\.isFileURL)
@@ -63,8 +110,10 @@ extension TextBoxInputContainer {
             uploadFileAttachments(uploadURLs, remoteTarget: remoteTarget, focusing: textView)
             return true
         case .pasteCloudImages:
-            refuseCloudComposerImage()
-            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+            guard insertCloudComposerImages(fileURLs, into: textView) else {
+                refuseCloudComposerImage()
+                GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+            }
             return true
         case .reject:
             return false
