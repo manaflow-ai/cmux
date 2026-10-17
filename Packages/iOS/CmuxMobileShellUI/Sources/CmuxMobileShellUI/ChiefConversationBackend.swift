@@ -41,7 +41,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     }
 
     func events() -> AsyncStream<ConversationBackendEvent> {
-        AsyncStream { continuation in
+        AsyncStream<ConversationBackendEvent> { continuation in
             let task = Task { [weak self] in
                 await self?.poll(continuation: continuation)
             }
