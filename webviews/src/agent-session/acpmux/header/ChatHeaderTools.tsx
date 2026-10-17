@@ -165,6 +165,7 @@ export function ChatHeaderTools({
   // quick-action buttons (Terminal keeps its button in `add-terminal`).
   const style = useHeaderStyle();
   const adds = style !== "buttons";
+  const trayed = style === "tray" || style === "labels" || style === "quiet" || style === "expand";
   // Panels as tabs on the right (`agentChat.panelTabs`): with panes beside the chat its tab strip is
   // where new tabs go, so the header keeps only the summary and "...", which lists the quick actions.
   // [+] stays: it is the one place a tab is added from, and it adds to that strip.
@@ -231,7 +232,12 @@ export function ChatHeaderTools({
     const { lit } = headerState();
     // With [+], the tabs are its rows; "..." keeps only New tab / Hide tabs.
     const shownIds = new Set<QuickActionId>(
-      adds ? QUICK_ACTION_IDS.filter((id) => id !== "newTab") : quiet ? [] : actions.map((action) => action.id),
+      adds
+        ? // The tray designs leave Split Down in "..." (Lucas 2026-10-17: not in the row).
+          QUICK_ACTION_IDS.filter((id) => id !== "newTab" && !(trayed && id === "splitDown"))
+        : quiet
+          ? []
+          : actions.map((action) => action.id),
     );
     const folded: ChatMenuItem[] = [];
     // Terminal and Browser always have a button, except in the quiet header.
@@ -341,7 +347,6 @@ export function ChatHeaderTools({
   // The tray designs: every tab the chat can open beside it, laid out as one group. Terminal,
   // Browser and Split Down add another on every click; Changes, Preview and Files toggle theirs and
   // show lit while it is open.
-  const trayed = style === "tray" || style === "labels" || style === "quiet" || style === "expand";
   const labeled = style === "labels" || style === "expand";
   const trayItems = (): {
     key: string;
@@ -392,14 +397,6 @@ export function ChatHeaderTools({
         icon: "folder",
         pressed: lit.includes(HEADER_ACTIONS.files),
         run: () => onFiles("toggle"),
-      });
-    if (onSplitDown)
-      items.push({
-        key: "splitDown",
-        label: t("header.splitDown"),
-        icon: "pane.split.down",
-        shortcut: splitDownKey,
-        run: () => onSplitDown("open"),
       });
     return items;
   };

@@ -7,6 +7,7 @@ import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { ChevronDown } from "../conversation/icons";
+import { ComputerIcon } from "../ComposerContext";
 
 export type OpenInApp = { id: string; name: string; icon?: string };
 
@@ -77,7 +78,7 @@ export function ThreadDetails({
       {machine && (
         <div className="acpmux-thread-details__row">
           <span className="acpmux-thread-details__icons" aria-hidden="true">
-            <Icon name="machine.mac" size={15} />
+            <ComputerIcon />
           </span>
           <span className="acpmux-thread-details__text">{machine}</span>
         </div>

@@ -367,7 +367,8 @@ function FolderIcon() {
   );
 }
 
-function ComputerIcon() {
+/// The computer glyph of the location strip (also Thread details' machine row).
+export function ComputerIcon() {
   return (
     <svg
       className="acpmux-icon acpmux-location-icon ui-ghost-icon"
