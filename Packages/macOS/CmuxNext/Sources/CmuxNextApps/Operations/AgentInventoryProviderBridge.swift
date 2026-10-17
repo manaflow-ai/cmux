@@ -14,7 +14,7 @@ public final class AgentInventoryProviderBridge {
     private var provider: AppProviderSession?
     private var demand: AgentInventoryProviderDemand?
     private var registered = false
-    private var slots: [AgentInventoryWatchSlot] = []
+    private(set) var slots: [AgentInventoryWatchSlot] = []
     private var notifying: Task<Void, Never>?
     private var dirty = false
     private var disabled = false

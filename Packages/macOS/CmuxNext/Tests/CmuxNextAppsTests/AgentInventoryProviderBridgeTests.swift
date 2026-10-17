@@ -6,6 +6,27 @@ import Testing
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct AgentInventoryProviderBridgeTests {
+    @Test func staleRegistryRouteCannotAdmitNewlyReconnectedTransport() async throws {
+        let f = InventoryProviderBridgeFixture()
+        do {
+            try await f.start()
+            let oldRoutes = f.routes
+            try await f.reconnect()
+            let fresh = try await AppProviderSession(connection: f.connection)
+            f.bridge.begin(fresh)
+            let snapshot = try await fresh.register(families: ["agent_cli", "action"])
+            f.bridge.registered(fresh, snapshot: snapshot)
+            f.session = fresh
+            // Registry still presents the route admitted before the actor reconnected.
+            f.routes = oldRoutes
+            f.demand(2, true)
+            let admissions = f.bridge.slots.compactMap(\.admission)
+            for admission in admissions { await admission.value }
+            #expect(try await f.state().filter { $0["kind"] == .string("enable") }.isEmpty)
+            await f.finish()
+        } catch { await f.finish(); throw error }
+    }
+
     @Test(arguments: ["legacy", "provider"])
     func oldOwnersKeepCompatibleRegistrationWithoutWatches(mode: String) async throws {
         let f = InventoryProviderBridgeFixture(mode: mode)
