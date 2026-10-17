@@ -184,7 +184,7 @@ public final class ThemeStore {
             window.invalidateShadow()
         }
         if let contentView = window.contentView {
-            ThemeRepaint.request(contentView, roots: { [contentView] }, scope: nil, animated: crossfade, layout: !crossfade)
+            ThemeRepaint.request(contentView, roots: { () -> [NSView] in [contentView] }, scope: nil, animated: crossfade, layout: !crossfade)
         }
     }
 }
