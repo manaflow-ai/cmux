@@ -49,8 +49,8 @@ public actor AgentChatTranscriptTailer {
     /// changes from running to completed.
     private var openCodeMessagesByID: [String: ChatMessage] = [:]
     private var openCodeDatabaseInode: UInt64?
-    private var watchTask: Task<Void, Never>?
-    private var watcher: FileWatcher?
+    private var watchTasks: [Task<Void, Never>] = []
+    private var watchers: [FileWatcher] = []
     private var started = false
     private var reportedTitle = false
 
@@ -89,30 +89,39 @@ public actor AgentChatTranscriptTailer {
         } else {
             loadInitialTail()
         }
-        // OpenCode commits most writes through its `-wal` sidecar. Watching
-        // the database directory catches both the main file and sidecars while
-        // retaining the same coalesced invalidation semantics.
-        let watchPath = isOpenCode
-            ? URL(fileURLWithPath: path).deletingLastPathComponent().path
-            : path
-        let watcher = FileWatcher(path: watchPath, throttle: .milliseconds(200))
-        self.watcher = watcher
-        watchTask = Task { [weak self] in
-            for await _ in watcher.events {
-                guard let self else { return }
-                await self.drainNewContent()
+        // OpenCode commits most writes through its `-wal` sidecar. A
+        // directory-level kqueue source only observes directory-entry changes,
+        // not writes to an existing child, so watch the database and both
+        // SQLite sidecars individually. FileWatcher reattaches when a sidecar
+        // is created after startup and coalesces bursts from a transaction.
+        let watchPaths: [String]
+        if isOpenCode {
+            watchPaths = [path, path + "-wal", path + "-shm"]
+        } else {
+            watchPaths = [path]
+        }
+        let watchers = watchPaths.map { FileWatcher(path: $0, throttle: .milliseconds(200)) }
+        self.watchers = watchers
+        watchTasks = watchers.map { watcher in
+            Task { [weak self] in
+                for await _ in watcher.events {
+                    guard let self else { return }
+                    await self.drainNewContent()
+                }
             }
         }
     }
 
     /// Stops watching and releases resources.
     public func stop() async {
-        watchTask?.cancel()
-        watchTask = nil
-        if let watcher {
+        for task in watchTasks {
+            task.cancel()
+        }
+        watchTasks.removeAll()
+        for watcher in watchers {
             await watcher.stop()
         }
-        watcher = nil
+        watchers.removeAll()
     }
 
     /// Serves one history page from the cache, keeping equal-seq groups
