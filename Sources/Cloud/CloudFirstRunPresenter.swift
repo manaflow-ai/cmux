@@ -239,8 +239,14 @@ final class CloudFirstRunPresenter {
 
     static func liveBackend() -> CloudFirstRunModel.Backend {
         CloudFirstRunModel.Backend(
-            vaultNames: {
-                Set(CloudSecretsService.shared.records.filter { $0.scope == .all }.map(\.name))
+            vaultNames: { projectKey in
+                Set(CloudSecretsService.shared.records.filter { record in
+                    switch record.scope {
+                    case .all: return true
+                    case .project(let key): return key == projectKey
+                    case .machine: return false
+                    }
+                }.map(\.name))
             },
             activeTeamProviders: {
                 let accounts = coderouterStore()?.state.accounts ?? []
