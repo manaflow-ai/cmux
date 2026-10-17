@@ -122,7 +122,7 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
             "if": "${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}",
             "run": "true",
         }
-        units = run_ci_guards.plan(self.workflow(step), "base", "head")
+        units = run_ci_guards.plan(PlanRefusesWhatItCannotRun().workflow(step), "base", "head")
         ci = next(unit for unit in units if unit.group == "ci")
         self.assertIn("gated", {step.name for step in ci.steps})
 
