@@ -154,7 +154,7 @@ PY
     return 1
   fi
   if [[ "$bundle_id" != "$expected_bundle_id" || "$app_id" != "$expected_app_id" || "$team_id" != "$DEVELOPMENT_TEAM" ]] ||
-    ! python3 - "$ent" <<'PY'
+    ! python3 - "$ent" "$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER" <<'PY'
 import plistlib
 import sys
 
@@ -163,9 +163,11 @@ with open(sys.argv[1], "rb") as handle:
 values = entitlements.get("com.apple.developer.networking.networkextension", [])
 if "packet-tunnel-provider" not in values:
     raise SystemExit(1)
+if entitlements.get("keychain-access-groups") != [sys.argv[2]]:
+    raise SystemExit(1)
 PY
   then
-    echo "error: signed CloudVPN identity is invalid (bundle-id='${bundle_id:-<absent>}', expected-bundle-id='$expected_bundle_id', application-identifier='${app_id:-<absent>}', expected='$expected_app_id', team='${team_id:-<absent>}', network-extension='${network_extension:-<absent>}'): $extension" >&2
+    echo "error: signed CloudVPN identity is invalid (bundle-id='${bundle_id:-<absent>}', expected-bundle-id='$expected_bundle_id', application-identifier='${app_id:-<absent>}', expected='$expected_app_id', team='${team_id:-<absent>}', network-extension='${network_extension:-<absent>}', expected-keychain-group='$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER'): $extension" >&2
     plutil -p "$ent" >&2 || true
     rm -rf "$workdir"
     return 1
@@ -228,6 +230,23 @@ verify_ipa_app_store_main_entitlements() {
     return 1
   fi
   if ! python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" --check "$ent"; then
+    rm -rf "$workdir"
+    return 1
+  fi
+  # The host app saves and starts the CloudVPN tunnel; without this ASC rejects
+  # the build with ITMS-90525.
+  if ! python3 - "$ent" <<'PY'
+import plistlib
+import sys
+
+with open(sys.argv[1], "rb") as handle:
+    entitlements = plistlib.load(handle)
+values = entitlements.get("com.apple.developer.networking.networkextension", [])
+if "packet-tunnel-provider" not in values:
+    raise SystemExit(1)
+PY
+  then
+    echo "error: signed App Store app lacks com.apple.developer.networking.networkextension[packet-tunnel-provider]: $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
@@ -396,6 +415,18 @@ if profile.get("application-identifier") != expected_app_id:
 network_extension = profile.get("com.apple.developer.networking.networkextension", [])
 if "packet-tunnel-provider" not in network_extension:
     raise SystemExit("CloudVPN provisioning profile does not authorize packet-tunnel-provider")
+# The packet tunnel reads its configuration through a persistent reference to
+# an item the host app stored in its own Keychain group.
+expected_group = f"{team_id}.{host_bundle_id}"
+groups = profile.get("keychain-access-groups", [])
+if not any(
+    group == expected_group
+    or (isinstance(group, str) and group.endswith(".*") and expected_group.startswith(group[:-1]))
+    for group in groups
+):
+    raise SystemExit(
+        f"CloudVPN provisioning profile does not authorize the host keychain group {expected_group}"
+    )
 
 # The checked-in keychain value contains Xcode substitutions. Resolve the host
 # identity before applying the profile's exact or wildcard authorization.
@@ -417,6 +448,9 @@ for key, value in source.items():
         profile[key] = [item for item in value if item in profile_value]
     else:
         profile[key] = value
+# The contract names the group as unexpanded build settings, which never
+# match the profile's literal wildcard, so claim the expanded group here.
+profile["keychain-access-groups"] = [expected_group]
 
 profile["keychain-access-groups"] = [host_group]
 
