@@ -53,49 +53,46 @@ where
     let cwd = cwd_of(p)?;
     let cwd_ref = cwd.as_deref();
     // The paths each action touches; the policy sees all of them.
-    let (paths, patch_files): (Vec<PathBuf>, Option<Vec<Planned>>) =
-        match action {
-            "fs.read" | "fs.write" | "fs.edit" | "fs.list" => {
-                (vec![path_of(p, "path", cwd_ref)?], None)
+    let (paths, patch_files): (Vec<PathBuf>, Option<Vec<Planned>>) = match action {
+        "fs.read" | "fs.write" | "fs.edit" | "fs.list" => {
+            (vec![path_of(p, "path", cwd_ref)?], None)
+        }
+        "fs.glob" | "fs.grep" => (vec![path_of(p, "root", cwd_ref)?], None),
+        "fs.patch" => {
+            let base = cwd
+                .clone()
+                .ok_or_else(|| HandError::new("request.invalid", "fs.patch needs cwd"))?;
+            let files = patch::parse(s(p, "patch")?)?;
+            let res = |t: Option<PathBuf>| {
+                t.map(|t| {
+                    resolve(&t.to_string_lossy(), None)
+                        .map_err(|m| HandError::new("request.invalid", m))
+                })
+                .transpose()
+            };
+            let mut planned = Vec::new();
+            for f in files {
+                let (old, new) = patch::file_paths(&f, &base);
+                planned.push((res(old)?, res(new)?, f));
             }
-            "fs.glob" | "fs.grep" => (vec![path_of(p, "root", cwd_ref)?], None),
-            "fs.patch" => {
-                let base = cwd
-                    .clone()
-                    .ok_or_else(|| HandError::new("request.invalid", "fs.patch needs cwd"))?;
-                let files = patch::parse(s(p, "patch")?)?;
-                let res = |t: Option<PathBuf>| {
-                    t.map(|t| {
-                        resolve(&t.to_string_lossy(), None)
-                            .map_err(|m| HandError::new("request.invalid", m))
-                    })
-                    .transpose()
-                };
-                let mut planned = Vec::new();
-                for f in files {
-                    let (old, new) = patch::file_paths(&f, &base);
-                    planned.push((res(old)?, res(new)?, f));
-                }
-                let targets =
-                    planned.iter().flat_map(|(o, n, _)| [o.clone(), n.clone()]).flatten().collect();
-                (targets, Some(planned))
-            }
-            "exec" | "agent.start" => (
-                vec![cwd.clone().ok_or_else(|| {
-                    HandError::new("request.invalid", format!("{action} needs cwd"))
-                })?],
-                None,
-            ),
-            "agent.send" | "agent.cancel" | "agent.events" | "agent.deny" | "agent.stop" => {
-                (vec![ctx.agents.cwd_of(s(p, "session")?)?], None)
-            }
-            other => {
-                return Err(HandError::new(
-                    "request.unknown_action",
-                    format!("unknown action {other}"),
-                ));
-            }
-        };
+            let targets =
+                planned.iter().flat_map(|(o, n, _)| [o.clone(), n.clone()]).flatten().collect();
+            (targets, Some(planned))
+        }
+        // No cwd: the hand's default work folder (config.rs).
+        "exec" | "agent.start" => {
+            (vec![cwd.clone().unwrap_or_else(super::config::default_workdir)], None)
+        }
+        "agent.send" | "agent.cancel" | "agent.events" | "agent.deny" | "agent.stop" => {
+            (vec![ctx.agents.cwd_of(s(p, "session")?)?], None)
+        }
+        other => {
+            return Err(HandError::new(
+                "request.unknown_action",
+                format!("unknown action {other}"),
+            ));
+        }
+    };
     let argv: Option<Vec<String>> = (action == "exec")
         .then(|| {
             p.get("argv")
@@ -168,6 +165,13 @@ where
             exec::run(&argv, &path, opt_u(p, "timeout_ms")).await
         }
         "agent.start" => {
+            // A missing work folder is made (its path passed the policy above, so it is inside the
+            // hand's roots and not one of its own files).
+            if !path.exists() {
+                std::fs::create_dir_all(&path).map_err(|e| {
+                    HandError::new("agent.bad_cwd", format!("cannot make {}: {e}", path.display()))
+                })?;
+            }
             let model_route = p
                 .get("model_route")
                 .filter(|v| !v.is_null())
