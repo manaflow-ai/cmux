@@ -170,6 +170,31 @@ import Testing
         #expect(model.selectedSession?.version == 3)
     }
 
+    @Test func staleVersionedTranscriptPushCannotOverwriteNewerMessage() async {
+        let source = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)],
+            pages: ["session": [page(message(id: "one", seq: 1, text: "initial"))]]
+        )
+        let model = AgentChatModeModel()
+
+        model.updateSource(source)
+        await settle()
+
+        await source.emitHost(
+            sessionID: "session",
+            event: .updated([message(id: "one", seq: 1, text: "newer")]),
+            version: 2
+        )
+        await source.emitHost(
+            sessionID: "session",
+            event: .updated([message(id: "one", seq: 1, text: "stale")]),
+            version: 1
+        )
+        await settle()
+
+        #expect(model.selectedMessages.map { proseText($0) } == ["newer"])
+    }
+
     @Test func versionGapPullsSnapshotAndReloadsHistoryBeforeApplyingPush() async {
         let source = FakeAgentChatSource(
             sessions: [descriptor(id: "session", agent: .codex)],

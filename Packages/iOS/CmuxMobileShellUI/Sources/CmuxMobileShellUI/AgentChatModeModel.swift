@@ -711,6 +711,15 @@ final class AgentChatModeModel {
 
     private func apply(_ event: ChatSessionEvent, to sessionID: String, version: Int? = nil) {
         if let version {
+            // Host pushes are best-effort and can arrive out of order. Equal
+            // revisions are valid: one registry mutation may publish a reset,
+            // transcript batch, and descriptor/state cards. A lower revision,
+            // however, is stale for every event kind; applying it could let a
+            // delayed transcript update overwrite newer history or resurrect a
+            // streaming preview that a later frame already cleared.
+            if let latest = latestVersionBySession[sessionID], version < latest {
+                return
+            }
             latestVersionBySession[sessionID] = max(
                 version,
                 latestVersionBySession[sessionID] ?? Int.min
