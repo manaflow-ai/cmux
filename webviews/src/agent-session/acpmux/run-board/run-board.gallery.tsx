@@ -6,7 +6,7 @@ import type { RunBoardProps } from "./RunBoard";
 
 const approve: Play = async (ctx) => {
   await ctx.click({ role: "checkbox", name: "I reviewed this attempt" });
-  await ctx.click({ role: "button", name: "Approve for integration" });
+  await ctx.click({ role: "button", name: "Promote winner" });
   await ctx.waitFor(() => ctx.document.querySelector('[data-approved="attempt-a"]'));
 };
 
@@ -41,7 +41,7 @@ export default componentEntry<RunBoardProps>({
       play: replay,
     },
     approved: {
-      note: "A human checks the evidence before creating an integration intent. This gallery prototype performs no server mutation.",
+      note: "A human checks the evidence before promoting one attempt into a persistent dev box.",
       props,
       play: approve,
     },

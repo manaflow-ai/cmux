@@ -117,4 +117,30 @@ describe("Run API client", () => {
     });
     expect(snapshot.attempts[0]?.artifacts[0]).toMatchObject({ kind: "screenshot", verified: true });
   });
+
+  test("creates, redeems and promotes through the durable Run routes", async () => {
+    const requests: Array<{ path: string; method: string; idempotency?: string; body?: string }> = [];
+    const client = createRunApiClient({
+      baseUrl: "https://cmux.test",
+      fetch: async (input, init) => {
+        const url = new URL(String(input));
+        requests.push({ path: url.pathname, method: init?.method ?? "GET", idempotency: new Headers(init?.headers).get("idempotency-key") ?? undefined, body: typeof init?.body === "string" ? init.body : undefined });
+        if (url.pathname === "/api/runs") return new Response(JSON.stringify({ id: "run-new", status: "queued", attempts: [] }), { status: 202 });
+        if (url.pathname.endsWith("/attach-ticket")) return new Response(JSON.stringify({ ticket: "ticket", runId: "run-new", attemptId: "attempt-1", provider: "cloud-vm", providerVmId: "vm", providerWorkspaceId: "ws", providerTerminalId: "term", expiresAt: "2026-10-17T00:00:00.000Z", route: "wss://fixture/v1/link", transport: "cmux-remote" }), { status: 200 });
+        return new Response(JSON.stringify({ id: "promotion", runId: "run-new", attemptId: "attempt-1", runtime: { id: "runtime-1" } }), { status: 200 });
+      },
+    });
+    await client.createRun({ source: { repository: "manaflow-ai/cmux", commit: "a".repeat(40) }, recipe: "parallel-review", desiredAttempts: 2 }, "create-key");
+    await client.mintAttachTicket("run-new", "attempt-1");
+    await client.redeemAttachTicket("run-new", "attempt-1", "ticket");
+    await client.promoteAttempt("run-new", "attempt-1", "promote-key");
+    expect(requests.map((request) => request.path)).toEqual([
+      "/api/runs",
+      "/api/runs/run-new/attempts/attempt-1/attach-ticket",
+      "/api/runs/run-new/attempts/attempt-1/attach-ticket",
+      "/api/runs/run-new/attempts/attempt-1/promote",
+    ]);
+    expect(requests[0]?.idempotency).toBe("create-key");
+    expect(requests[3]?.idempotency).toBe("promote-key");
+  });
 });

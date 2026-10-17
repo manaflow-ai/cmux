@@ -14,6 +14,8 @@ export type RunAttempt = {
   direction: string;
   worker: string;
   sessionId: string;
+  /** Public view hint; provider handles never enter the board model. */
+  attachable?: boolean;
   state: "running" | "completed" | "failed";
   activity: string;
   build: "pending" | "passed" | "failed";

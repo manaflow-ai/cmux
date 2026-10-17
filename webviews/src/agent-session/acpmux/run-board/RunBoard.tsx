@@ -246,7 +246,7 @@ export function RunBoard({ snapshot, recovered, disconnected = false, client, on
           </div>
           <h1>{state.snapshot.title}</h1>
           <p>
-            {state.snapshot.source} <span>·</span> 4 independent workspaces <span>·</span> {done} ready to compare
+            {state.snapshot.source} <span>·</span> {state.snapshot.attempts.length} independent workspaces <span>·</span> {done} ready to compare
           </p>
         </div>
         <div className="run-board-connection">
@@ -304,10 +304,10 @@ export function RunBoard({ snapshot, recovered, disconnected = false, client, on
             <button
               className="run-board-attach"
               type="button"
-              disabled={state.connection !== "live" || actionPending === "attach"}
+              disabled={state.connection !== "live" || attempt.attachable === false || actionPending === "attach"}
               onClick={() => void attach()}
             >
-              {actionPending === "attach" ? "Attaching…" : state.attached === attempt.id ? "Attached to agent" : "Attach to agent"}
+              {actionPending === "attach" ? "Attaching…" : state.attached === attempt.id ? "Attached to agent" : attempt.attachable === false ? "Terminal expired" : "Attach to agent"}
               <span aria-hidden="true">↗</span>
             </button>
           </div>
@@ -381,14 +381,14 @@ export function RunBoard({ snapshot, recovered, disconnected = false, client, on
               I reviewed this attempt
             </label>
             <button type="button" disabled={!canApprove(state) || actionPending === "approve"} onClick={() => void approve()}>
-              {actionPending === "approve" ? "Recording approval…" : state.approval ? "Approval recorded" : "Approve for integration"}
+              {actionPending === "approve" ? "Promoting…" : state.approval ? "Promotion requested" : "Promote winner"}
             </button>
           </footer>
         </section>
       )}
       <footer className="run-board-footnote">
-        <span>Board variant · Interactive prototype</span>
-        <span>Independent exploration → evidence → human selection → integration review</span>
+        <span>Team Run board · durable control plane</span>
+        <span>Fan-out → evidence → compare → promote a winner</span>
       </footer>
     </main>
   );

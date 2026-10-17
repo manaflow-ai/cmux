@@ -22,6 +22,10 @@ export type RunApiAttempt = {
   ordinal: number;
   status: string;
   providerVmId?: string | null;
+  runtimeId?: string | null;
+  placement?: { executionProvider?: string; backendProvider?: string; sessionId?: string | null };
+  attachable?: boolean;
+  retainedUntil?: string | null;
   result?: Record<string, unknown> | null;
   exitCode?: number | null;
   error?: string | null;
@@ -64,6 +68,59 @@ export type RunApiEvent = {
 
 export type RunApiEventPage = { events: RunApiEvent[]; nextCursor?: string | null };
 
+export type RunCreateInput = {
+  source: { repository: string; commit: string; ref?: string };
+  recipe: "parallel-review";
+  desiredAttempts: number;
+  provider?: "cloud-vm";
+  routing?: { requestedProvider?: "freestyle" | "huge-blue" | "unknown" };
+};
+
+export type RunCreateResponse = {
+  id: string;
+  status: string;
+  attempts: Array<{ id: string; ordinal: number; status: string }>;
+  createdAt?: string;
+  executionProvider?: string;
+  backendProvider?: string;
+};
+
+export type RunAttachTicketMint = {
+  ticket: string;
+  runId: string;
+  attemptId: string;
+  provider: string;
+  providerVmId: string;
+  providerWorkspaceId: string;
+  providerTerminalId: string;
+  expiresAt: string;
+};
+
+export type RunAttachTarget = RunAttachTicketMint & {
+  endpoint?: {
+    transport?: string;
+    route?: string;
+    token?: string;
+    session?: string;
+    expiresAtUnix?: number;
+  };
+  transport?: string;
+  route?: string;
+  token?: string;
+  session?: string;
+  expiresAtUnix?: number;
+};
+
+export type RunPromotionResponse = {
+  id: string;
+  runId: string;
+  attemptId: string;
+  runtime?: { id: string; state?: string; sessionId?: string | null };
+  workspace?: { id: string; kind?: string; state?: string; sessionId?: string | null };
+  attach?: { transport?: string; capability?: string; sessionId?: string | null; reconnectable?: boolean; expiresAt?: string | null };
+  createdAt?: string;
+};
+
 export type AttachTicketIntent = {
   runId: string;
   attemptId: string;
@@ -74,11 +131,15 @@ export type AttachTicketIntent = {
 export type RunApiClient = {
   getSnapshot(runId: string): Promise<RunApiSnapshot | RunBoardSnapshot>;
   getEvents(runId: string, after?: string): Promise<RunApiEventPage>;
+  createRun(input: RunCreateInput, idempotencyKey: string): Promise<RunCreateResponse>;
+  mintAttachTicket(runId: string, attemptId: string, ttlMs?: number): Promise<RunAttachTicketMint>;
+  redeemAttachTicket(runId: string, attemptId: string, ticket: string): Promise<RunAttachTarget>;
+  promoteAttempt(runId: string, attemptId: string, idempotencyKey: string): Promise<RunPromotionResponse>;
 };
 
 export type RunApiClientOptions = {
   baseUrl?: string;
-  fetch?: typeof globalThis.fetch;
+  fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   headers?: HeadersInit;
 };
 
@@ -112,7 +173,26 @@ async function readJson(response: Response): Promise<unknown> {
 export function createRunApiClient(options: RunApiClientOptions = {}): RunApiClient {
   const request = options.fetch ?? globalThis.fetch;
   const baseUrl = apiOrigin(options.baseUrl);
-  const headers = { Accept: "application/json", ...options.headers };
+  const headers = new Headers(options.headers);
+  headers.set("Accept", "application/json");
+  const jsonRequest = async <T>(path: string, init: RequestInit, message: string): Promise<T> => {
+    const response = await request(apiUrl(baseUrl, path), {
+      credentials: "same-origin",
+      ...init,
+      headers: (() => {
+        const merged = new Headers(headers);
+        new Headers(init.headers).forEach((value, key) => merged.set(key, value));
+        merged.set("Content-Type", "application/json");
+        return merged;
+      })(),
+    });
+    const body = await readJson(response);
+    if (!response.ok) {
+      const error = body as { error?: string; message?: string };
+      throw new RunApiHttpError(response.status, error.message ?? `${message} (${response.status})`, error.error);
+    }
+    return body as T;
+  };
   return {
     async getSnapshot(runId) {
       const response = await request(apiUrl(baseUrl, `/api/runs/${encodeURIComponent(runId)}`), {
@@ -139,6 +219,32 @@ export function createRunApiClient(options: RunApiClientOptions = {}): RunApiCli
       }
       const result = body as Partial<RunApiEventPage>;
       return { events: Array.isArray(result.events) ? result.events : [], nextCursor: result.nextCursor ?? null };
+    },
+    async createRun(input, idempotencyKey) {
+      return jsonRequest<RunCreateResponse>("/api/runs", {
+        method: "POST",
+        headers: { "idempotency-key": idempotencyKey },
+        body: JSON.stringify(input),
+      }, "Run creation failed");
+    },
+    async mintAttachTicket(runId, attemptId, ttlMs) {
+      return jsonRequest<RunAttachTicketMint>(`/api/runs/${encodeURIComponent(runId)}/attempts/${encodeURIComponent(attemptId)}/attach-ticket`, {
+        method: "POST",
+        body: JSON.stringify(ttlMs === undefined ? {} : { ttlMs }),
+      }, "Attach ticket mint failed");
+    },
+    async redeemAttachTicket(runId, attemptId, ticket) {
+      return jsonRequest<RunAttachTarget>(`/api/runs/${encodeURIComponent(runId)}/attempts/${encodeURIComponent(attemptId)}/attach-ticket`, {
+        method: "POST",
+        body: JSON.stringify({ ticket }),
+      }, "Attach ticket redeem failed");
+    },
+    async promoteAttempt(runId, attemptId, idempotencyKey) {
+      return jsonRequest<RunPromotionResponse>(`/api/runs/${encodeURIComponent(runId)}/attempts/${encodeURIComponent(attemptId)}/promote`, {
+        method: "POST",
+        headers: { "idempotency-key": idempotencyKey },
+        body: JSON.stringify({}),
+      }, "Attempt promotion failed");
     },
   };
 }
@@ -225,12 +331,16 @@ function mapAttempt(attempt: RunApiAttempt, artifacts: RunApiArtifact[]): RunAtt
   const buildValue = stringValue(resultValue(result, "build"));
   const state = attemptState(attempt.status);
   const providerVmId = stringValue(attempt.providerVmId);
+  const placement = record(attempt.placement);
+  const sessionId = stringValue(placement.sessionId) ?? stringValue(resultValue(result, "sessionId")) ?? providerVmId ?? attempt.id;
+  const backendProvider = stringValue(placement.backendProvider);
   return {
     id: attempt.id,
     label: stringValue(resultValue(result, "label")) ?? `Attempt ${String.fromCharCode(65 + attempt.ordinal)}`,
     direction: stringValue(resultValue(result, "direction")) ?? `Independent review ${attempt.ordinal + 1}`,
-    worker: `${stringValue(resultValue(result, "provider")) ?? "cloud-vm"}${providerVmId ? ` · ${providerVmId}` : ""}`,
-    sessionId: stringValue(resultValue(result, "sessionId")) ?? providerVmId ?? attempt.id,
+    worker: `${backendProvider ?? stringValue(resultValue(result, "provider")) ?? "cloud-vm"}${providerVmId ? ` · ${providerVmId}` : ""}`,
+    sessionId,
+    attachable: attempt.attachable,
     state,
     activity:
       stringValue(resultValue(result, "activity")) ??
@@ -307,7 +417,7 @@ export class RunBoardApiSession {
   private transportCursor: string | undefined;
   private lastSequence = 0;
 
-  constructor(private readonly runId: string, private readonly client: RunApiClient) {}
+  constructor(private readonly runId: string, private readonly client: Pick<RunApiClient, "getSnapshot" | "getEvents">) {}
 
   private async readPages(after?: string): Promise<RunApiEvent[]> {
     const events: RunApiEvent[] = [];
@@ -367,6 +477,39 @@ export function createFixtureRunApiClient(initial: RunBoardSnapshot, replay?: Ru
     },
     async getEvents() {
       return { events, nextCursor: null };
+    },
+    async createRun() {
+      return { id: snapshot.id, status: "running", attempts: snapshot.attempts.map((attempt, ordinal) => ({ id: attempt.id, ordinal, status: "running" })) };
+    },
+    async mintAttachTicket(runId, attemptId) {
+      return {
+        ticket: `fixture-ticket-${runId}-${attemptId}`,
+        runId,
+        attemptId,
+        provider: "cloud-vm",
+        providerVmId: "fixture-vm",
+        providerWorkspaceId: "fixture-workspace",
+        providerTerminalId: "fixture-terminal",
+        expiresAt: new Date(Date.now() + 120_000).toISOString(),
+      };
+    },
+    async redeemAttachTicket(runId, attemptId, ticket) {
+      return {
+        ticket,
+        runId,
+        attemptId,
+        provider: "cloud-vm",
+        providerVmId: "fixture-vm",
+        providerWorkspaceId: "fixture-workspace",
+        providerTerminalId: "fixture-terminal",
+        expiresAt: new Date(Date.now() + 120_000).toISOString(),
+        transport: "cmux-remote",
+        route: "wss://fixture.invalid/v1/link?ticket=fixture",
+        session: `session-${attemptId}`,
+      };
+    },
+    async promoteAttempt(runId, attemptId) {
+      return { id: `promotion-${attemptId}`, runId, attemptId, runtime: { id: `runtime-${attemptId}`, state: "ready", sessionId: `session-${attemptId}` } };
     },
   };
 }

@@ -101,6 +101,22 @@
 .run-board-approval input { margin: 0; }
 .run-board-approval > button { padding: 8px 12px; background: var(--page-text); color: var(--cmux-surface-background, Canvas); border: 0; border-radius: 5px; font-size: var(--text-caption); font-weight: 500; }
 .run-board-footnote { display: flex; justify-content: space-between; gap: 16px; margin-top: 14px; color: var(--page-text-3); font-size: var(--text-caption); }
+.run-board-host { min-height: 100%; background: var(--cmux-surface-background, Canvas); color: var(--page-text); }
+.run-board-host-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 18px; border-bottom: 1px solid var(--page-separator); font-size: var(--text-detail); }
+.run-board-host-bar > div { display: flex; align-items: center; gap: 12px; }
+.run-board-host-bar small { color: var(--page-text-3); }
+.run-board-host-bar button { border: 1px solid var(--page-separator); border-radius: 5px; background: transparent; padding: 6px 10px; font-size: var(--text-caption); }
+.run-board-host-receipt { color: var(--page-success, #16803c); font-size: var(--text-caption); }
+.run-board-launcher { padding-bottom: 40px; }
+.run-board-create { max-width: 680px; margin: 48px auto; padding: 28px; border: 1px solid var(--page-separator); border-radius: 9px; box-shadow: 0 8px 24px rgb(0 0 0 / 5%); }
+.run-board-create h1 { margin: 0 0 10px; font-size: var(--text-title); font-weight: 550; }
+.run-board-create > p { margin: 0 0 24px; color: var(--page-text-2); line-height: 1.5; }
+.run-board-create label { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; font-size: var(--text-caption); color: var(--page-text-2); }
+.run-board-create input, .run-board-create select { min-height: 34px; border: 1px solid var(--page-separator); border-radius: 5px; background: var(--cmux-surface-background, Canvas); color: inherit; padding: 7px 9px; font: inherit; }
+.run-board-create-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 14px; }
+.run-board-create-note { margin-top: 20px; padding: 12px 14px; border-radius: 6px; background: var(--page-hover); color: var(--page-text-2); font-size: var(--text-caption); line-height: 1.5; }
+.run-board-create-submit { margin-top: 22px; border: 0; border-radius: 5px; background: var(--page-text); color: var(--cmux-surface-background, Canvas); padding: 9px 13px; font-size: var(--text-caption); font-weight: 550; }
+.run-board-create-submit:disabled { opacity: .55; }
 .run-board-reconnect { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 12px 14px; margin-bottom: 16px; border: 1px solid var(--page-separator); border-radius: 6px; background: var(--page-hover); }
 .run-board-reconnect > div { display: flex; flex-direction: column; gap: 5px; }
 .run-board-reconnect strong { font-size: var(--text-detail); font-weight: 500; }

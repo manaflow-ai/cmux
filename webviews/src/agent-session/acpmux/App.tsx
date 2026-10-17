@@ -250,6 +250,8 @@ import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/Sugge
 import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
 import { experimentArm } from "../../experiments/experiment";
+import { TeamRunBoard } from "./run-board/TeamRunBoard";
+import type { RunAttachTarget } from "./run-board/runApi";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -2226,6 +2228,12 @@ function AcpmuxPane() {
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
   const [newSession, setNewSession] = useState(false);
+  const [runBoardOpen, setRunBoardOpen] = useState(() => new URLSearchParams(location.search).has("run-board"));
+  useEffect(() => {
+    const open = () => setRunBoardOpen(true);
+    window.addEventListener("cmux-acpmux-run-board", open);
+    return () => window.removeEventListener("cmux-acpmux-run-board", open);
+  }, []);
   /// The chat whose recorded history plays back read-only in place of it (chat menu Replay, cx-osmw).
   const [replaying, setReplaying] = useState<string | undefined>();
   // The side question (`/btw`) shown above the composer, for the chat it was asked about.
@@ -4474,6 +4482,12 @@ function AcpmuxPane() {
           ignoreFailure(callNative("project.addFiles", { cwd, name })),
         );
     const tools: ChatMenuItem[] = [
+      {
+        key: "run-board",
+        label: "Run board",
+        icon: "action.add",
+        onSelect: () => setRunBoardOpen(true),
+      },
       ...replay,
       ...(instructions ? [instructions] : []),
       ...(projectFiles ? [projectFiles] : []),
@@ -5222,6 +5236,20 @@ function AcpmuxPane() {
             .catch(() => undefined),
       }
     : undefined;
+  if (runBoardOpen)
+    return (
+      <TeamRunBoard
+        onClose={() => setRunBoardOpen(false)}
+        onAttachTarget={async (target: RunAttachTarget) => {
+          const route = target.route ?? target.endpoint?.route;
+          if (!route) throw new Error("The attach response did not include a cmux remote route.");
+          // Reuse the existing native tab bridge. The route is a short-lived, one-use attach
+          // credential; it is never stored in the Run snapshot or event log.
+          const quoted = `'${route.replaceAll("'", "'\\''")}'`;
+          await callNative("tab.open", { kind: "terminal", text: `cmux remote connect ${quoted} --carrier`, run: true, keep: true });
+        }}
+      />
+    );
   if (quick)
     return (
       <ShortcutsContext.Provider value={shortcuts}>
