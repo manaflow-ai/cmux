@@ -1,6 +1,6 @@
 public import Foundation
 
-/// The cached, non-secret harness facts reported by one acpmux owner.
+/// The cached, non-secret harness facts reported by one machine's acpmux owner.
 ///
 /// An empty snapshot means the owner has no cached observations. It does
 /// not establish that this machine has no agent CLIs installed.
