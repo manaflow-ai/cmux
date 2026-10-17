@@ -210,10 +210,19 @@ public final class CEFBrowser {
     }
 
     private func initialURLString() -> String {
-        // An empty URL creates the browser without navigating, which
-        // restoring a navigation state needs.
-        if pendingRestore != nil { return "" }
-        defer { pendingURL = nil }
+        let url = Self.creationURL(pendingURL: pendingURL, isPlaceholder: isPlaceholder)
+        if !url.isEmpty { pendingURL = nil }
+        return url
+    }
+
+    /// The URL Chromium's browser is created with. An empty URL creates it
+    /// without navigating: a page's URL (or its restored navigation state)
+    /// loads from ``windowCreated()`` after the owner has set the page up
+    /// (``onWindowCreated``: document-start scripts such as console capture
+    /// and init scripts), so its first document runs them too. A popup
+    /// placeholder loads its blank page at creation; nothing waits for it.
+    nonisolated static func creationURL(pendingURL: URL?, isPlaceholder: Bool) -> String {
+        guard isPlaceholder else { return "" }
         return pendingURL?.absoluteString ?? ""
     }
 
