@@ -528,9 +528,14 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                 return clientMessageID
             }
             guard let pending = state.pendingSends.values.filter({ pending in
-                (pending.serverMessageID == message.id
-                    || (pending.serverMessageID == nil && pending.text == message.text))
-                    && message.at >= pending.startedAt.addingTimeInterval(-5)
+                if pending.serverMessageID == message.id {
+                    return true
+                }
+                // Text is only a fallback for hosts that omit both ids. Do
+                // not let an older identical message satisfy a newer send.
+                return pending.serverMessageID == nil
+                    && pending.text == message.text
+                    && message.at >= pending.startedAt
             })
                 .min(by: { $0.startedAt < $1.startedAt }) else { return nil }
             state.pendingSends.removeValue(forKey: pending.clientMessageID)
