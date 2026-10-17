@@ -34,7 +34,7 @@ public final class CEFBrowserPage: BrowserPage {
     /// Finds the helper process of a renderer; set by the provider, shared by its pages.
     var rendererProcesses: CEFRendererProcessResolver?
     /// Kept to give popups this page opens the same feature wiring.
-    private let shimProvider: @MainActor () -> CEFShimLibrary?
+    let shimProvider: @MainActor () -> CEFShimLibrary?
     private let devToolsLayoutStore: BrowserDevToolsLayoutStore
     /// `cmux_shim_set_navigation_guard` mode bits this page wants.
     private var navigationGuardMode: Int32 = 0
@@ -50,6 +50,11 @@ public final class CEFBrowserPage: BrowserPage {
     )
     /// Permission prompts and downloads of this page (CEFBrowserPage+Data.swift).
     let dataBridge = CEFBrowserPageDataBridge()
+    /// DevTools protocol events automation reads back, and whether automation
+    /// asked for them, per Chromium browser (CEFBrowserPage+ProtocolTelemetry).
+    var telemetry = (
+        recorder: BrowserProtocolTelemetryRecorder(), wanted: false, enabledBrowserID: Int32?.none
+    )
 
     /// The capabilities of every Chromium page.
     public static let engineCapabilities: BrowserEngineCapabilities = [
@@ -103,6 +108,7 @@ public final class CEFBrowserPage: BrowserPage {
             self?.handle(event)
         }
         browser.onWindowCreated = { [weak self] id in
+            self?.enableProtocolTelemetryIfWanted(browserID: id)
             self?.registerPendingUserScripts(browserID: id)
         }
     }
@@ -169,6 +175,11 @@ public final class CEFBrowserPage: BrowserPage {
     public func goBack() { browser.goBack() }
     /// Goes forward.
     public func goForward() { browser.goForward() }
+    /// Chromium's back/forward list for Back and Forward history menus.
+    public func navigationList() -> CEFNavigationList? { browser.navigationList() }
+    /// Goes `offset` entries back (negative) or forward in the history.
+    @discardableResult
+    public func goToEntry(offset: Int) -> Bool { browser.goToEntry(offset: offset) }
     /// Reloads.
     public func reload() { browser.reload() }
 
@@ -495,6 +506,8 @@ public final class CEFBrowserPage: BrowserPage {
             return
         }
         switch event {
+        case .devToolsMessage(_, let json):
+            receiveProtocolMessage(json)
         case .jsDialog(_, let token, let kind, let message, let origin, let defaultText, let isReload):
             handleJavaScriptDialog(token: token, kind: kind, message: message, origin: origin,
                                    defaultText: defaultText, isReload: isReload)

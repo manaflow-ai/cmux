@@ -336,6 +336,9 @@ extension TerminalController {
                 return
             }
             guard let context = result.context else { return }
+            // Automation drives this page now: a Chromium page starts
+            // recording its network, console and error events.
+            context.browserPanel.startAutomationProtocolTelemetry()
             resolved = context
         }
         guard let resolved else { return failure }

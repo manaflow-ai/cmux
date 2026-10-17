@@ -57,7 +57,7 @@ struct CEFPopupWindowsTests {
         var created = CEFCreatedBy(opener: 0, disposition: .newForegroundTab, features: nil)
         created.url = "https://example.com/"
 
-        runtime.handle(.afterCreated(browser: 42, request: 0, window: 0, created: created))
+        runtime.handle(.afterCreated(browser: 42, request: 0, window: 5, created: created))
         runtime.resolveOrphan(42, created: created)
 
         #expect(reopened == [try #require(URL(string: "https://example.com/"))])
@@ -73,7 +73,7 @@ struct CEFPopupWindowsTests {
         var created = CEFCreatedBy(opener: 0, disposition: .newForegroundTab, features: nil)
         created.url = "https://example.com/"
 
-        runtime.handle(.afterCreated(browser: 42, request: 0, window: 0, created: created))
+        runtime.handle(.afterCreated(browser: 42, request: 0, window: 5, created: created))
         runtime.handle(.beforeClose(browser: 42))
         runtime.resolveOrphan(42, created: created)
 
@@ -138,7 +138,7 @@ struct CEFPopupWindowEventOrderTests {
         var created = CEFCreatedBy(opener: 0, disposition: .newForegroundTab, features: nil)
         created.url = "chrome-extension://abc/popup.html"
 
-        runtime.handle(.afterCreated(browser: 42, request: 0, window: 0, created: created))
+        runtime.handle(.afterCreated(browser: 42, request: 0, window: 5, created: created))
         runtime.handle(.tab(.popupWindowCreated, browser: 42, window: 9, value: 4))
         runtime.resolveOrphan(42, created: created)
 
@@ -161,5 +161,21 @@ struct CEFPopupWindowEventOrderTests {
 
         #expect(opened == 0)
         #expect(runtime.browser(id: 42) == nil)
+    }
+
+    @MainActor @Test
+    func unplacedPopupTabIsClaimedByItsPopupWindow() {
+        let runtime = CEFRuntime(layout: nil)
+        runtime.popupWindowsEnabled = true
+
+        // AFTER_CREATED with no window yet: the tab waits for an insertion.
+        runtime.handle(.afterCreated(browser: 42, request: 0, window: 0,
+                                     created: CEFCreatedBy(opener: 0, disposition: .newPopup, features: nil)))
+        #expect(runtime.unplacedPopups[42] != nil)
+
+        runtime.handle(.tab(.popupWindowCreated, browser: 42, window: 9, value: 4))
+
+        #expect(runtime.unplacedPopups[42] == nil)
+        #expect(runtime.keptPopupWindows.contains(9))
     }
 }

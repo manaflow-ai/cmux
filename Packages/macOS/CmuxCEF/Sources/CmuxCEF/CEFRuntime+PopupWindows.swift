@@ -25,6 +25,7 @@ extension CEFRuntime {
         // Its tab's AFTER_CREATED (no opener) may have arrived in this same
         // turn: that orphan decision must not close it.
         deferredOrphans.remove(browser)
+        unplacedPopups[browser] = nil
         Task { @MainActor [weak self] in self?.adoptPopupWindow(window: window, browser: browser) }
     }
 
@@ -69,6 +70,8 @@ extension CEFRuntime {
 
     func adoptPopupWindow(window: Int32, browser: Int32) {
         deferredOrphans.remove(browser)
+        // A tab that waited for a window of a page (`unplacedPopups`) is this window's.
+        unplacedPopups[browser] = nil
         guard browser != 0, browsers[browser] == nil, !closedUnregistered.contains(browser) else {
             notePopupWindow("window=\(window) browser=\(browser) skipped: known=\(browsers[browser] != nil) "
                             + "closed=\(closedUnregistered.contains(browser))")

@@ -165,6 +165,17 @@ class Client : public CefClient,
     return true;
   }
 
+  // A modified click (Cmd-click, middle click, Shift-click) opens its tab
+  // through OpenURLFromTab, not OnBeforePopup, and Chromium reports that tab
+  // without an opener. The host credits it to the page that asked
+  // (CEFPopupLedger), with this disposition. Chromium opens it as usual.
+  bool OnOpenURLFromTab(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>, const CefString& target_url,
+                        cef_window_open_disposition_t target_disposition, bool user_gesture) override {
+    Emit(CMUX_SHIM_POPUP, browser->GetIdentifier(), 0, target_disposition, user_gesture ? 1 : 0,
+         target_url.ToString());
+    return false;
+  }
+
   // MARK: Chrome Web Store
 
   CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>,
