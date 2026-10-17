@@ -6,6 +6,7 @@
 // Animations), and a change mid-motion starts from what is on screen. Reduce Motion keeps the
 // fades and drops the slides (rule 7): its move token is 0.
 import { type RefObject, useLayoutEffect, useRef } from "react";
+import { isAgentMotionOff } from "../../shared/motion";
 
 type Places = Map<string, { x: number; y: number }>;
 
@@ -49,6 +50,10 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   const signature = keys.join("\n");
   const observed = useRef<{ root: HTMLElement; observer: ResizeObserver } | null>(null);
   useLayoutEffect(() => () => observed.current?.observer.disconnect(), []);
+  // The key signature is the invalidation boundary for list motion. The callers derive `keys`
+  // from their snapshots and may allocate a fresh array on every render; depending on that array
+  // would put the measurement work back on every render. ResizeObserver remains responsible for
+  // layout-only changes such as a grid column switch.
   useLayoutEffect(() => {
     const root = list.current;
     if (observed.current?.root !== root) {
@@ -70,6 +75,14 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
       shown.current = "";
       return;
     }
+    if (isAgentMotionOff()) {
+      for (const animation of running.current) animation.cancel();
+      running.current = [];
+      places.current = measure(root, elements, keys);
+      shown.current = signature;
+      shownKeys.current = keys;
+      return;
+    }
     const changed = shown.current !== "" && shown.current !== signature;
     const before = places.current;
     // Reads: where each row is drawn now (running slides included), then its new place.
@@ -86,6 +99,10 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     const move = reduced ? 0 : seconds(style.getPropertyValue("--agent-motion-move")) * 1000;
     const appear = seconds(style.getPropertyValue("--agent-motion-in")) * 1000;
     const easing = style.getPropertyValue("--agent-ease-out").trim() || "ease-out";
+    // CSS cannot cancel Web Animations API instances. The explicit host policy is still honored
+    // here when a list update races the theme's zero-motion transition.
+    const motionOff = root.ownerDocument.documentElement.dataset.agentMotion === "off";
+    if (motionOff) return;
     // Writes.
     for (const [index, element] of elements.entries()) {
       const key = keys[index];
@@ -108,5 +125,6 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
         );
       }
     }
-  });
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `keys` is represented by its value signature.
+  }, [list, rows, signature]);
 }

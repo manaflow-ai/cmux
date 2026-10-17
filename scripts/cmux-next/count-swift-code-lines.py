@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+"""Count Swift source lines while ignoring blank lines and comments.
+
+This is deliberately a small lexer rather than a regex: URLs and comment-like text inside
+string literals must count as source, while merge-tree-only documentation/comment lines must not.
+"""
+
+from __future__ import annotations
+
+import argparse
+import io
+import subprocess
+import tarfile
+from pathlib import Path
+
+
+def count_source_lines(text: str) -> int:
+    count = 0
+    code_on_line = False
+    mode = "normal"
+    block_depth = 0
+    index = 0
+
+    while index < len(text):
+        char = text[index]
+        pair = text[index : index + 2]
+        triple = text[index : index + 3]
+
+        if mode == "normal":
+            if char == "\n":
+                count += int(code_on_line)
+                code_on_line = False
+            elif pair == "//":
+                mode = "line-comment"
+                index += 1
+            elif pair == "/*":
+                mode = "block-comment"
+                block_depth = 1
+                index += 1
+            elif triple == '\"\"\"':
+                mode = "multiline-string"
+                code_on_line = True
+                index += 2
+            elif char == '\"':
+                mode = "string"
+                code_on_line = True
+            elif not char.isspace():
+                code_on_line = True
+        elif mode == "line-comment":
+            if char == "\n":
+                count += int(code_on_line)
+                code_on_line = False
+                mode = "normal"
+        elif mode == "block-comment":
+            if pair == "/*":
+                block_depth += 1
+                index += 1
+            elif pair == "*/":
+                block_depth -= 1
+                index += 1
+                if block_depth == 0:
+                    mode = "normal"
+            elif char == "\n":
+                count += int(code_on_line)
+                code_on_line = False
+        elif mode == "string":
+            code_on_line = True
+            if char == "\\":
+                index += 1
+            elif char == '\"':
+                mode = "normal"
+            elif char == "\n":
+                count += 1
+                code_on_line = False
+        else:  # multiline-string
+            code_on_line = True
+            if triple == '\"\"\"':
+                mode = "normal"
+                index += 2
+            elif char == "\n":
+                count += 1
+                code_on_line = False
+
+        index += 1
+
+    if code_on_line:
+        count += 1
+    return count
+
+
+def working_tree_count(root: Path) -> int:
+    return sum(count_source_lines(path.read_text()) for path in sorted(root.rglob("*.swift")))
+
+
+def git_count(root: Path, ref: str, prefix: str) -> int:
+    archive = subprocess.run(
+        ["git", "-C", str(root), "archive", "--format=tar", ref, "--", prefix],
+        check=True,
+        stdout=subprocess.PIPE,
+    )
+    total = 0
+    with tarfile.open(fileobj=io.BytesIO(archive.stdout), mode="r:") as bundle:
+        for member in bundle:
+            if member.isfile() and member.name.endswith(".swift"):
+                stream = bundle.extractfile(member)
+                if stream is not None:
+                    total += count_source_lines(stream.read().decode())
+    return total
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--git-ref", help="count the Swift files stored at this Git ref")
+    parser.add_argument("root", nargs="?", default=".")
+    args = parser.parse_args()
+    root = Path(args.root).resolve()
+    prefix = "Packages/macOS/CmuxNext/Sources/CmuxNextApp"
+    total = git_count(root, args.git_ref, prefix) if args.git_ref else working_tree_count(root / prefix)
+    print(total)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
