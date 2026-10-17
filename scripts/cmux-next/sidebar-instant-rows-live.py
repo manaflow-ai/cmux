@@ -128,7 +128,7 @@ def scenario(name, presses, gap=0.033, settle=None, record=True, sample=True):
     if sample:
         sampler.start()
     for press in presses:
-        shown = selected_key(workspace_rows())
+        shown = selected_key(workspace_rows()) if sample else None  # quiet runs ask the app nothing during the closes
         sent = time.time()
         action(press)
         pressed.append((sent, time.time(), shown))
