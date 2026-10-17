@@ -73,7 +73,7 @@ jobs:
           CREATE_DMG_VERSION: 8.0.0
         run: |
           set -euo pipefail
-          npm_config_prefix="$RUNNER_TEMP/npm-global"
+          export npm_config_prefix="$RUNNER_TEMP/npm-global"
           mkdir -p "$npm_config_prefix"
           npm install --global "create-dmg@${CREATE_DMG_VERSION}"
           wrapper_dir="$RUNNER_TEMP/create-dmg-wrapper"
