@@ -77,3 +77,16 @@ tick, and debug-call latency was 1.09 ms p50 / 4.99 ms p95 / 9.14 ms max, with n
 calls. The idle scroll pass had no missed frames. The ticking scroll pass had 9 missed frames
 and 18 input calls over one frame, which is the next performance target. Receipt:
 `artifacts/perf-sidebar-20261018/summary-naming-default.json`.
+
+## Ticking-scroll efficiency follow-up — 2026-10-18
+
+Time Profiler showed tick work was only 172–435 microseconds per tick, with no busy runs over
+30 ms and no structural rebuilds. The clear low-risk hot path was repeated hover-card source
+hit-testing during scroll realization while no card was active. `SidebarListView.updateHover`
+now skips that geometry hit test in that state while preserving row hover updates and active-card
+tracking.
+
+The baseline aggregate had 9 missed frames during ticking scroll; the tagged after run had 1.
+One repetition still spiked to 30 missed frames, so variance remains. Receipts are
+`artifacts/perf-sidebar-20261018/summary-naming-default.json` and
+`artifacts/perf-sidebar-20261018/summary-naming-after.json`.
