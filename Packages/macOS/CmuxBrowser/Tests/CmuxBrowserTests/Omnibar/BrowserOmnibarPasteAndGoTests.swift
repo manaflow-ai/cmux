@@ -25,10 +25,9 @@ import Testing
         let editor = BrowserOmnibarPasteFieldEditor()
         let handler = PasteAndGoHandler()
         editor.delegate = handler
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.pasteAndGo.\(UUID().uuidString)"))
-        defer { pasteboard.releaseGlobally() }
-        pasteboard.clearContents()
-        pasteboard.setString("https://example.com/b", forType: .string)
+        // The menu reads the pasteboard's text; pass it directly so the test
+        // does not need a pasteboard server (fleet test steps have none).
+        let text = "https://example.com/b"
 
         let base = NSMenu()
         base.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: ""))
@@ -36,11 +35,11 @@ import Testing
         base.addItem(.separator())
         base.addItem(NSMenuItem(title: "Services", action: nil, keyEquivalent: ""))
 
-        let menu = try #require(editor.pasteAndGoMenu(from: base, pasteboard: pasteboard))
+        let menu = try #require(editor.pasteAndGoMenu(from: base, pasteboardText: text))
         #expect(menu.items.map(\.title) == ["Cut", "Paste", "Paste and Go", "", "Services"])
         // The shared default menu is never changed; a second open shows one row.
         #expect(base.items.count == 4)
-        let again = try #require(editor.pasteAndGoMenu(from: menu, pasteboard: pasteboard))
+        let again = try #require(editor.pasteAndGoMenu(from: menu, pasteboardText: text))
         #expect(again.items.filter { $0.title == "Paste and Go" }.count == 1)
 
         BrowserMenuActionTarget.target(of: menu.items[2])?.run(nil)
@@ -49,18 +48,15 @@ import Testing
 
     @Test func fieldEditorMenuIsUnchangedWithoutAHandlerOrText() throws {
         let editor = BrowserOmnibarPasteFieldEditor()
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.pasteAndGo.\(UUID().uuidString)"))
-        defer { pasteboard.releaseGlobally() }
-        pasteboard.clearContents()
-        pasteboard.setString("query", forType: .string)
         let base = NSMenu()
         base.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: ""))
 
-        #expect(editor.pasteAndGoMenu(from: base, pasteboard: pasteboard)?.items.map(\.title) == ["Paste"])
+        // Text on the pasteboard, but no handler.
+        #expect(editor.pasteAndGoMenu(from: base, pasteboardText: "query")?.items.map(\.title) == ["Paste"])
         let handler = PasteAndGoHandler()
         editor.delegate = handler
-        pasteboard.clearContents()
-        #expect(editor.pasteAndGoMenu(from: base, pasteboard: pasteboard)?.items.map(\.title) == ["Paste"])
+        // A handler, but an empty pasteboard.
+        #expect(editor.pasteAndGoMenu(from: base, pasteboardText: nil)?.items.map(\.title) == ["Paste"])
     }
 }
 

@@ -18,9 +18,14 @@ final class BrowserOmnibarPasteFieldEditor: NSTextView {
     ///   - pasteboard: The pasteboard the row pastes from.
     /// - Returns: The menu to show.
     func pasteAndGoMenu(from base: NSMenu?, pasteboard: NSPasteboard) -> NSMenu? {
+        pasteAndGoMenu(from: base, pasteboardText: pasteboard.string(forType: .string))
+    }
+
+    /// ``pasteAndGoMenu(from:pasteboard:)`` for the pasteboard's text.
+    func pasteAndGoMenu(from base: NSMenu?, pasteboardText: String?) -> NSMenu? {
         guard let base, isEditable,
               let handler = delegate as? any BrowserOmnibarPasteAndGoHandling,
-              let row = BrowserOmnibarPasteAndGo.row(forPasteboardText: pasteboard.string(forType: .string)) else {
+              let row = BrowserOmnibarPasteAndGo.row(forPasteboardText: pasteboardText) else {
             return base
         }
         return BrowserOmnibarPasteAndGo.menu(adding: row, to: base) { [weak handler] text in

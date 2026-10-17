@@ -60,7 +60,8 @@ import Testing
             }
         }
         // 100x100 + 100x60 - 50x50 overlap + the 200 pt separator row.
-        #expect(area(holes) == 10_000 + 6_000 - 2_500 + 200)
+        // Splitting into non-overlapping rects can leave floating-point residue.
+        #expect(abs(area(holes) - (10_000 + 6_000 - 2_500 + 200)) < 0.001)
     }
 
     @Test func changingTheWindowRectsAsksTheHostsOfThatWindowToUpdate() async throws {
