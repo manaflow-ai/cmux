@@ -12445,6 +12445,137 @@
           }
         }
       }
+    },
+    "cloud.operationUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This action is unavailable for this Cloud machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الإجراء غير متاح لهذا الجهاز السحابي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova radnja nije dostupna za ovu Cloud mašinu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne handling er ikke tilgængelig på denne Cloud-maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Aktion ist für diese Cloud-Maschine nicht verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta acción no está disponible para esta máquina en la nube."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette action n’est pas disponible pour cette machine Cloud."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa azione non è disponibile per questa macchina Cloud."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud マシンでは、この操作を利用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សកម្មភាពនេះមិនអាចប្រើបានសម្រាប់ម៉ាស៊ីន Cloud នេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Cloud 머신에서는 이 작업을 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne handlingen er ikke tilgjengelig for denne Cloud-maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta akcja jest niedostępna dla tej maszyny Cloud."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta ação não está disponível para esta máquina Cloud."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это действие недоступно для этой облачной машины."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การดำเนินการนี้ไม่พร้อมใช้งานสำหรับเครื่อง Cloud นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu işlem bu Cloud makinesinde kullanılamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця дія недоступна для цієї хмарної машини."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hành động này không khả dụng cho máy Cloud này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Cloud 机器无法执行此操作。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Cloud 機器無法執行此操作。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
