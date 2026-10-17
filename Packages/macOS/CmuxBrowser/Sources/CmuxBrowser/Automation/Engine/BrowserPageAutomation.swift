@@ -296,10 +296,16 @@ public struct BrowserPageAutomation {
         ])
         // CEF's fork accepts the emulation command but older Chromium
         // network services may leave already-created requests online. A
-        // wildcard block closes that gap for fetch/XHR while offline; it is
-        // best-effort because older forks do not expose Network.setBlockedURLs.
+        // wildcard block closes that gap for fetch/XHR while offline. The
+        // block list applies only with the Network domain enabled, and takes
+        // `urls` glob strings (`urlPatterns` expects pattern objects, so
+        // strings there are rejected). It is best-effort because older forks
+        // do not expose Network.setBlockedURLs.
+        if overrides.offline {
+            _ = try? await devTools("Network.enable", [:])
+        }
         _ = try? await devTools("Network.setBlockedURLs", [
-            "urlPatterns": (overrides.offline ? ["*"] : []) as [String],
+            "urls": (overrides.offline ? ["*"] : []) as [String],
         ])
     }
 
