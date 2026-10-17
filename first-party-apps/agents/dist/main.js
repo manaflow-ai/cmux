@@ -94,9 +94,21 @@
   var signsInItself = (id) => (providerFor(id)?.signIn ?? "cli") === "cli";
   var displayName = (id, ownerName) => providerFor(id)?.name ?? ownerName ?? id;
   function hintsFor(id, platform) {
+    if (platform === null)
+      return [];
     return (providerFor(id)?.hints ?? []).filter((h) => !h.platforms || h.platforms.includes(platform));
   }
-  var platformOf = (os) => String(os ?? "").toLowerCase().startsWith("linux") ? "linux" : "darwin";
+  function platformOf(os) {
+    switch (typeof os === "string" ? os.toLowerCase() : "") {
+      case "linux":
+        return "linux";
+      case "darwin":
+      case "macos":
+        return "darwin";
+      default:
+        return null;
+    }
+  }
   var MISSING = new Set(["operation.unsupported", "scope.missing"]);
   function toOpError(e, op) {
     const err = e;
@@ -307,127 +319,6 @@
         return busy(j) ? j : null;
     }
   }
-  var [machines, setMachines] = signal([]);
-  var [byMachine, setByMachine] = signal({});
-  var [machinesError, setMachinesError] = signal(null);
-  var [jobs, setJobs] = signal({});
-  var [loaded, setLoaded] = signal(false);
-  var [selected, setSelected] = signal(null);
-  var LOCAL = { id: "", name: "", origin: "local", status: "running" };
-  var stateOf = (machine) => byMachine()[machine] ?? { entries: [], complete: false, error: null, loading: true };
-  function entryFor(machine, cli) {
-    const state = stateOf(machine);
-    return state.entries.find((e) => e.cli === cli) ?? {
-      cli,
-      installed: state.complete ? false : null,
-      version: null,
-      latest: null,
-      install_method: null,
-      updatable: false,
-      accounts: []
-    };
-  }
-  var inventoryComplete = () => machines().length > 0 && machines().every((m) => {
-    const state = stateOf(m.id);
-    return state.complete && !state.loading && !state.error;
-  });
-  var jobOf = (machine, cli) => jobs()[jobKey(machine, cli)] ?? null;
-  var localMachine = () => machines().find((m) => m.origin === "local") ?? machines()[0] ?? LOCAL;
-  var started = false;
-  function start() {
-    if (started)
-      return;
-    started = true;
-    load(false);
-    cmux.events.on("agent_cli.watch", (p) => onWatch(p));
-  }
-  async function load(checkLatest) {
-    const m = await call("machine.list");
-    if (m.ok) {
-      setMachines(m.value.filter((x) => x.status !== "stopped").map(sanitizeMachine));
-      setMachinesError(null);
-    } else {
-      setMachines([LOCAL]);
-      setMachinesError(m.error.missing ? null : m.error);
-    }
-    await Promise.all(machines().map((x) => loadMachine(x.id, checkLatest)));
-    setLoaded(true);
-  }
-  async function loadMachine(machine, checkLatest) {
-    setByMachine((all) => ({ ...all, [machine]: { ...all[machine] ?? { entries: [], error: null }, complete: false, loading: true } }));
-    const params = machine ? { machine } : {};
-    if (checkLatest)
-      params.check_latest = true;
-    const r = await call("agent_cli.list", params);
-    const key = machine && r.ok && typeof r.value.machine === "string" && machines().some((m) => m.id === r.value.machine) ? r.value.machine : machine;
-    setByMachine((all) => ({
-      ...all,
-      [key]: r.ok ? { entries: withMissing(r.value.clis ?? [], r.value.complete === true), complete: r.value.complete === true, error: null, loading: false } : { entries: all[key]?.entries ?? [], complete: false, error: r.error, loading: false }
-    }));
-    if (r.ok)
-      for (const e of r.value.clis ?? [])
-        dispatchJob(key, e.cli, { type: "clear" });
-  }
-  function dispatchJob(machine, cli, ev) {
-    const key = jobKey(machine, cli);
-    setJobs((all) => {
-      const next = reduceJob(all[key] ?? null, ev);
-      if (next === (all[key] ?? null))
-        return all;
-      const copy = { ...all };
-      if (next)
-        copy[key] = next;
-      else
-        delete copy[key];
-      return copy;
-    });
-  }
-  function onWatch(ev) {
-    if (!ev || typeof ev.cli !== "string")
-      return;
-    const machine = typeof ev.machine === "string" ? ev.machine : "";
-    if (ev.job)
-      dispatchJob(machine, ev.cli, { type: "finished", job: ev.job.job, ok: ev.job.ok, exitCode: ev.job.exit_code, error: ev.job.error });
-    if (ev.entry || ev.removed) {
-      setByMachine((all) => {
-        const cur = all[machine] ?? { entries: [], complete: false, error: null, loading: false };
-        return { ...all, [machine]: { ...cur, entries: applyWatch(cur.entries, ev, cur.complete) } };
-      });
-    }
-  }
-  async function run(kind, machine, cli, op, params, token) {
-    dispatchJob(machine, cli, { type: "request", kind });
-    const r = await call(op, { ...machine ? { machine } : {}, cli, ...params }, withGesture(token));
-    if (r.ok)
-      dispatchJob(machine, cli, { type: "started", job: r.value.job, terminal: r.value.terminal ?? null });
-    else
-      dispatchJob(machine, cli, { type: "refused", error: r.error.code });
-    return r;
-  }
-  function update(machine, cli) {
-    return run("update", machine, cli, "agent_cli.update", {}, gesture());
-  }
-  function install(machine, cli, method) {
-    return run("install", machine, cli, "agent_cli.install", { method }, gesture());
-  }
-  async function signIn(machine, cli) {
-    const token = gesture();
-    const r = await run("sign_in", machine, cli, "agent_cli.sign_in", {}, token);
-    const provider = providerFor(cli)?.accountsProvider;
-    const isLocal = !machine || machine === localMachine().id;
-    if (!r.ok && r.error.code === "operation.unsupported" && provider && isLocal) {
-      dispatchJob(machine, cli, { type: "clear" });
-      dispatchJob(machine, cli, { type: "request", kind: "sign_in" });
-      const a = await call("action.run", { id: "accounts.reauthenticate", args: { provider } }, withGesture(token));
-      dispatchJob(machine, cli, a.ok ? { type: "started", job: "accounts.reauthenticate", terminal: null } : { type: "refused", error: a.error.code });
-    }
-  }
-  function refresh() {
-    return load(true);
-  }
-  function openPane(token = gesture()) {
-    return call("app.pane.open", { kind: "agentHub" }, withGesture(token));
-  }
   // first-party-apps/agents/strings/en.json
   var en_default = {
     "account.expired": "Sign-in expired",
@@ -448,6 +339,7 @@
     "empty.none": "No agent CLIs reported",
     "empty.title": "No agent CLIs on this machine",
     "error.load": "Cannot list agent CLIs",
+    "error.owner": "The inventory reply did not match the selected machine.",
     "error.missingOp": "This cmux does not provide {op}.",
     "error.missingTitle": "Agent CLI detection is not available yet",
     "folded.missing": "Not installed ({n})",
@@ -506,6 +398,7 @@
     "empty.none": "エージェントCLIの報告がありません",
     "empty.title": "このマシンにエージェントCLIはありません",
     "error.load": "エージェントCLIを一覧できません",
+    "error.owner": "インベントリの応答が選択したマシンと一致しませんでした。",
     "error.missingOp": "このcmuxは{op}を提供していません。",
     "error.missingTitle": "エージェントCLIの検出はまだ使えません",
     "folded.missing": "未インストール（{n}）",
@@ -562,6 +455,159 @@
   function t(key, english, vars = {}) {
     const template = tables[language]?.[key] ?? english;
     return template.replace(/\{(\w+)\}/g, (whole, name) => (name in vars) ? String(vars[name]) : whole);
+  }
+  var [machines, setMachines] = signal([]);
+  var [byMachine, setByMachine] = signal({});
+  var [machinesError, setMachinesError] = signal(null);
+  var [jobs, setJobs] = signal({});
+  var [loaded, setLoaded] = signal(false);
+  var [selected, setSelected] = signal(null);
+  var LOCAL = { id: "", name: "", origin: "local", status: "running" };
+  var stateOf = (machine) => byMachine()[machine] ?? { entries: [], complete: false, error: null, loading: true };
+  function entryFor(machine, cli) {
+    const state = stateOf(machine);
+    return state.entries.find((e) => e.cli === cli) ?? {
+      cli,
+      installed: state.complete ? false : null,
+      version: null,
+      latest: null,
+      install_method: null,
+      updatable: false,
+      accounts: []
+    };
+  }
+  var inventoryComplete = () => machines().length > 0 && machines().every((m) => {
+    const state = stateOf(m.id);
+    return state.complete && !state.loading && !state.error;
+  });
+  var jobOf = (machine, cli) => jobs()[jobKey(machine, cli)] ?? null;
+  var machineById = (id) => machines().find((m) => m.id === id) ?? null;
+  var localMachine = () => machines().find((m) => m.origin === "local") ?? LOCAL;
+  var started = false;
+  var discovery = 0;
+  var reads = new Map;
+  function start() {
+    if (started)
+      return;
+    started = true;
+    load(false);
+    cmux.events.on("agent_cli.watch", (p) => onWatch(p));
+  }
+  async function load(checkLatest) {
+    const generation = ++discovery;
+    reads.clear();
+    const m = await call("machine.list", { catalog: true });
+    if (generation !== discovery)
+      return;
+    if (m.ok) {
+      setMachines(m.value.filter((x) => x.status !== "stopped").map(sanitizeMachine));
+      setMachinesError(null);
+    } else {
+      const legacy = m.error.code === "operation.unsupported";
+      setMachines(legacy ? [LOCAL] : []);
+      setMachinesError(legacy ? null : m.error);
+    }
+    const admitted = new Set(machines().map((x) => x.id));
+    setByMachine((all) => Object.fromEntries(Object.entries(all).filter(([id]) => admitted.has(id))));
+    setJobs((all) => Object.fromEntries(Object.entries(all).filter(([key]) => admitted.has(key.split("/")[0]))));
+    if (selected() && !admitted.has(selected().machine))
+      setSelected(null);
+    await Promise.all(machines().map((x) => loadMachine(x.id, checkLatest)));
+    if (generation === discovery)
+      setLoaded(true);
+  }
+  async function loadMachine(machine, checkLatest) {
+    const owner = machineById(machine);
+    if (!owner)
+      return;
+    const generation = discovery;
+    const token = {};
+    reads.set(machine, token);
+    setByMachine((all) => ({ ...all, [machine]: { ...all[machine] ?? { entries: [], error: null }, complete: false, loading: true } }));
+    const params = machine ? { machine } : {};
+    if (checkLatest)
+      params.check_latest = true;
+    const r = await call("agent_cli.list", params);
+    if (generation !== discovery || owner !== machineById(machine) || reads.get(machine) !== token)
+      return;
+    reads.delete(machine);
+    const mismatch = r.ok && !!machine && r.value?.machine !== machine;
+    const error = mismatch ? {
+      code: "machine.owner_mismatch",
+      op: "agent_cli.list",
+      missing: false,
+      message: t("error.owner", "The inventory reply did not match the selected machine.")
+    } : r.ok ? null : r.error;
+    setByMachine((all) => ({
+      ...all,
+      [machine]: r.ok && !error ? { entries: withMissing(r.value.clis ?? [], r.value.complete === true), complete: r.value.complete === true, error: null, loading: false } : { entries: [], complete: false, error, loading: false }
+    }));
+    if (r.ok && !error)
+      for (const e of r.value.clis ?? [])
+        dispatchJob(machine, e.cli, { type: "clear" });
+  }
+  function dispatchJob(machine, cli, ev) {
+    const key = jobKey(machine, cli);
+    setJobs((all) => {
+      const next = reduceJob(all[key] ?? null, ev);
+      if (next === (all[key] ?? null))
+        return all;
+      const copy = { ...all };
+      if (next)
+        copy[key] = next;
+      else
+        delete copy[key];
+      return copy;
+    });
+  }
+  function onWatch(ev) {
+    if (!ev || typeof ev.cli !== "string" || typeof ev.machine !== "string" || !machineById(ev.machine))
+      return;
+    if (ev.entry && ev.entry.cli !== ev.cli)
+      return;
+    const machine = ev.machine;
+    if (ev.job)
+      dispatchJob(machine, ev.cli, { type: "finished", job: ev.job.job, ok: ev.job.ok, exitCode: ev.job.exit_code, error: ev.job.error });
+    if (ev.entry || ev.removed === true) {
+      reads.delete(machine);
+      setByMachine((all) => {
+        const cur = all[machine] ?? { entries: [], complete: false, error: null, loading: false };
+        return { ...all, [machine]: { ...cur, entries: applyWatch(cur.entries, ev, cur.complete), error: null, loading: false } };
+      });
+    }
+  }
+  async function run(kind, machine, cli, op, params, token) {
+    dispatchJob(machine, cli, { type: "request", kind });
+    const r = await call(op, { ...machine ? { machine } : {}, cli, ...params }, withGesture(token));
+    if (r.ok)
+      dispatchJob(machine, cli, { type: "started", job: r.value.job, terminal: r.value.terminal ?? null });
+    else
+      dispatchJob(machine, cli, { type: "refused", error: r.error.code });
+    return r;
+  }
+  function update(machine, cli) {
+    return run("update", machine, cli, "agent_cli.update", {}, gesture());
+  }
+  function install(machine, cli, method) {
+    return run("install", machine, cli, "agent_cli.install", { method }, gesture());
+  }
+  async function signIn(machine, cli) {
+    const token = gesture();
+    const r = await run("sign_in", machine, cli, "agent_cli.sign_in", {}, token);
+    const provider = providerFor(cli)?.accountsProvider;
+    const isLocal = machineById(machine)?.origin === "local";
+    if (!r.ok && r.error.code === "operation.unsupported" && provider && isLocal) {
+      dispatchJob(machine, cli, { type: "clear" });
+      dispatchJob(machine, cli, { type: "request", kind: "sign_in" });
+      const a = await call("action.run", { id: "accounts.reauthenticate", args: { provider } }, withGesture(token));
+      dispatchJob(machine, cli, a.ok ? { type: "started", job: "accounts.reauthenticate", terminal: null } : { type: "refused", error: a.error.code });
+    }
+  }
+  function refresh() {
+    return load(true);
+  }
+  function openPane(token = gesture()) {
+    return call("app.pane.open", { kind: "agentHub" }, withGesture(token));
   }
   var VARIANTS = ["byCli", "byMachine", "matrix"];
   var DEFAULT_VARIANT = "byCli";
@@ -695,7 +741,10 @@
     const hint = firstHint(machine, entry.cli);
     return hint ? install(machine, entry.cli, hint.method) : undefined;
   }
-  var platformFor = (machine) => platformOf(machines().find((m) => m.id === machine)?.os);
+  var platformFor = (machine) => {
+    const owner = machines().find((m) => m.id === machine);
+    return platformOf(owner?.platform?.os ?? owner?.os);
+  };
   var firstHint = (machine, cli) => hintsFor(cli, platformFor(machine))[0] ?? null;
   function accountStatusText(a) {
     switch (a.status) {

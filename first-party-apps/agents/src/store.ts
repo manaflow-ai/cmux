@@ -5,6 +5,7 @@
 import { applyWatch, sanitizeMachine, type CliEntry, type Machine, type WatchEvent, withMissing } from "./model/entries.ts"
 import { type Job, type JobEvent, jobKey, reduceJob } from "./model/jobs.ts"
 import { call, type OpError } from "./ops.ts"
+import { t } from "./l10n.ts"
 
 export type MachineState = { entries: CliEntry[]; complete: boolean; error: OpError | null; loading: boolean }
 
@@ -35,9 +36,11 @@ export const inventoryComplete = () => machines().length > 0 && machines().every
 })
 export const jobOf = (machine: string, cli: string): Job | null => jobs()[jobKey(machine, cli)] ?? null
 export const machineById = (id: string) => machines().find((m) => m.id === id) ?? null
-export const localMachine = () => machines().find((m) => m.origin === "local") ?? machines()[0] ?? LOCAL
+export const localMachine = () => machines().find((m) => m.origin === "local") ?? LOCAL
 
 let started = false
+let discovery = 0
+const reads = new Map<string, object>()
 
 export function start(): void {
   if (started) return
@@ -47,33 +50,55 @@ export function start(): void {
 }
 
 export async function load(checkLatest: boolean): Promise<void> {
-  const m = await call<Machine[]>("machine.list")
+  const generation = ++discovery
+  reads.clear()
+  const m = await call<Machine[]>("machine.list", { catalog: true })
+  if (generation !== discovery) return
   if (m.ok) {
     // Only machines that can run CLIs: running or connectable ones.
     setMachines(m.value.filter((x) => x.status !== "stopped").map(sanitizeMachine))
     setMachinesError(null)
   } else {
-    setMachines([LOCAL])
-    setMachinesError(m.error.missing ? null : m.error)
+    // Only a host without this operation has the legacy anonymous local route.
+    // Permission and transport failures cannot establish any machine admission.
+    const legacy = m.error.code === "operation.unsupported"
+    setMachines(legacy ? [LOCAL] : [])
+    setMachinesError(legacy ? null : m.error)
   }
+  const admitted = new Set(machines().map((x) => x.id))
+  setByMachine((all) => Object.fromEntries(Object.entries(all).filter(([id]) => admitted.has(id))))
+  setJobs((all) => Object.fromEntries(Object.entries(all).filter(([key]) => admitted.has(key.split("/")[0]!))))
+  if (selected() && !admitted.has(selected()!.machine)) setSelected(null)
   await Promise.all(machines().map((x) => loadMachine(x.id, checkLatest)))
-  setLoaded(true)
+  if (generation === discovery) setLoaded(true)
 }
 
 export async function loadMachine(machine: string, checkLatest: boolean): Promise<void> {
+  const owner = machineById(machine)
+  if (!owner) return
+  const generation = discovery
+  const token = {}
+  reads.set(machine, token)
   setByMachine((all) => ({ ...all, [machine]: { ...(all[machine] ?? { entries: [], error: null }), complete: false, loading: true } }))
   const params: Record<string, unknown> = machine ? { machine } : {}
   if (checkLatest) params.check_latest = true
   const r = await call<{ machine?: string; clis: CliEntry[]; complete?: boolean }>("agent_cli.list", params)
-  // The owner echoes the machine it answered for; file the answer under it
-  // (answers can arrive in any order). The no-machine.list fallback keeps "".
-  const key = machine && r.ok && typeof r.value.machine === "string" && machines().some((m) => m.id === r.value.machine) ? r.value.machine : machine
+  // A refresh, route removal or newer observation retires this particular read.
+  if (generation !== discovery || owner !== machineById(machine) || reads.get(machine) !== token) return
+  reads.delete(machine)
+  // Never redirect an answer to another known machine. Legacy anonymous reads
+  // have no selected public ID; an explicit selection requires an exact echo.
+  const mismatch = r.ok && !!machine && r.value?.machine !== machine
+  const error: OpError | null = mismatch ? {
+    code: "machine.owner_mismatch", op: "agent_cli.list", missing: false,
+    message: t("error.owner", "The inventory reply did not match the selected machine.")
+  } : r.ok ? null : r.error
   setByMachine((all) => ({
     ...all,
-    [key]: r.ok ? { entries: withMissing(r.value.clis ?? [], r.value.complete === true), complete: r.value.complete === true, error: null, loading: false }
-      : { entries: all[key]?.entries ?? [], complete: false, error: r.error, loading: false }
+    [machine]: r.ok && !error ? { entries: withMissing(r.value.clis ?? [], r.value.complete === true), complete: r.value.complete === true, error: null, loading: false }
+      : { entries: [], complete: false, error, loading: false }
   }))
-  if (r.ok) for (const e of r.value.clis ?? []) dispatchJob(key, e.cli, { type: "clear" })
+  if (r.ok && !error) for (const e of r.value.clis ?? []) dispatchJob(machine, e.cli, { type: "clear" })
 }
 
 export function dispatchJob(machine: string, cli: string, ev: JobEvent): void {
@@ -89,13 +114,15 @@ export function dispatchJob(machine: string, cli: string, ev: JobEvent): void {
 }
 
 function onWatch(ev: (WatchEvent & { job?: { job: string; ok: boolean; exit_code?: number | null; error?: string | null } }) | null): void {
-  if (!ev || typeof ev.cli !== "string") return
-  const machine = typeof ev.machine === "string" ? ev.machine : ""
+  if (!ev || typeof ev.cli !== "string" || typeof ev.machine !== "string" || !machineById(ev.machine)) return
+  if (ev.entry && ev.entry.cli !== ev.cli) return
+  const machine = ev.machine
   if (ev.job) dispatchJob(machine, ev.cli, { type: "finished", job: ev.job.job, ok: ev.job.ok, exitCode: ev.job.exit_code, error: ev.job.error })
-  if (ev.entry || ev.removed) {
+  if (ev.entry || ev.removed === true) {
+    reads.delete(machine)
     setByMachine((all) => {
       const cur = all[machine] ?? { entries: [], complete: false, error: null, loading: false }
-      return { ...all, [machine]: { ...cur, entries: applyWatch(cur.entries, ev, cur.complete) } }
+      return { ...all, [machine]: { ...cur, entries: applyWatch(cur.entries, ev, cur.complete), error: null, loading: false } }
     })
   }
 }

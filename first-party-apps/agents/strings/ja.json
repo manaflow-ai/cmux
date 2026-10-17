@@ -17,6 +17,7 @@
   "empty.none": "エージェントCLIの報告がありません",
   "empty.title": "このマシンにエージェントCLIはありません",
   "error.load": "エージェントCLIを一覧できません",
+  "error.owner": "インベントリの応答が選択したマシンと一致しませんでした。",
   "error.missingOp": "このcmuxは{op}を提供していません。",
   "error.missingTitle": "エージェントCLIの検出はまだ使えません",
   "folded.missing": "未インストール（{n}）",
