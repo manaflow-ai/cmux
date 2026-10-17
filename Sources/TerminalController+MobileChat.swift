@@ -153,9 +153,13 @@ extension TerminalController {
         }
         let updated = service.updateSessionControls(sessionID: sessionID) { controls in
             if let value = params["model_id"] as? String { controls.modelID = value.isEmpty ? nil : value }
+            else if params["model_id"] is NSNull { controls.modelID = nil }
             if let value = params["reasoning_effort_id"] as? String { controls.reasoningEffortID = value.isEmpty ? nil : value }
+            else if params["reasoning_effort_id"] is NSNull { controls.reasoningEffortID = nil }
             if let value = params["permission_mode"] as? String { controls.permissionMode = value.isEmpty ? nil : value }
+            else if params["permission_mode"] is NSNull { controls.permissionMode = nil }
             if let value = params["sandbox_mode"] as? String { controls.sandboxMode = value.isEmpty ? nil : value }
+            else if params["sandbox_mode"] is NSNull { controls.sandboxMode = nil }
             if let value = params["plan_mode"] as? Bool { controls.planMode = value }
         }
         guard updated != nil else { return .err(code: "not_found", message: "Unknown agent session", data: nil) }
@@ -474,9 +478,13 @@ extension TerminalController {
         guard let service = agentChatTranscriptService else { return }
         _ = service.updateSessionControls(sessionID: sessionID) { controls in
             if let value = params["model_id"] as? String { controls.modelID = value.isEmpty ? nil : value }
+            else if params["model_id"] is NSNull { controls.modelID = nil }
             if let value = params["reasoning_effort_id"] as? String { controls.reasoningEffortID = value.isEmpty ? nil : value }
+            else if params["reasoning_effort_id"] is NSNull { controls.reasoningEffortID = nil }
             if let value = params["permission_mode"] as? String { controls.permissionMode = value.isEmpty ? nil : value }
+            else if params["permission_mode"] is NSNull { controls.permissionMode = nil }
             if let value = params["sandbox_mode"] as? String { controls.sandboxMode = value.isEmpty ? nil : value }
+            else if params["sandbox_mode"] is NSNull { controls.sandboxMode = nil }
             if let value = params["plan_mode"] as? Bool { controls.planMode = value }
         }
     }
@@ -660,6 +668,23 @@ extension TerminalController {
             }
             return .ok(["answered": true, "option_index": optionIndex])
         }
+        if let service,
+           let requestID,
+           (record?.agentKind == .claude || record?.agentKind == .other("opencode")),
+           let resolved = service.resolvedQuestionAnswer(
+               sessionID: sessionID,
+               messageID: requestID,
+               optionIndex: optionIndex
+           ) {
+            if resolved {
+                return .ok(["answered": true, "option_index": optionIndex, "idempotent": true])
+            }
+            return .err(
+                code: "conflicting_answer",
+                message: "That question was already answered with a different option.",
+                data: ["session_id": sessionID, "request_id": requestID]
+            )
+        }
         // Native terminal pickers accept single-digit option keys. Feed cards
         // are handled above and may expose more options, but never turn a
         // two-digit mobile index into ambiguous terminal input.
@@ -756,7 +781,13 @@ extension TerminalController {
                 workingDirectory: workingDirectory,
                 unifiedDiff: unifiedDiff
             )
-            guard result.status == 0 else {
+            let applied = result.status == 0
+                || Self.applyPresentationReviewFallback(
+                    action: action,
+                    fileURL: resolvedPath,
+                    diff: unifiedDiff
+                )
+            guard applied else {
                 return .err(code: "review_rejected", message: result.output.isEmpty ? "The patch could not be applied" : result.output, data: [
                     "session_id": sessionID,
                     "message_id": messageID,
@@ -808,7 +839,14 @@ extension TerminalController {
                 paths.append(String(path))
             }
         }
-        guard !paths.isEmpty else { return false }
+        // Claude transcript edits use a compact presentation diff with only
+        // `-`/`+` lines. It is already bound to the selected card path by the
+        // caller; the exact-content fallback performs the stale-content check.
+        if paths.isEmpty {
+            return unifiedDiff.split(whereSeparator: \.isNewline).allSatisfy {
+                $0.first == "+" || $0.first == "-"
+            }
+        }
         return paths.allSatisfy { rawPath in
             guard rawPath != "/dev/null" else { return true }
             var path = rawPath
@@ -851,6 +889,57 @@ extension TerminalController {
         } catch {
             return (1, error.localizedDescription)
         }
+    }
+
+    /// Applies transcript presentation diffs when they are not patch-grade.
+    /// The replacement is exact and path-bound, so stale or ambiguous edits
+    /// are rejected rather than silently mutating the wrong content.
+    private static func applyPresentationReviewFallback(
+        action: String,
+        fileURL: URL,
+        diff: String
+    ) -> Bool {
+        let lines = diff.components(separatedBy: "\n")
+        guard !lines.isEmpty,
+              lines.allSatisfy({ $0.first == "+" || $0.first == "-" }) else { return false }
+        let oldLines = lines.compactMap { $0.first == "-" ? String($0.dropFirst()) : nil }
+        let newLines = lines.compactMap { $0.first == "+" ? String($0.dropFirst()) : nil }
+        let source: String
+        do {
+            source = try String(contentsOf: fileURL, encoding: .utf8)
+        } catch {
+            guard action == "apply", oldLines.isEmpty, !newLines.isEmpty else { return false }
+            do {
+                try FileManager.default.createDirectory(
+                    at: fileURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try Data(newLines.joined(separator: "\n").utf8).write(to: fileURL, options: .atomic)
+                return true
+            } catch { return false }
+        }
+        let from = action == "apply" ? oldLines : newLines
+        let to = action == "apply" ? newLines : oldLines
+        if from.isEmpty {
+            guard action == "apply" else { return false }
+            do {
+                try Data(to.joined(separator: "\n").utf8).write(to: fileURL, options: .atomic)
+                return true
+            } catch { return false }
+        }
+        let sourceLines = source.components(separatedBy: "\n")
+        guard sourceLines.count >= from.count else { return false }
+        let matches = (0...(sourceLines.count - from.count)).filter { start in
+            Array(sourceLines[start..<(start + from.count)]) == from
+        }
+        guard matches.count == 1 else { return false }
+        var output = sourceLines
+        let start = matches[0]
+        output.replaceSubrange(start..<(start + from.count), with: to)
+        do {
+            try Data(output.joined(separator: "\n").utf8).write(to: fileURL, options: .atomic)
+            return true
+        } catch { return false }
     }
 
     /// Ended sessions remain available for read-only history, but never accept

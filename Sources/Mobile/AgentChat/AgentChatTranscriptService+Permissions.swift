@@ -207,8 +207,10 @@ extension AgentChatTranscriptService {
               var records = questionRecordsBySessionID[sessionID],
               let key = records.first(where: { $0.value.messageID == messageID })?.key,
               var record = records[key],
-              record.selectedOptionLabel == nil,
               record.options.indices.contains(optionIndex) else { return false }
+        if let selected = record.selectedOptionLabel {
+            return selected == record.options[optionIndex].label
+        }
         record.selectedOptionLabel = record.options[optionIndex].label
         records[key] = record
         questionRecordsBySessionID[sessionID] = records
@@ -216,6 +218,20 @@ extension AgentChatTranscriptService {
             emitChatFrame(ChatSessionEventFrame(sessionID: sessionID, event: .updated([record.message])))
         }
         return true
+    }
+
+    /// Returns whether a resolved question matches a repeated answer. nil
+    /// means unknown or still pending; false means a conflicting option.
+    func resolvedQuestionAnswer(
+        sessionID: String,
+        messageID: String,
+        optionIndex: Int
+    ) -> Bool? {
+        guard let record = questionRecordsBySessionID[sessionID]?.values.first(where: {
+            $0.messageID == messageID
+        }), record.options.indices.contains(optionIndex),
+              let selected = record.selectedOptionLabel else { return nil }
+        return selected == record.options[optionIndex].label
     }
 
     @discardableResult

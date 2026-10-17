@@ -48,6 +48,19 @@ extension MobileHostService {
             // List-shaped reads may span the Mac's workspaces; same-account
             // Stack authorization remains the authoritative data-plane gate.
             return nil
+        case "mobile.chat.sessions", "mobile.chat.session", "mobile.chat.history",
+             "mobile.chat.send", "mobile.chat.interrupt", "mobile.chat.answer",
+             "mobile.chat.controls", "mobile.chat.controls.update",
+             "mobile.chat.rename", "mobile.chat.delete", "mobile.chat.export",
+             "mobile.chat.review", "mobile.chat.artifact.stat",
+             "mobile.chat.artifact.fetch", "mobile.chat.artifact.thumbnail",
+             "mobile.chat.artifact.list", "mobile.chat.artifact.gallery":
+            // Chat requests carry an opaque session id rather than a
+            // workspace or surface selector. The host's session registry and
+            // terminal binding perform the resource check after this account
+            // and ticket gate; rejecting here would block valid paired-phone
+            // chat requests before that authoritative binding check.
+            return nil
         case "mobile.sync.fetch":
             // Cursor-based read of the same Mac-scoped list state as
             // `mobile.workspace.list`; carries no workspace/terminal selection.

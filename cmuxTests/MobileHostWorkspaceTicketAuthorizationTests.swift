@@ -488,6 +488,31 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         }
     }
 
+    @Test func chatRequestsPassTicketGateForRegistryScopedAuthorization() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace")
+        let methods = [
+            "mobile.chat.sessions", "mobile.chat.session", "mobile.chat.history",
+            "mobile.chat.send", "mobile.chat.interrupt", "mobile.chat.answer",
+            "mobile.chat.controls", "mobile.chat.controls.update",
+            "mobile.chat.rename", "mobile.chat.delete", "mobile.chat.export",
+            "mobile.chat.review", "mobile.chat.artifact.stat",
+            "mobile.chat.artifact.fetch", "mobile.chat.artifact.thumbnail",
+            "mobile.chat.artifact.list", "mobile.chat.artifact.gallery",
+        ]
+        for method in methods {
+            let request = MobileHostRPCRequest(
+                id: method,
+                method: method,
+                params: ["session_id": "session"],
+                auth: MobileHostRPCAuth(attachToken: ticket.authToken, stackAccessToken: nil)
+            )
+            #expect(
+                MobileHostService.ticketAuthorizationError(ticket: ticket, request: request) == nil,
+                "chat method was rejected before session-registry authorization: \(method)"
+            )
+        }
+    }
+
     @Test func notificationFeedUsesAuthenticatedConnectionInsteadOfWorkspaceTicketScope() throws {
         let scopedTicket = try scopedAttachTicket(workspaceID: "workspace")
         let macWideTicket = try scopedAttachTicket(workspaceID: "")
