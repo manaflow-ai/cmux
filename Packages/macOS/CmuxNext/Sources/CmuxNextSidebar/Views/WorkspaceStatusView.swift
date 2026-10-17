@@ -106,7 +106,7 @@ final class WorkspaceStatusView: NSView {
     }
 
     private static func isPill(_ line: SidebarWorkspaceStatus.Line) -> Bool {
-        if case .entry = line { return true }
+        if case .entry(let entry) = line { return entry.isActionable }
         return false
     }
 
@@ -121,7 +121,7 @@ final class WorkspaceStatusView: NSView {
 
     // theme-scoped: called only from updateLayer(), inside performWithTheme
     private static func paint(pill: NSView, for line: SidebarWorkspaceStatus.Line) {
-        guard case .entry(let entry) = line else {
+        guard case .entry(let entry) = line, entry.isActionable else {
             pill.layer?.backgroundColor = nil
             pill.layer?.cornerRadius = 0
             return
