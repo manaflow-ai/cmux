@@ -108,6 +108,10 @@ class ServerStatsWriterPhase(str, Enum):
     WAITING_LOCK = 'waiting_lock'
     COMMITTING = 'committing'
 
+class SizeActivityKind(str, Enum):
+    INPUT = 'input'
+    FOCUS = 'focus'
+
 class SizeDeviceKind(str, Enum):
     MAC = 'mac'
     IPHONE = 'iphone'
@@ -1885,6 +1889,7 @@ class NoteSizeActivityRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/note-size-activity/request'
     surface: Id
     view: Union[str, None, MissingType] = field(default=MISSING)
+    kind: Union[SizeActivityKind, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2965,6 +2970,7 @@ __all__ = [
     'RenderGraphicFormat',
     'RenderUnderline',
     'ServerStatsWriterPhase',
+    'SizeActivityKind',
     'SizeDeviceKind',
     'SizeMode',
     'SizeReason',

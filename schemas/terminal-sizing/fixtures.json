@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "notes": "Conformance corpus for docs/shared-terminal-sizing.md. Replayed by Packages/Shared/CmuxTerminalSizing tests and cmux-tui-core sizing_policy tests. Steps run in order; 'expect' checks the published state. 'expect.priority_keys' checks each named participant's published priority_key.",
+  "notes": "Conformance corpus for docs/shared-terminal-sizing.md. Replayed by Packages/Shared/CmuxTerminalSizing tests and cmux-tui-core sizing_policy tests. Steps run in order; 'expect' checks the published state. 'expect.priority_keys' checks each named participant's published priority_key. 'attach' and 'activity' carry 'at', the host's monotonic clock in milliseconds; 'activity.kind' is 'input' (default) or 'focus'. Input from a non-owner that would move the grid waits until the owner has been idle for 2000 ms; attach and focus take it immediately.",
   "cases": [
     {
       "name": "default policy is fit everyone",
@@ -19,7 +19,8 @@
               "cols": 150,
               "rows": 42
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "attach",
@@ -32,7 +33,8 @@
               "cols": 54,
               "rows": 44
             }
-          }
+          },
+          "at": 10000
         },
         {
           "op": "expect",
@@ -69,7 +71,8 @@
             "id": "a",
             "user_id": "u1",
             "device_kind": "mac"
-          }
+          },
+          "at": 0
         },
         {
           "op": "expect",
@@ -118,7 +121,8 @@
               "cols": 150,
               "rows": 42
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "attach",
@@ -130,7 +134,8 @@
               "cols": 118,
               "rows": 38
             }
-          }
+          },
+          "at": 10000
         },
         {
           "op": "expect",
@@ -143,7 +148,8 @@
         },
         {
           "op": "activity",
-          "id": "a"
+          "id": "a",
+          "at": 20000
         },
         {
           "op": "expect",
@@ -179,7 +185,8 @@
               "cols": 150,
               "rows": 42
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "attach",
@@ -191,7 +198,8 @@
               "cols": 118,
               "rows": 38
             }
-          }
+          },
+          "at": 10000
         },
         {
           "op": "detach",
@@ -231,7 +239,8 @@
               "cols": 100,
               "rows": 30
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "detach",
@@ -269,7 +278,8 @@
               "cols": 150,
               "rows": 42
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "attach",
@@ -282,11 +292,13 @@
               "cols": 54,
               "rows": 26
             }
-          }
+          },
+          "at": 10000
         },
         {
           "op": "activity",
-          "id": "phone"
+          "id": "phone",
+          "at": 20000
         },
         {
           "op": "expect",
@@ -342,7 +354,8 @@
               "cols": 118,
               "rows": 38
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "attach",
@@ -354,7 +367,8 @@
               "cols": 54,
               "rows": 26
             }
-          }
+          },
+          "at": 10000
         },
         {
           "op": "expect",
@@ -393,7 +407,8 @@
               "cols": 150,
               "rows": 42
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "attach",
@@ -406,7 +421,8 @@
               "rows": 26
             },
             "counts_override": true
-          }
+          },
+          "at": 10000
         },
         {
           "op": "expect",
@@ -424,7 +440,8 @@
         },
         {
           "op": "activity",
-          "id": "mac"
+          "id": "mac",
+          "at": 20000
         },
         {
           "op": "expect",
@@ -446,7 +463,8 @@
         },
         {
           "op": "activity",
-          "id": "mac"
+          "id": "mac",
+          "at": 30000
         },
         {
           "op": "expect",
@@ -482,7 +500,8 @@
               "cols": 150,
               "rows": 30
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "attach",
@@ -494,7 +513,8 @@
               "cols": 118,
               "rows": 42
             }
-          }
+          },
+          "at": 10000
         },
         {
           "op": "attach",
@@ -507,7 +527,8 @@
               "rows": 20
             },
             "counts_override": false
-          }
+          },
+          "at": 20000
         },
         {
           "op": "expect",
@@ -544,7 +565,8 @@
               "cols": 150,
               "rows": 30
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "attach",
@@ -556,7 +578,8 @@
               "cols": 118,
               "rows": 42
             }
-          }
+          },
+          "at": 10000
         },
         {
           "op": "expect",
@@ -597,7 +620,8 @@
               "cols": 150,
               "rows": 42
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "expect",
@@ -618,11 +642,13 @@
               "cols": 118,
               "rows": 38
             }
-          }
+          },
+          "at": 10000
         },
         {
           "op": "activity",
-          "id": "a"
+          "id": "a",
+          "at": 20000
         },
         {
           "op": "expect",
@@ -674,7 +700,8 @@
               "cols": 150,
               "rows": 42
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "expect",
@@ -713,7 +740,8 @@
               "cols": 150,
               "rows": 42
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "attach",
@@ -724,11 +752,13 @@
               "cols": 90,
               "rows": 30
             }
-          }
+          },
+          "at": 10000
         },
         {
           "op": "activity",
-          "id": "a"
+          "id": "a",
+          "at": 20000
         },
         {
           "op": "expect",
@@ -764,7 +794,8 @@
               "cols": 150,
               "rows": 42
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "set_policy",
@@ -808,7 +839,8 @@
               "cols": 150,
               "rows": 42
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "set_counts",
@@ -841,7 +873,8 @@
               "cols": 150,
               "rows": 42
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "expect",
@@ -892,7 +925,8 @@
               "cols": 88,
               "rows": 78
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "attach",
@@ -905,7 +939,8 @@
               "cols": 54,
               "rows": 44
             }
-          }
+          },
+          "at": 10000
         },
         {
           "op": "expect",
@@ -975,7 +1010,8 @@
               "cols": 0,
               "rows": 0
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "expect",
@@ -1018,7 +1054,8 @@
               "cols": 150,
               "rows": 42
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "attach",
@@ -1031,11 +1068,13 @@
               "cols": 118,
               "rows": 38
             }
-          }
+          },
+          "at": 10000
         },
         {
           "op": "activity",
-          "id": "mbp"
+          "id": "mbp",
+          "at": 20000
         },
         {
           "op": "expect",
@@ -1092,7 +1131,8 @@
               "cols": 150,
               "rows": 42
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "attach",
@@ -1105,7 +1145,8 @@
               "cols": 118,
               "rows": 38
             }
-          }
+          },
+          "at": 10000
         },
         {
           "op": "attach",
@@ -1118,7 +1159,8 @@
               "cols": 100,
               "rows": 30
             }
-          }
+          },
+          "at": 20000
         },
         {
           "op": "expect",
@@ -1131,7 +1173,8 @@
         },
         {
           "op": "activity",
-          "id": "mbp"
+          "id": "mbp",
+          "at": 30000
         },
         {
           "op": "expect",
@@ -1161,7 +1204,8 @@
               "cols": 150,
               "rows": 42
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "expect",
@@ -1196,7 +1240,8 @@
               "rows": 42
             },
             "counts_override": false
-          }
+          },
+          "at": 0
         },
         {
           "op": "attach",
@@ -1210,7 +1255,8 @@
               "cols": 54,
               "rows": 44
             }
-          }
+          },
+          "at": 10000
         },
         {
           "op": "expect",
@@ -1236,11 +1282,13 @@
               "cols": 118,
               "rows": 38
             }
-          }
+          },
+          "at": 20000
         },
         {
           "op": "activity",
-          "id": "phone"
+          "id": "phone",
+          "at": 30000
         },
         {
           "op": "expect",
@@ -1292,7 +1340,8 @@
             "user_id": "u1",
             "device_kind": "mac",
             "device_id": "laptop"
-          }
+          },
+          "at": 0
         },
         {
           "op": "attach",
@@ -1305,7 +1354,8 @@
               "cols": 54,
               "rows": 44
             }
-          }
+          },
+          "at": 10000
         },
         {
           "op": "expect",
@@ -1345,7 +1395,8 @@
               "cols": 150,
               "rows": 42
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "attach",
@@ -1359,7 +1410,8 @@
               "cols": 54,
               "rows": 44
             }
-          }
+          },
+          "at": 10000
         },
         {
           "op": "expect",
@@ -1409,7 +1461,8 @@
               "cols": 150,
               "rows": 42
             }
-          }
+          },
+          "at": 0
         },
         {
           "op": "attach",
@@ -1422,7 +1475,8 @@
               "cols": 200,
               "rows": 60
             }
-          }
+          },
+          "at": 10000
         },
         {
           "op": "expect",
@@ -1436,6 +1490,942 @@
             "mbp": true,
             "studio": true
           }
+        }
+      ]
+    },
+    {
+      "name": "input during the owner hold does not take the grid",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "latest"
+          }
+        },
+        {
+          "op": "attach",
+          "at": 0,
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "at": 10000,
+          "participant": {
+            "id": "b",
+            "user_id": "u2",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 118,
+              "rows": 38
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "b"
+          ],
+          "reason": "latest",
+          "cols": 118,
+          "rows": 38
+        },
+        {
+          "op": "activity",
+          "id": "a",
+          "at": 10500,
+          "kind": "input"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "b"
+          ],
+          "reason": "latest",
+          "cols": 118,
+          "rows": 38
+        },
+        {
+          "op": "activity",
+          "id": "a",
+          "at": 11999,
+          "kind": "input"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "b"
+          ],
+          "reason": "latest",
+          "cols": 118,
+          "rows": 38
+        }
+      ]
+    },
+    {
+      "name": "input after the owner is idle for 2 s takes the grid",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "latest"
+          }
+        },
+        {
+          "op": "attach",
+          "at": 0,
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "at": 10000,
+          "participant": {
+            "id": "b",
+            "user_id": "u2",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 118,
+              "rows": 38
+            }
+          }
+        },
+        {
+          "op": "activity",
+          "id": "a",
+          "at": 11000,
+          "kind": "input"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "b"
+          ],
+          "reason": "latest"
+        },
+        {
+          "op": "activity",
+          "id": "a",
+          "at": 12000,
+          "kind": "input"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "a"
+          ],
+          "reason": "latest",
+          "cols": 150,
+          "rows": 42
+        }
+      ]
+    },
+    {
+      "name": "focus-click takes the grid immediately",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "latest"
+          }
+        },
+        {
+          "op": "attach",
+          "at": 0,
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "at": 10000,
+          "participant": {
+            "id": "b",
+            "user_id": "u2",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 118,
+              "rows": 38
+            }
+          }
+        },
+        {
+          "op": "activity",
+          "id": "a",
+          "at": 10100,
+          "kind": "focus"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "a"
+          ],
+          "reason": "latest",
+          "cols": 150,
+          "rows": 42
+        },
+        {
+          "op": "activity",
+          "id": "b",
+          "at": 10200,
+          "kind": "input"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "a"
+          ],
+          "reason": "latest",
+          "cols": 150,
+          "rows": 42
+        }
+      ]
+    },
+    {
+      "name": "attach takes the grid immediately",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "latest"
+          }
+        },
+        {
+          "op": "attach",
+          "at": 0,
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "activity",
+          "id": "a",
+          "at": 10000,
+          "kind": "input"
+        },
+        {
+          "op": "attach",
+          "at": 10100,
+          "participant": {
+            "id": "b",
+            "user_id": "u2",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 118,
+              "rows": 38
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "b"
+          ],
+          "reason": "latest",
+          "cols": 118,
+          "rows": 38
+        }
+      ]
+    },
+    {
+      "name": "owner's own input refreshes the hold",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "latest"
+          }
+        },
+        {
+          "op": "attach",
+          "at": 0,
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "at": 10000,
+          "participant": {
+            "id": "b",
+            "user_id": "u2",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 118,
+              "rows": 38
+            }
+          }
+        },
+        {
+          "op": "activity",
+          "id": "b",
+          "at": 11500,
+          "kind": "input"
+        },
+        {
+          "op": "activity",
+          "id": "a",
+          "at": 12500,
+          "kind": "input"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "b"
+          ],
+          "reason": "latest"
+        },
+        {
+          "op": "activity",
+          "id": "b",
+          "at": 13000,
+          "kind": "input"
+        },
+        {
+          "op": "activity",
+          "id": "a",
+          "at": 14500,
+          "kind": "input"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "b"
+          ],
+          "reason": "latest"
+        },
+        {
+          "op": "activity",
+          "id": "a",
+          "at": 15000,
+          "kind": "input"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "a"
+          ],
+          "reason": "latest",
+          "cols": 150,
+          "rows": 42
+        }
+      ]
+    },
+    {
+      "name": "two devices typing at once keep the grid",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "latest"
+          }
+        },
+        {
+          "op": "attach",
+          "at": 0,
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "at": 10000,
+          "participant": {
+            "id": "b",
+            "user_id": "u2",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 118,
+              "rows": 38
+            }
+          }
+        },
+        {
+          "op": "activity",
+          "id": "a",
+          "at": 10300,
+          "kind": "input"
+        },
+        {
+          "op": "activity",
+          "id": "b",
+          "at": 10600,
+          "kind": "input"
+        },
+        {
+          "op": "activity",
+          "id": "a",
+          "at": 10900,
+          "kind": "input"
+        },
+        {
+          "op": "activity",
+          "id": "b",
+          "at": 11200,
+          "kind": "input"
+        },
+        {
+          "op": "activity",
+          "id": "a",
+          "at": 11500,
+          "kind": "input"
+        },
+        {
+          "op": "activity",
+          "id": "b",
+          "at": 11800,
+          "kind": "input"
+        },
+        {
+          "op": "activity",
+          "id": "a",
+          "at": 12100,
+          "kind": "input"
+        },
+        {
+          "op": "activity",
+          "id": "b",
+          "at": 12400,
+          "kind": "input"
+        },
+        {
+          "op": "activity",
+          "id": "a",
+          "at": 12700,
+          "kind": "input"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "b"
+          ],
+          "reason": "latest",
+          "cols": 118,
+          "rows": 38
+        }
+      ]
+    },
+    {
+      "name": "owner detach ignores the hold",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "latest"
+          }
+        },
+        {
+          "op": "attach",
+          "at": 0,
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "at": 10000,
+          "participant": {
+            "id": "b",
+            "user_id": "u2",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 118,
+              "rows": 38
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "at": 20000,
+          "participant": {
+            "id": "c",
+            "user_id": "u3",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 100,
+              "rows": 30
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "c"
+          ],
+          "reason": "latest"
+        },
+        {
+          "op": "activity",
+          "id": "a",
+          "at": 20500,
+          "kind": "input"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "c"
+          ],
+          "reason": "latest"
+        },
+        {
+          "op": "detach",
+          "id": "c"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "b"
+          ],
+          "reason": "latest",
+          "cols": 118,
+          "rows": 38
+        },
+        {
+          "op": "activity",
+          "id": "a",
+          "at": 20600,
+          "kind": "input"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "a"
+          ],
+          "reason": "latest",
+          "cols": 150,
+          "rows": 42
+        }
+      ]
+    },
+    {
+      "name": "input that does not move the grid is recorded during the hold",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "priority",
+            "priority": [
+              "u1/mac"
+            ]
+          }
+        },
+        {
+          "op": "attach",
+          "at": 0,
+          "participant": {
+            "id": "b",
+            "user_id": "u2",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 118,
+              "rows": 38
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "at": 10000,
+          "participant": {
+            "id": "c",
+            "user_id": "u3",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 100,
+              "rows": 30
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "at": 20000,
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "a"
+          ],
+          "reason": "priority",
+          "cols": 150,
+          "rows": 42
+        },
+        {
+          "op": "activity",
+          "id": "b",
+          "at": 20500,
+          "kind": "input"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "a"
+          ],
+          "reason": "priority"
+        },
+        {
+          "op": "detach",
+          "id": "a"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "b"
+          ],
+          "reason": "priority-fallback",
+          "cols": 118,
+          "rows": 38
+        }
+      ]
+    },
+    {
+      "name": "priority tie respects the hold",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "priority",
+            "priority": [
+              "u1/mac"
+            ]
+          }
+        },
+        {
+          "op": "attach",
+          "at": 0,
+          "participant": {
+            "id": "studio",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 160,
+              "rows": 50
+            },
+            "device_id": "d1"
+          }
+        },
+        {
+          "op": "attach",
+          "at": 10000,
+          "participant": {
+            "id": "laptop",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 120,
+              "rows": 36
+            },
+            "device_id": "d2"
+          }
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "laptop"
+          ],
+          "reason": "priority",
+          "cols": 120,
+          "rows": 36
+        },
+        {
+          "op": "activity",
+          "id": "studio",
+          "at": 11000,
+          "kind": "input"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "laptop"
+          ],
+          "reason": "priority",
+          "cols": 120,
+          "rows": 36
+        },
+        {
+          "op": "attach",
+          "at": 20000,
+          "participant": {
+            "id": "b",
+            "user_id": "u2",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 118,
+              "rows": 38
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "laptop"
+          ],
+          "reason": "priority",
+          "cols": 120,
+          "rows": 36
+        },
+        {
+          "op": "activity",
+          "id": "b",
+          "at": 30000,
+          "kind": "input"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "laptop"
+          ],
+          "reason": "priority",
+          "cols": 120,
+          "rows": 36
+        },
+        {
+          "op": "activity",
+          "id": "studio",
+          "at": 30001,
+          "kind": "input"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "studio"
+          ],
+          "reason": "priority",
+          "cols": 160,
+          "rows": 50
+        }
+      ]
+    },
+    {
+      "name": "priority fallback respects the hold",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "priority",
+            "priority": [
+              "u9/mac"
+            ]
+          }
+        },
+        {
+          "op": "attach",
+          "at": 0,
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "at": 10000,
+          "participant": {
+            "id": "b",
+            "user_id": "u2",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 118,
+              "rows": 38
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "b"
+          ],
+          "reason": "priority-fallback",
+          "cols": 118,
+          "rows": 38
+        },
+        {
+          "op": "activity",
+          "id": "a",
+          "at": 11000,
+          "kind": "input"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "b"
+          ],
+          "reason": "priority-fallback"
+        },
+        {
+          "op": "activity",
+          "id": "a",
+          "at": 12000,
+          "kind": "input"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "a"
+          ],
+          "reason": "priority-fallback",
+          "cols": 150,
+          "rows": 42
+        }
+      ]
+    },
+    {
+      "name": "fit everyone ignores the hold",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "attach",
+          "at": 0,
+          "participant": {
+            "id": "a",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "at": 10000,
+          "participant": {
+            "id": "b",
+            "user_id": "u2",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 118,
+              "rows": 38
+            }
+          }
+        },
+        {
+          "op": "activity",
+          "id": "a",
+          "at": 10100,
+          "kind": "input"
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "b"
+          ],
+          "reason": "smallest",
+          "cols": 118,
+          "rows": 38
+        },
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "latest"
+          }
+        },
+        {
+          "op": "expect",
+          "owners": [
+            "a"
+          ],
+          "reason": "latest",
+          "cols": 150,
+          "rows": 42
         }
       ]
     }

@@ -8,7 +8,7 @@ import Testing
     private func snapshot(policy: TerminalSizingPolicy) -> TerminalSharingSnapshot {
         var engine = TerminalSizingEngine(initialSize: TerminalGridSize(cols: 120, rows: 40), policy: policy)
         engine.attach(TerminalSizingParticipant(id: "mac:1", userID: "u_me", deviceKind: .mac,
-                                                viewport: TerminalGridSize(cols: 120, rows: 40)))
+                                                viewport: TerminalGridSize(cols: 120, rows: 40)), at: 0)
         return TerminalSharingSnapshot(state: engine.state, selfParticipantID: "mac:1", isCloud: false)
     }
 
@@ -30,9 +30,9 @@ import Testing
     private func sharedSnapshot(phoneViewport: TerminalGridSize, policy: TerminalSizingPolicy) -> TerminalSharingSnapshot {
         var engine = TerminalSizingEngine(initialSize: TerminalGridSize(cols: 105, rows: 45), policy: policy)
         engine.attach(TerminalSizingParticipant(id: "mac:1", userID: "u_me", deviceKind: .mac,
-                                                viewport: TerminalGridSize(cols: 105, rows: 45)))
+                                                viewport: TerminalGridSize(cols: 105, rows: 45)), at: 0)
         engine.attach(TerminalSizingParticipant(id: "mobile:p", userID: "u_me", deviceKind: .iphone,
-                                                viewport: phoneViewport))
+                                                viewport: phoneViewport), at: 0)
         return TerminalSharingSnapshot(state: engine.state, selfParticipantID: "mac:1", isCloud: false)
     }
 
@@ -56,7 +56,7 @@ import Testing
             policy: TerminalSizingPolicy(mode: .fixed, fixed: TerminalGridSize(cols: 70, rows: 20))
         )
         engine.attach(TerminalSizingParticipant(id: "mac:1", userID: "u_me", deviceKind: .mac,
-                                                viewport: TerminalGridSize(cols: 105, rows: 45)))
+                                                viewport: TerminalGridSize(cols: 105, rows: 45)), at: 0)
         let snapshot = TerminalSharingSnapshot(state: engine.state, selfParticipantID: "mac:1", isCloud: false)
         #expect(snapshot.showsBoundsChrome)
     }
