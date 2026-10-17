@@ -1,7 +1,14 @@
 import { useMemo, useState } from "react";
 import { Icon } from "./icons/Icon";
-import { useT } from "./i18n";
-import { sessionTitle, sessionMark, type AcpmuxSessionEntry } from "./sessionList";
+import { type StringKey, useT } from "./i18n";
+import {
+  listed,
+  sessionTitle,
+  sessionMark,
+  type AcpmuxSessionEntry,
+  type SessionMark,
+  withoutChildren,
+} from "./sessionList";
 
 export type ChiefDockProps = {
   sessions: readonly AcpmuxSessionEntry[];
@@ -14,8 +21,10 @@ export type ChiefDockProps = {
 };
 
 const MAX_CARDS = 4;
-const urgency = (session: AcpmuxSessionEntry): number => {
-  switch (sessionMark(session, false)) {
+type ChiefStatus = "streaming" | "attention" | "error" | "idle";
+
+const urgency = (session: AcpmuxSessionEntry, selected: boolean): number => {
+  switch (sessionMark(session, selected)) {
     case "input":
       return 5;
     case "error":
@@ -29,11 +38,19 @@ const urgency = (session: AcpmuxSessionEntry): number => {
   }
 };
 
-const status = (session: AcpmuxSessionEntry): "streaming" | "attention" | "idle" => {
-  const mark = sessionMark(session, false);
+const status = (session: AcpmuxSessionEntry, selected: boolean): ChiefStatus => {
+  const mark = sessionMark(session, selected);
   if (mark === "input") return "attention";
+  if (mark === "error") return "error";
   if (mark === "running") return "streaming";
   return "idle";
+};
+
+const MARK_LABELS: Record<Exclude<SessionMark, undefined>, StringKey> = {
+  input: "sidebar.markInput",
+  error: "sidebar.markError",
+  running: "sidebar.markRunning",
+  unread: "sidebar.markUnread",
 };
 
 function StatusDot({ value }: { value: ReturnType<typeof status> }) {
@@ -57,13 +74,16 @@ export function ChiefDock({
   const [expanded, setExpanded] = useState(true);
   const cards = useMemo(
     () =>
-      sessions
-        .filter((session) => !session.archived && !session.side)
-        .sort((left, right) => urgency(right) - urgency(left) || (right.updatedAt ?? 0) - (left.updatedAt ?? 0))
+      withoutChildren(sessions.filter(listed))
+        .sort(
+          (left, right) =>
+            urgency(right, right.sessionId === currentId) - urgency(left, left.sessionId === currentId) ||
+            (right.updatedAt ?? 0) - (left.updatedAt ?? 0),
+        )
         .slice(0, MAX_CARDS),
-    [sessions],
+    [currentId, sessions],
   );
-  const attention = cards.filter((session) => urgency(session) >= 4).length;
+  const attention = cards.filter((session) => urgency(session, session.sessionId === currentId) >= 4).length;
   return (
     <aside
       className="acpmux-chief-dock"
@@ -119,22 +139,28 @@ export function ChiefDock({
             const title = sessionTitle(session);
             const queued = queueCounts?.get(session.sessionId) ?? 0;
             const steering = steeringIds?.has(session.sessionId) === true;
+            const mark = sessionMark(session, selected);
+            const cardStatus = status(session, selected);
+            const markLabel = mark ? t(MARK_LABELS[mark]) : undefined;
+            const queueLabel = queued > 0 ? `${queued} ${t("composer.queued")}` : undefined;
             return (
               <article
                 className="acpmux-chief-card"
                 data-selected={selected}
-                data-status={status(session)}
-                data-steering={steering || queued > 0 ? "true" : undefined}
+                data-status={cardStatus}
+                data-steering={steering ? "true" : undefined}
                 data-depth={index}
                 key={session.sessionId}
               >
                 <button
                   type="button"
                   className="acpmux-chief-card-main"
+                  aria-current={selected ? "true" : undefined}
+                  aria-label={[title, markLabel, queueLabel].filter(Boolean).join(", ") || undefined}
                   disabled={!expanded}
                   onClick={() => onSelect(session.sessionId)}
                 >
-                  <StatusDot value={status(session)} />
+                  <StatusDot value={cardStatus} />
                   <span className="acpmux-chief-card-copy">
                     <strong>{title}</strong>
                     <small>{session.preview || session.branch || session.cwd || t("sidebar.sessions")}</small>

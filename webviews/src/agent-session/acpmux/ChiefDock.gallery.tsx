@@ -32,6 +32,15 @@ const base = [
     updatedAt: 800,
   }),
   session({ sessionId: "chief-quiet", title: "Draft the onboarding copy", status: "idle", updatedAt: 700 }),
+  session({
+    sessionId: "chief-child",
+    title: "Inspect a changed file",
+    status: "running",
+    indicator: "working",
+    spawnedBy: "chief-working",
+    preview: "A child agent is checking one file.",
+    updatedAt: 1100,
+  }),
 ];
 
 const toggleStack = async (ctx: PlayContext) => {
@@ -59,7 +68,7 @@ export default componentEntry({
   load: async () => ChiefDock,
   variants: {
     baseline: {
-      note: "A Chief mascot rail with a stacked set of working, attention and quiet agent chats.",
+      note: "A Chief mascot rail with a stacked set of working, attention and quiet agent chats; spawned child chats stay folded.",
       props: {
         sessions: base,
         currentId: "chief-working",
