@@ -1545,6 +1545,28 @@ pre.cv-math-source {
   }
 }
 
+/* cx-2lv1k: a row from a page of older history fades in once, the first time the reader scrolls it
+ * into view at the top edge (OlderRowFade in App.tsx). It waits at a soft 0.35 until then, out of
+ * view, so the fade starts from ink already there and never from a blank band. Opacity only: no
+ * row moves or changes height, so the anchoring that holds the reader's place is untouched. Reduce
+ * Motion draws it in full ink at once; ui.animationSpeed off makes the fade instant (the token is 0). */
+@keyframes acpmux-older-in {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-row--older:not([data-older-shown]) {
+    opacity: 0.35;
+  }
+  .acpmux-row--older[data-older-shown] {
+    animation: acpmux-older-in var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+}
+
 /* R104: an open fence draws plain lines in Pierre's metrics (12px on 20px lines, no wrap), so its
  * height is final as it grows; Pierre highlights it once when it closes (StreamingCode.tsx). */
 .cv-code-plain {
