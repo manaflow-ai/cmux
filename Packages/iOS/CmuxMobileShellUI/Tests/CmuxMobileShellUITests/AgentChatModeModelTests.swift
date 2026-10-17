@@ -77,6 +77,32 @@ import Testing
         #expect(model.visibleSessions.map(\.id) == ["session"])
     }
 
+    @Test func transcriptSearchHydratesUnopenedSessions() async {
+        let source = FakeAgentChatSource(
+            sessions: [
+                descriptor(id: "older", agent: .codex, title: "Older task", activity: 10),
+                descriptor(id: "newer", agent: .claude, title: "Newer task", activity: 20),
+            ],
+            pages: [
+                "older": [page(message(id: "older-message", seq: 1, text: "Find this remote transcript"))],
+                "newer": [page(message(id: "newer-message", seq: 1, text: "Different content"))],
+            ]
+        )
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await settle()
+
+        // The newest session is selected and hydrated automatically; the
+        // older session must be fetched by the explicit transcript search.
+        #expect(model.messagesBySession["older"] == nil)
+        model.sessionSearchQuery = "remote transcript"
+        model.beginTranscriptSearch()
+        await settle(100)
+
+        #expect(model.visibleSessions.map(\.id) == ["older"])
+        #expect((await source.historyRequests).contains { $0.sessionID == "older" })
+    }
+
     @Test func pinAndArchivePreferencesPersistAcrossModels() {
         let suiteName = "AgentChatModeModelTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

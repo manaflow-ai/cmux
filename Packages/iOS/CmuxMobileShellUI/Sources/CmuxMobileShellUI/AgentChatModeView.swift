@@ -54,6 +54,7 @@ struct AgentChatModeView: View {
         }
         .onChange(of: searchText, initial: true) { _, value in
             model.sessionSearchQuery = value
+            model.beginTranscriptSearch()
         }
         .onChange(of: scenePhase) { _, phase in
             // A suspended iOS process can miss the host's best-effort event

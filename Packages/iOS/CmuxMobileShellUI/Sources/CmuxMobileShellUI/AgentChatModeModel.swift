@@ -72,6 +72,8 @@ final class AgentChatModeModel {
     private var sourceTask: Task<Void, Never>?
     private var sessionTasks: [String: Task<Void, Never>] = [:]
     private var historyReloadTasks: [String: Task<Void, Never>] = [:]
+    private var transcriptSearchTask: Task<Void, Never>?
+    private var transcriptSearchGeneration = 0
     private var historyCursors: [String: Int] = [:]
     private var historyHasMore: [String: Bool] = [:]
     private var transcriptRevisions: [String: Int] = [:]
@@ -295,6 +297,9 @@ final class AgentChatModeModel {
         sourceGeneration += 1
         let generation = sourceGeneration
         sourceTask?.cancel()
+        transcriptSearchTask?.cancel()
+        transcriptSearchTask = nil
+        transcriptSearchGeneration &+= 1
         for task in sessionTasks.values { task.cancel() }
         for task in historyReloadTasks.values { task.cancel() }
         sessionTasks = [:]
@@ -325,6 +330,52 @@ final class AgentChatModeModel {
         guard let next else { return }
         sourceTask = Task { [weak self] in
             await self?.loadAndObserve(source: next, generation: generation)
+        }
+    }
+
+    /// Starts a cancellable background search over transcript history that has
+    /// not been opened in the current UI session yet. Metadata matching stays
+    /// synchronous through ``visibleSessions``; this fills in message content
+    /// without making each keystroke block the sidebar or issuing work after a
+    /// new source has replaced the old one.
+    func beginTranscriptSearch() {
+        transcriptSearchGeneration &+= 1
+        let searchGeneration = transcriptSearchGeneration
+        transcriptSearchTask?.cancel()
+        transcriptSearchTask = nil
+        let query = sessionSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty, let source else { return }
+        let generation = sourceGeneration
+        let sessionIDs = sessions.map(\.id)
+        transcriptSearchTask = Task { [weak self] in
+            guard let self else { return }
+            for sessionID in sessionIDs {
+                guard !Task.isCancelled,
+                      self.transcriptSearchGeneration == searchGeneration,
+                      generation == self.sourceGeneration else { return }
+                await self.loadHistory(
+                    sessionID: sessionID,
+                    source: source,
+                    reset: self.messagesBySession[sessionID] == nil,
+                    generation: generation
+                )
+                // A search needs the complete transcript, not just the newest
+                // page. The cursor/hasMore guard also prevents a malformed
+                // host page from causing an infinite request loop.
+                while self.historyHasMore[sessionID] == true {
+                    guard !Task.isCancelled,
+                          self.transcriptSearchGeneration == searchGeneration,
+                          generation == self.sourceGeneration else { return }
+                    let cursor = self.historyCursors[sessionID]
+                    await self.loadHistory(
+                        sessionID: sessionID,
+                        source: source,
+                        reset: false,
+                        generation: generation
+                    )
+                    guard self.historyCursors[sessionID] != cursor else { break }
+                }
+            }
         }
     }
 
@@ -866,7 +917,7 @@ final class AgentChatModeModel {
             sendingSessionIDs.remove(sessionID)
             interruptingSessionIDs.remove(sessionID)
             if selectedSessionID == sessionID {
-                if let next = sessions.first {
+                if let next = visibleSessions.first {
                     select(next)
                 } else {
                     selectedSessionID = nil
