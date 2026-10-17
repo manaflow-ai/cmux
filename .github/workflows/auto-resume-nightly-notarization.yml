@@ -166,7 +166,11 @@ jobs:
       all_accepted: ${{ steps.poll.outputs.all_accepted }}
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 90
+    # Apple left the RC v0.65.2 helper submissions in progress beyond the
+    # previous 80-minute budget. Keep this inexpensive polling worker alive
+    # for four hours, with one hour reserved for setup, the final poll cycle,
+    # and polling evidence afterward.
+    timeout-minutes: 300
     concurrency:
       group: notarization-poll-${{ needs.preflight.outputs.channel }}-${{ needs.preflight.outputs.short_sha }}
       cancel-in-progress: false
@@ -238,8 +242,24 @@ jobs:
             printf '%s\n' "$state_file" > "$RUNNER_TEMP/recovery-$variant.state-file"
           done
 
-          deadline=$(( $(date +%s) + 80 * 60 ))
+          poll_budget_minutes=240
+          setup_reserve_minutes=20
+          final_cycle_reserve_minutes=10
+          evidence_reserve_minutes=15
+          poll_interval_minutes=5
+          reserve_minutes=$((setup_reserve_minutes + final_cycle_reserve_minutes + evidence_reserve_minutes))
+          echo "Configured recovery reserve: ${reserve_minutes} minutes"
+          # Keep these reserves synchronized with timeout-minutes above. The
+          # deadline starts after setup, while the job timeout also covers
+          # setup and the always-run evidence upload.
+          deadline=$(( $(date +%s) + poll_budget_minutes * 60 ))
           while :; do
+            if [ "$(date +%s)" -ge "$((deadline - final_cycle_reserve_minutes * 60))" ]; then
+              echo "No time remains for another full Apple poll cycle; leaving the exact recovery artifacts for manual continuation." >&2
+              echo "all_accepted=false" >> "$GITHUB_OUTPUT"
+              echo "pending=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
             pending=false
             terminal_failure=false
             for variant in arm64 x86_64 universal; do
@@ -267,14 +287,15 @@ jobs:
               echo "pending=false" >> "$GITHUB_OUTPUT"
               break
             fi
-            if [ "$(date +%s)" -ge "$deadline" ]; then
+            now=$(date +%s)
+            if [ "$now" -ge "$deadline" ] || [ "$((now + poll_interval_minutes * 60 + final_cycle_reserve_minutes * 60))" -ge "$deadline" ]; then
               echo "Apple submissions remain In Progress after the polling budget; leaving the exact recovery artifacts for manual continuation." >&2
               echo "all_accepted=false" >> "$GITHUB_OUTPUT"
               echo "pending=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             echo "At least one submission is still In Progress; polling again in five minutes."
-            sleep 300
+            sleep $((poll_interval_minutes * 60))
           done
 
       - name: Upload polling evidence

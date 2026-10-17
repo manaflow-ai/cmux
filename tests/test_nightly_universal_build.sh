@@ -592,7 +592,13 @@ assert "source_run_id:" in auto and "source_run_attempt:" in auto
 assert "poll:" in auto
 assert "poll-notary-submission.py" in auto
 assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'" in auto
-assert "sleep 300" in auto
+assert "poll_budget_minutes=240" in auto
+assert "setup_reserve_minutes=20" in auto
+assert "final_cycle_reserve_minutes=10" in auto
+assert "evidence_reserve_minutes=15" in auto
+assert "poll_interval_minutes=5" in auto
+assert "deadline - final_cycle_reserve_minutes * 60" in auto
+assert "sleep $((poll_interval_minutes * 60))" in auto
 assert "exact recovery artifacts for manual continuation" in auto
 assert "needs.poll.outputs.all_accepted == 'true'" in auto
 assert "CMUX_OUTER_NOTARY_WAIT_TIMEOUT=25m" in auto
