@@ -48,8 +48,8 @@ final class ChiefSettingsPanel: NSView {
     private var apiKeyLabel = NSTextField(labelWithString: "")
     private var apiKeyStatus = NSTextField(labelWithString: "")
     private var apiKeyHelp = NSTextField(labelWithString: "")
-    /// The last save failed; shown until the next save or removal.
-    private var apiKeySaveFailed = false
+    /// The last save or removal failed; shown until the next one.
+    private var apiKeyFailure: String?
     private let dangerousPermissions = NSButton(checkboxWithTitle: ChiefStrings.settingsDangerousPermissions,
                                                 target: nil, action: nil)
     private var statsLabel = NSTextField(labelWithString: "")
@@ -212,6 +212,8 @@ final class ChiefSettingsPanel: NSView {
         apiKeyStatus = brain.addCaption("")
         apiKeyStatus.setAccessibilityIdentifier("ChiefSettingsDeepInfraKeyStatus")
         apiKeyHelp = brain.addCaption(ChiefSettingsStrings.deepInfraKeyHelp, describing: apiKeyField)
+        // Also after the caption: Remove Key is hidden without a saved key.
+        brain.addGap(10)
         configure(apiKeyRemove, action: #selector(removeAPIKey))
         apiKeyRemove.setAccessibilityIdentifier("ChiefSettingsDeepInfraKeyRemove")
         brain.add(apiKeyRemove)
@@ -394,11 +396,11 @@ final class ChiefSettingsPanel: NSView {
             : ChiefSettingsStrings.deepInfraKeyPlaceholder
         apiKeyRemove.isHidden = !saved
         let status: String
-        if apiKeySaveFailed {
-            status = ChiefSettingsStrings.deepInfraKeySaveFailed
+        if let apiKeyFailure {
+            status = apiKeyFailure
         } else if saved {
             status = ""
-        } else if service.credential != nil {
+        } else if ChiefService.environmentHasDeepInfraKey() {
             status = ChiefSettingsStrings.deepInfraKeyFromEnvironment
         } else {
             status = ChiefSettingsStrings.deepInfraKeyMissing
@@ -511,7 +513,7 @@ final class ChiefSettingsPanel: NSView {
                 failed = true
             }
             guard let self, !self.stopped else { return }
-            self.apiKeySaveFailed = failed
+            self.apiKeyFailure = failed ? ChiefSettingsStrings.deepInfraKeySaveFailed : nil
             self.refresh()
         }
     }
@@ -521,7 +523,7 @@ final class ChiefSettingsPanel: NSView {
         Task { [weak self] in
             let failed = (try? await ChiefService.shared.removeDeepInfraKey()) == nil
             guard let self, !self.stopped else { return }
-            self.apiKeySaveFailed = failed
+            self.apiKeyFailure = failed ? ChiefSettingsStrings.deepInfraKeyRemoveFailed : nil
             self.refresh()
         }
     }

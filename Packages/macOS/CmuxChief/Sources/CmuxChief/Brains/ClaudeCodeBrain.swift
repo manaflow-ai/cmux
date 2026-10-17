@@ -151,6 +151,9 @@ public actor ClaudeCodeBrain: ChiefBrain {
         case .resume(let id): arguments += ["--resume", id]
         }
         if !systemPrompt.isEmpty { arguments += ["--append-system-prompt", systemPrompt] }
+        if let endpoint = configuration.endpoint {
+            arguments += ["--settings", endpoint.settingsJSON(model: configuration.model)]
+        }
         var extra = configuration.extraArguments
         if configuration.dangerouslySkipPermissions,
            let index = extra.firstIndex(of: "default"),
@@ -261,16 +264,17 @@ actor ClaudeConversation {
 
     /// Starts `claude`; returns whether it resumes an earlier session.
     private func launch(_ request: ChiefTurnRequest) throws -> Bool {
-        var overrides = ["CMUX_CLAUDE_HOOKS_DISABLED": "1"]
-        var removing: Set<String> = []
-        if let endpoint = configuration.endpoint {
-            // Checked before anything launches: without a key the endpoint answers 401.
-            guard endpoint.hasToken else { throw ChiefBrainError.missingCredential(endpoint.name) }
-            overrides.merge(endpoint.environment(model: configuration.model)) { _, new in new }
-            removing = ChiefModelEndpoint.clearedKeys
-        }
-        let environment = ChiefExecutableResolver.environment(request: request.environment, overrides: overrides,
+        let endpoint = configuration.endpoint
+        // A model endpoint must not see the app's Anthropic routing or credentials; its own
+        // settings reach Claude Code through `--settings` (``arguments(_:session:systemPrompt:)``).
+        let removing: (String) -> Bool = endpoint == nil ? { _ in false } : ChiefModelEndpoint.isClearedKey
+        let environment = ChiefExecutableResolver.environment(request: request.environment,
+                                                              overrides: ["CMUX_CLAUDE_HOOKS_DISABLED": "1"],
                                                               removing: removing)
+        // Checked before anything launches: without a key the endpoint answers 401.
+        if let endpoint, !endpoint.hasKey(environment: environment) {
+            throw ChiefBrainError.missingCredential(endpoint.name)
+        }
         guard let executable = ChiefExecutableResolver.resolve("claude", override: configuration.executableOverride,
                                                                environment: environment) else {
             throw ChiefBrainError.missingExecutable("claude")

@@ -49,10 +49,10 @@ final class ChiefService {
     /// The secret store holding the provider API key (`chief.deepInfraAPIKey`), set by the
     /// app's composition root; nil leaves only `DEEPINFRA_API_KEY` (ChiefService+Credentials.swift).
     @ObservationIgnored var secretStore: SecretFileStore?
-    /// The provider API key brains are built with, nil when none is saved or set.
-    @ObservationIgnored var credential: String?
     // task-owner: follows the saved key from start() for the app's lifetime
     @ObservationIgnored var credentialWatch: Task<Void, Never>?
+    /// Whether the saved key has been read once (its first value installs no new brain).
+    @ObservationIgnored var savedKeyObserved = false
     /// Whether a DeepInfra key is saved in Chief Settings (not counting `DEEPINFRA_API_KEY`).
     var hasSavedDeepInfraKey = false
     /// The list's preview lines by conversation (ChiefService+Previews.swift), with the row state
@@ -138,8 +138,7 @@ final class ChiefService {
         let (home, temporary) = Self.resolveHome()
         let settings = ChiefSettingsAccess().current
         engine = settings
-        credential = Self.resolvedCredential(saved: nil)
-        let switcher = ChiefBrainSwitch(brain: Self.makeBrain(settings, credential: credential), settings: settings)
+        let switcher = ChiefBrainSwitch(brain: Self.makeBrain(settings, keyFile: deepInfraKeyFile), settings: settings)
         let builder = ChiefTurnContextBuilder(engine: { await switcher.settings })
         let brain = ChiefSwitchingBrain(switcher: switcher)
         // task-owner: one load of the Chief home; ends when the owner is ready or the load failed
@@ -228,7 +227,7 @@ final class ChiefService {
 
     // MARK: Brain
 
-    static func makeBrain(_ settings: ChiefEngineSettings, credential: String?) -> any ChiefBrain {
+    static func makeBrain(_ settings: ChiefEngineSettings, keyFile: URL?) -> any ChiefBrain {
 #if DEBUG
         // Dogfood tours and screenshots: a scripted turn, no model or credentials.
         if usesScriptedBrain { return ChiefScriptedBrain() }
@@ -236,7 +235,7 @@ final class ChiefService {
         let harness = settings.resolvedHarness
         return harness.makeBrain(model: settings.model, effort: settings.effort,
                                  dangerouslySkipPermissions: settings.dangerouslySkipPermissions,
-                                 credential: harness.needsCredential ? credential : nil)
+                                 keyFile: harness.needsCredential ? keyFile : nil)
     }
 
 #if DEBUG
@@ -274,11 +273,11 @@ final class ChiefService {
         replaceBrain(settings)
     }
 
-    /// Installs a brain built from `settings` and ``credential`` for the next turn.
+    /// Installs a brain built from `settings` for the next turn.
     func replaceBrain(_ settings: ChiefEngineSettings) {
         guard let brainSwitch else { return }
         engine = settings
-        let brain = Self.makeBrain(settings, credential: credential)
+        let brain = Self.makeBrain(settings, keyFile: deepInfraKeyFile)
         // task-owner: one swap; ends when the old brain is retired
         Task { await brainSwitch.replace(with: brain, settings: settings) }
     }

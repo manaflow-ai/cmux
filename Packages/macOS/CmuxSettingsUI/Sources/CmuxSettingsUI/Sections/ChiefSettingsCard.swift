@@ -158,7 +158,7 @@ struct ChiefSettingsCard: View {
                 ? String(localized: "settings.automation.chief.deepInfraKey.subtitleSet",
                          defaultValue: "Saved on this Mac. Usage is billed to your DeepInfra account.", bundle: .module)
                 : String(localized: "settings.automation.chief.deepInfraKey.subtitleUnset",
-                         defaultValue: "Create a key at deepinfra.com. Without one, DeepInfra turns fail.", bundle: .module)
+                         defaultValue: "Create a key at deepinfra.com, or set DEEPINFRA_API_KEY.", bundle: .module)
         ) {
             HStack(spacing: 8) {
                 SecureField(

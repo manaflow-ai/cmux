@@ -45,6 +45,9 @@ enum ChiefSettingsStrings {
     static var deepInfraKeySaveFailed: String {
         String(localized: "chief.settings.deepInfraKey.saveFailed", defaultValue: "Could not save the key.")
     }
+    static var deepInfraKeyRemoveFailed: String {
+        String(localized: "chief.settings.deepInfraKey.removeFailed", defaultValue: "Could not remove the key.")
+    }
     static var deepInfraKeyRemove: String {
         String(localized: "chief.settings.deepInfraKey.remove", defaultValue: "Remove Key")
     }

@@ -16854,55 +16854,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Create a key at deepinfra.com. Without one, DeepInfra turns fail."
+            "value": "Create a key at deepinfra.com, or set DEEPINFRA_API_KEY."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أنشئ مفتاحًا على deepinfra.com. بدونه تفشل ردود DeepInfra."
+            "value": "أنشئ مفتاحًا على deepinfra.com أو عيّن DEEPINFRA_API_KEY."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Erstelle einen Schlüssel auf deepinfra.com. Ohne Schlüssel schlagen DeepInfra-Antworten fehl."
+            "value": "Erstelle einen Schlüssel auf deepinfra.com oder setze DEEPINFRA_API_KEY."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Crea una clave en deepinfra.com. Sin ella, las respuestas de DeepInfra fallan."
+            "value": "Crea una clave en deepinfra.com o define DEEPINFRA_API_KEY."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Créez une clé sur deepinfra.com. Sans clé, les réponses DeepInfra échouent."
+            "value": "Créez une clé sur deepinfra.com ou définissez DEEPINFRA_API_KEY."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "deepinfra.com でキーを作成してください。キーがないと DeepInfra のターンは失敗します。"
+            "value": "deepinfra.com でキーを作成するか、DEEPINFRA_API_KEY を設定してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "deepinfra.com에서 키를 만드세요. 키가 없으면 DeepInfra 응답이 실패합니다."
+            "value": "deepinfra.com에서 키를 만들거나 DEEPINFRA_API_KEY를 설정하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请在 deepinfra.com 创建密钥。没有密钥时，DeepInfra 回合会失败。"
+            "value": "请在 deepinfra.com 创建密钥，或设置 DEEPINFRA_API_KEY。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "請在 deepinfra.com 建立金鑰。沒有金鑰時，DeepInfra 回合會失敗。"
+            "value": "請在 deepinfra.com 建立金鑰，或設定 DEEPINFRA_API_KEY。"
           }
         }
       }

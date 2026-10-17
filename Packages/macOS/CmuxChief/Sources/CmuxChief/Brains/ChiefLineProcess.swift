@@ -282,14 +282,14 @@ enum ChiefExecutableResolver {
     /// - Returns: The complete environment.
     static func environment(base: [String: String] = ProcessInfo.processInfo.environment,
                             request: [String: String], overrides: [String: String],
-                            removing: Set<String> = []) -> [String: String] {
+                            removing: (String) -> Bool = { _ in false }) -> [String: String] {
         var environment = base
         // The app is not a terminal; a Chief must not claim one.
         for key in ["CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID"] {
             environment.removeValue(forKey: key)
         }
         environment.merge(request) { _, new in new }
-        for key in removing { environment.removeValue(forKey: key) }
+        for key in environment.keys where removing(key) { environment.removeValue(forKey: key) }
         environment.merge(overrides) { _, new in new }
         return environment
     }

@@ -178,11 +178,11 @@ extension ChiefHarness {
     ///   - effort: The effort level; nil or empty uses the model default.
     ///   - dangerouslySkipPermissions: Whether the harness may bypass permission prompts.
     ///   - executableOverride: An explicit CLI path; nil looks it up on `PATH`.
-    ///   - credential: The provider API key a harness that ``needsCredential`` uses;
-    ///     nil fails its turns with a pointer to Chief Settings.
+    ///   - keyFile: The saved provider key a harness that ``needsCredential`` reads (else its
+    ///     environment variable); without either its turns fail with a pointer to Chief Settings.
     /// - Returns: A brain that starts its processes lazily.
     public func makeBrain(model: String?, effort: String?, dangerouslySkipPermissions: Bool = false,
-                          executableOverride: URL? = nil, credential: String? = nil) -> any ChiefBrain {
+                          executableOverride: URL? = nil, keyFile: URL? = nil) -> any ChiefBrain {
         let model = model.flatMap { $0.isEmpty ? nil : $0 } ?? defaultModel
         let effort = effort.flatMap { $0.isEmpty || $0 == "default" ? nil : $0 }
         switch self {
@@ -198,7 +198,7 @@ extension ChiefHarness {
             return ClaudeCodeBrain(configuration: .init(model: model, effort: effort,
                                                         dangerouslySkipPermissions: dangerouslySkipPermissions,
                                                         executableOverride: executableOverride,
-                                                        endpoint: .deepInfra(token: credential)))
+                                                        endpoint: .deepInfra(keyFile: keyFile)))
         }
     }
 }
