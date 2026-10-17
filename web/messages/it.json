@@ -94,7 +94,8 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Le macchine da {memory} GiB richiedono cmux {plan}. Il tuo piano supporta fino a {max} GiB.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}",
+      "teamAction": "cmux vm new --size {max}g\n{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "Impossibile verificare la RAM della macchina di origine.",
@@ -129,6 +130,7 @@
       "memoryMessage": "Le tue VM usano già {used} di {pool} GB di RAM. Questa VM ha bisogno di {requested} GB.",
       "vcpuMessage": "Le tue VM usano già {used} di {pool} vCPU. Questa VM ha bisogno di {requested} vCPU.",
       "upgradeAction": "Metti in pausa o elimina una VM, oppure passa a Max.",
+      "upgradeTeamMaxAction": "Metti in pausa o elimina una VM, oppure passa il team a Team Max.",
       "action": "Metti in pausa o elimina una VM."
     },
     "activeLimit": {
@@ -531,7 +533,8 @@
           "go": "Go",
           "pro": "Pro",
           "max": "Max",
-          "team": "Team"
+          "team": "Team",
+          "team_max": "Team Max"
         },
         "features": {
           "free": [
@@ -559,6 +562,12 @@
             "Fino a 5 Cloud VMs per postazione a pagamento, che condividono 20 vCPU e 40 GB di RAM per postazione a pagamento in tutto il team",
             "Un'unica fattura per tutto il team",
             "Supporto prioritario"
+          ],
+          "team_max": [
+            "Tutto ciò che include Team, con macchine Max per ogni membro",
+            "Fino a 5 Cloud VMs per postazione a pagamento, che condividono 80 vCPU e 160 GB di RAM per postazione a pagamento in tutto il team",
+            "Macchine da 24 GB / 12 vCPU, 32 GB / 16 vCPU e fino a 64 GB / 32 vCPU",
+            "Un'unica fattura per tutto il team"
           ]
         },
         "billedAnnually": "fatturato annualmente"
@@ -941,7 +950,8 @@
         "go": "Go",
         "pro": "Pro",
         "max": "Max",
-        "team": "Team"
+        "team": "Team",
+        "team_max": "Team Max"
       },
       "role": {
         "admin": "Admin",
@@ -5280,7 +5290,16 @@
     "billingUnavailable": "La fatturazione non è disponibile al momento. Riprova più tardi.",
     "signedOutNotice": "Non hai effettuato l'accesso. Accedi per vedere il piano attuale o ripristinare un acquisto esistente.",
     "signedOutSignIn": "Accedi",
-    "manageInAppStore": "Gestisci nell’App Store"
+    "manageInAppStore": "Gestisci nell’App Store",
+    "teamMax": {
+      "name": "Team Max",
+      "cta": "Ottieni Team Max",
+      "featuresLead": "Tutto ciò che include Team, più:",
+      "features": [
+        "Macchine Max per ogni membro: 24 GB / 12 vCPU, 32 GB / 16 vCPU e fino a 64 GB / 32 vCPU, con dischi fino a 256 GB",
+        "Fino a 5 Cloud VMs per postazione a pagamento, che condividono 80 vCPU e 160 GB di RAM per postazione a pagamento in tutto il team"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

@@ -102,10 +102,12 @@ public struct BillingPlanClient: Sendable {
         // The default endpoint returns both personal and active-team plans.
         // A paid team grants Cloud access even when the personal subscription
         // is free, which is the normal path for team-owned machines.
-        let paidPlanIDs = ["go", "pro", "max", "team", "founders"]
+        // `teamPlanId` stays "free" or "team" for older clients; the exact
+        // team plan ("team_max") is in `teamSubscriptionPlanId`.
+        let teamPlanID = decoded.teamSubscriptionPlanId ?? decoded.teamPlanId
         let isPro = decoded.isPro == true
-            || paidPlanIDs.contains(decoded.planId?.lowercased() ?? "")
-            || paidPlanIDs.contains(decoded.teamPlanId?.lowercased() ?? "")
+            || CmuxPlanTier(planID: decoded.planId)?.includesCloud == true
+            || CmuxPlanTier(planID: teamPlanID)?.includesCloud == true
         let canManageBilling = decoded.billingManagement == "stripe"
             || decoded.teamBillingManagement == "stripe"
         // `planId` is "pro" for a Max or Go subscriber; the exact personal
@@ -114,7 +116,7 @@ public struct BillingPlanClient: Sendable {
         let tier = CmuxPlanTier.resolved(
             subscriptionPlanID: decoded.subscriptionPlanId,
             planID: decoded.planId,
-            teamPlanID: decoded.teamPlanId,
+            teamPlanID: teamPlanID,
             isPro: decoded.isPro == true
         )
         return BillingPlanDetails(isPro: isPro, canManageBilling: canManageBilling, tier: tier)
@@ -129,6 +131,7 @@ public struct BillingPlanClient: Sendable {
         let subscriptionPlanId: String?
         let billingManagement: String?
         let teamPlanId: String?
+        let teamSubscriptionPlanId: String?
         let teamBillingManagement: String?
     }
 }

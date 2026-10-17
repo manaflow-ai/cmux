@@ -25,6 +25,8 @@ import {
   stripeBillingStatusForTeam,
   stripeBillingStatusForUser,
   type PersonalPlanId,
+  type TeamPlanId,
+  isTeamPlanId,
 } from "../../../../services/billing/pro";
 import { captureBillingError } from "../../../../services/errors";
 import {
@@ -32,6 +34,7 @@ import {
   resolveMaxPrice,
   resolveGoPrice,
   resolveProPrice,
+  resolveTeamMaxPrice,
   resolveTeamPrice,
   stripe,
 } from "../../../../services/billing/stripe";
@@ -150,7 +153,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!user || user.isAnonymous) return nativeCheckoutError("unauthorized");
     const body = await request.json();
     const plan = nativeCheckoutPlan(body);
-    if (plan === "team") return await nativeTeamCheckout(request, user.id, body);
+    if (isTeamPlanId(plan)) return await nativeTeamCheckout(request, user.id, body, plan);
     if (!plan) return nativeCheckoutError("invalid_plan");
     if (await goPlanUnavailable(user.id, plan)) return nativeCheckoutError("plan_unavailable");
     const app = await checkoutStackServerApp();
@@ -173,9 +176,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 }
 
-function nativeCheckoutPlan(body: unknown): PersonalPlanId | "team" | null {
+function nativeCheckoutPlan(body: unknown): PersonalPlanId | TeamPlanId | null {
   const plan = body && typeof body === "object" ? (body as { plan?: unknown }).plan : null;
-  return plan === "go" || plan === "pro" || plan === "max" || plan === "team" ? plan : null;
+  return plan === "go" || plan === "pro" || plan === "max" || plan === "team" || plan === "team_max" ? plan : null;
 }
 
 function nativeCheckoutAttribution(): CheckoutAttribution {
@@ -191,26 +194,33 @@ async function nativeTeamCheckout(
   request: NextRequest,
   userId: string,
   body: { readonly teamId?: unknown; readonly cmux_scheme?: unknown },
+  plan: TeamPlanId,
 ): Promise<NextResponse> {
   const teamId = explicitTeamId(body.teamId);
   if (!teamId) return nativeCheckoutError("team_id_required");
   const app = await checkoutStackServerApp();
   if (!app || !isStripeBillingConfigured()) return nativeCheckoutError("billing_unavailable");
   const scheme = validatedNativeCallbackScheme(typeof body.cmux_scheme === "string" ? body.cmux_scheme : null, request);
-  const response = await stripeTeamCheckout(request, app, "month", scheme, nativeCheckoutAttribution(), {
+  const response = await stripeTeamCheckout(request, app, plan, "month", scheme, nativeCheckoutAttribution(), {
     teamId,
     authenticatedUserId: userId,
   });
   const destination = response.headers.get("location");
   if (!destination) return response;
   const url = new URL(destination);
-  if (url.pathname === "/api/billing/portal" && url.origin === requestOrigin(request)) {
+  const sameOrigin = url.origin === requestOrigin(request);
+  if (url.pathname === "/api/billing/portal" && sameOrigin) {
     const portal = await teamPortalSession({ teamId, origin: requestOrigin(request) });
     if (!portal) return nativeCheckoutError("billing_unavailable");
-    return NextResponse.json({ url: portal.url, plan: "team", teamId, flow: "portal" });
+    return NextResponse.json({ url: portal.url, plan, teamId, flow: "portal" });
+  }
+  // A paying team switches between Team and Team Max in place, on its
+  // dashboard billing page, never through a second checkout.
+  if (url.pathname === TEAM_PLAN_SWITCH_PATH && sameOrigin && !url.searchParams.has("billing")) {
+    return NextResponse.json({ url: destination, plan, teamId, flow: "switch_plan" });
   }
   if (url.searchParams.has("billing")) return nativeCheckoutError("billing_unavailable");
-  return NextResponse.json({ url: destination, plan: "team", teamId, flow: "checkout" });
+  return NextResponse.json({ url: destination, plan, teamId, flow: "checkout" });
 }
 
 async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
@@ -262,7 +272,7 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   if (configuredRelayURL) {
     // The relay target runs this same route, which re-authorizes the team, so
     // the unsigned team id only selects; it never grants access.
-    if (plan === "team" && requestedTeamId) configuredRelayURL.searchParams.set("teamId", requestedTeamId);
+    if (isTeamPlanId(plan) && requestedTeamId) configuredRelayURL.searchParams.set("teamId", requestedTeamId);
     return NextResponse.redirect(configuredRelayURL);
   }
 
@@ -289,17 +299,18 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
       attribution,
     );
   }
-  if (plan === "team") {
+  if (isTeamPlanId(plan)) {
     return stripeTeamCheckout(
       request,
       stackServerApp,
+      plan,
       interval,
       callbackScheme,
       attribution,
       { teamId: requestedTeamId },
     );
   }
-  // checkoutPlan only yields "go" | "pro" | "max" | "team" | null (null handled above);
+  // checkoutPlan only yields "go" | "pro" | "max" | "team" | "team_max" | null (null handled above);
   // this is unreachable but keeps GET returning a NextResponse.
   return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", requestOrigin(request)));
 }
@@ -445,9 +456,35 @@ type TeamCheckoutTarget = {
   readonly authenticatedUserId?: string;
 };
 
+/** Where an admin switches a paying team between Team and Team Max. */
+const TEAM_PLAN_SWITCH_PATH = "/dashboard/billing";
+
+/**
+ * A team already paying for the other team plan switches in place (a price
+ * swap on the same subscription) from its billing page. Only an active
+ * subscription that is not scheduled to cancel can switch; anything else
+ * keeps the portal path.
+ */
+function teamPlanSwitchURL(
+  request: NextRequest,
+  status: Awaited<ReturnType<typeof stripeBillingStatusForTeam>>,
+  plan: TeamPlanId,
+  teamId: string,
+): URL | null {
+  // A past-due subscription keeps the portal path, where payment is fixed.
+  const switchable = (status.subscriptionStatus === "active" || status.subscriptionStatus === "trialing") &&
+    !status.cancelAtPeriodEnd &&
+    status.teamPlanId !== null && status.teamPlanId !== undefined && status.teamPlanId !== plan;
+  if (!switchable) return null;
+  const url = new URL(TEAM_PLAN_SWITCH_PATH, requestOrigin(request));
+  url.searchParams.set("team", teamId);
+  return url;
+}
+
 async function stripeTeamCheckout(
   request: NextRequest,
   stackServerApp: CheckoutStackServerApp,
+  plan: TeamPlanId,
   interval: BillingInterval,
   callbackScheme: string,
   attribution: CheckoutAttribution,
@@ -463,7 +500,7 @@ async function stripeTeamCheckout(
       return accountDeletionCheckoutRedirect(request);
     }
     const stackUserId = checkoutPrincipalId(user.id, "user");
-    captureCheckoutAuthenticated(request, user.id, "team", attribution);
+    captureCheckoutAuthenticated(request, user.id, plan, attribution);
     const resolved = await teamCheckoutCustomer(user, target.teamId);
     if (!resolved.ok) return nativeCheckoutError(resolved.error);
     const team = resolved.team;
@@ -471,6 +508,11 @@ async function stripeTeamCheckout(
     teamId = resolvedTeamId;
 
     const stripeBillingStatus = await stripeBillingStatusForTeam(resolvedTeamId);
+    const switchURL = teamPlanSwitchURL(request, stripeBillingStatus, plan, resolvedTeamId);
+    if (switchURL) {
+      captureCheckoutDecision(user.id, plan, stripeBillingStatus.teamPlanId ?? "team", "switch_plan", attribution);
+      return NextResponse.redirect(switchURL);
+    }
     // Same rule as personal checkout: an already-paying team manages billing
     // in the portal; checkout would create a duplicate subscription.
     if (stripeBillingStatus.hasRecurringSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
@@ -478,7 +520,7 @@ async function stripeTeamCheckout(
       portalURL.searchParams.set("scope", "team");
       if (target.teamId) portalURL.searchParams.set("teamId", resolvedTeamId);
       forwardCheckoutAttribution(request.nextUrl.searchParams, portalURL);
-      captureCheckoutDecision(user.id, "team", "team", "manage_billing", attribution);
+      captureCheckoutDecision(user.id, plan, stripeBillingStatus.teamPlanId ?? "team", "manage_billing", attribution);
       return NextResponse.redirect(portalURL);
     }
 
@@ -491,7 +533,7 @@ async function stripeTeamCheckout(
       stackTeamId: resolvedTeamId,
       // The purchasing admin, for support and audit. Fulfillment stays team-scoped.
       stackUserId,
-      plan: "team",
+      plan,
       app: "cmux",
       billingInterval: interval,
       nativeCallbackScheme: callbackScheme,
@@ -504,7 +546,7 @@ async function stripeTeamCheckout(
       mode: "subscription",
       line_items: [
         {
-          price: await resolveTeamPrice(interval),
+          price: plan === "team_max" ? await resolveTeamMaxPrice(interval) : await resolveTeamPrice(interval),
           quantity: await checkoutTeamSeatCount(team),
           adjustable_quantity: {
             enabled: true,
@@ -527,7 +569,7 @@ async function stripeTeamCheckout(
       sessionId: session.id,
       // The purchasing admin is the person; the team is the group.
       subject: { scope: "team", stackTeamId: resolvedTeamId, actorUserId: stackUserId },
-      plan: "team",
+      plan,
       billingInterval: interval,
       attribution,
       signedIn: !user.isAnonymous,
@@ -538,7 +580,7 @@ async function stripeTeamCheckout(
   } catch (error) {
     captureBillingError(error, {
       route: "/api/billing/checkout",
-      plan: "team",
+      plan,
       interval,
       stackTeamId: teamId,
     });
@@ -753,14 +795,14 @@ async function checkoutTeamSeatCount(team: CheckoutTeamCustomer): Promise<number
   return Math.max(1, users.length);
 }
 
-function checkoutPlan(raw: string | null): "go" | "pro" | "max" | "team" | null {
+function checkoutPlan(raw: string | null): "go" | "pro" | "max" | "team" | "team_max" | null {
   if (!raw) return "pro";
   const plan = raw.trim().toLowerCase();
-  if (plan === "go" || plan === "pro" || plan === "max" || plan === "team") return plan;
+  if (plan === "go" || plan === "pro" || plan === "max" || plan === "team" || plan === "team_max") return plan;
   return null;
 }
 
-/** Pro and Max sell yearly Prices; Go and Team remain monthly-only. */
+/** Pro and Max sell yearly Prices; Go, Team, and Team Max remain monthly-only. */
 function unavailableIntervalResponse(
   request: NextRequest,
   plan: ReturnType<typeof checkoutPlan>,

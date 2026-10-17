@@ -94,7 +94,8 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB makineler cmux {plan} gerektirir. Planınız en fazla {max} GiB destekler.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}",
+      "teamAction": "cmux vm new --size {max}g\n{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "Kaynak makinenin RAM boyutu doğrulanamadı.",
@@ -129,6 +130,7 @@
       "memoryMessage": "VM'leriniz zaten {pool} GB RAM'in {used} GB'ını kullanıyor. Bu VM'nin {requested} GB'a ihtiyacı var.",
       "vcpuMessage": "VM'leriniz zaten {pool} vCPU'nun {used} tanesini kullanıyor. Bu VM'nin {requested} vCPU'ya ihtiyacı var.",
       "upgradeAction": "Bir VM'yi duraklatın veya silin ya da Max'e yükseltin.",
+      "upgradeTeamMaxAction": "Bir VM'yi duraklatın veya silin ya da ekibi Team Max'e yükseltin.",
       "action": "Bir VM'yi duraklatın veya silin."
     },
     "activeLimit": {
@@ -531,7 +533,8 @@
           "go": "Go",
           "pro": "Pro",
           "max": "Max",
-          "team": "Team"
+          "team": "Team",
+          "team_max": "Team Max"
         },
         "features": {
           "free": [
@@ -559,6 +562,12 @@
             "Ücretli koltuk başına en fazla 5 Cloud VM; ücretli koltuk başına 20 vCPU ve 40 GB RAM tüm ekip tarafından paylaşılır",
             "Tüm ekip için tek fatura",
             "Öncelikli destek"
+          ],
+          "team_max": [
+            "Team'deki her şey, her üyeye Max makineleriyle",
+            "Ücretli koltuk başına en fazla 5 Cloud VM; ücretli koltuk başına 80 vCPU ve 160 GB RAM tüm ekip tarafından paylaşılır",
+            "24 GB / 12 vCPU, 32 GB / 16 vCPU ve 64 GB / 32 vCPU'ya kadar makineler",
+            "Tüm ekip için tek fatura"
           ]
         },
         "billedAnnually": "yıllık faturalandırılır"
@@ -941,7 +950,8 @@
         "go": "Go",
         "pro": "Pro",
         "max": "Max",
-        "team": "Team"
+        "team": "Team",
+        "team_max": "Team Max"
       },
       "role": {
         "admin": "Yönetici",
@@ -5278,7 +5288,16 @@
     "billingUnavailable": "Faturalandırma şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
     "signedOutNotice": "Oturum açmadınız. Mevcut planınızı görmek veya önceki bir satın almayı geri yüklemek için oturum açın.",
     "signedOutSignIn": "Oturum aç",
-    "manageInAppStore": "App Store'da yönet"
+    "manageInAppStore": "App Store'da yönet",
+    "teamMax": {
+      "name": "Team Max",
+      "cta": "Team Max'i edinin",
+      "featuresLead": "Team'deki her şey, ayrıca:",
+      "features": [
+        "Her üyeye Max makineleri: 24 GB / 12 vCPU, 32 GB / 16 vCPU ve 64 GB / 32 vCPU'ya kadar, 256 GB'a kadar disklerle",
+        "Ücretli koltuk başına en fazla 5 Cloud VM; ücretli koltuk başına 80 vCPU ve 160 GB RAM tüm ekip tarafından paylaşılır"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

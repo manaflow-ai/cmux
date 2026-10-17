@@ -54,20 +54,18 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
         return !tier.includesPro
     }
 
-    /// Whether Max is a larger plan for shared vCPU and memory capacity.
-    /// Team and Founders have the same active-machine tier as Max but can still
-    /// upgrade their shared pool to Max capacity.
+    /// Whether a Max-tier plan is a larger plan for shared vCPU and memory
+    /// capacity. Team and Founders have the same active-machine tier as Max
+    /// but can still upgrade their shared pool (Team to Team Max, Founders to
+    /// Max). Max and Team Max already have the Max pool.
     public var hasHigherResourcePoolPlan: Bool {
-        planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "max"
+        CmuxPlanTier(planID: planId) != .max
     }
 
+    /// Whether the backend accepts this plan for provisioning: Go, Pro, Max,
+    /// Team, Team Max and Founders. Free and unknown ids fail closed.
     public static func isPaidPlanID(_ planId: String) -> Bool {
-        switch planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "go", "pro", "max", "team", "founders":
-            return true
-        default:
-            return false
-        }
+        CmuxPlanTier(planID: planId)?.includesCloud == true
     }
 
     /// Single-machine plans (free) read "1 of 1 machine", never "machines".

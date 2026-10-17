@@ -94,7 +94,8 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "تتطلب الأجهزة بسعة {memory} GiB اشتراك cmux {plan}. تدعم خطتك حتى {max} GiB.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}",
+      "teamAction": "cmux vm new --size {max}g\n{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "تعذر التحقق من حجم RAM للجهاز المصدر.",
@@ -129,6 +130,7 @@
       "memoryMessage": "تستخدم أجهزتك الافتراضية بالفعل {used} من {pool} GB من RAM. يحتاج هذا الجهاز الافتراضي إلى {requested} GB.",
       "vcpuMessage": "تستخدم أجهزتك الافتراضية بالفعل {used} من {pool} vCPU. يحتاج هذا الجهاز الافتراضي إلى {requested} vCPU.",
       "upgradeAction": "أوقف جهازاً افتراضياً مؤقتاً أو احذفه، أو قم بالترقية إلى Max.",
+      "upgradeTeamMaxAction": "أوقف جهازاً افتراضياً مؤقتاً أو احذفه، أو قم بترقية الفريق إلى Team Max.",
       "action": "أوقف جهازاً افتراضياً مؤقتاً أو احذفه."
     },
     "activeLimit": {
@@ -531,7 +533,8 @@
           "go": "Go",
           "pro": "Pro",
           "max": "Max",
-          "team": "Team"
+          "team": "Team",
+          "team_max": "Team Max"
         },
         "features": {
           "free": [
@@ -559,6 +562,12 @@
             "حتى 5 Cloud VMs لكل مقعد مدفوع، تتشارك 20 vCPU و40 غيغابايت RAM لكل مقعد مدفوع على مستوى الفريق",
             "فاتورة واحدة للفريق كله",
             "دعم ذو أولوية"
+          ],
+          "team_max": [
+            "كل ما في Team، مع أجهزة Max لكل عضو",
+            "حتى 5 Cloud VMs لكل مقعد مدفوع، تتشارك 80 vCPU و160 غيغابايت RAM لكل مقعد مدفوع على مستوى الفريق",
+            "أجهزة بسعة 24 غيغابايت / 12 vCPU و32 غيغابايت / 16 vCPU وحتى 64 غيغابايت / 32 vCPU",
+            "فاتورة واحدة للفريق كله"
           ]
         },
         "billedAnnually": "تُدفع سنويًا"
@@ -941,7 +950,8 @@
         "go": "Go",
         "pro": "Pro",
         "max": "Max",
-        "team": "Team"
+        "team": "Team",
+        "team_max": "Team Max"
       },
       "role": {
         "admin": "مسؤول",
@@ -5277,7 +5287,16 @@
     "billingUnavailable": "الفوترة غير متاحة الآن. يُرجى المحاولة مرة أخرى لاحقًا.",
     "signedOutNotice": "لم تسجّل الدخول. سجّل الدخول لعرض خطتك الحالية أو استعادة عملية شراء سابقة.",
     "signedOutSignIn": "تسجيل الدخول",
-    "manageInAppStore": "الإدارة في App Store"
+    "manageInAppStore": "الإدارة في App Store",
+    "teamMax": {
+      "name": "Team Max",
+      "cta": "احصل على Team Max",
+      "featuresLead": "كل ما في Team، بالإضافة إلى:",
+      "features": [
+        "أجهزة Max لكل عضو: 24 غيغابايت / 12 vCPU و32 غيغابايت / 16 vCPU وحتى 64 غيغابايت / 32 vCPU، مع أقراص حتى 256 غيغابايت",
+        "حتى 5 Cloud VMs لكل مقعد مدفوع، تتشارك 80 vCPU و160 غيغابايت RAM لكل مقعد مدفوع على مستوى الفريق"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

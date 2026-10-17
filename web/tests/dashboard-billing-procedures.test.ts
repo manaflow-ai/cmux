@@ -21,6 +21,21 @@ mock.module("@/services/billing/planChange", () => ({
   applyPersonalPlanChange: () => changeImpl(),
 }));
 
+let teamPreviewCalls: unknown[] = [];
+let teamChangeCalls: unknown[] = [];
+const realTeamPlanChange = await import("../services/billing/teamPlanChange");
+mock.module("@/services/billing/teamPlanChange", () => ({
+  ...realTeamPlanChange,
+  previewTeamPlanChange: async (input: unknown) => {
+    teamPreviewCalls.push(input);
+    return previewImpl();
+  },
+  applyTeamPlanChange: async (input: unknown) => {
+    teamChangeCalls.push(input);
+    return changeImpl();
+  },
+}));
+
 const realManagement = await import("../services/billing/subscriptionManagement");
 mock.module("@/services/billing/subscriptionManagement", () => ({
   ...realManagement,
@@ -70,6 +85,8 @@ beforeEach(() => {
   events = [];
   previewImpl = async () => ({});
   changeImpl = async () => ({ plan: "max" });
+  teamPreviewCalls = [];
+  teamChangeCalls = [];
 });
 
 describe("dashboard billing procedures", () => {
@@ -129,5 +146,39 @@ describe("dashboard billing procedures", () => {
   test("cancel or resume without an active subscription is a declared conflict", async () => {
     applyResult = false;
     expect(await refusalOf(call(billingRouter.resume, {}, { context }))).toEqual(["CONFLICT", 409, "no_subscription"]);
+  });
+
+  test("team plan switches between Team and Team Max require team admin and pass the team through", async () => {
+    accessOk = false;
+    expect(await refusalOf(call(billingRouter.previewTeamChange, { teamId: "team-1", plan: "team_max" }, { context })))
+      .toEqual(["FORBIDDEN", 403, "team_admin_required"]);
+    expect(await refusalOf(call(billingRouter.changeTeam, { teamId: "team-1", plan: "team_max", prorationDate: 1 }, { context })))
+      .toEqual(["FORBIDDEN", 403, "team_admin_required"]);
+    expect(teamPreviewCalls).toEqual([]);
+    expect(teamChangeCalls).toEqual([]);
+
+    accessOk = true;
+    const preview = {
+      plan: "team_max",
+      direction: "upgrade",
+      currency: "usd",
+      amountDueToday: 31_000,
+      credit: 0,
+      nextRenewalAt: null,
+      nextInvoiceAmount: 66_000,
+      prorationDate: 1_790_000_000,
+    };
+    previewImpl = async () => preview;
+    expect(await call(billingRouter.previewTeamChange, { teamId: "team-1", plan: "team_max" }, { context })).toEqual(preview);
+    expect(teamPreviewCalls).toEqual([{ teamId: "team-1", target: "team_max" }]);
+    changeImpl = async () => ({ plan: "team" });
+    expect(await call(billingRouter.changeTeam, { teamId: "team-1", plan: "team", prorationDate: 5 }, { context })).toEqual({ plan: "team" });
+    expect(teamChangeCalls).toEqual([{ teamId: "team-1", target: "team", prorationDate: 5 }]);
+  });
+
+  test("team plan switch refusals are declared", async () => {
+    previewImpl = async () => { throw new PlanChangeError("same_plan"); };
+    expect(await refusalOf(call(billingRouter.previewTeamChange, { teamId: "team-1", plan: "team" }, { context })))
+      .toEqual(["CONFLICT", 409, "same_plan"]);
   });
 });

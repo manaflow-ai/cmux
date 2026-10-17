@@ -11,7 +11,7 @@ import {
   readJsonBody,
   requireAdmin,
 } from "../../../../services/admin/routeAuth";
-import { TEAM_PLAN_ID } from "../../../../services/billing/pro";
+import { isTeamPlanId, type TeamPlanId } from "../../../../services/billing/pro";
 import { enforceBrowserMutationProtection } from "../../../../services/vms/routeHelpers";
 
 /** POST /api/admin/teams { teamId, plan: "team" | null } */
@@ -39,17 +39,17 @@ export async function POST(request: NextRequest) {
   );
 }
 
-function parseTeamGrantBody(body: unknown): { teamId: string; plan: typeof TEAM_PLAN_ID | null } | null {
+function parseTeamGrantBody(body: unknown): { teamId: string; plan: TeamPlanId | null } | null {
   if (!body || typeof body !== "object" || Array.isArray(body)) return null;
   const { teamId, plan } = body as { teamId?: unknown; plan?: unknown };
   if (typeof teamId !== "string" || !teamId.trim()) return null;
-  if (plan !== null && plan !== TEAM_PLAN_ID) return null;
-  return { teamId: teamId.trim(), plan: plan === null ? null : TEAM_PLAN_ID };
+  if (plan !== null && !isTeamPlanId(typeof plan === "string" ? plan : null)) return null;
+  return { teamId: teamId.trim(), plan: plan === null ? null : plan as TeamPlanId };
 }
 
 async function applyTeamGrant(
   teamId: string,
-  plan: typeof TEAM_PLAN_ID | null,
+  plan: TeamPlanId | null,
   admin: { id: string; primaryEmail: string | null },
 ): Promise<Response> {
   try {

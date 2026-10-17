@@ -1,5 +1,5 @@
 import type Stripe from "stripe";
-import { personalPlanIdForSubscription } from "../billing/subscriptionPlan";
+import { personalPlanIdForSubscription, teamPlanIdForSubscription } from "../billing/subscriptionPlan";
 
 import {
   isAnalyticsTestRun,
@@ -82,7 +82,7 @@ export async function captureBillingCheckoutStarted(
   input: {
     readonly sessionId: string;
     readonly subject: StripeBillingAnalyticsSubject;
-    readonly plan: "go" | "pro" | "max" | "team";
+    readonly plan: "go" | "pro" | "max" | "team" | "team_max";
     readonly billingInterval: "month" | "year";
     /** Where the checkout link was opened from (page, app button, channel). */
     readonly attribution: CheckoutAttribution;
@@ -230,6 +230,14 @@ function checkoutExpiredEvent(
   };
 }
 
+/** Team-scoped subscriptions report Team or Team Max from their Price. */
+function subscriptionAnalyticsPlan(subscription: Stripe.Subscription): string | null {
+  const metadataPlan = subscription.metadata?.plan;
+  return metadataPlan === "team" || metadataPlan === "team_max"
+    ? teamPlanIdForSubscription(subscription)
+    : personalPlanIdForSubscription(subscription);
+}
+
 function subscriptionEvent(
   subscription: Stripe.Subscription,
   action: "created" | "updated" | "deleted",
@@ -240,9 +248,9 @@ function subscriptionEvent(
     name: `cmux_billing_subscription_${action}`,
     properties: {
       ...common,
-      plan: subscription.metadata?.plan === "team" ? "team" : personalPlanIdForSubscription(subscription),
+      plan: subscriptionAnalyticsPlan(subscription),
       billing_interval: planItem(subscription)?.price?.recurring?.interval ?? metadataString(subscription.metadata, "billingInterval"),
-      ...(action === "deleted" ? {} : { $set: { billing_plan: subscription.metadata?.plan === "team" ? "team" : personalPlanIdForSubscription(subscription) } }),
+      ...(action === "deleted" ? {} : { $set: { billing_plan: subscriptionAnalyticsPlan(subscription) } }),
       subscription_status: subscription.status,
       cancel_at_period_end: subscription.cancel_at_period_end,
       cancellation_reason: subscription.cancellation_details?.reason ?? null,

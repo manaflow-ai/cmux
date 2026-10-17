@@ -47,6 +47,7 @@ import {
   MAX_PRICING_USD,
   GO_PRICING_USD,
   PRO_PRICING_USD,
+  TEAM_MAX_PRICING_USD,
   TEAM_PRICING_USD,
 } from "../../services/billing/plans";
 import { isVaultEnabled } from "../../services/vault/config";
@@ -133,6 +134,13 @@ export function AppPricingContent({
   };
   const teamCheckoutHref = appPricingCheckoutURL(
     "team",
+    requestOrigin,
+    cmuxScheme,
+    "month",
+    attribution,
+  );
+  const teamMaxCheckoutHref = appPricingCheckoutURL(
+    "team_max",
     requestOrigin,
     cmuxScheme,
     "month",
@@ -357,7 +365,7 @@ export function AppPricingContent({
       id="team-enterprise-pricing-category"
       title={pricing.categories.business.title}
       description={pricing.categories.business.description}
-      columns="two"
+      columns="three"
     >
       <PlanCard
         name={pricing.team.name}
@@ -378,6 +386,27 @@ export function AppPricingContent({
         )}
         <p className="mt-5 text-sm font-medium">{pricing.team.featuresLead}</p>
         <FeatureList items={pricing.team.features} />
+      </PlanCard>
+
+      <PlanCard
+        name={pricing.teamMax.name}
+        price={`$${TEAM_MAX_PRICING_USD.month.billedAmount}`}
+        period={pricing.perUserMonth}
+      >
+        {appStorePaymentGated ? (
+          <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
+        ) : (
+          <PricingCheckoutButton
+            href={teamMaxCheckoutHref}
+            requiresSignIn={!pending && !snapshot.authenticated}
+            location="app_pricing"
+            plan="team_max"
+          >
+            {pricing.teamMax.cta}
+          </PricingCheckoutButton>
+        )}
+        <p className="mt-5 text-sm font-medium">{pricing.teamMax.featuresLead}</p>
+        <FeatureList items={pricing.teamMax.features} />
       </PlanCard>
 
       <PlanCard name={pricing.enterprise.name} price={pricing.enterprise.price}>

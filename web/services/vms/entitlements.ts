@@ -5,8 +5,10 @@ import {
   GO_PLAN_ID,
   MAX_PLAN_ID,
   PRO_PLAN_ID,
+  TEAM_MAX_PLAN_ID,
   TEAM_PLAN_ID,
   isPaidPlanId,
+  isTeamPlanId,
 } from "../billing/pro";
 import { planIncludes } from "../billing/planTier";
 import {
@@ -106,10 +108,11 @@ export function resolveVmEntitlements(
   const teamPlanId = billing.billingCustomerType === "team" && billingPlanId === MAX_PLAN_ID
     ? TEAM_PLAN_ID : billingPlanId;
   // Max belongs to the caller. It does not grant Max to other team members
-  // or replace the team's seat-based machine allowance.
-  const planId = normalizedPlanId(user.userBillingPlanId ?? "") === MAX_PLAN_ID
+  // or replace the team's seat-based machine allowance. Team Max already
+  // gives every member Max sizes and a larger per-seat pool, so it wins.
+  const planId = normalizedPlanId(user.userBillingPlanId ?? "") === MAX_PLAN_ID && teamPlanId !== TEAM_MAX_PLAN_ID
     ? MAX_PLAN_ID : teamPlanId;
-  const maxActiveVms = maxActiveVmsForPlan(teamPlanId === TEAM_PLAN_ID ? teamPlanId : planId, env, { seats: billing.billingSeats });
+  const maxActiveVms = maxActiveVmsForPlan(isTeamPlanId(teamPlanId) ? teamPlanId : planId, env, { seats: billing.billingSeats });
   return {
     planId,
     billingCustomerType: billing.billingCustomerType,
@@ -190,9 +193,9 @@ export const VM_MEMORY_OPTIONS_MB: readonly number[] = [4096, 8192, 16384, 24576
 
 /**
  * The largest machine Pro, Team, and Founder's Edition may start: the lg row,
- * 8 vCPU / 16 GB. The 24 GB, 32 GB, and 64 GB rows above it are what Max sells;
- * the plan that unlocks them is MEMORY_UPGRADE_PLAN_ID so every surface names
- * the same upgrade.
+ * 8 vCPU / 16 GB. The 24 GB, 32 GB, and 64 GB rows above it are what Max and
+ * Team Max sell; maxTierUpgradePlanId names which one unlocks them so every
+ * surface names the same upgrade (Team Max for a Team, Max otherwise).
  */
 export const PLAN_MAX_MEMORY_MB = 16384;
 /** Free machines exist only where an operator opens free provisioning; they stay at 8 GB. */
@@ -204,14 +207,37 @@ export const MAX_PLAN_MAX_MEMORY_MB = Math.max(...VM_MEMORY_OPTIONS_MB);
 /** The image ladder pairs one vCPU with every 2 GB of memory. */
 export const VM_PLAN_MEMORY_MB_PER_VCPU = 2048;
 export const MEMORY_UPGRADE_PLAN_ID = MAX_PLAN_ID;
+export const TEAM_MEMORY_UPGRADE_PLAN_ID = TEAM_MAX_PLAN_ID;
 export const GO_MEMORY_UPGRADE_PLAN_ID = PRO_PLAN_ID;
+
+/**
+ * The Max-tier plan an upgrade from `planId` offers: Team Max for a Team (the
+ * team buys it for every member), Max for a personal plan, or null when the
+ * plan already has the Max tier.
+ */
+export function maxTierUpgradePlanId(planId: string | null | undefined): typeof MAX_PLAN_ID | typeof TEAM_MAX_PLAN_ID | null {
+  const normalized = normalizedPlanId(planId ?? "");
+  if (planIncludes(normalized, "max")) return null;
+  return normalized === TEAM_PLAN_ID ? TEAM_MEMORY_UPGRADE_PLAN_ID : MEMORY_UPGRADE_PLAN_ID;
+}
+
+/**
+ * The plan id published to installed clients, which only know the ids that
+ * existed before Team Max: Team Max reports as "max", the tier it grants, so
+ * an older app treats its members as paid with the Max sizes. The exact id
+ * is published alongside as `subscriptionPlanId`.
+ */
+export function installedClientPlanId(planId: string): string {
+  return normalizedPlanId(planId) === TEAM_MAX_PLAN_ID ? MAX_PLAN_ID : planId;
+}
 
 /** Return the first paid plan that can create the requested ladder size. */
 export function upgradePlanForMemory(memoryMb: number, currentPlanId: string, env: Record<string, string | undefined> = process.env): string | null {
   const current = normalizedPlanId(currentPlanId);
-  if (planIncludes(current, "max")) return null;
+  const maxTier = maxTierUpgradePlanId(current);
+  if (!maxTier) return null;
   if (!planIncludes(current, "pro") && memoryMb <= maxMemoryMbForPlan(PRO_PLAN_ID, env)) return PRO_PLAN_ID;
-  return memoryMb <= maxMemoryMbForPlan(MAX_PLAN_ID, env) ? MAX_PLAN_ID : null;
+  return memoryMb <= maxMemoryMbForPlan(maxTier, env) ? maxTier : null;
 }
 
 /** Largest machine a plan may create. Env-overridable per plan. */
@@ -222,7 +248,8 @@ export function maxMemoryMbForPlan(
   const normalized = normalizedPlanId(planId ?? "");
   const planKey = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
   const specific = env[`CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`];
-  const ceiling = normalized === MAX_PLAN_ID
+  const maxTier = planIncludes(normalized, "max");
+  const ceiling = maxTier
     ? MAX_PLAN_MAX_MEMORY_MB
     : normalized === GO_PLAN_ID
       ? GO_PLAN_MAX_MEMORY_MB
@@ -230,7 +257,7 @@ export function maxMemoryMbForPlan(
         ? FREE_PLAN_MAX_MEMORY_MB
         : PLAN_MAX_MEMORY_MB;
   if (specific?.trim()) return Math.min(ceiling, positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`));
-  if (normalized === MAX_PLAN_ID) return MAX_PLAN_MAX_MEMORY_MB;
+  if (maxTier) return MAX_PLAN_MAX_MEMORY_MB;
   if (normalized === GO_PLAN_ID) return GO_PLAN_MAX_MEMORY_MB;
   if (normalized === "free") {
     // Free accounts get no machine in production (isVmFreeProvisioningAllowed).
@@ -254,7 +281,7 @@ export function maxDiskMbForPlan(
 ): number {
   const normalized = normalizedPlanId(planId ?? "");
   const key = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
-  const fallback = normalized === MAX_PLAN_ID
+  const fallback = planIncludes(normalized, "max")
     ? 256 * 1024
     : normalized === GO_PLAN_ID
       ? 16 * 1024
@@ -286,9 +313,10 @@ export function lockedMemoryOptionsMbForPlan(
   const locked = VM_MEMORY_OPTIONS_MB.filter((mb) => mb > max);
   const normalized = normalizedPlanId(planId ?? "");
   const candidateUpgradePlanId = planIncludes(normalized, "pro")
-    ? MEMORY_UPGRADE_PLAN_ID
+    ? maxTierUpgradePlanId(normalized)
     : GO_MEMORY_UPGRADE_PLAN_ID;
-  const upgradePlanId = locked.length > 0 && normalized !== candidateUpgradePlanId &&
+  const upgradePlanId = candidateUpgradePlanId !== null && locked.length > 0 &&
+      normalized !== candidateUpgradePlanId &&
       maxMemoryMbForPlan(candidateUpgradePlanId, env) >= locked[0]
     ? candidateUpgradePlanId
     : null;
@@ -338,8 +366,8 @@ export function defaultMemoryMbForPlan(
 /**
  * Active-machine ceiling for a plan, or null when there is none. Paid plans
  * get the allowance sold on /pricing (PAID_MAX_ACTIVE_VMS_DEFAULT), counted
- * per billing team; a Team subscription multiplies it by its paid seats
- * (`cmuxSeats`), so "5 per user" holds for the whole team. Free plans stay
+ * per billing team; a Team or Team Max subscription multiplies it by its
+ * paid seats (`cmuxSeats`), so "5 per user" holds for the whole team. Free plans stay
  * capped (zero unless free provisioning is allowed).
  */
 export function maxActiveVmsForPlan(
@@ -351,7 +379,7 @@ export function maxActiveVmsForPlan(
   const resolved = activeVmLimitForPlan(normalized, env);
   // An operator brake is an absolute ceiling for the whole team; only the
   // advertised allowance scales with paid seats.
-  if (resolved.limit === null || resolved.brake || normalized !== TEAM_PLAN_ID) return resolved.limit;
+  if (resolved.limit === null || resolved.brake || !isTeamPlanId(normalized)) return resolved.limit;
   const seats = options.seats;
   const paidSeats = typeof seats === "number" && Number.isSafeInteger(seats) && seats > 0 ? seats : 1;
   return resolved.limit * paidSeats;
@@ -361,8 +389,9 @@ export function maxActiveVmsForPlan(
  * The vCPUs and memory a billing scope's active machines share, or null when
  * the plan has no pool (Free, Go, or an uncapped allowance). Team multiplies
  * the per-seat pool by paid seats exactly as it multiplies the machine count,
- * so the seat count is recovered from the resolved allowance. A Max caller on
- * a large team keeps whichever pool is larger in each dimension.
+ * so the seat count is recovered from the resolved allowance; Team Max does
+ * the same with the Max pool per seat. A Max caller on a large team keeps
+ * whichever pool is larger in each dimension.
  */
 export function resourcePoolForPlan(
   planId: string | null | undefined,
@@ -374,9 +403,10 @@ export function resourcePoolForPlan(
   const seats = maxActiveVms !== undefined && maxActiveVms > 0
     ? Math.max(1, Math.ceil(maxActiveVms / PAID_MAX_ACTIVE_VMS_DEFAULT))
     : 1;
+  const perSeat = normalized === TEAM_MAX_PLAN_ID ? MAX_PLAN_RESOURCE_POOL : PLAN_RESOURCE_POOL;
   const seatPool = {
-    vcpus: PLAN_RESOURCE_POOL.vcpus * seats,
-    memoryMb: PLAN_RESOURCE_POOL.memoryMb * seats,
+    vcpus: perSeat.vcpus * seats,
+    memoryMb: perSeat.memoryMb * seats,
   };
   if (normalized !== MAX_PLAN_ID) return seatPool;
   return {
@@ -462,7 +492,7 @@ export function isVmFreeAccessExpired(
   return nowMs - createdMs > windowDays * 24 * 60 * 60 * 1000;
 }
 
-/** Go, Pro, Team, and Founder's Edition are paid Cloud VM plans. */
+/** Go, Pro, Max, Team, Team Max, and Founder's Edition are paid Cloud VM plans. */
 export function isPaidVmPlan(planId: string): boolean {
   return isPaidPlanId(normalizedPlanId(planId));
 }

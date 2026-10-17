@@ -94,7 +94,8 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Для машин с {memory} ГиБ нужен cmux {plan}. Ваш тариф поддерживает до {max} ГиБ.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}",
+      "teamAction": "cmux vm new --size {max}g\n{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "Не удалось проверить объём ОЗУ исходной машины.",
@@ -129,6 +130,7 @@
       "memoryMessage": "Ваши ВМ уже используют {used} из {pool} ГБ RAM. Этой ВМ нужно {requested} ГБ.",
       "vcpuMessage": "Ваши ВМ уже используют {used} из {pool} vCPU. Этой ВМ нужно {requested} vCPU.",
       "upgradeAction": "Приостановите или удалите ВМ либо перейдите на Max.",
+      "upgradeTeamMaxAction": "Приостановите или удалите ВМ либо переведите команду на Team Max.",
       "action": "Приостановите или удалите ВМ."
     },
     "activeLimit": {
@@ -531,7 +533,8 @@
           "go": "Go",
           "pro": "Pro",
           "max": "Max",
-          "team": "Team"
+          "team": "Team",
+          "team_max": "Team Max"
         },
         "features": {
           "free": [
@@ -559,6 +562,12 @@
             "До 5 Cloud VMs на оплаченное место с общими для всей команды 20 vCPU и 40 ГБ RAM на оплаченное место",
             "Один счёт на всю команду",
             "Приоритетная поддержка"
+          ],
+          "team_max": [
+            "Всё из Team, с машинами Max для каждого участника",
+            "До 5 Cloud VMs на оплаченное место с общими для всей команды 80 vCPU и 160 ГБ RAM на оплаченное место",
+            "Машины 24 ГБ / 12 vCPU, 32 ГБ / 16 vCPU и до 64 ГБ / 32 vCPU",
+            "Один счёт на всю команду"
           ]
         },
         "billedAnnually": "оплата за год"
@@ -941,7 +950,8 @@
         "go": "Go",
         "pro": "Pro",
         "max": "Max",
-        "team": "Team"
+        "team": "Team",
+        "team_max": "Team Max"
       },
       "role": {
         "admin": "Администратор",
@@ -5280,7 +5290,16 @@
     "billingUnavailable": "Оплата сейчас недоступна. Повторите попытку позже.",
     "signedOutNotice": "Вы не вошли в систему. Войдите, чтобы увидеть текущий план или восстановить существующую покупку.",
     "signedOutSignIn": "Войти",
-    "manageInAppStore": "Управлять в App Store"
+    "manageInAppStore": "Управлять в App Store",
+    "teamMax": {
+      "name": "Team Max",
+      "cta": "Получить Team Max",
+      "featuresLead": "Всё из Team, а также:",
+      "features": [
+        "Машины Max для каждого участника: 24 ГБ / 12 vCPU, 32 ГБ / 16 vCPU и до 64 ГБ / 32 vCPU, с дисками до 256 ГБ",
+        "До 5 Cloud VMs на оплаченное место с общими для всей команды 80 vCPU и 160 ГБ RAM на оплаченное место"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

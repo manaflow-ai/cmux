@@ -5,6 +5,7 @@ import {
   MAX_PRICING_USD,
   GO_PRICING_USD,
   PRO_PRICING_USD,
+  TEAM_MAX_PRICING_USD,
   TEAM_PRICING_USD,
   type BillingInterval,
 } from "./plans";
@@ -15,6 +16,7 @@ export type { BillingInterval, ProBillingInterval } from "./plans";
 let stripeClient: Stripe | null = null;
 const resolvedProPriceIds = new Map<BillingInterval, string>();
 const resolvedTeamPriceIds = new Map<BillingInterval, string>();
+const resolvedTeamMaxPriceIds = new Map<BillingInterval, string>();
 const resolvedMaxPriceIds = new Map<BillingInterval, string>();
 const resolvedGoPriceIds = new Map<BillingInterval, string>();
 
@@ -110,6 +112,18 @@ export async function resolveTeamPrice(interval: BillingInterval): Promise<strin
   return resolvePlanPrice(TEAM_PRICING_USD.month, interval, env.STRIPE_TEAM_MONTHLY_60_PRICE_ID, resolvedTeamPriceIds, "team");
 }
 
+/** Team Max is sold monthly only, per seat like Team. */
+export async function resolveTeamMaxPrice(interval: BillingInterval): Promise<string> {
+  if (interval !== "month") throw new Error("Annual billing is unavailable for new subscriptions");
+  return resolvePlanPrice(
+    TEAM_MAX_PRICING_USD.month,
+    interval,
+    env.STRIPE_TEAM_MAX_MONTHLY_220_PRICE_ID,
+    resolvedTeamMaxPriceIds,
+    "team_max",
+  );
+}
+
 /**
  * The Stripe price id checkout will charge. A lookup-key resolution is
  * trusted (the catalog script pins the amount behind each key); an env
@@ -122,7 +136,7 @@ async function resolvePlanPrice(
   interval: BillingInterval,
   overridden: string | undefined,
   cache: Map<BillingInterval, string>,
-  planId: "go" | "pro" | "max" | "team",
+  planId: "go" | "pro" | "max" | "team" | "team_max",
 ): Promise<string> {
   const cached = cache.get(interval);
   if (cached) return cached;

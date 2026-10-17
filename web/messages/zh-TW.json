@@ -94,7 +94,8 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB 的機器需要 cmux {plan}。目前方案最多支援 {max} GiB。",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}",
+      "teamAction": "cmux vm new --size {max}g\n{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "無法驗證來源機器的記憶體大小。",
@@ -129,6 +130,7 @@
       "memoryMessage": "你的 VM 已使用 {pool} GB RAM 中的 {used} GB。這台 VM 需要 {requested} GB。",
       "vcpuMessage": "你的 VM 已使用 {pool} 個 vCPU 中的 {used} 個。這台 VM 需要 {requested} 個 vCPU。",
       "upgradeAction": "暫停或刪除一台 VM，或升級到 Max。",
+      "upgradeTeamMaxAction": "暫停或刪除一台 VM，或將團隊升級到 Team Max。",
       "action": "暫停或刪除一台 VM。"
     },
     "activeLimit": {
@@ -531,7 +533,8 @@
           "go": "Go",
           "pro": "Pro",
           "max": "Max",
-          "team": "Team"
+          "team": "Team",
+          "team_max": "Team Max"
         },
         "features": {
           "free": [
@@ -559,6 +562,12 @@
             "每個付費席位最多 5 台 Cloud VM，每個付費席位的 20 個 vCPU 和 40 GB RAM 由整個團隊共用",
             "整個團隊一張發票",
             "優先支援"
+          ],
+          "team_max": [
+            "Team 的所有功能，每位成員都可使用 Max 機器",
+            "每個付費席位最多 5 台 Cloud VM，每個付費席位的 80 個 vCPU 和 160 GB RAM 由整個團隊共用",
+            "24 GB / 12 vCPU、32 GB / 16 vCPU 以及最高 64 GB / 32 vCPU 的機器",
+            "整個團隊一張發票"
           ]
         },
         "billedAnnually": "按年計費"
@@ -941,7 +950,8 @@
         "go": "Go",
         "pro": "Pro",
         "max": "Max",
-        "team": "Team"
+        "team": "Team",
+        "team_max": "Team Max"
       },
       "role": {
         "admin": "管理員",
@@ -5279,7 +5289,16 @@
     "billingUnavailable": "目前無法使用結算功能。請稍後再試。",
     "signedOutNotice": "你尚未登入。登入後可查看目前方案或恢復既有購買。",
     "signedOutSignIn": "登入",
-    "manageInAppStore": "在 App Store 中管理"
+    "manageInAppStore": "在 App Store 中管理",
+    "teamMax": {
+      "name": "Team Max",
+      "cta": "取得 Team Max",
+      "featuresLead": "Team 的所有功能，另加：",
+      "features": [
+        "每位成員都可使用 Max 機器：24 GB / 12 vCPU、32 GB / 16 vCPU，最高 64 GB / 32 vCPU，磁碟最高 256 GB",
+        "每個付費席位最多 5 台 Cloud VM，每個付費席位的 80 個 vCPU 和 160 GB RAM 由整個團隊共用"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

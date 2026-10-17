@@ -135,6 +135,33 @@ describe("billing plan route", () => {
     expect(response.teamBillingManagement).toBe("stripe");
   });
 
+  test("reports team_max as teamSubscriptionPlanId for an active Team Max subscription row", async () => {
+    currentUser = planUser({
+      selectedTeam: { id: "team-plan", clientReadOnlyMetadata: {} },
+    });
+    stripeSubscriptionResults = [[], [], [{ id: "sub_team", plan: "team_max" }]];
+
+    const response = await planResponse();
+
+    // Installed clients only know free/team; the exact plan rides alongside.
+    expect(response.teamPlanId).toBe("team");
+    expect(response.teamSubscriptionPlanId).toBe("team_max");
+    expect(response.teamBillingManagement).toBe("stripe");
+  });
+
+  test("reports team_max for an operator Team Max grant without a subscription", async () => {
+    currentUser = planUser({
+      selectedTeam: { id: "team-plan", clientReadOnlyMetadata: { cmuxVmPlan: "team_max" } },
+    });
+    stripeSubscriptionResults = [[], [], []];
+
+    const response = await planResponse();
+
+    expect(response.teamPlanId).toBe("team");
+    expect(response.teamSubscriptionPlanId).toBe("team_max");
+    expect(response.teamBillingManagement).toBe("none");
+  });
+
   test("reports no Team management when team metadata has no Stripe row", async () => {
     currentUser = planUser({
       selectedTeam: {

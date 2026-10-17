@@ -101,8 +101,10 @@ public struct CloudVMResizePlanValidator: Sendable {
         // `memoryOptionsMb` (or a stale 32 GiB Pro ceiling). Never let that
         // compatibility path expand a plan beyond the current product tier.
         let productMemoryCeiling: Int
+        // Team Max gives every member the Max sizes.
+        let isMaxTier = planID == "max" || planID == "team_max"
         switch planID {
-        case "max":
+        case "max", "team_max":
             productMemoryCeiling = 64 * 1_024
         case "go":
             productMemoryCeiling = 4 * 1_024
@@ -121,7 +123,7 @@ public struct CloudVMResizePlanValidator: Sendable {
         let advertisedVcpus = positiveLimit(rawLimits["maxVcpus"])
             ?? max(1, maxMemoryMb / 2_048)
         let maxVcpus = min(advertisedVcpus, max(1, maxMemoryMb / 2_048))
-        let productDiskCeiling = planID == "max"
+        let productDiskCeiling = isMaxTier
             ? 256 * 1_024
             : planID == "go" ? 16 * 1_024 : 128 * 1_024
         let maxDiskMb = min(

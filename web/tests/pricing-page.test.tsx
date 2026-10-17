@@ -452,6 +452,25 @@ describe("localized pricing page", () => {
     expect(html).toMatch(/<button[^>]*role="tab"[^>]*aria-selected="true"/);
   });
 
+  test("sells Team Max per user per month next to Team, with its own checkout", async () => {
+    const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
+    const html = (await renderSettled(element));
+    const section = html.match(/aria-labelledby="team-enterprise-pricing-category"[\s\S]*?<\/section>/)?.[0] ?? "";
+
+    expect(section).toContain("Team Max");
+    expect(section).toMatch(/>Team Max<\/h2>[\s\S]*?>\$220<\/span><span[^>]*>\/user\/mo<\/span>/);
+    expect(section).toMatch(
+      /href="\/api\/billing\/checkout\?plan=team_max&amp;[^"]*cmux_source=pricing_page[^"]*interval=month[^"]*"[^>]*><span>Get Team Max/,
+    );
+    expect(section).toContain("sharing 80 vCPUs and 160 GB RAM per paid seat across the team");
+    expect(section).not.toMatch(/per VM/i);
+    const teamIndex = section.indexOf("<span>Get Teams");
+    const teamMaxIndex = section.indexOf("<span>Get Team Max");
+    expect(teamIndex).toBeGreaterThan(-1);
+    expect(teamMaxIndex).toBeGreaterThan(teamIndex);
+    expect(section).toContain("md:grid-cols-3");
+  });
+
   test("shows individual plans first and includes the team audience view", async () => {
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
     const html = (await renderSettled(element));

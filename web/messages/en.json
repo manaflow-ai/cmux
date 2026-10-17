@@ -261,7 +261,8 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB machines need cmux {plan}. Your plan supports up to {max} GiB.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}",
+      "teamAction": "cmux vm new --size {max}g\n{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "The source machine’s RAM size could not be verified.",
@@ -296,6 +297,7 @@
       "memoryMessage": "Your VMs already use {used} of {pool} GB RAM. This VM needs {requested} GB.",
       "vcpuMessage": "Your VMs already use {used} of {pool} vCPUs. This VM needs {requested} vCPUs.",
       "upgradeAction": "Pause or delete a VM, or upgrade to Max.",
+      "upgradeTeamMaxAction": "Pause or delete a VM, or upgrade the team to Team Max.",
       "action": "Pause or delete a VM."
     },
     "activeLimit": {
@@ -844,7 +846,8 @@
           "go": "Go",
           "pro": "Pro",
           "max": "Max",
-          "team": "Team"
+          "team": "Team",
+          "team_max": "Team Max"
         },
         "features": {
           "free": [
@@ -872,6 +875,12 @@
             "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team",
             "One invoice for the whole team",
             "Priority support"
+          ],
+          "team_max": [
+            "Everything in Team, with Max machines for every member",
+            "Up to 5 Cloud VMs per paid seat, sharing 80 vCPUs and 160 GB RAM per paid seat across the team",
+            "24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB / 32 vCPU machines",
+            "One invoice for the whole team"
           ]
         },
         "billedAnnually": "billed annually"
@@ -1299,7 +1308,8 @@
         "go": "Go",
         "pro": "Pro",
         "max": "Max",
-        "team": "Team"
+        "team": "Team",
+        "team_max": "Team Max"
       },
       "role": {
         "admin": "Admin",
@@ -1852,6 +1862,15 @@
         "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team",
         "Centralized billing for your whole team",
         "Priority support"
+      ]
+    },
+    "teamMax": {
+      "name": "Team Max",
+      "cta": "Get Team Max",
+      "featuresLead": "Everything in Team, plus:",
+      "features": [
+        "Max machines for every member: 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB / 32 vCPU, with disks up to 256 GB",
+        "Up to 5 Cloud VMs per paid seat, sharing 80 vCPUs and 160 GB RAM per paid seat across the team"
       ]
     },
     "enterprise": {

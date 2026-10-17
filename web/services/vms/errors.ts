@@ -33,6 +33,8 @@ export class VmMemoryPlanError extends Data.TaggedError("VmMemoryPlanError")<{
   readonly planId: string;
   readonly memoryMb: number | null;
   readonly maxMemoryMb: number;
+  /** The billing team, so a Team Max upgrade names the team that runs the machine. */
+  readonly billingTeamId?: string;
 }> {}
 
 export class VmResizeInvalidError extends Data.TaggedError("VmResizeInvalidError")<{

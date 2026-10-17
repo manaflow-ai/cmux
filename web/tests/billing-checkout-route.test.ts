@@ -125,6 +125,7 @@ mock.module("../services/billing/stripe", () => ({
   resolvePersonalPlanSwitchPortalConfiguration: async () => "bpc_switch",
   resolveProPrice,
   resolveTeamPrice,
+  resolveTeamMaxPrice: async () => "price_team_max_month",
   stripe: () => ({
     customers: {
       create: createStripeCustomer,

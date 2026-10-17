@@ -219,6 +219,7 @@ describe("plan status for an explicit team", () => {
       billingAvailable: true,
       teamId: "team-a",
       teamPlanId: "team",
+      teamSubscriptionPlanId: "team",
       teamBillingManagement: "stripe",
       seats: 4,
       role: "member",

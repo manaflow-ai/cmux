@@ -127,6 +127,14 @@ struct CloudVMResourcePoolTests {
     }
 
     @Test
+    func validatorGivesTeamMaxTheMaxFallbackCeilings() throws {
+        let teamMax = try CloudVMResizePlanValidator().plan(from: ["planId": " Team_Max "])
+        #expect(teamMax.limits.maxDiskMb == 256 * 1024)
+        #expect(teamMax.limits.maxMemoryMb == 64 * 1024)
+        #expect(teamMax.limits.maxVcpus == 32)
+    }
+
+    @Test
     func validatorUsesFreeFallbackForMissingOrUnknownPlan() throws {
         let validator = CloudVMResizePlanValidator()
         for rawLimits in [
@@ -458,6 +466,29 @@ struct CloudVMResourcePoolTests {
             response: ["upgradePlanId": NSNull()]
         )
         #expect(!onMax.contains("checkout"))
+    }
+
+    /// A Team plan's full pool or locked size is sold as Team Max, a team
+    /// subscription: never the personal Max checkout.
+    @Test
+    func teamMaxErrorActionsOpenTeamBillingNotPersonalCheckout() {
+        let pool = defaultCloudVMAction(
+            status: 402,
+            errorCode: "vm_resource_pool_exceeded",
+            response: ["upgradePlanId": "team_max", "details": ["teamId": "team-1"]]
+        )
+        #expect(pool.contains("Team Max"))
+        #expect(pool.contains("/dashboard/billing?team=team-1"))
+        #expect(!pool.contains("plan=max"))
+
+        let memory = defaultCloudVMAction(
+            status: 402,
+            errorCode: "vm_memory_requires_plan",
+            response: ["upgradePlanId": "team_max"]
+        )
+        #expect(memory.contains("Team Max"))
+        #expect(memory.contains("/pricing"))
+        #expect(!memory.contains("plan=max"))
     }
 
     @Test

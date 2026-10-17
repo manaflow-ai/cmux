@@ -188,6 +188,45 @@ struct NewMachineModelTests {
         #expect(model.memoryUpgradeButtonTitle == nil)
     }
 
+    /// Team Max gives every member the Max ladder, so nothing is locked and
+    /// no pool upgrade is offered.
+    @Test func teamMaxPlanHasTheWholeLadderAndNothingLocked() {
+        #expect(NewMachineModel.maxMemoryMb(planId: "team_max") == 65536)
+        #expect(NewMachineModel.maxMemoryMb(planId: " Team_Max ") == 65536)
+        let (model, _) = makeModel(plan: MachinePlanSnapshot(activeCount: 0, maxActiveVms: 5, planId: "team_max"))
+        #expect(model.memoryOptions == [4096, 8192, 16384, 24576, 32768, 65536])
+        #expect(model.lockedMemoryOptions == [])
+        #expect(model.memoryUpgradePlanId == nil)
+        #expect(model.memoryUpgradeButtonTitle == nil)
+    }
+
+    /// A Team plan is upgraded to Team Max, never to a personal Max the team
+    /// machines would not use.
+    @Test func teamPlanLockedSizesNameTeamMax() {
+        let teamPlan = MachinePlanSnapshot(activeCount: 0, maxActiveVms: 5, planId: "team")
+        let (served, _) = makeModel(
+            plan: teamPlan,
+            memoryOptionsMb: [4096, 8192, 16384, 24576, 32768, 65536],
+            lockedMemoryOptionsMb: [24576, 32768, 65536],
+            memoryUpgradePlanId: "team_max"
+        )
+        #expect(served.memoryUpgradePlanId == "team_max")
+        #expect(served.memoryUpgradePlanName == "Team Max")
+        #expect(served.upgradePlan(for: 65536) == "team_max")
+        #expect(served.highestLockedMemoryUpgradePlanId == "team_max")
+        #expect(served.lockedSizesNoteText == "24 GB, 32 GB, and 64 GB machines need cmux Team Max.")
+        #expect(served.memoryUpgradeButtonTitle == "Upgrade to Team Max")
+        #expect(served.lockedSizeMenuTitle(MachineSizeOption(memoryMb: 65536)!) == "32 vCPU · 64 GB RAM · 128 GB disk · Requires Team Max")
+
+        // An older control plane omits the upgrade plan; the mirror still
+        // names Team Max for a Team plan.
+        let (mirrored, _) = makeModel(plan: teamPlan)
+        #expect(mirrored.lockedMemoryOptions == [24576, 32768, 65536])
+        #expect(mirrored.memoryUpgradePlanId == "team_max")
+        #expect(mirrored.upgradePlan(for: 65536) == "team_max")
+        #expect(NewMachineModel.planDisplayName("team_max") == "Team Max")
+    }
+
     /// `limits.lockedMemoryOptionsMb` is authoritative: an operator ceiling
     /// the mirror cannot know about (24 GB locked here) still renders locked,
     /// and a server that unlocks everything for a Pro plan is believed too.

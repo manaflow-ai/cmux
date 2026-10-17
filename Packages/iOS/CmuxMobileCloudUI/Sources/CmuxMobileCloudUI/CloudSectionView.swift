@@ -500,6 +500,8 @@ struct CloudCreateMachineSheet: View {
         switch normalizedPlanID(planID) {
         case "max":
             return L10n.string("mobile.cloud.create.plan.max", defaultValue: "Max")
+        case "team_max":
+            return L10n.string("mobile.cloud.create.plan.teamMax", defaultValue: "Team Max")
         case "pro":
             return "Pro"
         default:

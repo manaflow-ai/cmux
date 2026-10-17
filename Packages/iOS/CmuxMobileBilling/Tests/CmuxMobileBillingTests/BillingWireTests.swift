@@ -3,6 +3,14 @@ import Testing
 @testable import CmuxMobileBilling
 
 @Suite struct BillingWireTests {
+    @Test func teamMaxRanksWithMaxAndDecodes() throws {
+        let decoded = try JSONDecoder().decode([BillingPlanID].self, from: Data(#"["team_max", " Team_Max "]"#.utf8))
+        #expect(decoded == [.teamMax, .teamMax])
+        #expect(BillingPlanID.teamMax.rank == BillingPlanID.max.rank)
+        #expect(BillingPlanID.pro < .teamMax)
+        #expect(BillingPlanID.max < .teamMax)
+    }
+
     @Test func decodesAccountTokenResponse() throws {
         let json = Data("""
         {

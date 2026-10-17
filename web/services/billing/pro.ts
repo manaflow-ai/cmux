@@ -36,6 +36,18 @@ export const GO_PLAN_ID = "go";
 // (`cmuxPlan: "max"`), and it satisfies every "is Pro" check.
 export const MAX_PLAN_ID = "max";
 export const TEAM_PLAN_ID = "team";
+// Team Max is the per-seat team plan with Max machines: every member gets the
+// 24, 32, and 64 GB sizes, and each paid seat adds the Max pool (5 machines,
+// 80 vCPU, 160 GB). It is team-scoped like Team, uses the same seat
+// reconciler, and Team <-> Team Max is a price swap on the same subscription.
+export const TEAM_MAX_PLAN_ID = "team_max";
+/** Team-scoped subscription plans, ordered low to high. */
+export const TEAM_PLAN_IDS = [TEAM_PLAN_ID, TEAM_MAX_PLAN_ID] as const;
+export type TeamPlanId = (typeof TEAM_PLAN_IDS)[number];
+
+export function isTeamPlanId(planId: string | null | undefined): planId is TeamPlanId {
+  return typeof planId === "string" && (TEAM_PLAN_IDS as readonly string[]).includes(planId);
+}
 // Founder's Edition is a one-time purchase. Its completion recorder stores a
 // durable active Pro row with a Founder marker, and subscription reconciliation
 // skips that marker so a cancelled provider duplicate cannot clear access.
@@ -70,7 +82,7 @@ export function isDevelopmentProAccessEnabled(
  * grant Pro without a Stripe subscription. Mirrors `isPaidVmPlan` in
  * services/vms/entitlements.ts so the desktop plan and the VM plan agree.
  */
-export const PAID_PLAN_IDS = [GO_PLAN_ID, PRO_PLAN_ID, MAX_PLAN_ID, TEAM_PLAN_ID, FOUNDERS_PLAN_ID] as const;
+export const PAID_PLAN_IDS = [GO_PLAN_ID, PRO_PLAN_ID, MAX_PLAN_ID, TEAM_PLAN_ID, TEAM_MAX_PLAN_ID, FOUNDERS_PLAN_ID] as const;
 /**
  * Plans a person buys for themselves through `/api/billing/checkout`. A
  * user-scoped Stripe subscription row carries one of these in `plan`, derived
@@ -203,6 +215,8 @@ export type StripeBillingStatus = {
    * or null. Team snapshots leave this null; the Team plan is not personal.
    */
   readonly activePlanId: PersonalPlanId | null;
+  /** The team plan of the newest team subscription row; personal snapshots omit it. */
+  readonly teamPlanId?: TeamPlanId | null;
   /** Lifetime purchases grant access but cannot be switched in Stripe. */
   readonly hasRecurringSubscription?: boolean;
   /** Whether the newest subscription is scheduled to cancel at period end. */
@@ -765,6 +779,7 @@ export async function stripeBillingStatusForTeam(
       .select({
         id: stripeSubscriptions.id,
         status: stripeSubscriptions.status,
+        plan: stripeSubscriptions.plan,
         cancelAtPeriodEnd: stripeSubscriptions.cancelAtPeriodEnd,
         currentPeriodEnd: stripeSubscriptions.currentPeriodEnd,
         updatedAt: stripeSubscriptions.updatedAt,
@@ -774,7 +789,7 @@ export async function stripeBillingStatusForTeam(
         and(
           eq(stripeSubscriptions.stackTeamId, stackTeamId),
           eq(stripeSubscriptions.scope, "team"),
-          eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
+          inArray(stripeSubscriptions.plan, TEAM_PLAN_IDS),
         ),
       );
     const orderedSubscriptionQuery = typeof subscriptionQuery.orderBy === "function"
@@ -790,11 +805,15 @@ export async function stripeBillingStatusForTeam(
       hasActiveTeamSubscriptionForTeam(stackTeamId),
     ]);
     const subscription = pickPortalMetadataRow(subscriptionRows);
-    return stripeBillingStatusFromRows(
-      customerRows[0]?.id ?? null,
-      subscription,
-      hasActiveSubscription,
-    );
+    const subscriptionPlan = (subscription as { readonly plan?: unknown } | undefined)?.plan;
+    return {
+      ...stripeBillingStatusFromRows(
+        customerRows[0]?.id ?? null,
+        subscription,
+        hasActiveSubscription,
+      ),
+      teamPlanId: subscription ? (isTeamPlanId(subscriptionPlan as string) ? subscriptionPlan as TeamPlanId : TEAM_PLAN_ID) : null,
+    };
   } catch (error) {
     if (isMissingDatabaseConfig(error)) return emptyStripeBillingStatus();
     throw error;
@@ -804,22 +823,33 @@ export async function stripeBillingStatusForTeam(
 export async function hasActiveTeamSubscriptionForTeam(
   stackTeamId: string,
 ): Promise<boolean> {
+  return (await activeTeamPlanIdForTeam(stackTeamId)) !== null;
+}
+
+/**
+ * The best team plan among a team's active Team or Team Max subscription
+ * rows (Team Max beats Team), or null when none is active.
+ */
+export async function activeTeamPlanIdForTeam(
+  stackTeamId: string,
+): Promise<TeamPlanId | null> {
   try {
     const rows = await cloudDb()
-      .select({ id: stripeSubscriptions.id })
+      .select({ id: stripeSubscriptions.id, plan: stripeSubscriptions.plan })
       .from(stripeSubscriptions)
       .where(
         and(
           eq(stripeSubscriptions.stackTeamId, stackTeamId),
           eq(stripeSubscriptions.scope, "team"),
-          eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
+          inArray(stripeSubscriptions.plan, TEAM_PLAN_IDS),
           inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
         ),
       )
-      .limit(1);
-    return rows.length > 0;
+      .limit(10);
+    if (rows.length === 0) return null;
+    return rows.some((row) => row.plan === TEAM_MAX_PLAN_ID) ? TEAM_MAX_PLAN_ID : TEAM_PLAN_ID;
   } catch (error) {
-    if (isMissingDatabaseConfig(error)) return false;
+    if (isMissingDatabaseConfig(error)) return null;
     throw error;
   }
 }
@@ -841,17 +871,18 @@ export function metadataPlanId(raw: unknown): string | null {
 }
 
 /**
- * Writes `cmuxPlan: "team"` and `cmuxSeats` (the subscription quantity) into
- * a Stack team's clientReadOnlyMetadata while a Stripe Team subscription is
- * active; both are removed when it lapses. Seats size the team's Cloud VM
- * allowance (5 machines per seat), so a quantity change must land here even
- * when the plan id is unchanged. `cmuxVmPlan` is operator-owned and left
- * untouched.
+ * Writes `cmuxPlan` (`"team"` or `"team_max"`, the plan the subscription's
+ * Price sells) and `cmuxSeats` (the subscription quantity) into a Stack
+ * team's clientReadOnlyMetadata while a Stripe team subscription is active;
+ * both are removed when it lapses. Seats size the team's Cloud VM allowance
+ * (5 machines per seat), so a quantity change must land here even when the
+ * plan id is unchanged. `cmuxVmPlan` is operator-owned and left untouched.
  */
 export async function syncTeamPlanMetadata(
   team: ProMetadataCustomer,
   isTeam: boolean,
   seats: number | null = null,
+  planId: TeamPlanId = TEAM_PLAN_ID,
 ): Promise<void> {
   const raw = team.clientReadOnlyMetadata;
   const metadata: Record<string, unknown> =
@@ -863,13 +894,14 @@ export async function syncTeamPlanMetadata(
 
   if (isTeam) {
     const nextSeats = seats !== null && Number.isSafeInteger(seats) && seats > 0 ? seats : null;
-    if (currentPlan === TEAM_PLAN_ID && currentSeats === (nextSeats ?? undefined)) return;
-    metadata.cmuxPlan = TEAM_PLAN_ID;
+    if (currentPlan === planId && currentSeats === (nextSeats ?? undefined)) return;
+    metadata.cmuxPlan = planId;
     if (nextSeats === null) delete metadata.cmuxSeats;
     else metadata.cmuxSeats = nextSeats;
   } else {
-    if (currentPlan !== TEAM_PLAN_ID && currentSeats === undefined) return;
-    if (currentPlan === TEAM_PLAN_ID) delete metadata.cmuxPlan;
+    const hasTeamPlan = isTeamPlanId(typeof currentPlan === "string" ? currentPlan : null);
+    if (!hasTeamPlan && currentSeats === undefined) return;
+    if (hasTeamPlan) delete metadata.cmuxPlan;
     delete metadata.cmuxSeats;
   }
   await team.update({ clientReadOnlyMetadata: metadata as ProMetadataJson });
@@ -893,7 +925,7 @@ export function manualVmPlanOverride(raw: unknown): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-/** True for plan ids that grant Pro access (pro, max, team, founders). */
+/** True for plan ids that grant Pro access (pro, max, team, team_max, founders). */
 export function isPaidPlanId(planId: string | null | undefined): boolean {
   if (typeof planId !== "string") return false;
   return (PAID_PLAN_IDS as readonly string[]).includes(planId.trim().toLowerCase());

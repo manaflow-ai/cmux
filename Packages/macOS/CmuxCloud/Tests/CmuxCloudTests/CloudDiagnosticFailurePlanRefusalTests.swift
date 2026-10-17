@@ -91,10 +91,15 @@ extension CloudDiagnosticFailurePlanRefusalTests {
         }
         let maxPlan = MachinePlanSnapshot(activeCount: 1, planId: " MAX ")
         #expect(!CloudPlanRefusal.offersUpgrade(for: poolCode, plan: maxPlan))
+        // Team Max already has the Max pool for every seat.
+        let teamMaxPlan = MachinePlanSnapshot(activeCount: 1, planId: " Team_Max ")
+        #expect(teamMaxPlan.isPaidPlan)
+        #expect(!teamMaxPlan.hasHigherResourcePoolPlan)
+        #expect(!CloudPlanRefusal.offersUpgrade(for: poolCode, plan: teamMaxPlan))
         #expect(!CloudPlanRefusal.offersUpgrade(for: poolCode, plan: nil))
         #expect(!CloudPlanRefusal.offersUpgrade(for: "vm_other", plan: maxPlan))
         #expect(CloudPlanRefusal.offersUpgrade(for: CloudPlanRefusal.activeLimitExceededCode, plan: nil))
-        for planID in ["max", "founders", "team"] {
+        for planID in ["max", "founders", "team", "team_max"] {
             let plan = MachinePlanSnapshot(activeCount: 5, planId: planID)
             #expect(!CloudPlanRefusal.offersUpgrade(for: CloudPlanRefusal.activeLimitExceededCode, plan: plan))
         }

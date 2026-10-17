@@ -53,6 +53,19 @@ export const TEAM_PRICING_USD = {
 } as const satisfies MonthlyOnlyPlanPricing;
 
 /**
+ * Team Max is Team with Max machines for every member: per seat like Team
+ * (every accepted member is a billed seat), monthly only.
+ */
+export const TEAM_MAX_PRICING_USD = {
+  month: {
+    billedAmount: 220,
+    monthlyEquivalent: 220,
+    discountPercent: 0,
+    lookupKey: "cmux-team-max-monthly-220",
+  },
+} as const satisfies MonthlyOnlyPlanPricing;
+
+/**
  * Max is a personal plan above Pro: the same machine count, plus the 24, 32,
  * and 64 GB machine sizes (up to 32 vCPU) Pro cannot start. It follows the
  * same 20% annual discount as Pro.
@@ -73,8 +86,8 @@ export const MAX_PRICING_USD = {
 } as const satisfies MonthlyOrYearlyPlanPricing;
 
 /**
- * New checkouts default to monthly. Pro and Max also sell yearly Prices; Go
- * and Team stay monthly, and their historical annual subscriptions remain
+ * New checkouts default to monthly. Pro and Max also sell yearly Prices; Go,
+ * Team, and Team Max stay monthly, and their historical annual subscriptions remain
  * valid.
  */
 export const CHECKOUT_BILLING_INTERVAL = "month" as const;

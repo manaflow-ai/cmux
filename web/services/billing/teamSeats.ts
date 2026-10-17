@@ -4,7 +4,7 @@ import { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
 import { captureCoderouterError } from "../errors";
 import { defaultTeamStackApp, withStackDeadline, type TeamStackApp } from "../teams/stack";
-import { ACTIVE_STRIPE_PRO_STATUSES, MAX_PLAN_ID, PRO_PLAN_ID, TEAM_PLAN_ID } from "./pro";
+import { ACTIVE_STRIPE_PRO_STATUSES, MAX_PLAN_ID, PRO_PLAN_ID, TEAM_PLAN_IDS } from "./pro";
 import { applySubscriptionUpdate } from "./purchase";
 import { stripe } from "./stripe";
 import { databaseTeamSeatQueue, TEAM_SEATS_BUSY, type TeamSeatQueue } from "./teamSeatQueue";
@@ -12,7 +12,7 @@ import { billingPlanIdFromMetadata } from "./teamResolution";
 import { planItem } from "./subscriptionItems";
 
 /**
- * Seat rules for a Team subscription. Every current member is a billed seat,
+ * Seat rules for a Team or Team Max subscription. Every current member is a billed seat,
  * pending invitations cost nothing, and a subscription never drops below one
  * seat. Pro and Max personal teams have a member cap instead of a quantity
  * (services/teams/seats.ts) and free teams have no subscription; both are
@@ -173,14 +173,15 @@ async function updateStripeQuantity(
   return { changed: true, value: planItem(updated)?.quantity ?? to };
 }
 
-async function activeTeamSubscriptionRow(stackTeamId: string): Promise<ActiveTeamSubscriptionRow | null> {
+/** The newest active Team or Team Max subscription row; both bill per seat. */
+export async function activeTeamSubscriptionRow(stackTeamId: string): Promise<ActiveTeamSubscriptionRow | null> {
   const rows = await cloudDb()
     .select({ id: stripeSubscriptions.id, seats: stripeSubscriptions.seats })
     .from(stripeSubscriptions)
     .where(and(
       eq(stripeSubscriptions.stackTeamId, stackTeamId),
       eq(stripeSubscriptions.scope, "team"),
-      eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
+      inArray(stripeSubscriptions.plan, TEAM_PLAN_IDS),
       inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
     ))
     .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))

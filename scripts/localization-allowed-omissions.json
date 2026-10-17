@@ -5140,5 +5140,13 @@
         ]
       }
     }
+  },
+  "machines.new.plan.name.teamMax": {
+    "source": "Team Max",
+    "class": "brand"
+  },
+  "pricing.native.teamMax.price": {
+    "source": "$220",
+    "class": "format"
   }
 }

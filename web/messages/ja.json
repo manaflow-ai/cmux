@@ -261,7 +261,8 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB のマシンには cmux {plan} が必要です。現在のプランの上限は {max} GiB です。",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}",
+      "teamAction": "cmux vm new --size {max}g\n{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "元のマシンの RAM 容量を確認できませんでした。",
@@ -296,6 +297,7 @@
       "memoryMessage": "VM はすでに {pool} GB の RAM のうち {used} GB を使っています。この VM には {requested} GB が必要です。",
       "vcpuMessage": "VM はすでに {pool} vCPU のうち {used} vCPU を使っています。この VM には {requested} vCPU が必要です。",
       "upgradeAction": "VM を一時停止または削除するか、Max にアップグレードしてください。",
+      "upgradeTeamMaxAction": "VM を一時停止または削除するか、チームを Team Max にアップグレードしてください。",
       "action": "VM を一時停止または削除してください。"
     },
     "activeLimit": {
@@ -844,7 +846,8 @@
           "go": "Go",
           "pro": "Pro",
           "max": "Max",
-          "team": "Team"
+          "team": "Team",
+          "team_max": "Team Max"
         },
         "features": {
           "free": [
@@ -872,6 +875,12 @@
             "有料シートごとに最大 5 台の Cloud VM、有料シートごとの 20 vCPU と 40 GB RAM をチーム全体で共有",
             "チーム全体で 1 つの請求書",
             "優先サポート"
+          ],
+          "team_max": [
+            "Team のすべてに加え、全メンバーが Max のマシンを利用可能",
+            "有料シートごとに最大 5 台の Cloud VM、有料シートごとの 80 vCPU と 160 GB RAM をチーム全体で共有",
+            "24 GB / 12 vCPU、32 GB / 16 vCPU、最大 64 GB / 32 vCPU のマシン",
+            "チーム全体で 1 つの請求書"
           ]
         },
         "billedAnnually": "年払い"
@@ -1299,7 +1308,8 @@
         "go": "Go",
         "pro": "Pro",
         "max": "Max",
-        "team": "Team"
+        "team": "Team",
+        "team_max": "Team Max"
       },
       "role": {
         "admin": "管理者",
@@ -1852,6 +1862,15 @@
         "有料シートごとに最大 5 台の Cloud VM、有料シートごとの 20 vCPU と 40 GB RAM をチーム全体で共有",
         "チーム全体の一元請求",
         "優先サポート"
+      ]
+    },
+    "teamMax": {
+      "name": "Team Max",
+      "cta": "Team Max を入手",
+      "featuresLead": "Team のすべてに加えて:",
+      "features": [
+        "全メンバーが Max のマシンを利用可能: 24 GB / 12 vCPU、32 GB / 16 vCPU、最大 64 GB / 32 vCPU、ディスクは最大 256 GB",
+        "有料シートごとに最大 5 台の Cloud VM、有料シートごとの 80 vCPU と 160 GB RAM をチーム全体で共有"
       ]
     },
     "enterprise": {

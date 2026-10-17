@@ -29,7 +29,8 @@ import {
   MAX_PLAN_ID,
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
-  hasActiveTeamSubscriptionForTeam,
+  activeTeamPlanIdForTeam,
+  type TeamPlanId,
   isPaidPlanId,
   manualVmPlanOverride,
   metadataPlanId,
@@ -485,22 +486,27 @@ export type FreshAdminTeamMutation = <Result>(
  */
 export async function setTeamManualPlanGrant(input: {
   readonly teamId: string;
-  readonly plan: typeof TEAM_PLAN_ID | null;
+  readonly plan: TeamPlanId | null;
   readonly admin: { readonly id: string; readonly primaryEmail?: string | null };
   readonly now?: () => Date;
   readonly app?: AdminStackApp;
   readonly withFreshTeam?: FreshAdminTeamMutation;
   readonly hasActiveTeamSubscription?: (teamId: string) => Promise<boolean>;
+  /** The live Stripe team plan; defaults to the subscription rows. */
+  readonly activeTeamPlanId?: (teamId: string) => Promise<TeamPlanId | null>;
   readonly stripeBillingStatus?: (teamId: string) => Promise<StripeBillingStatus>;
 }): Promise<AdminTeamRow> {
   const app = input.app ?? defaultAdminStackApp();
   const now = input.now ?? (() => new Date());
   const withFreshTeam = input.withFreshTeam ?? defaultWithFreshTeam(app);
-  const hasStripeTeam = input.hasActiveTeamSubscription ?? hasActiveTeamSubscriptionForTeam;
+  const legacyHasStripeTeam = input.hasActiveTeamSubscription;
+  const stripeTeamPlan = input.activeTeamPlanId ?? (legacyHasStripeTeam
+    ? async (teamId: string) => ((await legacyHasStripeTeam(teamId)) ? TEAM_PLAN_ID : null)
+    : activeTeamPlanIdForTeam);
 
   try {
     await withFreshTeam(input.teamId, async (team, lease) => {
-      const stripeActive = await hasStripeTeam(team.id);
+      const stripePlan = await stripeTeamPlan(team.id);
       await lease.refresh();
       const client = metadataRecord(team.clientReadOnlyMetadata);
       if (input.plan === null) {
@@ -510,8 +516,9 @@ export async function setTeamManualPlanGrant(input: {
       }
       // Mirror reconciliation, like syncTeamPlanMetadata but clearing any
       // stale paid value: entitlements treat pro, team, and founders alike.
-      if (stripeActive) {
-        client.cmuxPlan = TEAM_PLAN_ID;
+      // A live Team Max subscription keeps its team_max mirror.
+      if (stripePlan) {
+        client.cmuxPlan = stripePlan;
       } else if (isPaidPlanId(typeof client.cmuxPlan === "string" ? client.cmuxPlan : null)) {
         delete client.cmuxPlan;
       }

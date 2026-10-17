@@ -2547,6 +2547,91 @@ describe("recordCheckoutCompletion", () => {
     });
   });
 
+  test("relabels a Team subscription switched to the Team Max price and mirrors cmuxPlan team_max", async () => {
+    const updateTeam = mock(async () => undefined);
+    const team = {
+      id: "team_123",
+      clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 3 },
+      update: updateTeam,
+    };
+    selectResults = [[{ stackUserId: "owner_123" }], [{ stackUserId: "owner_123" }], []];
+
+    const result = await applySubscriptionUpdate(
+      {
+        id: "sub_team",
+        customer: "cus_team",
+        status: "active",
+        // Checkout stamped plan=team; the in-place switch only swapped the Price.
+        metadata: { stackTeamId: "team_123", plan: "team", app: "cmux" },
+        cancel_at_period_end: false,
+        items: {
+          data: [
+            {
+              quantity: 3,
+              current_period_end: 1_800_000_000,
+              price: { id: "price_team_max", lookup_key: "cmux-team-max-monthly-220" },
+            },
+          ],
+        },
+      } as never,
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => ({
+            id: "owner_123",
+            primaryEmail: "owner@example.com",
+            clientReadOnlyMetadata: {},
+            update: mock(async () => undefined),
+          }),
+          getTeam: async () => team,
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({ scope: "team", stackTeamId: "team_123", isActive: true });
+    expect(
+      inserts.some(
+        (insert) =>
+          insert.table === stripeSubscriptions &&
+          insert.values.scope === "team" &&
+          insert.values.plan === "team_max" &&
+          insert.values.seats === 3,
+      ),
+    ).toBe(true);
+    expect(updateTeam).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxPlan: "team_max", cmuxSeats: 3 },
+    });
+  });
+
+  test("accepts a Team Max checkout's own subscription metadata as team scope", async () => {
+    const updateTeam = mock(async () => undefined);
+    const team = { id: "team_123", clientReadOnlyMetadata: {}, update: updateTeam };
+    selectResults = [[{ stackUserId: "owner_123" }], [{ stackUserId: "owner_123" }], []];
+
+    const result = await applySubscriptionUpdate(
+      {
+        id: "sub_team",
+        customer: "cus_team",
+        status: "active",
+        metadata: { stackTeamId: "team_123", plan: "team_max", app: "cmux" },
+        cancel_at_period_end: false,
+        items: {
+          data: [{ quantity: 2, current_period_end: 1_800_000_000, price: { id: "price_team_max", lookup_key: "cmux-team-max-monthly-220" } }],
+        },
+      } as never,
+      {
+        db: fakeDb() as never,
+        stackApp: {
+          getUser: async () => ({ id: "owner_123", primaryEmail: "owner@example.com", clientReadOnlyMetadata: {}, update: mock(async () => undefined) }),
+          getTeam: async () => team,
+        } as never,
+      },
+    );
+
+    expect(result).toEqual({ scope: "team", stackTeamId: "team_123", isActive: true });
+    expect(updateTeam).toHaveBeenCalledWith({ clientReadOnlyMetadata: { cmuxPlan: "team_max", cmuxSeats: 2 } });
+  });
+
   test("syncs legacy Team subscription webhooks whose customer owner is the team id", async () => {
     const getUser = mock(async () => {
       throw new Error("should not load Stack user for legacy Team-owned billing rows");

@@ -112,6 +112,7 @@ import {
   maxActiveVmsForPlan,
   maxDiskMbForPlan,
   maxMemoryMbForPlan,
+  maxTierUpgradePlanId,
   maxVcpusForPlan,
   legacyPoolReservationForPlan,
   resourcePoolPolicyForPlan,
@@ -956,7 +957,7 @@ function isFailedVmCreate(vm: Pick<CloudVmRow, "status" | "failureCode">): boole
 }
 
 /** Check the copied or requested shape before provisioning side effects. */
-function requireMemoryPlan(planId: string, memoryMb: number | null, vcpus: number | null = null) {
+function requireMemoryPlan(planId: string, memoryMb: number | null, vcpus: number | null = null, billingTeamId?: string) {
   const maxMemoryMb = maxMemoryMbForPlan(planId);
   const maxVcpus = maxVcpusForPlan(planId);
   const memoryFromVcpus = vcpus === null ? 0 : vcpus * VM_PLAN_MEMORY_MB_PER_VCPU;
@@ -969,6 +970,7 @@ function requireMemoryPlan(planId: string, memoryMb: number | null, vcpus: numbe
         ? (vcpus === null ? null : memoryFromVcpus)
         : Math.max(memoryMb, memoryFromVcpus),
       maxMemoryMb,
+      ...(billingTeamId ? { billingTeamId } : {}),
     }));
   }
   return Effect.void;
@@ -1279,6 +1281,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         input.billingPlanId,
         requestedCreateMemory(input as { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }),
         requestedCreateVcpus(input as { imageSize?: { cpu: number }; resourceReservation?: { vcpus: number } }),
+        input.billingTeamId,
       );
     }
     // Record paid machine shapes for snapshot, fork, and resize recovery.
@@ -1704,7 +1707,7 @@ export function resetBaseVm(input: {
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
-    yield* requireMemoryPlan(input.billingPlanId, input.imageSize?.memoryMb ?? 0, input.imageSize?.cpu ?? null);
+    yield* requireMemoryPlan(input.billingPlanId, input.imageSize?.memoryMb ?? 0, input.imageSize?.cpu ?? null, input.billingTeamId);
     yield* requireGoShape(input.billingPlanId, input.imageSize ? {
       vcpus: input.imageSize.cpu, memoryMb: input.imageSize.memoryMb, diskMb: input.imageSize.storageMb,
     } : null);
@@ -2562,7 +2565,7 @@ export function restoreVm(input: {
       : null;
     if (!existingRetry || isFailedVmCreate(existingRetry)) {
       yield* requireGoShape(input.billingPlanId, snapshotReservation);
-      yield* requireMemoryPlan(input.billingPlanId, snapshotReservation?.memoryMb ?? null, snapshotReservation?.vcpus ?? null);
+      yield* requireMemoryPlan(input.billingPlanId, snapshotReservation?.memoryMb ?? null, snapshotReservation?.vcpus ?? null, input.billingTeamId);
     }
     return yield* createVm({
       userId: input.userId,
@@ -4679,7 +4682,7 @@ export function resizeVm(input: {
       if (requested !== undefined && requested > max) {
         return yield* Effect.fail(new VmResizePlanLimitError({
           vmId: input.providerVmId, resource, requested, max, planId,
-          ...(planId === "max" ? {} : { upgradePlanId: "max" }),
+          ...(maxTierUpgradePlanId(planId) ? { upgradePlanId: maxTierUpgradePlanId(planId)! } : {}),
         }));
       }
     }

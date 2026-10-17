@@ -34,6 +34,16 @@ async function refreshBilling(queryClient: QueryClient): Promise<void> {
   ]);
 }
 
+/** What switching a team between Team and Team Max costs; admins only. */
+export function teamPlanChangePreviewQuery(teamId: string, plan: "team" | "team_max") {
+  return rpc.billing.previewTeamChange.queryOptions({ input: { teamId, plan }, staleTime: 0, gcTime: 0 });
+}
+
+export function useChangeTeamPlan() {
+  const queryClient = useQueryClient();
+  return useMutation(rpc.billing.changeTeam.mutationOptions({ onSuccess: () => refreshBilling(queryClient) }));
+}
+
 export function useChangePlan() {
   const queryClient = useQueryClient();
   return useMutation(rpc.billing.change.mutationOptions({ onSuccess: () => refreshBilling(queryClient) }));

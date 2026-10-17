@@ -5,6 +5,7 @@ import {
   type PersonalBillingSource,
   type PersonalPlanId,
   type ProReconcileUser,
+  isTeamPlanId,
 } from "../pro";
 import { teamPlanStatusForTeam } from "../teamPlanStatus";
 import { resolveBillingTeam, type BillingTeamUserLike } from "../teamResolution";
@@ -76,7 +77,7 @@ const defaultDependencies = (): AppleAccountTokenDependencies => ({
   },
   billedThroughTeam: async (user) => {
     const team = await resolveBillingTeam(user);
-    return team ? (await teamPlanStatusForTeam(team)).planId === "team" : false;
+    return team ? isTeamPlanId((await teamPlanStatusForTeam(team)).planId) : false;
   },
   planStatus: resolveProPlanStatus,
 });

@@ -8,7 +8,7 @@
 // a moment in time.
 
 import { APPLE_USD_LIST_PRICE, appleUsdListPrice } from "../apple/config";
-import { GO_PRICING_USD, MAX_PRICING_USD, PRO_PRICING_USD, TEAM_PRICING_USD } from "../plans";
+import { GO_PRICING_USD, MAX_PRICING_USD, PRO_PRICING_USD, TEAM_MAX_PRICING_USD, TEAM_PRICING_USD } from "../plans";
 import { toUsd } from "./fx";
 
 export type AnalyticsSource = "apple" | "stripe";
@@ -326,6 +326,7 @@ const STRIPE_USD_MONTHLY_LIST_PRICE: Readonly<Record<string, number>> = {
   pro: PRO_PRICING_USD.month.monthlyEquivalent,
   max: MAX_PRICING_USD.month.monthlyEquivalent,
   team: TEAM_PRICING_USD.month.monthlyEquivalent,
+  team_max: TEAM_MAX_PRICING_USD.month.monthlyEquivalent,
 };
 
 /**

@@ -94,7 +94,8 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Mašine sa {memory} GiB zahtijevaju cmux {plan}. Vaš paket podržava do {max} GiB.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}",
+      "teamAction": "cmux vm new --size {max}g\n{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "Nije moguće provjeriti veličinu RAM-a izvorne mašine.",
@@ -129,6 +130,7 @@
       "memoryMessage": "Vaši VM-ovi već koriste {used} od {pool} GB RAM-a. Ovom VM-u treba {requested} GB.",
       "vcpuMessage": "Vaši VM-ovi već koriste {used} od {pool} vCPU-a. Ovom VM-u treba {requested} vCPU-a.",
       "upgradeAction": "Pauzirajte ili obrišite VM, ili pređite na Max.",
+      "upgradeTeamMaxAction": "Pauzirajte ili obrišite VM, ili prebacite tim na Team Max.",
       "action": "Pauzirajte ili obrišite VM."
     },
     "activeLimit": {
@@ -531,7 +533,8 @@
           "go": "Go",
           "pro": "Pro",
           "max": "Max",
-          "team": "Team"
+          "team": "Team",
+          "team_max": "Team Max"
         },
         "features": {
           "free": [
@@ -559,6 +562,12 @@
             "Do 5 Cloud VM-ova po plaćenom mjestu, koji dijele 20 vCPU-a i 40 GB RAM-a po plaćenom mjestu u cijelom timu",
             "Jedna faktura za cijeli tim",
             "Prioritetna podrška"
+          ],
+          "team_max": [
+            "Sve iz Team, uz Max mašine za svakog člana",
+            "Do 5 Cloud VM-ova po plaćenom mjestu, koji dijele 80 vCPU-a i 160 GB RAM-a po plaćenom mjestu u cijelom timu",
+            "Mašine od 24 GB / 12 vCPU, 32 GB / 16 vCPU i do 64 GB / 32 vCPU",
+            "Jedna faktura za cijeli tim"
           ]
         },
         "billedAnnually": "naplaćuje se godišnje"
@@ -941,7 +950,8 @@
         "go": "Go",
         "pro": "Pro",
         "max": "Max",
-        "team": "Team"
+        "team": "Team",
+        "team_max": "Team Max"
       },
       "role": {
         "admin": "Administrator",
@@ -5280,7 +5290,16 @@
     "billingUnavailable": "Naplata trenutno nije dostupna. Pokušajte ponovo kasnije.",
     "signedOutNotice": "Niste prijavljeni. Prijavite se da vidite trenutni plan ili vratite postojeću kupovinu.",
     "signedOutSignIn": "Prijavite se",
-    "manageInAppStore": "Upravljajte u App Storeu"
+    "manageInAppStore": "Upravljajte u App Storeu",
+    "teamMax": {
+      "name": "Team Max",
+      "cta": "Nabavi Team Max",
+      "featuresLead": "Sve iz Team, plus:",
+      "features": [
+        "Max mašine za svakog člana: 24 GB / 12 vCPU, 32 GB / 16 vCPU i do 64 GB / 32 vCPU, s diskovima do 256 GB",
+        "Do 5 Cloud VM-ova po plaćenom mjestu, koji dijele 80 vCPU-a i 160 GB RAM-a po plaćenom mjestu u cijelom timu"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

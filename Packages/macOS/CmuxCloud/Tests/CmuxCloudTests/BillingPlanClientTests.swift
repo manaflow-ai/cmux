@@ -33,6 +33,30 @@ struct BillingPlanClientTests {
         #expect(details.canManageBilling)
     }
 
+    @Test("the exact team plan wins over the legacy team plan id")
+    func teamSubscriptionPlanIdWins() async throws {
+        let client = BillingPlanClient(session: BillingPlanStubURLProtocol.session(body: """
+        {"authenticated":true,"planId":"free","isPro":false,"billingManagement":"none",
+         "teamPlanId":"team","teamSubscriptionPlanId":"team_max","teamBillingManagement":"stripe"}
+        """))
+
+        let details = try await client.fetch(from: BillingPlanStubURLProtocol.url, accessToken: "token")
+        #expect(details.isPro)
+        #expect(details.tier == .max)
+    }
+
+    @Test("authenticated Team Max plan grants Cloud access")
+    func authenticatedTeamMaxPlanIsPaid() async throws {
+        let client = BillingPlanClient(session: BillingPlanStubURLProtocol.session(body: """
+        {"authenticated":true,"planId":"free","isPro":false,"billingManagement":"none",
+         "teamPlanId":"team_max","teamBillingManagement":"stripe"}
+        """))
+
+        let details = try await client.fetch(from: BillingPlanStubURLProtocol.url, accessToken: "token")
+        #expect(details.isPro)
+        #expect(details.tier == .max)
+    }
+
     // A Max subscriber is reported as planId "pro" for older clients. The
     // exact plan must survive decoding, or Max reads as Pro and the app
     // offers an upgrade the account already has.
@@ -42,6 +66,8 @@ struct BillingPlanClientTests {
         ("pro", "pro", "free", true, CmuxPlanTier.pro),
         ("max", "pro", "free", true, CmuxPlanTier.max),
         ("free", "free", "team", false, CmuxPlanTier.pro),
+        ("free", "free", "team_max", false, CmuxPlanTier.max),
+        ("pro", "pro", "team_max", true, CmuxPlanTier.max),
     ])
     func exactTierDecodes(
         subscriptionPlanID: String,

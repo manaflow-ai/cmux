@@ -654948,6 +654948,242 @@
           }
         }
       }
+    },
+    "machines.new.plan.name.teamMax": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team Max"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team Max"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team Max"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team Max"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team Max"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team Max"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team Max"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team Max"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team Max"
+          }
+        }
+      }
+    },
+    "cloudVM.error.memoryRequiresPlan.teamMaxAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Larger machines need cmux Team Max. Ask a team admin to upgrade at %@, or choose a smaller machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأجهزة الأكبر تتطلب cmux Team Max. اطلب من مسؤول الفريق الترقية على %@ أو اختر جهازاً أصغر."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Größere Maschinen benötigen cmux Team Max. Bitten Sie einen Team-Admin, unter %@ zu upgraden, oder wählen Sie eine kleinere Maschine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las máquinas más grandes requieren cmux Team Max. Pida a un administrador del equipo que cambie de plan en %@ o elija una máquina más pequeña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les grandes machines nécessitent cmux Team Max. Demandez à un administrateur de l'équipe de passer à cette offre sur %@, ou choisissez une machine plus petite."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大きなマシンには cmux Team Max が必要です。チーム管理者に %@ でのアップグレードを依頼するか、小さなマシンを選んでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 큰 머신에는 cmux Team Max가 필요합니다. 팀 관리자에게 %@에서 업그레이드를 요청하거나 더 작은 머신을 선택하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "较大的机器需要 cmux Team Max。请团队管理员在 %@ 升级，或选择较小的机器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "較大的機器需要 cmux Team Max。請團隊管理員在 %@ 升級，或選擇較小的機器。"
+          }
+        }
+      }
+    },
+    "cloudVM.error.resourcePool.teamMaxAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause or delete a VM, or ask a team admin to upgrade to Team Max."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أوقف جهازًا افتراضيًا مؤقتًا أو احذفه، أو اطلب من مسؤول الفريق الترقية إلى Team Max."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausiere oder lösche eine VM, oder bitte einen Team-Admin um ein Upgrade auf Team Max."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausa o elimina una VM, o pide a un administrador del equipo que actualice a Team Max."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettez en pause ou supprimez une VM, ou demandez à un administrateur de l'équipe de passer à Team Max."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM を一時停止するか削除する、またはチーム管理者に Team Max へのアップグレードを依頼してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM을 일시 중지하거나 삭제하거나, 팀 관리자에게 Team Max로 업그레이드를 요청하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请暂停或删除一台虚拟机，或请团队管理员升级到 Team Max。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請暫停或刪除一台虛擬機，或請團隊管理員升級至 Team Max。"
+          }
+        }
+      }
+    },
+    "pricing.native.teamMax.price": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$220"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$220"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$220"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$220"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$220"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$220"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$220"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$220"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$220"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

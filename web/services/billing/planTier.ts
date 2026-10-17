@@ -4,8 +4,9 @@
  * than on a plan string: Max, and any later higher tier, then keeps
  * everything Pro has.
  *
- * Team and Founder's Edition grant the Pro feature set. Their own machine
- * allowance (Team seats) is applied by the VM entitlements, not here.
+ * Team and Founder's Edition grant the Pro feature set; Team Max grants the
+ * Max feature set. Their own machine allowance (seats) is applied by the VM
+ * entitlements, not here.
  */
 export type PlanTier = "free" | "go" | "pro" | "max";
 
@@ -18,6 +19,7 @@ const PLAN_TIER_BY_ID: Readonly<Record<string, PlanTier>> = {
   team: "pro",
   founders: "pro",
   max: "max",
+  team_max: "max",
 };
 
 /** The tier a plan ID grants, or null for an unknown ID. */

@@ -94,7 +94,8 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Maskiner med {memory} GiB krever cmux {plan}. Abonnementet ditt støtter opptil {max} GiB.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}",
+      "teamAction": "cmux vm new --size {max}g\n{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "RAM-størrelsen på kildemaskinen kunne ikke bekreftes.",
@@ -129,6 +130,7 @@
       "memoryMessage": "VM-ene dine bruker allerede {used} av {pool} GB RAM. Denne VM-en trenger {requested} GB.",
       "vcpuMessage": "VM-ene dine bruker allerede {used} av {pool} vCPU-er. Denne VM-en trenger {requested} vCPU-er.",
       "upgradeAction": "Sett en VM på pause eller slett den, eller oppgrader til Max.",
+      "upgradeTeamMaxAction": "Sett en VM på pause eller slett den, eller oppgrader teamet til Team Max.",
       "action": "Sett en VM på pause eller slett den."
     },
     "activeLimit": {
@@ -531,7 +533,8 @@
           "go": "Go",
           "pro": "Pro",
           "max": "Max",
-          "team": "Team"
+          "team": "Team",
+          "team_max": "Team Max"
         },
         "features": {
           "free": [
@@ -559,6 +562,12 @@
             "Opptil 5 Cloud VMs per betalt plass, som deler 20 vCPU-er og 40 GB RAM per betalt plass på tvers av teamet",
             "Én faktura for hele teamet",
             "Prioritert støtte"
+          ],
+          "team_max": [
+            "Alt i Team, med Max-maskiner for hvert medlem",
+            "Opptil 5 Cloud VMs per betalt plass, som deler 80 vCPU-er og 160 GB RAM per betalt plass på tvers av teamet",
+            "Maskiner med 24 GB / 12 vCPU, 32 GB / 16 vCPU og opptil 64 GB / 32 vCPU",
+            "Én faktura for hele teamet"
           ]
         },
         "billedAnnually": "faktureres årlig"
@@ -941,7 +950,8 @@
         "go": "Go",
         "pro": "Pro",
         "max": "Max",
-        "team": "Team"
+        "team": "Team",
+        "team_max": "Team Max"
       },
       "role": {
         "admin": "Administrator",
@@ -5277,7 +5287,16 @@
     "billingUnavailable": "Betaling er ikke tilgjengelig akkurat nå. Prøv igjen senere.",
     "signedOutNotice": "Du er ikke logget inn. Logg inn for å se gjeldende abonnement eller gjenopprette et eksisterende kjøp.",
     "signedOutSignIn": "Logg inn",
-    "manageInAppStore": "Administrer i App Store"
+    "manageInAppStore": "Administrer i App Store",
+    "teamMax": {
+      "name": "Team Max",
+      "cta": "Få Team Max",
+      "featuresLead": "Alt i Team, pluss:",
+      "features": [
+        "Max-maskiner for hvert medlem: 24 GB / 12 vCPU, 32 GB / 16 vCPU og opptil 64 GB / 32 vCPU, med disker på opptil 256 GB",
+        "Opptil 5 Cloud VMs per betalt plass, som deler 80 vCPU-er og 160 GB RAM per betalt plass på tvers av teamet"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

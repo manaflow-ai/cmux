@@ -69,6 +69,10 @@ export function billingPlanIdFromMetadata(metadata: unknown): string | null {
   // overrides retain their operator restriction.
   const plan = metadata as { cmuxVmPlan?: unknown; cmuxPlan?: unknown };
   if (plan.cmuxPlan === "max" && [undefined, null, "pro", "team", "founders", "max"].includes(plan.cmuxVmPlan as never)) return "max";
+  // Same for a paid Team Max subscription on a team carrying a lower grant.
+  if (plan.cmuxPlan === "team_max" && [undefined, null, "pro", "team", "founders", "max", "team_max"].includes(plan.cmuxVmPlan as never)) {
+    return "team_max";
+  }
   const value = (metadata as { cmuxVmPlan?: unknown }).cmuxVmPlan ??
     (metadata as { cmuxPlan?: unknown }).cmuxPlan;
   return typeof value === "string" && value.trim() ? value.trim() : null;

@@ -13,7 +13,8 @@ export { teamCheckoutHref, teamPortalHref } from "./checkout-links";
 /**
  * The billing panel for one real team (`/dashboard/teams/$teamId/billing`):
  * notices, seats, then the plan picker. Renders nothing for the personal
- * entry; Plan & billing shows Pro and Max there.
+ * entry; Plan & billing shows Pro and Max there. A paying team switches
+ * between Team and Team Max in place from the picker.
  */
 export function TeamBillingPanel({
   view,
@@ -44,7 +45,7 @@ export function TeamBillingPanel({
       ) : null}
       {view.subscription ? <TeamSeats view={view} /> : null}
       <PlanPicker
-        cards={teamPlanCards({ canManageBilling: view.canManageBilling, granted: view.granted, subscription: view.subscription })}
+        cards={teamPlanCards({ canManageBilling: view.canManageBilling, granted: view.granted, subscription: view.subscription, planId: view.planId })}
         scope={{ kind: "team", teamId: view.team.id }}
         periodEnd={view.subscription?.currentPeriodEnd ?? null}
         canManagePayment={view.canManageBilling && view.billingManagement === "stripe"}

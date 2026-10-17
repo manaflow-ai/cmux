@@ -10,6 +10,7 @@ import {
   MAX_BILLING_INTERVALS,
   MAX_PRICING_USD,
   PRO_PRICING_USD,
+  TEAM_MAX_PRICING_USD,
   TEAM_PRICING_USD,
   proBillingInterval,
 } from "../services/billing/plans";
@@ -48,6 +49,17 @@ describe("pricing plans", () => {
     expect("year" in TEAM_PRICING_USD).toBe(false);
   });
 
+  test("prices Team Max at $220/user/mo, monthly only", () => {
+    expect(TEAM_MAX_PRICING_USD).toEqual({
+      month: {
+        billedAmount: 220,
+        monthlyEquivalent: 220,
+        discountPercent: 0,
+        lookupKey: "cmux-team-max-monthly-220",
+      },
+    });
+  });
+
   test("prices Max at $200/mo or $1,920/yr with the same 20% discount", () => {
     expect(MAX_PRICING_USD).toEqual({
       month: {
@@ -72,6 +84,7 @@ describe("pricing plans", () => {
       PRO_PRICING_USD.year,
       MAX_PRICING_USD.month,
       TEAM_PRICING_USD.month,
+      TEAM_MAX_PRICING_USD.month,
     ];
     for (const price of current) {
       expect(price.lookupKey.endsWith(`-${price.billedAmount}`)).toBe(true);

@@ -94,7 +94,8 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "ម៉ាស៊ីន {memory} GiB ត្រូវការ cmux {plan}។ គម្រោងរបស់អ្នកគាំទ្ររហូតដល់ {max} GiB។",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}",
+      "teamAction": "cmux vm new --size {max}g\n{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "មិនអាចផ្ទៀងផ្ទាត់ទំហំ RAM របស់ម៉ាស៊ីនប្រភពបានទេ។",
@@ -129,6 +130,7 @@
       "memoryMessage": "VM របស់អ្នកបានប្រើ RAM {used} ក្នុងចំណោម {pool} GB រួចហើយ។ VM នេះត្រូវការ {requested} GB។",
       "vcpuMessage": "VM របស់អ្នកបានប្រើ vCPU {used} ក្នុងចំណោម {pool} រួចហើយ។ VM នេះត្រូវការ vCPU {requested}។",
       "upgradeAction": "ផ្អាក ឬលុប VM មួយ ឬដំឡើងទៅ Max។",
+      "upgradeTeamMaxAction": "ផ្អាក ឬលុប VM មួយ ឬដំឡើងក្រុមទៅ Team Max។",
       "action": "ផ្អាក ឬលុប VM មួយ។"
     },
     "activeLimit": {
@@ -531,7 +533,8 @@
           "go": "Go",
           "pro": "Pro",
           "max": "Max",
-          "team": "Team"
+          "team": "Team",
+          "team_max": "Team Max"
         },
         "features": {
           "free": [
@@ -559,6 +562,12 @@
             "Cloud VMs រហូតដល់ 5 ក្នុងមួយកៅអីបង់ប្រាក់ ដែលប្រើ vCPU 20 និង RAM 40 GB ក្នុងមួយកៅអីបង់ប្រាក់ រួមគ្នាទូទាំងក្រុម",
             "វិក្កយបត្រតែមួយសម្រាប់ក្រុមទាំងមូល",
             "ការគាំទ្រអាទិភាព"
+          ],
+          "team_max": [
+            "អ្វីៗទាំងអស់ក្នុង Team ជាមួយម៉ាស៊ីន Max សម្រាប់សមាជិកគ្រប់រូប",
+            "Cloud VMs រហូតដល់ 5 ក្នុងមួយកៅអីបង់ប្រាក់ ដែលប្រើ vCPU 80 និង RAM 160 GB ក្នុងមួយកៅអីបង់ប្រាក់ រួមគ្នាទូទាំងក្រុម",
+            "ម៉ាស៊ីន 24 GB / 12 vCPU, 32 GB / 16 vCPU និងរហូតដល់ 64 GB / 32 vCPU",
+            "វិក្កយបត្រតែមួយសម្រាប់ក្រុមទាំងមូល"
           ]
         },
         "billedAnnually": "គិតប្រាក់ប្រចាំឆ្នាំ"
@@ -941,7 +950,8 @@
         "go": "Go",
         "pro": "Pro",
         "max": "Max",
-        "team": "Team"
+        "team": "Team",
+        "team_max": "Team Max"
       },
       "role": {
         "admin": "អ្នកគ្រប់គ្រង",
@@ -5278,7 +5288,16 @@
     "billingUnavailable": "ការទូទាត់មិនអាចប្រើបាននៅពេលនេះទេ។ សូមព្យាយាមម្តងទៀតនៅពេលក្រោយ។",
     "signedOutNotice": "អ្នកមិនទាន់បានចូលទេ។ ចូលដើម្បីមើលគម្រោងបច្ចុប្បន្នរបស់អ្នក ឬស្ដារការទិញដែលមានស្រាប់។",
     "signedOutSignIn": "ចូល",
-    "manageInAppStore": "គ្រប់គ្រងនៅក្នុង App Store"
+    "manageInAppStore": "គ្រប់គ្រងនៅក្នុង App Store",
+    "teamMax": {
+      "name": "Team Max",
+      "cta": "ទទួលបាន Team Max",
+      "featuresLead": "អ្វីៗទាំងអស់ក្នុង Team បូកនឹង៖",
+      "features": [
+        "ម៉ាស៊ីន Max សម្រាប់សមាជិកគ្រប់រូប៖ 24 GB / 12 vCPU, 32 GB / 16 vCPU និងរហូតដល់ 64 GB / 32 vCPU ជាមួយថាសរហូតដល់ 256 GB",
+        "Cloud VMs រហូតដល់ 5 ក្នុងមួយកៅអីបង់ប្រាក់ ដែលប្រើ vCPU 80 និង RAM 160 GB ក្នុងមួយកៅអីបង់ប្រាក់ រួមគ្នាទូទាំងក្រុម"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",
