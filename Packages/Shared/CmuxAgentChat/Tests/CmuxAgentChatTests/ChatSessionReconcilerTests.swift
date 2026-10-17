@@ -84,9 +84,12 @@ struct ChatSessionReconcilerTests {
     func removalTombstone() {
         var reducer = ChatSessionReconciler()
         reducer.replace(with: [descriptor("s", version: 3)])
-        #expect(reducer.apply(sessionID: "s", event: .sessionRemoved(version: 4)))
-        #expect(!reducer.upsert(descriptor("s", version: 4)))
-        #expect(!reducer.upsert(descriptor("s", version: 2)))
+        let removed = reducer.apply(sessionID: "s", event: .sessionRemoved(version: 4))
+        let equalVersionApplied = reducer.upsert(descriptor("s", version: 4))
+        let olderVersionApplied = reducer.upsert(descriptor("s", version: 2))
+        #expect(removed)
+        #expect(!equalVersionApplied)
+        #expect(!olderVersionApplied)
         #expect(reducer.descriptor(for: "s") == nil)
     }
 }
