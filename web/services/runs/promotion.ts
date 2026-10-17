@@ -118,6 +118,8 @@ export type PromotionReserveResult =
   | { readonly kind: "in_progress" };
 
 export type AttemptPromotionStorePort = {
+  /** Optional fast path so an idempotent replay survives terminal retention expiry. */
+  readonly findByRequestKey?: (input: { userId: string; requestKey: string }) => Promise<PromotionView | null>;
   /**
    * Atomically reserve `(userId, requestKey)` and `(userId, attemptId)`.
    * Implementations should persist both uniqueness constraints so retries and
@@ -273,6 +275,13 @@ export async function promoteRunAttempt(input: {
 }): Promise<PromotionView> {
   const requestKey = input.requestKey.trim();
   if (!requestKey || requestKey.length > 128) throw new PromotionIdempotencyConflictError("Idempotency-Key is required and must be at most 128 characters");
+  const existing = await input.dependencies.store.findByRequestKey?.({ userId: input.userId, requestKey });
+  if (existing) {
+    if (existing.runId !== input.runId || existing.attemptId !== input.attemptId) {
+      throw new PromotionIdempotencyConflictError("Idempotency-Key was already used for a different run attempt");
+    }
+    return existing;
+  }
   const source = await input.dependencies.source.find({ userId: input.userId, runId: input.runId, attemptId: input.attemptId });
   if (!source || source.userId !== input.userId || source.runId !== input.runId || source.attemptId !== input.attemptId) {
     throw new PromotionNotFoundError("run attempt not found");
