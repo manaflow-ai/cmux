@@ -12,7 +12,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use cmux_app_host::ToHost;
 use serde_json::{Value, json};
 
 use super::catalog::{self, Catalog, Package, Sources};
@@ -162,8 +161,8 @@ pub(super) struct Host {
     pub runs: HashMap<u64, Responder>,
     /// The gesture token of each run that has one, revoked at its `done`.
     pub run_gestures: HashMap<u64, String>,
-    /// `run` messages for a host that has no process yet (restart pending).
-    pub queued_runs: Vec<ToHost>,
+    /// Unsent runs for the replacement, separate from the outgoing process's responders.
+    pub queued_runs: Vec<super::runs::PendingRun>,
     pub next_cb: u64,
     pub idle: Option<TimerId>,
     pub backoff: Backoff,
