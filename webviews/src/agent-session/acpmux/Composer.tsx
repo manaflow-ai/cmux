@@ -1077,7 +1077,7 @@ export function Composer({
           <MarkdownField
             ref={fieldRef}
             className={shell ? "acpmux-composer-prompt is-hidden" : "acpmux-composer-prompt"}
-            value={text}
+            value={draft && !text ? draft : text}
             placeholder={t(COMPOSER_LABELS.placeholder)}
             attributes={{
               role: "combobox",
