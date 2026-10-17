@@ -1520,7 +1520,7 @@ private struct AgentChatComposer: View {
             maxSelectionCount: max(1, 10 - model.attachments.count),
             matching: .images
         )
-        .onChange(of: photoSelection) { items in
+        .onChange(of: photoSelection) { _, items in
             guard !items.isEmpty else { return }
             Task {
                 await stagePhotos(items)
