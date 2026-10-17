@@ -3,7 +3,7 @@ import CmuxNextWakeups
 import CmuxNextDesign
 import QuartzCore
 // Internal drag reorder: lift, in-place slot (R77), drop, cancel, auto-scroll.
-extension SidebarListView {
+extension SidebarListViewComponents {
     typealias Drag = SidebarListDrag
     func beginDrag(_ press: Press) {
         hoverCards.dismiss(.click)

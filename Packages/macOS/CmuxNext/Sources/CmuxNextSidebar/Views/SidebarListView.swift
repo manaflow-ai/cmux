@@ -12,6 +12,9 @@ import QuartzCore
 /// drag image is a static snapshot. Here layout is a pure function
 /// (`SidebarLayout`), so every change is "compute new frames, animate to them",
 /// and only rows near the viewport get views (see `realizationRect`).
+// Keep implementation extensions in a separate checker namespace.
+typealias SidebarListViewComponents = SidebarListView
+
 final class SidebarListView: NSView {
     let model: SidebarModel
     var displayed = SidebarLayout.empty

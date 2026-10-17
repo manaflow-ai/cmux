@@ -15,6 +15,9 @@ public enum SidebarAccessorySlot: CaseIterable, Sendable {
 /// the command palette (Go to Workspace), not here. Place it in a glass
 /// panel, or use `SidebarContainerView`, which adds the panel, width, and
 /// resize handle.
+// Keep implementation extensions in a separate checker namespace.
+typealias SidebarViewComponents = SidebarView
+
 public final class SidebarView: NSView {
     public let model: SidebarModel
     /// Height reserved at the top for the window's traffic lights (the

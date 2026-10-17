@@ -3,7 +3,7 @@ import CmuxNextDesign
 import CmuxNextWakeups
 import QuartzCore
 
-extension SidebarListView {
+extension SidebarListViewComponents {
     // MARK: - Reload
     /// Recomputes layout from the model and animates rows to their frames.
     func reload(animated: Bool, adopt: Bool = false) {
