@@ -21,7 +21,6 @@ public struct ConversationSharedLink: Sendable, Hashable, Identifiable {
 /// What the details panel's Photos and Links sections show: everything
 /// shared in the loaded messages, newest first. Unsent (taken back)
 /// messages share nothing.
-// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationSharedMedia {
     public static func photos(in messages: [ConversationMessage]) -> [ConversationSharedPhoto] {
         var result: [ConversationSharedPhoto] = []
