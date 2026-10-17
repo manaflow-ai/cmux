@@ -46,7 +46,8 @@ afterAll(() => {
   dom.window.close();
 });
 
-const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+const PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
 /// A reply image outside the chat's folders (a screenshot in a temporary folder) follows
 /// `agentPane.links.outsideRoots`: Open shows it at once, Ask First after Load image, Text never.
