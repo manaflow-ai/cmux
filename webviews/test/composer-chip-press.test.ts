@@ -14,6 +14,7 @@
 //
 // Real Chromium and WebKit (the app's engine) with real pointer events, on the gallery stage at
 // 760 and 300 px. CI fails the file when it cannot launch them (requireBrowserLane). Locally:
+// cmux-web-test-timeout: 360
 // CMUX_BROWSER_TESTS=1 bun test test/composer-chip-press.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
