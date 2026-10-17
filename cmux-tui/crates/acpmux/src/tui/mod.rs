@@ -75,6 +75,10 @@ pub(super) enum Reread {
     Status,
 }
 
+/// Keep lag recovery responsive even if a session has an unusually large
+/// event log. Each page is capped by the daemon's attach limit below.
+pub(super) const MAX_RECOVERY_PAGES: u8 = 8;
+
 impl Reread {
     async fn run(self, client: &Arc<Client>, tx: &mpsc::UnboundedSender<AppMsg>) {
         match self {
@@ -116,9 +120,15 @@ pub struct App {
     pub transcripts: HashMap<String, Transcript>,
     pub(super) details: HashMap<String, Value>,
     pub(super) attached: HashSet<String>,
-    /// Sessions with a lag recovery request in flight.  A broadcast lag can
-    /// notify us more than once; one bounded replay per session is enough.
+    /// Sessions with a lag recovery request in flight. A broadcast lag can
+    /// notify us more than once; only one replay page per session is in flight.
     pub(super) recovery_in_flight: HashSet<String>,
+    /// Number of pages already requested for each lagged session.
+    pub(super) recovery_pages: HashMap<String, u8>,
+    /// Number of records accepted from the current lag recovery.
+    pub(super) recovery_replayed: HashMap<String, usize>,
+    /// Cursor that started the current lag recovery, for the terminal status.
+    pub(super) recovery_start: HashMap<String, u64>,
     pub input: Editor,
     pub input_images: Vec<PromptImage>,
     pub command: Editor,
@@ -475,6 +485,9 @@ impl App {
         if !self.recovery_in_flight.insert(id.to_owned()) {
             return false;
         }
+        self.recovery_pages.insert(id.to_owned(), 1);
+        self.recovery_replayed.insert(id.to_owned(), 0);
+        self.recovery_start.insert(id.to_owned(), after_seq);
         self.request_attach(id, Some(after_seq));
         true
     }
@@ -807,6 +820,58 @@ mod interaction_tests {
         );
         assert!(!app.recovery_in_flight.contains(id));
         assert_eq!(app.status, "recovered 1 events from seq 40");
+    }
+
+    #[tokio::test]
+    async fn recovery_attach_pages_forward_until_exhausted() {
+        let (mut app, mut requests) = app().await;
+        let id = "test-session";
+        let mut transcript = Transcript::default();
+        transcript.last_seq = 40;
+        app.transcripts.insert(id.into(), transcript);
+        app.recovery_in_flight.insert(id.into());
+        app.recovery_pages.insert(id.into(), 1);
+        app.recovery_replayed.insert(id.into(), 0);
+        app.recovery_start.insert(id.into(), 40);
+
+        app.on_msg(AppMsg::Attached {
+            id: id.into(),
+            detail: json!({"status": "running"}),
+            events: vec![
+                json!({"seq": 41, "dir": "mux", "kind": "user_message", "msg": {"text": "one"}}),
+                json!({"seq": 42, "dir": "mux", "kind": "user_message", "msg": {"text": "two"}}),
+            ],
+            after_seq: Some(40),
+            has_more: true,
+            last_seq: 43,
+        });
+
+        let request = tokio::time::timeout(std::time::Duration::from_secs(5), requests.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(request["method"], method::MUX_ATTACH);
+        assert_eq!(request["params"]["afterSeq"], 42);
+        assert_eq!(request["params"]["limit"], 3000);
+        assert!(app.recovery_in_flight.contains(id));
+
+        app.on_msg(AppMsg::Attached {
+            id: id.into(),
+            detail: json!({"status": "completed"}),
+            events: vec![
+                // The page boundary may be repeated by the daemon; dedup it.
+                json!({"seq": 42, "dir": "mux", "kind": "user_message", "msg": {"text": "two"}}),
+                json!({"seq": 43, "dir": "mux", "kind": "user_message", "msg": {"text": "three"}}),
+            ],
+            after_seq: Some(42),
+            has_more: false,
+            last_seq: 43,
+        });
+
+        let transcript = app.transcripts.get(id).unwrap();
+        assert_eq!(transcript.last_seq, 43);
+        assert!(!app.recovery_in_flight.contains(id));
+        assert_eq!(app.status, "recovered 3 events from seq 40");
     }
 
     #[tokio::test]
