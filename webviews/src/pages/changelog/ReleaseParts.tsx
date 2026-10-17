@@ -52,7 +52,36 @@ export function ItemActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContex
         </button>
       )}
       {item.docs && (
-        <a className="cl-link" href={item.docs} rel="noreferrer">
+        <a
+          className="cl-link"
+          href={item.docs}
+          rel="noreferrer"
+          aria-label={`${ctx.strings.t("changelog.page.learnMore")}: ${item.title}`}
+        >
+          {ctx.strings.t("changelog.page.learnMore")}
+        </a>
+      )}
+    </div>
+  );
+}
+
+/** Actions on a grouped change stay with its title and summary instead of hiding on hover. */
+export function RowActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContext }) {
+  if (!item.action && !item.docs) return null;
+  return (
+    <div className="cl-row-actions">
+      {item.action && (
+        <button type="button" className="cl-row-action" onClick={() => ctx.onTry(item.action!.id)}>
+          {item.action.title || ctx.strings.t("changelog.page.tryIt")}
+        </button>
+      )}
+      {item.docs && (
+        <a
+          className="cl-row-link"
+          href={item.docs}
+          rel="noreferrer"
+          aria-label={`${ctx.strings.t("changelog.page.learnMore")}: ${item.title}`}
+        >
           {ctx.strings.t("changelog.page.learnMore")}
         </a>
       )}
@@ -103,13 +132,11 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
       <ul>
         {shown.map((item, index) => (
           <li key={`${item.id}-${index}`}>
-            <span className="cl-row-title">{item.title}</span>
-            {item.summary && <span className="cl-row-summary">{item.summary.split(/\n{2,}/)[0]}</span>}
-            {item.action && (
-              <button type="button" className="cl-row-action" onClick={() => ctx.onTry(item.action!.id)}>
-                {item.action.title || ctx.strings.t("changelog.page.tryIt")}
-              </button>
-            )}
+            <div className="cl-row-copy">
+              <span className="cl-row-title">{item.title}</span>
+              {item.summary && <span className="cl-row-summary">{item.summary.split(/\n{2,}/)[0]}</span>}
+            </div>
+            <RowActions item={item} ctx={ctx} />
           </li>
         ))}
       </ul>
