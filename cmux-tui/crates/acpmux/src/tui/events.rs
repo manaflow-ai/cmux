@@ -102,7 +102,25 @@ impl App {
                 }
             }
             "_acpmux/lagged" => {
-                self.status = "event stream lagged; reattach with Enter on the session".into()
+                // `_acpmux/lagged` is connection-wide and intentionally has
+                // no session id.  Replay every session this TUI has attached
+                // to from its own last applied sequence, with one request per
+                // session at most while the recovery is in flight.
+                let ids: Vec<String> = self.attached.iter().cloned().collect();
+                let mut recovering = 0;
+                for id in ids {
+                    let Some(after_seq) = self.transcripts.get(&id).map(|t| t.last_seq) else {
+                        continue;
+                    };
+                    if self.recover_after_lag(&id, after_seq) {
+                        recovering += 1;
+                    }
+                }
+                self.status = if recovering == 0 {
+                    "event stream lagged; recovery required".into()
+                } else {
+                    format!("event stream lagged; recovering {recovering} session(s)…")
+                };
             }
             _ => {}
         }
@@ -135,7 +153,31 @@ impl App {
                     self.select(0);
                 }
             }
-            AppMsg::Attached { id, detail, events } => {
+            AppMsg::Attached { id, detail, events, after_seq, has_more, last_seq: _ } => {
+                if let Some(after_seq) = after_seq {
+                    self.recovery_in_flight.remove(&id);
+                    let mut recovered = 0;
+                    if let Some(t) = self.transcripts.get_mut(&id) {
+                        for e in &events {
+                            let seq = e.get("seq").and_then(Value::as_u64).unwrap_or(0);
+                            if seq <= t.last_seq {
+                                continue;
+                            }
+                            t.apply_event(e);
+                            recovered += 1;
+                        }
+                        if let Some(status) = detail.get("status").and_then(Value::as_str) {
+                            t.status = status.to_owned();
+                        }
+                    }
+                    self.details.insert(id, detail);
+                    self.status = if has_more {
+                        format!("recovery required after seq {after_seq}")
+                    } else {
+                        format!("recovered {recovered} events from seq {after_seq}")
+                    };
+                    return;
+                }
                 if events.is_empty() && self.transcripts.contains_key(&id) {
                     if let Some(t) = self.transcripts.get_mut(&id) {
                         t.mode = detail
@@ -161,6 +203,10 @@ impl App {
                 t.model = detail.get("model").and_then(Value::as_str).map(str::to_owned);
                 self.details.insert(id.clone(), detail);
                 self.transcripts.insert(id, t);
+            }
+            AppMsg::RecoveryFailed { id, after_seq, error } => {
+                self.recovery_in_flight.remove(&id);
+                self.status = format!("recovery required after seq {after_seq}: {error}");
             }
             AppMsg::Agents(list, default) => {
                 self.harnesses = list;
