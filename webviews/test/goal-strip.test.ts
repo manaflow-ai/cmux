@@ -37,3 +37,8 @@ test("keeps failed work visible and completed work folded away", () => {
   expect(failed?.state).toBe("failed");
   expect(projectGoal([entry(run({ status: "done" }))], 2_001)).toBeUndefined();
 });
+
+test("does not expose an answer message id as the goal title", () => {
+  const goal = projectGoal([entry(run({ answers: ["message-internal-id"] }))], 2_001);
+  expect(goal?.title).toBe("");
+});

@@ -21,7 +21,9 @@ export function projectGoal(entries: readonly RunEntry[], now: number): HomeGoal
     return {
       run,
       state,
-      title: run.title || run.answers[0] || "Current goal",
+      // `answers` contains message IDs, not display text. Keep the title empty
+      // when the owner did not provide one so the view can use a localized label.
+      title: run.title || "",
       detail: run.error || (stale ? "No update from this run" : undefined),
     };
   }
