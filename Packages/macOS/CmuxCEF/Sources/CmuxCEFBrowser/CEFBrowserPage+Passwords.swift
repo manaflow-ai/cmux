@@ -61,8 +61,10 @@ extension CEFBrowserPage {
             passwords.fill.browserRecreated()
         }
         guard let value = passwords.fill.nextSwitchValue(agentDriven: isAgentDriven) else { return }
-        if shim.setPasswordFill(id, value) != 1, value == 0 {
-            // No URL or value in the line.
+        let applied = shim.setPasswordFill(id, value) == 1
+        // No URL or password in these lines.
+        Self.passwordLogger.info("password fill \(value == 1 ? "on" : "off", privacy: .public) for browser \(id, privacy: .public) applied=\(applied, privacy: .public)")
+        if !applied, value == 0 {
             Self.passwordLogger.notice("password fill stays on for browser \(id, privacy: .public): fork has no switch")
         }
     }
@@ -70,6 +72,8 @@ extension CEFBrowserPage {
     /// A save offer from Chromium, or the end of one.
     func handlePasswordPrompt(promptID: Int32, json: String) {
         guard let message = CEFPasswordPromptMessage(json: json) else { return }
+        // Neither the site nor the user name in the line.
+        Self.passwordLogger.info("password prompt \(promptID, privacy: .public) \(message == .gone ? "gone" : "offer", privacy: .public) agentDriven=\(self.isAgentDriven, privacy: .public)")
         let delegate = uiDelegate as? any BrowserPagePasswordPromptDelegate
         switch message {
         case .gone:
@@ -116,6 +120,7 @@ extension CEFBrowserPage {
     }
 
     private static func answerPasswordPrompt(_ promptID: Int32, _ action: CEFPasswordPromptAction) {
-        _ = CEFRuntime.shared.shim?.passwordPromptAnswer(promptID, action.rawValue, nil)
+        let accepted = CEFRuntime.shared.shim?.passwordPromptAnswer(promptID, action.rawValue, nil) == 1
+        passwordLogger.info("password prompt \(promptID, privacy: .public) answered \(action.rawValue, privacy: .public) accepted=\(accepted, privacy: .public)")
     }
 }
