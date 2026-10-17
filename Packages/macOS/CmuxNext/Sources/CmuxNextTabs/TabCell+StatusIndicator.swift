@@ -50,13 +50,11 @@ extension TabCell: StatusIndicatorConfigClient {
         let variant = animated ? TabTunables.loadingAnimation.value : .instant
         let layer = spinner.layer
         layer.removeAnimation(forKey: "opacity")
-        layer.removeAnimation(forKey: "transform.scale")
-        layer.removeAnimation(forKey: "transform.translation.y")
+        layer.removeAnimation(forKey: "transform")
         layer.isHidden = false
         guard variant != .instant, Motion.duration(.fadeIn) > 0 else {
             layer.opacity = 1
-            layer.setValue(1.0, forKeyPath: "transform.scale")
-            layer.setValue(0.0, forKeyPath: "transform.translation.y")
+            layer.transform = CATransform3DIdentity
             return
         }
 
@@ -66,17 +64,19 @@ extension TabCell: StatusIndicatorConfigClient {
             break
         case .fadeScale:
             if Motion.animatesMovement {
-                layer.setValue(0.86, forKeyPath: "transform.scale")
-                Motion.set(layer, "transform.scale", to: 1.0, movementFade: .fadeIn, from: 0.86)
+                layer.transform = prototypeTransform(scale: 0.86)
+                Motion.set(layer, "transform", to: NSValue(caTransform3D: prototypeTransform()), movementFade: .fadeIn,
+                           from: NSValue(caTransform3D: prototypeTransform(scale: 0.86)))
             } else {
-                layer.setValue(1.0, forKeyPath: "transform.scale")
+                layer.transform = CATransform3DIdentity
             }
         case .fadeSlide:
             if Motion.animatesMovement {
-                layer.setValue(2.0, forKeyPath: "transform.translation.y")
-                Motion.set(layer, "transform.translation.y", to: 0.0, movementFade: .fadeIn, from: 2.0)
+                layer.transform = prototypeTransform(y: 2)
+                Motion.set(layer, "transform", to: NSValue(caTransform3D: prototypeTransform()), movementFade: .fadeIn,
+                           from: NSValue(caTransform3D: prototypeTransform(y: 2)))
             } else {
-                layer.setValue(0.0, forKeyPath: "transform.translation.y")
+                layer.transform = CATransform3DIdentity
             }
         case .instant:
             break
@@ -91,8 +91,7 @@ extension TabCell: StatusIndicatorConfigClient {
         let variant = animated ? TabTunables.loadingAnimation.value : .instant
         let layer = spinner.layer
         layer.removeAnimation(forKey: "opacity")
-        layer.removeAnimation(forKey: "transform.scale")
-        layer.removeAnimation(forKey: "transform.translation.y")
+        layer.removeAnimation(forKey: "transform")
         guard variant != .instant, Motion.duration(.fadeOut) > 0 else {
             removeSpinner(spinner)
             return
@@ -102,7 +101,7 @@ extension TabCell: StatusIndicatorConfigClient {
         layer.isHidden = false
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self, weak spinner] in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self, weak spinner] in
                 guard let self, let spinner, self.spinnerLayer === spinner, !self.item.isBusy else { return }
                 self.removeSpinner(spinner)
             }
@@ -112,17 +111,23 @@ extension TabCell: StatusIndicatorConfigClient {
             break
         case .fadeScale:
             if Motion.animatesMovement {
-                Motion.set(layer, "transform.scale", to: 0.86, movementFade: .fadeOut)
+                Motion.set(layer, "transform", to: NSValue(caTransform3D: prototypeTransform(scale: 0.86)), movementFade: .fadeOut)
             }
         case .fadeSlide:
             if Motion.animatesMovement {
-                Motion.set(layer, "transform.translation.y", to: 2.0, movementFade: .fadeOut)
+                Motion.set(layer, "transform", to: NSValue(caTransform3D: prototypeTransform(y: 2)), movementFade: .fadeOut)
             }
         case .instant:
             break
         }
         Motion.set(layer, "opacity", to: 0.0, fade: .fadeOut)
         CATransaction.commit()
+    }
+
+    private func prototypeTransform(scale: CGFloat = 1, y: CGFloat = 0) -> CATransform3D {
+        var transform = CATransform3DMakeScale(scale, scale, 1)
+        transform = CATransform3DTranslate(transform, 0, y, 0)
+        return transform
     }
 
     private func removeSpinner(_ spinner: StatusIndicatorLayer) {
