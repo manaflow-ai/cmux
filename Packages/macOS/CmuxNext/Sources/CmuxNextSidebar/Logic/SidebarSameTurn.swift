@@ -25,7 +25,8 @@ public final class SidebarSameTurn {
     public func observe<Value: Sendable>(listsRows: Bool = false, _ compute: @escaping @MainActor @Sendable () -> Value,
                                   apply: @escaping @MainActor @Sendable (Value) -> Void) {
         passes.append((listsRows, { apply(compute()) }))
-        tasks.append(Task { for await value in ObservationStream(compute) { apply(value) } })
+        // A trigger: `syncNow` applies outside the stream too, and `apply` compares with what it applied.
+        tasks.append(Task { for await value in ObservationStream({ ObservationTrigger(compute()) }) { apply(value.value) } })
     }
 
     /// Runs the passes in order (rows, then selection) and draws the sidebar now. `rows` false

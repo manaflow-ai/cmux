@@ -133,22 +133,12 @@ public final class AgentTurnStateFeed {
         case .page(let states, let lastMessages, let muted, let titles, let details, let lanes):
             backoff.reset()
             if !turns.watching { turns.watching = true }
-            if turns.states != states { turns.states = states }
-            if turns.lastMessages != lastMessages { turns.lastMessages = lastMessages }
-            if turns.muted != muted { turns.muted = muted }
-            if turns.titles != titles { turns.titles = titles }
-            if turns.details != details { turns.details = details }
+            turns.replace(states: states, lastMessages: lastMessages, muted: muted, titles: titles, details: details)
             if self.lanes.lanes != lanes { self.lanes.lanes = lanes }
         case .change(let session, let state, let lastMessage, let muted, let title, let detail, let lane):
-            // Most session records leave the indicator as it was: write (and so redraw the
-            // tabs and rows that observe the store) only when the state differs.
-            if turns.states[session] != state { turns.states.set(session, state) }
-            if turns.lastMessages[session] != lastMessage { turns.lastMessages[session] = lastMessage }
-            if turns.muted.contains(session) != muted {
-                if muted { turns.muted.insert(session) } else { turns.muted.remove(session) }
-            }
-            if turns.titles[session] != title { turns.titles[session] = title }
-            if turns.details[session] != detail { turns.details[session] = detail }
+            // Most session records leave the indicator as it was: the store writes (and so
+            // redraws the tabs and rows that read this session) only what differs.
+            turns.apply(session: session, state: state, lastMessage: lastMessage, muted: muted, title: title, detail: detail)
             if lanes.lanes[session] != lane { lanes.lanes[session] = lane }
         }
     }
@@ -158,12 +148,9 @@ public final class AgentTurnStateFeed {
         subscription = nil
         // A closed watch knows nothing: no stale working dots until it reconnects.
         turns.watching = false
-        turns.states.clear()
-        turns.lastMessages = [:]
-        turns.details = [:]
-        turns.muted = []
-        lanes.lanes = [:]
         // Titles stay: a tab keeps reading as its chat while the watch reconnects.
+        turns.clearLive()
+        lanes.lanes = [:]
         logger.info("agent turn states: watch closed")
         reconnect?.cancel()
         reconnect = Task { [weak self] in

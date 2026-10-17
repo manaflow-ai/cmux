@@ -348,24 +348,18 @@ final class AppServices {
         }
     }
     // MARK: Lookup
-    /// The tab with durable id `id` and the pane that holds it.
+    /// The tab with durable id (or tab resource id: links and TabMirror's wait use it) `id`
+    /// and the pane that holds it, on any machine (O(1) per daemon).
     func locateTab(_ id: String) -> (TabModel, PaneModel)? {
-        for (workspace, _) in machines.allWorkspaces {
-            for screen in workspace.screens {
-                for pane in screen.panes {
-                    // A tab first seen without a `tab_` resource id keeps its first id; links
-                    // (and TabMirror's wait) name it by the observed resource id.
-                    if let tab = pane.tabs.first(where: { $0.id == id || $0.resourceID?.rawValue == id }) {
-                        return (tab, pane)
-                    }
-                }
-            }
+        for daemon in machines.daemons {
+            if let tab = daemon.store.tab(idOrResource: id), let pane = daemon.store.pane(holding: tab) { return (tab, pane) }
         }
         return nil
     }
     /// The tab on `surface` (the local daemon's surfaces).
     func locateTab(surface: SurfaceID) -> TabModel? {
-        daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.surface == surface }
+        _ = daemon.store.tabListRevision // a tracked wait hears the tab appear
+        return daemon.store.tab(surface: surface)
     }
 
     func workspace(id: String) -> WorkspaceModel? {

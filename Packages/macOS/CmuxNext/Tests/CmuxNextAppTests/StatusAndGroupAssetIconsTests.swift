@@ -30,7 +30,7 @@ struct StatusAndGroupAssetIconsTests {
             workspaceID: Self.workspace,
             entries: [WorkspaceStatus.Entry(key: "build", text: "Building", icon: Self.icon)]
                 + (0..<extraEntries).map { WorkspaceStatus.Entry(key: "k\($0)", text: "entry \($0)") })
-        store.session.apply(.snapshot(mirror), to: store.workspaces)
+        store.session.apply(.snapshot(mirror), in: store)
         return SidebarMapping.shared.sections(store.sidebarSections, machine: SidebarMachine(id: .local, name: "This Mac", kind: .local),
                                               iconAsset: asset, groupIconAsset: groupAsset)
     }

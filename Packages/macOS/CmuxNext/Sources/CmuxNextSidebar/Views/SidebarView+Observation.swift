@@ -53,7 +53,8 @@ extension SidebarView {
     func observe() {
         let model = model, design = design
         observation = Task { [weak self] in
-            for await state in ObservationStream({ RenderState(model, design) }) { self?.render(state) }
+            // A trigger: `renderNow` draws outside the stream; `render` compares with what it drew.
+            for await state in ObservationStream({ ObservationTrigger(RenderState(model, design)) }) { self?.render(state.value) }
         }
     }
     /// Draws the model now, in the caller's turn (SidebarSameTurn); the observation's next, equal state is skipped.

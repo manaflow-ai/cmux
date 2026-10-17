@@ -39,6 +39,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Same, named by tab resource id (a reopened tab's restored view).
     private(set) var pendingSelectTab: String?
     private var observation: Task<Void, Never>?
+    /// The strip's selected tab as last set, unobserved: a tab switch does not re-run `snapshot()` (I2).
+    private(set) var stripSelection: String?
+    private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
+    private var remapsViewedTab = false // a newly selected tab lost its attention dot: map the strip once, after the apply
 
     struct Snapshot: Equatable {
         var items: [StripTabItem]
@@ -93,8 +97,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
     func observe() {
         observation?.cancel(); observation = Task { [weak self] in
             guard let self else { return }
-            for await snapshot in ObservationStream({ [weak self] in self?.snapshot() }) {
-                guard let snapshot else { return }
+            // A trigger: `apply` is also called outside the stream (`syncStripFromStore`) and compares with what it applied.
+            for await snapshot in ObservationStream({ [weak self] in ObservationTrigger(self?.snapshot()) }) {
+                guard let snapshot = snapshot.value else { return }
                 self.apply(snapshot)
             }
         }
@@ -109,16 +114,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let fallback = Strings.untitledTerminal
         // Terminals on another machine carry its name; browsers always run here.
         let machine = daemon.isLocal ? nil : services.machines.machineBadge(daemon.machineID)
-        // Only a browser tab's profile badge needs the workspace. The lookup scans
-        // every workspace's screens and panes, so reading it for every pane made
-        // each structural change re-run all N pane snapshots at O(N) each.
-        var workspaceLookup: String??
-        func workspaceID() -> String? {
-            if let found = workspaceLookup { return found }
-            let found = store.workspace(containing: pane.handle)?.id
-            workspaceLookup = .some(found)
-            return found
-        }
+        // This pane's own workspace record: reading its fields observes them
+        // only, never the workspace list (a lookup by pane would).
+        let ownWorkspace = workspace?.workspace ?? store.workspace(containing: pane.handle)
         // A dock-bound chat stays hidden under the id the store gave it (`dockBound`).
         let hidden = pendingClosed.union(dockBound)
         // The one title rule (`TabTitleResolver`), shared with the sidebar and the closed-tab toasts.
@@ -156,8 +154,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
                     let live = services.cache.incognitoDisplay(tab)
                     (item.title, item.subtitle) = (live.title ?? Strings.untitledBrowser, live.url.flatMap { BrowserNewTabPage.isNewTabPage($0) ? nil : $0 })
                 } else {
-                    item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: workspaceID())
-                    if services.cache.pageRequests.titleAttention.marks(tab, selected: stripModel.selectedID?.rawValue == tab.id, in: services.cache) { item.isUnread = true }
+                    item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: ownWorkspace?.id)
+                    if services.cache.pageRequests.titleAttention.marks(tab, selected: stripSelection == tab.id, in: services.cache) { item.isUnread = true }
                 }
                 browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url).apply(to: &item)
                 item.audio = BrowserTabAudio.badge(services.cache.existingBrowser(tab.id)?.tab.state)
@@ -175,17 +173,15 @@ final class PaneController: SurfacePresenter, PresentablePane {
             items.append(item)
         }
         items += services.localTabItems(in: paneKey, hiding: hidden)
-        let saved = Set(store.savedTabGroups.compactMap(\.openGroup))
         let groupAsset = IconAssetImages.shared.tabIcon(owner: daemon)
         let groups = pane.tabGroups.map { group in
-            TabItemMapping.shared.groupItem(group, isSaved: saved.contains(group.id), asset: groupAsset)
+            TabItemMapping.shared.groupItem(group, isSaved: group.isSaved, asset: groupAsset)
         }
         let connected = if case .connected = store.connectionState { true } else { false }
         return Snapshot(items: items, groups: groups, defaultIndex: pane.defaultTabIndex, connected: connected,
                         generation: store.generation?.rawValue, surfaces: pane.tabs.map(\.surface.rawValue),
                         // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
-                        hidesStrip: hidesTabBar
-                            || store.workspace(containing: pane.handle)?.app != nil)
+                        hidesStrip: hidesTabBar || ownWorkspace?.app != nil)
     }
 
     /// The page icon, favicon, throbber or globe of browser tab `key`: its live page's
@@ -221,8 +217,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let hidden = Set(snapshot.items.filter { $0.groupID.map(collapsed.contains) ?? false }.map(\.id.rawValue))
         let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue),
                                                 defaultIndex: snapshot.defaultIndex, hidden: hidden)
-        let selectedID = selected.map { StripTabID($0) }
-        if stripModel.selectedID != selectedID { stripModel.selectedID = selectedID }
+        setStripSelection(selected.map { StripTabID($0) })
+        let selectedID = stripModel.selectedID
         if selectNew {
             // A tab this window created: show it now (focus is the
             // coordinator's expectation, not decided here).
@@ -233,9 +229,34 @@ final class PaneController: SurfacePresenter, PresentablePane {
             // Model-driven: show on the next frame, coalescing transient selections.
             services.presentation.setNeedsShowSelected(self)
         }
-        // Focus follows selection; the coordinator re-targets the keyboard.
-        workspace?.sendTopology()
+        // Focus follows selection; the coordinator re-targets the keyboard
+        // (only when this pane's tabs or selection changed).
+        sendTopologyIfChanged()
         dropClosedParked(snapshot)
+        remapViewedTab()
+    }
+
+    /// Maps the strip again for a tab whose attention dot went (`setStripSelection`), once.
+    func remapViewedTab() {
+        guard remapsViewedTab else { return }
+        remapsViewedTab = false
+        syncStripFromStore()
+    }
+
+    /// Selects `id` on the strip; a newly selected tab is viewed (its title attention dot goes).
+    func setStripSelection(_ id: StripTabID?) {
+        if stripModel.selectedID != id { stripModel.selectedID = id }
+        guard stripSelection != id?.rawValue else { return }
+        stripSelection = id?.rawValue
+        if let key = id?.rawValue, services.cache.pageRequests.titleAttention.viewed(key) { remapsViewedTab = true }
+    }
+
+    /// Sends the workspace's focus topology when this pane's part of it changed.
+    func sendTopologyIfChanged() {
+        let current = focusPane
+        guard current != sentFocusPane else { return }
+        sentFocusPane = current
+        workspace?.sendTopology()
     }
 
     /// A terminal, browser or agent page parked in this pane (`PaneContentView+Parking`)
@@ -329,7 +350,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     func content(for key: String) -> TabContent? {
         if key.hasPrefix(LocalPageTab.prefix) { return services.pages.view(for: key).map(TabContent.page) }
         if key.hasPrefix(LocalBrowserTab.prefix) {
-            let local = state?.localBrowserTabs[paneKey]?.first { $0.id == key }
+            let local = state?.localBrowserTabs[paneKey].first { $0.id == key }
             // A local tab of an incognito window uses its off-the-record profile.
             let incognito = state.map { services.windows.isIncognito(window: $0.id) } == true
             let profile = incognito ? services.windows.incognitoProfile() : nil

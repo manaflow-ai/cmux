@@ -113,8 +113,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         let workspace = workspace
         apply(LayoutMapping.shared.map(workspace))
         observation = Task { [weak self] in
-            for await result in ObservationStream({ LayoutMapping.shared.map(workspace) }) {
-                self?.apply(result)
+            // A trigger: `applyCurrent` applies outside the stream too; `apply` compares with what it applied.
+            for await result in ObservationStream({ ObservationTrigger(LayoutMapping.shared.map(workspace)) }) {
+                self?.apply(result.value)
             }
         }
         // An empty workspace loaded while disconnected, or drawn from the
@@ -131,7 +132,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // terminal that failed adds why (cx-tzlqb).
         let repair = emptyWorkspaceRepair
         settlingObservation = Task { [weak self] in
-            for await _ in ObservationStream({ workspace.key.map { "\(repair.isSettling($0)):\(repair.failure($0) ?? "")" } ?? "" }) {
+            for await _ in ObservationStream({ workspace.key.map { "\($0.rawValue):\(repair.isSettling($0)):\(repair.failure($0) ?? "")" } ?? "" }) {
                 self?.updateEmptyState()
             }
         }
