@@ -91,9 +91,9 @@ nonisolated extension SidebarSection {
             section.nodes = section.nodes.compactMap { node in
                 switch node {
                 case let .workspace(workspace):
-                    return workspace.rowState == .placeholder ? nil : node
+                    return workspace.rowState.isPending ? nil : node
                 case var .group(group):
-                    group.workspaces.removeAll { $0.rowState == .placeholder }
+                    group.workspaces.removeAll(where: \.rowState.isPending)
                     return .group(group)
                 case .item:
                     return node

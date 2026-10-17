@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -127,23 +128,31 @@ extension WindowManager {
 @MainActor
 struct WorkspaceSpawner {
     let windows: WindowManager
-    let spawn: WorkspaceSpawn
+    var spawn: WorkspaceSpawn
     let daemon: DaemonService
     let windowID: String?
     let frame: CGRect?
 
-    /// The key is fixed at the press, so a close pressed while this create
-    /// waits its turn or is in flight takes exactly this workspace, and the
-    /// window shows its row from the press (`PendingWorkspaceRows`), at the
-    /// slot the setting gives against the workspace the window shows now.
+    /// The key and the name are fixed at the press, so a close pressed while
+    /// this create waits its turn or is in flight takes exactly this
+    /// workspace, and the window shows its final row from the press
+    /// (`PendingWorkspaceRows`), at the slot the setting gives against the
+    /// workspace the window shows now. With no name asked for, the create
+    /// sends the daemon's own next default (`SidebarMapping.defaultWorkspaceName`),
+    /// so the row's title is the daemon's from the first frame.
     func create() async throws -> String {
         guard daemon.connection != nil else { throw DaemonError.notConnected }
         let key = WorkspaceKey.generate()
-        let daemon = daemon, services = windows.services
+        let daemon = daemon, services = windows.services, machine = MachineID(daemon.machineID)
         let rule = spawn.slot == nil && spawn.placesBySetting ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
+        var named = self
+        named.spawn.name = spawn.name ?? SidebarMapping.defaultWorkspaceName(
+            existing: SidebarMapping.defaultNameInputs(daemon.store), reserved: PendingWorkspaceRows.shared.reservedNames(on: machine))
+        let name = named.spawn.name ?? ""
         if let windowID {
-            PendingWorkspaceRows.shared.add(.init(id: key.rawValue, window: windowID, machine: MachineID(daemon.machineID),
-                                                  title: spawn.name ?? "", slot: spawn.slot, byDefault: rule))
+            let face = SidebarMapping.shared.creatingRow(id: key.rawValue, machine: machine, title: name, cwd: cwd(in: room))
+            PendingWorkspaceRows.shared.add(.init(id: key.rawValue, window: windowID, machine: machine, name: name, face: face,
+                                                  slot: spawn.slot, byDefault: rule))
         }
         WorkspaceLanes.shared.prune(windowID ?? "") { services.workspace(id: $0) != nil }
         do {
@@ -152,7 +161,7 @@ struct WorkspaceSpawner {
                 _ = await daemon.failure("close-workspace") { connection in
                     try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: terminals, on: connection)
                 }
-            }) { try await create(key, rule: rule) }
+            }) { try await named.create(key, rule: rule) }
         } catch {
             PendingWorkspaceRows.shared.remove(key.rawValue)
             throw error
@@ -163,6 +172,16 @@ struct WorkspaceSpawner {
     /// window's, else `default`.
     private var profile: ProfileID {
         windowID.flatMap { windows.states[$0]?.profileID } ?? windows.active?.state.profileID ?? .defaultProfile
+    }
+
+    /// The room the workspace is born in (its window's, or the one asked for).
+    private var room: ProfileModel? { windows.services.machines.local.store.profile(spawn.profile ?? profile) }
+
+    /// The folder the first terminal starts in: the one asked for, else the
+    /// room's default (local machine only), else the machine's.
+    private func cwd(in room: ProfileModel?) -> String? {
+        let defaults = daemon.isLocal ? room?.defaults : nil
+        return spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath } ?? daemon.defaultCwd
     }
 
     private func create(_ key: WorkspaceKey, rule: NewWorkspaceDefaultSlot?) async throws -> String {
@@ -177,7 +196,7 @@ struct WorkspaceSpawner {
         // snapshot shows it in another room; its first terminal gets the
         // room's terminal defaults (data-model.md 3.2, 3.3).
         let home = services.machines.local
-        let room = home.store.profile(spawn.profile ?? profile)
+        let room = self.room
         if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
             try await homeConnection.pinWorkspace(session: session, key: key, to: room.id)
         }
@@ -195,7 +214,7 @@ struct WorkspaceSpawner {
         let env: [String: String]? = daemon.supports(DaemonCapabilities.shared.terminalEnv) ? vars : nil
         let keep: Bool? = spawn.keep && daemon.supports(DaemonCapabilities.shared.terminalReap) ? true : nil
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
-        let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath } ?? daemon.defaultCwd
+        let cwd = cwd(in: room)
         if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn.honoring(services.settings?.snapshot.newTabTemplate), key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
         let command = spawn.command
         return try await WorkspaceCreation.create(key, name: spawn.name, on: connection, repair: repair) { created in
