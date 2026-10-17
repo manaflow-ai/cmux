@@ -382,8 +382,9 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
             Task { @MainActor in await Self.resume(next, after: activation) }
         case .openCloud:
             _ = app?.focusRightSidebarInActiveMainWindow(mode: .machines)
-            let next = onEnabled ?? { CloudFirstRunPresenter.shared.present(preferredWindow: NSApp.mainWindow) }
-            next()
+            // Not `onEnabled`: Cloud is still gated here, so resuming the
+            // action would route back through this card and recurse.
+            CloudFirstRunPresenter.shared.present(preferredWindow: NSApp.mainWindow)
         }
     }
 
