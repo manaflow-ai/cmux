@@ -18,6 +18,7 @@ let renewalPreview: Record<string, unknown>;
 let renewalLines: Record<string, unknown>[];
 let renewalLinePages: Array<{ data: Record<string, unknown>[]; has_more: boolean }> | null;
 let renewalLinesError: unknown;
+let renewalPreviewError: unknown;
 let updateError: unknown;
 const calls: { method: string; args: unknown[] }[] = [];
 const synced: unknown[] = [];
@@ -58,7 +59,9 @@ const deps: PlanChangeDependencies = {
       createPreview: async (...args: unknown[]) => {
         calls.push({ method: "createPreview", args });
         const details = (args[0] as { subscription_details?: { proration_behavior?: string } }).subscription_details;
-        return details?.proration_behavior === "none" ? renewalPreview : preview;
+        if (details?.proration_behavior !== "none") return preview;
+        if (renewalPreviewError) throw renewalPreviewError;
+        return renewalPreview;
       },
       listLineItems: async (...args: unknown[]) => {
         calls.push({ method: "listLineItems", args });
@@ -100,6 +103,7 @@ beforeEach(() => {
   renewalLines = [];
   renewalLinePages = null;
   renewalLinesError = null;
+  renewalPreviewError = null;
   updateError = null;
   calls.length = 0;
   synced.length = 0;
@@ -338,9 +342,44 @@ describe("personal plan change", () => {
     ]);
   });
 
-  test("refuses to quote when Stripe cannot provide the renewal plan line", async () => {
+  // The renewal figure is display-only; a payable upgrade must not be blocked
+  // by it. Without Stripe's renewal plan line, the dialog quotes the catalog
+  // price the switch moves the subscription to.
+  test("quotes the target's catalog price when Stripe cannot provide the renewal plan line", async () => {
     renewalPreview = { id: "upcoming_1", currency: "usd", amount_due: 11_500, lines: { data: [], has_more: true } };
     renewalLinesError = new Error("Stripe unavailable");
-    expect(await refusal(previewPersonalPlanChange({ userId: "u1", target: "max" }, deps))).toBe("preview_unavailable");
+    const result = await previewPersonalPlanChange({ userId: "u1", target: "max" }, deps);
+    expect(result.amountDueToday).toBe(10_000);
+    expect(result.nextInvoiceAmount).toBe(20_000);
+  });
+
+  test("quotes the catalog price when the renewal preview has no plan line", async () => {
+    renewalPreview = { id: "upcoming_1", currency: "usd", amount_due: 11_500, lines: { data: [], has_more: false } };
+    expect((await previewPersonalPlanChange({ userId: "u1", target: "max" }, deps)).nextInvoiceAmount).toBe(20_000);
+  });
+
+  test("quotes the yearly catalog price when the renewal preview itself fails", async () => {
+    subscription = subscriptionOn("cmux-pro-yearly-480", false, "year");
+    renewalPreviewError = new Error("Stripe unavailable");
+    const result = await previewPersonalPlanChange({ userId: "u1", target: "max" }, deps);
+    expect(result.amountDueToday).toBe(10_000);
+    expect(result.nextInvoiceAmount).toBe(192_000);
+    expect(result.interval).toBe("year");
+  });
+
+  // Founder's Edition already includes Pro for life. Moving a founder's Max
+  // subscription to a paid Pro price would bill them for a plan they own; they
+  // leave Max by cancelling it instead.
+  test("refuses to move a Founder's Edition Max subscription onto paid Pro", async () => {
+    status = { ...status, activePlanId: "max", hasFoundersEdition: true };
+    subscription = subscriptionOn("cmux-max-monthly-200");
+    expect(await refusal(previewPersonalPlanChange({ userId: "u1", target: "pro" }, deps))).toBe("not_switchable");
+    expect(await refusal(applyPersonalPlanChange({ userId: "u1", target: "pro", prorationDate: NOW }, deps))).toBe("not_switchable");
+    expect(calls.some((call) => call.method === "update")).toBe(false);
+  });
+
+  test("a founder with a paid Pro subscription can still upgrade it to Max", async () => {
+    status = { ...status, hasFoundersEdition: true };
+    expect((await previewPersonalPlanChange({ userId: "u1", target: "max" }, deps)).direction).toBe("upgrade");
   });
 });

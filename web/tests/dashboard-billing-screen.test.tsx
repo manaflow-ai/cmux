@@ -385,6 +385,42 @@ describe("dashboard billing screen", () => {
     expect(html).toContain("Granted by cmux, so there is nothing to cancel.");
   });
 
+  // A Founder's Edition purchase is stored as an active Pro row, but it is
+  // not a subscription: the dashboard must not offer to switch or cancel it.
+  test("a lifetime Founder is offered Max checkout, not a switch of the purchase", async () => {
+    subscriptionRows = [{
+      id: "founders_cs_1", status: "active", plan: "pro", scope: "user", cancelAtPeriodEnd: false,
+      currentPeriodEnd: null, raw: { metadata: { founders_edition: "true" }, items: { data: [] } },
+    }];
+    customerRows = [{ id: "cus_founder" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).toMatch(/data-plan="pro"[^>]*aria-current="true"/);
+    expect(html).toMatch(/href="[^"]*\/api\/billing\/checkout\?plan=max[^"]*"[^>]*>Upgrade to Max/);
+    expect(html).not.toContain("Switch to Max");
+    expect(html).not.toContain("Cancel plan");
+    expect(html).toContain("Founder&#x27;s Edition includes Pro for life.");
+  });
+
+  test("a Founder on Max is offered Pro by ending Max, not a paid Pro switch", async () => {
+    subscriptionRows = [
+      stripeSubscriptionRow({ cancelAtPeriodEnd: false, plan: "max", lookupKey: "cmux-max-monthly-200", unitAmount: 20000 }),
+      {
+        id: "founders_cs_1", status: "active", plan: "pro", scope: "user", cancelAtPeriodEnd: false,
+        currentPeriodEnd: null, raw: { metadata: { founders_edition: "true" }, items: { data: [] } },
+      },
+    ];
+    customerRows = [{ id: "cus_founder" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).toMatch(/data-plan="max"[^>]*aria-current="true"/);
+    expect(html).toMatch(/data-plan="pro"[\s\S]*?<button[^>]*>Switch to Pro<\/button>/);
+    expect(html).toContain("Founder&#x27;s Edition includes Pro for life.");
+    expect(html).not.toContain("Cancel plan");
+  });
+
   test("renders a past-due banner that links to the Stripe portal", async () => {
     subscriptionRows = [stripeSubscriptionRow({
       cancelAtPeriodEnd: false,

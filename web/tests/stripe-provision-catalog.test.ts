@@ -139,18 +139,17 @@ describe("Stripe catalog provisioning", () => {
     expect(portalArgs).not.toContain("features[subscription_update][products][2]");
     expect(portalArgs).toContain("features[subscription_update][products][0][product]=prod_pro");
     expect(portalArgs).toContain("features[subscription_update][products][0][prices][]=price_pro_month_50");
-    expect(portalArgs).toContain("features[subscription_update][products][0][prices][]=price_pro_year_480");
     expect(portalArgs).toContain("features[subscription_update][products][1][product]=prod_max");
     expect(portalArgs).toContain("features[subscription_update][products][1][prices][]=price_max_month_200");
     expect(portalArgs).toContain("features[subscription_update][products][1][prices][]=price_max_year_1920");
     expect(portalArgs).toContain("business_profile[headline]=cmux");
   });
 
-  // The portal only switches a subscription whose current price is listed,
-  // so Pro yearly subscribers need their price here to reach Max. Every
-  // listed price is also a choice for any subscriber, so the release-gated
-  // Go plan and grandfathered prices stay out (they switch in the dashboard).
-  test("lists Pro yearly in the plan-switch portal, but never Go or a grandfathered price", async () => {
+  // Every listed price is also a choice for any subscriber in the portal.
+  // Yearly subscribers switch in the dashboard (which keeps their interval),
+  // so Pro yearly would only let a monthly subscriber, Max included, move onto
+  // it. The release-gated Go plan and grandfathered prices stay out too.
+  test("never lists Pro yearly, Go or a grandfathered price in the plan-switch portal", async () => {
     const result = await runProvision("test", "valid");
 
     expect(result.exitCode).toBe(0);
@@ -160,7 +159,7 @@ describe("Stripe catalog provisioning", () => {
         call.args.includes("POST"),
     );
     const portalArgs = portalCreate!.args.join("\n");
-    expect(portalArgs).toContain("features[subscription_update][products][0][prices][]=price_pro_year_480");
+    expect(portalArgs).not.toContain("price_pro_year_480");
     expect(portalArgs).not.toContain("prod_go");
     expect(portalArgs).not.toContain("price_go_month_10");
     // Every listed price is also a choice in the portal; a grandfathered

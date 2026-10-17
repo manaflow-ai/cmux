@@ -765,6 +765,37 @@ describe("billing checkout route", () => {
     expect(createdStripeSessions[0]).toMatchObject({ customer: "cus_founder", line_items: [{ price: "price_max_month", quantity: 1 }] });
   });
 
+  test("a lifetime Founder asking for Pro already has it", async () => {
+    stripeConfigured = true;
+    stripeCustomerRows = [{ id: "cus_founder" }];
+    stripeSubscriptionRows = [{ id: "sub_founder", plan: "pro", status: "active", raw: { metadata: { founders_edition: "true" } } }];
+    stripeActiveSubscriptionRows = stripeSubscriptionRows;
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: { cmuxPlan: "pro" } }];
+    const response = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=pro"));
+    expect(response.headers.get("location")).toBe("https://cmux.test/pricing?welcome=active");
+    expect(createStripeSession).not.toHaveBeenCalled();
+  });
+
+  // Founder's Edition already includes Pro. A founder on Max who asks for Pro
+  // ends the Max subscription in the dashboard instead of switching it onto a
+  // paid Pro price.
+  test("sends a Founder on Max who asks for Pro to the dashboard, not the paid Pro switch", async () => {
+    stripeConfigured = true;
+    stripeCustomerRows = [{ id: "cus_founder" }];
+    stripeSubscriptionRows = [
+      {
+        id: "sub_max", status: "active", cancelAtPeriodEnd: false, plan: "max",
+        raw: { items: { data: [{ price: { lookup_key: "cmux-max-monthly-200", recurring: { interval: "month" } } }] } },
+      },
+      { id: "sub_founder", plan: "pro", status: "active", raw: { metadata: { founders_edition: "true" } } },
+    ];
+    stripeActiveSubscriptionRows = stripeSubscriptionRows;
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: { cmuxPlan: "max" } }];
+    const response = await GET(new NextRequest("https://cmux.test/api/billing/checkout?plan=pro"));
+    expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing?change=pro");
+    expect(createStripeSession).not.toHaveBeenCalled();
+  });
+
   test("a manually granted Pro account can buy Max", async () => {
     stripeConfigured = true;
     userResponses = [{ ...signedInUser, clientReadOnlyMetadata: { cmuxVmPlan: "pro" } }];
