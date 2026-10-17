@@ -184,6 +184,68 @@ struct WorkspaceCloseTabsContextMenuTests {
     }
 
     @Test
+    func closeBrowserTabsClosesOnlyUnpinnedBrowserTabsInPane() throws {
+        try withCleanClosedHistory {
+            let fixture = try makeWorkspaceWithFourConfirmingTabs()
+            let workspace = fixture.workspace
+            let browserIds = try (0..<3).map { _ in
+                let panel = try #require(workspace.newBrowserSurface(inPane: fixture.paneId, focus: false))
+                return try #require(workspace.surfaceIdFromPanelId(panel.id))
+            }
+            let pinnedBrowserId = browserIds[2]
+            workspace.setPanelPinned(
+                panelId: try #require(workspace.panelIdFromSurfaceId(pinnedBrowserId)),
+                pinned: true
+            )
+            // The anchor terminals require confirmation but aren't targets, and
+            // browsers never do, so closing browsers must not prompt.
+            var promptCount = 0
+            fixture.manager.confirmCloseHandler = { _, _, _ in
+                promptCount += 1
+                return true
+            }
+
+            let anchorTab = try #require(workspace.bonsplitController.tab(fixture.tabIds[0]))
+            workspace.splitTabBar(
+                workspace.bonsplitController,
+                didRequestTabContextAction: .closeBrowserTabs,
+                for: anchorTab,
+                inPane: fixture.paneId
+            )
+            drainMainQueue()
+            drainMainQueue()
+
+            #expect(promptCount == 0)
+            let remaining = Set(workspace.bonsplitController.tabs(inPane: fixture.paneId).map(\.id))
+            #expect(remaining == Set(fixture.tabIds + [pinnedBrowserId]))
+            for closedId in browserIds.prefix(2) {
+                #expect(workspace.panelIdFromSurfaceId(closedId) == nil)
+            }
+        }
+    }
+
+    @Test
+    func closeBrowserTabsRespectsDisabledTabClosing() throws {
+        try withCleanClosedHistory {
+            let fixture = try makeWorkspaceWithFourConfirmingTabs()
+            let workspace = fixture.workspace
+            let panel = try #require(workspace.newBrowserSurface(inPane: fixture.paneId, focus: false))
+            workspace.bonsplitController.configuration.allowCloseTabs = false
+            let anchorTab = try #require(workspace.bonsplitController.tab(fixture.tabIds[0]))
+
+            workspace.splitTabBar(
+                workspace.bonsplitController,
+                didRequestTabContextAction: .closeBrowserTabs,
+                for: anchorTab,
+                inPane: fixture.paneId
+            )
+            drainMainQueue()
+
+            #expect(workspace.browserPanel(for: panel.id) != nil)
+        }
+    }
+
+    @Test
     func sharedCloseHistoryPathRecordsDirectTabActionCloses() throws {
         try withCleanClosedHistory {
             let fixture = try makeWorkspaceWithFourConfirmingTabs()
