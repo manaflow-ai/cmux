@@ -53,6 +53,10 @@ public final class TabStripView: NSView {
     var glassView: GlassPanelView?
     let contentView = FlippedView()
     let tabsClip = FlippedView()
+    /// Holds the unpinned tabs, group chips and bands in `tabsClip`'s coordinates (its bounds origin is its
+    /// frame origin) and clips them to after the fixed pinned band, so a tab scrolled under the pinned tabs
+    /// never draws over them (`TabScrollMapping`, cx-kp9b4). Pinned tabs sit in `tabsClip` itself.
+    let scrollingLayer = CALayer()
     let fadeMask = CAGradientLayer()
     /// Edges whose fade is shown or fading in (`updateFadeMask`).
     var fadedEdges: (leading: Bool, trailing: Bool) = (false, false)
@@ -166,6 +170,9 @@ public final class TabStripView: NSView {
         contentView.wantsLayer = true
         tabsClip.wantsLayer = true
         tabsClip.layer?.masksToBounds = true
+        scrollingLayer.masksToBounds = true
+        scrollingLayer.actions = ["bounds": NSNull(), "position": NSNull(), "sublayers": NSNull()]
+        tabsClip.layer?.addSublayer(scrollingLayer)
         fadeMask.startPoint = CGPoint(x: 0, y: 0.5)
         fadeMask.endPoint = CGPoint(x: 1, y: 0.5)
         fadeMask.actions = ["bounds": NSNull(), "position": NSNull(), "colors": NSNull(), "locations": NSNull()]

@@ -256,8 +256,8 @@ public final class SidebarDocStore {
         let origin = Self.undoOrigin ?? (undoable ? onUndoPending(title) : nil)
         // task-owner: one sidebar mutation; settles its pending intent
         Task { [weak self] in
-            var asked = 1
-            while true {
+            // Each ask either returns or, unanswered before the last one, asks again: at most `unsettledAsks` sends.
+            for asked in 1...Self.unsettledAsks {
                 do {
                     let reply = try await body(remote, key, stamped)
                     guard let self else { return }
@@ -281,7 +281,7 @@ public final class SidebarDocStore {
                     // its echo may still come. The intent stays pending, so the rows keep the optimistic look; the
                     // same key asks again and the daemon replays a committed change (cx-ml98q: a timed-out drop flew
                     // back to its source, then the late echo moved it again).
-                    asked += 1
+                    continue
                 } catch {
                     guard let self else { return }
                     if let origin { self.onUndoRefused(origin) }

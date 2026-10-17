@@ -209,7 +209,10 @@ extension SettingsSchema {
         // Off, Chromium tabs load ads and trackers again.
         "browser.builtInAdBlocker": .privacy,
         // Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.
+        "browser.openLinksInCmuxBrowser": .privacy,
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
+        // The app that opens your files from a menu: an agent must not pick what runs them.
+        "files.textEditor": .userOnly,
         "browser.hostsToOpenInEmbeddedBrowser": .privacy,
         "browser.urlsToAlwaysOpenExternally": .privacy,
         // Whether attached photos and videos send their location.

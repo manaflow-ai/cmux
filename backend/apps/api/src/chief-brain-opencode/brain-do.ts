@@ -1,9 +1,10 @@
 import { DurableObject } from "cloudflare:workers"
 import type { Env } from "../env.ts"
+import { assertFaultHooks } from "../chief-fault.ts"
 import { ackWake, chiefPrincipal, typing } from "../chief-brain/brain-io.ts"
 import type { Admission } from "../chief-brain/brain-do.ts"
 import type { Step } from "../chief-brain/brain-runs.ts"
-import { HOLDER, signedFetch } from "../chief-brain/claude-auth.ts"
+import { signedFetch, turnsObject } from "../chief-brain/claude-auth.ts"
 import { claudeRoute, isMetered } from "../model-gateway/routes.ts"
 import { gatewayMessages } from "../model-gateway/http.ts"
 import { payerTeam } from "../credits.ts"
@@ -136,6 +137,8 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     if (this.get("agent") !== w.agent) return { skipped: "other_chief" }
     this.set("owner", w.owner)
     const cursor = this.sql.exec<{ seq: number }>(`SELECT seq FROM oc_cursor WHERE conversation = ?`, w.conversation).toArray()[0]?.seq
+    // A resent wake whose message a later turn already read is answered: nothing to do (MuxDO redelivery).
+    if (cursor !== undefined && w.seq <= cursor) return { queued: 0 }
     // A conversation this brain never answered starts just before the wake: older history is context, not a question.
     if (cursor === undefined) this.sql.exec(`INSERT INTO oc_cursor (conversation, seq) VALUES (?, ?)`, w.conversation, w.seq - 1)
     const fresh = this.sql.exec(`INSERT INTO oc_wake (wake_id, conversation, seq, reason) VALUES (?, ?, ?, ?) ON CONFLICT (wake_id) DO NOTHING RETURNING n`, `${w.conversation}:${w.seq}`, w.conversation, w.seq, w.reason).toArray()
@@ -183,8 +186,10 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     // A metered model counts against the deployment's daily Claude cap, as on P (the holder decides).
     const model = brainModel(admitted.config.model)
     if (row.tries === 0 && isMetered(model)) {
-      const holder = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(HOLDER))
-      if (!(await holder.claudeTurn(owner, model).catch(() => false))) return this.endWake(row.n, run, "skipped", "the deployment's daily Claude cap is reached")
+      // The owner's turns object counts it (no global object; claude-auth.ts ownerTurn). Only "ok" runs.
+      const turns = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(turnsObject(owner)))
+      const verdict = await turns.claudeTurn(owner, model).catch(() => "unreachable")
+      if (verdict !== "ok") return this.endWake(row.n, run, "skipped", `no paid turn (${verdict})`)
     }
     this.sql.exec(`UPDATE oc_wake SET state = 'running', run = ?, tries = tries + 1 WHERE n = ?`, run, row.n)
     // An eviction mid-turn loses the in-memory loop: the alarm picks the running row up again.
@@ -401,6 +406,14 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     if ("refused" in who) return Response.json({ type: "error", error: { type: "permission_error", message: who.refused } }, { status: 403 })
     // The host model gateway (model-gateway/http.ts): allow-list, prepaid credits of the owner's team, the Claude route.
     return gatewayMessages(this.env, { team: payerTeam(who.owner), chief: who.agent, owner: who.owner, run: "opencode" }, request)
+  }
+
+  /** Test-only (chief-fault.ts, CHIEF_FAULT_HOOKS, never staging or production): stop the container at once, as a crash. */
+  async fault(): Promise<{ stopped: boolean }> {
+    assertFaultHooks(this.env)
+    if (!this.ctx.container?.running) return { stopped: false }
+    this.ctx.container.signal(9)
+    return { stopped: true }
   }
 
   // ------------------------------------------------------------------ retries, turn guard and idle sleep

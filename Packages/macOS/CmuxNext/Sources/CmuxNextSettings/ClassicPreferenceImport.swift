@@ -7,6 +7,8 @@ public import Foundation
 nonisolated enum ClassicPreferenceImport {
     nonisolated struct Entry: Sendable {
         let next: [String]
+        /// An older next key for the same value: imported under it already, or set in `cmux.json`, counts.
+        var legacy: [String]? = nil
         /// The value one classic domain holds, nil when it holds none.
         let read: @Sendable (UserDefaults) -> JSONValue?
     }
@@ -17,12 +19,12 @@ nonisolated enum ClassicPreferenceImport {
 
     static let entries: [Entry] = [
         // Classic's effective value: a disabled browser opened every link outside.
-        Entry(next: TerminalLinkRouting.openPath) { defaults in
+        Entry(next: LinkRouting.openPath, legacy: LinkRouting.legacyOpenPath) { defaults in
             if defaults.bool(forKey: "browserDisabledOverride") { return .bool(false) }
             return (defaults.object(forKey: "browserOpenTerminalLinksInCmuxBrowser") as? Bool).map(JSONValue.bool)
         },
-        Entry(next: TerminalLinkRouting.hostsPath) { lines(defaults: $0, key: "browserHostWhitelist") },
-        Entry(next: TerminalLinkRouting.rulesPath) { lines(defaults: $0, key: "browserExternalOpenPatterns") },
+        Entry(next: LinkRouting.hostsPath) { lines(defaults: $0, key: "browserHostWhitelist") },
+        Entry(next: LinkRouting.rulesPath) { lines(defaults: $0, key: "browserExternalOpenPatterns") },
     ]
 
     /// Classic's one-per-line text, or the array older releases left.
@@ -33,7 +35,7 @@ nonisolated enum ClassicPreferenceImport {
         case let items as [String]: raw = .array(items.map(JSONValue.string))
         default: return nil
         }
-        return TerminalLinkRouting.lines(raw).map { .array($0.map(JSONValue.string)) }
+        return LinkRouting.lines(raw).map { .array($0.map(JSONValue.string)) }
     }
 }
 
@@ -57,8 +59,10 @@ extension SettingsController {
         var edits: [(path: [String], value: JSONValue?)] = []
         for entry in ClassicPreferenceImport.entries {
             let id = entry.next.joined(separator: ".")
-            guard !done.contains(id) else { continue }
+            let legacyID = entry.legacy?.joined(separator: ".")
+            guard !done.contains(id), legacyID.map(done.contains) != true else { continue }
             done.insert(id)
+            if let legacy = entry.legacy, try await file.value(at: legacy) != nil { continue }
             guard let value = sources.lazy.compactMap(entry.read).first, try await file.value(at: entry.next) == nil,
                   let descriptor = SettingsSchema.all.first(where: { $0.path == entry.next }),
                   descriptor.accepts(value), value != descriptor.defaultValue else { continue }

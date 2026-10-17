@@ -42,10 +42,8 @@ extension TabStripView {
             chip.accessibility.onPress = { [weak self] in self?.model.send(.toggleGroupCollapsed(group)) }
             let band = TabGroupBandCell(color: item.tint)
             band.themeScope = themeScope
-            if let clip = tabsClip.layer {
-                band.addTo(clip)
-                clip.addSublayer(chip.layer)
-            }
+            band.addTo(scrollingLayer)
+            scrollingLayer.addSublayer(chip.layer)
             groups.chips[group] = chip
             groups.bands[group] = band
             motion[id] = TabMotion(x: 0, width: 0, alpha: animated ? 0 : 1)
@@ -68,6 +66,7 @@ extension TabStripView {
     // MARK: - Frames
 
     /// Positions chips and bands for the current spring values.
+    /// `offset`: the unpinned region's (`TabScrollMapping.offset(isPinned: false)`); chips are never pinned.
     func applyGroupFrames(offset: CGFloat, tabY: CGFloat, tabHeight: CGFloat, pixel: (CGFloat) -> CGFloat) {
         var memberMaxX: [TabGroupID: CGFloat] = [:]
         for item in displayed {
@@ -109,6 +108,7 @@ extension TabStripView {
     func chipGroup(at point: CGPoint) -> TabGroupID? {
         let local = convert(point, to: tabsClip)
         guard local.x >= 0, local.x <= tabsClip.bounds.width, local.y >= 0, local.y <= tabsClip.bounds.height else { return nil }
+        guard scrollMapping.showsUnpinned(at: local.x) else { return nil }
         for (group, chip) in groups.chips where !dying.contains(.groupChip(group)) {
             let frame = chip.frame
             if local.x >= frame.minX, local.x < frame.maxX { return group }

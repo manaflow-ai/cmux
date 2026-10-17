@@ -6,6 +6,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextPages
 import CmuxNextWakeups
 
 /// A conversation tab's content (`conversation-tabs-v1`, home.md 7): the
@@ -51,6 +52,7 @@ final class HomeHostView: NSView {
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         sidebar = HomeChiefSidebar(muxHome: control.brainHome, source: control.engineSource())
         super.init(frame: .zero)
+        transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
         sidebar.isHidden = true
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
         transcript.onNamePill = { [weak self] in self?.toggleSidebar() }
@@ -83,6 +85,7 @@ final class HomeHostView: NSView {
         transcript.onStop = { _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
         // A Chief subagent's link: its workspace and chat tab, through link.open.
         transcript.onAppLink = { [weak services] url in if let services { ChiefSubagentLinks.open(url, services: services) } }
+        transcript.onOpenLink = { LinkRouter.shared.open($0, otherTarget: $1) }
         stopObserver = NotificationCenter.default.addObserver(forName: HomeChiefControl.stopNotification, object: nil, queue: .main) { [weak self] _ in
             // task-owner: one hop to the main actor for the stop
             Task { @MainActor in self?.stopIfFront() }

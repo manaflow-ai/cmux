@@ -56,6 +56,8 @@ public struct ConversationMessage: Codable, Sendable, Hashable, Identifiable {
     public var editedAt: String?
     public var retractedAt: String?
     public var reactions: [ConversationReaction]
+    /// A thread root's object (title, owner, resolution), conversation-thread-objects-v1.
+    public var thread: ConversationThreadObject?
 
     public init(id: String, conversation: String, seq: UInt64, clientMsgID: String, author: String, parts: [ConversationPart],
                 replyTo: ConversationPartRef? = nil, threadRoot: String? = nil, createdAt: String, editedAt: String? = nil, retractedAt: String? = nil,
@@ -75,7 +77,7 @@ public struct ConversationMessage: Codable, Sendable, Hashable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, conversation, seq, author, parts, reactions
+        case id, conversation, seq, author, parts, reactions, thread
         case clientMsgID = "client_msg_id"
         case replyTo = "reply_to"
         case threadRoot = "thread_root"
@@ -98,5 +100,6 @@ public struct ConversationMessage: Codable, Sendable, Hashable, Identifiable {
         editedAt = try c.decodeIfPresent(String.self, forKey: .editedAt)
         retractedAt = try c.decodeIfPresent(String.self, forKey: .retractedAt)
         reactions = try c.decodeIfPresent([ConversationReaction].self, forKey: .reactions) ?? []
+        thread = try c.decodeIfPresent(ConversationThreadObject.self, forKey: .thread)
     }
 }

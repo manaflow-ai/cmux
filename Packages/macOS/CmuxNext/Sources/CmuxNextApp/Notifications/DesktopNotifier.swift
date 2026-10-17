@@ -107,10 +107,10 @@ final class DesktopNotifier: NSObject {
         }
     }
 
-    /// Removes delivered banners whose notifications were read.
+    /// Removes banners whose notifications were read or ended, shown or still queued.
     func withdraw(_ ids: [String]) {
         guard !ids.isEmpty, let center else { return }
-        center.removeDeliveredNotifications(withIdentifiers: ids)
+        for remove in [center.removeDeliveredNotifications(withIdentifiers:), center.removePendingNotificationRequests(withIdentifiers:)] { remove(ids) }
     }
 
     /// The banner click path, also used by `debug.notifications` (click).

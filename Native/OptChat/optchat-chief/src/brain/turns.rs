@@ -480,10 +480,7 @@ impl Brain {
             .frozen
             .as_ref()
             .and_then(crate::state::FrozenRecord::frozen);
-        let len = self.chat.status().messages;
-        let (input, delta_end) = self
-            .chat
-            .turn_input(frozen.as_ref(), len.saturating_sub(first_new));
+        let (input, delta_end) = self.chat.turn_input(frozen.as_ref(), first_new);
         self.state.frozen = Some(crate::state::FrozenRecord::of(&input.frozen));
         self.save();
         self.note_engine(&engine);
@@ -570,6 +567,8 @@ impl Brain {
             "unbuilt": input.frozen.unbuilt.iter().map(|p| p.name()).collect::<Vec<_>>(),
             // The cuts this delta was built with (this request's own end is past it).
             "cuts": input.frozen.cuts.iter().filter(|c| **c < delta_end).collect::<Vec<_>>(),
+            // The forced block starts this delta was built with.
+            "starts": input.frozen.starts.iter().filter(|s| **s <= first_new).collect::<Vec<_>>(),
             "bytes": input.delta.iter().map(String::len).sum::<usize>(),
             "rendered": input.rerendered,
             "prev_end_block": prev_end,

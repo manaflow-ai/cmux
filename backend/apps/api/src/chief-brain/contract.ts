@@ -76,6 +76,8 @@ export const Step = Schema.Struct({
   status: Schema.optionalKey(Schema.Literals(["running", "done", "failed"])),
   text: Schema.optionalKey(Schema.String),
   truncated: Schema.optionalKey(Schema.Boolean),
+  /** When the step ended (a tool step at its result, a talk step at its final text); `at` is its first write. */
+  ended_at: Schema.optionalKey(Ms),
   tool: Schema.optionalKey(Schema.Struct({ name: Schema.String, kind: Schema.optionalKey(Schema.String), input: Schema.optionalKey(Schema.Unknown), output: Schema.optionalKey(Schema.String), started_at: Schema.optionalKey(Ms), ended_at: Schema.optionalKey(Ms) }))
 })
 export type Step = typeof Step.Type
@@ -252,6 +254,8 @@ export interface HandsShape {
   readonly list: () => Effect.Effect<ReadonlyArray<HandSummary>, HandsError>
   /** A single-use pairing code (10 min) and the install line for a new machine. */
   readonly pairCode: (name: string, profile: Profile) => Effect.Effect<Minted, HandsError>
+  /** Sets a hand's permission level; a Chief only lowers it (hand-levels.ts). */
+  readonly setLevel: (hand: string, level: string) => Effect.Effect<unknown, HandsError>
   /** A new Freestyle sandbox with its hand installed and paired (hand-sandbox.ts). */
   readonly newSandbox: (name: string) => Effect.Effect<Sandbox, HandsError>
   /**

@@ -2,6 +2,7 @@ import type { Env } from "./env.ts"
 import { apiOrigin, handStub, indexStub, listHands, mintPairCode } from "./hand-api.ts"
 import { handInstallScript } from "./hand-install.ts"
 import { createSandbox } from "./hand-sandbox.ts"
+import { proofOf } from "./hand-levels.ts"
 import { HAND_ID, PAIR_CODE, sha256Hex, type HandCaller, type HandReply } from "./hand-wire.ts"
 import { callerOf } from "./home-attachments.ts"
 import { chiefOwnedBy } from "./chief-brain/brain-io.ts"
@@ -14,16 +15,21 @@ import { chiefOwnedBy } from "./chief-brain/brain-io.ts"
  *   GET    /v1/hands/<hand>/socket                   the hand's socket; Authorization: Bearer <hand key>
  *   POST   /v1/hands/pair-codes                      the person: {name?, profile?} -> {hand, code, expires_at, install}
  *   GET    /v1/hands                                 the person: their hands
- *   POST   /v1/hands/sandboxes                       the person: {name} -> a new Freestyle sandbox with its hand
+ *   POST   /v1/hands/sandboxes                       the person: {name, provider?} -> a new sandbox with its hand (hand-providers.ts)
  *   PUT    /v1/hands/grants/<agent>                  the person: {on: boolean} a Chief's hands grant
  *   GET    /v1/hands/<hand>                          the person: one hand and its hello
  *   DELETE /v1/hands/<hand>                          the person: remove (the key stops working at once)
  *   POST   /v1/hands/<hand>/call                     the person: {action, params, timeout_ms?}
  *   GET    /v1/hands/<hand>/audit                    the person: newest audit rows
  *   GET    /v1/hands/<hand>/events?session=&after_seq=&wait_ms=   the person: agent events (waits up to 30 s for the next)
+ *   POST   /v1/hands/<hand>/level-challenge          the person: a single-use nonce for raising the level
+ *   PUT    /v1/hands/<hand>/level                    the person: {level, install?, nonce?, signature?}; raising needs the app proof
+ *   PUT    /v1/hands/presence-key                    the person: {install, public_jwk, signature}: a Touch ID / Face ID key for raises
+ *   POST   /v1/hands/defaults/<profile>/challenge    the person: a nonce for raising the default level of new hands
+ *   PUT    /v1/hands/defaults/<profile>              the person: {level, ...proof} the default level of new hands
  *   GET    /v1/hands/<hand>/verdicts                 the person: the classifier's verdicts (mac hands), newest first
  *   GET    /v1/hands/<hand>/approvals                the person: requests waiting for them (mac hands)
- *   POST   /v1/hands/<hand>/approvals/<id>           the person: {allow: boolean}
+ *   POST   /v1/hands/<hand>/approvals/<id>           the person: {allow, install?, signature?}; an allow needs the app proof over `sign`
  *
  * "The person" is a Stack session (no install or Chief token): a Chief reaches hands only through
  * its brain's tools (chief-brain/brain-hands.ts), which build the caller in server code.
@@ -33,7 +39,7 @@ export const HAND_PATH = /^\/(?:hand\/install\.sh|v1\/hands(?:\/.*)?)$/
 const NO_STORE = { "cache-control": "no-store" }
 const fail = (status: number, code: string, message: string) => Response.json({ ok: false, error: { code, message } }, { status, headers: NO_STORE })
 const ok = (value: unknown) => Response.json({ ok: true, value }, { headers: NO_STORE })
-const STATUS: Readonly<Record<string, number>> = { "hand.not_found": 404, "hand.no_grant": 403, "hand.revoked": 410, "hand.mac_disabled": 403, "hand.offline": 409, "hand.timeout": 504, "hand.pair_invalid": 400, "auth.forbidden": 403 }
+const STATUS: Readonly<Record<string, number>> = { "hand.level_refused": 403, "hand.presence_refused": 403, "hand.approval_proof": 403, "hand.read_only": 403, "hand.not_found": 404, "hand.no_grant": 403, "hand.revoked": 410, "hand.mac_disabled": 403, "hand.offline": 409, "hand.timeout": 504, "hand.pair_invalid": 400, "auth.forbidden": 403 }
 const reply = (r: HandReply) => (r.ok ? ok(r.value) : Response.json({ ok: false, error: r.error }, { status: STATUS[r.error.code] ?? 400, headers: NO_STORE }))
 
 const person = async (request: Request, env: Env): Promise<{ caller: HandCaller; principal: Parameters<typeof chiefOwnedBy>[2] } | Response> => {
@@ -59,7 +65,7 @@ const pair = async (request: Request, env: Env): Promise<Response> => {
   if (!b || !m || !keySha) return fail(400, "validation.invalid", "body is {code, key_sha256 (64 hex), name, profile}")
   const profile = b.profile === "mac" ? "mac" : "sandbox"
   const name = typeof b.name === "string" ? b.name.slice(0, 80) : ""
-  return reply(await handStub(env, m[1]!).redeem(await sha256Hex(m[2]!), keySha, { name, profile }))
+  return reply(await handStub(env, m[1]!).redeem(await sha256Hex(m[2]!), keySha, { name, profile, os: typeof b.os === "string" ? b.os : undefined }))
 }
 
 const socket = async (request: Request, env: Env, hand: string): Promise<Response> => {
@@ -95,9 +101,26 @@ export const handleHands = async (request: Request, env: Env, path: string): Pro
   if (path === "/v1/hands/sandboxes") {
     if (request.method !== "POST") return fail(405, "method_not_allowed", "POST")
     const b = (await body(request)) ?? {}
-    return reply(await createSandbox(env, caller, typeof b.name === "string" ? b.name : ""))
+    return reply(await createSandbox(env, caller, typeof b.name === "string" ? b.name : "", typeof b.provider === "string" ? b.provider : undefined))
   }
   if (path === "/v1/hands") return request.method === "GET" ? reply(await listHands(env, caller)) : fail(405, "method_not_allowed", "GET")
+  // The presence key (Touch ID / Face ID) of one of the owner's app installs, signed by its install key (hand-levels.ts).
+  if (path === "/v1/hands/presence-key") {
+    if (request.method !== "PUT") return fail(405, "method_not_allowed", "PUT")
+    const b = await body(request)
+    if (typeof b?.install !== "string" || typeof b.signature !== "string") return fail(400, "validation.invalid", "body is {install, public_jwk, signature}")
+    return reply(await indexStub(env, caller.user).registerPresence(caller, caller.user, b.install, b.public_jwk, b.signature))
+  }
+  // The owner's default level for new hands of a profile (hand-levels.ts).
+  const defaults = path.match(/^\/v1\/hands\/defaults\/(sandbox|mac)(\/challenge)?$/)
+  if (defaults) {
+    const index = indexStub(env, caller.user)
+    const profile = defaults[1] as "sandbox" | "mac"
+    if (defaults[2]) return request.method === "POST" ? ok(await index.defaultChallenge(profile)) : fail(405, "method_not_allowed", "POST")
+    if (request.method !== "PUT") return fail(405, "method_not_allowed", "PUT")
+    const b = await body(request)
+    return reply(await index.setOwnerDefault(caller, caller.user, profile, typeof b?.level === "string" ? b.level : "", proofOf(b)))
+  }
   const grant = path.match(/^\/v1\/hands\/grants\/(agent_[0-9A-HJKMNP-TV-Z]{26})$/)
   if (grant) {
     if (request.method !== "PUT") return fail(405, "method_not_allowed", "PUT")
@@ -106,7 +129,7 @@ export const handleHands = async (request: Request, env: Env, path: string): Pro
     if (!(await chiefOwnedBy(env, grant[1]!, principal))) return fail(403, "auth.forbidden", "only the Chief's owner grants it hands")
     return ok({ grants: await indexStub(env, caller.user).setGrant(grant[1]!, b.on) })
   }
-  const m = path.match(/^\/v1\/hands\/(hand_[a-z2-7]{20})(?:\/(call|audit|events|verdicts|approvals)(?:\/([0-9a-f-]{36}))?)?$/)
+  const m = path.match(/^\/v1\/hands\/(hand_[a-z2-7]{20})(?:\/(call|audit|events|verdicts|level|level-challenge|approvals)(?:\/([0-9a-f-]{36}))?)?$/)
   if (!m || !HAND_ID.test(m[1]!)) return fail(404, "not_found", "not found")
   const stub = handStub(env, m[1]!)
   const [, , sub, approval] = m
@@ -125,11 +148,17 @@ export const handleHands = async (request: Request, env: Env, path: string): Pro
     const q = new URL(request.url).searchParams
     return request.method === "GET" ? reply(await stub.events(caller, q.get("session") ?? "", Number(q.get("after_seq")) || 0, Number(q.get("wait_ms")) || 0)) : fail(405, "method_not_allowed", "GET")
   }
+  if (sub === "level-challenge") return request.method === "POST" ? reply(await stub.levelChallenge(caller)) : fail(405, "method_not_allowed", "POST")
+  if (sub === "level") {
+    if (request.method !== "PUT") return fail(405, "method_not_allowed", "PUT")
+    const b = await body(request)
+    return reply(await stub.setLevel(caller, typeof b?.level === "string" ? b.level : "", proofOf(b)))
+  }
   if (sub === "verdicts") return request.method === "GET" ? reply(await stub.verdicts(caller, Number(new URL(request.url).searchParams.get("limit")) || 100)) : fail(405, "method_not_allowed", "GET")
   if (sub === "audit") return request.method === "GET" ? reply(await stub.auditLog(caller, Number(new URL(request.url).searchParams.get("limit")) || 100)) : fail(405, "method_not_allowed", "GET")
   if (!approval) return request.method === "GET" ? reply(await stub.approvals(caller)) : fail(405, "method_not_allowed", "GET")
   if (request.method !== "POST") return fail(405, "method_not_allowed", "POST")
   const b = await body(request)
   if (typeof b?.allow !== "boolean") return fail(400, "validation.invalid", "body is {allow: boolean}")
-  return reply(await stub.answer(caller, approval, b.allow))
+  return reply(await stub.answer(caller, approval, b.allow, { install: typeof b.install === "string" ? b.install : undefined, signature: typeof b.signature === "string" ? b.signature : undefined }))
 }
