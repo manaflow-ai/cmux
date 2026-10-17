@@ -102,6 +102,7 @@ use crate::agent::{ChildAgent, Direction, Inbound};
 use crate::config::{Config, HarnessProfile, PermissionPolicy};
 use crate::mailbox::Mailbox;
 use crate::rpc::{Id, Message, RpcError, method};
+use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
 use crate::store::{EventRecord, META_SCHEMA, SessionMeta, SessionStatus, Store, now_ms};
 use anyhow::Result;
 use serde_json::{Value, json};
@@ -139,6 +140,7 @@ pub struct RemoteRef {
 pub struct RemoteSession {
     pub peer: String,
     pub summary: Value,
+    pub receipt: SessionReceipt,
 }
 
 #[derive(Debug)]
@@ -559,6 +561,14 @@ impl Hub {
     /// Resolve by id, exact name, or unique prefix of either.
     pub fn resolve(&self, key: &str) -> Result<Arc<Session>, RpcError> {
         let sessions = self.sessions.lock().unwrap();
+        // A qualified id is authoritative for new routing. The old bare id,
+        // name and prefix forms below remain compatible.
+        if let Some((host, mux_id)) = SessionReceipt::split_qualified_id(key)
+            && host == LOCAL_HOST_ID
+            && let Some(s) = sessions.get(mux_id)
+        {
+            return Ok(s.clone());
+        }
         if let Some(s) = sessions.get(key) {
             return Ok(s.clone());
         }
