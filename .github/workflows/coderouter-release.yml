@@ -261,13 +261,15 @@ jobs:
           certificate="$RUNNER_TEMP/coderouter-signing.p12"
           printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
           security create-keychain -p "$keychain_password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
+          # Both signing steps follow at once; nothing waits on Apple here.
+          security set-keychain-settings -lut 600 "$keychain"
           security unlock-keychain -p "$keychain_password" "$keychain"
           security import "$certificate" \
             -k "$keychain" \
             -P "$APPLE_CERTIFICATE_PASSWORD" \
             -T /usr/bin/codesign \
             -T /usr/bin/security
+          rm -f "$certificate"
           security set-key-partition-list \
             -S apple-tool:,apple: \
             -s \
@@ -420,6 +422,14 @@ jobs:
           assert len(license_files) == 1
           assert license_files[0].read_bytes() == expected_license.read_bytes()
           PY
+      # The last signature is above. Delete the keychain before any later step.
+      - name: Delete macOS signing keychain after signing
+        if: always() && runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          security lock-keychain "$RUNNER_TEMP/coderouter-signing.keychain-db" 2>/dev/null || true
+          security delete-keychain "$RUNNER_TEMP/coderouter-signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/coderouter-signing.p12"
       - name: Store build outputs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
