@@ -8,8 +8,8 @@ public nonisolated struct AppHostCapabilities: Sendable {
     private let handlers: [String: any AppHostCapabilityHandler]
 
     /// Creates a router from the owners supplied by the app composition root.
-    /// - Parameter handlers: Family owners. The last owner of a duplicate
-    ///   family replaces the previous one, matching provider registration.
+    /// - Parameter handlers: Family owners. Within this router, the last owner
+    ///   of a duplicate family replaces the previous one.
     public init(_ handlers: [any AppHostCapabilityHandler]) {
         var byFamily: [String: any AppHostCapabilityHandler] = [:]
         for handler in handlers {
