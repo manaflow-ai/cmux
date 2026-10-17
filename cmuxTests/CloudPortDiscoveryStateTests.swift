@@ -119,6 +119,19 @@ struct CloudPortDiscoveryStateTests {
         #expect(discovery.rescanDelay(at: now.addingTimeInterval(2)) == nil)
     }
 
+    /// A failed scan keeps no cache, but rescans after it must still be paced,
+    /// or a stream of terminal changes would rescan back to back.
+    @Test("A failed scan still throttles the next rescan")
+    func failedScanThrottlesRescan() {
+        var discovery = readyDiscovery()
+        discovery.request()
+        let request = discovery.beginScan()
+        _ = discovery.complete(nil, request: request, at: now, socketPath: "first")
+        #expect(discovery.cachedScan(at: now.addingTimeInterval(1), socketPath: "first", force: false) == nil)
+        #expect(discovery.rescanDelay(at: now.addingTimeInterval(1)) == 4)
+        #expect(discovery.rescanDelay(at: now.addingTimeInterval(5)) == nil)
+    }
+
     /// A refresh cancelled while another refresh's scan runs must leave that scan's loading state alone.
     @Test("Abandoning a request never hides a scan that is still running")
     func abandonKeepsRunningScan() {
