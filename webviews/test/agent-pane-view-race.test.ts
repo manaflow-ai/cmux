@@ -79,8 +79,7 @@ class DeferredAcpmuxSocket {
         return;
       }
     }
-    if (message.method === "_acpmux/view")
-      this.views.push({ sessionId, visible: message.params?.visible === true });
+    if (message.method === "_acpmux/view") this.views.push({ sessionId, visible: message.params?.visible === true });
     queueMicrotask(() => this.reply(message));
   }
 
