@@ -62,7 +62,8 @@ export const markPending = (sql: SqlStorage, mark: "wake" | "admitted" | "settle
 export const flushMarks = (sql: SqlStorage, turn: string): void => {
   for (const m of ["boot", "life", "wake", "admitted", "settled"]) {
     const v = sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `mark.${m}`).toArray()[0]?.value
-    if (v) sql.exec(`INSERT INTO cb_marks (turn, mark, at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, turn, m, Number(v))
+    // A mark left by a wake that started no turn (skipped, nothing new) is older than this turn's wake path: dropped.
+    if (v && Date.now() - Number(v) < 60_000) sql.exec(`INSERT INTO cb_marks (turn, mark, at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, turn, m, Number(v))
     sql.exec(`UPDATE cb_config SET value = '' WHERE name = ?`, `mark.${m}`)
   }
 }

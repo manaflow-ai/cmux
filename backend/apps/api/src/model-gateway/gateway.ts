@@ -49,7 +49,7 @@ export interface GatewayHooks {
   readonly failed?: (run: string, message: string) => void
   /** The upstream region that answered a turn call (the Claude route's x-bedrock-region), for its run. */
   readonly region?: (run: string, region: string) => void
-  /** A step of a turn call (first write per run wins): reserved (credits held), upstream (request sent), headers (the route answered). */
+  /** A step of a run's first turn call (first write per run wins, as request_at and first_token_at): reserved (credits held), upstream (request sent), headers (the route answered). */
   readonly mark?: (run: string, name: "reserved" | "upstream" | "headers") => void
   /** Post the out-of-credits notice once in the conversation (the team was told only once). */
   readonly notice?: (conversation: string, text: string) => Promise<void>
@@ -103,12 +103,12 @@ export class ModelGatewayLive {
         if (priced && !w.owner) return this.finish(out, failed(model, "credits: this chief has no owner to bill"))
         if (priced) {
           const g = await this.gate.before(key, model, name, context.messages)
-          if (w.run) this.hooks.mark?.(w.run, "reserved")
           if (!g.ok) {
             const text = `credits.exhausted: available ${g.available_usd} USD, this call needs up to ${g.needed_usd} USD`
             if (w.conversation) await this.noticeOnce(w.conversation)
             return this.finish(out, failed(model, text))
           }
+          if (w.run) this.hooks.mark?.(w.run, "reserved")
         }
         // Only the Claude route takes the payer team, chief and call id (its service key needs them); no other provider sees them.
         const routed = model.provider === CLAUDE_ROUTE_PROVIDER

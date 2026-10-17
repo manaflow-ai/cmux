@@ -20,7 +20,8 @@ import { type ChiefBrainDO, POST_RETRY_MS, MAX_POST_TRIES, HOST, SETTLE_MS, TURN
 export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; conversation: string; seq: number; reason: string }): Promise<{ queued: number } | { skipped: string }> {
   markPending(b.sql, "wake")
   // A cold object: when it was made (its constructor; wasm and memory load) and when its lifecycle was ready.
-  if (b.bootAt !== undefined) [markPending(b.sql, "boot", b.bootAt), (b.bootAt = undefined)]
+  // Only when this wake made the object (another entry point that made it long ago is not a cold wake).
+  if (b.bootAt !== undefined) [Date.now() - b.bootAt < 10_000 && markPending(b.sql, "boot", b.bootAt), (b.bootAt = undefined)]
   await b.lifecycle.start()
   markPending(b.sql, "life")
   const a = await b.admitted(w.agent, w.owner, false)
