@@ -120,11 +120,15 @@ enum PersonalSidebar {
     /// One rank lookup per workspace, then an integer sort: the comparator
     /// read each model's tracked `key` twice per comparison (O(n log n)
     /// tracked reads, 260-280 ms per reconcile at 1,000 workspaces).
-    private static func order(_ workspaces: [WorkspaceModel], rows: [String: PersonalWorkspace]) -> [WorkspaceModel] {
-        let ranked = workspaces.enumerated().map { (rank: rows[rowKey($1)]?.index, offset: $0, workspace: $1) }
+    static func order(_ workspaces: [WorkspaceModel], rows: [String: PersonalWorkspace]) -> [WorkspaceModel] {
+        let ranked = workspaces.enumerated().map { (rank: rows[rowKey($1)]?.index, key: rowKey($1), offset: $0, workspace: $1) }
         return ranked.sorted { lhs, rhs in
             switch (lhs.rank, rhs.rank) {
-            case let (l?, r?): return l == r ? lhs.offset < rhs.offset : l < r
+            case let (l?, r?):
+                if l != r { return l < r }
+                // Snapshot/event handoffs can briefly duplicate a placement index.
+                // Stable workspace keys keep rapid creates deterministic during that window.
+                return lhs.key == rhs.key ? lhs.offset < rhs.offset : lhs.key < rhs.key
             case (_?, nil): return true
             case (nil, _?): return false
             case (nil, nil): return lhs.offset < rhs.offset
