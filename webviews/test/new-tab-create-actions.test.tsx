@@ -1,7 +1,7 @@
 // The New Tab page offers the three create actions (cx-ag5.7, dogfood call K2): New terminal,
 // New browser tab and New chat under the field, each one click. Before, the screen had only the
 // field: a blank terminal or browser tab took a shortcut, and a chat took a prompt.
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -27,8 +27,15 @@ const added: string[] = [];
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let window: JSDOM["window"];
 let host: HTMLElement;
+let root: Root | undefined;
+let client: import("@tanstack/react-query").QueryClient | undefined;
+let createRoot: typeof import("react-dom/client").createRoot;
+let QueryClient: typeof import("@tanstack/react-query").QueryClient;
+let QueryClientProvider: typeof import("@tanstack/react-query").QueryClientProvider;
+let NewTabScreen: typeof import("../src/agent-session/acpmux/newtab/NewTabScreen").NewTabScreen;
+let newTabScreenActions: typeof import("../src/agent-session/acpmux/newtab/screenActions").newTabScreenActions;
 
-beforeAll(() => {
+beforeAll(async () => {
   window = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "http://localhost/" })
     .window;
   Object.assign(window, {
@@ -47,8 +54,8 @@ beforeAll(() => {
     Node: window.Node,
     Element: window.Element,
     getComputedStyle: window.getComputedStyle.bind(window),
-    requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
-    cancelAnimationFrame: (id: number) => clearTimeout(id),
+    requestAnimationFrame: (run: (time: number) => void) => window.setTimeout(() => run(0), 0),
+    cancelAnimationFrame: (id: number) => window.clearTimeout(id),
     localStorage: window.localStorage,
     customElements: window.customElements,
     MutationObserver: window.MutationObserver,
@@ -60,9 +67,23 @@ beforeAll(() => {
       scope[key] = (window as unknown as Record<string, unknown>)[key];
     }
   host = window.document.getElementById("root")!;
+  // Component imports belong to setup, not the first action's five-second behavior budget.
+  ({ createRoot } = await import("react-dom/client"));
+  ({ QueryClient, QueryClientProvider } = await import("@tanstack/react-query"));
+  ({ NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen"));
+  ({ newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions"));
+}, 30_000);
+
+afterEach(async () => {
+  await act(async () => root?.unmount());
+  root = undefined;
+  client?.clear();
+  client = undefined;
 });
 
 afterAll(() => {
+  // Cancel jsdom timers before removing the DOM globals their callbacks use.
+  window.close();
   for (const key of added) delete scope[key];
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
@@ -71,12 +92,10 @@ afterAll(() => {
 });
 
 const noop = () => {};
+// JSDOM's style and Base UI effect work can exceed five seconds on a busy development host.
+const interactionTimeout = 15_000;
 
-test("New Tab's create actions open a terminal, a browser tab and a chat", async () => {
-  const { createRoot } = await import("react-dom/client");
-  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
-  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
-  const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
+async function mountScreen() {
   const calls: { method: string; params?: Record<string, unknown> }[] = [];
   let left = 0;
   (window as unknown as { cmuxAcpmuxActions: unknown }).cmuxAcpmuxActions = new Proxy(
@@ -92,70 +111,49 @@ test("New Tab's create actions open a terminal, a browser tab and a chat", async
     showAllChats: noop,
     runShell: noop,
   });
-  // Each action on its own page: a page opens one thing, then the tab is gone.
-  let labels: (string | undefined)[] = [];
-  for (const kind of ["terminal", "browser", "chat"]) {
-    const root: Root = createRoot(host);
-    try {
-      await act(async () =>
-        root.render(
-          <QueryClientProvider client={new QueryClient()}>
-            <NewTabScreen snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
-          </QueryClientProvider>,
-        ),
-      );
-      labels = [...host.querySelectorAll(".nt-create [data-create]")].map((button) => button.textContent?.trim());
-      const button = host.querySelector<HTMLButtonElement>(`.nt-create [data-create="${kind}"]`);
-      expect(button, `no ${kind} create action`).toBeTruthy();
-      await act(async () => button!.click());
-    } finally {
-      act(() => root.unmount());
-    }
-  }
-  {
-    expect(labels).toEqual(["New terminal", "New browser tab", "New chat"]);
-    const opened = calls.filter((call) => call.method === "tab.open" || call.method === "chat.new");
-    expect(opened).toEqual([
-      // A terminal in the tab's folder, with nothing typed.
-      { method: "tab.open", params: { kind: "terminal", text: "", run: false, cwd: "/Users/you/src/app" } },
-      // A browser tab on the new tab page (`browser.newTabPage`), with nothing to load.
-      { method: "tab.open", params: { kind: "browser", text: "" } },
-      // The page becomes a chat with the agent Return would ask, sending nothing.
-      { method: "chat.new", params: expect.objectContaining({ harness: "claude" }) },
-    ]);
-    expect(calls.some((call) => call.method === "chat.send")).toBe(false);
-    expect(left).toBe(1);
-  }
-});
+  root = createRoot(host);
+  client = new QueryClient();
+  await act(async () =>
+    root!.render(
+      <QueryClientProvider client={client!}>
+        <NewTabScreen snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
+      </QueryClientProvider>,
+    ),
+  );
+  return { calls, left: () => left };
+}
 
-test("New chat sends what the field holds, and a second click opens nothing more", async () => {
-  const { createRoot } = await import("react-dom/client");
-  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
-  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
-  const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
-  const calls: { method: string; params?: Record<string, unknown> }[] = [];
-  const actions = newTabScreenActions({
-    callNative: async (method, params) => void calls.push({ method, params }),
-    cwd: "/Users/you/src/app",
-    chatCwd: "/Users/you/src/app",
-    leave: noop,
-    selectSession: noop,
-    showAllChats: noop,
-    runShell: noop,
-  });
-  const render = async (root: Root) =>
-    act(async () =>
-      root.render(
-        <QueryClientProvider client={new QueryClient()}>
-          <NewTabScreen snapshot={noChat()} lastAgent="claude" cwd="/Users/you/src/app" {...actions} />
-        </QueryClientProvider>,
-      ),
-    );
-  const button = (kind: string) => host.querySelector<HTMLButtonElement>(`.nt-create [data-create="${kind}"]`)!;
-  let root: Root = createRoot(host);
-  try {
-    await render(root);
-    // A prompt typed before the click goes with the chat, as Return would send it.
+const button = (kind: string) => host.querySelector<HTMLButtonElement>(`.nt-create [data-create="${kind}"]`)!;
+
+test.each([
+  {
+    kind: "terminal",
+    opened: { method: "tab.open", params: { kind: "terminal", text: "", run: false, cwd: "/Users/you/src/app" } },
+  },
+  { kind: "browser", opened: { method: "tab.open", params: { kind: "browser", text: "" } } },
+  { kind: "chat", opened: { method: "chat.new", params: expect.objectContaining({ harness: "claude" }) } },
+])(
+  "New Tab's $kind create action opens one item",
+  async ({ kind, opened }) => {
+    const { calls, left } = await mountScreen();
+    expect([...host.querySelectorAll(".nt-create [data-create]")].map((item) => item.textContent?.trim())).toEqual([
+      "New terminal",
+      "New browser tab",
+      "New chat",
+    ]);
+    expect(button(kind), `no ${kind} create action`).toBeTruthy();
+    await act(async () => button(kind).click());
+    expect(calls.filter((call) => call.method === "tab.open" || call.method === "chat.new")).toEqual([opened]);
+    expect(calls.some((call) => call.method === "chat.send")).toBe(false);
+    expect(left()).toBe(kind === "chat" ? 1 : 0);
+  },
+  interactionTimeout,
+);
+
+test(
+  "New chat sends what the field holds",
+  async () => {
+    const { calls } = await mountScreen();
     const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
     const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
     await act(async () => {
@@ -166,21 +164,22 @@ test("New chat sends what the field holds, and a second click opens nothing more
     expect(calls.filter((call) => call.method === "chat.send")).toEqual([
       { method: "chat.send", params: { text: "fix the flaky upload test" } },
     ]);
-  } finally {
-    act(() => root.unmount());
-  }
-  calls.length = 0;
-  root = createRoot(host);
-  try {
-    await render(root);
-    // A double click (or a click during the terminal's spawn) opens one tab.
+  },
+  interactionTimeout,
+);
+
+test(
+  "a second create click opens nothing more",
+  async () => {
+    const { calls } = await mountScreen();
     await act(async () => {
       button("terminal").click();
       button("terminal").click();
       button("browser").click();
     });
-    expect(calls.filter((call) => call.method === "tab.open").length).toBe(1);
-  } finally {
-    act(() => root.unmount());
-  }
-});
+    expect(calls.filter((call) => call.method === "tab.open")).toEqual([
+      { method: "tab.open", params: { kind: "terminal", text: "", run: false, cwd: "/Users/you/src/app" } },
+    ]);
+  },
+  interactionTimeout,
+);
