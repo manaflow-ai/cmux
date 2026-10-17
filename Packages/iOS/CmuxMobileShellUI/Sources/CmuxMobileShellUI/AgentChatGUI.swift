@@ -189,9 +189,9 @@ private struct AgentChatSessionListView: View {
                             Button(provider.displayName) { model.selectedProvider = provider }
                         }
                     } label: {
-                        Image(systemName: "line.3.horizontal.decrease.circle")
+                        Image(systemName: "line.3.horizontal")
                     }
-                    .accessibilityLabel("Filter agents")
+                    .accessibilityLabel("Chat history options")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 16) {
@@ -494,6 +494,25 @@ private struct AgentChatConversationView: View {
         .navigationTitle(model.session.title?.isEmpty == false ? model.session.title! : model.session.agentKind.displayName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                Menu {
+                    Section(model.session.agentKind.displayName) {
+                        Button { UIPasteboard.general.string = model.session.workingDirectory } label: {
+                            Label("Copy workspace path", systemImage: "doc.on.doc")
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(model.session.title?.isEmpty == false ? model.session.title! : model.session.agentKind.displayName)
+                            .font(.headline)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .foregroundStyle(.primary)
+                }
+                .accessibilityLabel("Conversation details")
+            }
             ToolbarItem(placement: .topBarLeading) {
                 AgentChatProviderMark(provider: model.session.agentKind, size: 26)
                     .accessibilityLabel(model.session.agentKind.displayName)
@@ -504,9 +523,6 @@ private struct AgentChatConversationView: View {
                         Button(role: .destructive) { Task { await model.interrupt() } } label: {
                             Label("Stop agent", systemImage: "stop.circle")
                         }
-                    }
-                    Button { UIPasteboard.general.string = model.session.workingDirectory } label: {
-                        Label("Copy workspace path", systemImage: "doc.on.doc")
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -868,6 +884,7 @@ private struct AgentChatComposer: View {
                     Image(systemName: "plus")
                         .font(.headline.weight(.semibold))
                         .frame(width: 32, height: 32)
+                        .background(Color(uiColor: .secondarySystemBackground), in: Circle())
                 }
                 .accessibilityLabel("Attach image")
                 .disabled(isLoadingAttachment || model.isSending)
@@ -876,6 +893,7 @@ private struct AgentChatComposer: View {
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
+                    .submitLabel(.send)
                     .accessibilityIdentifier("AgentChatComposer")
                     .onSubmit { Task { await model.send() } }
                 Button { Task { await model.send() } } label: {
@@ -891,8 +909,8 @@ private struct AgentChatComposer: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 26))
-        .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(.quaternary))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).strokeBorder(.quaternary))
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
         .onChange(of: pickerSelection) { _, items in
@@ -1020,25 +1038,146 @@ private struct AgentChatBubble: View {
         VStack(alignment: role == .user ? .trailing : .leading, spacing: 8) {
             HStack {
                 if role == .user { Spacer(minLength: 34) }
-                Text((try? AttributedString(markdown: text)) ?? AttributedString(text))
-                    .font(.body)
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, role == .user ? 15 : 0)
-                    .padding(.vertical, role == .user ? 11 : 0)
-                    .background(role == .user ? Color(uiColor: UIColor.systemBlue.withAlphaComponent(0.12)) : .clear, in: RoundedRectangle(cornerRadius: 18))
+                if role == .user {
+                    Text((try? AttributedString(markdown: text)) ?? AttributedString(text))
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 15)
+                        .padding(.vertical, 11)
+                        .background(Color(uiColor: UIColor.systemBlue.withAlphaComponent(0.12)), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                } else {
+                    AgentChatRichText(text: text)
+                }
                 if role != .user { Spacer(minLength: 34) }
             }
             if role != .user {
                 HStack(spacing: 18) {
                     Button { UIPasteboard.general.string = text } label: { Image(systemName: "doc.on.doc") }
                     ShareLink(item: text) { Image(systemName: "square.and.arrow.up") }
-                    Button { } label: { Image(systemName: "arrow.uturn.right") }
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .buttonStyle(.plain)
             }
         }
+    }
+}
+
+/// Renders fenced Markdown code as a distinct, selectable surface. The
+/// system Markdown parser intentionally leaves code blocks as inline text on
+/// older iOS releases, while coding agents commonly return shell commands and
+/// patches in fenced blocks. Keeping the parser small also preserves the
+/// surrounding Markdown's native typography and links.
+private struct AgentChatRichText: View {
+    let text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                switch segment {
+                case .prose(let prose) where !prose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
+                    Text((try? AttributedString(markdown: prose)) ?? AttributedString(prose))
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                case .code(let language, let code):
+                    AgentChatCodeBlock(language: language, code: code)
+                default:
+                    EmptyView()
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var segments: [Segment] {
+        Self.parse(text)
+    }
+
+    private enum Segment {
+        case prose(String)
+        case code(language: String, code: String)
+    }
+
+    private static func parse(_ text: String) -> [Segment] {
+        var result: [Segment] = []
+        var prose: [String] = []
+        var code: [String] = []
+        var language = ""
+        var inCode = false
+
+        func flushProse() {
+            guard !prose.isEmpty else { return }
+            result.append(.prose(prose.joined(separator: "\n")))
+            prose.removeAll(keepingCapacity: true)
+        }
+
+        func flushCode() {
+            result.append(.code(language: language, code: code.joined(separator: "\n")))
+            code.removeAll(keepingCapacity: true)
+            language = ""
+        }
+
+        for line in text.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") {
+                if inCode {
+                    flushCode()
+                    inCode = false
+                } else {
+                    flushProse()
+                    language = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                    inCode = true
+                }
+            } else if inCode {
+                code.append(line)
+            } else {
+                prose.append(line)
+            }
+        }
+
+        if inCode {
+            // An interrupted stream may not contain the closing fence yet.
+            // Display the partial block as code instead of losing it.
+            flushCode()
+        } else {
+            flushProse()
+        }
+        return result
+    }
+}
+
+private struct AgentChatCodeBlock: View {
+    let language: String
+    let code: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text(language.isEmpty ? "Code" : language)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                Spacer()
+                Button {
+                    UIPasteboard.general.string = code
+                } label: {
+                    Label("Copy code", systemImage: "doc.on.doc")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Copy code")
+            }
+            Text(code)
+                .font(.system(.footnote, design: .monospaced))
+                .foregroundStyle(.primary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(12)
+        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.quaternary))
     }
 }
 
@@ -1051,7 +1190,20 @@ private struct AgentChatCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(title, systemImage: icon).font(.headline)
+            HStack(spacing: 8) {
+                Label(title, systemImage: icon).font(.headline)
+                Spacer()
+                if let content, !content.isEmpty {
+                    Button {
+                        UIPasteboard.general.string = content
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Copy output")
+                }
+            }
             Text(detail).font(.caption).foregroundStyle(.secondary)
             if let content, !content.isEmpty {
                 Text(content)
