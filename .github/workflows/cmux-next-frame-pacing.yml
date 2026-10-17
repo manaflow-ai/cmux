@@ -185,7 +185,7 @@ jobs:
     needs: [resolve-ref, gate, build]
     if: needs.gate.outputs.run == 'true' && github.run_attempt <= 2
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
-    # Both benches fit sequentially; a busy console skips immediately.
+    # Keep the existing 15-minute GUI wait; both benches then fit sequentially.
     timeout-minutes: 45
     steps:
       - name: Checkout the bench
@@ -207,14 +207,15 @@ jobs:
           persist-credentials: false
 
       # Every GUI job on this mini shares the console session: hold its GUI token
-      # does. No helper or a busy console skips measurement, never fails it.
+      # for both benches. No helper or a console still busy after the existing
+      # wait skips measurement, never fails it.
       - name: Take this Mac's gui token
         id: gui
         run: |
           set -uo pipefail
           helper=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
           status=127
-          [ -x "$helper" ] && { status=0; "$helper" take-gui --wait 1 || status=$?; }
+          [ -x "$helper" ] && { status=0; "$helper" take-gui --wait 900 || status=$?; }
           case "$status" in
             0|2) echo "taken=true" >> "$GITHUB_OUTPUT" ;;
             *)

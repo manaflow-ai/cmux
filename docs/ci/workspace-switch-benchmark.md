@@ -22,8 +22,8 @@ gh workflow run cmux-next-frame-pacing.yml --repo manaflow-ai/cmux \
 
 This reuses the existing trusted-ref resolver, owned-runner admission gate,
 one-at-a-time workflow concurrency, and GUI token. There is no added runner or
-paid fallback. A missing GUI-token helper or a busy GUI skips measurement after
-a one-second acquisition attempt. Portable receipt tests run on the existing
+paid fallback. A missing GUI-token helper skips measurement; a busy GUI retains
+the existing 15-minute acquisition wait before skipping. Portable receipt tests run on the existing
 Linux gate job. No benchmark is submitted by changing a feature branch.
 
 ## What each journey measures
