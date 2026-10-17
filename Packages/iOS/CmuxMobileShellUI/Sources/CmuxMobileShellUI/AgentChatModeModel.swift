@@ -628,6 +628,16 @@ final class AgentChatModeModel {
               !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let pendingAttachments = attachments
+        if pendingAttachments.isEmpty,
+           let pendingQuestion = selectedMessages.last(where: { message in
+               guard message.role == .agent,
+                     case .question(let question) = message.kind else { return false }
+               return question.selectedOptionLabel == nil
+           }) {
+            draft = ""
+            await answer(text: text, requestID: pendingQuestion.id)
+            return
+        }
         draft = ""
         attachments = []
         pendingSendsBySession[selectedSessionID, default: []].append(
@@ -870,6 +880,10 @@ final class AgentChatModeModel {
     }
 
     func answer(optionIndex: Int, requestID: String? = nil) async {
+        await answer(optionIndexes: [optionIndex], requestID: requestID)
+    }
+
+    func answer(optionIndexes: [Int], requestID: String? = nil) async {
         guard let selectedSessionID, let source, selectedSession?.state != .ended else { return }
         let requestKey = selectedSessionID + ":" + (requestID ?? "__default__")
         guard !answeringRequestKeys.contains(requestKey),
@@ -884,7 +898,29 @@ final class AgentChatModeModel {
         }
         guard generation == sourceGeneration, !Task.isCancelled else { return }
         do {
-            try await source.answer(optionIndex: optionIndex, requestID: requestID, sessionID: selectedSessionID)
+            try await source.answer(optionIndexes: optionIndexes, requestID: requestID, sessionID: selectedSessionID)
+            guard generation == sourceGeneration else { return }
+            answeredRequestKeysBySession[selectedSessionID, default: []].insert(requestKey)
+        } catch {
+            guard generation == sourceGeneration else { return }
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func answer(text: String, requestID: String? = nil) async {
+        guard let selectedSessionID, let source, selectedSession?.state != .ended else { return }
+        let requestKey = selectedSessionID + ":" + (requestID ?? "__default__")
+        guard !answeringRequestKeys.contains(requestKey),
+              !answeredRequestKeysBySession[selectedSessionID, default: []].contains(requestKey)
+        else { return }
+        answeringRequestKeys.insert(requestKey)
+        let generation = sourceGeneration
+        defer {
+            if generation == sourceGeneration { answeringRequestKeys.remove(requestKey) }
+        }
+        guard generation == sourceGeneration, !Task.isCancelled else { return }
+        do {
+            try await source.answer(text: text, requestID: requestID, sessionID: selectedSessionID)
             guard generation == sourceGeneration else { return }
             answeredRequestKeysBySession[selectedSessionID, default: []].insert(requestKey)
         } catch {

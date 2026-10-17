@@ -832,6 +832,12 @@ private struct AgentChatTranscriptView: View {
                                     answer: { index, requestID in
                                         Task { await model.answer(optionIndex: index, requestID: requestID) }
                                     },
+                                    answerSelections: { indexes, requestID in
+                                        Task { await model.answer(optionIndexes: indexes, requestID: requestID) }
+                                    },
+                                    answerText: { text, requestID in
+                                        Task { await model.answer(text: text, requestID: requestID) }
+                                    },
                                     isAnswering: { model.isAnswering(requestID: $0) },
                                     review: { action, lineNumber, comment in
                                         guard case .fileEdit(let edit) = message.kind else { return }
@@ -1216,6 +1222,8 @@ private struct AgentChatMessageView: View {
     let artifactLoader: ChatArtifactLoader?
     var isStreaming = false
     var answer: ((Int, String) -> Void)?
+    var answerSelections: (([Int], String) -> Void)?
+    var answerText: ((String, String) -> Void)?
     var isAnswering: ((String) -> Bool)?
     var review: ((ChatReviewAction, Int?, String?) -> Void)?
     var isReviewing: (() -> Bool)?
@@ -1254,7 +1262,9 @@ private struct AgentChatMessageView: View {
                 AgentQuestionCard(
                     question: question,
                     isSubmitting: isAnswering?(message.id) == true,
-                    answer: { index in answer?(index, message.id) }
+                    answer: { index in answer?(index, message.id) },
+                    answerSelections: { indexes in answerSelections?(indexes, message.id) },
+                    answerText: { text in answerText?(text, message.id) }
                 )
             case .status(let status):
                 Text(status.detail ?? status.event.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
@@ -1892,6 +1902,24 @@ private struct AgentQuestionCard: View {
     let question: ChatQuestion
     let isSubmitting: Bool
     let answer: ((Int) -> Void)?
+    let answerSelections: (([Int]) -> Void)?
+    let answerText: ((String) -> Void)?
+    @State private var selectedIndexes: Set<Int> = []
+    @State private var freeText = ""
+
+    init(
+        question: ChatQuestion,
+        isSubmitting: Bool,
+        answer: ((Int) -> Void)?,
+        answerSelections: (([Int]) -> Void)?,
+        answerText: ((String) -> Void)?
+    ) {
+        self.question = question
+        self.isSubmitting = isSubmitting
+        self.answer = answer
+        self.answerSelections = answerSelections
+        self.answerText = answerText
+    }
 
     private var isPlanReview: Bool {
         let labels = question.options.map { $0.label.lowercased() }
@@ -1919,6 +1947,26 @@ private struct AgentQuestionCard: View {
                 ForEach(Array(question.options.enumerated()), id: \.offset) { index, option in
                     optionButton(index: index, option: option)
                 }
+                if question.multiSelect {
+                    Button {
+                        answerSelections?(selectedIndexes.sorted())
+                    } label: {
+                        Label("Submit selection", systemImage: "checkmark.circle")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(selectedIndexes.isEmpty || isSubmitting)
+                }
+                HStack(spacing: 8) {
+                    TextField("Or type an answer", text: $freeText)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(isSubmitting)
+                    Button("Send") {
+                        answerText?(freeText.trimmingCharacters(in: .whitespacesAndNewlines))
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(freeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSubmitting)
+                }
             }
         }
         .padding(14)
@@ -1929,7 +1977,15 @@ private struct AgentQuestionCard: View {
     @ViewBuilder
     private func optionButton(index: Int, option: ChatQuestion.Option) -> some View {
         let button = Button {
-            answer?(index)
+            if question.multiSelect {
+                if selectedIndexes.contains(index) {
+                    selectedIndexes.remove(index)
+                } else {
+                    selectedIndexes.insert(index)
+                }
+            } else {
+                answer?(index)
+            }
         } label: {
             VStack(alignment: .leading, spacing: 3) {
                 Text(option.label).font(.subheadline.weight(.semibold))
@@ -1939,14 +1995,21 @@ private struct AgentQuestionCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .overlay(alignment: .trailing) {
+            if question.multiSelect && selectedIndexes.contains(index) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.tint)
+                    .padding(.trailing, 10)
+            }
+        }
         if index == 0 && isPlanReview {
             button
                 .buttonStyle(.borderedProminent)
-                .disabled(question.selectedOptionLabel != nil || isSubmitting)
+                .disabled((!question.multiSelect && question.selectedOptionLabel != nil) || isSubmitting)
         } else {
             button
                 .buttonStyle(.bordered)
-                    .disabled(question.selectedOptionLabel != nil || isSubmitting)
+                    .disabled((!question.multiSelect && question.selectedOptionLabel != nil) || isSubmitting)
         }
     }
 }

@@ -95,8 +95,10 @@ final class AgentChatTranscriptService {
         let timestamp: Date
         let prompt: String
         let options: [ChatQuestion.Option]
+        let multiSelect: Bool
         let answerKind: FeedAnswerKind
-        var selectedOptionLabel: String?
+        var selectedOptionLabels: [String]
+        var selectedOptionIDs: [String]
 
         var message: ChatMessage {
             ChatMessage(
@@ -107,8 +109,9 @@ final class AgentChatTranscriptService {
                 kind: .question(ChatQuestion(
                     prompt: prompt,
                     options: options,
-                    selectedOptionLabel: selectedOptionLabel,
-                    questionID: questionID
+                    selectedOptionLabels: selectedOptionLabels,
+                    questionID: questionID,
+                    multiSelect: multiSelect
                 ))
             )
         }

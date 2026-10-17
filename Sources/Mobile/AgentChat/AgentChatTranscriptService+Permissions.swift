@@ -71,17 +71,13 @@ extension AgentChatTranscriptService {
         agentKind: ChatAgentKind
     ) {
         let rawRequestID = permissionRequestID(from: event)
-        let input = event.toolInputJSON.flatMap { raw -> [String: Any]? in
-            guard let data = raw.data(using: .utf8) else { return nil }
-            return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        } ?? [:]
         let answerKind: FeedAnswerKind = event.hookEventName == .exitPlanMode ? .exitPlan : .question
-        let parsed = questionPayloads(input: input, answerKind: answerKind)
+        let parsed = questionPayloads(toolInputJSON: event.toolInputJSON, answerKind: answerKind)
         let fingerprint = rawRequestID.map { "request:\($0)" }
             ?? "fingerprint:\(event.toolName ?? "question"):" + (event.toolInputJSON ?? "")
         var records = questionRecordsBySessionID[sessionID, default: [:]]
         guard !records.values.contains(where: {
-            $0.selectedOptionLabel == nil
+            $0.selectedOptionLabels.isEmpty
                 && ($0.requestFingerprint == fingerprint
                     || $0.identity == fingerprint
                     || (rawRequestID != nil && $0.rawRequestID == rawRequestID))
@@ -107,8 +103,10 @@ extension AgentChatTranscriptService {
                 timestamp: event.receivedAt,
                 prompt: question.prompt,
                 options: question.options,
+                multiSelect: question.multiSelect,
                 answerKind: answerKind,
-                selectedOptionLabel: nil
+                selectedOptionLabels: [],
+                selectedOptionIDs: []
             )
             records[identity] = record
             messages.append(record.message)
@@ -123,47 +121,37 @@ extension AgentChatTranscriptService {
         let id: String?
         let prompt: String
         let options: [ChatQuestion.Option]
+        let multiSelect: Bool
     }
 
     private func questionPayloads(
-        input: [String: Any],
+        toolInputJSON: String?,
         answerKind: FeedAnswerKind
     ) -> [ParsedQuestion] {
         if case .exitPlan = answerKind {
+            let input = toolInputJSON.flatMap { raw -> [String: Any]? in
+                guard let data = raw.data(using: .utf8) else { return nil }
+                return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            } ?? [:]
             let prompt = (input["question"] as? String)
                 ?? (input["plan"] as? String)
                 ?? "Review the plan before continuing"
             return [ParsedQuestion(
                 id: nil,
                 prompt: prompt,
-                options: [ChatQuestion.Option(label: "Approve plan"), ChatQuestion.Option(label: "Reject plan")]
+                options: [ChatQuestion.Option(label: "Approve plan", id: "approve"), ChatQuestion.Option(label: "Reject plan", id: "reject")],
+                multiSelect: false
             )]
         }
-        let questions = input["questions"] as? [[String: Any]] ?? []
-        let source = questions.isEmpty ? [input] : questions
-        return source.enumerated().map { questionIndex, question in
-            let prompt = (question["question"] as? String)
-                ?? (question["prompt"] as? String)
-                ?? (question["label"] as? String)
-                ?? "The agent is waiting for an answer"
-            let options = (question["options"] as? [Any] ?? []).enumerated().compactMap { index, raw -> ChatQuestion.Option? in
-                if let label = raw as? String, !label.isEmpty {
-                    return ChatQuestion.Option(label: label)
-                }
-                guard let option = raw as? [String: Any] else { return nil }
-                let label = (option["label"] as? String)
-                    ?? (option["title"] as? String)
-                    ?? (option["value"] as? String)
-                    ?? "Option \(index + 1)"
-                return ChatQuestion.Option(
-                    label: label,
-                    detail: (option["description"] as? String) ?? (option["detail"] as? String)
-                )
+        return WorkstreamQuestionPrompt.parse(toolInputJSON: toolInputJSON).map { question in
+            let options = question.options.map {
+                ChatQuestion.Option(label: $0.label, detail: $0.description, id: $0.id)
             }
-            return ParsedQuestion(
-                id: question["id"] as? String ?? question["key"] as? String ?? "q\(questionIndex)",
-                prompt: prompt,
-                options: options.isEmpty ? [ChatQuestion.Option(label: "Continue")] : options
+            ParsedQuestion(
+                id: question.id,
+                prompt: question.prompt.isEmpty ? "The agent is waiting for an answer" : question.prompt,
+                options: options.isEmpty ? [ChatQuestion.Option(label: "Continue", id: "continue")] : options,
+                multiSelect: question.multiSelect
             )
         }
     }
@@ -208,10 +196,18 @@ extension AgentChatTranscriptService {
               let key = records.first(where: { $0.value.messageID == messageID })?.key,
               var record = records[key],
               record.options.indices.contains(optionIndex) else { return false }
-        if let selected = record.selectedOptionLabel {
+        if !record.multiSelect, let selected = record.selectedOptionLabels.first {
             return selected == record.options[optionIndex].label
         }
-        record.selectedOptionLabel = record.options[optionIndex].label
+        let option = record.options[optionIndex]
+        if record.multiSelect {
+            guard !record.selectedOptionIDs.contains(option.id) else { return true }
+            record.selectedOptionIDs.append(option.id)
+            record.selectedOptionLabels.append(option.label)
+        } else {
+            record.selectedOptionIDs = [option.id]
+            record.selectedOptionLabels = [option.label]
+        }
         records[key] = record
         questionRecordsBySessionID[sessionID] = records
         if chatEventsAreSubscribed {
@@ -230,8 +226,21 @@ extension AgentChatTranscriptService {
         guard let record = questionRecordsBySessionID[sessionID]?.values.first(where: {
             $0.messageID == messageID
         }), record.options.indices.contains(optionIndex),
-              let selected = record.selectedOptionLabel else { return nil }
+              let selected = record.selectedOptionLabels.first else { return nil }
         return selected == record.options[optionIndex].label
+    }
+
+    /// Returns whether a synthetic question was already answered with the
+    /// same free-form text. nil means the card is unknown or still pending.
+    func resolvedQuestionText(
+        sessionID: String,
+        messageID: String,
+        text: String
+    ) -> Bool? {
+        guard let record = questionRecordsBySessionID[sessionID]?.values.first(where: {
+            $0.messageID == messageID
+        }), !record.selectedOptionLabels.isEmpty else { return nil }
+        return record.selectedOptionLabels == [text.trimmingCharacters(in: .whitespacesAndNewlines)]
     }
 
     @discardableResult
@@ -240,9 +249,10 @@ extension AgentChatTranscriptService {
         var updates: [ChatMessage] = []
         var didChange = false
         for (key, value) in records {
-            guard value.selectedOptionLabel == nil else { continue }
+            guard value.selectedOptionLabels.isEmpty else { continue }
             var next = value
-            next.selectedOptionLabel = "Expired"
+            next.selectedOptionLabels = ["Expired"]
+            next.selectedOptionIDs = ["expired"]
             records[key] = next
             updates.append(next.message)
             didChange = true
@@ -262,6 +272,8 @@ extension AgentChatTranscriptService {
         let requestID: String
         let kind: FeedAnswerKind
         let optionLabels: [String]
+        let optionIDs: [String]
+        let multiSelect: Bool
     }
 
     func feedAnswerRequest(sessionID: String, messageID: String) -> FeedAnswerRequest? {
@@ -271,17 +283,21 @@ extension AgentChatTranscriptService {
             return FeedAnswerRequest(
                 requestID: requestID,
                 kind: .permission,
-                optionLabels: record.options.map(\.label)
+                optionLabels: record.options.map(\.label),
+                optionIDs: record.options.map(\.id),
+                multiSelect: false
             )
         }
         if let record = questionRecordsBySessionID[sessionID]?.values.first(where: {
             $0.messageID == messageID
         }), let requestID = record.rawRequestID, !requestID.isEmpty,
-           record.selectedOptionLabel == nil {
+           record.selectedOptionLabels.isEmpty {
             return FeedAnswerRequest(
                 requestID: requestID,
                 kind: record.answerKind,
-                optionLabels: record.options.map(\.label)
+                optionLabels: record.options.map(\.label),
+                optionIDs: record.options.map(\.id),
+                multiSelect: record.multiSelect
             )
         }
         return nil
@@ -297,12 +313,30 @@ extension AgentChatTranscriptService {
         messageID: String,
         optionIndex: Int
     ) -> (requestID: String, decision: WorkstreamDecision?)? {
-        guard optionIndex >= 0,
+        feedAnswer(
+            sessionID: sessionID,
+            messageID: messageID,
+            optionIndexes: [optionIndex],
+            text: nil
+        )
+    }
+
+    /// Builds and records a provider-native answer for one or more selected
+    /// options or a free-form response.
+    @discardableResult
+    func feedAnswer(
+        sessionID: String,
+        messageID: String,
+        optionIndexes: [Int],
+        text: String?
+    ) -> (requestID: String, decision: WorkstreamDecision?)? {
+        guard optionIndexes.allSatisfy({ $0 >= 0 }),
               let request = feedAnswerRequest(sessionID: sessionID, messageID: messageID) else {
             return nil
         }
         switch request.kind {
         case .permission:
+            guard optionIndexes.count == 1, let optionIndex = optionIndexes.first else { return nil }
             guard request.optionLabels.indices.contains(optionIndex) else { return nil }
             let mode: WorkstreamPermissionMode
             switch optionIndex {
@@ -319,26 +353,50 @@ extension AgentChatTranscriptService {
             ) else { return nil }
             return (request.requestID, decision)
         case .question:
-            guard request.optionLabels.indices.contains(optionIndex) else { return nil }
-            let groupID = questionRecordsBySessionID[sessionID]?.values.first {
+            guard let record = questionRecordsBySessionID[sessionID]?.values.first(where: {
                 $0.messageID == messageID
-            }?.groupID
-            guard resolveQuestion(
-                sessionID: sessionID,
-                messageID: messageID,
-                optionIndex: optionIndex
-            ) else { return nil }
+            }) else { return nil }
+            let indexes: [Int]
+            if let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                guard optionIndexes.isEmpty else { return nil }
+                indexes = []
+            } else {
+                guard !optionIndexes.isEmpty,
+                      request.optionLabels.indices.contains(optionIndexes[0]),
+                      request.multiSelect || optionIndexes.count == 1,
+                      Set(optionIndexes).count == optionIndexes.count,
+                      optionIndexes.allSatisfy(request.optionLabels.indices.contains) else { return nil }
+                indexes = optionIndexes
+            }
+            var updated = record
+            if let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let answer = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                updated.selectedOptionLabels = [answer]
+                updated.selectedOptionIDs = [answer]
+            } else {
+                updated.selectedOptionLabels = indexes.map { updated.options[$0].label }
+                updated.selectedOptionIDs = indexes.map { updated.options[$0].id }
+            }
+            guard let key = questionRecordsBySessionID[sessionID]?.first(where: {
+                $0.value.messageID == messageID
+            })?.key else { return nil }
+            questionRecordsBySessionID[sessionID]?[key] = updated
+            if chatEventsAreSubscribed {
+                emitChatFrame(ChatSessionEventFrame(sessionID: sessionID, event: .updated([updated.message])))
+            }
+            let groupID = updated.groupID
             let group = questionRecordsBySessionID[sessionID, default: [:]].values
                 .filter { $0.groupID == groupID }
                 .sorted { $0.questionIndex < $1.questionIndex }
-            guard group.allSatisfy({ $0.selectedOptionLabel != nil }) else {
+            guard group.allSatisfy({ !$0.selectedOptionLabels.isEmpty }) else {
                 return (request.requestID, nil)
             }
             return (
                 request.requestID,
-                .question(selections: group.compactMap(\.selectedOptionLabel))
+                .question(selections: group.flatMap(\.selectedOptionLabels))
             )
         case .exitPlan:
+            guard optionIndexes.count == 1, let optionIndex = optionIndexes.first else { return nil }
             guard request.optionLabels.indices.contains(optionIndex) else { return nil }
             let decision: WorkstreamDecision = .exitPlan(
                 optionIndex == 0 ? .autoAccept : .deny,

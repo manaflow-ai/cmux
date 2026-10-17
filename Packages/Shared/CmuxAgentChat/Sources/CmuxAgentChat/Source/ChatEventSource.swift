@@ -71,6 +71,13 @@ public protocol ChatEventSource: Sendable {
     /// previews and older sources remain source-compatible.
     func answer(optionIndex: Int, requestID: String?, sessionID: String) async throws
 
+    /// Answers a multi-select card with all chosen option indexes. The
+    /// default keeps older sources source-compatible for single-select cards.
+    func answer(optionIndexes: [Int], requestID: String?, sessionID: String) async throws
+
+    /// Answers a provider question with free-form text.
+    func answer(text: String, requestID: String?, sessionID: String) async throws
+
     /// Applies, reverts, or comments on an agent-proposed file edit.
     ///
     /// `lineNumber` and `comment` are used for `.comment`; `unifiedDiff` is
@@ -166,6 +173,17 @@ public extension ChatEventSource {
 
     func answer(optionIndex: Int, requestID: String?, sessionID: String) async throws {
         try await answer(optionIndex: optionIndex, sessionID: sessionID)
+    }
+
+    func answer(optionIndexes: [Int], requestID: String?, sessionID: String) async throws {
+        guard optionIndexes.count == 1, let optionIndex = optionIndexes.first else {
+            throw AgentChatSessionActionError.unsupported
+        }
+        try await answer(optionIndex: optionIndex, requestID: requestID, sessionID: sessionID)
+    }
+
+    func answer(text: String, requestID: String?, sessionID: String) async throws {
+        throw AgentChatSessionActionError.unsupported
     }
 
     /// Fixtures and older hosts can still render a diff without exposing

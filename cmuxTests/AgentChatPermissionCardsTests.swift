@@ -255,6 +255,65 @@ struct AgentChatPermissionCardsTests {
     }
 
     @MainActor
+    @Test("OpenCode cards preserve multi-select and free-text feed answers")
+    func openCodeMultiSelectAndFreeText() async throws {
+        let home = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:]),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in }
+        )
+        defer { service.shutdown() }
+        let sessionID = UUID().uuidString
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .askUserQuestion,
+            source: "opencode",
+            toolName: "question",
+            toolInputJSON: #"{"questions":[{"id":"q1","question":"Which checks?","multiSelect":true,"options":[{"id":"lint","label":"Lint"},{"id":"tests","label":"Tests"},{"id":"docs","label":"Docs"}]}]}"#,
+            requestId: "multi-1"
+        ))
+        let multiPage = try #require(await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50))
+        let multiMessage = try #require(multiPage.messages.first)
+        let multiAnswer = try #require(service.feedAnswer(
+            sessionID: sessionID,
+            messageID: multiMessage.id,
+            optionIndexes: [0, 2],
+            text: nil
+        ))
+        guard case .question(let selections) = multiAnswer.decision else {
+            Issue.record("Expected a multi-select question decision")
+            return
+        }
+        #expect(selections == ["Lint", "Docs"])
+
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .askUserQuestion,
+            source: "opencode",
+            toolName: "question",
+            toolInputJSON: #"{"questions":[{"id":"q2","question":"What should I call it?","options":[{"id":"custom","label":"Custom"}]}]}"#,
+            requestId: "text-1"
+        ))
+        let textPage = try #require(await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50))
+        let textMessage = try #require(textPage.messages.last)
+        let textAnswer = try #require(service.feedAnswer(
+            sessionID: sessionID,
+            messageID: textMessage.id,
+            optionIndexes: [],
+            text: "A mobile answer"
+        ))
+        guard case .question(let selections) = textAnswer.decision else {
+            Issue.record("Expected a free-text question decision")
+            return
+        }
+        #expect(selections == ["A mobile answer"])
+    }
+
+    @MainActor
     @Test("Codex hook interaction events do not duplicate transcript cards")
     func codexHookInteractionsAreIgnored() async throws {
         let home = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)

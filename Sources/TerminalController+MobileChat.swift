@@ -635,11 +635,23 @@ extension TerminalController {
     /// `mobile.chat.answer`: answer an in-terminal choice by display index
     /// (agent TUIs accept the option's number key).
     func v2MobileChatAnswer(params: [String: Any]) async -> V2CallResult {
-        guard let sessionID = v2RawString(params, "session_id"),
-              let optionIndex = v2Int(params, "option_index"), optionIndex >= 0 else {
-            return .err(code: "invalid_params", message: "Missing session_id or option_index", data: nil)
+        guard let sessionID = v2RawString(params, "session_id") else {
+            return .err(code: "invalid_params", message: "Missing session_id", data: nil)
+        }
+        let optionIndexes = (params["option_indexes"] as? [Any])?.compactMap { raw -> Int? in
+            if let value = raw as? Int { return value }
+            if let value = raw as? NSNumber { return value.intValue }
+            return nil
+        } ?? []
+        let optionIndex = v2Int(params, "option_index")
+        let text = v2RawString(params, "text")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !optionIndexes.isEmpty || (optionIndex != nil && optionIndex! >= 0) || !(text?.isEmpty ?? true) else {
+            return .err(code: "invalid_params", message: "Missing answer", data: nil)
         }
         let requestID = v2RawString(params, "request_id")
+        let selectedIndexes = (text?.isEmpty == false)
+            ? []
+            : (optionIndexes.isEmpty ? [optionIndex ?? -1] : optionIndexes)
         let service = agentChatTranscriptService
         let record = service?.sessionRecord(sessionID: sessionID)
         if let mutationError = mobileChatMutationError(sessionID: sessionID) {
@@ -651,7 +663,8 @@ extension TerminalController {
            let answer = service.feedAnswer(
                sessionID: sessionID,
                messageID: requestID,
-               optionIndex: optionIndex
+               optionIndexes: selectedIndexes,
+               text: text
            ) {
             // Claude and OpenCode wait inside feed.push. Waking that waiter is
             // the authoritative answer path; these agents do not need a
@@ -666,11 +679,33 @@ extension TerminalController {
             if let surfaceID = record?.surfaceID {
                 service.noteExplicitInput(surfaceID: surfaceID)
             }
-            return .ok(["answered": true, "option_index": optionIndex])
+            var response: [String: Any] = ["answered": true]
+            if !selectedIndexes.isEmpty { response["option_indexes"] = selectedIndexes }
+            if let text, !text.isEmpty { response["text"] = text }
+            return .ok(response)
         }
         if let service,
            let requestID,
            (record?.agentKind == .claude || record?.agentKind == .other("opencode")),
+           let text, !text.isEmpty,
+           let resolved = service.resolvedQuestionText(
+               sessionID: sessionID,
+               messageID: requestID,
+               text: text
+           ) {
+            if resolved {
+                return .ok(["answered": true, "text": text, "idempotent": true])
+            }
+            return .err(
+                code: "conflicting_answer",
+                message: "That question was already answered with different text.",
+                data: ["session_id": sessionID, "request_id": requestID]
+            )
+        }
+        if let service,
+           let requestID,
+           (record?.agentKind == .claude || record?.agentKind == .other("opencode")),
+           let optionIndex,
            let resolved = service.resolvedQuestionAnswer(
                sessionID: sessionID,
                messageID: requestID,
@@ -685,10 +720,38 @@ extension TerminalController {
                 data: ["session_id": sessionID, "request_id": requestID]
             )
         }
+        // Codex's request_user_input picker also accepts a free-form answer.
+        // It is terminal-owned rather than a feed.push waiter, so inject the
+        // text and submit it through the same bound surface as its option key.
+        if let text, !text.isEmpty {
+            guard let terminalTarget = await mobileChatTerminalTarget(sessionID: sessionID) else {
+                return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
+                    "session_id": sessionID
+                ])
+            }
+            let sendResult = terminalTarget.sendInputResult(text + "\r")
+            switch sendResult {
+            case .sent, .queued:
+                terminalTarget.forceRefresh(reason: "mobileHost.chatTextAnswer")
+                if let surfaceID = record?.surfaceID {
+                    service?.noteExplicitInput(surfaceID: surfaceID)
+                }
+                return .ok(["answered": true, "text": text])
+            case .inputQueueFull, .surfaceUnavailable, .processExited:
+                return .err(code: "surface_unavailable", message: String(
+                    localized: "mobile.chat.error.answerNotAccepted",
+                    defaultValue: "Answer was not accepted"
+                ), data: nil)
+            }
+        }
         // Native terminal pickers accept single-digit option keys. Feed cards
         // are handled above and may expose more options, but never turn a
         // two-digit mobile index into ambiguous terminal input.
-        guard optionIndex < 9 else {
+        let terminalOptionIndexes = optionIndexes.isEmpty
+            ? (optionIndex.map { [$0] } ?? [])
+            : optionIndexes
+        guard !terminalOptionIndexes.isEmpty,
+              terminalOptionIndexes.allSatisfy({ $0 >= 0 && $0 < 9 }) else {
             return .err(code: "invalid_params", message: "option_index is outside the terminal picker range", data: nil)
         }
         guard let terminalTarget = await mobileChatTerminalTarget(sessionID: sessionID) else {
@@ -699,9 +762,12 @@ extension TerminalController {
         // Claude's picker submits on the digit alone; Codex's `request_user_input`
         // picker highlights on the digit and needs Enter to submit ("enter to
         // submit answer"), so append a carriage return for codex.
-        let digit = String(optionIndex + 1)
         let isCodex = record?.agentKind == .codex
-        let answerKeys = isCodex ? "\(digit)\r" : digit
+        guard isCodex || terminalOptionIndexes.count == 1 else {
+            return .err(code: "invalid_params", message: "Multiple options are supported only by the Codex picker", data: nil)
+        }
+        let digits = terminalOptionIndexes.map { String($0 + 1) }.joined()
+        let answerKeys = isCodex ? "\(digits)\r" : digits
         let sendResult = terminalTarget.sendInputResult(answerKeys)
         switch sendResult {
         case .sent, .queued:
@@ -717,7 +783,7 @@ extension TerminalController {
             if let surfaceID = record?.surfaceID {
                 service?.noteExplicitInput(surfaceID: surfaceID)
             }
-            return .ok(["answered": true, "option_index": optionIndex])
+            return .ok(["answered": true, "option_indexes": terminalOptionIndexes])
         case .inputQueueFull, .surfaceUnavailable, .processExited:
             return .err(code: "surface_unavailable", message: String(
                 localized: "mobile.chat.error.answerNotAccepted",

@@ -407,6 +407,41 @@ public actor MobileChatEventSource: AgentChatSessionSource {
         _ = try await client.sendRequest(request)
     }
 
+    public func answer(optionIndexes: [Int], requestID: String?, sessionID: String) async throws {
+        guard !optionIndexes.isEmpty else { throw AgentChatSessionActionError.unsupported }
+        var params: [String: Any] = [
+            "session_id": sessionID,
+            "option_indexes": optionIndexes,
+        ]
+        if optionIndexes.count == 1, let optionIndex = optionIndexes.first {
+            // Keep the legacy scalar on the wire for older hosts and test
+            // fixtures; newer hosts prefer the batch field.
+            params["option_index"] = optionIndex
+        }
+        if let requestID { params["request_id"] = requestID }
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.chat.answer",
+            params: params
+        )
+        _ = try await client.sendRequest(request)
+    }
+
+    public func answer(text: String, requestID: String?, sessionID: String) async throws {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AgentChatSessionActionError.unsupported
+        }
+        var params: [String: Any] = [
+            "session_id": sessionID,
+            "text": text,
+        ]
+        if let requestID { params["request_id"] = requestID }
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.chat.answer",
+            params: params
+        )
+        _ = try await client.sendRequest(request)
+    }
+
     public func review(
         action: ChatReviewAction,
         sessionID: String,
