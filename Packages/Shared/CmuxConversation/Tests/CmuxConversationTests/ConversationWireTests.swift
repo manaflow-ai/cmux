@@ -22,6 +22,11 @@ import Testing
         }
     }
 
+    @Test func stringAndNumericNativeIDsRemainDifferent() throws {
+        let value = try JSONDecoder().decode(ConversationJSONValue.self, from: Data(#"["123",123,"false",false,null]"#.utf8))
+        #expect(value == .array([.string("123"), .number("123"), .string("false"), .bool(false), .null]))
+    }
+
     @Test func unknownProviderAndPayloadRemainInspectable() throws {
         let provider = try JSONDecoder().decode(ConversationProvider.self, from: Data(#""future-provider""#.utf8))
         #expect(provider == .unknown("future-provider"))
