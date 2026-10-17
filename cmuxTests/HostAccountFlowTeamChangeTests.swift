@@ -38,6 +38,7 @@ struct HostAccountFlowTeamChangeTests {
             accountID: "fixture",
             isPro: true,
             canManageBilling: true,
+            teamID: "team-a",
             tier: .pro
         ))
     }
