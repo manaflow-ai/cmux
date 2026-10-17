@@ -14,12 +14,19 @@ class SidebarRowView: NSView {
     var isSelected = false {
         didSet {
             guard isSelected != oldValue else { return }
+            updateAccessibilitySelection()
             fadesNextFill = false
             needsDisplay = true
             // Rows show controls on the selected row too (the tab chevron, cx-fo2t).
             needsLayout = true
         }
     }
+
+    /// The row shows as selected, the one source of its AXSelected. A row with more
+    /// selection state overrides it and calls `updateAccessibilitySelection()` when that changes.
+    var showsSelection: Bool { isSelected }
+
+    func updateAccessibilitySelection() { setAccessibilitySelected(showsSelection) }
 
     required init(key: SidebarRowKey) {
         self.key = key
