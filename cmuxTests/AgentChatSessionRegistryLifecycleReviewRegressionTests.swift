@@ -381,7 +381,7 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
             return frame.sessionID == sessionID
         })
         #expect(!emitted.contains { frame in
-            guard case .stateChanged(.ended) = frame.event else { return false }
+            guard case .stateChanged(.ended, version: _) = frame.event else { return false }
             return frame.sessionID == sessionID
         })
         #expect(!emitted.contains { frame in
@@ -434,7 +434,7 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
             return frame.sessionID == sessionID
         })
         #expect(emitted.contains { frame in
-            guard case .stateChanged(.ended) = frame.event else { return false }
+            guard case .stateChanged(.ended, version: _) = frame.event else { return false }
             return frame.sessionID == sessionID
         })
     }
