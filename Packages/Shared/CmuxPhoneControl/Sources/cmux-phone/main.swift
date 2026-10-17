@@ -91,7 +91,19 @@ struct CmuxPhoneCommand {
             let messages = try decoder.append(chunk)
             for message in messages {
                 for response in await server.handle(message) {
-                    try FileHandle.standardOutput.write(contentsOf: codec.encode(response))
+                    do {
+                        try FileHandle.standardOutput.write(contentsOf: codec.encode(response))
+                    } catch PhoneWireCodecError.lineTooLarge {
+                        let boundedError = PhoneEnvelope.failure(
+                            id: response.id,
+                            sessionID: response.sessionID,
+                            error: PhoneError(
+                                code: "response_too_large",
+                                message: "the response exceeded the bounded wire size"
+                            )
+                        )
+                        try FileHandle.standardOutput.write(contentsOf: codec.encode(boundedError))
+                    }
                 }
             }
         }
