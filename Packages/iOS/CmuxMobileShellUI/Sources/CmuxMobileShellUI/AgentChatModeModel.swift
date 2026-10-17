@@ -571,6 +571,8 @@ final class AgentChatModeModel {
         case .reset:
             transcriptRevisions[sessionID, default: 0] &+= 1
             historyResetTokens[sessionID, default: 0] &+= 1
+            answeredRequestKeysBySession[sessionID] = nil
+            answeringRequestKeys = answeringRequestKeys.filter { !$0.hasPrefix("\(sessionID):") }
             messagesBySession[sessionID] = []
             terminalBlocksBySession[sessionID] = []
             streamingBySession[sessionID] = nil

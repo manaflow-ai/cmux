@@ -72,6 +72,22 @@ import Testing
         await source.finishHostEvents()
         await settle()
         #expect(model.connectionState == .reconnecting)
+
+        await model.refresh()
+        await settle()
+        let renamed = ChatSessionDescriptor(
+            id: "session",
+            agentKind: .codex,
+            title: "Reconnected",
+            state: .idle,
+            lastActivityAt: Date(timeIntervalSince1970: 10),
+            version: 2
+        )
+        await source.emitHost(sessionID: "session", event: .descriptorChanged(renamed))
+        await settle()
+
+        #expect(model.connectionState == .connected)
+        #expect(model.selectedSession?.title == "Reconnected")
     }
 
     @Test func historyPaginationDeduplicatesAndPrependsOlderMessages() async {
@@ -143,8 +159,9 @@ import Testing
 
         await source.emit(sessionID: "session", event: .reset)
         await settle()
-        #expect(model.selectedMessages.isEmpty)
+        #expect(model.selectedMessages.map(\.id) == ["one"])
         #expect(model.selectedStreamingMessage == nil)
+        #expect((await source.historyRequests).map(\.beforeSeq) == [nil, nil])
     }
 
     @Test func sendAnswerAndInterruptForwardToTheSelectedSession() async {
@@ -159,11 +176,13 @@ import Testing
         model.draft = "  Explain this diff  "
         await model.sendDraft()
         await model.answer(optionIndex: 2)
+        await model.answer(optionIndex: 3, requestID: "question-1")
+        await model.answer(optionIndex: 4, requestID: "question-1")
         await model.interrupt(hard: true)
 
         #expect((await source.sent).map(\.0) == ["Explain this diff"])
         #expect((await source.sent).map(\.1) == ["session"])
-        #expect((await source.answers).map(\.0) == [2])
+        #expect((await source.answers).map(\.0) == [2, 3])
         #expect((await source.answers).map(\.1) == ["session"])
         #expect((await source.interrupts).map(\.0) == [true])
         #expect((await source.interrupts).map(\.1) == ["session"])
@@ -191,6 +210,10 @@ import Testing
 
         #expect(model.sessions.map(\.id) == ["second"])
         #expect(model.selectedSessionID == "second")
+
+        await model.refresh()
+        await settle()
+        #expect(model.sessions.map(\.id) == ["second"])
     }
 
     private static func settle(_ turns: Int = 30) async {
