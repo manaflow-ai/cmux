@@ -1634,6 +1634,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         AppIconSettings.setLiveEnvironmentProviderForTesting {
             AppIconSettings.Environment(
                 isApplicationFinishedLaunching: { false },
+                systemStylesAppIcon: { false },
                 imageForMode: { _ in
                     imageRequestCount += 1
                     return nil
@@ -1641,6 +1642,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 setApplicationIconImage: { _ in
                     runtimeIconSetCount += 1
                 },
+                restoreBundleIconImage: {},
                 startAppearanceObservation: {
                     startObservationCallCount += 1
                 },
@@ -1711,6 +1713,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         AppIconSettings.setLiveEnvironmentProviderForTesting {
             AppIconSettings.Environment(
                 isApplicationFinishedLaunching: { false },
+                systemStylesAppIcon: { false },
                 imageForMode: { _ in
                     imageRequestCount += 1
                     return nil
@@ -1718,6 +1721,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
                 setApplicationIconImage: { _ in
                     runtimeIconSetCount += 1
                 },
+                restoreBundleIconImage: {},
                 startAppearanceObservation: {
                     startObservationCallCount += 1
                 },
