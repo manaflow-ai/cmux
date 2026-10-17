@@ -231,6 +231,40 @@ class CliShimPrivateDirectory(unittest.TestCase):
 
         self.for_each_shell(scenario)
 
+    def test_zsh_directory_validation_does_not_launch_external_programs(self) -> None:
+        # A small launch penalty becomes seconds of startup latency when each
+        # ancestor invokes another metadata command. Record actual dispatches
+        # inside validation, including command substitutions, without a timing
+        # threshold or a dependency on the choice of native implementation.
+        zsh = shutil.which("zsh") or "/bin/zsh"
+        shell = shells()[zsh]
+        trace_driver = r'''
+TRAPDEBUG() {
+    [[ -n "${funcstack[(r)_cmux_private_*]}" ]] || return 0
+    local -a words
+    words=( ${(z)ZSH_DEBUG_CMD} )
+    local executable="${(Q)words[1]}"
+    if [[ -x "$executable" && ! -d "$executable" ]]; then
+        print -r -- "$executable" >> "$CMUX_TEST_EXEC_TRACE"
+    fi
+    return 0
+}
+'''
+        with new_case("cmux-zsh-validation-execs-") as case:
+            # A nested temporary path exercises repeated ancestry checks
+            # during a real shim installation.
+            inherited = case.base / "cmux-cli-shims" / SURFACE_ID
+            inherited.mkdir(parents=True, mode=0o700)
+            inherited.parent.chmod(0o700)
+            case.inherit_root(inherited)
+            trace = case.base / "validation-execs"
+            case.env["CMUX_TEST_EXEC_TRACE"] = str(trace)
+            out = case.run(shell, trace_driver + POSIX_DRIVER)
+            self.assertEqual(out["root"], str(inherited), out)
+            self.assertEqual(case.marker_lines(), ["wrapper", "wrapper"])
+            dispatches = trace.read_text().splitlines() if trace.exists() else []
+            self.assertEqual(dispatches, [], "validation launches grow with path depth")
+
     def test_shared_shim_parent_is_not_used(self) -> None:
         def scenario(shell, case: Case) -> None:
             case.parent.mkdir()
