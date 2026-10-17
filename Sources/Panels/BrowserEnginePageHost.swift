@@ -33,9 +33,9 @@ struct BrowserEnginePageHost: NSViewRepresentable {
     var onPageClicked: () -> Void = {}
     /// Whether a window shows this page's DevTools.
     var isDevToolsWindow: (NSWindow) -> Bool = { _ in false }
-    /// A click into the page's docked DevTools chose them, or they took the
-    /// keyboard while the pane has it.
-    var onDevToolsChosen: () -> Void = {}
+    /// A click into the page's docked DevTools chose them (`clicked`), or
+    /// they took the keyboard while the pane has it (they opened).
+    var onDevToolsChosen: (_ clicked: Bool) -> Void = { _ in }
     /// Gives the keyboard to whichever of page and DevTools the user chose;
     /// `nil` focuses the page.
     var focusContent: (() -> Void)?
@@ -116,7 +116,7 @@ final class BrowserEnginePageContainerView: NSView {
     }
     var onPageClicked: (() -> Void)?
     var isDevToolsWindow: ((NSWindow) -> Bool)?
-    var onDevToolsChosen: (() -> Void)?
+    var onDevToolsChosen: ((_ clicked: Bool) -> Void)?
     var onLayout: ((NSView) -> Void)?
     /// The visibility last reported through `onVisibilityChange`.
     var reportedVisible: Bool?
@@ -170,7 +170,7 @@ final class BrowserEnginePageContainerView: NSView {
         // key and AppKit emits no second didBecomeKey notification.
         // Docked DevTools sit in the pane rect too; a click there chooses them.
         if isDevToolsWindow?(eventWindow) == true {
-            onDevToolsChosen?()
+            onDevToolsChosen?(true)
         } else {
             onPageClicked?()
         }
@@ -209,8 +209,9 @@ final class BrowserEnginePageContainerView: NSView {
             ChromiumFocusReentrancyGate.shared.run { window.makeKey() }
         case .devTools where facts.clicked || wantsPageFocus:
             // A click into docked DevTools, or the tools of the focused pane
-            // took the keys (they opened): they keep the keyboard.
-            onDevToolsChosen?()
+            // took the keys (they opened): they keep the keyboard. Only a
+            // click asks for pane focus; the focused pane already has it.
+            onDevToolsChosen?(facts.clicked)
         case .devTools where facts.overPane:
             // Tools of a pane cmux is not typing in took the keys on their
             // own (automation opened them): the keys go back.

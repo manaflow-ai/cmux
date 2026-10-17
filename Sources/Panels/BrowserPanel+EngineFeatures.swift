@@ -43,7 +43,9 @@ extension BrowserPanel {
     /// and Chromium made them key): panel focus keeps giving it to them.
     /// cmux Next: `FocusEffectApplier.childWindowDidBecomeKey`, `.devTools`.
     func noteEngineDevToolsTookKeyboard() {
-        guard let devTools = engineDevTools, devTools.devToolsState.isOpen else { return }
+        // Not gated on the open state: Chromium can make new tools key before
+        // it reports them open. Focus checks the state; closing clears this.
+        guard engineDevTools != nil else { return }
         engineDevToolsHasKeyboard = true
     }
 

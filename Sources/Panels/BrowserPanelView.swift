@@ -1992,10 +1992,11 @@ struct BrowserPanelView: View {
                         }
                     },
                     isDevToolsWindow: { window in panel.engineDevToolsContains(window: window) },
-                    onDevToolsChosen: {
+                    onDevToolsChosen: { clicked in
                         // As a click into WebKit's attached inspector: the pane
                         // takes focus and the tools keep the keyboard.
                         panel.noteEngineDevToolsTookKeyboard()
+                        guard clicked else { return }
                         onRequestPanelFocus()
                         if addressBarFocused {
                             setAddressBarFocused(false, reason: "chromiumDevTools.click")

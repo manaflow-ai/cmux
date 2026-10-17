@@ -62,6 +62,17 @@ public final class CEFDevToolsEngineDriver: BrowserDevToolsEngineDriving {
 
     public func setDevToolsFocused(_ focused: Bool) {
         guard let browserID = browserID() else { return }
-        shim.devToolsSetFocus(browser: browserID, focused: focused)
+        guard focused else {
+            shim.devToolsSetFocus(browser: browserID, focused: false)
+            return
+        }
+        // Focus makes the DevTools window key, and the pane's key-window
+        // handling can ask for focus again before this returns: the shared
+        // gate runs that request after this one, as for a page's focus.
+        let shim = self.shim
+        ChromiumFocusReentrancyGate.shared.runOrDefer { [weak self] in
+            guard let self, self.browserID() == browserID else { return }
+            shim.devToolsSetFocus(browser: browserID, focused: true)
+        }
     }
 }
