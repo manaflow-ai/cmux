@@ -991,9 +991,9 @@ interface CmuxGlobal {
   }
   machine: {
     /** `machine.get` (read, scope `machine:read`) */
-    get: CmuxOp<{ machine?: string }, Cmux.MachineSnapshot>
+    get: CmuxOp<{ machine?: string; catalog?: boolean }, Cmux.MachineSnapshot>
     /** `machine.list` (read, scope `machine:read`) */
-    list: CmuxOp<Record<string, never>, Array<Cmux.MachineSnapshot>>
+    list: CmuxOp<{ catalog?: boolean }, Array<Cmux.MachineSnapshot>>
   }
   mail: {
     /** `mail.get` (read, scope `mail:read`): Read one Gmail message (headers, plain text, attachment list) at call time; nothing is stored. */
