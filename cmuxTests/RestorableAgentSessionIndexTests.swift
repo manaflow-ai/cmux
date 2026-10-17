@@ -116,6 +116,20 @@ struct RestorableAgentSessionIndexTests {
             stableSurfaceId: stableSurfaceId,
             revalidateProcessEvidence: false
         )?.snapshot.sessionId == sessionId)
+
+        // Reusing the cached index against a fresh process snapshot must keep
+        // the stable identity.
+        let revalidated = index.revalidatingCachedProcesses(
+            against: CmuxTopProcessSnapshot(processes: [], sampledAt: Date(), includesProcessDetails: true),
+            processArgumentsProvider: { _ in nil },
+            processIdentityProvider: { _ in nil }
+        )
+        #expect(revalidated.entryForStablePanel(
+            workspaceId: restoredWorkspaceId,
+            panelId: restoredPanelId,
+            stableSurfaceId: stableSurfaceId,
+            revalidateProcessEvidence: false
+        )?.snapshot.sessionId == sessionId)
     }
 
     @Test
