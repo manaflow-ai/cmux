@@ -94,15 +94,13 @@
 .orchestration-work-view {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
-  border: 1px solid var(--agent-border);
-  border-radius: var(--ui-row-radius);
-  overflow: hidden;
-  background: var(--agent-page-bg);
+  background: transparent;
 }
 
 .orchestration-work-list {
   min-width: 0;
   border-right: 1px solid var(--agent-border);
+  background: var(--agent-surface);
 }
 
 .orchestration-section-heading {
@@ -129,7 +127,7 @@
   min-width: 0;
   padding: 9px 8px;
   border: 1px solid transparent;
-  border-radius: var(--ui-row-radius);
+  border-radius: var(--ui-popup-radius);
   background: transparent;
   color: var(--agent-text);
   font: inherit;
@@ -150,11 +148,7 @@
 }
 
 .orchestration-work-row.is-selected {
-  border-color: color-mix(
-    in srgb,
-    var(--agent-accent) 52%,
-    var(--agent-border)
-  );
+  border-color: transparent;
   background: color-mix(in srgb, var(--agent-accent) 10%, transparent);
 }
 
