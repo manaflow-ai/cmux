@@ -69,7 +69,16 @@ const baseComposerSnapshot: AcpmuxSnapshot = {
     {
       id: "codex",
       name: "Codex",
-      models: [{ id: "gpt-6.1-sol", name: "GPT-6.1 Sol", efforts: ["low", "medium", "high"], defaultEffort: "high", fast: true, contextWindow: 200_000 }],
+      models: [
+        {
+          id: "gpt-6.1-sol",
+          name: "GPT-6.1 Sol",
+          efforts: ["low", "medium", "high"],
+          defaultEffort: "high",
+          fast: true,
+          contextWindow: 200_000,
+        },
+      ],
     },
   ],
   summary: {
