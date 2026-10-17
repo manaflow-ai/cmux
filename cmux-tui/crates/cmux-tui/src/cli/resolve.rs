@@ -351,13 +351,19 @@ fn state_id(field: &str, value: &str, records: &Value) -> Result<Option<String>,
     }
 }
 
-/// `--machine` and `--session` name the scope of a request that names none
-/// (or `current`).
+/// Applies route defaults shared by CLI and MCP. Catalog reads have no session ancestor;
+/// `--session` still chooses their socket but never becomes a metadata field.
 pub(super) fn apply_global_route(
     global: &GlobalArgs,
-    params: &mut Value,
+    plan: &mut RequestPlan,
 ) -> Result<(), &'static str> {
-    let Some(params) = params.as_object_mut() else {
+    let has_session = !matches!(
+        plan.operation,
+        super::command::WireOperation::Typed(
+            ResourceOperation::MachineList | ResourceOperation::MachineGet
+        )
+    );
+    let Some(params) = plan.params.as_object_mut() else {
         return Err("request params are not an object");
     };
     if let Some(machine) = &global.machine
@@ -366,6 +372,7 @@ pub(super) fn apply_global_route(
         params.insert("machine".into(), Value::String(machine.clone()));
     }
     if let Some(session) = &global.session
+        && has_session
         && params.get("session").is_none_or(|value| value.as_str() == Some("current"))
     {
         params.insert("session".into(), Value::String(session.clone()));
