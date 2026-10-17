@@ -1460,7 +1460,11 @@ struct WorkspaceShellView: View {
         WorkspaceRootToolbarLiveContent(
             openSettings: showSettings,
             openDevices: showComputers,
-            openChief: store.supportsChief ? { selectedPrimaryTab = .home } : nil,
+            // The split sidebar keeps its native search field mounted while
+            // a search is presented. Route toolbar navigation through the
+            // same transition helper as the tab bar so Home cannot be
+            // immediately replaced by the still-present search scope.
+            openChief: store.supportsChief ? { transitionPrimaryTab(to: .home) } : nil,
             pendingSelection: rootToolbarPendingSelection,
             select: handleRootToolbarSelection,
             showAddDevice: showAddDevice,
