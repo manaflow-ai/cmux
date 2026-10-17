@@ -120,3 +120,37 @@ local admission before awaiting cleanup; readmission waits for that cleanup.
 An uncertain admission or failed cleanup stays failed on this manager. It
 neither reconnects nor redirects a delayed disable to a newer control session.
 The app provider must still own route admission, callbacks and subscription demand.
+
+## Verified app subscription boundary
+
+`agent-cli-app-invalidation-v1` adds a fixed local provider carrier. A verified
+non-agent app connection registers `agent_cli` through `apps-provider-register`.
+Opting in with `inventory_watch:true` returns an `inventory_demand` snapshot
+`{sequence, enabled}`; omission preserves the legacy `{families}` reply. The
+same connection receives targeted `apps-agent-inventory-demand` events with
+those two fields. Sequence is an exact unsigned 64-bit value for this supervisor
+boot and provider connection. A provider must ignore older demand events and
+fence them to its captured native control epoch, including across awaits.
+
+Demand begins with the first readable `agent_cli.changed` subscription and ends
+with the last. The supervisor checks current install/enabled state, manifest
+requests, grants and live host state. Revocation, unsubscribe, disable, host
+exit and provider replacement re-evaluate demand under the same state lock;
+an old process or callback cannot establish a fresh subscription. Registration
+returns a snapshot so the initial state does not depend on receiving an event
+while a provider is attaching its handler. No timer, CLI health check or generic
+daemon-event feed starts solely for this inventory subscription.
+
+Only the current verified local provider may send
+`apps-agent-inventory-changed {demand_sequence}`. It accepts no origin override,
+event name, machine selector, rows, job outcome or command. WebSocket, remote,
+page-relay, agent-bound and unverified connections are denied. The sequence
+must match current enabled demand; otherwise the owner returns
+`apps.provider.stale_demand`. Delivery queues only `{}` to currently readable
+subscribers, ordered with revocation and unsubscribe under the supervisor lock.
+The generic daemon event publisher cannot impersonate this family.
+
+This is the native carrier. The Swift provider must still connect demand to
+admitted route watches and revalidate each owner, lease and connection epoch
+before reporting an invalidation. Agents already rereads current owners on the
+empty invalidation; end-to-end app/provider watch support remains unconnected.

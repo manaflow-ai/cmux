@@ -132,8 +132,12 @@ fn scripted_app_host() {
                 }
                 send(FromHost::Done { cb, ok: true, body: json!({ "value": export }) });
             }
-            ToHost::Event { sub, .. } => {
+            ToHost::Event { sub, body } => {
                 send(FromHost::Log { level: "info".into(), message: format!("event {sub}") });
+                send(FromHost::Log {
+                    level: "info".into(),
+                    message: format!("event-body {sub} {body}"),
+                });
             }
             ToHost::Settings { values } => {
                 if let Some(barrier) = values["test_event_barrier"].as_str() {
@@ -956,6 +960,8 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
     assert_eq!(granted["grants"], json!(["terminal:backend", "workspace:read"]));
 }
 
+#[path = "supervisor_inventory_demand_tests.rs"]
+mod inventory_demand;
 #[path = "supervisor_provider_tests.rs"]
 mod provider_channel;
 #[path = "supervisor_server_tests.rs"]

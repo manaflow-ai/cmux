@@ -26,6 +26,18 @@ fn cmux_next_agent_cli_list_advertises_verified_app_provider_support() {
 }
 
 #[test]
+fn cmux_next_agent_inventory_invalidation_advertises_verified_provider_carrier() {
+    let identity = run(&identity_mux(), json!({"cmd":"identify"})).unwrap();
+    assert_eq!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("agent-cli-app-invalidation-v1")),
+        cfg!(unix),
+    );
+}
+
+#[test]
 fn identify_reports_session_identity() {
     let mux = identity_mux();
     let identity = run(&mux, json!({"cmd":"identify"})).unwrap();

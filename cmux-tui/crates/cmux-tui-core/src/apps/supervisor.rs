@@ -193,6 +193,7 @@ pub(super) struct Inner {
     pub gestures: Gestures,
     pub next_generation: u64,
     pub events_started: bool,
+    pub inventory_demand: super::subscriptions::InventoryDemand,
     /// Provider connection per family, and calls waiting for a provider
     /// (`provider.rs`).
     pub providers: HashMap<String, u64>,
@@ -296,6 +297,7 @@ impl Supervisor {
                 gestures: Gestures::default(),
                 next_generation: 1,
                 events_started: false,
+                inventory_demand: Default::default(),
                 providers: HashMap::new(),
                 provider_calls: HashMap::new(),
                 next_provider_request: 0,
@@ -352,6 +354,7 @@ impl Supervisor {
             for key in keys {
                 outs.extend(self.unmount_locked(&mut inner, &key));
             }
+            outs.extend(Self::inventory_demand_locked(&mut inner));
             outs
         };
         self.emit(outs);
@@ -418,6 +421,7 @@ impl Supervisor {
         if outcome.changed {
             outs.push(Out::Broadcast(json!({ "event": "apps-changed", "revision": inner.mirror.revision, "transaction": transaction, "app": app })));
         }
+        outs.extend(Self::inventory_demand_locked(inner));
         Ok(())
     }
 
@@ -484,11 +488,15 @@ impl Supervisor {
             .collect()
     }
 
-    pub(super) fn emit(&self, outs: Vec<Out>) {
+    pub(super) fn emit(&self, mut outs: Vec<Out>) {
+        let sinks = {
+            let mut inner = self.inner.lock().unwrap();
+            outs.extend(Self::inventory_demand_locked(&mut inner));
+            inner.sinks.clone()
+        };
         if outs.is_empty() {
             return;
         }
-        let sinks: HashMap<u64, Sink> = self.inner.lock().unwrap().sinks.clone();
         for out in outs {
             match out {
                 Out::Client(client, value) => {

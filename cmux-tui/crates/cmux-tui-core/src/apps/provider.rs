@@ -178,6 +178,26 @@ impl Supervisor {
         claim: ProviderClaim,
         families: Vec<String>,
     ) -> Result<Value, ApiError> {
+        self.register_provider_options(client, claim, families, false)
+    }
+
+    /// Opts into the inventory demand snapshot without changing legacy registration replies.
+    pub fn register_inventory_provider(
+        &self,
+        client: u64,
+        claim: ProviderClaim,
+        families: Vec<String>,
+    ) -> Result<Value, ApiError> {
+        self.register_provider_options(client, claim, families, true)
+    }
+
+    fn register_provider_options(
+        &self,
+        client: u64,
+        claim: ProviderClaim,
+        families: Vec<String>,
+        inventory_watch: bool,
+    ) -> Result<Value, ApiError> {
         if !hosting_app_connection(&claim) {
             let why = if claim.agent {
                 "agent connections cannot provide app ops"
@@ -189,6 +209,12 @@ impl Supervisor {
         if families.is_empty() {
             return Err(ApiError::new("bad-request", "families must not be empty"));
         }
+        if inventory_watch && !families.iter().any(|family| family == "agent_cli") {
+            return Err(ApiError::new(
+                "bad-request",
+                "inventory watch requires the agent_cli provider family",
+            ));
+        }
         if let Some(unknown) = families.iter().find(|f| !FAMILIES.contains(&f.as_str())) {
             return Err(ApiError::new(
                 "bad-request",
@@ -196,6 +222,12 @@ impl Supervisor {
             ));
         }
         let mut inner = self.inner.lock().unwrap();
+        if inventory_watch && !inner.sinks.contains_key(&client) {
+            return Err(ApiError::new(
+                "apps.provider.unknown",
+                "inventory provider connection is not registered",
+            ));
+        }
         // No takeover: a family held by another live connection stays with it
         // until that connection closes (any same-uid process may connect).
         if let Some(taken) = families
@@ -210,7 +242,14 @@ impl Supervisor {
         for family in &families {
             inner.providers.insert(family.clone(), client);
         }
-        Ok(json!({ "families": families }))
+        let demand = Self::inventory_demand_locked(&mut inner);
+        let mut result = json!({ "families": families });
+        if inventory_watch {
+            result["inventory_demand"] = inner.inventory_demand.snapshot();
+        }
+        drop(inner);
+        self.emit(demand.into_iter().collect());
+        Ok(result)
     }
 
     /// Queues an admitted call for its provider; the error is the ABI body
