@@ -58,8 +58,6 @@ extension TerminalController {
             "mobile.terminal.set_font",
             "mobile.compatible_tags.get",
             "mobile.compatible_tags.set",
-            "mobile.task.attachment.upload",
-            "mobile.task.models.list",
             "mobile.chat.send",
             "mobile.chat.interrupt",
             // Socket-reachable panel artifact reads (worker lane); fetch stays
