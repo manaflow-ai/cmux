@@ -72,7 +72,7 @@ if [[ -n "$base" ]] \
     exit 1
   fi
   if (( lines > cap )); then
-    echo "check-app-size: ok, CmuxNextApp has $lines physical lines, over the cap $cap but no source-line growth ($source_lines at both trees)"
+    echo "check-app-size: ok, CmuxNextApp has $lines physical lines, over the cap $cap but no source-line growth ($source_lines now, <= $base_source_lines at $base)"
     exit 0
   fi
 fi

@@ -1143,6 +1143,8 @@ jobs:
           bash scripts/cmux-next/tests/check-no-process-scan.test.sh
           bash scripts/cmux-next/tests/check-state-roots.test.sh
           bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
+          python3 scripts/cmux-next/tests/count-swift-code-lines.test.py
+          bash scripts/cmux-next/tests/check-app-size.test.sh
           bash scripts/cmux-next/tests/ratchet-tiers.test.sh
           bash scripts/cmux-next/tests/base-autofix.test.sh
           bash scripts/cmux-next/tests/pr-autofix.test.sh
