@@ -133,7 +133,7 @@ struct MobileChiefClientTests {
     func chiefCapabilityRequiresInteractiveActions() {
         #expect(!MobileChiefCapability.isAvailable(in: [MobileChiefCapability.status]))
         #expect(!MobileChiefCapability.isAvailable(in: [MobileChiefCapability.conversations]))
-        let readAndSend = [
+        let readAndSend: Set<String> = [
             MobileChiefCapability.conversations,
             MobileChiefCapability.read,
             MobileChiefCapability.send,
