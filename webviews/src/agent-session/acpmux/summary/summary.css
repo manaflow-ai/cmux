@@ -94,6 +94,21 @@
 .acpmux-pr-dock__more{align-self:flex-start;height:24px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default}
 .acpmux-pr-dock__more:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
 .acpmux-pr-dock__more:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+/* The recap card above the composer (RecapCard.tsx): when the last turn ended on a question, the answer's last paragraph muted and clamped to three lines, the question, then Yes (accent) and Not now (quiet), × at the top right. On the composer's column and tray, as the pull request bars are. */
+.acpmux-recap{padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;font-size:var(--text-control);line-height:var(--text-control--line-height)}
+.acpmux-quick .acpmux-recap{padding:6px 8px 0}
+.acpmux-recap__card{position:relative;padding:10px 36px 10px 12px;border:var(--cmux-hairline, .5px) solid var(--agent-border);border-radius:12px;background:var(--acpmux-composer-tray);color:var(--agent-text)}
+.acpmux-recap__summary{margin:0 0 6px;color:var(--agent-muted);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;overflow-wrap:anywhere}
+.acpmux-recap__question{margin:0;overflow-wrap:anywhere}
+.acpmux-recap__actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.acpmux-recap__button{display:inline-flex;align-items:center;height:26px;padding:0 10px;border:0;border-radius:7px;font:inherit;font-size:var(--text-control);white-space:nowrap;cursor:default}
+.acpmux-recap__yes{background:var(--agent-accent);color:var(--agent-accent-text,#fff)}
+.acpmux-recap__yes:hover{background:color-mix(in srgb,var(--agent-accent) 88%,var(--agent-text))}
+.acpmux-recap__yes .acpmux-keycap{margin:0 0 0 8px}
+.acpmux-recap__later{background:none;color:var(--agent-muted)}
+.acpmux-recap__later:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
+.acpmux-recap__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+.acpmux-recap__dismiss{position:absolute;top:6px;right:6px}
 /* The session side rail (SessionRail.tsx, Debug Settings agent.sessionRail): a column beside the chat, as the side preview is (.acpmux-artifact), narrower; under 720px it lies over the chat. Cards are hairline-bordered and a step lighter than the page, rows 28px; it fades in, the width never animates. */
 .acpmux-rail{flex:0 0 clamp(240px,26%,340px);min-width:0;display:flex;flex-direction:column;align-items:stretch;gap:8px;box-sizing:border-box;padding:8px 10px 10px 2px;overflow-x:hidden;overflow-y:auto;background:var(--agent-page-bg);color:var(--agent-text);font-size:var(--text-control);line-height:18px}
 @media (max-width:560px){.acpmux-rail{position:absolute;z-index:var(--layer-overlay);top:0;right:0;bottom:0;width:min(300px,calc(100% - 32px));padding-left:10px;box-shadow:var(--elevation-2)}}
