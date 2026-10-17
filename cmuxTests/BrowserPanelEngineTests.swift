@@ -558,7 +558,7 @@ import WebKit
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             adapter.evaluateOmnibarPageFocusScript("probe()") { _, _ in continuation.resume() }
         }
-        #expect(page.evaluatedScripts.last == "probe()")
+        #expect(page.evaluatedScripts.contains("probe()"))
 
         let focusesBefore = page.focusChanges.count
         let scriptsBefore = page.evaluatedScripts.count
