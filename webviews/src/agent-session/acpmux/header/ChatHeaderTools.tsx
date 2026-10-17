@@ -341,7 +341,8 @@ export function ChatHeaderTools({
   // The tray designs: every tab the chat can open beside it, laid out as one group. Terminal,
   // Browser and Split Down add another on every click; Changes, Preview and Files toggle theirs and
   // show lit while it is open.
-  const trayed = style === "tray" || style === "labels";
+  const trayed = style === "tray" || style === "labels" || style === "quiet" || style === "expand";
+  const labeled = style === "labels" || style === "expand";
   const trayItems = (): {
     key: string;
     label: string;
@@ -403,7 +404,7 @@ export function ChatHeaderTools({
     return items;
   };
   const tray = tabTools && trayed && (
-    <div className={`acpmux-header-tray${style === "labels" ? " acpmux-header-tray--labels" : ""}`} role="group">
+    <div className={`acpmux-header-tray acpmux-header-tray--${style}`} role="group">
       {trayItems().map((item) => (
         <button
           key={item.key}
@@ -416,7 +417,11 @@ export function ChatHeaderTools({
           onClick={item.run}
         >
           <Icon name={item.icon} size={15} />
-          {style === "labels" && <span className="acpmux-header-tray__label">{item.label}</span>}
+          {labeled && (
+            <span className="acpmux-header-tray__label" aria-hidden="true">
+              {item.label}
+            </span>
+          )}
         </button>
       ))}
     </div>

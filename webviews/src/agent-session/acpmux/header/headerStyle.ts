@@ -7,12 +7,14 @@ import { useSyncExternalStore } from "react";
 /// - `add-terminal`: Terminal keeps its button; [+] lists the rest.
 /// - `tray`: every tab the chat can open beside it as one quiet group of icons.
 /// - `labels`: that group with a word beside each icon (icons only in a narrow pane).
+/// - `quiet`: the same icons with no group fill, muted, a hairline before Sources.
+/// - `expand`: `quiet`, and the icon under the pointer slides open to its name.
 ///
 /// Set live by `headerStyle` in `agent-pane/layout.json` (the App pushes the file to every chat), or
 /// in the dev server by `?data-chat-header=add`. Unset or unknown is `buttons`.
-export type HeaderStyle = "buttons" | "add" | "add-terminal" | "tray" | "labels";
+export type HeaderStyle = "buttons" | "add" | "add-terminal" | "tray" | "labels" | "quiet" | "expand";
 
-const STYLES: readonly HeaderStyle[] = ["buttons", "add", "add-terminal", "tray", "labels"];
+const STYLES: readonly HeaderStyle[] = ["buttons", "add", "add-terminal", "tray", "labels", "quiet", "expand"];
 const isStyle = (value: unknown): value is HeaderStyle => STYLES.includes(value as HeaderStyle);
 
 let fromLayout: HeaderStyle | undefined;

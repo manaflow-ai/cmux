@@ -134,11 +134,13 @@ test("tray and labels show every tab the chat opens beside it, in one group", as
       ),
     );
   };
-  for (const style of ["tray", "labels"]) {
+  for (const style of ["tray", "labels", "quiet", "expand"]) {
     act(() => configureHeaderStyle({ headerStyle: style }));
     render();
     expect(shown()).toEqual(["terminal", "browser", "changes", "files", "splitDown"]);
-    expect(doc.querySelectorAll(".acpmux-header-tray__label").length).toBe(style === "labels" ? 5 : 0);
+    expect(doc.querySelectorAll(".acpmux-header-tray__label").length).toBe(
+      style === "labels" || style === "expand" ? 5 : 0,
+    );
   }
   const button = (id: string) => doc.querySelector<HTMLElement>(`.acpmux-header-tray [data-quick-action="${id}"]`)!;
   act(() => button("terminal").click());
