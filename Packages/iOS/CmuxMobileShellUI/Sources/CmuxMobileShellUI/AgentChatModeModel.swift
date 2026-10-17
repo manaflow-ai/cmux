@@ -67,6 +67,7 @@ final class AgentChatModeModel {
     private var source: (any AgentChatSessionSource)?
     private var sourceTask: Task<Void, Never>?
     private var sessionTasks: [String: Task<Void, Never>] = [:]
+    private var historyReloadTasks: [String: Task<Void, Never>] = [:]
     private var historyCursors: [String: Int] = [:]
     private var historyHasMore: [String: Bool] = [:]
     private var transcriptRevisions: [String: Int] = [:]
@@ -142,7 +143,9 @@ final class AgentChatModeModel {
         let generation = sourceGeneration
         sourceTask?.cancel()
         for task in sessionTasks.values { task.cancel() }
+        for task in historyReloadTasks.values { task.cancel() }
         sessionTasks = [:]
+        historyReloadTasks = [:]
         source = next
         connectionState = next == nil ? .disconnected : .connecting
         sessions = []
@@ -534,6 +537,8 @@ final class AgentChatModeModel {
             removedSessionVersions[sessionID] = max(version, removedSessionVersions[sessionID] ?? Int.min)
             sessionTasks[sessionID]?.cancel()
             sessionTasks[sessionID] = nil
+            historyReloadTasks[sessionID]?.cancel()
+            historyReloadTasks[sessionID] = nil
             sessions.removeAll { $0.id == sessionID }
             messagesBySession[sessionID] = nil
             terminalBlocksBySession[sessionID] = nil
@@ -573,7 +578,8 @@ final class AgentChatModeModel {
             historyHasMore[sessionID] = nil
             if selectedSessionID == sessionID, let source {
                 let generation = sourceGeneration
-                Task { [weak self] in
+                historyReloadTasks[sessionID]?.cancel()
+                historyReloadTasks[sessionID] = Task { [weak self] in
                     await self?.loadHistory(
                         sessionID: sessionID,
                         source: source,

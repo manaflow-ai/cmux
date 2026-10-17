@@ -553,8 +553,8 @@ private struct AgentChatTranscriptView: View {
                                 }
                             }
                             ForEach(model.selectedMessages) { message in
-                                AgentChatMessageView(message: message, answer: { index in
-                                    Task { await model.answer(optionIndex: index) }
+                                AgentChatMessageView(message: message, answer: { index, requestID in
+                                    Task { await model.answer(optionIndex: index, requestID: requestID) }
                                 })
                                 .id(message.id)
                             }
@@ -663,7 +663,7 @@ private struct AgentContextPill: View {
 private struct AgentChatMessageView: View {
     let message: ChatMessage
     var isStreaming = false
-    var answer: ((Int) -> Void)?
+    var answer: ((Int, String) -> Void)?
 
     var body: some View {
         switch message.kind {
@@ -678,9 +678,9 @@ private struct AgentChatMessageView: View {
         case .fileEdit(let edit):
             AgentDiffCard(edit: edit)
         case .permissionRequest(let request):
-            AgentPermissionCard(request: request, answer: answer)
+            AgentPermissionCard(request: request, answer: { index in answer?(index, message.id) })
         case .question(let question):
-            AgentQuestionCard(question: question, answer: answer)
+            AgentQuestionCard(question: question, answer: { index in answer?(index, message.id) })
         case .status(let status):
             Text(status.detail ?? status.event.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
                 .font(.caption)
