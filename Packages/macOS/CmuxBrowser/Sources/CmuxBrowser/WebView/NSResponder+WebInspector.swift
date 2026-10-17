@@ -120,6 +120,9 @@ extension NSEvent {
         if windowCyclingShortcut?.matches(keyCode: keyCode, modifierFlags: flags) == true {
             return false
         }
+        if helpMenuShortcut?.matches(keyCode: keyCode, modifierFlags: flags) == true {
+            return false
+        }
 
         return true
     }
