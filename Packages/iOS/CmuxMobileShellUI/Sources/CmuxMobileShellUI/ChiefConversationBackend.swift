@@ -422,9 +422,9 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                 isMe: true
             ))
         }
-        if !seen.contains("chief") {
+        if !seen.contains("agent_chief") {
             participants.append(ConversationParticipant(
-                id: "chief",
+                id: "agent_chief",
                 name: "Chief",
                 initials: "CH",
                 colorHex: "#8E8E93",
@@ -440,7 +440,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     }
 
     private func participantID(in messages: [MobileChiefMessage]) -> String {
-        messages.first(where: { $0.authorKind == "chief" })?.authorID ?? "chief"
+        messages.first(where: { $0.authorKind == "chief" })?.authorID ?? "agent_chief"
     }
 
     private func map(
