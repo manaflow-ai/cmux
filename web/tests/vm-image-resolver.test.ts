@@ -4,6 +4,7 @@ import {
   listVmImageKindDefaults,
   reportVmImageConfigError,
   inferVmProviderForImage,
+  listVmImageManifestEntries,
   listVmImageKinds,
   listVmImageSizes,
   resolveVmImage,
@@ -106,6 +107,47 @@ describe("VM image resolver: request by kind", () => {
     const err = captureImageConfigError(() =>
       resolveVmImage("freestyle", legacySnapshot, deployed, { kind: "desktop" }));
     expect(err.reason).toMatch(/base image, not a desktop image/);
+  });
+
+  test("historical image ids migrate new creates to the current CUA image", () => {
+    // Size-less legacy entries follow the plan size (or the smallest default
+    // when the caller does not send one).
+    expect(resolveVmImage("freestyle", legacySnapshot, deployed, { kind: "base" })).toMatchObject({
+      image: baseLadder.sm,
+      imageVersion: `${baseLadderVersion}-sm-base`,
+      kind: "base",
+    });
+    expect(resolveVmImage("freestyle", legacyVersion, deployed, { kind: "base", memoryMb: 20480 })).toMatchObject({
+      image: baseLadder.lgx,
+      imageVersion: `${baseLadderVersion}-lgx-base`,
+      kind: "base",
+    });
+
+    // The shared legacy desktop bake is migrated according to the requested
+    // kind, so both old desktop and base callers receive the corresponding
+    // current image.
+    expect(resolveVmImage("freestyle", legacyDesktopVersion, deployed, { kind: "desktop" })).toMatchObject({
+      image: ladder.sm,
+      imageVersion: `${ladderVersion}-sm`,
+      kind: "desktop",
+    });
+    expect(resolveVmImage("freestyle", legacyDesktopSnapshot, deployed, { kind: "base" })).toMatchObject({
+      image: baseLadder.sm,
+      imageVersion: `${baseLadderVersion}-sm-base`,
+      kind: "base",
+    });
+
+    const legacySized = listVmImageManifestEntries().find((entry) =>
+      entry.provider === "freestyle" && entry.kind === "desktop" && entry.size?.name === "md" &&
+      entry.defaultForKind !== true && entry.restricted !== true,
+    );
+    expect(legacySized).toBeDefined();
+    expect(resolveVmImage("freestyle", legacySized!.imageId, deployed, { kind: "desktop", memoryMb: 65536 })).toMatchObject({
+      image: ladder.md,
+      imageVersion: `${ladderVersion}-md`,
+      kind: "desktop",
+      size: vmImageSize("md"),
+    });
   });
 
   test("the committed manifest ladder serves both kinds; no memory means the smallest size", () => {
@@ -243,14 +285,17 @@ describe("VM image resolver: request by kind", () => {
       image: ladder.lg,
       kind: "desktop",
     });
-    // The pre-ladder shared desktop devbox behaves the same way.
+    // Historical entries are accepted as compatibility aliases for new
+    // creates, while their kind remains available for stored VM rows.
     expect(resolveVmImage("freestyle", legacyDesktopSnapshot, deployed, { kind: "base" })).toMatchObject({
-      imageVersion: `${legacyDesktopVersion}-base`,
+      image: baseLadder.sm,
+      imageVersion: `${baseLadderVersion}-sm-base`,
       kind: "base",
-      size: null,
+      size: vmImageSize("sm"),
     });
     expect(resolveVmImage("freestyle", legacyDesktopVersion, deployed, { kind: "desktop" })).toMatchObject({
-      image: legacyDesktopSnapshot,
+      image: ladder.sm,
+      imageVersion: `${ladderVersion}-sm`,
       kind: "desktop",
     });
     // Without a kind the first listing wins, and a stored image id reads as desktop.
