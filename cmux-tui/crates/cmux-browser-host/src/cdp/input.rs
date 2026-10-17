@@ -33,6 +33,9 @@ impl Inner {
         };
         // The tab keeps CSS px (`tab.mouse`); Chromium gets view points.
         let (x, y) = self.input_point((x, y));
+        if kind != "wheel" && self.touch_emulation.load(std::sync::atomic::Ordering::Relaxed) {
+            return self.touch(&session, kind, (x, y), buttons, modifiers, deadline);
+        }
         let mut event = json!({"x": x, "y": y, "modifiers": modifiers, "buttons": buttons});
         match kind {
             "move" => {
@@ -62,6 +65,32 @@ impl Inner {
             other => return Err(DriverError::invalid(format!("Unknown mouse event {other}"))),
         }
         self.send_until(&session, "Input.dispatchMouseEvent", event, deadline)?;
+        Ok(Value::Null)
+    }
+
+    /// Pointer input on a touch-emulating tab (cx-3ny35): a press is a
+    /// touch start, a move with a button held a touch move, a release a touch
+    /// end, which Chromium turns into the tap's click. A hover move has no
+    /// touch form and sends nothing. The wheel stays a mouse wheel.
+    fn touch(
+        &self,
+        session: &super::driver::Session,
+        kind: &str,
+        (x, y): (f64, f64),
+        buttons: i64,
+        modifiers: i64,
+        deadline: Instant,
+    ) -> Result<Value, DriverError> {
+        let point = json!([{"x": x, "y": y}]);
+        let (kind, points) = match kind {
+            "down" => ("touchStart", point),
+            "move" if buttons != 0 => ("touchMove", point),
+            "move" => return Ok(Value::Null),
+            "up" => ("touchEnd", json!([])),
+            other => return Err(DriverError::invalid(format!("Unknown mouse event {other}"))),
+        };
+        let event = json!({"type": kind, "touchPoints": points, "modifiers": modifiers});
+        self.send_until(session, "Input.dispatchTouchEvent", event, deadline)?;
         Ok(Value::Null)
     }
 
@@ -161,6 +190,11 @@ impl Inner {
                 "location": location, "isKeypad": *location == 3,
             });
             self.send_until(&session, "Input.dispatchKeyEvent", event, deadline)?;
+        }
+        if buttons != 0 && self.touch_emulation.load(std::sync::atomic::Ordering::Relaxed) {
+            let event = json!({"type": "touchCancel", "touchPoints": []});
+            self.send_until(&session, "Input.dispatchTouchEvent", event, deadline)?;
+            return Ok(());
         }
         let mut left = buttons;
         for (bit, button) in [(1, "left"), (2, "right"), (4, "middle")] {
