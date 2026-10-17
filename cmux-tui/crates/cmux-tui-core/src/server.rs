@@ -2746,6 +2746,10 @@ mod loopback_forward_tests;
 mod agent_session_attach_tests;
 
 #[cfg(all(test, unix))]
+#[path = "server/agent_inventory_tests.rs"]
+mod agent_inventory_tests;
+
+#[cfg(all(test, unix))]
 #[path = "server/image_paste_tests.rs"]
 mod image_paste_tests;
 
