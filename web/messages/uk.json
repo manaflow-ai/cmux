@@ -5356,7 +5356,26 @@
     "billingUnavailable": "Оплата зараз недоступна. Спробуйте ще раз пізніше.",
     "signedOutNotice": "Ви не ввійшли в систему. Увійдіть, щоб переглянути поточний план або відновити наявну покупку.",
     "signedOutSignIn": "Увійти",
-    "manageInAppStore": "Керувати в App Store"
+    "manageInAppStore": "Керувати в App Store",
+    "billingPeriod": "Період оплати",
+    "monthly": "Щомісяця",
+    "annual": "Щороку",
+    "perMonthBilledYearly": "/міс., оплата щороку",
+    "perUserMonthBilledYearly": "/користувача/міс., оплата щороку",
+    "saveAnnual": "Заощадьте {discount}%",
+    "annualComparePrice": "${monthly}/міс.",
+    "teamMonthlyComparePrice": "${monthly}/користувача/міс.",
+    "teamAnnualComparePrice": "${monthly}/користувача/міс.",
+    "pro": {
+      "annual": {
+        "yearly": "Щороку"
+      }
+    },
+    "max": {
+      "annual": {
+        "yearly": "Щороку"
+      }
+    }
   },
   "platforms": {
     "macos": "macOS",

@@ -5283,7 +5283,26 @@
     "billingUnavailable": "Betaling er ikke tilgængelig lige nu. Prøv igen senere.",
     "signedOutNotice": "Du er ikke logget ind. Log ind for at se dit nuværende abonnement eller gendanne et tidligere køb.",
     "signedOutSignIn": "Log ind",
-    "manageInAppStore": "Administrer i App Store"
+    "manageInAppStore": "Administrer i App Store",
+    "billingPeriod": "Faktureringsperiode",
+    "monthly": "Månedligt",
+    "annual": "Årligt",
+    "perMonthBilledYearly": "/md., faktureres årligt",
+    "perUserMonthBilledYearly": "/bruger/md., faktureres årligt",
+    "saveAnnual": "Spar {discount}%",
+    "annualComparePrice": "${monthly}/md.",
+    "teamMonthlyComparePrice": "${monthly}/bruger/md.",
+    "teamAnnualComparePrice": "${monthly}/bruger/md.",
+    "pro": {
+      "annual": {
+        "yearly": "Årligt"
+      }
+    },
+    "max": {
+      "annual": {
+        "yearly": "Årligt"
+      }
+    }
   },
   "platforms": {
     "macos": "macOS",

@@ -61,7 +61,8 @@ export const TEAM_PRICING_USD = {
 /**
  * Max is a personal plan above Pro: the same machine count, plus the 24, 32,
  * and 64 GB machine sizes (up to 32 vCPU) Pro cannot start. It follows the
- * same annual discount as the current Pro catalog offer.
+ * 20% annual discount: $1,920/year ($160/month equivalent), separate from
+ * Pro's eleven-month annual offer.
  */
 export const MAX_PRICING_USD = {
   month: {

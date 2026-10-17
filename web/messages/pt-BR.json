@@ -5286,7 +5286,26 @@
     "billingUnavailable": "O faturamento não está disponível no momento. Tente novamente mais tarde.",
     "signedOutNotice": "Você não iniciou sessão. Entre para ver seu plano atual ou restaurar uma compra existente.",
     "signedOutSignIn": "Entrar",
-    "manageInAppStore": "Gerenciar na App Store"
+    "manageInAppStore": "Gerenciar na App Store",
+    "billingPeriod": "Período de cobrança",
+    "monthly": "Mensal",
+    "annual": "Anual",
+    "perMonthBilledYearly": "/mês, cobrado anualmente",
+    "perUserMonthBilledYearly": "/usuário/mês, cobrado anualmente",
+    "saveAnnual": "Economize {discount}%",
+    "annualComparePrice": "${monthly}/mês",
+    "teamMonthlyComparePrice": "${monthly}/usuário/mês",
+    "teamAnnualComparePrice": "${monthly}/usuário/mês",
+    "pro": {
+      "annual": {
+        "yearly": "Anual"
+      }
+    },
+    "max": {
+      "annual": {
+        "yearly": "Anual"
+      }
+    }
   },
   "platforms": {
     "macos": "macOS",

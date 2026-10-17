@@ -5288,7 +5288,26 @@
     "billingUnavailable": "La facturation n'est pas disponible pour le moment. Réessayez plus tard.",
     "signedOutNotice": "Vous n'êtes pas connecté. Connectez-vous pour voir votre forfait actuel ou restaurer un achat existant.",
     "signedOutSignIn": "Se connecter",
-    "manageInAppStore": "Gérer dans l’App Store"
+    "manageInAppStore": "Gérer dans l’App Store",
+    "billingPeriod": "Période de facturation",
+    "monthly": "Mensuel",
+    "annual": "Annuel",
+    "perMonthBilledYearly": "/mois, facturé annuellement",
+    "perUserMonthBilledYearly": "/utilisateur/mois, facturé annuellement",
+    "saveAnnual": "Économisez {discount} %",
+    "annualComparePrice": "${monthly}/mois",
+    "teamMonthlyComparePrice": "${monthly}/utilisateur/mois",
+    "teamAnnualComparePrice": "${monthly}/utilisateur/mois",
+    "pro": {
+      "annual": {
+        "yearly": "Annuel"
+      }
+    },
+    "max": {
+      "annual": {
+        "yearly": "Annuel"
+      }
+    }
   },
   "platforms": {
     "macos": "macOS",

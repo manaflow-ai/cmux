@@ -41,7 +41,10 @@ import {
   type CompareRow,
   type FaqItem,
 } from "../components/pricing-shared";
-import { PricingCheckoutButton } from "../components/pricing-checkout";
+import {
+  PricingCheckoutButton,
+  PricingIntervalSelector,
+} from "../components/pricing-checkout";
 import { ProPlanCard } from "../components/pro-plan-card";
 import {
   MAX_PRICING_USD,
@@ -415,6 +418,16 @@ export function AppPricingContent({
             <h1 className="text-2xl font-medium tracking-tight">
               {pricing.title}
             </h1>
+
+            <PricingIntervalSelector
+              billingPeriodLabel={pricing.billingPeriod}
+              monthlyLabel={pricing.monthly}
+              annualLabel={pricing.annual}
+              savingsLabel={pricingMessage(pricing.saveAnnual, {
+                discount: PRO_PRICING_USD.year.discountPercent,
+              })}
+              surface="app_pricing"
+            />
 
             <PricingAudienceSelector
               individualLabel={pricing.audience.individual}

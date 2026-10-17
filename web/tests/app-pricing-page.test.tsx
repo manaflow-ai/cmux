@@ -234,11 +234,14 @@ describe("app pricing page", () => {
     const html = (await renderSettled(element));
 
     expect(html).toContain("$45.83");
+    expect(html).toContain("$1,920");
     const annualProPrice = html.indexOf("$45.83");
     expect(html.slice(annualProPrice, annualProPrice + 240)).toContain("/mo, billed annually");
     expect(html).toContain("$60");
     expect(html).toContain("/mo, billed annually");
     expect(html).toContain("/user/mo, billed annually");
+    expect(html).toContain('name="pricing-interval-app_pricing"');
+    expect(html).toContain('value="year"');
     expect(html).toContain('role="tablist"');
     expect(html).not.toContain("$24");
     expect(html).not.toContain("$28");
@@ -273,6 +276,9 @@ describe("app pricing page", () => {
     expect(html).toContain("$50");
     expect(html).toContain("$60");
     expect(html).toMatch(/interval(=|%3D|%253D)month/);
+    expect(html).toContain('name="pricing-interval-app_pricing"');
+    expect(html).toContain('value="month"');
+    expect(html).toContain('value="year"');
     expect(html).not.toMatch(/plan%253Dgo[^"]*interval%253Dyear/);
   });
 

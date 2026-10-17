@@ -5283,7 +5283,26 @@
     "billingUnavailable": "지금은 결제를 사용할 수 없습니다. 나중에 다시 시도해 주세요.",
     "signedOutNotice": "로그인되어 있지 않습니다. 로그인하여 현재 요금제를 확인하거나 기존 구매를 복원하세요.",
     "signedOutSignIn": "로그인",
-    "manageInAppStore": "App Store에서 관리"
+    "manageInAppStore": "App Store에서 관리",
+    "billingPeriod": "청구 주기",
+    "monthly": "월간",
+    "annual": "연간",
+    "perMonthBilledYearly": "/월, 연간 청구",
+    "perUserMonthBilledYearly": "/사용자/월, 연간 청구",
+    "saveAnnual": "{discount}% 절약",
+    "annualComparePrice": "${monthly}/월",
+    "teamMonthlyComparePrice": "${monthly}/사용자/월",
+    "teamAnnualComparePrice": "${monthly}/사용자/월",
+    "pro": {
+      "annual": {
+        "yearly": "연간"
+      }
+    },
+    "max": {
+      "annual": {
+        "yearly": "연간"
+      }
+    }
   },
   "platforms": {
     "macos": "macOS",

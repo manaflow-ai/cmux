@@ -5291,7 +5291,26 @@
     "billingUnavailable": "การเรียกเก็บเงินยังไม่พร้อมใช้งานในตอนนี้ โปรดลองอีกครั้งภายหลัง",
     "signedOutNotice": "คุณยังไม่ได้ลงชื่อเข้าใช้ ลงชื่อเข้าใช้เพื่อดูแผนปัจจุบันหรือกู้คืนการซื้อที่มีอยู่",
     "signedOutSignIn": "ลงชื่อเข้าใช้",
-    "manageInAppStore": "จัดการใน App Store"
+    "manageInAppStore": "จัดการใน App Store",
+    "billingPeriod": "รอบการเรียกเก็บเงิน",
+    "monthly": "รายเดือน",
+    "annual": "รายปี",
+    "perMonthBilledYearly": "/เดือน เรียกเก็บรายปี",
+    "perUserMonthBilledYearly": "/ผู้ใช้/เดือน เรียกเก็บรายปี",
+    "saveAnnual": "ประหยัด {discount}%",
+    "annualComparePrice": "${monthly}/เดือน",
+    "teamMonthlyComparePrice": "${monthly}/ผู้ใช้/เดือน",
+    "teamAnnualComparePrice": "${monthly}/ผู้ใช้/เดือน",
+    "pro": {
+      "annual": {
+        "yearly": "รายปี"
+      }
+    },
+    "max": {
+      "annual": {
+        "yearly": "รายปี"
+      }
+    }
   },
   "platforms": {
     "macos": "macOS",

@@ -5283,7 +5283,26 @@
     "billingUnavailable": "الفوترة غير متاحة الآن. يُرجى المحاولة مرة أخرى لاحقًا.",
     "signedOutNotice": "لم تسجّل الدخول. سجّل الدخول لعرض خطتك الحالية أو استعادة عملية شراء سابقة.",
     "signedOutSignIn": "تسجيل الدخول",
-    "manageInAppStore": "الإدارة في App Store"
+    "manageInAppStore": "الإدارة في App Store",
+    "billingPeriod": "فترة الفوترة",
+    "monthly": "شهريًا",
+    "annual": "سنويًا",
+    "perMonthBilledYearly": "/شهريًا، تُدفع سنويًا",
+    "perUserMonthBilledYearly": "/مستخدم/شهريًا، تُدفع سنويًا",
+    "saveAnnual": "وفّر {discount}%",
+    "annualComparePrice": "${monthly}/شهريًا",
+    "teamMonthlyComparePrice": "${monthly}/مستخدم/شهريًا",
+    "teamAnnualComparePrice": "${monthly}/مستخدم/شهريًا",
+    "pro": {
+      "annual": {
+        "yearly": "سنويًا"
+      }
+    },
+    "max": {
+      "annual": {
+        "yearly": "سنويًا"
+      }
+    }
   },
   "platforms": {
     "macos": "macOS",

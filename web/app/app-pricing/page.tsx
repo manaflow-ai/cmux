@@ -26,13 +26,10 @@ export default async function AppPricingPage({
 }: {
   searchParams: Promise<PricingQuery>;
 }) {
-  const initialInterval = billingInterval(firstParam((await searchParams).interval));
   return (
-    <PricingView surface="app_pricing" interval={initialInterval}>
-      <Suspense fallback={<AppPricingFallback />}>
-        <RequestPricing searchParams={searchParams} />
-      </Suspense>
-    </PricingView>
+    <Suspense fallback={<AppPricingFallback />}>
+      <RequestPricing searchParams={searchParams} />
+    </Suspense>
   );
 }
 
@@ -54,6 +51,7 @@ async function RequestPricing({
     goPlanEnabled: false,
     pending: true,
   };
+  const initialInterval = billingInterval(firstParam(params.interval));
   const personalize = (
     section: "individual" | "team" | "comparison" | "banner",
   ) => (
@@ -66,17 +64,19 @@ async function RequestPricing({
     </Suspense>
   );
   return (
-    <PricingIntervalProvider initialInterval={billingInterval(firstParam(params.interval))}>
-      <AppPricingContent
-        {...fallback}
-        personalization={{
-          individual: personalize("individual"),
-          team: personalize("team"),
-          comparison: personalize("comparison"),
-          banner: personalize("banner"),
-        }}
-      />
-    </PricingIntervalProvider>
+    <PricingView surface="app_pricing" interval={initialInterval}>
+      <PricingIntervalProvider initialInterval={initialInterval}>
+        <AppPricingContent
+          {...fallback}
+          personalization={{
+            individual: personalize("individual"),
+            team: personalize("team"),
+            comparison: personalize("comparison"),
+            banner: personalize("banner"),
+          }}
+        />
+      </PricingIntervalProvider>
+    </PricingView>
   );
 }
 

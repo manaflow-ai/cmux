@@ -95,6 +95,7 @@ describe("client config env validation", () => {
       ["STRIPE_PRO_YEARLY_288_PRICE_ID", "STRIPE_PRO_YEARLY_550_PRICE_ID"],
       ["STRIPE_TEAM_MONTHLY_PRICE_ID", "STRIPE_TEAM_MONTHLY_60_PRICE_ID"],
       ["STRIPE_TEAM_YEARLY_PRICE_ID", "STRIPE_TEAM_YEARLY_660_PRICE_ID"],
+      ["STRIPE_TEAM_YEARLY_576_PRICE_ID", "STRIPE_TEAM_YEARLY_660_PRICE_ID"],
     ] as const;
     for (const [name, replacement] of retired) {
       const result = await importEnv({

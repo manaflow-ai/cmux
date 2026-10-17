@@ -2,14 +2,11 @@
 
 import {
   createContext,
-  useCallback,
   useContext,
   useEffect,
   useRef,
   useState,
-  type KeyboardEvent,
   type ReactNode,
-  type Ref,
 } from "react";
 import { posthog } from "../lib/posthog-client";
 import {
@@ -77,80 +74,48 @@ export function PricingIntervalSelector({
   const context = usePricingIntervalContext();
   const interval = context?.interval ?? "month";
   const setPricingInterval = context?.setInterval;
-  const monthlyButton = useRef<HTMLButtonElement>(null);
-  const annualButton = useRef<HTMLButtonElement>(null);
-  const selectInterval = useCallback((nextInterval: BillingInterval) => {
+  const selectInterval = (nextInterval: BillingInterval) => {
     setPricingInterval?.(nextInterval);
     capturePricingEvent("cmuxterm_pricing_interval_selected", nextInterval, surface);
-  }, [setPricingInterval, surface]);
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    let nextInterval: BillingInterval | null = null;
-    if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
-      nextInterval = interval === "month" ? "year" : "month";
-    } else if (event.key === "Home") {
-      nextInterval = "month";
-    } else if (event.key === "End") {
-      nextInterval = "year";
-    }
-    if (!nextInterval) return;
-    event.preventDefault();
-    selectInterval(nextInterval);
-    (nextInterval === "month" ? monthlyButton : annualButton).current?.focus();
   };
 
   return (
-    <div
-      className="mx-auto mt-6 flex w-fit border border-border p-1 text-sm"
-      role="radiogroup"
-      aria-label={billingPeriodLabel}
-      onKeyDown={handleKeyDown}
-    >
-      <IntervalButton
-        buttonRef={monthlyButton}
-        selected={interval === "month"}
-        onSelect={() => selectInterval("month")}
+    <fieldset className="mx-auto mt-6 flex w-fit border border-border p-1 text-sm">
+      <legend className="sr-only">{billingPeriodLabel}</legend>
+      <label
+        className={interval === "month"
+          ? "cursor-pointer bg-foreground px-3 py-1.5 font-medium text-background"
+          : "cursor-pointer px-3 py-1.5 text-muted transition-colors hover:text-foreground"}
       >
+        <input
+          className="peer sr-only"
+          type="radio"
+          name={`pricing-interval-${surface}`}
+          value="month"
+          checked={interval === "month"}
+          onChange={() => selectInterval("month")}
+        />
         {monthlyLabel}
-      </IntervalButton>
-      <IntervalButton
-        buttonRef={annualButton}
-        selected={interval === "year"}
-        onSelect={() => selectInterval("year")}
+      </label>
+      <label
+        className={interval === "year"
+          ? "cursor-pointer bg-foreground px-3 py-1.5 font-medium text-background"
+          : "cursor-pointer px-3 py-1.5 text-muted transition-colors hover:text-foreground"}
       >
+        <input
+          className="peer sr-only"
+          type="radio"
+          name={`pricing-interval-${surface}`}
+          value="year"
+          checked={interval === "year"}
+          onChange={() => selectInterval("year")}
+        />
         {annualLabel}
         <span className="ml-1.5 text-xs font-medium text-[var(--cmux-product-blue-on-background,var(--cmux-product-blue,#0088ff))]">
           {savingsLabel}
         </span>
-      </IntervalButton>
-    </div>
-  );
-}
-
-function IntervalButton({
-  buttonRef,
-  selected,
-  onSelect,
-  children,
-}: {
-  buttonRef: Ref<HTMLButtonElement>;
-  selected: boolean;
-  onSelect: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      ref={buttonRef}
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      tabIndex={selected ? 0 : -1}
-      onClick={onSelect}
-      className={selected
-        ? "bg-foreground px-3 py-1.5 font-medium text-background"
-        : "px-3 py-1.5 text-muted transition-colors hover:text-foreground"}
-    >
-      {children}
-    </button>
+      </label>
+    </fieldset>
   );
 }
 
@@ -201,7 +166,7 @@ function planPrice(plan: PricingPlan, interval: BillingInterval) {
     return TEAM_PRICING_USD[interval];
   }
   if (plan === "max") {
-    return MAX_PRICING_USD.month;
+    return MAX_PRICING_USD[interval];
   }
   return GO_PRICING_USD.month;
 }
@@ -255,7 +220,7 @@ export function PricingCheckoutButton({
           posthog.capture("cmuxterm_pricing_sign_in_required", {
             plan,
             location,
-            interval: plan === "pro" || plan === "team" ? selectedInterval : "month",
+            interval: plan === "go" ? "month" : selectedInterval,
             currency: "usd",
             billed_amount_usd: pricing.billedAmount,
           });
@@ -268,7 +233,7 @@ export function PricingCheckoutButton({
           plan,
           checkout: !requiresSignIn,
           auth_required: requiresSignIn,
-          interval: plan === "pro" || plan === "team" ? selectedInterval : "month",
+          interval: plan === "go" ? "month" : selectedInterval,
           currency: "usd",
           billed_amount_usd: pricing.billedAmount,
           monthly_equivalent_usd: pricing.monthlyEquivalent,
