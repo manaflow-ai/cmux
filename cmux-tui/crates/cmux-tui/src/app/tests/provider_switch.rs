@@ -15,6 +15,10 @@ fn switching_away_from_a_dead_machine_keeps_interstitial_and_input_safe() {
                 name: "maple".into(),
                 subtitle: "freestyle · paused".into(),
                 status: MachineStatus::Sleeping,
+                platform: None,
+                capabilities: Vec::new(),
+                platform: None,
+                capabilities: Vec::new(),
             },
             MachineDescriptor {
                 key: MachineKey(10),
@@ -22,6 +26,10 @@ fn switching_away_from_a_dead_machine_keeps_interstitial_and_input_safe() {
                 name: "oak".into(),
                 subtitle: "freestyle".into(),
                 status: MachineStatus::Running,
+                platform: None,
+                capabilities: Vec::new(),
+                platform: None,
+                capabilities: Vec::new(),
             },
         ],
         active: Some(MachineKey(9)),
@@ -62,6 +70,10 @@ fn keystrokes_never_reach_the_old_machine_during_a_warm_switch() {
                 name: "maple".into(),
                 subtitle: "freestyle".into(),
                 status: MachineStatus::Running,
+                platform: None,
+                capabilities: Vec::new(),
+                platform: None,
+                capabilities: Vec::new(),
             },
             MachineDescriptor {
                 key: MachineKey(10),
@@ -69,6 +81,10 @@ fn keystrokes_never_reach_the_old_machine_during_a_warm_switch() {
                 name: "oak".into(),
                 subtitle: "freestyle".into(),
                 status: MachineStatus::Running,
+                platform: None,
+                capabilities: Vec::new(),
+                platform: None,
+                capabilities: Vec::new(),
             },
         ],
         active: Some(MachineKey(9)),
@@ -99,6 +115,10 @@ fn progress_for_a_stale_ready_target_reveals_the_reconnect() {
                 name: "maple".into(),
                 subtitle: "freestyle".into(),
                 status: MachineStatus::Running,
+                platform: None,
+                capabilities: Vec::new(),
+                platform: None,
+                capabilities: Vec::new(),
             },
             MachineDescriptor {
                 key: MachineKey(10),
@@ -106,6 +126,10 @@ fn progress_for_a_stale_ready_target_reveals_the_reconnect() {
                 name: "oak".into(),
                 subtitle: "freestyle".into(),
                 status: MachineStatus::Running,
+                platform: None,
+                capabilities: Vec::new(),
+                platform: None,
+                capabilities: Vec::new(),
             },
         ],
         active: Some(MachineKey(9)),
@@ -140,6 +164,8 @@ fn deleting_the_presented_machine_switches_to_the_next_available_one() {
         name: name.into(),
         subtitle: String::new(),
         status: MachineStatus::Running,
+        platform: None,
+        capabilities: Vec::new(),
     };
     app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
         machines: vec![descriptor(1, "ash"), descriptor(2, "birch"), descriptor(3, "cedar")],
@@ -288,12 +314,16 @@ fn soft_deleting_the_presented_machine_switches_to_the_next_usable_one() {
         name: name.into(),
         subtitle: String::new(),
         status: MachineStatus::Running,
+        platform: None,
+        capabilities: Vec::new(),
     };
     let managed = |key: u64, status: ManagedMachineStatus| ManagedMachineDescriptor {
         key: MachineKey(key),
         id: format!("vm-{key}"),
         name: format!("vm-{key}"),
         status,
+        platform: None,
+        capabilities: Vec::new(),
         version: 1,
         recoverable_until: None,
         capabilities: ManagedMachineCapabilities {
@@ -347,6 +377,8 @@ fn deleting_a_switch_target_falls_back_to_the_still_usable_presented_machine() {
         name: name.into(),
         subtitle: String::new(),
         status: MachineStatus::Running,
+        platform: None,
+        capabilities: Vec::new(),
     };
     app.machine_ui = Some(MachineUiState::new(MachineSnapshot {
         machines: vec![descriptor(1, "ash"), descriptor(2, "cedar")],
@@ -386,6 +418,8 @@ fn deleting_the_presented_machine_behind_a_queued_request_gates_input_then_fails
         name: name.into(),
         subtitle: String::new(),
         status: MachineStatus::Running,
+        platform: None,
+        capabilities: Vec::new(),
     };
     let snapshot = || MachineSnapshot {
         machines: vec![descriptor(1, "ash"), descriptor(2, "cedar")],
@@ -397,6 +431,8 @@ fn deleting_the_presented_machine_behind_a_queued_request_gates_input_then_fails
         id: "vm-2".into(),
         name: "vm-2".into(),
         status: ManagedMachineStatus::Recoverable,
+        platform: None,
+        capabilities: Vec::new(),
         version: 1,
         recoverable_until: None,
         capabilities: ManagedMachineCapabilities {
@@ -450,6 +486,8 @@ fn deleting_presented_machine_retries_failover_after_failed_switch() {
         name: format!("vm-{key}"),
         subtitle: String::new(),
         status: MachineStatus::Running,
+        platform: None,
+        capabilities: Vec::new(),
     };
     let mut app = test_app(Session::Local(mux));
     let mut previous = MachineUiState::new(MachineSnapshot {
@@ -486,6 +524,10 @@ fn machine_keyboard_switch_returns_focus_to_pane() {
                 name: "active".into(),
                 subtitle: "local".into(),
                 status: MachineStatus::Running,
+                platform: None,
+                capabilities: Vec::new(),
+                platform: None,
+                capabilities: Vec::new(),
             },
             MachineDescriptor {
                 key: MachineKey(42),
@@ -493,6 +535,10 @@ fn machine_keyboard_switch_returns_focus_to_pane() {
                 name: "remote".into(),
                 subtitle: "ssh".into(),
                 status: MachineStatus::Running,
+                platform: None,
+                capabilities: Vec::new(),
+                platform: None,
+                capabilities: Vec::new(),
             },
         ],
         active: Some(MachineKey(41)),
@@ -525,6 +571,10 @@ fn machine_switch_is_requested_on_mouse_down() {
                 name: "active".into(),
                 subtitle: "local".into(),
                 status: MachineStatus::Running,
+                platform: None,
+                capabilities: Vec::new(),
+                platform: None,
+                capabilities: Vec::new(),
             },
             MachineDescriptor {
                 key: MachineKey(42),
@@ -532,6 +582,10 @@ fn machine_switch_is_requested_on_mouse_down() {
                 name: "remote".into(),
                 subtitle: "ssh".into(),
                 status: MachineStatus::Running,
+                platform: None,
+                capabilities: Vec::new(),
+                platform: None,
+                capabilities: Vec::new(),
             },
         ],
         active: Some(MachineKey(41)),
