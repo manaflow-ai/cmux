@@ -49,7 +49,12 @@ export interface AcpmuxRequests {
   "_acpmux/info": { params: unknown; result: unknown };
   "_acpmux/events": { params: unknown; result: unknown };
   "_acpmux/attachment": { params: unknown; result: unknown };
+  "_acpmux/mail/send": { params: unknown; result: unknown };
+  "_acpmux/mail/read": { params: unknown; result: unknown };
+  "_acpmux/mail/wait": { params: unknown; result: unknown };
+  "_acpmux/mail/ack": { params: unknown; result: unknown };
   "_acpmux/history": { params: unknown; result: unknown };
+  "_acpmux/complete": { params: unknown; result: unknown };
   "_acpmux/wait": { params: unknown; result: unknown };
   "_acpmux/ask": { params: unknown; result: unknown };
   "_acpmux/warm": { params: unknown; result: unknown };
@@ -216,7 +221,12 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/info", kind: "request", acp: false, typed: false },
   { name: "_acpmux/events", kind: "request", acp: false, typed: false },
   { name: "_acpmux/attachment", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mail/send", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mail/read", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mail/wait", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mail/ack", kind: "request", acp: false, typed: false },
   { name: "_acpmux/history", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/complete", kind: "request", acp: false, typed: false },
   { name: "_acpmux/wait", kind: "request", acp: false, typed: false },
   { name: "_acpmux/ask", kind: "request", acp: false, typed: false },
   { name: "_acpmux/warm", kind: "request", acp: false, typed: false },
