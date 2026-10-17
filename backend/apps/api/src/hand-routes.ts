@@ -25,7 +25,8 @@ import { chiefOwnedBy } from "./chief-brain/brain-io.ts"
  *   GET    /v1/hands/<hand>/events?session=&after_seq=&wait_ms=   the person: agent events (waits up to 30 s for the next)
  *   POST   /v1/hands/<hand>/level-challenge          the person: a single-use nonce for raising the level
  *   PUT    /v1/hands/<hand>/level                    the person: {level, install?, nonce?, signature?}; raising needs the app proof
- *   PUT    /v1/hands/presence-key                    the person: {install, public_jwk, signature}: a Touch ID / Face ID key for raises
+ *   GET    /v1/hands/presence-key?install=I          the person: {gen, thumbprint} that a replacement's current-key signature covers
+ *   PUT    /v1/hands/presence-key                    the person: {install, public_jwk, signature, current_signature?, attestation?, key_id?}: a Touch ID / Face ID key for raises
  *   POST   /v1/hands/defaults/<profile>/challenge    the person: a nonce for raising the default level of new hands
  *   PUT    /v1/hands/defaults/<profile>              the person: {level, ...proof} the default level of new hands
  *   GET    /v1/hands/<hand>/verdicts                 the person: the classifier's verdicts (mac hands), newest first
@@ -113,11 +114,16 @@ export const handleHands = async (request: Request, env: Env, path: string): Pro
   if (path === "/v1/hands") return request.method === "GET" ? reply(await listHands(env, caller)) : fail(405, "method_not_allowed", "GET")
   // The presence key (Touch ID / Face ID) of one of the owner's app installs, signed by its install key (hand-levels.ts).
   if (path === "/v1/hands/presence-key") {
-    if (request.method !== "PUT") return fail(405, "method_not_allowed", "PUT")
+    if (request.method === "GET") {
+      const install = new URL(request.url).searchParams.get("install") ?? ""
+      if (!/^inst_[A-Za-z0-9_-]{1,80}$/.test(install)) return fail(400, "validation.invalid", "?install=<install id>")
+      return reply(await indexStub(env, caller.user).presenceOf(caller, caller.user, install))
+    }
+    if (request.method !== "PUT") return fail(405, "method_not_allowed", "GET or PUT")
     const b = await body(request)
     if (typeof b?.install !== "string" || typeof b.signature !== "string") return fail(400, "validation.invalid", "body is {install, public_jwk, signature, current_signature?, attestation?, key_id?}")
-    // A replacement without the current key's signature may pass on a fresh sign-in: when this session was signed in.
-    const signedInAt = typeof b.current_signature === "string" ? null : await sessionSignedInAt(env, principal)
+    // A replacement may pass on a fresh sign-in (also when a current-key signature is sent and fails): when this session was signed in.
+    const signedInAt = await sessionSignedInAt(env, principal)
     return reply(await indexStub(env, caller.user).registerPresence(caller, caller.user, {
       install: b.install,
       jwk: b.public_jwk,

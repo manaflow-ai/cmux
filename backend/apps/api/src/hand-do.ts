@@ -4,7 +4,7 @@ import { PROVIDERS } from "./hand-providers.ts"
 import { revokeAgentSession } from "./model-gateway/run-token.ts"
 import { classify, requestSummary, type Classified } from "./hand-classify.ts"
 import { createVerdictTable, listVerdicts, recordVerdict } from "./hand-verdicts.ts"
-import { createPresenceEventTable, registerPresence, type PresenceInput } from "./hand-presence.ts"
+import { createPresenceEventTable, presenceState, registerPresence, type PresenceInput } from "./hand-presence.ts"
 import { approvalMessage, checkApproval, checkRaise, createLevelTables, createPresenceTable, presenceKey, defaultLevel, isLevel, issueChallenge, raises, READ_ACTIONS, type Level, type Proof } from "./hand-levels.ts"
 import { createIndexTables, indexDefaultLevel, indexSetDefaultLevel, handName, indexGrants, indexList, indexName, indexPut, indexSetGrant } from "./hand-index.ts"
 import { callerLabel, capJson, isHandAction, PAIR_TTL_MS, sameHex, type AgentEvent, type HandCaller, type HandError, type HandReply, type HandSummary, type Profile, type StoredEvent } from "./hand-wire.ts"
@@ -386,6 +386,12 @@ export class HandDO extends DurableObject<Env> {
 
   async presenceKeyOf(install: string): Promise<JsonWebKey | null> {
     return presenceKey(this.ctx.storage.sql, install)
+  }
+
+  /** The count and current thumbprint a replacement signature covers (hand-presence.ts presenceReplacement). */
+  async presenceOf(caller: HandCaller, owner: string, install: string): Promise<HandReply<{ install: string; gen: number; thumbprint: string | null }>> {
+    if (caller.kind !== "owner" || caller.user !== owner) return refuse("hand.not_found", "no such hand owner")
+    return { ok: true, value: { install, ...presenceState(this.ctx.storage.sql, install) } }
   }
 
   /** A presence key for one of the owner's installs (hand-presence.ts: the first, or a replacement with the current key's signature or a fresh sign-in). */
