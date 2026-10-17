@@ -70,10 +70,16 @@ function groupNode(group: ToolGroup, index: number): ReactNode {
 /// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). In an
 /// ended turn's open "Worked for", a run of two or more entries folds under one summary line
 /// (toolRunSummary.ts); a run that is one group already has its line. A live turn lists each.
-export function shouldFoldToolRun(row: AcpmuxRow, groups: readonly ToolGroup[], items: readonly AcpmuxActivity[]): boolean {
+export function shouldFoldToolRun(
+  row: AcpmuxRow,
+  groups: readonly ToolGroup[],
+  items: readonly AcpmuxActivity[],
+): boolean {
   // Coordination cards stay visible beside tool calls so a settled run never hides the
   // agent-to-agent receipt inside the generic tool summary.
-  return row.settled === true && groups.length > 1 && !groups.some((group) => group.type === "message") && isFoldedRun(items);
+  return (
+    row.settled === true && groups.length > 1 && !groups.some((group) => group.type === "message") && isFoldedRun(items)
+  );
 }
 
 export function ToolRows({ row }: { row: AcpmuxRow }) {

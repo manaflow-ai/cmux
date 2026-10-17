@@ -145,7 +145,9 @@ test("a New Tab does not show chat-only placeholder controls while its harness s
       root.render(
         <QueryClientProvider client={new QueryClient()}>
           <NewTabScreen
-            snapshot={noChat([], { summary: { sessionId: "", turnCount: 0, harness: "claude", model: "default" } as never })}
+            snapshot={noChat([], {
+              summary: { sessionId: "", turnCount: 0, harness: "claude", model: "default" } as never,
+            })}
             lastAgent="claude"
             cwd="/Users/you/src/app"
             chips={NewTabComposerChips}

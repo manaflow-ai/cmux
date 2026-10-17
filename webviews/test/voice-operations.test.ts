@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { PROMPT_AUDIO_OP, REALTIME_VOICE_OPS, servesOperation, servesRealtimeVoice } from "../src/agent-session/acpmux/operations";
+import {
+  PROMPT_AUDIO_OP,
+  REALTIME_VOICE_OPS,
+  servesOperation,
+  servesRealtimeVoice,
+} from "../src/agent-session/acpmux/operations";
 
 const initialize = (operations: string[]) => ({ _meta: { acpmux: { operations } } });
 

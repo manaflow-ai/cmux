@@ -122,7 +122,5 @@ test("the new tab exposes its project and machine context above the prompt", asy
     "nt-machine-chip",
   ]);
   expect(top.querySelector(".nt-machine-chip")?.textContent?.trim()).toBe("This Mac");
-  expect(top.compareDocumentPosition(host.querySelector(".nt-input")!) ?? 0).toBe(
-    Node.DOCUMENT_POSITION_FOLLOWING,
-  );
+  expect(top.compareDocumentPosition(host.querySelector(".nt-input")!) ?? 0).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 });

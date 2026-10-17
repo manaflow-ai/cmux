@@ -520,7 +520,7 @@ export function NewTabScreen(props: Props) {
             // A New Tab chat starts where the page runs (screenActions onAsk sends no peer): the
             // row lists only this machine's chats, so its Computer menu offers no other.
             sessions={localSessions}
-            {...(props.machineName ?? props.host ? { localName: props.machineName ?? props.host } : {})}
+            {...((props.machineName ?? props.host) ? { localName: props.machineName ?? props.host } : {})}
             projectChoices={props.projects ?? []}
             onProject={(cwd) => pickProject(cwd)}
             {...(browseProject ? { onBrowseProject: browseProject } : {})}
