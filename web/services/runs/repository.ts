@@ -720,3 +720,8 @@ export async function waitForRun(runId: string, userId: string, waitMs = 0): Pro
   }
 }
 
+// Promotion idempotency is persisted against the existing terminal attempt
+// row; this re-export keeps the Run repository as the composition entrypoint
+// without coupling its worker methods to the promotion route.
+export { createRunAttemptPromotionStore } from "./promotionRepository";
+

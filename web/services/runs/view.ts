@@ -33,7 +33,7 @@ export type RunViewOptions = {
   readonly checkedAt?: Date | string;
 };
 
-const REDACTED_KEY = /^(?:leaseToken|cleanupLeaseToken|attachTicketHash|providerMetadata|providerVmId|providerWorkspaceId|providerTerminalId)$/i;
+const REDACTED_KEY = /^(?:leaseToken|cleanupLeaseToken|attachTicketHash|providerMetadata|providerVmId|providerWorkspaceId|providerTerminalId|_cmuxPromotion)$/i;
 const SENSITIVE_KEY = /(?:credential|password|secret|authorization|cookie|dsn|api[_-]?key|access[_-]?token|refresh[_-]?token)/i;
 
 function iso(value: Date | string | null | undefined): string | null {
