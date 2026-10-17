@@ -126,4 +126,64 @@ describe("cloud Run terminal retention and cancellation", () => {
       await removeRuns(userId);
     }
   });
+
+  dbTest("does not let a stale worker overwrite a replacement lease's retained terminal", async () => {
+    const userId = `stale-retention-${randomUUID()}`;
+    try {
+      const created = await repo().createRun(input(userId));
+      const attempt = created.attempts[0];
+      if (!attempt) throw new Error("run did not create an attempt");
+      const first = await repo().claimAttemptLease({ runId: created.run.id, attemptId: attempt.id, workerId: "stale-worker" });
+      await repo().recordAttemptProviderHandle({
+        runId: created.run.id,
+        attemptId: attempt.id,
+        leaseToken: first.leaseToken,
+        leaseGeneration: first.leaseGeneration,
+        providerVmId: "vm-stale",
+        providerWorkspaceId: "workspace-stale",
+        providerTerminalId: "terminal-stale",
+      });
+      await sql!`update run_attempts set lease_expires_at = now() - interval '1 second' where id = ${attempt.id}`;
+      const replacement = await repo().claimAttemptLease({ runId: created.run.id, attemptId: attempt.id, workerId: "replacement-worker" });
+      await repo().recordAttemptProviderHandle({
+        runId: created.run.id,
+        attemptId: attempt.id,
+        leaseToken: replacement.leaseToken,
+        leaseGeneration: replacement.leaseGeneration,
+        providerVmId: "vm-replacement",
+        providerWorkspaceId: "workspace-replacement",
+        providerTerminalId: "terminal-replacement",
+      });
+      await repo().ingestRunEvent({
+        runId: created.run.id,
+        attemptId: attempt.id,
+        leaseToken: replacement.leaseToken,
+        leaseGeneration: replacement.leaseGeneration,
+        externalId: "replacement-succeeded",
+        attemptSequence: 1,
+        kind: "attempt.succeeded",
+        payload: { providerVmId: "vm-replacement" },
+      });
+      const before = (await repo().getRun(created.run.id, userId)).attempts[0];
+      if (!before?.terminalRetainUntil) throw new Error("replacement retention was not scheduled");
+
+      const staleRetention = {
+        runId: created.run.id,
+        attemptId: attempt.id,
+        providerVmId: "vm-stale",
+        leaseToken: first.leaseToken,
+        leaseGeneration: first.leaseGeneration,
+        retentionMs: 60 * 60 * 1000,
+      };
+      await expect(repo().scheduleAttemptRetention(staleRetention as Parameters<RunRepository["scheduleAttemptRetention"]>[0])).rejects.toBeInstanceOf(repo().RunLeaseConflictError);
+
+      const after = (await repo().getRun(created.run.id, userId)).attempts[0];
+      expect(after?.providerVmId).toBe("vm-replacement");
+      expect(after?.providerWorkspaceId).toBe("workspace-replacement");
+      expect(after?.providerTerminalId).toBe("terminal-replacement");
+      expect(after?.terminalRetainUntil?.getTime()).toBe(before.terminalRetainUntil.getTime());
+    } finally {
+      await removeRuns(userId);
+    }
+  });
 });
