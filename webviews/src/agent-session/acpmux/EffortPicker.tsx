@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
@@ -121,7 +121,9 @@ export function EffortPicker({
     <span className="acpmux-picker acpmux-effort">
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-picker-button" label={t("effort.title")} data-menu={label} aria-haspopup="menu">
-          <span className="acpmux-effort-bolt" aria-hidden="true">⚡</span>
+          <svg className="acpmux-effort-bolt" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M13.4 2 4.7 13h5.8L9.8 22l9.5-12.1h-5.9L13.4 2Z" />
+          </svg>
           <span>{fast ? `${level} ${t("picker.chipFast")}` : level}</span>
           {chevron}
         </MenuButton>
@@ -218,7 +220,6 @@ function ReasoningSlider({
   onPick(value: string): void;
   onClose(): void;
 }) {
-  const titleId = useId();
   // The host echoes `current` back after a pick, so the click that ends a drag (or a second Enter)
   // must not resend the level that was just sent.
   const sent = useRef<string | undefined>(undefined);
@@ -261,7 +262,6 @@ function ReasoningSlider({
     // A group (a fieldset), as the list's MenuGroup is: the menu holds groups, rows and separators.
     <fieldset className="acpmux-effort-slider" aria-label={title}>
       <div className="acpmux-effort-slider-head">
-        <span id={titleId} className="visually-hidden">{title}</span>
         {/* tooltip-allow: the slider row shows only the level's name; the tooltip is its description */}
         <span className="acpmux-effort-slider-level" title={shown?.description}>
           {shown?.name}
