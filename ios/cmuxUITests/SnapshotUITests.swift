@@ -182,11 +182,13 @@ final class AgentChatModeUITests: XCTestCase {
         claude.tap()
         XCTAssertTrue(app.otherElements["MobileAgentConversation"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts["Claude wants to run"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.buttons["Allow once"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.buttons["Local development"].waitForExistence(timeout: 8))
+        let allowOnce = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Allow once")).firstMatch
+        XCTAssertTrue(allowOnce.waitForExistence(timeout: 8))
+        let localDevelopment = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Local development")).firstMatch
+        XCTAssertTrue(localDevelopment.waitForExistence(timeout: 8))
         XCTAssertTrue(app.otherElements["MobileAgentComposer"].exists)
 
-        app.buttons["Allow once"].tap()
+        allowOnce.tap()
         XCTAssertTrue(app.staticTexts["Allowed once"].waitForExistence(timeout: 5))
 
         let sessionsButton = app.buttons["Agent sessions"]
