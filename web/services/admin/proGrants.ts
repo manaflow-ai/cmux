@@ -39,6 +39,10 @@ import {
   type ProMetadataJson,
   type StripeBillingStatus,
 } from "../billing/pro";
+import {
+  makeFounderPurchaseStore,
+  type FounderPurchaseStore,
+} from "../billing/founderRevocation";
 
 export const ADMIN_GRANTABLE_PLAN_IDS = [PRO_PLAN_ID, MAX_PLAN_ID, FOUNDERS_PLAN_ID] as const;
 export type AdminGrantablePlanId = (typeof ADMIN_GRANTABLE_PLAN_IDS)[number];
@@ -100,6 +104,8 @@ export type AdminTeamRow = {
     readonly subscriptionStatus: string | null;
     readonly cancelAtPeriodEnd: boolean;
     readonly hasActiveSubscription: boolean;
+    readonly hasRecurringSubscription: boolean;
+    readonly hasFounderEntitlement: boolean;
   };
   readonly lastGrant: AdminPlanGrantRecord | null;
 };
@@ -137,6 +143,8 @@ export type AdminUserRow = {
     readonly subscriptionStatus: string | null;
     readonly cancelAtPeriodEnd: boolean;
     readonly hasActiveSubscription: boolean;
+    readonly hasRecurringSubscription: boolean;
+    readonly hasFounderEntitlement: boolean;
   };
   readonly lastGrant: AdminPlanGrantRecord | null;
 };
@@ -216,6 +224,8 @@ export function adminUserRow(
       subscriptionStatus: stripe.subscriptionStatus,
       cancelAtPeriodEnd: stripe.cancelAtPeriodEnd,
       hasActiveSubscription: stripe.hasActiveSubscription,
+      hasRecurringSubscription: stripe.hasRecurringSubscription === true,
+      hasFounderEntitlement: stripe.hasFounderEntitlement === true,
     },
     lastGrant: grantRecordFromServerMetadata(user.serverMetadata),
   };
@@ -360,6 +370,96 @@ export async function setManualPlanGrant(
   return adminUserRow(reloaded, await billing(reloaded.id));
 }
 
+export type RevokeFounderPurchaseAccessInput = {
+  readonly targetUserId: string;
+  readonly admin: { readonly id: string; readonly primaryEmail?: string | null };
+  /**
+   * Runs as soon as the Founder rows are revoked and committed, before the
+   * plan mirror is reconciled, so an audit record survives a later failure.
+   * Must not throw.
+   */
+  readonly onFounderPurchasesRevoked?: (rowIds: readonly string[]) => Promise<void>;
+  readonly founderPurchases?: FounderPurchaseStore;
+  readonly now?: () => Date;
+  readonly app?: AdminStackApp;
+  readonly withFreshUser?: FreshAdminUserMutation;
+  readonly stripeBillingStatus?: (userId: string) => Promise<StripeBillingStatus>;
+};
+
+export type RevokeFounderPurchaseAccessResult = {
+  /** Founder rows this call revoked; empty when none was active. */
+  readonly revokedFounderPurchaseIds: readonly string[];
+  /** The reconciled account, or null when the user disappeared. */
+  readonly user: AdminUserRow | null;
+};
+
+/**
+ * Admin "Revoke Founder access". Cancels every active Founder's Edition row
+ * for the user and writes the durable revocation marker, under the
+ * account-mutation lease and the account advisory lock the checkout
+ * recorders take, then reconciles `cmuxPlan` so access drops at once. The
+ * marker stops every recorder replay from re-activating the purchase.
+ *
+ * It does not refund, does not cancel a recurring Stripe or App Store
+ * subscription, does not clear a manual grant, and does not remove the
+ * TestFlight tester. An admin grant of pro or founders restores access.
+ */
+export async function revokeFounderPurchaseAccess(
+  input: RevokeFounderPurchaseAccessInput,
+): Promise<RevokeFounderPurchaseAccessResult> {
+  const app = input.app ?? defaultAdminStackApp();
+  const withFreshUser = input.withFreshUser ?? defaultWithFreshUser(app);
+  const now = input.now ?? (() => new Date());
+  const store = input.founderPurchases ?? makeFounderPurchaseStore();
+  const billing = input.stripeBillingStatus ?? stripeBillingStatusForUser;
+
+  let revokedFounderPurchaseIds: string[];
+  try {
+    revokedFounderPurchaseIds = await withFreshUser(input.targetUserId, async (user, lease) => {
+      if (user.isAnonymous) throw new AdminUserNotFoundError(input.targetUserId);
+      await lease.refresh();
+      const ids = await store.revokeActiveFounderPurchases(user.id, {
+        byUserId: input.admin.id,
+        byEmail: input.admin.primaryEmail ?? null,
+        at: now().toISOString(),
+      });
+      if (ids.length > 0) await input.onFounderPurchasesRevoked?.(ids);
+      // Reconcile `cmuxPlan` under this same lease, so no concurrent
+      // metadata writer can slip in and leave the mirror stale. It also runs
+      // when nothing was revoked, so retrying a revoke that failed after its
+      // rows committed still clears the mirror. Revoking changed only
+      // database rows, so the user loaded under this lease is current.
+      await lease.refresh();
+      await resolveProPlanStatus(user, {
+        stripeBillingStatus: billing,
+        withFreshMetadataUser: async (userId, operation) => {
+          if (userId !== user.id) throw new AccountMetadataUserUnavailableError(userId);
+          return await operation(user, lease);
+        },
+      });
+      return ids;
+    });
+  } catch (error) {
+    throw adminMutationError(error, input.targetUserId);
+  }
+  const reloaded = await app.getUser(input.targetUserId);
+  return {
+    revokedFounderPurchaseIds,
+    user: reloaded ? adminUserRow(reloaded, await billing(reloaded.id)) : null,
+  };
+}
+
+function adminMutationError(error: unknown, userId: string): unknown {
+  if (error instanceof AccountMetadataUserUnavailableError) return new AdminUserNotFoundError(userId);
+  if (
+    error instanceof AccountDeletionMutationBlockedError ||
+    error instanceof AccountDeletionUserMutationInProgressError
+  ) {
+    return new AdminGrantConflictError(userId);
+  }
+  return error;
+}
+
 export function grantRecordFromServerMetadata(raw: unknown): AdminPlanGrantRecord | null {
   const record = metadataRecord(raw).cmuxAdminPlanGrant;
   if (!record || typeof record !== "object" || Array.isArray(record)) return null;
@@ -451,6 +551,8 @@ export function adminTeamRow(
       subscriptionStatus: stripe.subscriptionStatus,
       cancelAtPeriodEnd: stripe.cancelAtPeriodEnd,
       hasActiveSubscription: stripe.hasActiveSubscription,
+      hasRecurringSubscription: stripe.hasRecurringSubscription === true,
+      hasFounderEntitlement: stripe.hasFounderEntitlement === true,
     },
     lastGrant: grantRecordFromServerMetadata(team.serverMetadata),
   };

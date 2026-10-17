@@ -34,6 +34,7 @@ type PaidRecoveryResult =
   | {
       readonly skipped:
         | "account_deletion_in_progress"
+        | "admin_revoked"
         | "no_customer_email";
     };
 

@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 
-import { accountMutationLeases, adminPlanGrants, stripeSubscriptions } from "../db/schema";
+import { accountMutationLeases, adminAuditLog, adminPlanGrants, stripeSubscriptions } from "../db/schema";
 import { withAccountMutationLeaseSupport } from "./helpers/account-mutation-db-mock";
 
 const dbClientModule = await import("../db/client");
@@ -111,9 +113,17 @@ mock.module("../app/lib/stack", () => ({
 // snapshots, kept as plain arrays so route tests can assert on them.
 let pendingGrantRows: Array<Record<string, unknown>> = [];
 let grantsTableMissing = false;
-let subscriptionRows: Array<{ id: string }> = [];
+let subscriptionRows: Array<Record<string, unknown>> = [];
 let subscriptionListRows: Array<Record<string, unknown>> = [];
 let subscriptionUpdates: Array<Record<string, unknown>> = [];
+let auditInserts: Array<Record<string, unknown>> = [];
+const ACTIVE_STATUSES = ["active", "trialing", "past_due"];
+const dialect = new PgDialect();
+
+/** The bound parameters of a drizzle predicate, so updates hit only the rows it names. */
+function predicateParams(condition: unknown): unknown[] {
+  return condition ? dialect.sqlToQuery(condition as SQL).params : [];
+}
 const stripeSubscriptionUpdate = mock(async (id: unknown, params: unknown) => ({
   id,
   cancel_at_period_end: (params as { cancel_at_period_end?: boolean }).cancel_at_period_end,
@@ -136,21 +146,33 @@ function adminDbMock() {
             }),
           }),
           where: () => ({
-            then: (resolve: (rows: unknown[]) => unknown) => Promise.resolve([]).then(resolve),
-            limit: async () => (table === stripeSubscriptions ? [] : []),
-            orderBy: () => ({
+            // Uncapped reads (the Founder store, active personal access).
+            then: (resolve: (rows: unknown[]) => unknown) =>
+              Promise.resolve(
+                table === stripeSubscriptions
+                  ? subscriptionRows.filter((row) => ACTIVE_STATUSES.includes(row.status as string))
+                  : [],
+              ).then(resolve),
+            // The Founder purchase store reads active personal rows here.
+            limit: async () =>
+              table === stripeSubscriptions
+                ? subscriptionRows.filter((row) => ACTIVE_STATUSES.includes(row.status as string))
+                : [],
+              orderBy: () => ({
               limit: async () =>
                 table === adminPlanGrants
                   ? pendingGrantRows.filter((row) => !row.appliedAt && !row.revokedAt)
                   : table === stripeSubscriptions
-                    ? subscriptionRows
+                    ? subscriptionRows.filter((row) => row.status === undefined || ACTIVE_STATUSES.includes(row.status as string))
                     : [],
             }),
           }),
         }),
       }),
       insert: (table: unknown) => ({
-        values: (values: Record<string, unknown>) => ({
+        values: (values: Record<string, unknown>) => {
+          if (table === adminAuditLog) auditInserts.push(values);
+          return {
           returning: async () => {
             if (table !== adminPlanGrants) return [];
             const row = {
@@ -164,11 +186,12 @@ function adminDbMock() {
             pendingGrantRows.push(row);
             return [row];
           },
-        }),
+          };
+        },
       }),
       update: (table: unknown) => ({
         set: (values: Record<string, unknown>) => ({
-          where: () => {
+          where: (condition?: unknown) => {
             const run = async () => {
               if (table === adminPlanGrants) {
                 if (grantsTableMissing) {
@@ -178,7 +201,15 @@ function adminDbMock() {
                 for (const row of hit) Object.assign(row, values);
                 return hit;
               }
-              if (table === stripeSubscriptions) subscriptionUpdates.push(values);
+              if (table === stripeSubscriptions) {
+                subscriptionUpdates.push(values);
+                // Apply the write only to rows whose id the predicate binds,
+                // so a test can prove an unrelated row is left alone.
+                const params = predicateParams(condition);
+                for (const row of subscriptionRows) {
+                  if (params.includes(row.id)) Object.assign(row, values);
+                }
+              }
               return [];
             };
             const promise = run();
@@ -306,6 +337,18 @@ describe("admin users route", () => {
     const response = await GET(getRequest("p"));
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "invalid_query" });
+  });
+
+  test("GET reports a paying team as a recurring subscription, never a Founder entitlement", async () => {
+    subscriptionRows = [{ id: "sub_team", stackTeamId: "t1", scope: "team", plan: "team", status: "active" }];
+    const response = await GET(getRequest("acme"));
+    const body = (await response.json()) as { teams: Array<{ id: string; stripe: Record<string, unknown> }> };
+    expect(body.teams[0]?.id).toBe("t1");
+    expect(body.teams[0]?.stripe).toMatchObject({
+      hasActiveSubscription: true,
+      hasRecurringSubscription: true,
+      hasFounderEntitlement: false,
+    });
   });
 
   test("GET returns matching users, teams, and pending grants for admins", async () => {
@@ -508,6 +551,7 @@ describe("admin subscriptions route", () => {
     currentUser = adminUser();
     subscriptionRows = [{ id: "sub_1" }];
     subscriptionUpdates = [];
+    auditInserts = [];
     stripeSubscriptionUpdate.mockClear();
   });
 
@@ -533,6 +577,88 @@ describe("admin subscriptions route", () => {
     currentUser = stackUser({ id: "user", primaryEmail: "pat@example.com" });
     expect((await POST_SUBSCRIPTIONS(postRequest({ scope: "user", ownerId: "u1", action: "cancel" }, {}, "/api/admin/subscriptions"))).status).toBe(403);
     expect(stripeSubscriptionUpdate).not.toHaveBeenCalled();
+  });
+
+  test("revokes a lifetime Founder entitlement", async () => {
+    directory = [
+      stackUser({
+        id: "u1",
+        primaryEmail: "founder@example.com",
+        clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      }),
+    ];
+    const recurring = {
+      id: "sub_max_recurring",
+      stackUserId: "u1",
+      scope: "user",
+      plan: "max",
+      status: "active",
+      raw: { metadata: { app: "cmux", plan: "max" } },
+    };
+    subscriptionRows = [
+      { ...recurring, raw: { ...recurring.raw, metadata: { ...recurring.raw.metadata } } },
+      {
+        id: "founders_cs_1",
+        stackUserId: "u1",
+        scope: "user",
+        plan: "pro",
+        status: "active",
+        raw: { metadata: { founders_edition: "true" } },
+      },
+    ];
+
+    const response = await POST_SUBSCRIPTIONS(
+      postRequest({ scope: "user", ownerId: "u1", action: "revoke-founder" }, {}, "/api/admin/subscriptions"),
+    );
+
+    expect(response.status).toBe(200);
+    // The paying recurring subscription is untouched; only the Founder row changed.
+    expect(subscriptionRows[0]).toEqual(recurring);
+    expect(subscriptionRows[1]).toMatchObject({ id: "founders_cs_1", status: "canceled" });
+    expect(await response.json()).toEqual({ ok: true, action: "revoke-founder" });
+    expect(subscriptionUpdates).toHaveLength(1);
+    expect(subscriptionUpdates[0]).toMatchObject({ status: "canceled", cancelAtPeriodEnd: false });
+    expect((subscriptionUpdates[0]?.raw as Record<string, unknown>).cmux_admin_revocation).toMatchObject({
+      byUserId: "admin-1",
+      byEmail: "admin@manaflow.ai",
+      previousStatus: "active",
+    });
+    expect(auditInserts.map((row) => row.action)).toEqual(["founders_revoke", "founder_access_revoke"]);
+    expect(auditInserts[0]).toMatchObject({
+      targetKind: "user",
+      targetId: "u1",
+      outcome: "ok",
+      details: { subscriptionIds: ["founders_cs_1"] },
+    });
+  });
+
+  test("revoke-founder answers 404 when no active Founder entitlement remains", async () => {
+    directory = [stackUser({ id: "u1", clientReadOnlyMetadata: { cmuxPlan: "pro" } })];
+    subscriptionRows = [{
+      id: "founders_cs_1",
+      stackUserId: "u1",
+      scope: "user",
+      plan: "pro",
+      status: "canceled",
+      raw: { metadata: { founders_edition: "true" } },
+    }];
+    const response = await POST_SUBSCRIPTIONS(
+      postRequest({ scope: "user", ownerId: "u1", action: "revoke-founder" }, {}, "/api/admin/subscriptions"),
+    );
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "no_founder_entitlement" });
+    expect(subscriptionUpdates).toEqual([]);
+  });
+
+  test("revoke-founder is user-only and admin-only", async () => {
+    expect((await POST_SUBSCRIPTIONS(
+      postRequest({ scope: "team", ownerId: "t1", action: "revoke-founder" }, {}, "/api/admin/subscriptions"),
+    )).status).toBe(400);
+    currentUser = stackUser({ id: "user", primaryEmail: "pat@example.com" });
+    expect((await POST_SUBSCRIPTIONS(
+      postRequest({ scope: "user", ownerId: "u1", action: "revoke-founder" }, {}, "/api/admin/subscriptions"),
+    )).status).toBe(403);
+    expect(subscriptionUpdates).toEqual([]);
   });
 });
 

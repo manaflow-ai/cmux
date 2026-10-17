@@ -39,6 +39,11 @@ import {
   syncTeamPlanMetadata,
 } from "./pro";
 import { MAX_PRICING_USD } from "./plans";
+import {
+  isAdminRevokedPurchase,
+  isAdminRevokedSubscriptionRaw,
+  notAdminRevokedSql,
+} from "./founderRevocation";
 import { stripe } from "./stripe";
 import { isAscConfigured } from "../asc/client";
 import {
@@ -254,6 +259,8 @@ export type DeferredCheckoutCompletionResult = {
 export type FoundersCheckoutCompletionResult =
   | { scope: "user"; stackUserId: string; subscriptionId: string }
   | { skipped: "account_deletion_in_progress"; stackUserId: string; subscriptionId: string }
+  /** An admin revoked this purchase; replays must not restore it. */
+  | { skipped: "admin_revoked"; stackUserId: string; subscriptionId: string }
   | { skipped: "no_customer_email"; subscriptionId: string };
 
 type UserCheckoutPostCommitSync = {
@@ -652,6 +659,8 @@ export async function recordFoundersCheckoutCompletion(
       throw new Error("Stripe Founder's Edition customer ownership conflict");
     }
   }
+  // Every id this purchase can be stored under, for the revocation checks.
+  const purchaseRowIds = founderPurchaseRowIds(input.session, subscription.id);
   const lockedResult = await withAccountDeletionUserLock(
     db,
     user.id,
@@ -675,6 +684,18 @@ export async function recordFoundersCheckoutCompletion(
           postCommit: false,
         };
       }
+      // An admin revoked this purchase. Webhook, success-callback, recovery,
+      // and backfill replays all land here; none may re-activate the row,
+      // move it, or re-grant Pro metadata.
+      const revokedResult = {
+        result: {
+          skipped: "admin_revoked" as const,
+          stackUserId: user.id,
+          subscriptionId: subscription.id,
+        },
+        postCommit: false,
+      };
+      if (await isAdminRevokedPurchase(tx, purchaseRowIds)) return revokedResult;
 
       const mappedCustomer = await stripeCustomerRowForId(tx, customerId);
       let remappedSourceStackUserId: string | undefined;
@@ -715,6 +736,9 @@ export async function recordFoundersCheckoutCompletion(
               eq(stripeSubscriptions.id, subscription.id),
               eq(stripeSubscriptions.scope, "user"),
               isNull(stripeSubscriptions.stackTeamId),
+              // A revoke that commits on the previous owner meanwhile keeps
+              // its row where it is.
+              notAdminRevokedSql(),
             ),
           );
         remappedSourceStackUserId = mappedCustomer.stackUserId;
@@ -733,6 +757,10 @@ export async function recordFoundersCheckoutCompletion(
         stackUserId: user.id,
         scope: "user",
       });
+      // A revoke locked on a previous owner can commit between the check
+      // above and the upsert; the guarded upsert then wrote nothing, and the
+      // metadata grant below must not run either.
+      if (await isAdminRevokedPurchase(tx, purchaseRowIds)) return revokedResult;
       return {
         result: {
           scope: "user",
@@ -775,6 +803,9 @@ export async function recordFoundersCheckoutCompletion(
       // Payment identifies a purchase, but it does not prove mailbox control.
       // Re-read after attaching or promoting the channel, then grant the
       // Founder entitlement only when Stack reports a verified ordinary owner.
+      // An admin revoke can land between the row write above and this
+      // lease; it must not be followed by a Pro grant or enrollment.
+      if (await isAdminRevokedPurchase(db, purchaseRowIds)) return;
       const entitlementUser = await stackApp.getUser(user.id);
       if (entitlementUser && isVerifiedCanonicalBillingOwner(entitlementUser, email)) {
         await syncProPlanMetadata(entitlementUser, true, mutationLease);
@@ -1538,8 +1569,10 @@ async function transferBillingOwnershipClaim(
       )
       .limit(100);
     const sourceSubscriptionIDs = sourceSubscriptions.map((row) => row.id);
+    // A revoked Founder row moves with the customer but is not a purchase
+    // to enroll for.
     const founderSubscriptionIds = sourceSubscriptions
-      .filter((row) => isFounderSubscriptionRaw(row.raw))
+      .filter((row) => isFounderSubscriptionRaw(row.raw) && !isAdminRevokedSubscriptionRaw(row.raw))
       .map((row) => row.id);
     const sourceSubscriptionIDSet = new Set(sourceSubscriptionIDs);
     if (
@@ -1715,6 +1748,23 @@ function isTesterAlreadyExistsError(error: unknown): boolean {
   if (status === 409 || status === "409") return true;
   const message = error instanceof Error ? error.message : String(error);
   return /already\s+(exists|added|enrolled)|duplicate/i.test(message);
+}
+
+/**
+ * Every stripe_subscriptions id one Founder checkout can be recorded under:
+ * the selected provider subscription, the session's own subscription, its
+ * payment_intent, and the synthetic founders_<session> id.
+ */
+export function founderPurchaseRowIds(
+  session: Stripe.Checkout.Session,
+  subscriptionId: string,
+): string[] {
+  return [...new Set([
+    subscriptionId,
+    stringId(session.subscription),
+    stringId(session.payment_intent),
+    `founders_${session.id}`,
+  ].filter((value): value is string => typeof value === "string" && value.length > 0))];
 }
 
 function syntheticFounderSubscription(
@@ -2597,6 +2647,9 @@ async function upsertStripeSubscription(
         ...updateValues,
         updatedAt: sql`now()`,
       },
+      // An admin-revoked Founder row is frozen: no provider payload may
+      // overwrite its status or drop the revocation marker.
+      setWhere: notAdminRevokedSql(),
     });
 }
 
@@ -2624,6 +2677,7 @@ async function updateExistingUserStripeSubscription(
         eq(stripeSubscriptions.stackUserId, input.stackUserId),
         eq(stripeSubscriptions.scope, "user"),
         isNull(stripeSubscriptions.stackTeamId),
+        notAdminRevokedSql(),
       ),
     );
 }

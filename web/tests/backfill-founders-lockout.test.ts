@@ -129,6 +129,30 @@ describe("Founder's lockout backfill", () => {
     });
   });
 
+  test("apply reports an admin-revoked purchase as skipped, not provisioned", async () => {
+    const stack = stackApp();
+    stack.user.primaryEmailVerified = true;
+    const provider = stripeClient();
+    const provision = mock(async () => ({
+      skipped: "admin_revoked",
+      stackUserId: "target-user",
+      subscriptionId: "sub_fixture",
+    }));
+    const result = await runFoundersLockoutBackfill(
+      {
+        dryRun: false,
+        cases: [{ email: "billingfixture@gmail.com", purchaseEmail: "billing.fixture@gmail.com" }],
+      },
+      {
+        stackApp: stack.value,
+        stripeClient: provider.value,
+        provision: provision as never,
+        billingDependencies: { db: {} as never },
+      },
+    );
+    expect(result.customers[0]).toMatchObject({ status: "skipped", reason: "admin_revoked" });
+  });
+
   test("does not create a replacement account when the target mailbox is absent", async () => {
     const provider = stripeClient();
     const createUser = mock(async () => {
