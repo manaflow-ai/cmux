@@ -257,6 +257,33 @@ export const cloudRuntimes = pgTable("cloud_runtimes", {
   check("cloud_runtimes_owner_nonempty", sql`length(trim(${table.ownerTeamId})) > 0`),
 ]);
 
+/** Durable provider workspace handles owned by a persistent Runtime. */
+export const cloudRuntimeWorkspaces = pgTable("cloud_runtime_workspaces", {
+  runtimeId: uuid("runtime_id").primaryKey().references(() => cloudRuntimes.id, { onDelete: "cascade" }),
+  ownerTeamId: text("owner_team_id").notNull(),
+  workspaceId: text("workspace_id").notNull(),
+  workspaceName: text("workspace_name").notNull(),
+  provider: text("provider").notNull().default("freestyle"),
+  lifecycle: text("lifecycle").notNull().default("provisioning"),
+  providerVmId: text("provider_vm_id"),
+  providerWorkspaceId: text("provider_workspace_id"),
+  providerTerminalId: text("provider_terminal_id"),
+  ownerId: text("owner_id").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  requestDigest: text("request_digest").notNull(),
+  failureCode: text("failure_code"),
+  failureMessage: text("failure_message"),
+  version: integer("version").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cloud_runtime_workspaces_owner_idempotency_unique").on(table.ownerTeamId, table.idempotencyKey),
+  uniqueIndex("cloud_runtime_workspaces_workspace_id_unique").on(table.workspaceId),
+  index("cloud_runtime_workspaces_owner_idx").on(table.ownerTeamId, table.updatedAt),
+  check("cloud_runtime_workspaces_lifecycle_check", sql`${table.lifecycle} in ('provisioning', 'running', 'suspended', 'stopped', 'failed')`),
+  check("cloud_runtime_workspaces_provider_check", sql`${table.provider} in ('freestyle')`),
+]);
+
 /** A durable fan-out run. Source and recipe are immutable after creation. */
 export const runs = pgTable(
   "runs",
