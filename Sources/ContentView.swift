@@ -928,6 +928,8 @@ struct ContentView: View {
     @State private var displayAccessibility = DisplayAccessibilityOptions.current
     @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyleRawValue = TitlebarControlsStyle.defaultRawValue
     @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
+    @AppStorage(SettingCatalog().sidebar.keepPaneWidthsOnToggle.userDefaultsKey)
+    private var keepPaneWidthsOnRightSidebarToggle = SettingCatalog().sidebar.keepPaneWidthsOnToggle.defaultValue
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
@@ -1007,6 +1009,8 @@ struct ContentView: View {
     @State private var workspacePresentationModeRuntimeCache = WorkspacePresentationModeRuntimeCache()
     @State private var fileExplorerWidth: CGFloat = 220
     @State private var fileExplorerDragStartWidth: CGFloat?
+    @State private var rightSidebarWindowResizeAmount: CGFloat = 0
+    @State private var rightSidebarWasAutoCollapsed = false
     @State private var previousSelectedWorkspaceId: UUID?
     @State private var didApplyUITestSidebarSelection = false
     @State private var titlebarThemeGeneration: UInt64 = 0
@@ -1778,6 +1782,81 @@ struct ContentView: View {
             return minimumSidebarTitleInset
         }
         return max(titlebarLeadingInset, visibleSidebarTitleInset)
+    }
+
+    nonisolated static func rightSidebarWindowFrame(
+        currentFrame: CGRect,
+        sidebarWidth: CGFloat,
+        isShowing: Bool,
+        visibleFrame: CGRect?,
+        minimumWindowWidth: CGFloat,
+        isFullScreen: Bool
+    ) -> CGRect? {
+        guard !isFullScreen,
+              currentFrame.width.isFinite,
+              currentFrame.height.isFinite,
+              currentFrame.minX.isFinite,
+              currentFrame.minY.isFinite,
+              currentFrame.width > 0,
+              currentFrame.height > 0,
+              sidebarWidth.isFinite,
+              sidebarWidth > 0,
+              minimumWindowWidth.isFinite,
+              minimumWindowWidth > 0 else {
+            return nil
+        }
+
+        let width = isShowing
+            ? currentFrame.width + sidebarWidth
+            : currentFrame.width - sidebarWidth
+        guard width >= minimumWindowWidth else { return nil }
+
+        var target = currentFrame
+        target.size.width = width
+        guard isShowing else { return target }
+
+        guard let visibleFrame,
+              visibleFrame.width.isFinite,
+              visibleFrame.height.isFinite,
+              visibleFrame.width > 0,
+              visibleFrame.height > 0,
+              target.maxX <= visibleFrame.maxX + 0.5 else {
+            return nil
+        }
+        return target
+    }
+
+    private func resizeWindowForRightSidebarVisibilityChange(isVisible: Bool) {
+        let resizeAmount: CGFloat
+        if isVisible {
+            guard keepPaneWidthsOnRightSidebarToggle,
+                  rightSidebarWindowResizeAmount <= 0 else { return }
+            resizeAmount = fileExplorerWidth
+        } else {
+            resizeAmount = rightSidebarWindowResizeAmount
+            guard resizeAmount > 0 else { return }
+        }
+
+        guard let window = observedWindow else { return }
+        let target = Self.rightSidebarWindowFrame(
+            currentFrame: window.frame,
+            sidebarWidth: resizeAmount,
+            isShowing: isVisible,
+            visibleFrame: window.screen?.visibleFrame,
+            minimumWindowWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
+            isFullScreen: window.styleMask.contains(.fullScreen)
+        )
+        guard let target else {
+            if !isVisible { rightSidebarWindowResizeAmount = 0 }
+            return
+        }
+
+        window.setFrame(target, display: true, animate: false)
+        guard abs(window.frame.width - target.width) <= 0.5 else {
+            rightSidebarWindowResizeAmount = 0
+            return
+        }
+        rightSidebarWindowResizeAmount = isVisible ? resizeAmount : 0
     }
 
     /// Where the always-visible fullscreen titlebar controls (sidebar toggle,
@@ -3387,6 +3466,11 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: fileExplorerState.isVisible) { isVisible in
+            let wasAutoCollapsed = rightSidebarWasAutoCollapsed
+            rightSidebarWasAutoCollapsed = fileExplorerState.isAutoCollapsed
+            if !wasAutoCollapsed && !fileExplorerState.isAutoCollapsed {
+                resizeWindowForRightSidebarVisibilityChange(isVisible: isVisible)
+            }
             if isVisible {
                 makeRoomForShownSidePanel(.right)
                 clampRightSidebarWidthIfNeeded()
@@ -3498,6 +3582,7 @@ struct ContentView: View {
         if observedWindow !== window {
             DispatchQueue.main.async {
                 observedWindowReference = WeakWindowReference(window)
+                rightSidebarWasAutoCollapsed = fileExplorerState.isAutoCollapsed
                 isFullScreen = window.styleMask.contains(.fullScreen)
                 let availableWidth = window.contentView?.bounds.width ?? window.contentLayoutRect.width
                 clampSidebarWidthIfNeeded(availableWidth: availableWidth)
