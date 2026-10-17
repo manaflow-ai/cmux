@@ -1404,7 +1404,10 @@ export class AcpmuxDirectClient {
       visible,
     });
     this.attaching = attaching.then(
-      () => (this.shownToAcpmux = { sessionId, visible }),
+      () => {
+        if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
+          this.shownToAcpmux = { sessionId, visible };
+      },
       () => undefined,
     );
     const result = await attaching;
