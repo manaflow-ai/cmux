@@ -57,7 +57,8 @@ struct SidebarWorkspaceRowSuspensionTests {
             checklistItems: checklistItems,
             checklistCompletedCount: checklistItems.filter { $0.state == .completed }.count,
             checklistTotalCount: checklistItems.count,
-            checklistFirstUncheckedText: checklistItems.first { $0.state != .completed }?.text
+            checklistFirstUncheckedText: checklistItems.first { $0.state != .completed }?.text,
+            agentSessions: []
         )
     }
 
@@ -175,7 +176,8 @@ struct SidebarWorkspaceRowSuspensionTests {
             onEndChecklistItemEdit: onEndChecklistItemEdit,
             applyTodoStatus: { _ in },
             hideTodoStatus: {},
-            commitRename: onCommitRename
+            commitRename: onCommitRename,
+            focusAgentSurface: { _ in }
         )
     }
 

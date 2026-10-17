@@ -17,7 +17,7 @@ struct SidebarAppKitRowCellTests {
         isPinned: Bool = false,
         metadataEntries: [SidebarStatusEntry] = [],
         metadataBlocks: [SidebarMetadataBlock] = [],
-        compactStatusGlyph: SidebarCompactStatusGlyph? = nil
+        compactStatusGlyph: SidebarCompactStatusGlyph? = nil,
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
@@ -59,7 +59,8 @@ struct SidebarAppKitRowCellTests {
             checklistCompletedCount: 0,
             checklistTotalCount: 0,
             checklistFirstUncheckedText: nil,
-            compactStatusGlyph: compactStatusGlyph
+            compactStatusGlyph: compactStatusGlyph,
+            agentSessions: []
         )
     }
 
@@ -87,7 +88,7 @@ struct SidebarAppKitRowCellTests {
                 isPinned: isPinned,
                 metadataEntries: metadataEntries,
                 metadataBlocks: metadataBlocks,
-                compactStatusGlyph: compactStatusGlyph
+                compactStatusGlyph: compactStatusGlyph,
             ),
             settings: resolvedSettings,
             isActive: isActive,
@@ -227,7 +228,8 @@ struct SidebarAppKitRowCellTests {
             onEndChecklistItemEdit: { _ in },
             applyTodoStatus: { _ in },
             hideTodoStatus: {},
-            commitRename: { _ in }
+            commitRename: { _ in },
+            focusAgentSurface: { _ in }
         )
     }
 
@@ -2259,6 +2261,7 @@ struct SidebarAppKitRowCellTests {
             \.showLog,
             \.showProgress,
             \.showAgentActivity,
+            \.showAgentSessions,
             \.showCustomMetadata,
         ]
 
@@ -2280,6 +2283,7 @@ struct SidebarAppKitRowCellTests {
             ("sidebarShowLog", \.showLog),
             ("sidebarShowProgress", \.showProgress),
             ("sidebarShowAgentActivity", \.showAgentActivity),
+            ("sidebarShowAgentSessions", \.showAgentSessions),
             ("sidebarShowStatusPills", \.showCustomMetadata),
         ]
 

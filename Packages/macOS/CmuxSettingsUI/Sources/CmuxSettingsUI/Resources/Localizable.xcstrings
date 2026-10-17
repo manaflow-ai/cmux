@@ -15740,6 +15740,124 @@
           }
         }
       }
+    },
+    "settings.app.showAgentSessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Agent Sessions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار جلسات الوكلاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentensitzungen anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar sesiones de agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les sessions d’agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 세션 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示代理会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示代理工作階段"
+          }
+        }
+      }
+    },
+    "settings.app.showAgentSessions.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "List each workspace's live coding-agent sessions under its title: state, the agent's own title, age, and your last prompt."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اعرض جلسات وكلاء البرمجة النشطة لكل مساحة عمل أسفل عنوانها: الحالة، وعنوان الوكيل، والعمر، وآخر طلب."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die aktiven Coding-Agent-Sitzungen jedes Arbeitsbereichs unter seinem Titel auflisten: Status, eigener Titel des Agenten, Alter und letzter Prompt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra las sesiones activas de agentes de programación de cada espacio de trabajo bajo su título: estado, título del agente, antigüedad y último prompt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répertorier sous le titre de chaque espace de travail ses sessions d’agent de codage actives : état, titre de l’agent, ancienneté et dernier prompt."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各ワークスペースのタイトルの下に、ライブなコーディングエージェントのセッションを一覧表示します。状態、エージェント独自のタイトル、経過時間、最後のプロンプトを表示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 작업 공간의 제목 아래에 실행 중인 코딩 에이전트 세션을 나열합니다. 상태, 에이전트 제목, 경과 시간 및 마지막 프롬프트를 표시합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在每个工作区标题下列出正在使用的编程代理会话：状态、代理标题、时长和上次提示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在每個工作區標題下列出正在使用的程式設計代理工作階段：狀態、代理標題、經過時間和上次提示。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

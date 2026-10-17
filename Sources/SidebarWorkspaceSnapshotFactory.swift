@@ -212,7 +212,10 @@ struct SidebarWorkspaceSnapshotFactory {
             taskStatusInput: taskStatusInput,
             deviceWorkspaceLabel: cloud?.deviceLabel,
             compactStatusGlyph: compactStatusGlyph,
-            hostTitleSuffix: hostTitleSuffix
+            hostTitleSuffix: hostTitleSuffix,
+            agentSessions: settings.showsAgentSessions
+                ? workspace.sidebarAgentSessionSnapshots(orderedPanelIds: orderedPanelIds)
+                : []
         )
     }
 
@@ -241,6 +244,7 @@ struct SidebarWorkspaceSnapshotFactory {
             showsAgentActivity: showsAgentActivity,
             compactsAgentStatus: settings.compactsAgentStatus,
             compactStatusIcons: settings.compactStatusIcons,
+            showsAgentSessions: settings.showsAgentSessions,
             visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails,
             customColorHex: customColorHex,
             hasManualCustomColor: hasManualCustomColor,

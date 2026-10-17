@@ -12,6 +12,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let showsAgentActivity: Bool
         var compactsAgentStatus = false
         var compactStatusIcons: [String: String] = [:]
+        let showsAgentSessions: Bool
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
         // Effective row color (manual color, else resolved origin color). Part of
         // the key so the cached snapshot is rebuilt when the color changes — e.g.
@@ -127,5 +128,8 @@ struct SidebarWorkspaceSnapshotBuilder {
                 : (compactDirectoryCandidates.first ?? branchDirectoryLines.first?.directory)
             return [position, remoteWorkspaceBadgeLabel, cloudDirectory].compactMap { $0 }.joined(separator: ", ")
         }
+        // Live coding-agent sessions hosted by this workspace's panes, in tab
+        // order (empty when `sidebar.showAgentSessions` is off).
+        let agentSessions: [SidebarAgentSessionSnapshot]
     }
 }

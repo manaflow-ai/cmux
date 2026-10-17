@@ -18,6 +18,17 @@ extension SidebarSection {
         SettingsCardDivider()
 
         SettingsCardRow(
+            configurationReview: .json("sidebar.showAgentSessions"),
+            String(localized: "settings.app.showAgentSessions", defaultValue: "Show Agent Sessions"),
+            subtitle: String(localized: "settings.app.showAgentSessions.subtitle", defaultValue: "List each workspace's live coding-agent sessions under its title: state, the agent's own title, age, and your last prompt.")
+        ) {
+            Toggle("", isOn: Binding(get: { showAgentSessions.current }, set: { showAgentSessions.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+        }
+        SettingsCardDivider()
+
+        SettingsCardRow(
             configurationReview: .json("sidebar.loadingSpinnerPosition"),
             String(localized: "settings.app.loadingSpinnerPosition", defaultValue: "Loading Spinner Position"),
             subtitle: String(localized: "settings.app.loadingSpinnerPosition.subtitle", defaultValue: "Show the spinner on the left (sharing the unread badge slot) or the right of the workspace row.")
