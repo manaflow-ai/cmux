@@ -152,9 +152,9 @@ struct WorkspaceSpawner {
         let named = renamed(name)
         if let windowID, let name {
             let opensPage = WorkspaceCreation.opensPage(spawn, on: daemon, tabs: services.agentTabs)
-            let face = SidebarMapping.shared.creatingRow(id: key.rawValue, machine: machine, title: name, opensPage: opensPage)
+            let face = SidebarMapping.shared.creatingRow(id: key.rawValue, machine: machine, name: name, opensPage: opensPage)
             PendingWorkspaceRows.shared.add(.init(id: key.rawValue, window: windowID, machine: machine, face: face,
-                                                  slot: spawn.slot, byDefault: rule))
+                                                  slot: spawn.slot, byDefault: rule), name: name)
         }
         defer { PendingWorkspaceRows.shared.release(key.rawValue) }
         WorkspaceLanes.shared.prune(windowID ?? "") { services.workspace(id: $0) != nil }

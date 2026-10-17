@@ -18,19 +18,19 @@ final class PendingWorkspaceRows {
         let id: String
         let window: String
         let machine: MachineID
-        /// The row as the window lists it once the daemon has created it; its title is the name the create sends.
+        /// The row as the window lists it once the daemon has created it.
         let face: SidebarWorkspace
         let slot: WorkspaceSlot?
         let byDefault: NewWorkspaceDefaultSlot?
     }
 
     private(set) var rows: [Row] = []
-    /// The names given to creates in flight, by create key, until the create replies or fails (not when the row goes).
+    /// The names `add` reserved for creates in flight, by key, until the create replies or fails (not when the row goes).
     @ObservationIgnored private var names: [String: (machine: MachineID, name: String)] = [:]
 
-    func add(_ row: Row) {
+    func add(_ row: Row, name: String) {
         rows.append(row)
-        names[row.id] = (row.machine, row.face.title)
+        names[row.id] = (row.machine, name)
     }
 
     func remove(_ id: String) { rows.removeAll { $0.id == id } }

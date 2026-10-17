@@ -10,9 +10,9 @@ frame), the sidebar's presented row frames and opacity per display frame
 as the socket answers from the press on (title, `row_state`, folder line).
 Checks, per scenario:
 - instant: each new workspace row is listed in the first sample after its
-  press, with a non-empty title and its folder line, and its title, folder and
-  row state never change to another look afterwards (`creating` then `live` is
-  the same look); no sample shows a `placeholder` row on this Mac.
+  press, in its final look: its title (the live rule's: a daemon default name
+  draws none) and row state never change afterwards (`creating` then `live`
+  is the same look); no sample shows a `placeholder` row on this Mac.
 - smooth: no row view that stays listed reaches a new place in one display
   frame (a step over 60% of a row height with no motion in the next frame is
   a jump; a long first step of the ease-out after a dropped frame is not),
@@ -134,8 +134,7 @@ def check_instant(name, samples, before, pressed, expect_new):
             if key not in first_seen:
                 first_seen[key] = at
                 looks[key] = look
-                if not look[0]:
-                    bad.append(f"{key} first drawn with no title")
+                # A daemon default name draws no title (SidebarMapping.sidebarTitle); never the placeholder bar.
             elif look != looks[key]:
                 bad.append(f"{key} changed look {looks[key]} -> {look}")
                 looks[key] = look
