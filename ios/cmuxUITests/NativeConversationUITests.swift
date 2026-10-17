@@ -110,10 +110,10 @@ final class NativeConversationUITests: XCTestCase {
 
         case .newProviderWorkspaceTask:
             try waitForTaskList(in: app)
-            let newTask = app.buttons["ConversationNewTaskButton"]
+            let newTask = app.descendants(matching: .any)["ConversationNewTaskButton"]
             XCTAssertTrue(newTask.waitForExistence(timeout: 8))
             newTask.tap()
-            let sheet = app.otherElements["ConversationNewTaskSheet"]
+            let sheet = app.descendants(matching: .any)["ConversationNewTaskSheet"]
             XCTAssertTrue(sheet.waitForExistence(timeout: 5))
             let provider = app.descendants(matching: .any)["ConversationProviderPicker"]
             let workspace = app.descendants(matching: .any)["ConversationWorkspace-fixture"]
@@ -128,43 +128,43 @@ final class NativeConversationUITests: XCTestCase {
             XCTAssertTrue(start.waitForExistence(timeout: 3))
             XCTAssertTrue(start.isEnabled)
             start.tap()
-            XCTAssertTrue(app.otherElements["ConversationDetail"].waitForExistence(timeout: 8))
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationDetail"].waitForExistence(timeout: 8))
             capture(app, name: "native-new-provider-workspace-task-created")
 
         case .toolExpanded:
             try openDetail(in: app)
-            let tool = app.otherElements["ConversationTool-shell"]
+            let tool = app.descendants(matching: .any)["ConversationTool-shell"]
             XCTAssertTrue(tool.waitForExistence(timeout: 5))
             tool.tap()
             capture(app, name: "native-tool-expanded")
 
         case .steerQueueMenu:
             try openDetail(in: app)
-            let composer = app.textViews["ConversationComposerTextEditor"]
+            let composer = app.descendants(matching: .any)["ConversationComposerTextEditor"]
             XCTAssertTrue(composer.waitForExistence(timeout: 5))
             composer.tap()
             composer.typeText("choose queue from the long press menu")
-            let send = app.buttons["ConversationSendButton"]
+            let send = app.descendants(matching: .any)["ConversationSendButton"]
             XCTAssertTrue(send.waitForExistence(timeout: 5))
             send.press(forDuration: 1.0)
             let queueAction = app.buttons["Queue"]
             XCTAssertTrue(queueAction.waitForExistence(timeout: 5))
             queueAction.tap()
-            XCTAssertTrue(app.otherElements["ConversationQueuedRow-0"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationQueuedRow-0"].waitForExistence(timeout: 5))
             capture(app, name: "native-steer-queue-menu")
 
         case .queueLifecycle:
             try openDetail(in: app)
-            let composer = app.textViews["ConversationComposerTextEditor"]
-            let send = app.buttons["ConversationSendButton"]
+            let composer = app.descendants(matching: .any)["ConversationComposerTextEditor"]
+            let send = app.descendants(matching: .any)["ConversationSendButton"]
             XCTAssertTrue(composer.waitForExistence(timeout: 5))
             XCTAssertTrue(send.waitForExistence(timeout: 5))
             composer.tap()
             composer.typeText("queued follow up")
             send.tap()
-            let row = app.otherElements["ConversationQueuedRow-0"]
+            let row = app.descendants(matching: .any)["ConversationQueuedRow-0"]
             XCTAssertTrue(row.waitForExistence(timeout: 5))
-            XCTAssertTrue(app.otherElements["ConversationReceiptAccepted"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationReceiptAccepted"].waitForExistence(timeout: 5))
             capture(app, name: "native-queue-add")
 
             row.press(forDuration: 1.0)
@@ -192,187 +192,187 @@ final class NativeConversationUITests: XCTestCase {
 
         case .steerReceipt:
             try openDetail(in: app)
-            let composer = app.textViews["ConversationComposerTextEditor"]
+            let composer = app.descendants(matching: .any)["ConversationComposerTextEditor"]
             XCTAssertTrue(composer.waitForExistence(timeout: 5))
             composer.tap()
             composer.typeText("steer the current turn")
-            app.buttons["ConversationSendButton"].tap()
-            XCTAssertTrue(app.otherElements["ConversationReceiptApplied"].waitForExistence(timeout: 5))
+            app.descendants(matching: .any)["ConversationSendButton"].tap()
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationReceiptApplied"].waitForExistence(timeout: 5))
             capture(app, name: "native-steer-receipt")
 
         case .stopReceipt:
             try openDetail(in: app)
-            let stop = app.buttons["ConversationStopButton"]
+            let stop = app.descendants(matching: .any)["ConversationStopButton"]
             XCTAssertTrue(stop.waitForExistence(timeout: 5))
             stop.tap()
-            XCTAssertTrue(app.otherElements["ConversationReceiptApplied"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationReceiptApplied"].waitForExistence(timeout: 5))
             capture(app, name: "native-stop-receipt")
 
         case .stopWithLiveTool:
             try openDetail(in: app)
-            let stop = app.buttons["ConversationStopButton"]
+            let stop = app.descendants(matching: .any)["ConversationStopButton"]
             XCTAssertTrue(stop.waitForExistence(timeout: 5))
-            XCTAssertTrue(app.otherElements["ConversationTool-shell"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationTool-shell"].waitForExistence(timeout: 5))
             stop.tap()
-            XCTAssertTrue(app.otherElements["ConversationReceiptApplied"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationReceiptApplied"].waitForExistence(timeout: 5))
             XCTAssertTrue(app.staticTexts["Running"].waitForExistence(timeout: 5), "stopping keeps the live tool visible")
             capture(app, name: "native-stop-with-live-tool")
 
         case .approval:
             try openDetail(in: app)
-            let request = app.otherElements["ConversationBlockingRequest-fixture-approval"]
+            let request = app.descendants(matching: .any)["ConversationBlockingRequest-fixture-approval"]
             XCTAssertTrue(request.waitForExistence(timeout: 5))
             capture(app, name: "native-approval")
             let approve = app.buttons["Approve"]
             XCTAssertTrue(approve.waitForExistence(timeout: 3))
             approve.tap()
-            XCTAssertTrue(app.otherElements["ConversationReceiptApplied"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationReceiptApplied"].waitForExistence(timeout: 5))
             capture(app, name: "native-approval-applied")
 
         case .questionPaging:
             try openDetail(in: app)
-            let question = app.otherElements["ConversationBlockingQuestion"]
+            let question = app.descendants(matching: .any)["ConversationBlockingQuestion"]
             XCTAssertTrue(question.waitForExistence(timeout: 5))
             XCTAssertTrue(app.staticTexts["1 of 2"].waitForExistence(timeout: 3))
             capture(app, name: "native-question-page-1")
-            app.buttons["ConversationQuestionOption-yes"].tap()
+            app.descendants(matching: .any)["ConversationQuestionOption-yes"].tap()
             XCTAssertTrue(app.staticTexts["2 of 2"].waitForExistence(timeout: 5))
             capture(app, name: "native-question-page-2")
 
         case .singleQuestion:
             try openDetail(in: app)
-            XCTAssertTrue(app.otherElements["ConversationBlockingQuestion"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationBlockingQuestion"].waitForExistence(timeout: 5))
             XCTAssertTrue(app.textFields["ConversationQuestionCustomAnswer"].waitForExistence(timeout: 3))
             capture(app, name: "native-single-question")
 
         case .singleQuestionCustomAnswer:
             try openDetail(in: app)
-            XCTAssertTrue(app.otherElements["ConversationBlockingQuestion"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationBlockingQuestion"].waitForExistence(timeout: 5))
             let customAnswer = app.textFields["ConversationQuestionCustomAnswer"]
             XCTAssertTrue(customAnswer.waitForExistence(timeout: 3))
             capture(app, name: "native-single-question-custom-answer")
             customAnswer.tap()
             customAnswer.typeText("a custom answer")
-            app.buttons["ConversationQuestionSendButton"].tap()
-            XCTAssertTrue(app.otherElements["ConversationReceiptApplied"].waitForExistence(timeout: 5))
+            app.descendants(matching: .any)["ConversationQuestionSendButton"].tap()
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationReceiptApplied"].waitForExistence(timeout: 5))
             capture(app, name: "native-single-question-custom-answer-applied")
 
         case .asyncQuestion:
             try openDetail(in: app)
-            let question = app.otherElements["ConversationAsyncQuestion"]
+            let question = app.descendants(matching: .any)["ConversationAsyncQuestion"]
             XCTAssertTrue(question.waitForExistence(timeout: 5))
             capture(app, name: "native-async-question")
 
         case .reconnectedPendingRequest:
             try openDetail(in: app)
-            XCTAssertTrue(app.otherElements["ConversationBlockingRequest-fixture-approval"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationBlockingRequest-fixture-approval"].waitForExistence(timeout: 5))
             XCTAssertTrue(app.images["Disconnected"].waitForExistence(timeout: 5))
             capture(app, name: "native-reconnected-pending-request")
 
         case .disconnectedRetainedTranscript:
             try openDetail(in: app)
-            XCTAssertTrue(app.otherElements["ConversationTranscript"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationTranscript"].waitForExistence(timeout: 5))
             XCTAssertTrue(app.staticTexts["Workspace is ready."].waitForExistence(timeout: 5))
-            XCTAssertFalse(app.buttons["ConversationSendButton"].isEnabled)
+            XCTAssertFalse(app.descendants(matching: .any)["ConversationSendButton"].isEnabled)
             capture(app, name: "native-disconnected-retained-transcript")
 
         case .streamingAssistantDelta:
             try openDetail(in: app)
             XCTAssertTrue(app.staticTexts["Streaming"].waitForExistence(timeout: 5))
             capture(app, name: "native-streaming-assistant-initial")
-            let composer = app.textViews["ConversationComposerTextEditor"]
+            let composer = app.descendants(matching: .any)["ConversationComposerTextEditor"]
             XCTAssertTrue(composer.waitForExistence(timeout: 5))
             composer.tap()
             composer.typeText("start streaming")
-            app.buttons["ConversationSendButton"].tap()
+            app.descendants(matching: .any)["ConversationSendButton"].tap()
             XCTAssertTrue(app.staticTexts["Streaming assistant output"].waitForExistence(timeout: 5))
             capture(app, name: "native-streaming-assistant-delta")
 
         case .rejectedCommand:
             try openDetail(in: app)
-            let composer = app.textViews["ConversationComposerTextEditor"]
+            let composer = app.descendants(matching: .any)["ConversationComposerTextEditor"]
             XCTAssertTrue(composer.waitForExistence(timeout: 5))
             composer.tap()
             composer.typeText("reject this command")
-            app.buttons["ConversationSendButton"].tap()
-            XCTAssertTrue(app.otherElements["ConversationErrorNotice"].waitForExistence(timeout: 5))
+            app.descendants(matching: .any)["ConversationSendButton"].tap()
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationErrorNotice"].waitForExistence(timeout: 5))
             XCTAssertTrue((composer.value as? String ?? "").contains("reject this command"))
             capture(app, name: "native-rejected-command")
 
         case .uncertainCommand:
             try openDetail(in: app)
-            let composer = app.textViews["ConversationComposerTextEditor"]
+            let composer = app.descendants(matching: .any)["ConversationComposerTextEditor"]
             XCTAssertTrue(composer.waitForExistence(timeout: 5))
             composer.tap()
             composer.typeText("uncertain command")
-            app.buttons["ConversationSendButton"].tap()
-            XCTAssertTrue(app.otherElements["ConversationUncertainReceipt"].waitForExistence(timeout: 5))
+            app.descendants(matching: .any)["ConversationSendButton"].tap()
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationUncertainReceipt"].waitForExistence(timeout: 5))
             XCTAssertTrue((composer.value as? String ?? "").contains("uncertain command"))
             capture(app, name: "native-uncertain-command")
 
         case .modelSettings:
             try openDetail(in: app)
-            let actions = app.buttons["ConversationActionsMenu"]
+            let actions = app.descendants(matching: .any)["ConversationActionsMenu"]
             XCTAssertTrue(actions.waitForExistence(timeout: 5))
             actions.tap()
             let settings = app.buttons["Model and effort"]
             XCTAssertTrue(settings.waitForExistence(timeout: 3))
             settings.tap()
-            XCTAssertTrue(app.otherElements["ConversationModelSettings"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationModelSettings"].waitForExistence(timeout: 5))
             XCTAssertTrue(app.descendants(matching: .any)["ConversationModelPicker"].waitForExistence(timeout: 3))
             XCTAssertTrue(app.descendants(matching: .any)["ConversationEffortPicker"].waitForExistence(timeout: 3))
             XCTAssertTrue(app.descendants(matching: .any)["ConversationSpeedPicker"].waitForExistence(timeout: 3))
             capture(app, name: "native-model-settings")
-            app.buttons["ConversationSettingsDone"].tap()
+            app.descendants(matching: .any)["ConversationSettingsDone"].tap()
 
         case .filesDiff:
             try openDetail(in: app)
             try openFilesSheet(in: app)
-            XCTAssertTrue(app.otherElements["ConversationFilesSheet"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationFilesSheet"].waitForExistence(timeout: 5))
             capture(app, name: "native-files-diff-list")
             let path = app.buttons["Sources/App.swift"]
             XCTAssertTrue(path.waitForExistence(timeout: 3))
             path.tap()
-            XCTAssertTrue(app.otherElements["ConversationDiffView-Sources/App.swift"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationDiffView-Sources/App.swift"].waitForExistence(timeout: 5))
             capture(app, name: "native-files-diff-expanded")
 
         case .emptyFiles:
             try openDetail(in: app)
             try openFilesSheet(in: app)
-            XCTAssertTrue(app.otherElements["ConversationFilesEmptyState"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationFilesEmptyState"].waitForExistence(timeout: 5))
             capture(app, name: "native-empty-files")
 
         case .noGit:
             try openDetail(in: app)
             try openFilesSheet(in: app)
-            XCTAssertTrue(app.otherElements["ConversationFilesEmptyState"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationFilesEmptyState"].waitForExistence(timeout: 5))
             capture(app, name: "native-no-git")
 
         case .noLastTurn:
             try openDetail(in: app)
             try openFilesSheet(in: app)
-            XCTAssertTrue(app.otherElements["ConversationFilesEmptyState"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationFilesEmptyState"].waitForExistence(timeout: 5))
             capture(app, name: "native-no-last-turn")
 
         case .artifactPreview:
             try openDetail(in: app)
-            let artifact = app.otherElements["ConversationArtifact-fixture-artifact"]
+            let artifact = app.descendants(matching: .any)["ConversationArtifact-fixture-artifact"]
             XCTAssertTrue(artifact.waitForExistence(timeout: 5))
             artifact.tap()
-            let preview = app.buttons["ConversationArtifactPreview-fixture-artifact"]
+            let preview = app.descendants(matching: .any)["ConversationArtifactPreview-fixture-artifact"]
             XCTAssertTrue(preview.waitForExistence(timeout: 3))
             preview.tap()
-            XCTAssertTrue(app.buttons["ConversationArtifactShare-fixture-artifact"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationArtifactShare-fixture-artifact"].waitForExistence(timeout: 5))
             capture(app, name: "native-artifact-preview")
 
         case .emptyTask:
             try openDetail(in: app)
-            XCTAssertTrue(app.otherElements["ConversationWelcome"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationWelcome"].waitForExistence(timeout: 5))
             capture(app, name: "native-empty-task")
 
         case .emptyTaskList:
             try waitForTaskList(in: app)
-            XCTAssertTrue(app.otherElements["ConversationEmptyState"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.descendants(matching: .any)["ConversationEmptyState"].waitForExistence(timeout: 5))
             capture(app, name: "native-empty-task-list")
 
         case .lightMode:
@@ -391,7 +391,7 @@ final class NativeConversationUITests: XCTestCase {
         app.launch()
         defer { app.terminate() }
         try openDetail(in: app)
-        XCTAssertTrue(app.otherElements["ConversationBlockingQuestion"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["ConversationBlockingQuestion"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.secureTextFields["ConversationQuestionCustomAnswer"].waitForExistence(timeout: 3))
         capture(app, name: "native-secret-question")
     }
@@ -423,7 +423,7 @@ final class NativeConversationUITests: XCTestCase {
             // setup before SwiftUI presents the debug conversation fixture.
             // Give that real launch path enough time on hosted simulators so
             // this metric measures the screen rather than a launch race.
-            _ = app.otherElements["ConversationTaskList"].waitForExistence(timeout: 30)
+            _ = app.descendants(matching: .any)["ConversationTaskList"].waitForExistence(timeout: 30)
             app.terminate()
         }
     }
@@ -439,19 +439,19 @@ final class NativeConversationUITests: XCTestCase {
             XCTMemoryMetric(application: app),
         ]) {
             app.launch()
-            let list = app.otherElements["ConversationTaskList"]
+            let list = app.descendants(matching: .any)["ConversationTaskList"]
             _ = list.waitForExistence(timeout: 30)
             let task = app.descendants(matching: .any)["ConversationTaskRow-fixture-codex"]
             _ = task.waitForExistence(timeout: 15)
             task.tap()
-            let detail = app.otherElements["ConversationDetail"]
+            let detail = app.descendants(matching: .any)["ConversationDetail"]
             _ = detail.waitForExistence(timeout: 15)
-            let composer = app.textViews["ConversationComposerTextEditor"]
+            let composer = app.descendants(matching: .any)["ConversationComposerTextEditor"]
             _ = composer.waitForExistence(timeout: 10)
             composer.tap()
             composer.typeText("performance queue")
-            app.buttons["ConversationSendButton"].tap()
-            _ = app.otherElements["ConversationQueuedRow-0"].waitForExistence(timeout: 5)
+            app.descendants(matching: .any)["ConversationSendButton"].tap()
+            _ = app.descendants(matching: .any)["ConversationQueuedRow-0"].waitForExistence(timeout: 5)
             app.terminate()
         }
     }
@@ -472,7 +472,7 @@ final class NativeConversationUITests: XCTestCase {
 
     @MainActor
     private func waitForTaskList(in app: XCUIApplication) throws {
-        let list = app.otherElements["ConversationTaskList"]
+        let list = app.descendants(matching: .any)["ConversationTaskList"]
         // The fixture is mounted after the shared iOS composition root has
         // initialized auth, diagnostics, and transport state. Hosted Macs can
         // take ~15 seconds on a clean simulator before the first frame, so a
@@ -486,12 +486,12 @@ final class NativeConversationUITests: XCTestCase {
         let task = app.descendants(matching: .any)["ConversationTaskRow-fixture-codex"]
         XCTAssertTrue(task.waitForExistence(timeout: 15), "fixture task row did not appear")
         task.tap()
-        XCTAssertTrue(app.otherElements["ConversationDetail"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.descendants(matching: .any)["ConversationDetail"].waitForExistence(timeout: 15))
     }
 
     @MainActor
     private func openFilesSheet(in app: XCUIApplication) throws {
-        let actions = app.buttons["ConversationActionsMenu"]
+        let actions = app.descendants(matching: .any)["ConversationActionsMenu"]
         XCTAssertTrue(actions.waitForExistence(timeout: 5))
         actions.tap()
         let files = app.buttons["Files"]
