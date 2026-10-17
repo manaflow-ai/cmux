@@ -650,6 +650,17 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                 return "\(approval.prompt)\n✓ \(decided)"
             }
             if let question = part.question, part.kind == "question", !question.isPending {
+                if case .cancelled = question.state {
+                    // Match MessagesLab's compact receipt. A Chief question
+                    // closed by a normal chat message is no longer an open
+                    // card; showing its old options here would make the
+                    // transcript look actionable after the owner settled it.
+                    return question.source.harness == .chief
+                        ? String(localized: "mobile.chief.question.answeredInChat",
+                                 defaultValue: "Answered in chat", bundle: .module)
+                        : String(localized: "mobile.chief.question.cancelled",
+                                 defaultValue: "Cancelled", bundle: .module)
+                }
                 return question.transcriptText
             }
         }

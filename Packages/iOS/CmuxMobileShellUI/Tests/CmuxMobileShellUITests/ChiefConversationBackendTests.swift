@@ -62,6 +62,36 @@ struct ChiefConversationBackendTests {
     }
 
     @Test
+    func cancelledChiefQuestionCollapsesToChatReceipt() {
+        let question = MobileChiefQuestion(
+            id: "question-cancelled",
+            source: .init(harness: .chief, session: "chief-main", agentName: "Chief"),
+            items: [
+                .init(
+                    id: "q0",
+                    prompt: "Which region?",
+                    options: [.init(id: "us", label: "US"), .init(id: "eu", label: "EU")]
+                )
+            ],
+            state: .cancelled
+        )
+        let message = MobileChiefMessage(
+            id: "question-message-cancelled",
+            seq: 3,
+            authorID: "agent_chief",
+            author: "Chief",
+            authorKind: "chief",
+            text: question.transcriptText,
+            at: Date(),
+            parts: ["question"],
+            partPayloads: [MobileChiefPart(kind: "question", question: question)]
+        )
+
+        #expect(ChiefConversationBackend.pendingPoll(from: message) == nil)
+        #expect(ChiefConversationBackend.receiptText(from: message) == "Answered in chat")
+    }
+
+    @Test
     func multiItemQuestionUsesComposerEntryPoint() {
         let question = MobileChiefQuestion(
             id: "question-2",
