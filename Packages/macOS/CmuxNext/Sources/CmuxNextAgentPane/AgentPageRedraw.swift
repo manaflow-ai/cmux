@@ -76,6 +76,9 @@ public final class AgentPageRedraw {
 
     /// A capture for the app's New Tab frame is on the way (one per page at a time).
     public var givesNewTabFrame = false
+    /// Chat list answers on the way to this page, and the list it last drew (`AgentPaneNewTabFrame`).
+    var pendingChats = 0
+    var drawnChats: Int?
 
     /// The page as it drew out of sight (a parked New Tab spare), at its size and appearance.
     private var remembered: (image: NSImage, size: CGSize, appearance: NSAppearance.Name?, generation: UInt64)?
