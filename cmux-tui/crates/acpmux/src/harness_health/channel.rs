@@ -175,13 +175,15 @@ pub fn update_plan(
 
 /// Old saved health rows can still contain an update without a target.
 /// Never execute that plan using whichever npm prefix today's shell selects.
-pub(super) fn bound_npm_update(argv: &[String]) -> bool {
+pub(super) fn npm_update_matches(plan: &UpdatePlan, package: Option<&str>) -> bool {
+    let argv = plan.argv.as_slice();
     let [program, verb, global, flag, prefix, _package] = argv else { return false };
     Path::new(program).file_name().is_some_and(|name| name == "npm")
         && verb == "install"
         && global == "-g"
         && flag == "--prefix"
         && absolute_prefix(Path::new(prefix))
+        && package.is_some_and(|package| argv.last() == Some(&format!("{package}@latest")))
 }
 
 fn absolute_prefix(prefix: &Path) -> bool {

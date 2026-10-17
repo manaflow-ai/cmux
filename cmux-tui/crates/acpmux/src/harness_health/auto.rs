@@ -60,8 +60,7 @@ fn read(path: Option<&Path>) -> BTreeSet<String> {
 pub fn updatable(row: &HarnessHealth) -> Option<Vec<String>> {
     let plan = row.update.as_ref().filter(|p| !p.elevated)?;
     if row.channel == super::channel::Channel::Npm
-        && (!super::channel::bound_npm_update(&plan.argv)
-            || row.package.as_ref().map(|p| format!("{p}@latest")).as_ref() != plan.argv.last())
+        && !super::channel::npm_update_matches(plan, row.package.as_deref())
     {
         return None;
     }

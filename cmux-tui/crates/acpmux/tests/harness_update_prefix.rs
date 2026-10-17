@@ -122,12 +122,12 @@ async fn cmux_next_harness_health_npm_update_keeps_distinct_installations_in_a_b
 #[test]
 fn cmux_next_harness_health_npm_update_leaves_non_npm_plans_unchanged() {
     let home = Path::new("/home/user");
-    for (channel, expected) in [
-        (Channel::Bun, vec!["bun", "add", "-g", "@manaflow-ai/codex@latest"]),
-        (Channel::Brew, vec!["brew", "upgrade", "@manaflow-ai/codex"]),
-        (Channel::BrewCask, vec!["brew", "upgrade", "--cask", "@manaflow-ai/codex"]),
+    for (channel, package, expected) in [
+        (Channel::Bun, "@manaflow-ai/codex", vec!["bun", "add", "-g", "@manaflow-ai/codex@latest"]),
+        (Channel::Brew, "codex", vec!["brew", "upgrade", "codex"]),
+        (Channel::BrewCask, "codex", vec!["brew", "upgrade", "--cask", "codex"]),
     ] {
-        let install = Install { channel, package: Some("@manaflow-ai/codex".into()), writes: None };
+        let install = Install { channel, package: Some(package.into()), writes: None };
         assert_eq!(update_plan(&install, None, None, home).unwrap().argv, expected);
     }
 }
@@ -172,7 +172,7 @@ fn cmux_next_harness_health_npm_update_hides_unbound_saved_commands_from_all_con
     let prefix = root.0.join("selected");
     let (install, real) = root.install(&prefix);
     let plan = update_plan(&install, Some(&real), Some(&real), &root.0).unwrap();
-    let mut bound = json!({
+    let bound = json!({
         "id":"bound", "program":"codex", "path":real, "channel":"npm",
         "package":"@manaflow-ai/codex", "version":"1.0.0", "latest":"2.0.0",
         "outdated":true, "auth":"unknown", "checkedAt":1, "update":plan
@@ -183,16 +183,20 @@ fn cmux_next_harness_health_npm_update_hides_unbound_saved_commands_from_all_con
     let mut foreign = bound.clone();
     foreign["id"] = json!("other-package");
     foreign["package"] = json!("@openai/codex");
-    bound["id"] = json!("bound");
-    std::fs::write(&cache, json!([old, foreign, bound]).to_string()).unwrap();
+    let mut elevated = bound.clone();
+    elevated["id"] = json!("elevated");
+    elevated["update"]["elevated"] = json!(true);
+    std::fs::write(&cache, json!([old, foreign, bound, elevated]).to_string()).unwrap();
     let service = HealthService::new();
     service.attach(Settings { cache: Some(cache), home: root.0.clone(), ..Settings::default() });
     let rows = service.rows();
-    assert_eq!(rows.len(), 3);
+    assert_eq!(rows.len(), 4);
     for row in &rows[..2] {
         assert!(row.update.is_none(), "{} exposes a stale command to a health consumer", row.id);
         assert_eq!(row.version.as_deref(), Some("1.0.0"), "observations remain cached");
     }
     assert!(rows[2].update.is_some(), "a bound saved plan remains available");
+    assert!(rows[3].update.is_some(), "a bound elevated plan remains available for display");
+    assert!(acpmux::harness_health::auto::updatable(&rows[3]).is_none(), "elevation stays refused");
     assert!(!prefix.join("updated").exists(), "loading a cache must not run an updater");
 }
