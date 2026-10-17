@@ -2776,7 +2776,9 @@ function AcpmuxPane() {
         (row.kind === "activity" &&
           row.items?.some((item) => {
             const tool = item.tool;
-            return tool && (tool.diffs?.length || tool.kind === "fetch" || tool.kind === "think" || tool.kind === "execute");
+            return (
+              tool && (tool.diffs?.length || tool.kind === "fetch" || tool.kind === "think" || tool.kind === "execute")
+            );
           })),
     );
   }, [snapshot.rows]);
