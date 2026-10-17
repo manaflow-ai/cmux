@@ -115,9 +115,13 @@ sub tput {
         $go = sub { must($CMUX, "--session", "bench", "terminal", $term, "write", "--text", "\n") };
         $done = sub { must($CMUX, "--session", "bench", "terminal", $term, "process", "wait", "--timeout-ms", "900000") };
     }
+    # The viewer's stdin is a pipe held open until the end: an EOF there would
+    # reach the program as a typed Ctrl-D (script(1) forwards it).
+    my ($vin_r, $vin_w);
     if ($attach) {
+        pipe($vin_r, $vin_w) or die "pipe: $!";
         $att = fork // die;
-        if (!$att) { open STDIN, "</dev/null"; open STDOUT, ">/dev/null"; open STDERR, ">/dev/null";
+        if (!$att) { close $vin_w; open STDIN, "<&", $vin_r; open STDOUT, ">/dev/null"; open STDERR, ">/dev/null";
             my $cmd = join(" ", map { "'$_'" } @viewer);
             exec "/usr/bin/script", "-q", "/dev/null", "/bin/sh", "-c", "stty cols 200 rows 50; exec $cmd" }
         sleep 2;
@@ -125,7 +129,7 @@ sub tput {
     my $t = time; $go->(); $done->(); $dt = time - $t;
     my $fp = footprint($kind);
     my $alive = $att ? (kill(0, $att) ? 1 : 0) : 0;
-    if ($att) { kill "TERM", $att; waitpid $att, 0 }
+    if ($att) { kill "TERM", $att; waitpid $att, 0; close $vin_w }
     emit({ test => "tput", kind => $kind, attach => $attach ? \1 : \0, viewer_alive => $alive ? \1 : \0,
            bytes => $size + 0, seconds => sprintf("%.3f", $dt) + 0, mb_per_s => sprintf("%.1f", $size / $dt / 1e6) + 0,
            server_rss_kb_after => $fp->{server_rss_kb}, server_cpu_s => $fp->{server_cpu_s} });
