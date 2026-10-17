@@ -43,6 +43,65 @@ class SidebarPerfValidateTests(unittest.TestCase):
             })
             self.assertEqual(MODULE.main([str(root), "--require-counters", "--max-frame-p99-ms", "16.7"]), 1)
 
+    def test_rejects_main_thread_tick_budget(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write(root, "summary-tick-budget.json", {
+                "ticks": {
+                    "main_us_per_tick": 12.5,
+                    "counters": {"rebuilds": 0, "list_reloads": 0, "row_patches": 8, "row_configures": 8},
+                },
+            })
+            self.assertEqual(MODULE.main([str(root), "--max-main-us-per-tick", "10"]), 1)
+
+    def test_rejects_row_configure_churn_during_scroll(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write(root, "summary-scroll-budget.json", {
+                "scroll_ticking": {
+                    "counters": {
+                        "rebuilds": 0,
+                        "list_reloads": 0,
+                        "row_patches": 2,
+                        "row_configures": 7,
+                        "scroll_realizes": 1,
+                    },
+                },
+            })
+            self.assertEqual(MODULE.main([str(root), "--max-scroll-row-configures", "4"]), 1)
+
+    def test_rejects_frame_and_hitch_percentile_budgets(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write(root, "summary-percentiles.json", {
+                "scroll": {
+                    "frames": {"p95_ms": 18.0, "p99_ms": 20.0},
+                    "hitches": {"p95_ms": 17.0, "p99_ms": 18.0},
+                },
+            })
+            self.assertEqual(MODULE.main([
+                str(root), "--max-frame-p95-ms", "16.7", "--max-frame-p99-ms", "16.7",
+                "--max-hitch-p95-ms", "16.7", "--max-hitch-p99-ms", "16.7",
+            ]), 1)
+
+    def test_missing_optional_metrics_remain_unknown(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write(root, "summary-unknown.json", {
+                "ticks": {"counters": {"rebuilds": 0, "list_reloads": 0, "row_patches": 2, "row_configures": 2}},
+                "scroll": {"frames": {"p99_ms": 12.0}},
+            })
+            self.assertEqual(MODULE.main([
+                str(root), "--max-main-us-per-tick", "10", "--max-frame-p95-ms", "16.7",
+                "--max-hitch-p95-ms", "16.7", "--max-hitch-p99-ms", "16.7",
+            ]), 0)
+
+    def test_rejects_non_finite_budgets(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write(root, "summary-budget.json", {})
+            self.assertEqual(MODULE.main([str(root), "--max-frame-p99-ms", "nan"]), 2)
+
     def test_rejects_missing_metrics_and_harness_failures(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
