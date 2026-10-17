@@ -2,6 +2,7 @@ import CMUXAgentLaunch
 import CmuxAgentChat
 import CmuxMobileHost
 import Foundation
+import SQLite3
 
 extension AgentChatSessionRegistry {
     func reviveEndedObservedSessionIfNeeded(
@@ -213,7 +214,14 @@ extension AgentChatSessionRegistry {
                 guard let process = snapshot.process(pid: pid) else { return nil }
                 return CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process)
             },
-            codexRolloutPaths: openCodexRolloutPaths(pid:)
+            codexRolloutPaths: openCodexRolloutPaths(pid:),
+            openCodeSessionID: { _, cwd, arguments, environment in
+                openCodeSessionIDForProcess(
+                    arguments: arguments,
+                    environment: environment,
+                    workingDirectory: cwd
+                )
+            }
         )
     }
 
@@ -222,7 +230,8 @@ extension AgentChatSessionRegistry {
         onlySurfaceIDs surfaceIDs: Set<UUID>? = nil,
         preferredCodexSessionIDBySurfaceID: [String: String] = [:],
         processArgumentsAndEnvironment: (Int) -> CmuxTopProcessArguments?,
-        codexRolloutPaths: (Int) -> [String]
+        codexRolloutPaths: (Int) -> [String],
+        openCodeSessionID: (Int, String?, [String], [String: String]) -> String? = { _, _, _, _ in nil }
     ) -> [ObservedAgentSession] {
         struct Candidate {
             let session: ObservedAgentSession
@@ -260,7 +269,7 @@ extension AgentChatSessionRegistry {
                 ),
                 processArgumentsAndEnvironment: { _ in loadDetails() }
             ),
-            def.id == "codex" || def.id == "claude" else { continue }
+            def.id == "codex" || def.id == "claude" || def.id == "opencode" else { continue }
             let loadedDetails = loadDetails()
             let argv = loadedDetails?.arguments
             let isClaudeForkLaunch = def.id == "claude" && argv.map(Self.containsClaudeForkSessionOption(_:)) == true
@@ -282,12 +291,30 @@ extension AgentChatSessionRegistry {
                let id = firstUUIDLike(in: envSessionID) {
                 sessionID = id
             }
+            if def.id == "opencode", let loadedDetails {
+                sessionID = openCodeSessionID(
+                    process.pid,
+                    observedWorkingDirectory(loadedDetails.environment),
+                    loadedDetails.arguments,
+                    loadedDetails.environment
+                )
+                let databasePath = OpenCodePaths(environment: loadedDetails.environment).databaseURL.path
+                if FileManager.default.fileExists(atPath: databasePath) {
+                    transcriptPath = databasePath
+                }
+            }
             if sessionID == nil, let argv, !isClaudeForkLaunch {
                 sessionID = sessionIDFromArguments(argv)
             }
             let explicitSessionOption = !isClaudeForkLaunch
                 && (argv.map(containsExplicitSessionOption(_:)) ?? false)
-            guard let resolved = sessionID ?? (def.id == "claude" && !explicitSessionOption ? pendingClaudeSessionID(surfaceID: surfaceID.uuidString) : nil) else { continue }
+            guard let resolved = sessionID
+                ?? (def.id == "opencode" ? openCodeSessionIDForProcess(
+                    arguments: argv ?? [],
+                    environment: loadedDetails?.environment ?? [:],
+                    workingDirectory: observedWorkingDirectory(loadedDetails?.environment)
+                ) : nil)
+                ?? (def.id == "claude" && !explicitSessionOption ? pendingClaudeSessionID(surfaceID: surfaceID.uuidString) : nil) else { continue }
             let candidate = Candidate(
                 session: ObservedAgentSession(
                     sessionID: resolved,
@@ -398,6 +425,82 @@ extension AgentChatSessionRegistry {
                 return path.contains(normalizedNeedle)
             }
         }
+    }
+
+    /// Resolves the OpenCode session from an explicit `--session`/`-s` id,
+    /// the launch environment, or the newest database row for the process cwd.
+    /// OpenCode stores all transcripts in a shared SQLite database rather than
+    /// a per-process JSONL file; the database row is the authoritative fallback
+    /// when the plugin has not written its hook-store binding yet.
+    nonisolated static func openCodeSessionIDForProcess(
+        arguments: [String],
+        environment: [String: String],
+        workingDirectory: String?
+    ) -> String? {
+        if let explicit = openCodeSessionIDFromArguments(arguments) {
+            return explicit
+        }
+        for key in ["OPENCODE_SESSION_ID", "OPENCODE_SESSION"] {
+            if let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !value.isEmpty {
+                return value
+            }
+        }
+        guard let cwd = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !cwd.isEmpty else {
+            return nil
+        }
+        let databasePath = OpenCodePaths(environment: environment).databaseURL.path
+        guard FileManager.default.fileExists(atPath: databasePath) else { return nil }
+        var database: OpaquePointer?
+        guard sqlite3_open_v2(databasePath, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
+              let database else {
+            sqlite3_close(database)
+            return nil
+        }
+        defer { sqlite3_close(database) }
+        let query = "SELECT id FROM session WHERE directory = ? ORDER BY time_updated DESC LIMIT 1"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, query, -1, &statement, nil) == SQLITE_OK,
+              let statement else {
+            sqlite3_finalize(statement)
+            return nil
+        }
+        defer { sqlite3_finalize(statement) }
+        let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        guard sqlite3_bind_text(statement, 1, cwd, -1, transient) == SQLITE_OK,
+              sqlite3_step(statement) == SQLITE_ROW,
+              let value = sqlite3_column_text(statement, 0) else {
+            return nil
+        }
+        return String(cString: value)
+    }
+
+    nonisolated static func openCodeDatabasePath(environment: [String: String]) -> String {
+        OpenCodePaths(environment: environment).databaseURL.path
+    }
+
+    nonisolated static func openCodeSessionIDFromArguments(_ arguments: [String]) -> String? {
+        for index in arguments.indices {
+            let argument = arguments[index]
+            for option in ["--session", "-s"] {
+                if argument == option, arguments.index(after: index) < arguments.endIndex {
+                    let value = arguments[arguments.index(after: index)]
+                    return normalizedOpenCodeSessionID(value)
+                }
+                let prefix = option + "="
+                if argument.hasPrefix(prefix) {
+                    return normalizedOpenCodeSessionID(String(argument.dropFirst(prefix.count)))
+                }
+            }
+        }
+        return nil
+    }
+
+    private nonisolated static func normalizedOpenCodeSessionID(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("-") else { return nil }
+        return trimmed
     }
 
     private nonisolated static func observerBasename(_ value: String?) -> String? {

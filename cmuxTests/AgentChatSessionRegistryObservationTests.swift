@@ -9,6 +9,48 @@ import CMUXAgentLaunch
 #endif
 
 struct AgentChatSessionRegistryObservationTests {
+    @Test func openCodeSessionIdentityAcceptsExplicitSessionArguments() {
+        #expect(AgentChatSessionRegistry.openCodeSessionIDFromArguments(["opencode", "--session", "ses_abc"]) == "ses_abc")
+        #expect(AgentChatSessionRegistry.openCodeSessionIDFromArguments(["opencode", "-s=ses_def"]) == "ses_def")
+        #expect(AgentChatSessionRegistry.openCodeSessionIDFromArguments(["opencode", "--session", "--verbose"]) == nil)
+    }
+
+    @Test func mobileChatObserverDetectsOpenCodeFromExplicitSessionArgument() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                topProcess(
+                    pid: 121,
+                    name: "opencode",
+                    path: "/opt/homebrew/bin/opencode",
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 115),
+            includesProcessDetails: true
+        )
+
+        let observed = AgentChatSessionRegistry.scanObservedAgentSessions(
+            in: snapshot,
+            processArgumentsAndEnvironment: { pid in
+                guard pid == 121 else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["opencode", "--session", "ses_opencode"],
+                    environment: ["CMUX_AGENT_LAUNCH_CWD": "/Users/example/project"]
+                )
+            },
+            codexRolloutPaths: { _ in [] }
+        )
+
+        let session = try #require(observed.first)
+        #expect(observed.count == 1)
+        #expect(session.sessionID == "ses_opencode")
+        #expect(session.agentKind == .other("opencode"))
+        #expect(session.workspaceID == workspaceID.uuidString)
+        #expect(session.surfaceID == surfaceID.uuidString)
+    }
     @Test func mobileChatObserverDetectsNodeHostedClaudeFromProcessDetails() throws {
         let workspaceID = UUID()
         let surfaceID = UUID()
