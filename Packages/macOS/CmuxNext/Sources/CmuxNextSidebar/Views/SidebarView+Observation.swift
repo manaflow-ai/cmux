@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextCompat
 import Observation
 extension SidebarView {
     // MARK: Observation
