@@ -128,18 +128,29 @@ function SentImage({ image }: { image: PromptImage }) {
   const [state, setState] = useState<"loading" | "ready" | "missing">(() => (promptImage ? "loading" : "missing"));
   useEffect(() => {
     let live = true;
+    setSrc(undefined);
     if (!promptImage) {
       setState("missing");
       return;
     }
     setState("loading");
-    void promptImage(image.id).then((url) => {
-      if (!live) return;
-      if (url) {
-        setSrc(url);
-        setState("ready");
-      } else setState("missing");
-    });
+    void promptImage(image.id).then(
+      (url) => {
+        if (!live) return;
+        if (url) {
+          setSrc(url);
+          setState("ready");
+        } else setState("missing");
+      },
+      () => {
+        // Attachment reads can fail after a reconnect or session switch. Clear the reserved
+        // slot and treat it like a missing attachment; never leave an unhandled rejection or
+        // stale thumbnail from the previous image id on screen.
+        if (!live) return;
+        setSrc(undefined);
+        setState("missing");
+      },
+    );
     return () => {
       live = false;
     };
