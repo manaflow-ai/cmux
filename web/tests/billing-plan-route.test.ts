@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
+import { call } from "@orpc/server";
 
 import { billingEmailClaims, stripeSubscriptions } from "../db/schema";
 import { withAccountMutationLeaseSupport } from
@@ -50,6 +51,7 @@ mock.module("../db/client", () => ({
 }));
 
 const { GET } = await import("../app/api/billing/plan/route");
+const { billingRouter } = await import("../orpc/server/dashboard/billing");
 
 describe("billing plan route", () => {
   beforeEach(() => {
@@ -135,6 +137,44 @@ describe("billing plan route", () => {
     expect(response.teamBillingManagement).toBe("stripe");
   });
 
+  test("the dashboard reports the Team subscription separately from the Free personal plan", async () => {
+    currentUser = planUser({ selectedTeam: { id: "team-plan", clientReadOnlyMetadata: {} } });
+    stripeSubscriptionResults = [[], [], [{ id: "sub_team" }]];
+
+    const response = await call(billingRouter.current, undefined, {
+      context: { request: new Request("https://cmux.test/api/dashboard/rpc"), serverPrefetch: true },
+    });
+
+    expect(response).toMatchObject({ planId: "free", isPro: false, teamPlanId: "team" });
+  });
+
+  test("the dashboard recognizes an operator Team grant without granting personal Pro", async () => {
+    currentUser = planUser({ selectedTeam: { id: "team-plan", clientReadOnlyMetadata: { cmuxVmPlan: "team" } } });
+
+    const response = await dashboardPlanResponse();
+
+    expect(response).toMatchObject({ planId: "free", isPro: false, teamPlanId: "team" });
+  });
+
+  test("the dashboard does not grant Team from a stale subscription mirror", async () => {
+    currentUser = planUser({ selectedTeam: { id: "team-plan", clientReadOnlyMetadata: { cmuxPlan: "team" } } });
+
+    const response = await dashboardPlanResponse();
+
+    expect(response).toMatchObject({ planId: "free", isPro: false, teamPlanId: "free" });
+  });
+
+  test("the dashboard keeps a selected Free team separate from another team's grant", async () => {
+    currentUser = planUser({
+      selectedTeam: { id: "team-free", clientReadOnlyMetadata: {} },
+      listTeams: mock(async () => [{ id: "team-paid", clientReadOnlyMetadata: { cmuxVmPlan: "team" } }]),
+    });
+
+    const response = await dashboardPlanResponse();
+
+    expect(response).toMatchObject({ planId: "free", isPro: false, teamPlanId: "free" });
+  });
+
   test("reports no Team management when team metadata has no Stripe row", async () => {
     currentUser = planUser({
       selectedTeam: {
@@ -184,6 +224,13 @@ describe("billing plan route", () => {
 async function planResponse() {
   const response = await GET(new NextRequest("https://cmux.test/api/billing/plan"));
   return response.json() as Promise<Record<string, unknown>>;
+}
+
+/** Call the dashboard billing procedure with the current mocked viewer. */
+function dashboardPlanResponse() {
+  return call(billingRouter.current, undefined, {
+    context: { request: new Request("https://cmux.test/api/dashboard/rpc"), serverPrefetch: true },
+  });
 }
 
 function planUser(options: {

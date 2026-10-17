@@ -10,6 +10,7 @@ import { claimPendingProBilling, type ProBillingClaimUser } from "@/services/bil
 import { isStripeBillingConfigured } from "@/services/billing/stripe";
 import { applySubscriptionAction, type SubscriptionAction } from "@/services/billing/subscriptionManagement";
 import { resolveTeamBillingAccess, type TeamBillingAccessUser } from "@/services/billing/teamBillingAccess";
+import { resolveTeamPlanStatus } from "@/services/billing/teamPlanStatus";
 import { authed } from "./base";
 import { dashboardRefusal } from "./errors";
 
@@ -17,16 +18,18 @@ const targetPlan = z.enum(["pro", "max"]);
 
 export const CANCEL_REASONS = ["too_expensive", "missing_feature", "not_using", "other"] as const;
 
-/** The viewer's personal plan: the account menu badge and the "Requires Pro" panels. */
+/** Personal status for the account badge, plus Team status for Cloud upgrade prompts. */
 const current = authed
   .output(z.object({
     planId: z.enum(["free", "go", "pro", "max"]),
     isPro: z.boolean(),
     billingManagement: z.enum(["stripe", "external", "none"]),
+    teamPlanId: z.enum(["free", "team"]),
   }))
   .handler(async ({ context }) => {
     const status = await resolveProPlanStatus(context.user);
-    return { planId: status.planId, isPro: status.isPro, billingManagement: status.billingManagement };
+    const teamStatus = await resolveTeamPlanStatus(context.user);
+    return { planId: status.planId, isPro: status.isPro, billingManagement: status.billingManagement, teamPlanId: teamStatus.planId };
   });
 
 const previewSchema = z.object({

@@ -283,7 +283,7 @@ async function renderTestflightPage(
   expect(response.status).toBe(200);
   const queryClient = createScreenQueryClient();
   queryClient.setQueryData(testflightQuery.queryKey, await response.json());
-  if (plan) queryClient.setQueryData(planQuery.queryKey, plan);
+  if (plan) queryClient.setQueryData(planQuery.queryKey, { ...plan, teamPlanId: "free" });
   const params = new URLSearchParams(Object.entries(search).filter(([, value]) => value !== undefined) as [string, string][]);
   const query = params.size ? `?${params}` : "";
   return renderDashboardScreen({
