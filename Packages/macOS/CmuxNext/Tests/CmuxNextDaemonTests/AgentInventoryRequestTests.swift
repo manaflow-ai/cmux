@@ -40,6 +40,15 @@ struct AgentInventoryRequestTests {
         let result = try WireCoding.decodeResponse(AgentInventoryRequest.Response.self, from: data)
         let row = try #require(result.harnesses.first)
         #expect(row.id == "codex")
-        #expect(row.family == "claude")
+        #expect(row.family == .claude)
+    }
+
+    @Test func futureFamilyStringsRemainUnknownAndNonStringsAreRefused() throws {
+        let unknown = try JSONDecoder().decode(AgentCLIFamily.self, from: Data(#""private-future-family""#.utf8))
+        #expect(unknown == .unknown)
+        #expect(unknown.rawValue == "unknown")
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(AgentCLIFamily.self, from: Data("true".utf8))
+        }
     }
 }

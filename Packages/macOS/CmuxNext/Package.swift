@@ -512,7 +512,7 @@ let package = Package(
         // and the App Store window. The App supplies the operation sink.
         .target(
             name: "CmuxNextApps",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/AppPlatform"),
@@ -521,7 +521,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppsTests",
-            dependencies: ["CmuxNextApps"],
+            dependencies: ["CmuxNextApps", "CmuxNextDaemon"],
             swiftSettings: uiSwiftSettings
         ),
         // App permissions (plans/cmux-next/first-party-apps.md sections 4 and 5):

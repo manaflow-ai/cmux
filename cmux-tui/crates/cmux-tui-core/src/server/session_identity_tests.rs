@@ -17,6 +17,15 @@ fn identity_mux() -> Arc<Mux> {
 }
 
 #[test]
+fn cmux_next_agent_cli_list_advertises_verified_app_provider_support() {
+    let identity = run(&identity_mux(), json!({"cmd":"identify"})).unwrap();
+    assert_eq!(
+        identity["capabilities"].as_array().unwrap().contains(&json!("agent-cli-app-provider-v1")),
+        cfg!(unix),
+    );
+}
+
+#[test]
 fn identify_reports_session_identity() {
     let mux = identity_mux();
     let identity = run(&mux, json!({"cmd":"identify"})).unwrap();

@@ -14,9 +14,9 @@ public nonisolated struct AcpmuxHarnessInventory: Decodable, Sendable, Equatable
         /// The owner's configured profile id.
         public let id: String
         /// The CLI family identified from the same check's executable or package.
-        /// Nil for old owners, wrappers, adapters and conflicting evidence;
-        /// the profile id must never substitute for this value.
-        public let family: String?
+        /// Nil for old owners or unclassified evidence; unrecognized future
+        /// strings decode as unknown. Never substitute the profile id.
+        public let family: AgentCLIFamily?
         /// The installation channel the owner detected.
         public let channel: Channel
         /// The installed version, or nil when the owner could not establish it.

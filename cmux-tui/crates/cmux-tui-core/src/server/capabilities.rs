@@ -3,6 +3,10 @@
 
 use super::*;
 
+/// Verified app registrations may include the `agent_cli` family.
+#[cfg(unix)]
+const AGENT_CLI_APP_PROVIDER_CAPABILITY: &str = "agent-cli-app-provider-v1";
+
 /// A personal workspace's own remote-localhost choice: `remote_localhost`
 /// on `set-personal-workspace` and the personal workspace rows.
 pub const PERSONAL_REMOTE_LOCALHOST_CAPABILITY: &str = "personal-remote-localhost-v1";
@@ -34,6 +38,8 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     }
     #[cfg(unix)]
     capabilities.push(tab_restart::CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(AGENT_CLI_APP_PROVIDER_CAPABILITY);
     #[cfg(unix)]
     if mux.serves_agent_session_attach() {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);

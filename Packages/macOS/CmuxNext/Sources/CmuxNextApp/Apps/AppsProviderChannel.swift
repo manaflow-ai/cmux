@@ -76,7 +76,7 @@ struct AppsProviderLink {
         AppsProviderLink(connection: { [weak daemon] in daemon?.connection }, register: { connection, families in
             guard let connection = connection as? DaemonConnection else { return "not_connected" }
             do {
-                _ = try await connection.request(AppsProviderRegisterRequest(families: families))
+                _ = try await connection.registerAppProvider(families: families)
                 return nil
             } catch DaemonError.command(_, _, let code, _, _) {
                 return code ?? "refused"

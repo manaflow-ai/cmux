@@ -39,9 +39,13 @@ Owner recommendation: the session host on each machine (a small "agent environme
 
 The existing `machine.list` record now carries a small non-secret `platform` object (`os`, `arch`) and a `capabilities` list. The local daemon reports `terminal`, `workspace` and `agent_session`; agent CLI versions, install paths and account labels remain the session host's responsibility. Remote owners can add capabilities without changing the agent app's machine discovery flow.
 
+The native app now serves `agent_cli.list` through its verified provider channel for callers granted `agent_cli:read`. It selects an existing admitted route by the public machine ID (the local route when omitted), requires the daemon's `agent-inventory-owner-v1` check, and returns `{machine, cached:true, complete:false, clis}`. The cached owner identifies families from checked executable/package evidence; unclassified profiles are omitted. Conflicting versions and sign-in evidence stay unknown, accounts remain empty and updates report `updatable:false`. Route removal, replacement or policy revocation during a read discards its result. Unknown or unavailable machines never fall back to this Mac. Live `check_latest:true`, execution and watch operations remain unsupported. Global machine discovery and the paired-server owner-admission path are still incomplete.
+
+The app separately negotiates `agent-cli-app-provider-v1` before registering the new provider family. An older daemon receives only the existing families, preserving CodeRouter and action operations.
+
 | Op | Params | Result | Owner | Risk | Scope | Events | Why existing ops do not suffice |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `agent_cli.list` | `{machine?, check_latest?}` | `{machine, complete, clis: [{cli, name?, installed: boolean\|null, version, latest: {version, checked_at}, install_method, updatable, path_label?, auth_status?, accounts: [{account: acct_…, label, plan?, status}]}]}` | session host of that machine | read | `agent_cli:read` | `agent_cli.watch` | nothing lists CLIs per machine; `agent.list` is running agents, not installed CLIs |
+| `agent_cli.list` | `{machine?, check_latest?}` | `{machine, cached?, complete, clis: [{cli, name?, installed: boolean\|null, version, latest: {version, checked_at}, install_method, updatable, path_label?, auth_status?, accounts: [{account: acct_…, label, plan?, status}]}]}` | session host of that machine | read | `agent_cli:read` | `agent_cli.watch` | `agent.list` is running agents, not installed CLIs |
 | `agent_cli.update` | `{machine?, cli}` | `{job, terminal}` | session host | execute, origin user, gesture | `agent_cli:execute` | `agent_cli.watch` (job end) | `workspace.run` would make the app choose and spell the command; the owner picks the command for the detected install method |
 | `agent_cli.install` | `{machine?, cli, method}` | `{job, terminal}` | session host | execute, origin user, gesture | `agent_cli:execute` | `agent_cli.watch` | same; the method is one of the provider table's hints, never free text |
 | `agent_cli.sign_in` | `{machine?, cli, account?}` | `{job, terminal}` | session host | execute, origin user, gesture | `agent_cli:execute` | `agent_cli.watch` | `accounts.reauthenticate` exists only on this Mac and only for providers CodeRouter links |
@@ -52,11 +56,11 @@ Rules for the owner: `complete: true` is an explicit claim of an exhaustive inst
 
 ## Platform gaps (most important first)
 
-1. No per-machine owner for agent environment data: `agent_cli.*` (and `skill.*`, `mcp_server.*`, `memory.*` for the sibling apps) need one owner on every machine; v2 has no shared server for several apps and no host capability family for it.
+1. Cached CLI inventory has a native machine owner and app adapter; exhaustive discovery, live version checks, account labels, visible jobs and the sibling `skill.*`, `mcp_server.*` and `memory.*` capabilities still need their owner paths.
 2. `machine.list` returns only `origin: "local"`; cmux servers and the team VM are not listed with an `os`, so the app cannot tell Linux from macOS for install hints.
 3. No account label owner: sign-ins have no opaque handle (`acct_…`) and no user-editable non-secret label; the native detector exposes an email.
 4. `accounts.reauthenticate` takes no machine and covers only CodeRouter providers.
-5. The scope grammar does not know `agent_cli:*` (validator warning `scope.unknown`).
+5. `agent_cli:read` is recognized for `agent_cli.list`; execution and watch operations remain unimplemented.
 6. Scene: no table or grid (the matrix uses fixed-width texts), no ScrollView (long lists clip in the sidebar), no button prominence (Update looks like every other button), no copy-to-clipboard for an install hint.
 7. Catalog fragments have no field that binds an op to a JS export; the sketch uses `export`.
 8. Palette commands carry no gesture token, so "Update" cannot be a palette command with a CLI argument.
