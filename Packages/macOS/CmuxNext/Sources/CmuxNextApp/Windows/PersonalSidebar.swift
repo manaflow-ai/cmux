@@ -1,7 +1,6 @@
 import CmuxNextDaemon
 
-/// Sidebar order and groups from the home session's personal state
-/// (plans/cmux-next/data-model.md 1.2c, 3.2): each qualified workspace has a
+/// Sidebar order and groups from the home session's personal state (plans/cmux-next/data-model.md 1.2c, 3.2): each qualified workspace has a
 /// personal position and group; groups belong to one room. Without personal
 /// state (an older home daemon) the daemon's shared groups and order are
 /// used, as before.
@@ -53,8 +52,7 @@ enum PersonalSidebar {
         return order(daemon.store.workspaces, rows: rows(of: session, personal)).map(\.id)
     }
 
-    /// The daemon's mixed order (`sidebar_workspace_ids` in cmux-tui
-    /// `state/personal_order.rs`) over `workspaces` of `session`: walk every
+    /// The daemon's mixed order (`sidebar_workspace_ids` in cmux-tui `state/personal_order.rs`) over `workspaces` of `session`: walk every
     /// personal row by position; before row i come the groups whose
     /// `top_index` is i (in group order, members in personal order), then
     /// row i when it is loose. Workspaces without a personal row follow as
@@ -117,8 +115,7 @@ enum PersonalSidebar {
     }
 
     /// Rowed workspaces by personal position, then the rest in daemon order.
-    /// One rank lookup per workspace, then an integer sort: the comparator
-    /// read each model's tracked `key` twice per comparison (O(n log n)
+    /// One rank lookup per workspace, then an integer sort: the comparator read each model's tracked `key` twice per comparison (O(n log n)
     /// tracked reads, 260-280 ms per reconcile at 1,000 workspaces).
     static func order(_ workspaces: [WorkspaceModel], rows: [String: PersonalWorkspace]) -> [WorkspaceModel] {
         let ranked = workspaces.enumerated().map { (rank: rows[rowKey($1)]?.index, key: rowKey($1), offset: $0, workspace: $1) }
