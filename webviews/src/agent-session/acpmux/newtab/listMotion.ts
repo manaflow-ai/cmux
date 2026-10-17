@@ -5,7 +5,7 @@
 // Rows are told apart by their keys, never by position. Only transform and opacity animate (Web
 // Animations), and a change mid-motion starts from what is on screen. Reduce Motion keeps the
 // fades and drops the slides (rule 7): its move token is 0.
-import { type RefObject, useLayoutEffect, useRef } from "react";
+import { type RefObject, useLayoutEffect, useMemo, useRef } from "react";
 
 type Places = Map<string, { x: number; y: number }>;
 
@@ -47,12 +47,10 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   const shown = useRef<string>("");
   const shownKeys = useRef<readonly string[]>([]);
   const signature = keys.join("\n");
+  const keyList = useMemo(() => (signature === "" ? [] : signature.split("\n")), [signature]);
   const observed = useRef<{ root: HTMLElement; observer: ResizeObserver } | null>(null);
   useLayoutEffect(() => () => observed.current?.observer.disconnect(), []);
   useLayoutEffect(() => {
-    // `signature` is the dependency; reconstructing the immutable key list
-    // here keeps the effect from closing over a fresh caller array every render.
-    const currentKeys = signature ? signature.split("\n") : [];
     const root = list.current;
     if (observed.current?.root !== root) {
       observed.current?.observer.disconnect();
@@ -68,7 +66,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
       }
     }
     const elements = root ? [...root.querySelectorAll<HTMLElement>(`:scope > ${rows}`)] : [];
-    if (!root || elements.length !== currentKeys.length) {
+    if (!root || elements.length !== keyList.length) {
       places.current = new Map();
       shown.current = "";
       return;
@@ -76,13 +74,13 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     const changed = shown.current !== "" && shown.current !== signature;
     const before = places.current;
     // Reads: where each row is drawn now (running slides included), then its new place.
-    const drawn = new Map(elements.map((element, index) => [currentKeys[index], drawnShift(element)] as const));
+    const drawn = new Map(elements.map((element, index) => [keyList[index], drawnShift(element)] as const));
     if (changed) for (const animation of running.current) animation.cancel();
     if (changed) running.current = [];
-    const after = measure(root, elements, currentKeys);
+    const after = measure(root, elements, keyList);
     places.current = after;
     shown.current = signature;
-    shownKeys.current = currentKeys;
+    shownKeys.current = keyList;
     if (!changed) return;
     const style = getComputedStyle(root);
     const reduced = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -91,7 +89,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     const easing = style.getPropertyValue("--agent-ease-out").trim() || "ease-out";
     // Writes.
     for (const [index, element] of elements.entries()) {
-      const key = currentKeys[index];
+      const key = keyList[index];
       const was = before.get(key);
       const is = after.get(key);
       if (!was || !is) {
@@ -111,5 +109,5 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
         );
       }
     }
-  }, [list, rows, signature]);
+  }, [keyList, list, rows, signature]);
 }
