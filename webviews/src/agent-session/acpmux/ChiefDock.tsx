@@ -48,7 +48,7 @@ export type ChiefDockProps = {
 };
 
 const MAX_CARDS = 4;
-type ChiefStatus = "streaming" | "attention" | "error" | "idle";
+type ChiefStatus = "streaming" | "attention" | "error" | "complete" | "unread" | "idle";
 
 const urgency = (session: AcpmuxSessionEntry, selected: boolean): number => {
   switch (sessionMark(session, selected)) {
@@ -70,7 +70,17 @@ const status = (session: AcpmuxSessionEntry, selected: boolean): ChiefStatus => 
   if (mark === "input") return "attention";
   if (mark === "error") return "error";
   if (mark === "running") return "streaming";
+  if (mark === "unread") return "unread";
+  if (session.indicator === "done") return "complete";
   return "idle";
+};
+
+const STATUS_ICONS: Record<Exclude<ChiefStatus, "idle">, string> = {
+  streaming: "status.running",
+  attention: "status.needsinput",
+  error: "status.disconnected",
+  complete: "status.complete",
+  unread: "status.dot",
 };
 
 const MARK_LABELS: Record<Exclude<SessionMark, undefined>, StringKey> = {
@@ -162,7 +172,11 @@ export function ChiefDock({
                     disabled={!expanded}
                     onClick={() => onSelect(session.sessionId)}
                   >
-                    <span className="acpmux-chief-dock-dot" data-status={cardStatus} aria-hidden="true" />
+                    {cardStatus !== "idle" && (
+                      <span className="acpmux-chief-dock-status" data-status={cardStatus} aria-hidden="true">
+                        <Icon name={STATUS_ICONS[cardStatus]} size={17} row />
+                      </span>
+                    )}
                     <span className="acpmux-chief-card-copy">
                       <strong>{title}</strong>
                       <small>{session.preview || session.branch || session.cwd || t("sidebar.sessions")}</small>
