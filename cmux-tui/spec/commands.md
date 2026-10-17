@@ -8921,6 +8921,36 @@ chat on another machine reaches the verb that way, behind its relay's
 fresh-gesture rule. A WebSocket client of acpmux still cannot
 answer (`trust.remote`). At most 8 calls run at once (`agent_session.limit`).
 
+## Agent CLI inventory
+
+`agent-inventory-v1` is advertised when the daemon has its own acpmux socket
+configured. A trusted native connection (the app's local, SSH or Cloud carrier)
+may send `{id, cmd:"agent-inventory"}` with no other fields. WebSocket clients
+and the conversations-only remote relay cannot use it. This command reads this
+daemon's machine only; it accepts no machine, session, socket or command selector.
+
+The daemon first calls `initialize` on its own acpmux socket and requires the
+exact `harnessInventory` feature in a string array at `_meta.acpmux.features`.
+Only then, on that same connection, it calls
+`_acpmux/harness/health {view:"inventory"}`. Older owners never receive the health
+request: an older acpmux can ignore `view` and run checks or updates. There is no
+legacy fallback, daemon start, handoff, PATH scan, registry lookup or refresh.
+
+The response's `data` is `{view:"inventory", cached:true, harnesses:[...]}`.
+Each row contains only `id`, `channel`, `version`, `latest`, `latestCheckedAt`,
+`outdated`, `auth` and `checkedAt`. Versions and latest-check times may be null;
+times are milliseconds since the epoch. Channels are `npm`, `bun`, `brew`,
+`brewCask`, `native`, `launcher`, `standalone` or `missing`. Sign-in evidence is
+`signedIn`, `signedOut` or `unknown`, without account labels. No program paths,
+commands or diagnostic output are forwarded. Empty rows mean no cached
+observations, not proof that the machine has no installed agents. At most 256
+rows and eight concurrent reads per daemon are accepted.
+
+Failures have an `agent_inventory.*` error code: `not_trusted`, `bad_request`,
+`unavailable` (including a stopped or unresponsive owner), `unsupported` (no
+negotiated view), `busy` or `invalid_response`. An unavailable remote owner is
+never replaced with this computer's inventory.
+
 ## Agent CLI updates
 
 `agent-update-v1` (advertised with `agent-session-attach-v1`) lets a trusted

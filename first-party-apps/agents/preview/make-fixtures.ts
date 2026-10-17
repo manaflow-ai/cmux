@@ -17,9 +17,9 @@ const scopes = {
 const grant = ["machine:read", "agent_cli:read", "agent_cli:execute", "actions:run", "workspace:write"]
 
 const machines = [
-  { id: "machine_mac01", name: "MacBook Pro", origin: "local", status: "running", connectable: true, deleted: false, recoverable: false, os: "darwin" },
-  { id: "machine_srv01", name: "build-server", origin: "server", status: "running", connectable: true, deleted: false, recoverable: false, os: "linux" },
-  { id: "machine_vm01", name: "team-vm", origin: "team_vm", status: "running", connectable: true, deleted: false, recoverable: false, os: "linux" }
+  { id: "machine_mac01", name: "MacBook Pro", origin: "local", status: "running", connectable: true, deleted: false, recoverable: false, os: "darwin", platform: { os: "darwin", arch: "arm64" }, capabilities: ["terminal", "workspace", "agent_session"] },
+  { id: "machine_srv01", name: "build-server", origin: "server", status: "running", connectable: true, deleted: false, recoverable: false, os: "linux", platform: { os: "linux", arch: "x86_64" }, capabilities: ["terminal", "workspace", "agent_session", "persistent_home"] },
+  { id: "machine_vm01", name: "team-vm", origin: "team_vm", status: "running", connectable: true, deleted: false, recoverable: false, os: "linux", platform: { os: "linux", arch: "x86_64" }, capabilities: ["terminal", "workspace", "agent_session"] }
 ]
 
 const latest = (version: string) => ({ version, checked_at: NOW - 20 * 60_000 })
