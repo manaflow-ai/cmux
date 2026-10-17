@@ -224,14 +224,16 @@ struct ConversationFilesSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button(ConversationL10n.value("conversation.close", "Close")) { dismiss() } }
             }
-            .sheet(item: Binding(get: {
+            // Push the diff in this stack instead of presenting a second sheet.
+            // Nested sheets can leave the outer files sheet presented without
+            // ever installing the destination on iPadOS (and intermittently
+            // on iPhone), even though the row's selection binding changes.
+            .navigationDestination(item: Binding(get: {
                 selection.flatMap { id in diffs.first(where: { $0.id == id }).map { ConversationDiffItem(id: id, diff: $0.diff) } }
             }, set: { value in selection = value?.id })) { item in
-                NavigationStack {
-                    ConversationDiffView(diff: item.diff)
-                        .navigationTitle(diffTitle(item.diff))
-                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button(ConversationL10n.value("conversation.close", "Close")) { selection = nil } } }
-                }
+                ConversationDiffView(diff: item.diff)
+                    .navigationTitle(diffTitle(item.diff))
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button(ConversationL10n.value("conversation.close", "Close")) { selection = nil } } }
             }
         }
         // File browsing needs the full sheet height so the final changed-file
