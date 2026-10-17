@@ -208,6 +208,38 @@ struct CodexTranscriptParserTests {
         #expect(second.state.pendingToolUses.isEmpty)
     }
 
+    @Test("request_user_input resolves every question from one output")
+    func requestUserInputResolvesAllQuestions() throws {
+        let callID = "call_questions"
+        let result = parser.parse(
+            lines: [
+                functionCallLine(
+                    name: "request_user_input",
+                    arguments: #"{"questions":[{"id":"q1","question":"Pick the first value","options":[{"label":"A"},{"label":"Other"}]},{"id":"q2","question":"Pick the second value","options":[{"label":"B"},{"label":"Other"}]}]}"#,
+                    callID: callID
+                ),
+                outputLine(
+                    callID: callID,
+                    output: #"{"answers":{"q1":{"answers":["A"]},"q2":{"answers":["B"]}}}"#
+                ),
+            ],
+            startingSeq: 0
+        )
+
+        #expect(result.messages.count == 2)
+        let firstMessage = try #require(result.messages.first)
+        let secondMessage = try #require(result.messages.dropFirst().first)
+        guard case .question(let first) = firstMessage.kind,
+              case .question(let second) = secondMessage.kind
+        else {
+            Issue.record("expected two question messages")
+            return
+        }
+        #expect(first.selectedOptionLabel == "A")
+        #expect(second.selectedOptionLabel == "B")
+        #expect(result.state.pendingToolUses.isEmpty)
+    }
+
     // MARK: - Other tools
 
     @Test("non-shell function calls map to toolUse and JSON-object outputs fill exit info")
