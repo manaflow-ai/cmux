@@ -80,26 +80,31 @@ struct ConversationModelSettingsSheet: View {
                 if let capabilities, !capabilities.models.isEmpty {
                     Section(ConversationL10n.value("conversation.model", "Model")) {
                         Picker(ConversationL10n.value("conversation.model", "Model"), selection: $selectedModel) {
+                            Text(ConversationL10n.value("conversation.provider_default", "Provider default")).tag("")
                             ForEach(capabilities.models, id: \.self) { value in Text(value).tag(value) }
                         }
                         .accessibilityIdentifier("ConversationModelPicker")
                     }
                 }
-                Section(ConversationL10n.value("conversation.intelligence", "Intelligence")) {
+                if capabilities?.efforts.isEmpty == false || capabilities?.speeds.isEmpty == false {
+                  Section(ConversationL10n.value("conversation.intelligence", "Intelligence")) {
                     if let capabilities, !capabilities.efforts.isEmpty {
                         Picker(ConversationL10n.value("conversation.effort", "Effort"), selection: $effort) {
+                            Text(ConversationL10n.value("conversation.provider_default", "Provider default")).tag("")
                             ForEach(capabilities.efforts, id: \.self) { value in Text(value.capitalized).tag(value) }
                         }
                         .accessibilityIdentifier("ConversationEffortPicker")
                     }
                     if let capabilities, !capabilities.speeds.isEmpty {
                         Picker(ConversationL10n.value("conversation.speed", "Speed"), selection: $speed) {
+                            Text(ConversationL10n.value("conversation.provider_default", "Provider default")).tag("")
                             ForEach(capabilities.speeds, id: \.self) { value in Text(value.capitalized).tag(value) }
                         }
                         .accessibilityIdentifier("ConversationSpeedPicker")
                     }
+                  }
                 }
-                Text(ConversationL10n.value("conversation.capabilities", "These controls follow the capabilities advertised by the connected provider."))
+                Text(ConversationL10n.value("conversation.settings_next_message", "Changes apply to your next message."))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -107,7 +112,10 @@ struct ConversationModelSettingsSheet: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(ConversationL10n.value("conversation.done", "Done")) {
-                        model.configure(model: selectedModel.isEmpty ? nil : selectedModel, effort: effort.isEmpty ? nil : effort, speed: speed.isEmpty ? nil : speed)
+                        let session = model.sessions.first(where: { $0.id == model.selectedSessionID })
+                        if selectedModel != (session?.model ?? "") || effort != (session?.effort ?? "") || speed != (session?.speed ?? "") {
+                            model.configure(model: selectedModel.isEmpty ? nil : selectedModel, effort: effort.isEmpty ? nil : effort, speed: speed.isEmpty ? nil : speed)
+                        }
                         dismiss()
                     }
                     .accessibilityIdentifier("ConversationSettingsDone")
@@ -115,9 +123,9 @@ struct ConversationModelSettingsSheet: View {
             }
             .task {
                 let session = model.sessions.first(where: { $0.id == model.selectedSessionID })
-                selectedModel = session?.model ?? capabilities?.models.first ?? ""
-                effort = session?.effort ?? capabilities?.efforts.first ?? ""
-                speed = session?.speed ?? capabilities?.speeds.first ?? ""
+                selectedModel = session?.model ?? ""
+                effort = session?.effort ?? ""
+                speed = session?.speed ?? ""
             }
         }
         .presentationDetents([.medium])
@@ -158,9 +166,12 @@ struct ConversationFilesSheet: View {
     }
 
     private var visibleFilters: [DiffFilter] {
-        var values: [DiffFilter] = [.all, .unstaged, .lastTurn]
-        if capabilities?.features.contains("git_staged") == true { values.insert(.staged, at: 2) }
-        return values
+        DiffFilter.allCases.filter { filter in
+            filter == .all
+                || items.contains { $0.diff?.comparison.lowercased() == filter.rawValue }
+                || (filter == .staged && capabilities?.features.contains("git_staged") == true)
+                || (filter == .unstaged && capabilities?.features.contains("git_unstaged") == true)
+        }
     }
 
     var body: some View {
@@ -181,7 +192,7 @@ struct ConversationFilesSheet: View {
                         } label: {
                             HStack {
                                 Image(systemName: "doc.text")
-                                Text(entry.diff.path)
+                                Text(diffTitle(entry.diff))
                                 Spacer()
                                 Text(entry.diff.comparison).font(.caption).foregroundStyle(.secondary)
                             }
@@ -199,7 +210,7 @@ struct ConversationFilesSheet: View {
             }, set: { value in selection = value?.id })) { item in
                 NavigationStack {
                     ConversationDiffView(diff: item.diff)
-                        .navigationTitle(item.diff.path)
+                        .navigationTitle(diffTitle(item.diff))
                         .toolbar { ToolbarItem(placement: .cancellationAction) { Button(ConversationL10n.value("conversation.close", "Close")) { selection = nil } } }
                 }
             }
@@ -207,6 +218,10 @@ struct ConversationFilesSheet: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .accessibilityIdentifier("ConversationFilesSheet")
+    }
+
+    private func diffTitle(_ diff: ConversationDiff) -> String {
+        diff.path.isEmpty ? ConversationL10n.value("conversation.task_changes", "Task changes") : diff.path
     }
 }
 

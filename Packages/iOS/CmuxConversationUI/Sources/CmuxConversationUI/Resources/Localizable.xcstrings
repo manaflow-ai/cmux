@@ -6113,6 +6113,36 @@
           }
         }
       }
+    },
+    "conversation.provider_default": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provider default"
+          }
+        }
+      }
+    },
+    "conversation.settings_next_message": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes apply to your next message."
+          }
+        }
+      }
+    },
+    "conversation.task_changes": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task changes"
+          }
+        }
+      }
     }
   }
 }
