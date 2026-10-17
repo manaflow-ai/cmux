@@ -52,15 +52,20 @@ export type RuntimeView = {
   readonly releasedAt: string | null;
 };
 
+function iso(value: Date | string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
 export function toRuntimeView(runtime: RuntimeRow): RuntimeView {
   return {
     id: runtime.id,
     kind: runtime.runtimeKind,
     lifecycleState: runtime.lifecycleState,
     placementGeneration: runtime.placementGeneration,
-    createdAt: runtime.createdAt.toISOString(),
-    updatedAt: runtime.updatedAt.toISOString(),
-    releasedAt: runtime.releasedAt?.toISOString() ?? null,
+    createdAt: iso(runtime.createdAt) ?? new Date(0).toISOString(),
+    updatedAt: iso(runtime.updatedAt) ?? new Date(0).toISOString(),
+    releasedAt: iso(runtime.releasedAt),
   };
 }
 
