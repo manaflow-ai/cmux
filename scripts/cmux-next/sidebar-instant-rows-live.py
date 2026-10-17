@@ -37,7 +37,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
 parser.add_argument("--socket", default=os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{os.environ.get('NX_APP_TAG', '')}.sock")
 parser.add_argument("--seconds", type=float, default=1.6)
-# `--trace`: an Instruments Time Profiler trace of the app over the close scenarios (`<out>/close.trace`, and its
+# `--trace`: an Instruments Time Profiler trace of the app over the close scenarios (14 s from the first close) (`<out>/close.trace`, and its
 # time-profile table as `<out>/close-time-profile.xml`), to name the code behind a stall.
 parser.add_argument("--trace", action="store_true")
 opts = parser.parse_args()
@@ -255,7 +255,7 @@ def start_trace():
         print("trace: no app process", flush=True)
         return None
     trace = os.path.join(opts.out, "close.trace")
-    proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", pid, "--time-limit", "40s",
+    proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--attach", pid, "--time-limit", "14s",
                              "--output", trace, "--no-prompt"], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
     time.sleep(3)  # test harness: xctrace attaches before the scenarios
     return proc
@@ -264,8 +264,7 @@ def start_trace():
 def stop_trace(proc):
     if proc is None:
         return
-    proc.terminate()  # our own child: xctrace ends the recording and writes the trace
-    proc.wait()
+    proc.wait()  # the time limit ends the recording (a signal can leave the trace without its data)
     trace = os.path.join(opts.out, "close.trace")
     subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
                     '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]', "--output", os.path.join(opts.out, "close-time-profile.xml")])
