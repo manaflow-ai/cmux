@@ -186,10 +186,10 @@ struct MobilePrimaryTabScaffold<
 
     private var feedLabel: some View {
         Label(
-            L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
-            systemImage: "waveform"
+            L10n.string("mobile.tabs.chat", defaultValue: "Chat"),
+            systemImage: "bubble.left.and.bubble.right"
         )
-        .accessibilityIdentifier("MobilePrimaryTabFeed")
+        .accessibilityIdentifier("MobilePrimaryTabChat")
     }
 
     private var workspacesLabel: some View {
