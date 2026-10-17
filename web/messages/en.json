@@ -837,6 +837,9 @@
         "unavailable": {
           "cancelScheduled": "Resume your plan to change it.",
           "granted": "Granted by cmux. There is nothing to change.",
+          "grantedNoCancel": "Granted by cmux, so there is nothing to cancel.",
+          "paymentFailed": "Update your payment method before changing plans.",
+          "foundersLifetime": "Founder's Edition includes Pro for life.",
           "adminOnly": "Only team admins can change the plan."
         },
         "names": {
@@ -879,6 +882,7 @@
       "change": {
         "title": "Switch to {plan}?",
         "upgradeBody": "{plan} starts now. You pay {amount} today for the rest of this billing period. From {date}, you pay {price} per month.",
+        "upgradeBodyYearly": "{plan} starts now. You pay {amount} today for the rest of this billing period. From {date}, you pay {price} per year.",
         "downgradeBody": "{plan} starts now. The unused part of your current plan, {credit}, is credited to your next invoices. Your next invoice, on {date}, is {amount}.",
         "confirm": "Switch to {plan}",
         "keep": "Keep current plan",
@@ -891,6 +895,8 @@
         "title": "Cancel {plan}?",
         "body": "You keep {plan} until {date}. After that, you lose:",
         "bodyNoDate": "You keep {plan} until the end of this billing period. After that, you lose:",
+        "foundersBody": "Your {plan} subscription ends on {date}. After that, you have Pro, which Founder's Edition includes for life.",
+        "foundersBodyNoDate": "Your {plan} subscription ends at the end of this billing period. After that, you have Pro, which Founder's Edition includes for life.",
         "reasonLabel": "Why are you canceling? (optional)",
         "otherPlaceholder": "Tell us more (optional)",
         "confirm": "Cancel plan",
