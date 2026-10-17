@@ -218,6 +218,8 @@ async fn cmux_next_inventory_watch_refuses_nonlocal_origins_and_control_paramete
         json!({"enabled":true,"refresh":true}),
         json!({"enabled":true,"command":"bad"}),
         json!({"enabled":true,"machine":"other"}),
+        json!({"enabled":true,"sessionId":"peer:session"}),
+        json!({"enabled":true,"session":"peer:session"}),
     ] {
         assert_eq!(client.call(WATCH, params).await.unwrap_err()["code"], -32602);
     }
@@ -256,5 +258,37 @@ async fn cmux_next_inventory_watch_preserves_legacy_cached_read_shape() {
         ["cached", "harnesses", "view"]
     );
     client.quiet().await;
+    client.close().await;
+}
+
+#[tokio::test]
+async fn cmux_next_inventory_watch_ignores_private_only_cache_changes() {
+    let f = Fixture::new();
+    let mut cached = row("codex", "1.0.0");
+    f.cache(json!([cached]));
+    let mut client = Client::open(&f, Origin::Local);
+    let initial = client.call(WATCH, json!({"enabled":true})).await.unwrap();
+    cached["authDetail"] = json!("another-private-value");
+    cached["problem"] = json!("another-private-problem");
+    f.cache(json!([cached]));
+    client.quiet().await;
+    let current = client.call(WATCH, json!({"enabled":true})).await.unwrap();
+    assert_eq!(initial, current, "private diagnostics changed the public revision");
+    client.close().await;
+}
+
+#[tokio::test]
+async fn cmux_next_inventory_watch_follows_owner_health_commits_without_starting_one() {
+    let f = Fixture::new();
+    f.cache(json!([row("codex", "1.0.0")]));
+    let mut client = Client::open(&f, Origin::Local);
+    let initial = client.call(WATCH, json!({"enabled":true})).await.unwrap();
+    assert_eq!(f.hub.health.rows().len(), 1, "subscription replaced the cache");
+    // The owner independently checks its now-empty subject set. The watcher
+    // must receive that committed removal without asking for another check.
+    assert!(f.hub.health.check(Vec::new(), false).await.is_empty());
+    let removed = client.event().await;
+    assert_eq!(removed["harnesses"], json!([]));
+    assert!(removed["revision"].as_u64().unwrap() > initial["revision"].as_u64().unwrap());
     client.close().await;
 }

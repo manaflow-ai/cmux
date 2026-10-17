@@ -17,9 +17,15 @@ pub(crate) fn view(rows: &[HarnessHealth], params: &Value) -> Result<Value, RpcE
             "the cached inventory accepts only {view: inventory}; health controls and machine selectors are not accepted",
         ));
     }
+    Ok(snapshot(rows))
+}
+
+/// The one bounded projection shared by cached reads and change snapshots.
+pub(super) fn snapshot(rows: &[HarnessHealth]) -> Value {
     let harnesses: Vec<Value> = rows
         .iter()
         .filter(|row| safe_id(&row.id))
+        .take(256)
         .map(|row| {
             let version = safe_version(row.version.as_deref());
             let latest = safe_version(row.latest.as_deref());
@@ -36,7 +42,7 @@ pub(crate) fn view(rows: &[HarnessHealth], params: &Value) -> Result<Value, RpcE
             })
         })
         .collect();
-    Ok(json!({"view": "inventory", "cached": true, "harnesses": harnesses}))
+    json!({"view": "inventory", "cached": true, "harnesses": harnesses})
 }
 
 fn safe_id(id: &str) -> bool {
