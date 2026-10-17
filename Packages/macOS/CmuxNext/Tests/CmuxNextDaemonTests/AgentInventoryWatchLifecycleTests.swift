@@ -25,6 +25,20 @@ struct AgentInventoryWatchLifecycleTests {
     private let machine: ResourceID = "machine_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     private let watchID = "inventory_watch_0123456789abcdef0123456789abcdef"
 
+    @Test(arguments: ["legacy", "anonymous"])
+    func unsupportedOrUnidentifiedOwnerNeverReceivesWatch(mode: String) async throws {
+        try await withConnection(mode: mode) { connection in
+            do {
+                _ = try await connection.agentInventoryWatch(expectedMachineID: machine)
+                Issue.record("unadmitted owner returned a watch manager")
+            } catch DaemonError.missingCapabilities(let missing) {
+                #expect(mode == "legacy")
+                #expect(missing == ["agent-inventory-watch-fence-v1"])
+            } catch DaemonError.malformedResponse { #expect(mode == "anonymous") }
+            #expect(try await connection.request(Inspect()).arrayValue?.isEmpty == true)
+        }
+    }
+
     @Test func capturesShareOneManagerAndRetirementPrecedesReadmission() async throws {
         try await withConnection { connection in
             let first = try await connection.agentInventoryWatch(expectedMachineID: machine)
@@ -141,8 +155,9 @@ struct AgentInventoryWatchLifecycleTests {
         frame = json.loads(line)
         cmd = frame.get('cmd')
         if cmd == 'identify':
-            reply(frame, {'app':'cmux-tui','protocol':12,'generation':boot, 'machine_id':machine,
-                'capabilities':['agent-inventory-watch-fence-v1']})
+            reply(frame, {'app':'cmux-tui','protocol':12,'generation':boot,
+                'machine_id':'' if mode == 'anonymous' else machine,
+                'capabilities':['agent-inventory-watch-v1'] if mode == 'legacy' else ['agent-inventory-watch-fence-v1']})
         elif cmd == 'agent-inventory-watch':
             calls.append(frame)
             if frame['enabled'] and mode == 'hold':
