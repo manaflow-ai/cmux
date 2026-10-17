@@ -141,6 +141,35 @@ export function ChiefDock({
                     </span>
                     {queued > 0 && <span className="acpmux-chief-card-queue">{queued}</span>}
                   </button>
+                  <div className="acpmux-chief-card-actions">
+                    <button
+                      type="button"
+                      className="acpmux-chief-card-action"
+                      aria-label={t("floating.moveToTab")}
+                      title={t("floating.moveToTab")}
+                      onClick={() => onMoveToTab(session.sessionId)}
+                    >
+                      <Icon name="action.go" size={18} />
+                    </button>
+                    <button
+                      type="button"
+                      className="acpmux-chief-card-action"
+                      aria-label={t("sidebar.sessions")}
+                      title={t("sidebar.sessions")}
+                      onClick={() => onSelect(session.sessionId)}
+                    >
+                      <Icon name="action.stop" size={18} />
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="acpmux-chief-card-dismiss"
+                    aria-label={t("header.agentChat")}
+                    title={t("header.agentChat")}
+                    onClick={() => setExpanded(false)}
+                  >
+                    <span aria-hidden="true">×</span>
+                  </button>
                 </article>
               </ContextMenu>
             );

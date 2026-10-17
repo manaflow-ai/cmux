@@ -55,7 +55,7 @@ export default componentEntry({
   title: "Chief Dock",
   area: "Agent pane",
   pane: true,
-  height: 360,
+  height: 760,
   widths: { narrow: 360, normal: 520, wide: 720 },
   anchors: [{ selector: ".acpmux-chief-dock" }],
   checks: {
