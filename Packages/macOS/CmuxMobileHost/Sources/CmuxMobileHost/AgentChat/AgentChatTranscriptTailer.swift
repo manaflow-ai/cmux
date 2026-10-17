@@ -304,6 +304,12 @@ public actor AgentChatTranscriptTailer {
         let kind: ChatMessageKind
     }
 
+    private enum OpenCodeSessionMessageReadResult {
+        case missing
+        case rows([OpenCodeDraft])
+        case failed
+    }
+
     private func loadInitialOpenCode() {
         guard let result = readOpenCode() else { return }
         openCodeDatabaseInode = result.databaseInode
@@ -485,7 +491,8 @@ public actor AgentChatTranscriptTailer {
         // legacy `message`/`part` projection alongside the canonical table,
         // while an empty canonical result for an older session should still
         // fall back to those legacy rows.
-        if let sessionMessages = readOpenCodeSessionMessages(database: database, sessionID: querySessionID) {
+        switch readOpenCodeSessionMessages(database: database, sessionID: querySessionID) {
+        case .rows(let sessionMessages):
             if !sessionMessages.isEmpty {
                 drafts = sessionMessages
             } else if legacyQueryUnavailable {
@@ -494,10 +501,15 @@ public actor AgentChatTranscriptTailer {
                 // result even when the legacy projection is not present.
                 drafts = []
             }
-        } else if legacyQueryUnavailable {
-            // Both legacy queries failed to prepare and the canonical read
-            // was unavailable. Do not manufacture an empty transcript from a
-            // transient schema/connection failure.
+        case .missing:
+            if legacyQueryUnavailable {
+                // Neither transcript schema is present. The database may be
+                // newly created, so an empty result is valid in this case.
+                drafts = []
+            }
+        case .failed:
+            // The canonical read was unavailable. Do not manufacture an
+            // empty transcript from a transient schema/connection failure.
             return nil
         }
 
@@ -627,7 +639,7 @@ public actor AgentChatTranscriptTailer {
     private func readOpenCodeSessionMessages(
         database: OpaquePointer,
         sessionID: String
-    ) -> [OpenCodeDraft]? {
+    ) -> OpenCodeSessionMessageReadResult {
         let query = """
             SELECT id, type, data, time_created
             FROM session_message
@@ -635,17 +647,18 @@ public actor AgentChatTranscriptTailer {
             ORDER BY seq, time_created, id
             """
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(database, query, -1, &statement, nil) == SQLITE_OK,
-              let statement else {
+        let prepared = sqlite3_prepare_v2(database, query, -1, &statement, nil)
+        guard prepared == SQLITE_OK, let statement else {
             sqlite3_finalize(statement)
-            return nil
+            let error = String(cString: sqlite3_errmsg(database))
+            return error.contains("no such table") ? .missing : .failed
         }
         defer { sqlite3_finalize(statement) }
         let transient = unsafeBitCast(
             OpaquePointer(bitPattern: -1),
             to: sqlite3_destructor_type.self
         )
-        guard sqlite3_bind_text(statement, 1, sessionID, -1, transient) == SQLITE_OK else { return nil }
+        guard sqlite3_bind_text(statement, 1, sessionID, -1, transient) == SQLITE_OK else { return .failed }
         var drafts: [OpenCodeDraft] = []
         var stepResult = sqlite3_step(statement)
         while stepResult == SQLITE_ROW {
@@ -686,8 +699,8 @@ public actor AgentChatTranscriptTailer {
             }
             stepResult = sqlite3_step(statement)
         }
-        guard stepResult == SQLITE_DONE else { return nil }
-        return drafts
+        guard stepResult == SQLITE_DONE else { return .failed }
+        return .rows(drafts)
     }
 
     private func openCodeToolKind(_ part: [String: Any]) -> ChatMessageKind {
