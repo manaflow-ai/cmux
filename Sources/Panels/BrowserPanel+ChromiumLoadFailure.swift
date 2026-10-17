@@ -69,7 +69,7 @@ extension BrowserPanel {
         guard canProceedPastChromiumLoadFailure, let failure = chromiumLoadFailure, let url = failure.url,
               let page = enginePage as? any BrowserPageCertificateBypassing else { return }
         takeBrowserDialogOwnership(.user)
-        page.proceedPastCertificateError(failure.error, at: url)
+        if page.proceedPastCertificateError(failure.error, at: url) { noteEngineLoadStarted() }
     }
 
     /// Restores history a non-WebKit page exported before (Reopen Closed
@@ -79,7 +79,7 @@ extension BrowserPanel {
     func restoreEngineNavigation(_ state: BrowserPageRestoreState, displayURL: URL?) -> Bool {
         guard let enginePage, state.engineKind == enginePage.engineKind,
               let page = enginePage as? any BrowserPageNavigationRestoring,
-              page.restoreNavigation(state) else { return false }
+              page.restoreNavigation(state, fallbackURL: displayURL) else { return false }
         shouldRenderWebView = true
         if let displayURL { currentURL = displayURL }
         return true

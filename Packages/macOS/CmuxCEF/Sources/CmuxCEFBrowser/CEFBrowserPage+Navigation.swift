@@ -21,8 +21,9 @@ extension CEFBrowserPage: BrowserPageBackForwardListing {
 /// `ClosedBrowserHistories` hands it to `restoreState`.
 extension CEFBrowserPage: BrowserPageNavigationRestoring {
     @discardableResult
-    public func restoreNavigation(_ state: BrowserPageRestoreState) -> Bool {
-        guard case .chromium(let navigation) = state, browser.restoreNavigation(navigation) else { return false }
+    public func restoreNavigation(_ state: BrowserPageRestoreState, fallbackURL: URL?) -> Bool {
+        guard case .chromium(let navigation) = state,
+              browser.restoreNavigation(navigation, fallbackURL: fallbackURL) else { return false }
         // A page in a pane that has never been shown starts now, as a load does.
         browser.createNow()
         return true

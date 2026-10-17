@@ -410,13 +410,17 @@ public final class CEFBrowser {
     /// Restores navigation state exported by ``navigationState()`` in place
     /// of the page's next load: a page not created yet restores it when its
     /// browser is created (falling back to the address it was asked to
-    /// load), a live page restores it now.
+    /// load, else `fallbackURL`), a live page restores it now.
     /// - Returns: `false` for a closed page, or when Chromium refused it.
     @discardableResult
-    public func restoreNavigation(_ state: String) -> Bool {
+    public func restoreNavigation(_ state: String, fallbackURL: URL?) -> Bool {
         guard !isClosed else { return false }
         guard let id = browserID, !isCreationPending else {
             pendingRestore = state
+            if pendingURL == nil, let fallbackURL {
+                pendingURL = fallbackURL
+                self.state.url = fallbackURL
+            }
             return true
         }
         guard let shim = runtime.shim else { return false }

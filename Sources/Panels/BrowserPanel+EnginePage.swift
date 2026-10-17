@@ -231,6 +231,9 @@ extension BrowserPanel {
         onNavigationStarted: ((WKNavigation?) -> Void)?
     ) {
         shouldRenderWebView = true
+        // A load the panel starts ends the failed one's recovery view and
+        // address, also while Chromium still reports the old load.
+        noteEngineLoadStarted()
         if let url = request.url {
             if recordTypedNavigation {
                 historyStore.recordTypedNavigation(url: url)
@@ -347,6 +350,7 @@ extension BrowserPanel {
     /// Automation steps exactly one entry, as `history.back()` does, so a
     /// script's own navigations are not skipped.
     func goEngineHistory(_ page: any BrowserPage, offset: Int, dialogOwner: BrowserDialogOwner) {
+        noteEngineLoadStarted()
         guard dialogOwner == .automation else {
             offset < 0 ? page.goBack() : page.goForward()
             return

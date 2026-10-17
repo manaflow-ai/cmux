@@ -2318,6 +2318,9 @@ extension Workspace {
                 browserPanel.pendingEngineNavigationRestore = pending.state
             }
             applySessionPanelMetadata(snapshot, toPanelId: browserPanel.id)
+            // A restore that did not load a page (hidden, Cloud) must not
+            // apply this history to a later load.
+            browserPanel.pendingEngineNavigationRestore = nil
             return browserPanel.id
         case .markdown:
             guard let filePath = snapshot.markdown?.filePath,

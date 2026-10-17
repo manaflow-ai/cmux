@@ -69,7 +69,7 @@ import Testing
             visitedOffsets.append(offset)
             return true
         }
-        func restoreNavigation(_ state: BrowserPageRestoreState) -> Bool {
+        func restoreNavigation(_ state: BrowserPageRestoreState, fallbackURL: URL?) -> Bool {
             restoredStates.append(state)
             return true
         }

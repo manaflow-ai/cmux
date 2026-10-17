@@ -2185,6 +2185,10 @@ final class BrowserPanel: Panel, ObservableObject {
     /// History a reopened tab's new non-WebKit page restores in place of its
     /// first load (Reopen Closed Tab).
     var pendingEngineNavigationRestore: BrowserPageRestoreState?
+    /// The non-WebKit page's back/forward list for the history menus, kept
+    /// until the page's address, title or history availability changes:
+    /// SwiftUI builds the menus on every toolbar update.
+    var engineBackForwardListCache: (key: String, list: BrowserBackForwardList?)?
     /// Whether the non-WebKit page is on screen, as its host last reported.
     var isEnginePageVisible = false
     /// What to do once a hung Chromium renderer has been ended to recover it
@@ -4883,9 +4887,11 @@ final class BrowserPanel: Panel, ObservableObject {
         if enginePage != nil {
             // A reopened tab's page restores the closed page's history
             // (Reopen Closed Tab) instead of loading its address fresh.
+            // The address must still pass the allowlist a fresh load checks.
             if let state = pendingEngineNavigationRestore {
                 pendingEngineNavigationRestore = nil
-                if restoreEngineNavigation(state, displayURL: url) { return }
+                if !usesRemoteWorkspaceProxy, BrowserURLAllowlistPolicy(defaults: .standard).allows(url),
+                   restoreEngineNavigation(state, displayURL: url) { return }
             }
             // A Chromium page has no deferred-discard restore path: load it
             // now (it starts even while its pane is hidden).
@@ -6971,7 +6977,15 @@ extension BrowserPanel {
     func backForwardMenuEntries(forward: Bool) -> [BrowserBackForwardEntry] {
         let entries: [BrowserBackForwardEntry]
         if let enginePage {
-            guard let list = (enginePage as? any BrowserPageBackForwardListing)?.backForwardList() else { return [] }
+            let key = "\(currentURL?.absoluteString ?? "")\n\(pageTitle)\n\(canGoBack)\n\(canGoForward)\n\(isLoading)"
+            let list: BrowserBackForwardList?
+            if let cache = engineBackForwardListCache, cache.key == key {
+                list = cache.list
+            } else {
+                list = (enginePage as? any BrowserPageBackForwardListing)?.backForwardList()
+                engineBackForwardListCache = (key, list)
+            }
+            guard let list else { return [] }
             entries = forward ? list.forward : list.back
         } else {
             guard !usesRestoredSessionHistory else { return [] }
@@ -6992,6 +7006,7 @@ extension BrowserPanel {
         guard offset != 0 else { return }
         takeBrowserDialogOwnership(dialogOwner)
         if let enginePage {
+            noteEngineLoadStarted()
             (enginePage as? any BrowserPageBackForwardListing)?.goToBackForwardEntry(offset: offset)
             return
         }

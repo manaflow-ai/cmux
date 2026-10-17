@@ -47,6 +47,7 @@ extension BrowserPanel {
         }
         pendingChromiumHangRecovery = nil
         if case .crashed = chromiumPageFailure.failure { chromiumPageFailure.userReloaded() }
+        noteEngineLoadStarted()
         if fromOrigin { enginePage.reloadFromOrigin() } else { enginePage.reload() }
         probeChromiumResponsiveness()
     }
