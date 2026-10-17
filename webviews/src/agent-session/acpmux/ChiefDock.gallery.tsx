@@ -56,6 +56,7 @@ const mascotOption = (mascot: ChiefMascot, note: string) => ({
     sessions: base,
     currentId: "chief-working",
     mascot,
+    defaultExpanded: true,
     onSelect: () => undefined,
     onNewChat: () => undefined,
     onMoveToTab: () => undefined,
@@ -84,6 +85,7 @@ export default componentEntry({
       props: {
         sessions: base,
         currentId: "chief-working",
+        defaultExpanded: true,
         onSelect: () => undefined,
         onNewChat: () => undefined,
         onMoveToTab: () => undefined,
@@ -111,6 +113,7 @@ export default componentEntry({
       props: {
         sessions: [base[1], { ...base[2], indicator: "failed", status: "failed" }, base[0]],
         currentId: "chief-input",
+        defaultExpanded: true,
         onSelect: () => undefined,
         onNewChat: () => undefined,
         onMoveToTab: () => undefined,
@@ -132,6 +135,7 @@ export default componentEntry({
       props: {
         sessions: base,
         currentId: "chief-working",
+        defaultExpanded: true,
         queueCounts: new Map([["chief-working", 2]]),
         steeringIds: new Set(["chief-working"]),
         onSelect: () => undefined,

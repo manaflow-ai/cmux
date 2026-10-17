@@ -43,6 +43,8 @@ export type ChiefDockProps = {
   queueCounts?: ReadonlyMap<string, number>;
   steeringIds?: ReadonlySet<string>;
   mascot?: ChiefMascot;
+  /** Keep the compact rail as the default; the gallery opts in to the open showcase state. */
+  defaultExpanded?: boolean;
 };
 
 const MAX_CARDS = 4;
@@ -90,10 +92,11 @@ export function ChiefDock({
   queueCounts,
   steeringIds,
   mascot = "orb",
+  defaultExpanded = false,
 }: ChiefDockProps) {
   const t = useT();
   const [attached, setAttached] = useState(true);
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const cards = useMemo(
     () =>
       withoutChildren(sessions.filter(listed))
@@ -175,15 +178,6 @@ export function ChiefDock({
                       onClick={() => onMoveToTab(session.sessionId)}
                     >
                       <Icon name="action.go" size={18} />
-                    </button>
-                    <button
-                      type="button"
-                      className="acpmux-chief-card-action"
-                      aria-label={t("sidebar.sessions")}
-                      title={t("sidebar.sessions")}
-                      onClick={() => onSelect(session.sessionId)}
-                    >
-                      <Icon name="action.stop" size={18} />
                     </button>
                   </div>
                   <button
