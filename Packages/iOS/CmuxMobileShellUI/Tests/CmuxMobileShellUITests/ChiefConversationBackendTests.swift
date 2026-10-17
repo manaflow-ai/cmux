@@ -12,7 +12,7 @@ struct ChiefConversationBackendTests {
         let message = MobileChiefMessage(
             id: "approval-message",
             seq: 1,
-            authorID: "chief",
+            authorID: "agent_chief",
             author: "Chief",
             authorKind: "chief",
             text: "Run deploy?",
@@ -48,7 +48,7 @@ struct ChiefConversationBackendTests {
         let message = MobileChiefMessage(
             id: "question-message",
             seq: 2,
-            authorID: "chief",
+            authorID: "agent_chief",
             author: "Chief",
             authorKind: "chief",
             text: "Which region?",
