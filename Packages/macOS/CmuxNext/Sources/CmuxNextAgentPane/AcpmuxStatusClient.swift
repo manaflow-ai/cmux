@@ -11,6 +11,8 @@ nonisolated enum AcpmuxStatusClient {
         case closed
         case rpc(String)
         case noWebSocket
+        /// The connected daemon did not advertise the required operation semantics.
+        case unsupportedFeature(String)
         /// The daemon on the socket runs from another acpmux home (another app's or tag's).
         case otherHome(String)
     }
@@ -105,12 +107,15 @@ nonisolated enum AcpmuxStatusClient {
 
     /// `initialize`, then `method`, on a fresh connection to `socketPath`. `detailed` replies
     /// with ``AcpmuxRPCError`` (the JSON-RPC code and data) instead of `.rpc(message)`.
+    /// With `requiredFeature`, no operation is sent before that connection advertises it.
     static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
-                     deadline: Duration, detailed: Bool = false, limit: Int = 1 << 20) async throws -> [String: Any] {
+                     deadline: Duration, detailed: Bool = false, limit: Int = 1 << 20,
+                     requiredFeature: String? = nil) async throws -> [String: Any] {
         let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
         defer { connection.cancel() }
         let box = try await withAgentPaneDeadline(deadline, label: "acpmux \(method)", onTimeout: { connection.cancel() }) {
-            ResultBox(try await exchange(method, params: params, on: connection, detailed: detailed, limit: limit))
+            ResultBox(try await exchange(method, params: params, transport: AcpmuxSocketTransport(connection: connection),
+                                         detailed: detailed, limit: limit, requiredFeature: requiredFeature))
         }
         return box.value
     }
@@ -127,30 +132,45 @@ nonisolated enum AcpmuxStatusClient {
         return AgentPaneSessionFolder(sessionId: sessionId, in: result["sessions"])
     }
 
-    /// `initialize`, then `method`; returns its result.
-    private static func exchange(_ method: String, params: [String: any Sendable], on connection: NWConnection,
-                                 detailed: Bool, limit: Int) async throws -> [String: Any] {
-        try await start(connection)
+    /// `initialize`, then `method`; feature-dependent operations wait for
+    /// the handshake on this same transport before sending their request.
+    static func exchange(_ method: String, params: [String: any Sendable], transport: any AcpmuxRPCTransport,
+                         detailed: Bool = false, limit: Int = 1 << 20,
+                         requiredFeature: String? = nil) async throws -> [String: Any] {
+        try await transport.start()
         let initialize: [String: Any] = [
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": ["protocolVersion": 1, "clientInfo": ["name": "cmux-next-agent-pane", "version": "1"], "clientCapabilities": [:]],
         ]
         let status: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": method, "params": params]
-        var payload = Data()
-        for request in [initialize, status] {
-            payload += try JSONSerialization.data(withJSONObject: request)
-            payload.append(0x0A)
-        }
-        try await send(payload, on: connection)
+        let request = try JSONSerialization.data(withJSONObject: status) + Data([0x0A])
+        var payload = try JSONSerialization.data(withJSONObject: initialize) + Data([0x0A])
+        if requiredFeature == nil { payload += request }
+        try await transport.send(payload)
+        var initialized = false
         var buffer = Data()
-        // Reads until the status reply; notifications and the initialize reply are skipped.
+        // Notifications never satisfy the handshake or the operation.
         while true {  // wakeup-allow: each pass awaits socket data; EOF, error or the deadline ends it
-            guard let chunk = try await receive(on: connection) else { throw Failure.closed }
+            guard let chunk = try await transport.receive() else { throw Failure.closed }
             buffer += chunk
             while let newline = buffer.firstIndex(of: 0x0A) {
                 let line = buffer[buffer.startIndex..<newline]
+                guard line.count <= limit else { throw Failure.rpc("\(method) reply too large") }
+                let frame = Data(line)
                 buffer.removeSubrange(buffer.startIndex...newline)
-                let parsed = detailed ? try detailedReply(to: 2, in: Data(line)) : try reply(to: 2, in: Data(line))
+                if let requiredFeature, !initialized {
+                    if let hello = try detailedReply(to: 1, in: frame) {
+                        let meta = (hello["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+                        guard (meta?["features"] as? [String])?.contains(requiredFeature) == true else {
+                            throw Failure.unsupportedFeature(requiredFeature)
+                        }
+                        try Task.checkCancellation()
+                        try await transport.send(request)
+                        initialized = true
+                    }
+                    continue
+                }
+                let parsed = detailed ? try detailedReply(to: 2, in: frame) : try reply(to: 2, in: frame)
                 if let parsed { return parsed }
             }
             if buffer.count > limit { throw Failure.rpc("\(method) reply too large") }
