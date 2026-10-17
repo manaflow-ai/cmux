@@ -34,21 +34,28 @@ machine_id          SSHHost.machineID or the peer's machine identity
 route_kind          ssh_app_server | acpmux_peer | local
 remote_session_id   app-server or ACP session identifier
 daemon_session_id   cmux daemon session identifier when available
-connection_generation SSH link/Peer generation
-sequence            source event sequence, or mailbox cursor
+source_epoch        durable producer/daemon epoch
+source_sequence     producer sequence within that epoch
+delivery_generation transport connection generation
+mailbox_cursor      delivery cursor used for replay
 observed_at         monotonic/local timestamp for diagnostics
 ```
 
-The tuple `(machine_id, route_kind, remote_session_id, connection_generation,
-sequence)` is the deduplication key. A reconnect starts a new generation; it may
-replay from the last durable cursor but cannot overwrite an event from an older
-generation.
+The tuple `(machine_id, route_kind, remote_session_id, source_epoch,
+source_sequence)` is the stable deduplication key. `delivery_generation` and
+`mailbox_cursor` describe transport delivery only; they are not source identity.
+A reconnect may replay from the last durable cursor, but an identical source key
+must retain its original immutable payload and metadata.
 
 ## SSH app-server inspection
 
 `SSHMachineLink` remains responsible for the cmux daemon link. An inspection
-sidecar uses the same `SSHHost` and `SSHCommandLine`, but launches
-`codex app-server --stdio` as a separate bounded child process.
+sidecar uses the same `SSHHost` and `SSHCommandLine`. When an existing app-server
+control socket is available, it attaches through
+`codex app-server proxy --sock PATH`; this is the live-observation route. A
+separate `codex app-server --stdio` child is a fresh process and is limited to
+history/status inspection unless the advertised capability explicitly supports
+external live observation.
 
 The sidecar may perform:
 
@@ -107,15 +114,22 @@ source_path          repository/worktree or app artifact identity
 hosted_url           canonical hosted preview or review URL, if any
 browser_matrix       browser/engine, viewport, DPR, theme, and feature flags
 state_transition_ids observation receipt IDs that produced the visible state
-visual_proof         before/after PNG/WebP pair or screencap MP4 path/URL
+cases[]              row/state/transition IDs, artifacts, and per-case verdict
 capture_dimensions   width x height; MP4 also records duration and frame rate
 artifact_sha256      hash for every visual artifact
 dom_artifact         optional serialized DOM/accessibility snapshot plus sha256
 host_tag             machine, runner, and app/build tag used for capture
-identity             the envelope above (machine/session/generation/sequence)
+identity             the envelope above (machine/session/source key/delivery)
 verdict              pass | fail | blocked | unverified
 failure_class        product | runner | environment | missing-evidence
+evidence_gap         optional missing-clickable-build or other explicit gap
 ```
+
+Each `cases[]` entry contains the browser-matrix row, named state, transition
+IDs, visual proof references, artifact hashes, and a per-case verdict. The
+aggregate verdict is `pass` only when every required row is present and passes;
+skipped or unavailable rows remain `unverified` and cannot be hidden by a
+top-level pass.
 
 The required handoff is deliberately small and reproducible:
 
@@ -130,15 +144,16 @@ The required handoff is deliberately small and reproducible:
    frame rate. Hash every artifact. DOM/accessibility snapshots are optional
    diagnostic evidence, not a hard gate.
 5. Prefer a clickable hosted build for dogfood. If no clickable build exists,
-   retain the visual artifact and classify the gap explicitly as
-   `missing-clickable-build`; do not silently call the run fully dogfooded.
+   retain the visual artifact and set `evidence_gap: missing-clickable-build`;
+   do not silently call the run fully dogfooded.
 6. Classify failures before proposing a fix. `product` means source/runtime
    behavior; `runner` means browser/host/CI harness; `environment` means auth,
    network, or unavailable backend; `missing-evidence` means the path was not
    actually exercised.
 7. Publish the receipt through the existing mailbox/observation path. A retry
-   reuses the same transition and message IDs, so a reconnect cannot create a
-   second visual result.
+   reuses the same transition and message IDs and the same immutable artifact
+   manifest, so a reconnect cannot create a second visual result or mutate the
+   first payload.
 
 The canonical browser matrix should start with Chromium and WebKit at the
 standard and narrow composer widths, light and dark themes, and reduced-motion
