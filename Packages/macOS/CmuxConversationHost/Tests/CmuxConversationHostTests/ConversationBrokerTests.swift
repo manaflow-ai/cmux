@@ -64,12 +64,17 @@ import CmuxConversation
     }
 
     private func waitForSnapshot(_ broker: ConversationBroker, sessionID: ConversationID, predicate: (ConversationSnapshot) -> Bool) async throws -> ConversationSnapshot {
-        for _ in 0..<50 {
-            let snapshot = try await broker.snapshot(sessionID: sessionID)
+        // Register before taking the first snapshot so a provider event that
+        // lands during the snapshot cannot be missed by a fixed yield-count
+        // poll.  The broker's journal-backed stream is the causal wake-up.
+        let events = await broker.events(sessionID: sessionID, after: 0)
+        var snapshot = try await broker.snapshot(sessionID: sessionID)
+        if predicate(snapshot) { return snapshot }
+        for try await _ in events {
+            snapshot = try await broker.snapshot(sessionID: sessionID)
             if predicate(snapshot) { return snapshot }
-            await Task.yield()
         }
-        return try await broker.snapshot(sessionID: sessionID)
+        return snapshot
     }
 }
 
