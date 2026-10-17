@@ -31,8 +31,37 @@ pub(super) enum ColorTrackState {
 }
 
 impl ColorOverrideTracker {
+    /// Same result as [`Self::write_reference`]. In ground state with no
+    /// code point in progress, ASCII other than ESC only re-notes a zero
+    /// UTF-8 lead, so such a run is skipped.
     pub(super) fn write(&mut self, data: &[u8]) {
+        let mut index = 0;
+        while index < data.len() {
+            if self.is_idle() {
+                index = byte_scan::find_esc_or_high(data, index);
+                if index == data.len() {
+                    break;
+                }
+            }
+            self.step(data[index]);
+            index += 1;
+        }
+    }
+
+    pub(super) fn is_idle(&self) -> bool {
+        matches!(self.state, ColorTrackState::Ground) && self.utf8_remaining == 0
+    }
+
+    /// Original byte-at-a-time write, kept as the exactness reference.
+    pub(super) fn write_reference(&mut self, data: &[u8]) {
         for &byte in data {
+            self.step(byte);
+        }
+    }
+
+    #[inline(always)]
+    fn step(&mut self, byte: u8) {
+        {
             let state = std::mem::take(&mut self.state);
             self.state = match state {
                 ColorTrackState::Ground => self.ground(byte),

@@ -34,6 +34,10 @@ path = "src/bin/mux2-spawnbench.rs"
 name = "mux2-ctty-probe"
 path = "src/bin/mux2-ctty-probe.rs"
 
+[[bin]]
+name = "mux2-wrapcheck"
+path = "src/bin/mux2-wrapcheck.rs"
+
 [dependencies]
 ghostty-vt.workspace = true
 libc.workspace = true
