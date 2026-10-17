@@ -24,7 +24,7 @@ import WebKit
         )
     }
 
-    static let defaultAutoSelection: BrowserClientCertificateAuthenticationHandler.AutoSelection = {
+    nonisolated static let defaultAutoSelection: BrowserClientCertificateAuthenticationHandler.AutoSelection = {
         protectionSpace,
         candidates in
         guard let selection = BrowserClientCertificateAutoSelectionPolicy(defaults: .standard)
