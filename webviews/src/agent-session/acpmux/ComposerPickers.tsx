@@ -137,6 +137,8 @@ type Props = {
   measurePickerRoom?(menu: HTMLElement): number;
   /// The Plan/Build toggle lives in the composer's + menu in the default pane.
   showPlan?: boolean;
+  /// New Tab shows the model before a session exists; hide pending chat-only chrome.
+  startsChat?: boolean;
   /** Host-backed catalog refresh; transport stays outside the picker UI. */
   catalogRefresh?: CatalogRefreshState;
   /** Joined host catalog supplied by the app root; direct tests keep using the daemon catalog. */
@@ -175,6 +177,7 @@ export function ComposerPickers({
   settleTimer = browserSettleTimer,
   measurePickerRoom,
   showPlan = true,
+  startsChat = false,
   catalogRefresh,
   pickerCatalog,
 }: Props) {
@@ -464,6 +467,10 @@ export function ComposerPickers({
   // place (cx-ncc.58, Leo 2026-10-13).
   const awaiting =
     chipHarness !== undefined && (!summary?.sessionId || (switching && snapshot.switching?.phase !== "failed"));
+  // A New Tab has no session yet. Its model chip is useful before the first prompt, while pending
+  // effort and access placeholders imply a chat already exists. Existing chats keep the stable
+  // pending geometry while their catalog arrives.
+  const showPendingChrome = !startsChat;
   // The agent's own level ("default") names the level it resolves to: the running model's default
   // effort. Unresolved, the chip says Reasoning; it never guesses the first level.
   const effortDefaulted = effort?.currentValue === "default";
@@ -624,9 +631,9 @@ export function ComposerPickers({
           }}
         />
       ) : (
-        !reported && pendingEffort && <PendingChip kind="effort" label={pendingEffort} />
+        showPendingChrome && !reported && pendingEffort && <PendingChip kind="effort" label={pendingEffort} />
       )}
-      {modes.length === 0 && !hasGrants && startMode && startModeName && (
+      {showPendingChrome && modes.length === 0 && !hasGrants && startMode && startModeName && (
         <PendingChip kind="mode" label={startModeName} modeId={startMode.borrowed ? undefined : startMode.modeId} />
       )}
       {/* Granted folder trust and chat allowance stay revocable when the harness offers no modes. */}
