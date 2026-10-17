@@ -269,17 +269,19 @@ export function usePendingReplacement(
  * result replaces the placeholder in place.
  */
 export function useDeferredHydration(items: DiffItem[], dispatch: React.Dispatch<AppAction>) {
-  const pending = useRef(new Map<string, { item: DiffItem; timer?: ReturnType<typeof setTimeout> }>());
+  type PendingHydration = { item: DiffItem; timer?: ReturnType<typeof setTimeout> };
+  const pending = useRef(new Map<string, PendingHydration>());
   useEffect(() => {
+    const scheduled = pending.current;
     for (const item of items) {
-      if (item.collapsed || item.fileDiff?.[DEFERRED_PATCH_KEY] == null || pending.current.has(item.id)) {
+      if (item.collapsed || item.fileDiff?.[DEFERRED_PATCH_KEY] == null || scheduled.has(item.id)) {
         continue;
       }
-      const entry = { item };
-      pending.current.set(item.id, entry);
+      const entry: PendingHydration = { item };
+      scheduled.set(item.id, entry);
       entry.timer = setTimeout(() => {
-        if (pending.current.get(item.id) !== entry) return;
-        pending.current.delete(item.id);
+        if (scheduled.get(item.id) !== entry) return;
+        scheduled.delete(item.id);
         const fileDiff = hydrateDeferredFileDiff(item.fileDiff, processFile);
         if (fileDiff != null) {
           resolveDiffItemLanguage({ ...item, fileDiff } as DiffItem);
@@ -291,8 +293,8 @@ export function useDeferredHydration(items: DiffItem[], dispatch: React.Dispatch
       }, 0);
     }
     return () => {
-      for (const entry of pending.current.values()) if (entry.timer !== undefined) clearTimeout(entry.timer);
-      pending.current.clear();
+      for (const entry of scheduled.values()) if (entry.timer !== undefined) clearTimeout(entry.timer);
+      scheduled.clear();
     };
   }, [dispatch, items]);
 }
