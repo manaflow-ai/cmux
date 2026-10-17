@@ -382,7 +382,7 @@ final class MobileAttachTicketStore {
     }
 }
 
-struct MobileAttachTicketAuthorization {
+struct MobileAttachTicketAuthorization: Sendable {
     let ticket: CmxAttachTicket
     let createdWorkspaceIDs: Set<String>
     let createdTerminalIDs: Set<String>

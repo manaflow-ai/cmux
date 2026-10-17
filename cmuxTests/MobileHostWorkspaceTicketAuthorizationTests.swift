@@ -513,6 +513,107 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         }
     }
 
+    @Test func chatSessionTicketScopeBindsOpaqueSessionToWorkspace() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
+        let authorization = MobileAttachTicketAuthorization(
+            ticket: ticket,
+            createdWorkspaceIDs: [],
+            createdTerminalIDs: []
+        )
+
+        #expect(
+            MobileHostService.chatTicketScopeAllows(
+                ticket: authorization,
+                sessionWorkspaceID: "workspace",
+                sessionSurfaceID: "terminal-a"
+            )
+        )
+        #expect(
+            !MobileHostService.chatTicketScopeAllows(
+                ticket: authorization,
+                sessionWorkspaceID: "other-workspace",
+                sessionSurfaceID: "terminal-b"
+            )
+        )
+        // A missing current binding fails closed for a workspace-scoped live
+        // session; the chat handler must not fall back to a client selector.
+        #expect(
+            !MobileHostService.chatTicketScopeAllows(
+                ticket: authorization,
+                sessionWorkspaceID: nil,
+                sessionSurfaceID: "terminal-c"
+            )
+        )
+    }
+
+    @Test func chatSessionTicketScopeBindsOpaqueSessionToTerminal() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal-a")
+        let authorization = MobileAttachTicketAuthorization(
+            ticket: ticket,
+            createdWorkspaceIDs: [],
+            createdTerminalIDs: []
+        )
+
+        #expect(
+            MobileHostService.chatTicketScopeAllows(
+                ticket: authorization,
+                sessionWorkspaceID: "workspace",
+                sessionSurfaceID: "terminal-a"
+            )
+        )
+        #expect(
+            !MobileHostService.chatTicketScopeAllows(
+                ticket: authorization,
+                sessionWorkspaceID: "workspace",
+                sessionSurfaceID: "terminal-b"
+            )
+        )
+        #expect(
+            !MobileHostService.chatTicketScopeAllows(
+                ticket: authorization,
+                sessionWorkspaceID: "other-workspace",
+                sessionSurfaceID: "terminal-a"
+            )
+        )
+    }
+
+    @Test func chatSessionTicketScopeAllowsMacWideAndCreatedResources() throws {
+        let macWideTicket = try scopedAttachTicket(workspaceID: "", terminalID: nil)
+        let macWideAuthorization = MobileAttachTicketAuthorization(
+            ticket: macWideTicket,
+            createdWorkspaceIDs: [],
+            createdTerminalIDs: []
+        )
+        #expect(
+            MobileHostService.chatTicketScopeAllows(
+                ticket: macWideAuthorization,
+                sessionWorkspaceID: "any-workspace",
+                sessionSurfaceID: "any-terminal"
+            )
+        )
+
+        let scopedTicket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
+        let createdAuthorization = MobileAttachTicketAuthorization(
+            ticket: scopedTicket,
+            createdWorkspaceIDs: ["created-workspace"],
+            createdTerminalIDs: ["created-terminal"]
+        )
+        #expect(
+            MobileHostService.chatTicketScopeAllows(
+                ticket: createdAuthorization,
+                sessionWorkspaceID: "created-workspace",
+                sessionSurfaceID: "moved-terminal"
+            )
+        )
+        #expect(
+            MobileHostService.chatTicketScopeAllows(
+                ticket: createdAuthorization,
+                sessionWorkspaceID: "other-workspace",
+                sessionSurfaceID: "created-terminal"
+            )
+        )
+    }
+
     @Test func notificationFeedUsesAuthenticatedConnectionInsteadOfWorkspaceTicketScope() throws {
         let scopedTicket = try scopedAttachTicket(workspaceID: "workspace")
         let macWideTicket = try scopedAttachTicket(workspaceID: "")

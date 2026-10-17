@@ -1003,12 +1003,24 @@ final class MobileHostService {
                 if request.method == "phone_push.keys.exchange" {
                     return await MobileHostService.shared.handlePhonePushKeyExchange(request)
                 }
+                let attachTicketAuthorization: MobileAttachTicketAuthorization?
+                switch authorization {
+                case .stackBearer:
+                    attachTicketAuthorization = await MobileHostService.shared
+                        .validAttachTicketAuthorization(authToken: request.auth?.attachToken)
+                case .irohAdmission:
+                    // Iroh admission is already account/pair scoped. It does
+                    // not inherit legacy workspace-ticket scope from a
+                    // request envelope.
+                    attachTicketAuthorization = nil
+                }
                 let result = await TerminalController.shared.mobileHostHandleRPC(
                     request,
                     executionContext: MobileHostRPCExecutionContext(
                         connectionID: id,
                         authorization: authorization,
-                        artifactTransfers: artifactTransfers
+                        artifactTransfers: artifactTransfers,
+                        attachTicketAuthorization: attachTicketAuthorization
                     )
                 )
                 await MobileHostService.shared.recordCreatedResourcesIfNeeded(
@@ -1346,6 +1358,14 @@ final class MobileHostService {
         }
         if let error = Self.ticketAuthorizationError(authorization: authorization, request: request) { return .failure(error) }
         return nil
+    }
+
+    /// Resolves the request's live attach-ticket record for dispatch-time
+    /// resource authorization. This is intentionally a main-actor hop from
+    /// the connection task: the ticket store is the single owner of ticket
+    /// expiry and the created-resource allowances recorded after RPCs.
+    func validAttachTicketAuthorization(authToken: String?) -> MobileAttachTicketAuthorization? {
+        ticketStore.validAuthorization(authToken: authToken)
     }
 
     private nonisolated static func verifyStackAuthOffMainActor(auth: MobileHostRPCAuth?) async throws {

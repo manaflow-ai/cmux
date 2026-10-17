@@ -25,6 +25,13 @@ struct MobileHostRPCExecutionContext: Sendable {
     let connectionID: UUID
     let authorization: MobileHostConnectionAuthorizationContext
     let artifactTransfers: MobileHostIrohArtifactTransferRegistry?
+    /// The currently valid legacy attach-ticket scope, when this request
+    /// arrived over the Stack-bearer transport with an attach token. Iroh
+    /// admission is account/pair scoped and deliberately leaves this nil.
+    /// Keeping the ticket here lets resource handlers authorize opaque ids
+    /// (such as agent-chat session ids) against the host's authoritative
+    /// binding instead of trusting client-supplied workspace fields.
+    let attachTicketAuthorization: MobileAttachTicketAuthorization?
 
     func issueArtifactTransfer(
         canonicalPath: String

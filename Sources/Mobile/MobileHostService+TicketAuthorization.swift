@@ -56,10 +56,11 @@ extension MobileHostService {
              "mobile.chat.artifact.fetch", "mobile.chat.artifact.thumbnail",
              "mobile.chat.artifact.list", "mobile.chat.artifact.gallery":
             // Chat requests carry an opaque session id rather than a
-            // workspace or surface selector. The host's session registry and
-            // terminal binding perform the resource check after this account
-            // and ticket gate; rejecting here would block valid paired-phone
-            // chat requests before that authoritative binding check.
+            // workspace or surface selector. The dispatch context carries
+            // this ticket into the chat handler, which resolves the session's
+            // authoritative current terminal/workspace binding before serving
+            // it. Rejecting here would block valid requests before that
+            // resource-aware check can run.
             return nil
         case "mobile.sync.fetch":
             // Cursor-based read of the same Mac-scoped list state as
@@ -211,6 +212,47 @@ extension MobileHostService {
     }
 
     static var scopedTicketError: MobileHostRPCError { MobileHostRPCError(code: "forbidden", message: "Attach ticket is not valid for this workspace or terminal.") }
+
+    /// Checks an opaque resource binding against a ticket without relying on
+    /// caller-supplied workspace/terminal parameters. Chat handlers use this
+    /// for session ids after resolving the record's current host binding;
+    /// tests and other resource handlers can use the same policy with their
+    /// already-resolved identifiers.
+    static func chatTicketScopeAllows(
+        ticket authorization: MobileAttachTicketAuthorization,
+        sessionWorkspaceID: String?,
+        sessionSurfaceID: String?
+    ) -> Bool {
+        let workspaceID = sessionWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let surfaceID = sessionSurfaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let surfaceID,
+           authorization.createdTerminalIDs.contains(surfaceID) {
+            return true
+        }
+        if let workspaceID,
+           authorization.createdWorkspaceIDs.contains(workspaceID) {
+            return true
+        }
+
+        let ticketWorkspaceID = authorization.ticket.workspaceID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let ticketTerminalID = authorization.ticket.terminalID?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .flatMap { $0.isEmpty ? nil : $0 }
+
+        // A Mac-wide ticket may still carry an explicit terminal pin. Treat
+        // that pin as authoritative instead of letting the empty workspace
+        // field widen it to every session.
+        if ticketWorkspaceID.isEmpty {
+            guard let ticketTerminalID else { return true }
+            return surfaceID == ticketTerminalID
+        }
+        guard workspaceID == ticketWorkspaceID else { return false }
+        if let ticketTerminalID {
+            return surfaceID == ticketTerminalID
+        }
+        return true
+    }
 
     private static func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {
         params["workspaceID"] != nil || params["terminalID"] != nil

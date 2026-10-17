@@ -48,9 +48,25 @@ extension TerminalController {
         params: [String: Any],
         executionContext: MobileHostRPCExecutionContext? = nil
     ) async -> V2CallResult {
+        // Session ids are opaque provider identifiers. A scoped attach ticket
+        // cannot be checked from the request's workspace fields because chat
+        // requests intentionally carry only the session id. Resolve the
+        // record and its authoritative terminal/workspace binding before any
+        // read or mutation; the list path applies the same check per record.
+        if method != "mobile.chat.sessions",
+           let authorization = executionContext?.attachTicketAuthorization,
+           let error = mobileChatTicketAuthorizationError(
+               params: params,
+               authorization: authorization
+           ) {
+            return error
+        }
         switch method {
         case "mobile.chat.sessions":
-            return await v2MobileChatSessions(params: params)
+            return await v2MobileChatSessions(
+                params: params,
+                ticketAuthorization: executionContext?.attachTicketAuthorization
+            )
         case "mobile.chat.session":
             return v2MobileChatSession(params: params)
         case "mobile.chat.rename":
@@ -91,6 +107,83 @@ extension TerminalController {
                 "method": method
             ])
         }
+    }
+
+    /// Applies the attach-ticket scope to an opaque chat session id. The
+    /// record's stored workspace id is only a fallback for ended sessions;
+    /// live sessions must resolve their stable surface id into the workspace
+    /// that currently owns that terminal. This prevents a stale pre-relaunch
+    /// workspace id, or a surface reused by another workspace, from widening
+    /// a scoped ticket's read or mutation access.
+    private func mobileChatTicketAuthorizationError(
+        params: [String: Any],
+        authorization: MobileAttachTicketAuthorization
+    ) -> V2CallResult? {
+        guard let sessionID = v2RawString(params, "session_id"),
+              !sessionID.isEmpty else {
+            // Let the method body return its normal invalid-params response.
+            return nil
+        }
+        guard let service = agentChatTranscriptService,
+              let record = service.sessionRecord(sessionID: sessionID) else {
+            // Do not turn an unknown/deleted id into an authorization oracle;
+            // the method body returns the usual not-found result.
+            return nil
+        }
+        guard mobileChatTicketAllows(record: record, authorization: authorization) else {
+            return .err(
+                code: MobileHostService.scopedTicketError.code,
+                message: MobileHostService.scopedTicketError.message,
+                data: ["session_id": sessionID]
+            )
+        }
+        return nil
+    }
+
+    private func mobileChatTicketAllows(
+        record: AgentChatSessionRecord,
+        resolvedWorkspaceID: String? = nil,
+        authorization: MobileAttachTicketAuthorization
+    ) -> Bool {
+        let currentWorkspaceID = resolvedWorkspaceID
+            ?? mobileChatCurrentWorkspaceID(surfaceID: record.surfaceID)
+            ?? (record.state == .ended ? record.workspaceID : nil)
+        return MobileHostService.chatTicketScopeAllows(
+            ticket: authorization,
+            sessionWorkspaceID: currentWorkspaceID,
+            sessionSurfaceID: record.surfaceID
+        )
+    }
+
+    /// Resolves a stable terminal surface to its current cmux workspace,
+    /// walking every main window because chat sessions are not tied to the
+    /// caller's selected tab.
+    private func mobileChatCurrentWorkspaceID(surfaceID: String?) -> String? {
+        guard let surfaceID,
+              let surfaceUUID = UUID(uuidString: surfaceID),
+              let app = AppDelegate.shared else {
+            return nil
+        }
+        for summary in app.listMainWindowSummaries() {
+            guard let tabManager = app.tabManagerFor(windowId: summary.windowId) else {
+                continue
+            }
+            if let workspace = tabManager.tabs.first(where: {
+                $0.terminalInputTarget(forPanelID: surfaceUUID) != nil
+            }) {
+                return workspace.id.uuidString
+            }
+        }
+        return nil
+    }
+
+    private static func chatTicketWorkspaceSelectionAllows(
+        ticket: MobileAttachTicketAuthorization,
+        workspaceID: String
+    ) -> Bool {
+        let requested = workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ticketWorkspace = ticket.ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ticketWorkspace.isEmpty || requested == ticketWorkspace || ticket.createdWorkspaceIDs.contains(requested)
     }
 
     /// Returns the provider-neutral controls and host-advertised choices for a
@@ -236,10 +329,25 @@ extension TerminalController {
     /// still matches its agent against THAT workspace+panel. Each returned
     /// session is re-stamped to W so its seed and live `descriptorChanged`
     /// pushes both scope to the current workspace.
-    func v2MobileChatSessions(params: [String: Any]) async -> V2CallResult {
+    func v2MobileChatSessions(
+        params: [String: Any],
+        ticketAuthorization: MobileAttachTicketAuthorization? = nil
+    ) async -> V2CallResult {
         let workspaceID = v2String(params, "workspace_id")
         guard let service = agentChatTranscriptService else {
             return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
+        }
+        if let ticketAuthorization,
+           let workspaceID,
+           !Self.chatTicketWorkspaceSelectionAllows(
+               ticket: ticketAuthorization,
+               workspaceID: workspaceID
+           ) {
+            return .err(
+                code: "forbidden",
+                message: MobileHostService.scopedTicketError.message,
+                data: ["workspace_id": workspaceID]
+            )
         }
         guard let workspaceID else {
             let observedBeforeListing = await service.observeAgentProcessesForListing(
@@ -252,6 +360,13 @@ extension TerminalController {
             }
             #endif
             let descriptors = service.sessionRecords(workspaceID: nil)
+                .filter { record in
+                    guard let ticketAuthorization else { return true }
+                    return mobileChatTicketAllows(
+                        record: record,
+                        authorization: ticketAuthorization
+                    )
+                }
                 .filter { record in
                     // A finished session is a historical conversation. Its
                     // agent PID is expected to be dead, so the live binding
@@ -303,6 +418,17 @@ extension TerminalController {
             guard let surfaceID = record.surfaceID,
                   let surfaceUUID = UUID(uuidString: surfaceID),
                   workspace.terminalInputTarget(forPanelID: surfaceUUID) != nil else {
+                #if DEBUG
+                dropNotInWorkspace += 1
+                #endif
+                continue
+            }
+            if let ticketAuthorization,
+               !mobileChatTicketAllows(
+                   record: record,
+                   resolvedWorkspaceID: workspaceID,
+                   authorization: ticketAuthorization
+               ) {
                 #if DEBUG
                 dropNotInWorkspace += 1
                 #endif
