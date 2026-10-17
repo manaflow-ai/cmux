@@ -208,6 +208,12 @@ describe("Chief hands tools by hand", { timeout: 120_000 }, () => {
     expect(tm.first_token_at).toBeLessThanOrEqual(sandboxStep.at)
     // Within each pi turn the tools list stayed the same; the continuation had the full tools.
     const calls = fakeCalls.filter((c) => c.kind === "turn" && c.tools.length > 0 && c.firstUser.join("\n").includes("make a sandbox and start an agent"))
+    // The continuation starts from the made hand: its first tool call is agent (no second hands list).
+    expect(steps.filter((st) => st.kind === "tool").map((st) => st.tool?.name), JSON.stringify(steps.map((st) => st.tool?.name ?? st.kind))).toEqual(["hands", "agent"])
+    const contText = calls.flatMap((c) => c.laterUsers).find((t) => t.includes("Your new hand is ready")) ?? ""
+    expect(contText).toContain('"sb-one"')
+    expect(contText).toMatch(/\(hand_[A-Za-z0-9]+\), online/)
+    expect(contText).toContain("/root/proj")
     const root = calls.filter((c) => !c.laterUsers.join("\n").includes("Your new hand is ready")).map((c) => JSON.stringify(c.tools))
     const cont = calls.filter((c) => c.laterUsers.join("\n").includes("Your new hand is ready"))
     expect(new Set(root).size, `the tools changed inside the first pi turn: ${JSON.stringify(root)}`).toBe(1)
