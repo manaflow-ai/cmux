@@ -101,7 +101,10 @@ export const registerPresence = async (env: Env, sql: SqlStorage, caller: HandCa
   else if (before.thumbprint) {
     if (byKey) by = "current_key"
     else if (fresh) by = "fresh_sign_in"
-    else return no(`this install already has a presence key: replacing it needs a signature by the current key, or a sign-in in the last ${freshMs(env) / 60_000} minutes`)
+    else {
+      const when = typeof input.signed_in_at === "number" ? `this session signed in ${Math.round((now - input.signed_in_at) / 60_000)} min ago` : "this session's sign-in time is not known"
+      return no(`this install already has a presence key: replacing it needs a signature by the current key, or a sign-in in the last ${freshMs(env) / 60_000} minutes (${when})`)
+    }
   }
   if (by !== "unchanged") sql.exec(`INSERT INTO hand_presence_key (install, jwk, at) VALUES (?, ?, ?) ON CONFLICT(install) DO UPDATE SET jwk = excluded.jwk, at = excluded.at`, input.install, JSON.stringify(pub), now)
   sql.exec(`INSERT INTO hand_presence_event (id, install, thumbprint, by, attested, key_id, attest_key, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, crypto.randomUUID(), input.install, thumbprint, by, attested ? 1 : 0, attested ? (input.key_id ?? null) : null, attestKey, now)

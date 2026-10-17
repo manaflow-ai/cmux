@@ -1,4 +1,5 @@
 import { stackServer } from "./stack-server.ts"
+import { authenticate } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { apiOrigin, handStub, indexStub, listHands, mintPairCode } from "./hand-api.ts"
 import { handInstallScript } from "./hand-install.ts"
@@ -51,10 +52,16 @@ const person = async (request: Request, env: Env): Promise<{ caller: HandCaller;
   return { caller: { kind: "owner", user: c.user }, principal: c.principal }
 }
 
-/** When the caller's Stack session was signed in (its refresh_token_id's created_at), or null when not known. */
-const sessionSignedInAt = async (env: Env, principal: { kind?: string; stack_user_id?: string; stack_session?: string }): Promise<number | null> => {
-  if (principal.kind !== "session" || !principal.stack_user_id || !principal.stack_session) return null
-  return (await stackServer(env)?.sessionCreatedAt(principal.stack_user_id, principal.stack_session).catch(() => null)) ?? null
+/**
+ * When the caller's Stack session was signed in (its refresh_token_id's created_at), or null when
+ * not known. The bearer token is read again here: the request principal (callerOf) drops the
+ * Stack session id.
+ */
+const sessionSignedInAt = async (env: Env, request: Request): Promise<number | null> => {
+  const auth = request.headers.get("authorization") ?? ""
+  const p = await authenticate(env, auth.startsWith("Bearer ") ? auth.slice(7) : undefined).catch(() => undefined)
+  if (p?.kind !== "session" || !p.stack_user_id || !p.stack_session) return null
+  return (await stackServer(env)?.sessionCreatedAt(p.stack_user_id, p.stack_session).catch(() => null)) ?? null
 }
 
 const body = async (request: Request): Promise<Record<string, unknown> | null> => {
@@ -123,7 +130,7 @@ export const handleHands = async (request: Request, env: Env, path: string): Pro
     const b = await body(request)
     if (typeof b?.install !== "string" || typeof b.signature !== "string") return fail(400, "validation.invalid", "body is {install, public_jwk, signature, current_signature?, attestation?, key_id?}")
     // A replacement may pass on a fresh sign-in (also when a current-key signature is sent and fails): when this session was signed in.
-    const signedInAt = await sessionSignedInAt(env, principal)
+    const signedInAt = await sessionSignedInAt(env, request)
     return reply(await indexStub(env, caller.user).registerPresence(caller, caller.user, {
       install: b.install,
       jwk: b.public_jwk,
