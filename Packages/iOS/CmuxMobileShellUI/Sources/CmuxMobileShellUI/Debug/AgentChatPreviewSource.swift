@@ -82,6 +82,22 @@ actor AgentChatPreviewSource: AgentChatSessionSource {
         }
     }
 
+    func events(sessionID: String) async -> AsyncStream<ChatSessionEvent> {
+        let frames = await sessionEvents()
+        return AsyncStream { continuation in
+            let pump = Task {
+                for await frame in frames {
+                    guard frame.sessionID == sessionID else { continue }
+                    continuation.yield(frame.event)
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                pump.cancel()
+            }
+        }
+    }
+
     func history(sessionID: String, beforeSeq: Int?, limit: Int) async throws -> ChatHistoryPage {
         guard let messages = transcripts[sessionID] else { throw PreviewError.missingSession }
         let page = if let beforeSeq {

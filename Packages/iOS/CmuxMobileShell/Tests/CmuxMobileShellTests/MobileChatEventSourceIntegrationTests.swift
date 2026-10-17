@@ -43,12 +43,22 @@ struct MobileChatEventSourceIntegrationTests {
                 attachments: [],
                 sessionID: expected.id
             )
+            try await source.interrupt(sessionID: expected.id, hard: true)
+            try await source.answer(
+                optionIndex: 1,
+                requestID: "request-\(expected.id)",
+                sessionID: expected.id
+            )
         }
 
         let requests = await transport.requests()
         #expect(requests.filter { $0.method == "mobile.chat.session" }.count == sessions.count)
         #expect(requests.filter { $0.method == "mobile.chat.history" }.count == sessions.count)
         #expect(requests.filter { $0.method == "mobile.chat.send" }.map(\.sessionID) == sessions.map(\.id))
+        #expect(requests.filter { $0.method == "mobile.chat.interrupt" }.map(\.sessionID) == sessions.map(\.id))
+        #expect(requests.filter { $0.method == "mobile.chat.interrupt" }.allSatisfy { $0.hard == true })
+        #expect(requests.filter { $0.method == "mobile.chat.answer" }.map(\.sessionID) == sessions.map(\.id))
+        #expect(requests.filter { $0.method == "mobile.chat.answer" }.allSatisfy { $0.optionIndex == 1 })
     }
 
     @Test
@@ -85,6 +95,38 @@ struct MobileChatEventSourceIntegrationTests {
             $0.method == "mobile.events.subscribe"
         }
         #expect(subscriptions.count == 1)
+    }
+
+    @Test
+    func sessionEventsDeliversUnfilteredRevisionFramesForEveryProvider() async throws {
+        let transport = MobileChatRPCTransport(sessions: Self.sessions)
+        let client = try Self.client(transport: transport)
+        defer { Task { await client.disconnect() } }
+        let source = MobileChatEventSource(client: client)
+
+        let stream = await source.sessionEvents()
+        let expected = Self.sessions.map { session in
+            ChatSessionEventFrame(
+                sessionID: session.id,
+                event: .descriptorChanged(session.withState(.idle, version: session.version + 1)),
+                version: session.version + 1
+            )
+        }
+        let receivedTask = Task {
+            var iterator = stream.makeAsyncIterator()
+            var received: [ChatSessionEventFrame] = []
+            for _ in expected {
+                if let frame = await iterator.next() {
+                    received.append(frame)
+                }
+            }
+            return received
+        }
+        for frame in expected {
+            try await transport.emit(frame)
+        }
+
+        #expect(await receivedTask.value == expected)
     }
 
     private static let sessions: [ChatSessionDescriptor] = [
@@ -173,6 +215,8 @@ private struct CapturedChatRequest: Sendable, Equatable {
     let method: String
     let sessionID: String?
     let text: String?
+    let optionIndex: Int?
+    let hard: Bool?
 }
 
 private actor MobileChatRPCTransport: CmxByteTransport {
@@ -235,7 +279,9 @@ private actor MobileChatRPCTransport: CmxByteTransport {
         capturedRequests.append(CapturedChatRequest(
             method: method,
             sessionID: params["session_id"] as? String,
-            text: params["text"] as? String
+            text: params["text"] as? String,
+            optionIndex: params["option_index"] as? Int,
+            hard: params["hard"] as? Bool
         ))
 
         let result: Any
