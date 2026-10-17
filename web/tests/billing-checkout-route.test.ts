@@ -691,7 +691,8 @@ describe("billing checkout route", () => {
 
   test("tags the checkout with the visitor's pricing experiment and account kind", async () => {
     stripeConfigured = true;
-    userResponses = [{ ...signedInUser, primaryEmail: "staff@manaflow.ai", primaryEmailVerified: true }];
+    // A probe account: company accounts are Pro by grant now and never reach Stripe checkout.
+    userResponses = [{ ...signedInUser, primaryEmail: "cmux-prod-smoke+checkout@manaflow.dev", primaryEmailVerified: true }];
 
     await GET(
       new NextRequest("https://cmux.test/api/billing/checkout?plan=pro&interval=year&cmux_experiment=forged", {
@@ -699,7 +700,7 @@ describe("billing checkout route", () => {
       }),
     );
 
-    const tags = { cmuxExperiment: "web-pricing-v1", cmuxExperimentVariant: "highlight-pro", cmuxAccountKind: "internal" };
+    const tags = { cmuxExperiment: "web-pricing-v1", cmuxExperimentVariant: "highlight-pro", cmuxAccountKind: "synthetic" };
     expect(createdStripeSessions[0]).toMatchObject({
       metadata: expect.objectContaining(tags),
       subscription_data: { metadata: expect.objectContaining(tags) },
