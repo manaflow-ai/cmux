@@ -5332,7 +5332,7 @@
         },
         {
           "q": "Hvordan fungerer faktureringen?",
-          "a": "Betalte planer faktureres månedligt eller årligt. Pro koster $50 om måneden eller $550 om året, Max $200 om måneden eller $1.920 om året ($160 om måneden), og Team $60 pr. bruger om måneden eller $660 om året."
+          "a": "Betalte planer faktureres månedligt eller årligt. Pro koster $50 om måneden eller $550 om året, Max $200 om måneden eller $1.920 om året ($160 om måneden), og Team $60 pr. bruger om måneden eller $660 pr. bruger om året."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -5340,7 +5340,7 @@
         },
         {
           "q": "Har I en teamplan?",
-          "a": "Ja. Team koster $60 pr. bruger om måneden eller $660 om året med samlet fakturering og prioriteret support."
+          "a": "Ja. Team koster $60 pr. bruger om måneden eller $660 pr. bruger om året med samlet fakturering og prioriteret support."
         }
       ]
     }

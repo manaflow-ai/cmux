@@ -5333,7 +5333,7 @@
         },
         {
           "q": "Faturalandırma nasıl çalışır?",
-          "a": "Ücretli planlar aylık veya yıllık faturalandırılır. Pro aylık 50 $ veya yıllık 550 $, Max aylık 200 $ veya yıllık 1.920 $ (aylık 160 $), Team ise kullanıcı başına aylık 60 $ veya yıllık 660 $ tutar."
+          "a": "Ücretli planlar aylık veya yıllık faturalandırılır. Pro aylık 50 $ veya yıllık 550 $, Max aylık 200 $ veya yıllık 1.920 $ (aylık 160 $), Team ise kullanıcı başına aylık 60 $ veya kullanıcı başına yıllık 660 $ tutar."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -5341,7 +5341,7 @@
         },
         {
           "q": "Ekip planınız var mı?",
-          "a": "Evet. Team kullanıcı başına aylık 60 $ veya yıllık 660 $ tutar; merkezi faturalandırma ve öncelikli destek içerir."
+          "a": "Evet. Team kullanıcı başına aylık 60 $ veya kullanıcı başına yıllık 660 $ tutar; merkezi faturalandırma ve öncelikli destek içerir."
         }
       ]
     }

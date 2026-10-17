@@ -423,9 +423,6 @@ export function AppPricingContent({
               billingPeriodLabel={pricing.billingPeriod}
               monthlyLabel={pricing.monthly}
               annualLabel={pricing.annual}
-              savingsLabel={pricingMessage(pricing.saveAnnual, {
-                discount: PRO_PRICING_USD.year.discountPercent,
-              })}
               surface="app_pricing"
             />
 

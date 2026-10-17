@@ -5335,7 +5335,7 @@
         },
         {
           "q": "Kako funkcioniše naplata?",
-          "a": "Plaćeni planovi se naplaćuju mjesečno ili godišnje. Pro košta 50 $ mjesečno ili 550 $ godišnje, Max 200 $ mjesečno ili 1.920 $ godišnje (160 $ mjesečno), a Team 60 $ po korisniku mjesečno ili 660 $ godišnje."
+          "a": "Plaćeni planovi se naplaćuju mjesečno ili godišnje. Pro košta 50 $ mjesečno ili 550 $ godišnje, Max 200 $ mjesečno ili 1.920 $ godišnje (160 $ mjesečno), a Team 60 $ po korisniku mjesečno ili 660 $ po korisniku godišnje."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -5343,7 +5343,7 @@
         },
         {
           "q": "Imate li timski plan?",
-          "a": "Da. Team košta 60 $ po korisniku mjesečno ili 660 $ godišnje, uz objedinjenu naplatu i prioritetnu podršku."
+          "a": "Da. Team košta 60 $ po korisniku mjesečno ili 660 $ po korisniku godišnje, uz objedinjenu naplatu i prioritetnu podršku."
         }
       ]
     }

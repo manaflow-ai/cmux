@@ -68,7 +68,7 @@ export function PricingIntervalSelector({
   billingPeriodLabel: string;
   monthlyLabel: string;
   annualLabel: string;
-  savingsLabel: string;
+  savingsLabel?: string;
   surface: PricingSurface;
 }) {
   const context = usePricingIntervalContext();
@@ -111,9 +111,11 @@ export function PricingIntervalSelector({
           onChange={() => selectInterval("year")}
         />
         {annualLabel}
-        <span className="ml-1.5 text-xs font-medium text-[var(--cmux-product-blue-on-background,var(--cmux-product-blue,#0088ff))]">
-          {savingsLabel}
-        </span>
+        {savingsLabel ? (
+          <span className="ml-1.5 text-xs font-medium text-[var(--cmux-product-blue-on-background,var(--cmux-product-blue,#0088ff))]">
+            {savingsLabel}
+          </span>
+        ) : null}
       </label>
     </fieldset>
   );

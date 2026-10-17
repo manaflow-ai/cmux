@@ -5335,7 +5335,7 @@
         },
         {
           "q": "Jak działa rozliczanie?",
-          "a": "Płatne plany są rozliczane miesięcznie lub rocznie. Pro kosztuje 50 USD miesięcznie lub 550 USD rocznie, Max 200 USD miesięcznie lub 1920 USD rocznie (160 USD miesięcznie), a Team 60 USD za użytkownika miesięcznie lub 660 USD rocznie."
+          "a": "Płatne plany są rozliczane miesięcznie lub rocznie. Pro kosztuje 50 USD miesięcznie lub 550 USD rocznie, Max 200 USD miesięcznie lub 1920 USD rocznie (160 USD miesięcznie), a Team 60 USD za użytkownika miesięcznie lub 660 USD za użytkownika rocznie."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -5343,7 +5343,7 @@
         },
         {
           "q": "Czy macie plan zespołowy?",
-          "a": "Tak. Team kosztuje 60 USD za użytkownika miesięcznie lub 660 USD rocznie i obejmuje centralne rozliczenia oraz priorytetowe wsparcie."
+          "a": "Tak. Team kosztuje 60 USD za użytkownika miesięcznie lub 660 USD za użytkownika rocznie i obejmuje centralne rozliczenia oraz priorytetowe wsparcie."
         }
       ]
     }
