@@ -132,10 +132,7 @@ test("same-time chats keep a deterministic order when the snapshot order changes
     lane({ sessionId: "chat-b", updatedAt: T0, name: "Second chat" }),
     lane({ sessionId: "chat-a", updatedAt: T0, name: "First chat" }),
   ];
-  expect(recentSessions(sessions, 2, false).map((session) => session.sessionId)).toEqual([
-    "chat-a",
-    "chat-b",
-  ]);
+  expect(recentSessions(sessions, 2, false).map((session) => session.sessionId)).toEqual(["chat-a", "chat-b"]);
   expect(recentSessions([...sessions].reverse(), 2, false).map((session) => session.sessionId)).toEqual([
     "chat-a",
     "chat-b",
