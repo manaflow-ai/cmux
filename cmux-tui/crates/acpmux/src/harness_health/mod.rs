@@ -11,6 +11,8 @@
 
 pub mod auto;
 pub mod channel;
+pub(crate) mod inventory;
+pub(crate) mod inventory_feed;
 pub mod latest;
 pub mod probe;
 
@@ -108,6 +110,7 @@ pub struct Settings {
 pub struct HealthService {
     settings: Mutex<Settings>,
     rows: Mutex<Vec<HarnessHealth>>,
+    inventory: inventory_feed::InventoryFeed,
     /// One check at a time.
     checking: tokio::sync::Mutex<()>,
     /// What auto-update ran, by harness id.
@@ -226,7 +229,7 @@ impl HealthService {
             .and_then(|p| std::fs::read(p).ok())
             .and_then(|b| serde_json::from_slice::<Vec<HarnessHealth>>(&b).ok());
         if let Some(rows) = saved {
-            *self.rows.lock().unwrap_or_else(PoisonError::into_inner) = rows;
+            self.replace_rows(rows);
         }
         *self.settings.lock().unwrap_or_else(PoisonError::into_inner) = settings;
     }
@@ -307,7 +310,7 @@ impl HealthService {
         if let Some(path) = settings.cache.as_deref() {
             save(path, &rows);
         }
-        *self.rows.lock().unwrap_or_else(PoisonError::into_inner) = rows.clone();
+        self.replace_rows(rows.clone());
         rows
     }
 }

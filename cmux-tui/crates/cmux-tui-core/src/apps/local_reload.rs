@@ -92,6 +92,7 @@ impl Supervisor {
                     "app": app,
                 })));
             }
+            outs.extend(Self::inventory_demand_locked(&mut inner));
             outs
         };
         self.emit(outs);

@@ -52,12 +52,17 @@ const RUNNERS: &[&str] = &[
     "python3", "env", "sh", "bash", "zsh", "dash",
 ];
 
+/// A launcher names the program behind it, not an installed agent CLI.
+pub(super) fn is_launcher(name: &str) -> bool {
+    RUNNERS.contains(&name)
+}
+
 /// The install behind `program` (as configured) found at `path` (its real
 /// file, symlinks resolved), for a user whose home is `home`.
 pub fn detect(program: &str, path: Option<&Path>, home: &Path) -> Install {
     let plain = |channel| Install { channel, package: None, writes: None };
     let name = Path::new(program).file_name().and_then(|n| n.to_str()).unwrap_or(program);
-    if RUNNERS.contains(&name) {
+    if is_launcher(name) {
         return plain(Channel::Launcher);
     }
     let Some(path) = path else { return plain(Channel::Missing) };
