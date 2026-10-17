@@ -113,3 +113,16 @@ test("a New Tab that inherited a project folder names the folder its host starts
 test("before the host names a start folder, the chip asks for a project", async () => {
   expect(await mount("/Users/you/src/app")).toBe("Choose folder");
 });
+
+test("the new tab exposes its project and machine context above the prompt", async () => {
+  await mount("/Users/you", "/Users/you/src/app");
+  const top = host.querySelector<HTMLElement>(".nt-pickers-top")!;
+  expect([...top.children].map((child) => child.className)).toEqual([
+    "acpmux-picker acpmux-project",
+    "nt-machine-chip",
+  ]);
+  expect(top.querySelector(".nt-machine-chip")?.textContent?.trim()).toBe("This Mac");
+  expect(top.compareDocumentPosition(host.querySelector(".nt-input")!) ?? 0).toBe(
+    Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+});

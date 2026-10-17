@@ -2202,6 +2202,7 @@ function DefaultComposerChips({
       {...(signIn ? { signIn } : {})}
       harnessesListed={harnessesListed}
       showPlan={false}
+      startsChat={startsChat}
       pickerCatalog={picker.catalog}
       catalogRefresh={{ status: refreshStatus, date: picker.date, refresh: refreshCatalog }}
       // A prewarm hint for the direct client only: the native host has no daemon to warm.
