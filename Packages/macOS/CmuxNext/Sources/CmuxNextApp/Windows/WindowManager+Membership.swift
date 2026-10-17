@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextSidebar
 import Observation
 
 // Window membership transitions. Every change goes through `transition`,
@@ -71,7 +72,7 @@ extension WindowManager {
             if home.personal.isLoaded, !home.isProvisional, home.profile(state.profileID) == nil {
                 state.enterProfile(WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) ?? .defaultProfile)
             }
-            var visible = WindowProfiles.visible(window.workspaceIDs, profile: state.profileID, machines: machines)
+            var visible = ClosingWorkspaces.shared.survivors(WindowProfiles.visible(window.workspaceIDs, profile: state.profileID, machines: machines))
             // A window waiting for the workspace it just created in a new
             // or empty room keeps that room.
             let waiting = pendingClaims.values.contains(window.id)
@@ -88,6 +89,15 @@ extension WindowManager {
                                                         members: visible, preferred: wanted)
             if state.workspaceID != pick { select(pick, in: state, keepsCreation: true) }
         }
+    }
+
+    /// A close the person asked for (`ClosingWorkspaces`): the selections leave the closing workspaces, and `window`'s
+    /// sidebar (the row starts closing, the next row is selected) and content show it in this turn, not an observation hop later.
+    func showClosing(in window: String?) {
+        repairSelections(previous: [:])
+        guard let window, let controller = controller(for: window) else { return }
+        controller.sidebar.sameTurn.syncNow(rows: true)
+        controller.showWorkspace(requested: controller.state.workspaceID)
     }
 
     /// Makes the first open receiver key, else our frontmost window.

@@ -25,7 +25,9 @@ final class PendingWorkspaceRows {
     }
 
     private(set) var rows: [Row] = []
-    /// The names `add` reserved for creates in flight, by key, until the create replies or fails (not when the row goes).
+    /// The names `add` reserved, by key, until a store lists the workspace (its name counts there from then) or its create
+    /// ends without one (`remove`). Not at the reply: the store can list the workspace a moment later, and a press in that
+    /// gap would take the same name (the terminal path: remote, or a create with a command).
     @ObservationIgnored private var names: [String: (machine: MachineID, name: String)] = [:]
 
     func add(_ row: Row, name: String) {
@@ -33,14 +35,16 @@ final class PendingWorkspaceRows {
         names[row.id] = (row.machine, name)
     }
 
-    func remove(_ id: String) { rows.removeAll { $0.id == id } }
+    /// The create `id` failed or a close took it: its row and its name go.
+    func remove(_ id: String) {
+        rows.removeAll { $0.id == id }
+        names[id] = nil
+    }
 
-    /// The create `id` replied or failed: its name is the daemon's to count now.
-    func release(_ id: String) { names[id] = nil }
-
-    /// The names given to `machine`'s creates in flight.
-    func reservedNames(on machine: MachineID) -> [String] {
-        names.values.filter { $0.machine == machine }.map(\.name)
+    /// The names given to `machine`'s creates that no store lists yet (`listed`); the listed ones are released here.
+    func reservedNames(on machine: MachineID, listed: (String) -> Bool) -> [String] {
+        names = names.filter { !listed($0.key) }
+        return names.values.filter { $0.machine == machine }.map(\.name)
     }
 
     /// Forgets the rows of `window` that it lists now (`listed`: its own row

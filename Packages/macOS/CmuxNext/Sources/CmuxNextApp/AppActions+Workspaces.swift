@@ -130,11 +130,18 @@ extension AppActions {
            lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }) { return }
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key else { return }
         let daemon = services.activeDaemon
-        let terminals = WorkspaceClose.closing(workspace, on: daemon)
+        let terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
+        // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass; the daemon request runs behind.
+        ClosingWorkspaces.shared.begin(id) { services.machines.workspace(id: $0) != nil }
+        services.windows.showClosing(in: owner)
         services.registry.track(lanes.run(in: window) {
-            await daemon.failure("close-workspace") { connection in
+            let failure = await daemon.failure("close-workspace") { connection in
+                try await ClosingWorkspaces.shared.refusal()
                 try await WorkspaceClose.close(key, terminals: terminals, on: connection)
             }
+            ClosingWorkspaces.shared.end(id, refused: failure != nil, listed: services.machines.workspace(id: id) != nil,
+                                         in: owner.flatMap { services.windows.controller(for: $0)?.window })
+            return failure
         })
     }
 

@@ -7,7 +7,8 @@
 /// arrives) keep their place. A section that stopped loading spends its
 /// saved rows, so they never come back later. A section given placeholders
 /// at launch keeps them past the launch until its machine connects or
-/// fails, so the end of the launch never empties it in between.
+/// fails, so the end of the launch never empties it in between. The bars
+/// wait out `grace` first, so a machine that connects at once never shows them.
 public struct SidebarSeed {
     /// Placeholder rows in a loading section with nothing saved, shown from
     /// the launch only (never on a later Cloud reconnect).
@@ -17,9 +18,11 @@ public struct SidebarSeed {
     /// Sections that showed placeholders at launch and have not stopped
     /// loading since.
     private var placeholderSections: Set<SectionID> = []
+    public let grace: SidebarPlaceholderGrace
 
-    public init(sections: [SidebarSection] = []) {
+    public init(sections: [SidebarSection] = [], grace: SidebarPlaceholderGrace = SidebarPlaceholderGrace()) {
         self.sections = sections
+        self.grace = grace
     }
 
     /// `live` with loading sections filled in. `launching` is true until the
@@ -33,6 +36,7 @@ public struct SidebarSeed {
             if !loading {
                 sections.removeAll { $0.id == section.id }
                 placeholderSections.remove(section.id)
+                grace.reset(section.id)
             }
             if let machine = section.machine, failed.contains(machine.id) { placeholderSections.remove(section.id) }
             guard loading, section.workspaces.isEmpty else {
@@ -47,7 +51,7 @@ public struct SidebarSeed {
                 // Only another machine shows placeholder bars: this Mac's daemon answers within the launch,
                 // so its section stays empty until its rows come, never a loading look (Lawrence 2026-10-16).
                 if launching { placeholderSections.insert(section.id) }
-                filled.nodes = Self.placeholders(machine: machine.id).map(SidebarNode.workspace)
+                if grace.allows(section.id) { filled.nodes = Self.placeholders(machine: machine.id).map(SidebarNode.workspace) }
             }
             result.append(filled)
         }

@@ -18,10 +18,18 @@ Checks, per scenario:
   a jump; a long first step of the ease-out after a dropped frame is not),
   and an opening row's opacity rises (it fades in). The longest frame gap is
   reported (a main-thread hitch shows there).
+- instant close (Close Workspace x1 and x5, no window recording, so its
+  per-frame snapshots do not load the main thread): the first sample after
+  each press no longer lists the closed row (its close animation started) and
+  selects another row (the selection moved with it), and no display frame
+  waits over 50 ms (a main-thread stall); a recorded close-x1 keeps the frames.
+- refused close (`debug.sidebar_rows {"refuse_next_close": true}` fails the
+  next close before the daemon): the row leaves at the press and comes back
+  (it opens again), and the workspace count does not change.
 Scenarios: Cmd-N x1, Cmd-N x5 at key-repeat speed (33 ms), Close Workspace x1
-and x5, a sidebar tab row open and close (Show Tabs Under Workspaces on), and
-the tab strip open and close (frames only). Exit 1 when a check fails. The app
-is stopped by the caller ($NX_APP_STOP), never here.
+and x5, a refused close, a sidebar tab row open and close (Show Tabs Under
+Workspaces on), and the tab strip open and close (frames only). Exit 1 when a
+check fails. The app is stopped by the caller ($NX_APP_STOP), never here.
 """
 import argparse, json, os, socket, sys, threading, time
 
@@ -61,9 +69,13 @@ def action(name):
     return reply
 
 
-def window_rows():
+def window_report():
     windows = (rpc("debug.sidebar_rows") or {}).get("windows") or []
-    return (windows[0] if windows else {}).get("rows") or []
+    return windows[0] if windows else {}
+
+
+def window_rows():
+    return window_report().get("rows") or []
 
 
 def workspace_rows():
@@ -86,36 +98,44 @@ def check(name, ok, detail):
         failures.append(name)
 
 
-def scenario(name, presses, gap=0.033, settle=None):
-    """Runs `presses` (action ids) `gap` seconds apart under a recording and
-    returns (samples, motion frames, keys before)."""
+def scenario(name, presses, gap=0.033, settle=None, record=True):
+    """Runs `presses` (action ids) `gap` seconds apart, under a recording when
+    `record`, and returns (samples, motion frames, keys before, press times).
+    A sample is (time asked, workspace rows, the window's selection)."""
     directory = os.path.join(opts.out, name)
     os.makedirs(directory, exist_ok=True)
     before = {r["key"] for r in workspace_rows()}
-    rpc("debug.window_record", {"dir": directory, "seconds": opts.seconds})
+    if record:
+        rpc("debug.window_record", {"dir": directory, "seconds": opts.seconds})
     rpc("debug.sidebar_rows", {"motion": "start"})
     samples, stop = [], threading.Event()
 
     def sample():
         while not stop.is_set():
             asked = time.time()  # the time the request left: a sample asked after a press returned must show it
-            samples.append((asked, workspace_rows()))
+            report = window_report()
+            rows = [r for r in report.get("rows") or [] if str(r.get("key", "")).startswith("workspace(")]
+            samples.append((asked, rows, report.get("selection")))
 
     sampler = threading.Thread(target=sample, daemon=True)
     time.sleep(0.15)  # test harness: still frames before the change
     pressed = []
     sampler.start()
     for press in presses:
+        shown = window_report().get("selection")
+        sent = time.time()
         action(press)
-        pressed.append(time.time())
+        pressed.append((sent, time.time(), shown))
         time.sleep(gap)  # test harness: key-repeat spacing
     time.sleep(settle or opts.seconds)  # test harness: the motion and the creates settle
     stop.set()
     sampler.join()
     motion = rpc("debug.sidebar_rows", {"motion": "stop"}) or {}
-    time.sleep(0.6)  # test harness: the recording stops by itself
+    if record:
+        time.sleep(0.6)  # test harness: the recording stops by itself
     with open(os.path.join(directory, "samples.json"), "w") as handle:
         json.dump({"pressed": pressed, "samples": samples, "motion": motion}, handle)
+    pressed = [returned for _, returned, _ in pressed] if not name.startswith(("close", "refused")) else pressed
     frames = len([f for f in os.listdir(directory) if f.endswith(".jpg")])
     print(f"{name}: {frames} frames, {len(samples)} row samples, {len(motion.get('frames') or [])} motion frames", flush=True)
     return samples, motion, before, pressed
@@ -123,7 +143,7 @@ def scenario(name, presses, gap=0.033, settle=None):
 
 def check_instant(name, samples, before, pressed, expect_new):
     first_seen, looks, bad = {}, {}, []
-    for at, rows in samples:
+    for at, rows, _ in samples:
         for row in rows:
             key = row["key"]
             if row.get("row_state") == "placeholder":
@@ -142,13 +162,56 @@ def check_instant(name, samples, before, pressed, expect_new):
     # The first sample taken after each press lists that press's row.
     late = []
     for index, at in enumerate(pressed):
-        after = [rows for when, rows in samples if when > at]
+        after = [rows for when, rows, _ in samples if when > at]
         if not after:
             continue
         shown = sum(1 for row in after[0] if row["key"] not in before)
         if shown < index + 1:
             late.append(f"press {index + 1}: {shown} new rows in the first sample after it")
     check(f"{name} instant", not late and not bad, "; ".join(late + bad) or "every row final from the first sample after its press")
+
+
+def selection_key(selection):
+    return f"workspace({selection})" if selection and not str(selection).startswith("workspace(") else selection
+
+
+# A sample asked this long after a press was sent is answered after the app ran the press's own turn.
+SETTLE_AFTER_SEND = 0.015
+
+
+def check_close(name, samples, pressed, motion, stall_ms=50):
+    """Each press: from the first sample asked after it (the socket's action.run returns only after the
+    daemon replied, so the samples between send and return show the row before the reply) the shown row
+    is listed no more and another row is selected."""
+    late, before_reply = [], 0
+    for index, (sent, returned, shown) in enumerate(pressed):
+        after = [(when, rows, selection) for when, rows, selection in samples if when > sent + SETTLE_AFTER_SEND]
+        if not after or not shown:
+            late.append(f"press {index + 1}: no sample or no selection before it")
+            continue
+        key = selection_key(shown)
+        until = [(rows, selection) for when, rows, selection in after if when <= returned] or [after[0][1:]]
+        before_reply += len([1 for when, _, _ in after if when <= returned])
+        for rows, selection in until:
+            if any(r["key"] == key for r in rows) or selection_key(selection) == key:
+                late.append(f"press {index + 1}: {key} listed={any(r['key'] == key for r in rows)} selection={selection}")
+                break
+    detail = f"{len(pressed)} press(es): row gone and selection moved from the first sample ({before_reply} samples before the reply)"
+    check(f"{name} instant", not late, "; ".join(late) or detail)
+    frames = motion.get("frames") or []
+    gaps = [round((b["t"] - a["t"]) * 1000) for a, b in zip(frames, frames[1:])]
+    worst = max(gaps, default=0)
+    check(f"{name} no stall", bool(frames) and worst <= stall_ms, f"longest frame {worst} ms over {len(frames)} frames (limit {stall_ms} ms)")
+    return worst
+
+
+def check_refused(name, samples, pressed, after_keys):
+    sent, _, shown = pressed[0]
+    key = selection_key(shown)
+    later = [rows for when, rows, _ in samples if when > sent + SETTLE_AFTER_SEND]
+    gone = bool(later) and not any(r["key"] == key for r in later[0])
+    back = any(any(r["key"] == key for r in rows) for rows in later[1:])
+    check(f"{name} row back", gone and back and key in after_keys, f"{key}: gone at the press {gone}, back later {back}, listed at the end {key in after_keys}")
 
 
 def check_smooth(name, motion):
@@ -194,12 +257,21 @@ def main():
     check_instant("cmd-n-x5", samples, before, pressed, 5)
     check_smooth("cmd-n-x5", motion)
 
-    _, motion, before, _ = scenario("close-x1", ["closeWorkspace"])
+    samples, motion, before, pressed = scenario("close-x1", ["closeWorkspace"], record=False)
+    check_close("close-x1", samples, pressed, motion)
     check_smooth("close-x1", motion)
     check("close-x1 count", len(workspace_rows()) == len(before) - 1, f"{len(before)} -> {len(workspace_rows())}")
-    _, motion, before, _ = scenario("close-x5", ["closeWorkspace"] * 5, settle=3.0)
+    samples, motion, before, pressed = scenario("close-x5", ["closeWorkspace"] * 5, settle=3.0, record=False)
+    check_close("close-x5", samples, pressed, motion)
     check_smooth("close-x5", motion)
     check("close-x5 count", len(workspace_rows()) == len(before) - 5, f"{len(before)} -> {len(workspace_rows())}")
+    _, motion, before, _ = scenario("close-x1-recorded", ["closeWorkspace"])
+    check_smooth("close-x1-recorded", motion)
+    rpc("debug.sidebar_rows", {"refuse_next_close": True})
+    samples, motion, before, pressed = scenario("refused-close", ["closeWorkspace"], record=False)
+    after_keys = {r["key"] for r in workspace_rows()}
+    check_refused("refused-close", samples, pressed, after_keys)
+    check("refused-close count", after_keys == before, f"{len(before)} -> {len(after_keys)}")
 
     rpc("settings.set", {"path": "sidebar.showWorkspaceTabs", "value": True})
     wait(lambda: any(str(r.get("key", "")).startswith("tab(") for r in window_rows()), 5)
