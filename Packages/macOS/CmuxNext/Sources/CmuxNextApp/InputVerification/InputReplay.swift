@@ -72,11 +72,11 @@ nonisolated enum InputReplay {
                 if !result.windows.contains(window) { result.windows.append(window) }
                 machines[window] = (machine, state)
             case .focus(let event, let recorded):
-                guard let entry = machines[window] else {
+                guard let replaying = machines[window] else {
                     result.skippedFocusEvents += 1
                     continue
                 }
-                let (machine, state) = (entry.machine, entry.state)
+                let (machine, state) = (replaying.machine, replaying.state)
                 result.focusEvents += 1
                 var next = state
                 _ = machine.send(event, into: &next)
