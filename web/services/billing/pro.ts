@@ -26,6 +26,7 @@ import {
 } from
   "../account/metadataMutation";
 import { activeApplePlanForUser } from "./apple/entitlement";
+import { hasCompanyPlanGrant } from "./companyPlan";
 import { planTierRank } from "./planTier";
 import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "./apple/config";
 
@@ -185,6 +186,8 @@ async function writeProPlanMirror(
 export type ProReconcileUser = ProMetadataCustomer & {
   readonly id?: string;
   readonly isAnonymous?: boolean;
+  readonly primaryEmail?: string | null;
+  readonly primaryEmailVerified?: boolean;
 };
 
 export type ActiveStripeSubscriptionQuery = (stackUserId: string) => Promise<boolean>;
@@ -343,7 +346,9 @@ export async function resolveProPlanStatus(
   // Stripe and Apple grant through the same mirror; the higher plan wins.
   const activeSubscriptionPlan = highestPersonalPlanId([activeStripePlan, activeApplePlan]);
   const hasActiveStripePro = activeStripePlan !== null;
-  const planId = personalPlanIdForStatus(activeSubscriptionPlan, manualVmPlanOverride(metadata));
+  const subscribedPlanId = personalPlanIdForStatus(activeSubscriptionPlan, manualVmPlanOverride(metadata));
+  // Staff accounts are Pro without a subscription (see hasCompanyPlanGrant).
+  const planId = subscribedPlanId === FREE_PLAN_ID && hasCompanyPlanGrant(user) ? PRO_PLAN_ID : subscribedPlanId;
   const isPro = planId !== FREE_PLAN_ID;
   const stripeManagement = billingManagementForStatus(
     stripeBillingStatus,
