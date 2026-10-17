@@ -11,12 +11,27 @@ import {
   withoutChildren,
 } from "./sessionList";
 
-export type ChiefMascot = "orb" | "machine" | "moon";
+export type ChiefMascot =
+  | "orb"
+  | "orb-spark"
+  | "orb-hood"
+  | "machine"
+  | "machine-cyan"
+  | "machine-blue"
+  | "moon"
+  | "moon-blue"
+  | "fox";
 
 const CHIEF_MASCOTS: Record<ChiefMascot, string> = {
   orb: new URL("./mascots/ChiefMascotOrb.png", import.meta.url).href,
+  "orb-spark": new URL("./mascots/ChiefMascotOrbSpark.png", import.meta.url).href,
+  "orb-hood": new URL("./mascots/ChiefMascotOrbHood.png", import.meta.url).href,
   machine: new URL("./mascots/ChiefMascotMachine.png", import.meta.url).href,
+  "machine-cyan": new URL("./mascots/ChiefMascotMachineCyan.png", import.meta.url).href,
+  "machine-blue": new URL("./mascots/ChiefMascotMachineBlue.png", import.meta.url).href,
   moon: new URL("./mascots/ChiefMascotMoon.png", import.meta.url).href,
+  "moon-blue": new URL("./mascots/ChiefMascotMoonBlue.png", import.meta.url).href,
+  fox: new URL("./mascots/ChiefMascotFox.png", import.meta.url).href,
 };
 
 export type ChiefDockProps = {

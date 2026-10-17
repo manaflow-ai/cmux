@@ -2,7 +2,7 @@
 import { componentEntry } from "../../gallery/format";
 import { session } from "../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../gallery/play";
-import { ChiefDock } from "./ChiefDock";
+import { ChiefDock, type ChiefMascot } from "./ChiefDock";
 
 const base = [
   session({
@@ -50,6 +50,18 @@ const toggleStack = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-chief-dock[data-expanded="true"]'));
 };
 
+const mascotOption = (mascot: ChiefMascot, note: string) => ({
+  note,
+  props: {
+    sessions: base,
+    currentId: "chief-working",
+    mascot,
+    onSelect: () => undefined,
+    onNewChat: () => undefined,
+    onMoveToTab: () => undefined,
+  },
+});
+
 export default componentEntry({
   id: "agent-pane.chief-dock",
   title: "Chief Dock",
@@ -77,28 +89,23 @@ export default componentEntry({
         onMoveToTab: () => undefined,
       },
     },
-    "mascot-machine": {
-      note: "Mascot option: a tiny friendly machine with a compact, readable pixel silhouette.",
-      props: {
-        sessions: base,
-        currentId: "chief-working",
-        mascot: "machine",
-        onSelect: () => undefined,
-        onNewChat: () => undefined,
-        onMoveToTab: () => undefined,
-      },
-    },
-    "mascot-moon": {
-      note: "Mascot option: a soft moon-moth companion, kept as an alternate Chief personality.",
-      props: {
-        sessions: base,
-        currentId: "chief-working",
-        mascot: "moon",
-        onSelect: () => undefined,
-        onNewChat: () => undefined,
-        onMoveToTab: () => undefined,
-      },
-    },
+    "mascot-orb-spark": mascotOption("orb-spark", "Mascot option: a soft star-marked orb with a friendly pixel face."),
+    "mascot-orb-hood": mascotOption("orb-hood", "Mascot option: a hooded night orb with a compact silhouette."),
+    "mascot-machine": mascotOption(
+      "machine",
+      "Mascot option: a tiny friendly machine with a compact, readable pixel silhouette.",
+    ),
+    "mascot-machine-cyan": mascotOption("machine-cyan", "Mascot option: a round cyan-lit machine companion."),
+    "mascot-machine-blue": mascotOption(
+      "machine-blue",
+      "Mascot option: a blue-eared machine with a playful product silhouette.",
+    ),
+    "mascot-moon": mascotOption(
+      "moon",
+      "Mascot option: a soft moon-moth companion, kept as an alternate Chief personality.",
+    ),
+    "mascot-moon-blue": mascotOption("moon-blue", "Mascot option: a blue cloud companion with a simple star antenna."),
+    "mascot-fox": mascotOption("fox", "Mascot option: a warm pixel fox Chief with a clear, expressive silhouette."),
     "attention-stack": {
       note: "Two agents need input; the badge and attention dots keep the important work visible first.",
       props: {
