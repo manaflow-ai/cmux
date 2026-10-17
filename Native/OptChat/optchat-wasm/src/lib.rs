@@ -207,15 +207,33 @@ impl OptChat {
     /// node at or above the checkpoint's `low` of its level). Messages after the checkpoint are appended
     /// as live. The result is lazy: change it with `appendIn` and `completeIn`. Undefined when the
     /// checkpoint does not fit the store (the host then folds with `load` + `makeLazy`).
-    pub fn resume(checkpoint: &str, t: f64, frontier_json: &str, budget: u32, store: &JsStore) -> Result<Option<OptChat>, JsError> {
-        let Some(c) = decode_checkpoint(checkpoint) else { return Ok(None) };
+    pub fn resume(
+        checkpoint: &str,
+        t: f64,
+        frontier_json: &str,
+        budget: u32,
+        store: &JsStore,
+    ) -> Result<Option<OptChat>, JsError> {
+        let Some(c) = decode_checkpoint(checkpoint) else {
+            return Ok(None);
+        };
         let frontier: Vec<(u32, u64, usize)> = serde_json::from_str(frontier_json)?;
         if let Some((l, _, _)) = frontier.iter().find(|(l, _, _)| *l >= 64) {
             return Err(JsError::new(&format!("{l} is not a tree level")));
         }
-        let budget = if budget == 0 { core::VIEW } else { budget as usize };
+        let budget = if budget == 0 {
+            core::VIEW
+        } else {
+            budget as usize
+        };
         let host = Host::new(store);
-        let memory = Memory::resume(&c, id(t)?, frontier.into_iter().map(|(l, i, n)| (NodeId::new(l, i), n)), budget, &host);
+        let memory = Memory::resume(
+            &c,
+            id(t)?,
+            frontier.into_iter().map(|(l, i, n)| (NodeId::new(l, i), n)),
+            budget,
+            &host,
+        );
         host.check()?;
         Ok(memory.map(|memory| OptChat { memory }))
     }
@@ -256,7 +274,13 @@ impl OptChat {
 
     /// `complete` for any memory: sizes it does not hold come from `store`.
     #[wasm_bindgen(js_name = completeIn)]
-    pub fn complete_in(&mut self, l: u32, i: f64, text: &str, store: &JsStore) -> Result<(), JsError> {
+    pub fn complete_in(
+        &mut self,
+        l: u32,
+        i: f64,
+        text: &str,
+        store: &JsStore,
+    ) -> Result<(), JsError> {
         let host = Host::new(store);
         self.memory
             .complete_in(NodeId::new(level(l)?, id(i)?), text, &host)
@@ -568,7 +592,11 @@ mod tests {
 
 /// The checkpoint's JSON (the same form as optchat-host's `memory/checkpoint`).
 fn encode_checkpoint(c: &Checkpoint) -> String {
-    let parts = |v: &[NodeId]| v.iter().map(|p| serde_json::json!([p.l, p.i])).collect::<Vec<serde_json::Value>>();
+    let parts = |v: &[NodeId]| {
+        v.iter()
+            .map(|p| serde_json::json!([p.l, p.i]))
+            .collect::<Vec<serde_json::Value>>()
+    };
     serde_json::json!({
         "t": c.t,
         "low": c.low,
@@ -582,7 +610,11 @@ fn encode_checkpoint(c: &Checkpoint) -> String {
 
 fn decode_checkpoint(text: &str) -> Option<Checkpoint> {
     let v: serde_json::Value = serde_json::from_str(text).ok()?;
-    let low = v["low"].as_array()?.iter().map(serde_json::Value::as_u64).collect::<Option<Vec<u64>>>()?;
+    let low = v["low"]
+        .as_array()?
+        .iter()
+        .map(serde_json::Value::as_u64)
+        .collect::<Option<Vec<u64>>>()?;
     let parts = |v: &serde_json::Value| {
         v.as_array()?
             .iter()
