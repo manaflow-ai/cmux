@@ -1,4 +1,5 @@
 import AppKit
+import CmuxControlSocket
 import Foundation
 import Testing
 
@@ -67,6 +68,88 @@ struct SurfaceResumeSocketApprovalTests {
             #expect(result["approval_required"] as? Bool == false)
             #expect(workspace.surfaceResumeBinding(panelId: panelID)?.allowsAutomaticResume == true)
         }
+    }
+
+    @Test
+    func ordinaryProposalMenuOffersExactReviewWithoutRewritingBinding() async throws {
+        await Self.waitForSigningSecret()
+        try withRegisteredWindow { _, workspace, panelID in
+            let sessionID = UUID().uuidString.lowercased()
+            let proposal = SurfaceResumeBindingSnapshot(
+                name: "Review exact proposal",
+                kind: "pi",
+                command: "pi --session \(sessionID)",
+                cwd: "/tmp/cmux-exact-review",
+                checkpointId: sessionID,
+                source: "example-resume-integration",
+                environment: ["AUTH": "synthetic-epoch", "TICKET": "synthetic-ticket"],
+                autoResume: false,
+                updatedAt: 123
+            )
+            #expect(workspace.setSurfaceResumeBinding(proposal, panelId: panelID))
+            let panel = try #require(workspace.focusedTerminalPanel)
+            #expect(panel.id == panelID)
+            let view = panel.hostedView.surfaceView
+            let menu = NSMenu()
+            #expect(view.appendCurrentSurfaceResumeMenuItems(to: menu))
+            let submenu = try #require(menu.items.first?.submenu)
+            // String lookup lets the regression compile before the action exists.
+            // Assert the produced menu, not a source snippet or localized label.
+            let review = try #require(submenu.items.first {
+                $0.action == NSSelectorFromString("reviewCurrentSurfaceResumeApproval:")
+            })
+            #expect(review.target === view)
+            #expect(review.isEnabled)
+            #expect(workspace.surfaceResumeBinding(panelId: panelID) == proposal)
+        }
+    }
+
+    @Test
+    func explicitReviewDoesNotRewriteProposalWhenTestHostCannotPrompt() async throws {
+        await Self.waitForSigningSecret()
+        try withRegisteredWindow { _, workspace, panelID in
+            let proposal = SurfaceResumeBindingSnapshot(
+                name: "Review exact proposal",
+                kind: "pi",
+                command: "pi --session \(UUID().uuidString.lowercased())",
+                cwd: "/tmp/cmux-exact-review",
+                checkpointId: UUID().uuidString.lowercased(),
+                source: "pi-yolo-cmux-session-restore",
+                environment: ["AUTH": "synthetic-epoch", "TICKET": "synthetic-ticket"],
+                permissionMode: "default",
+                autoResume: false,
+                updatedAt: 123
+            )
+            #expect(workspace.setSurfaceResumeBinding(proposal, panelId: panelID))
+            let result = TerminalController.shared.reviewSurfaceResumeBindingFromUserInterface(
+                routing: ControlRoutingSelectors(
+                    hasWindowIDParam: false, windowID: nil, groupID: nil,
+                    workspaceID: workspace.id, surfaceID: panelID, paneID: nil
+                ),
+                explicitTargetID: panelID
+            )
+            // The native host's XCTest guard prohibits a modal and must not
+            // manufacture consent or turn the proposal into a manual command.
+            if case .setFailed = result { } else {
+                Issue.record("A review with no native user decision must fail closed")
+            }
+            #expect(workspace.surfaceResumeBinding(panelId: panelID) == proposal)
+        }
+    }
+
+    @Test(arguments: ["cli", "session-import", "process-detected", "agent-hook"])
+    func explicitReviewCannotPromoteNonReviewableSources(source: String) {
+        let proposal = SurfaceResumeBindingSnapshot(command: "pi --session synthetic", source: source)
+        #expect(!SurfaceResumeApprovalStore.proposalAllowsUserApproval(binding: proposal))
+    }
+
+    @Test
+    func exactReviewAcceptsOrdinaryProposalButNotShellControl() {
+        let proposal = SurfaceResumeBindingSnapshot(command: "pi --session synthetic", source: "pi-yolo-cmux-session-restore")
+        #expect(SurfaceResumeApprovalStore.proposalAllowsUserApproval(binding: proposal))
+        var unsafe = proposal
+        unsafe.command = "pi --session synthetic; unexpected-command"
+        #expect(!SurfaceResumeApprovalStore.proposalAllowsUserApproval(binding: unsafe))
     }
 
     // MARK: - Harness
