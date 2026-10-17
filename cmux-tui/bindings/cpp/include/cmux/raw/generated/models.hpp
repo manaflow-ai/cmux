@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "3e78f3e194548aac7f9e7f81957ff350654e85fddc3bc348a88555a59dc93fc8";
+inline constexpr std::string_view kProtocolIrSha256 = "2c2774b367e7588e6d694d5831fddaabef407fc6bdc5d425f821e5d762abdc17";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -86,6 +86,7 @@ struct GuestUrlOpenResult;
 struct GuestUrlSubscribeResult;
 struct HistorySearchHit;
 struct HistorySearchRange;
+struct HomeAgentsPaused;
 enum class HomeChiefState;
 enum class HomeInboxKind;
 struct HomeInboxRow;
@@ -367,6 +368,8 @@ struct GetFrontendProjectionRequest;
 struct GetSizeStateRequest;
 struct HistorySearchRequest;
 struct HistorySearchResult;
+struct HomeConversationRequest;
+struct HomeConversationResult;
 struct HomeInboxRequest;
 struct HomeInboxResult;
 struct IdentifyRequest;
@@ -3003,10 +3006,33 @@ struct HistorySearchResult {
     friend bool operator==(const HistorySearchResult&, const HistorySearchResult&) = default;
 };
 
+struct HomeAgentsPaused {
+    bool main{};
+    std::vector<std::string> threads{};
+    friend bool operator==(const HomeAgentsPaused&, const HomeAgentsPaused&) = default;
+};
+
 enum class HomeChiefState {
     working,
     waiting,
     idle,
+};
+
+struct HomeConversationRequest {
+    Field<std::uint64_t> before_seq{};
+    std::string conversation{};
+    Field<std::uint32_t> limit{};
+    Field<std::uint32_t> tail{};
+    friend bool operator==(const HomeConversationRequest&, const HomeConversationRequest&) = default;
+};
+
+struct HomeConversationResult {
+    HomeAgentsPaused agents_paused{};
+    ConversationSummary conversation{};
+    bool has_older{};
+    std::vector<JsonValue> messages{};
+    std::vector<ConversationThreadSummary> threads{};
+    friend bool operator==(const HomeConversationResult&, const HomeConversationResult&) = default;
 };
 
 enum class HomeInboxKind {
@@ -6164,6 +6190,12 @@ struct Codec<HistorySearchRange> {
 };
 
 template <>
+struct Codec<HomeAgentsPaused> {
+    static Result<Json> encode(const HomeAgentsPaused& value);
+    static Result<HomeAgentsPaused> decode(const Json& value);
+};
+
+template <>
 struct Codec<HomeChiefState> {
     static Result<Json> encode(const HomeChiefState& value);
     static Result<HomeChiefState> decode(const Json& value);
@@ -7847,6 +7879,18 @@ template <>
 struct Codec<HistorySearchResult> {
     static Result<Json> encode(const HistorySearchResult& value);
     static Result<HistorySearchResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<HomeConversationRequest> {
+    static Result<Json> encode(const HomeConversationRequest& value);
+    static Result<HomeConversationRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<HomeConversationResult> {
+    static Result<Json> encode(const HomeConversationResult& value);
+    static Result<HomeConversationResult> decode(const Json& value);
 };
 
 template <>

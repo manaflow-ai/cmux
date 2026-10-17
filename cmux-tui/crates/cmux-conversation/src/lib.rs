@@ -29,8 +29,9 @@ pub use budget::{
     in_thread, parse_rfc3339_millis, streak_of, thread_agent_streak, with_turn,
 };
 pub use home::{
-    CHIEF_NAME, ChiefState, CloudInboxEntry, HomeInboxInput, HomeKind, HomeListState, HomeRow,
-    OWNER_CLOUD, PREVIEW_CHARS, cloud_row, home_inbox, merge_rows, preview_of,
+    AgentsPaused, CHIEF_NAME, ChiefState, CloudInboxEntry, HomeInboxInput, HomeKind, HomeListState,
+    HomeMessage, HomeRow, OWNER_CLOUD, PREVIEW_CHARS, agents_paused, cloud_row, home_inbox,
+    home_messages, merge_rows, preview_of,
 };
 pub use id::{encode_id, format_rfc3339_millis};
 pub use link::{ConversationLink, MAX_LINK_BYTES, format_link, parse_link};

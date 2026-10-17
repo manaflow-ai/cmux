@@ -92,7 +92,12 @@ fn home_conversation_gives_thread_depths_and_where_chiefs_are_paused() {
     assert_eq!(find(&window, &nested_id)["parent"], first_id.as_str(), "{window}");
     assert_eq!(find(&window, &nested_id)["thread_root"], root_id.as_str(), "{window}");
     assert_eq!(find(&window, &plain_id)["depth"], 0, "{window}");
-    let thread = window["threads"].as_array().unwrap().iter().find(|t| t["root"] == root_id.as_str()).cloned();
+    let thread = window["threads"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["root"] == root_id.as_str())
+        .cloned();
     assert_eq!(thread.unwrap_or_default()["reply_count"], 2, "{window}");
     assert_eq!(window["agents_paused"], json!({"main": false, "threads": []}), "{window}");
     assert_eq!(window["has_older"], false, "{window}");
@@ -113,15 +118,22 @@ fn home_conversation_gives_thread_depths_and_where_chiefs_are_paused() {
     // The owner holds agent messages to a 2 s gap (`agent_rate`); like the
     // brain, the test retries under the same key.
     let mut home = Unix::open(&server.socket);
+    let token =
+        home.request("conversation-agent-token", json!({"participant": "agent_mux"}))["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+    let mut agent = Unix::open(&server.socket);
+    agent.request("conversation-bind", json!({"participant": "agent_mux", "token": token}));
     for turn in 0..6 {
         let key = format!("chief-{turn}");
-        let params = json!({"conversation": channel, "idempotency_key": key, "actor": "agent_mux", "op": {
+        let params = json!({"conversation": channel, "idempotency_key": key, "op": {
             "kind": "message.send", "client_msg_id": key,
             "parts": [{"type": "text", "text": format!("update {turn}")}],
             "reply_to": {"message_id": root_id, "part_index": 0}, "thread_root": root_id}});
         let deadline = Instant::now() + Duration::from_secs(30);
         loop {
-            let reply = home.reply("conversation-op", params.clone());
+            let reply = agent.reply("conversation-op", params.clone());
             if reply["ok"] == true {
                 break;
             }

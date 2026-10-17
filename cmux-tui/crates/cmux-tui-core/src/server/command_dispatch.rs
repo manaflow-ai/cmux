@@ -579,6 +579,7 @@ pub(super) fn handle_command_with_cancellation(
         }
         Command::ConversationInboxOp(params) => conversations::inbox_op(mux, client, params),
         Command::HomeInbox(params) => conversations::home_inbox(mux, client, params),
+        Command::HomeConversation(params) => conversations::home_conversation(mux, client, params),
         Command::ConversationSearch(params) => conversations::search(mux, client, params),
         Command::HistorySearch(params) => history_search::search(mux, client, params),
         Command::ConversationOp(params) => conversations::op(mux, client, params),

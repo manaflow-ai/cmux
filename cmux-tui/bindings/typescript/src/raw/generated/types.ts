@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3e78f3e194548aac7f9e7f81957ff350654e85fddc3bc348a88555a59dc93fc8. */
+/* cmux-tui mux protocol 12, IR 2c2774b367e7588e6d694d5831fddaabef407fc6bdc5d425f821e5d762abdc17. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -506,6 +506,11 @@ export type HistorySearchHit = {
 export type HistorySearchRange = {
   "end": number;
   "start": number;
+};
+
+export type HomeAgentsPaused = {
+  "main": boolean;
+  "threads": Array<string>;
 };
 
 export type HomeChiefState = "working" | "waiting" | "idle";

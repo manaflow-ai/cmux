@@ -77,6 +77,10 @@ pub const CONVERSATION_PERSON_CREDENTIALS_CAPABILITY: &str = "conversation-perso
 /// (kind, display name, unread count, preview, a Chief's live state, the
 /// caller's pins and marks, list order), so every view shows the same list.
 pub const HOME_INBOX_CAPABILITY: &str = "home-inbox-v1";
+/// `home-conversation`: one local conversation's window as both Home views
+/// draw it (each message's thread depth and parent, the thread summaries, and
+/// where Chiefs are paused until a person writes).
+pub const HOME_CONVERSATION_CAPABILITY: &str = "home-conversation-v1";
 
 /// `conversation-create`: a retry with the same `idempotency_key` and request
 /// returns the conversation it created.
@@ -137,6 +141,19 @@ impl HomeInboxParams {
     pub(super) fn asks_cloud(&self) -> bool {
         self.owners.as_ref().is_none_or(|owners| owners.iter().any(|owner| owner == "cloud"))
     }
+}
+
+/// `home-conversation`: the newest `tail` (1-500, default 100) messages, or
+/// up to `limit` (default 100) below `before_seq`.
+#[derive(Deserialize)]
+pub(super) struct HomeConversationParams {
+    conversation: String,
+    #[serde(default)]
+    tail: Option<u32>,
+    #[serde(default)]
+    before_seq: Option<u64>,
+    #[serde(default)]
+    limit: Option<u32>,
 }
 
 /// `conversation-inbox-op`: the caller's own pin or "marked unread" of one
@@ -376,6 +393,41 @@ pub(super) fn home_inbox(mux: &Mux, client: u64, params: HomeInboxParams) -> any
         cloud_rows,
     );
     Ok(json!({"me": principal, "rows": rows, "cloud": cloud}))
+}
+
+/// `home-conversation`: a local conversation's window with the facts both
+/// Home views need (`cmux_conversation::home_messages`, `agents_paused`).
+pub(super) fn home_conversation(
+    mux: &Mux,
+    client: u64,
+    params: HomeConversationParams,
+) -> anyhow::Result<Value> {
+    require_local(mux, client)?;
+    let HomeConversationParams { conversation, tail, before_seq, limit } = params;
+    let count = before_seq.map_or(tail, |_| limit).unwrap_or(100);
+    validate_page(count, if before_seq.is_some() { "limit" } else { "tail" })?;
+    let (summary, head, messages, threads) = mux.with_conversations(|store| {
+        let (summary, messages) = match before_seq {
+            Some(before) => {
+                let messages = store.history(&conversation, before, count)?;
+                (store.snapshot(&conversation, 1)?.0, messages)
+            }
+            None => store.snapshot(&conversation, count)?,
+        };
+        // The snapshot above refused an unknown conversation.
+        let head =
+            store.head(&conversation)?.ok_or_else(|| anyhow::anyhow!("unknown_conversation"))?;
+        let threads = store.thread_summaries(&conversation, &messages)?;
+        Ok((summary, head, messages, threads))
+    })?;
+    let has_older = messages.first().is_some_and(|first| first.seq > 1);
+    Ok(json!({
+        "conversation": summary,
+        "messages": cmux_conversation::home_messages(&messages),
+        "threads": threads,
+        "agents_paused": cmux_conversation::agents_paused(&head),
+        "has_older": has_older,
+    }))
 }
 
 /// The person's Cloud inbox as Home rows, through the daemon's lease, and

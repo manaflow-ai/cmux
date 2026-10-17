@@ -889,6 +889,13 @@ class HistorySearchRange:
 
 
 @dataclass(frozen=True)
+class HomeAgentsPaused:
+    __cmux_schema_path__: ClassVar[str] = 'types/HomeAgentsPaused'
+    main: bool
+    threads: List[str]
+
+
+@dataclass(frozen=True)
 class HomeInboxRow:
     __cmux_schema_path__: ClassVar[str] = 'types/HomeInboxRow'
     activity_at: str
@@ -3313,6 +3320,25 @@ class HistorySearchResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/history-search/result'
     hits: List[HistorySearchHit]
     took_us: int
+
+
+@dataclass(frozen=True)
+class HomeConversationRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/home-conversation/request'
+    conversation: str
+    before_seq: Union[int, None, MissingType] = field(default=MISSING)
+    limit: Union[int, None, MissingType] = field(default=MISSING)
+    tail: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class HomeConversationResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/home-conversation/result'
+    agents_paused: HomeAgentsPaused
+    conversation: ConversationSummary
+    has_older: bool
+    messages: List[JsonValue]
+    threads: List[ConversationThreadSummary]
 
 
 @dataclass(frozen=True)
@@ -5800,6 +5826,7 @@ __all__ = [
     'GuestUrlSubscribeResult',
     'HistorySearchHit',
     'HistorySearchRange',
+    'HomeAgentsPaused',
     'HomeInboxRow',
     'IdMapping',
     'IdentifyResult',
@@ -6065,6 +6092,8 @@ __all__ = [
     'GetSizeStateRequest',
     'HistorySearchRequest',
     'HistorySearchResult',
+    'HomeConversationRequest',
+    'HomeConversationResult',
     'HomeInboxRequest',
     'HomeInboxResult',
     'IdentifyRequest',

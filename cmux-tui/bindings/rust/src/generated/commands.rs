@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3e78f3e194548aac7f9e7f81957ff350654e85fddc3bc348a88555a59dc93fc8.
+// cmux-tui mux protocol 12, IR 2c2774b367e7588e6d694d5831fddaabef407fc6bdc5d425f821e5d762abdc17.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1781,6 +1781,28 @@ pub struct HistorySearchRequest {
 pub struct HistorySearchResult {
     pub hits: Vec<T::HistorySearchHit>,
     pub took_us: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HomeConversationRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub before_seq: Optional<u64>,
+    pub conversation: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub tail: Optional<u32>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HomeConversationResult {
+    pub agents_paused: T::HomeAgentsPaused,
+    pub conversation: T::ConversationSummary,
+    pub has_older: bool,
+    pub messages: Vec<T::JsonValue>,
+    pub threads: Vec<T::ConversationThreadSummary>,
 }
 
 #[rustfmt::skip]
@@ -4526,6 +4548,10 @@ impl CmuxClient {
 
     pub fn history_search(&mut self, request: HistorySearchRequest) -> Result<HistorySearchResult> {
         self.execute(&HISTORY_SEARCH_METADATA, &request)
+    }
+
+    pub fn home_conversation(&mut self, request: HomeConversationRequest) -> Result<HomeConversationResult> {
+        self.execute(&HOME_CONVERSATION_METADATA, &request)
     }
 
     pub fn home_inbox(&mut self, request: HomeInboxRequest) -> Result<HomeInboxResult> {

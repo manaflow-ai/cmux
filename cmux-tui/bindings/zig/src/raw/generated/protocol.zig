@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "3e78f3e194548aac7f9e7f81957ff350654e85fddc3bc348a88555a59dc93fc8";
+pub const ir_sha256 = "2c2774b367e7588e6d694d5831fddaabef407fc6bdc5d425f821e5d762abdc17";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -930,6 +930,11 @@ pub const HistorySearchHit = struct {
 pub const HistorySearchRange = struct {
     end: u32,
     start: u32,
+};
+
+pub const HomeAgentsPaused = struct {
+    main: bool,
+    threads: []const []const u8,
 };
 
 pub const HomeChiefState = enum {
@@ -5841,6 +5846,34 @@ pub fn historySearch(client: anytype, request: HistorySearchRequest) !wire.Decod
             .authority = "local-admin",
             .since = 12,
             .capability = "history-search-v1",
+        },
+        request,
+    );
+}
+
+pub const HomeConversationRequest = struct {
+    before_seq: wire.Field(u64) = .absent,
+    conversation: []const u8,
+    limit: wire.Field(u32) = .absent,
+    tail: wire.Field(u32) = .absent,
+};
+
+pub const HomeConversationResult = struct {
+    agents_paused: HomeAgentsPaused,
+    conversation: ConversationSummary,
+    has_older: bool,
+    messages: []const JsonValue,
+    threads: []const ConversationThreadSummary,
+};
+
+pub fn homeConversation(client: anytype, request: HomeConversationRequest) !wire.Decoded(HomeConversationResult) {
+    return client.callTyped(
+        HomeConversationResult,
+        .{
+            .name = "home-conversation",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "home-conversation-v1",
         },
         request,
     );
@@ -11031,7 +11064,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 273;
+pub const command_count: usize = 274;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11148,6 +11181,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "get-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "get-size-state", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "history-search", .authority = "local-admin", .since = 12, .capability = "history-search-v1", .stream = null },
+    .{ .name = "home-conversation", .authority = "local-admin", .since = 12, .capability = "home-conversation-v1", .stream = null },
     .{ .name = "home-inbox", .authority = "local-admin", .since = 12, .capability = "home-inbox-v1", .stream = null },
     .{ .name = "identify", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "ids", .authority = "control", .since = 6, .capability = null, .stream = null },

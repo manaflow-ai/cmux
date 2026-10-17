@@ -7913,6 +7913,31 @@
    },
    "additional_properties": false
   },
+  "HomeAgentsPaused": {
+   "kind": "object",
+   "fields": {
+    "main": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "threads": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
   "AgentSessionSource": {
    "kind": "object",
    "fields": {
@@ -20925,6 +20950,105 @@
       "type": {
        "kind": "scalar",
        "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. See spec/commands.md."
+   ]
+  },
+  "home-conversation": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "home-conversation-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "tail": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "before_seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationSummary"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "messages": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "JsonValue"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "threads": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "ConversationThreadSummary"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "agents_paused": {
+      "type": {
+       "kind": "ref",
+       "name": "HomeAgentsPaused"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "has_older": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
       },
       "presence": "required",
       "nullable": false

@@ -375,3 +375,64 @@ fn activity_key(row: &HomeRow) -> std::borrow::Cow<'_, str> {
     let millis: String = digits.chars().chain(std::iter::repeat('0')).take(3).collect();
     std::borrow::Cow::Owned(format!("{seconds}.{millis}Z"))
 }
+
+/// One message of `home-conversation`: the message, and where it sits in
+/// its thread tree (both views draw depth from the same rule: the Channels
+/// view indents, the Messages view drills in).
+#[derive(Debug, Clone, Serialize)]
+pub struct HomeMessage<'m> {
+    #[serde(flatten)]
+    pub message: &'m Message,
+    /// 0 for a message not in a thread (a root too); 1 for a reply to the
+    /// root; one more per `reply_to` step below it. A parent outside the
+    /// window counts as the root's direct reply.
+    pub depth: u32,
+    /// The message this one replies to in its thread (absent at depth 0).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<&'m str>,
+}
+
+/// Where Chiefs stay quiet until a person writes (`MAX_AGENT_TURNS`
+/// consecutive agent text messages): the main timeline, and thread roots.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct AgentsPaused {
+    pub main: bool,
+    pub threads: Vec<String>,
+}
+
+/// The thread depth of each message of a window (ascending by seq).
+pub fn home_messages(messages: &[Message]) -> Vec<HomeMessage<'_>> {
+    let mut depth: HashMap<&str, u32> = HashMap::new();
+    messages
+        .iter()
+        .map(|message| {
+            // In a thread, the parent is the replied message (else the root).
+            let parent = message.thread_root.as_deref().map(|root| {
+                message.reply_to.as_ref().map_or(root, |reply| reply.message_id.as_str())
+            });
+            let level = match (message.thread_root.as_deref(), parent) {
+                (Some(root), Some(parent)) if parent != root => {
+                    depth.get(parent).copied().map_or(1, |above| above.saturating_add(1))
+                }
+                (Some(_), _) => 1,
+                (None, _) => 0,
+            };
+            depth.insert(message.id.as_str(), level);
+            HomeMessage { message, depth: level, parent }
+        })
+        .collect()
+}
+
+/// Where the head's agent streaks are at the budget.
+pub fn agents_paused(head: &crate::types::ConversationHead) -> AgentsPaused {
+    let max = u32::try_from(crate::MAX_AGENT_TURNS).unwrap_or(u32::MAX);
+    AgentsPaused {
+        main: head.agent_text_streak >= max,
+        threads: head
+            .thread_agent_streaks
+            .iter()
+            .filter(|(_, streak)| **streak >= max)
+            .map(|(root, _)| root.clone())
+            .collect(),
+    }
+}

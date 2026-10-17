@@ -588,6 +588,11 @@ public abstract class GeneratedCmuxClient {
         return HistorySearchResult.fromWire(result);
     }
 
+    public final HomeConversationResult homeConversation(HomeConversationRequest request) throws CmuxException {
+        Object result = execute(Commands.HOME_CONVERSATION, request.toWire());
+        return HomeConversationResult.fromWire(result);
+    }
+
     public final HomeInboxResult homeInbox(HomeInboxRequest request) throws CmuxException {
         Object result = execute(Commands.HOME_INBOX, request.toWire());
         return HomeInboxResult.fromWire(result);

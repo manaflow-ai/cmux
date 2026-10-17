@@ -125,6 +125,7 @@ public final class Commands {
     public static final CommandMetadata GET_FRONTEND_PROJECTION = new CommandMetadata("get-frontend-projection", Authority.CONTROL, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata GET_SIZE_STATE = new CommandMetadata("get-size-state", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata HISTORY_SEARCH = new CommandMetadata("history-search", Authority.LOCAL_ADMIN, 12, "history-search-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata HOME_CONVERSATION = new CommandMetadata("home-conversation", Authority.LOCAL_ADMIN, 12, "home-conversation-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata HOME_INBOX = new CommandMetadata("home-inbox", Authority.LOCAL_ADMIN, 12, "home-inbox-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IDENTIFY = new CommandMetadata("identify", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IDS = new CommandMetadata("ids", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -402,6 +403,7 @@ public final class Commands {
         values.put("get-frontend-projection", GET_FRONTEND_PROJECTION);
         values.put("get-size-state", GET_SIZE_STATE);
         values.put("history-search", HISTORY_SEARCH);
+        values.put("home-conversation", HOME_CONVERSATION);
         values.put("home-inbox", HOME_INBOX);
         values.put("identify", IDENTIFY);
         values.put("ids", IDS);

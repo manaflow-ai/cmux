@@ -539,6 +539,7 @@
       "conversation-link-resolve",
       "conversation-inbox-op",
       "home-inbox",
+      "home-conversation",
       "conversation-search",
       "history-search",
       "conversation-op",

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3e78f3e194548aac7f9e7f81957ff350654e85fddc3bc348a88555a59dc93fc8. */
+/* cmux-tui mux protocol 12, IR 2c2774b367e7588e6d694d5831fddaabef407fc6bdc5d425f821e5d762abdc17. */
 
 
 import type * as T from "./types.js";
@@ -1242,6 +1242,22 @@ export interface HistorySearchRequest extends CmuxRequestBase {
 export type HistorySearchResult = {
   "hits": Array<T.HistorySearchHit>;
   "took_us": bigint;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface HomeConversationRequest extends CmuxRequestBase {
+  cmd: "home-conversation";
+  "before_seq"?: (bigint) | null;
+  "conversation": string;
+  "limit"?: (number) | null;
+  "tail"?: (number) | null;
+}
+export type HomeConversationResult = {
+  "agents_paused": T.HomeAgentsPaused;
+  "conversation": T.ConversationSummary;
+  "has_older": boolean;
+  "messages": Array<T.JsonValue>;
+  "threads": Array<T.ConversationThreadSummary>;
 };
 
 /** Protocol v12; authority: local-admin. */
@@ -2884,6 +2900,7 @@ export type CmuxRequest =
   | GetFrontendProjectionRequest
   | GetSizeStateRequest
   | HistorySearchRequest
+  | HomeConversationRequest
   | HomeInboxRequest
   | IdentifyRequest
   | IdsRequest
@@ -3963,6 +3980,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "history-search-v1";
+    stream: null;
+  };
+  "home-conversation": {
+    request: HomeConversationRequest;
+    result: HomeConversationResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "home-conversation-v1";
     stream: null;
   };
   "home-inbox": {
