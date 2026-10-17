@@ -1486,6 +1486,10 @@ export function VirtualTranscript({
   const warmTop = useDeferredValue(renderScroll.top);
   const warm = visibleLayoutRange(layout, warmTop - height * WARM_VIEWPORTS, height * (1 + 2 * WARM_VIEWPORTS));
   const mountedRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);
+  // Find highlights only need repainting when the query/target, row content, or mounted DOM
+  // window changes. Keep this signature primitive so scroll and layout state updates that leave
+  // the mounted rows alone do not walk every text node in the transcript again.
+  const mountedRangeKey = mountedRanges.map(({ first, last }) => `${first}:${last}`).join(",");
   if (lastPlaced.current) {
     lastPlaced.current.first = mountedRanges[0]?.first ?? 0;
     lastPlaced.current.last = mountedRanges.at(-1)?.last ?? 0;
@@ -1751,6 +1755,7 @@ export function VirtualTranscript({
   // text is drawn, the match itself; every commit repaints the highlights over the mounted rows.
   const findQuery = find?.open ? find.query : "";
   const findTarget = find?.matches[find.active];
+  const findOccurrence = findTarget?.occurrence;
   // Find matches the chat's rows; the transcript draws a match's row (or its copy in an open fold)
   // once its fold is open.
   const findIndex = findTarget ? findRowIndex(rows, findTarget.rowId) : -1;
@@ -1763,7 +1768,7 @@ export function VirtualTranscript({
       : undefined;
   // A group or call that opens to show the match asks for a render here, so the highlights and
   // the scroll below see its text.
-  const [, setRevealed] = useState(0);
+  const [revealed, setRevealed] = useState(0);
   // Keyed on what it names, not the match object, which is new on each update while Find is open:
   // a new value would open again every group a reader closed.
   const findReveal = useMemo(
@@ -1799,8 +1804,8 @@ export function VirtualTranscript({
     const current = paintFindHighlights(
       node,
       findQuery,
-      findTarget && drawnId !== undefined
-        ? { rowId: drawnId, card: drawnCard, occurrence: findTarget.occurrence }
+      findOccurrence !== undefined && drawnId !== undefined
+        ? { rowId: drawnId, card: drawnCard, occurrence: findOccurrence }
         : undefined,
     );
     if (!current || revealing.current !== targetKey) return;
@@ -1824,7 +1829,9 @@ export function VirtualTranscript({
       if (box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))
         scrollRangeIn(box, current);
     scrollRangeIn(node, current);
-  });
+    // Rows are immutable snapshots, so their identity changes when streamed text or a revealed
+    // fold changes. The mounted-range signature catches virtualization entering/leaving rows.
+  }, [drawnCard, drawnId, findOccurrence, findQuery, layout, mountedRangeKey, revealed, rows, targetKey]);
   useEffect(() => clearFindHighlights, []);
   // Where the view rests, once a scroll settles; the latest message is null.
   const reportedAnchor = useRef<string | undefined>(undefined);
