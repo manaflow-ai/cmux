@@ -1557,7 +1557,10 @@ mod tests {
                     default_mode: WorkspaceCreateMode::Isolated,
                     modes: vec![WorkspaceCreateMode::Isolated, WorkspaceCreateMode::Host],
                 },
-                platform: Some(MachinePlatform { os: Some("linux".into()), arch: Some("x86_64".into()) }),
+                platform: Some(MachinePlatform {
+                    os: Some("linux".into()),
+                    arch: Some("x86_64".into()),
+                }),
                 capabilities: vec!["terminal".into(), "workspace".into(), "agent_session".into()],
             }],
             selected_machine_id: Some(id("vm-uuid")),
