@@ -2703,6 +2703,7 @@
 		469D172E3FE3ADBA6CCC8C4F /* NativeConversationArtifactStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 055C0E8238CC456117FE8DBF /* NativeConversationArtifactStore.swift */; };
 		BAF3675652FFF21E9CFA4500 /* NativeConversationArtifactStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D549F82705FC9317592ABEF7 /* NativeConversationArtifactStoreTests.swift */; };
 		433A0D803A519084C6BE6556 /* NativeConversationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEB0A3B4212C330909E16378 /* NativeConversationService.swift */; };
+		31B50CFABFC8C3CB62411328 /* NativeConversationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B56DF937C3D522219458D82E /* NativeConversationServiceTests.swift */; };
 		596100000000000000000003 /* NativeNotificationDeliveryHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000004 /* NativeNotificationDeliveryHooks.swift */; };
 		596100000000000000000001 /* NativeNotificationFallbackCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */; };
 		A6AC72030000000000000001 /* NativeSpinner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72030000000000000002 /* NativeSpinner.swift */; };
@@ -7271,6 +7272,7 @@
 		055C0E8238CC456117FE8DBF /* NativeConversationArtifactStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeConversationArtifactStore.swift; sourceTree = "<group>"; };
 		D549F82705FC9317592ABEF7 /* NativeConversationArtifactStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NativeConversationArtifactStoreTests.swift"; sourceTree = "<group>"; };
 		AEB0A3B4212C330909E16378 /* NativeConversationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeConversationService.swift; sourceTree = "<group>"; };
+		B56DF937C3D522219458D82E /* NativeConversationServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NativeConversationServiceTests.swift"; sourceTree = "<group>"; };
 		596100000000000000000004 /* NativeNotificationDeliveryHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeNotificationDeliveryHooks.swift; sourceTree = "<group>"; };
 		596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeNotificationFallbackCommandTests.swift; sourceTree = "<group>"; };
 		A6AC72030000000000000002 /* NativeSpinner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSpinner.swift; sourceTree = "<group>"; };
@@ -13936,6 +13938,7 @@
 				FBA69A8DB9EBB531DD11DFE5 /* AccountUpgradeOfferTests.swift */,
 				A1CE8E303102A963A8DE21E7 /* BrowserAutomationRestoredPanelTests.swift */,
 				D549F82705FC9317592ABEF7 /* NativeConversationArtifactStoreTests.swift */,
+				B56DF937C3D522219458D82E /* NativeConversationServiceTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18665,6 +18668,7 @@
 				2A292E6305A503C02973DB82 /* MuseVaultRegistrationTests.swift in Sources */,
 				E05E36509344691CA085F0CC /* NarrowWindowSidePanelFitTests.swift in Sources */,
 				BAF3675652FFF21E9CFA4500 /* NativeConversationArtifactStoreTests.swift in Sources */,
+				31B50CFABFC8C3CB62411328 /* NativeConversationServiceTests.swift in Sources */,
 				596100000000000000000001 /* NativeNotificationFallbackCommandTests.swift in Sources */,
 				5982D1310AE6439692D7E945 /* NewCloudWorkspaceShortcutTests.swift in Sources */,
 				001BEAAF850238E93D30046A /* NewCloudWorkspaceShortcutWindowFixture.swift in Sources */,
