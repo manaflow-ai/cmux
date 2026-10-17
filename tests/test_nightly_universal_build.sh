@@ -421,7 +421,7 @@ if ! grep -Fq "const variants = fastBuild || track === 'nightly-next' ? ['arm64'
   exit 1
 fi
 
-if ! grep -Fq 'description: Build one arm64 dogfood DMG without Intel or Sparkle delta work' "$WORKFLOW_FILE"; then
+if ! grep -Fq 'description: Manual build mode. `normal` publishes, `force` rebuilds a published main commit, and `fast` builds one arm64 dogfood DMG without publishing.' "$WORKFLOW_FILE"; then
   echo "FAIL: workflow dispatch must expose the fast arm64 dogfood build"
   exit 1
 fi
@@ -667,7 +667,7 @@ if ! awk '
   exit 1
 fi
 
-if ! grep -Fq 'github.event.inputs.fast == '\''true'\'' && '\''fast'\'' || '\''full'\''' "$WORKFLOW_FILE"; then
+if ! grep -Fq 'inputs.build_mode == '\''fast'\'' && '\''fast'\'' || '\''full'\''' "$WORKFLOW_FILE"; then
   echo "FAIL: fast branch builds must not queue behind a full build on the same branch"
   exit 1
 fi
