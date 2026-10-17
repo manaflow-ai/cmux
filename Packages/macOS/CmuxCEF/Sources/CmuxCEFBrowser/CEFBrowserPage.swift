@@ -63,6 +63,9 @@ public final class CEFBrowserPage: BrowserPage {
     /// window showing the page follows.
     public var onPopupWindowBoundsRequest: (@MainActor (CGRect) -> Void)?
 
+    /// cmux's header over the page window's side panel (`chrome.sidePanel`).
+    public private(set) lazy var sidePanel = CEFSidePanelController(browser: browser, shim: shimProvider)
+
     /// The tab of an extension's popup window (`chrome.windows.create`).
     public var isExtensionPopupWindow: Bool { browser.popupWindow != nil }
 
@@ -497,6 +500,8 @@ public final class CEFBrowserPage: BrowserPage {
                                    defaultText: defaultText, isReload: isReload)
         case .jsDialogDismissed(_, let token):
             pendingDialogs.removeValue(forKey: token)?.cancel()
+        case .tab(.sidePanelChanged, _, _, _):
+            sidePanel.scheduleRefresh()
         default:
             // Permissions and downloads (CEFBrowserPage+Data.swift).
             dataBridge.handle(event, page: self)
