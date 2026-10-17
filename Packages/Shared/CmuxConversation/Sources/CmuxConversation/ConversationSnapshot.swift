@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A complete point-in-time projection plus the cursor needed for replay.
 public struct ConversationSnapshot: Codable, Hashable, Sendable {

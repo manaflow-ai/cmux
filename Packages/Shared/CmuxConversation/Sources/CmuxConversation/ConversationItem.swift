@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The normalized kind of one ordered conversation item.
 public enum ConversationItemKind: Hashable, Sendable, Codable {

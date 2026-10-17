@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A lossless JSON value used to retain provider payloads that have no typed mapping yet.
 public enum ConversationJSONValue: Codable, Hashable, Sendable {

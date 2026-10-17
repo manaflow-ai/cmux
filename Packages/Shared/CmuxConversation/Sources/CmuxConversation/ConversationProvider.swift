@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A provider understood by the conversation broker.
 public enum ConversationProvider: Hashable, Sendable, Codable {
@@ -45,7 +45,7 @@ public enum ConversationLaunchTarget: Codable, Hashable, Sendable {
     /// A provider process launched on this Mac in the supplied directory.
     case local(directory: String)
     /// A provider process launched over an approved SSH destination.
-    case ssh(host: String, directory: String, command: String?)
+    case ssh(host: String, directory: String, arguments: [String])
     /// A cloud transport whose native connection is not configured locally.
     case cloud(endpoint: String)
 
@@ -54,7 +54,7 @@ public enum ConversationLaunchTarget: Codable, Hashable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         switch try c.decode(String.self, forKey: .kind) {
         case "local": self = .local(directory: try c.decode(String.self, forKey: .directory))
-        case "ssh": self = .ssh(host: try c.decode(String.self, forKey: .host), directory: try c.decode(String.self, forKey: .directory), command: try c.decodeIfPresent(String.self, forKey: .command))
+        case "ssh": self = .ssh(host: try c.decode(String.self, forKey: .host), directory: try c.decode(String.self, forKey: .directory), arguments: try c.decodeIfPresent([String].self, forKey: .command) ?? [])
         case "cloud": self = .cloud(endpoint: try c.decode(String.self, forKey: .endpoint))
         default: throw DecodingError.dataCorruptedError(forKey: .kind, in: c, debugDescription: "Unknown conversation launch target")
         }
@@ -63,7 +63,7 @@ public enum ConversationLaunchTarget: Codable, Hashable, Sendable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case .local(let directory): try c.encode("local", forKey: .kind); try c.encode(directory, forKey: .directory)
-        case .ssh(let host, let directory, let command): try c.encode("ssh", forKey: .kind); try c.encode(host, forKey: .host); try c.encode(directory, forKey: .directory); try c.encodeIfPresent(command, forKey: .command)
+        case .ssh(let host, let directory, let arguments): try c.encode("ssh", forKey: .kind); try c.encode(host, forKey: .host); try c.encode(directory, forKey: .directory); try c.encode(arguments, forKey: .command)
         case .cloud(let endpoint): try c.encode("cloud", forKey: .kind); try c.encode(endpoint, forKey: .endpoint)
         }
     }

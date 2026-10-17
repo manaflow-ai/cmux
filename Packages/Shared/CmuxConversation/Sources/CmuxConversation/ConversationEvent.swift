@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The normalized lifecycle category for a journal event.
 public enum ConversationEventKind: Hashable, Sendable, Codable {

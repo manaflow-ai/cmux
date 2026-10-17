@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A stable identifier for one managed conversation session.
 public struct ConversationID: RawRepresentable, Codable, Hashable, Sendable, ExpressibleByStringLiteral {

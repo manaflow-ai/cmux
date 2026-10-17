@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A provider event before the broker assigns a durable sequence.
 public struct ConversationProviderEvent: Codable, Hashable, Sendable {

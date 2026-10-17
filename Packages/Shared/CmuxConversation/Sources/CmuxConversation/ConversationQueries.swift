@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Identifies a session and optional replay cursor in RPC queries.
 public struct ConversationSessionQuery: Codable, Hashable, Sendable {

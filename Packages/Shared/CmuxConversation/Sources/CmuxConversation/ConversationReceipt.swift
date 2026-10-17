@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Outcome of one durable command attempt.
 public enum ConversationReceiptState: String, Codable, Hashable, Sendable { case accepted, applied, rejected, uncertain }

@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A user choice offered by a provider question.
 public struct ConversationQuestionOption: Codable, Hashable, Sendable, Identifiable {

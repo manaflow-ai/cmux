@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Persisted metadata for a managed provider conversation.
 public struct ConversationSession: Codable, Hashable, Sendable, Identifiable {

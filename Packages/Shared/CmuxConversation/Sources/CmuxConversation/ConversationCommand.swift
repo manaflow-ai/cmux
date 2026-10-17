@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The command body executed against a managed provider session.
 public enum ConversationCommand: Codable, Hashable, Sendable {
