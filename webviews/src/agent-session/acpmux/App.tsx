@@ -724,10 +724,14 @@ const SubagentOfPillRow = memo(
 );
 /// The edited-files card (conversation/EditedFilesCard.tsx, data in turnChanges/).
 const EditedFilesRow = memo(
-  function EditedFilesRow({ row, onOpenDiff }: RowProps) {
-    return <EditedFilesCard row={row} onOpenDiff={onOpenDiff} />;
+  function EditedFilesRow({ row, sessionId, onOpenDiff }: RowProps) {
+    return <EditedFilesCard row={row} sessionId={sessionId} onOpenDiff={onOpenDiff} />;
   },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.onOpenDiff === b.onOpenDiff,
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.sessionId === b.sessionId &&
+    a.onOpenDiff === b.onOpenDiff,
 );
 
 /// Opens a chat started from an offer (`chat.offer.open`): beside this one, else here.
