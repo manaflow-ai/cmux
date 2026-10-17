@@ -16,6 +16,8 @@ struct CloudMachineLinkErrorCategoryTests {
         #expect(CloudMachineLink.LinkError.exitedBeforeSocket(status: 2, output: "unknown flag").category == .clientUnavailable)
         #expect(CloudMachineLink.LinkError.inputTooLarge.category == .requestRejected)
         #expect(CloudMachineLink.LinkError.failureMessage("daemon unavailable").category == .other)
+        #expect(CloudMachineLink.LinkError.exited(status: 1, output: #"{"code":"revision.conflict"}"#).category == .other)
+        #expect(CloudMachineLink.LinkError.exited(status: 1, output: "{}").category == .other)
     }
 
     @Test("link diagnostics redact the internal client name")

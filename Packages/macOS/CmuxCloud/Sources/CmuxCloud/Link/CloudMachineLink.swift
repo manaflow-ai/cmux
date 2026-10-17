@@ -105,7 +105,12 @@ public actor CloudMachineLink {
         /// Stable recovery category for this link failure.
         public var category: Category {
             switch self {
-            case .exited, .timedOut:
+            case .exited(_, let output):
+                // A reachable daemon reports a rejection as a JSON error object
+                // (`revision.conflict`, `selector.not_found`, ...). That is an
+                // answer, not an unavailable daemon.
+                return Self.isDaemonRejection(output) ? .other : .daemonUnavailable
+            case .timedOut:
                 return .daemonUnavailable
             case .clientMissing, .spawnFailed, .exitedBeforeSocket:
                 return .clientUnavailable
@@ -147,6 +152,11 @@ public actor CloudMachineLink {
             case .requestTimedOut:
                 return String(localized: "cloud.link.requestTimedOut", defaultValue: "The Cloud machine did not answer the request before its deadline. The connection will be checked before retrying.")
             }
+        }
+
+        private static func isDaemonRejection(_ output: String) -> Bool {
+            guard let data = output.data(using: .utf8) else { return false }
+            return (try? JSONSerialization.jsonObject(with: data)) is [String: Any]
         }
 
         private static func sanitizedDetail(_ detail: String) -> String {
