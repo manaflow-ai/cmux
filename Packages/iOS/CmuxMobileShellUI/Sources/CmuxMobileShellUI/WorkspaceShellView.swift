@@ -1466,7 +1466,7 @@ struct WorkspaceShellView: View {
         MobileChatRootView(
             sourceProvider: { store.makeChatEventSource() },
             searchText: searchText,
-            connectionGeneration: store.connectionGeneration,
+            connectionGeneration: store.chatConnectionGeneration,
             showSettings: showSettings
         )
     }

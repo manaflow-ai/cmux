@@ -55,12 +55,6 @@ final class MobileChatStore {
         selectedSessionID = UserDefaults.standard.string(forKey: Self.selectedSessionKey)
     }
 
-    deinit {
-        sessionEventsTask?.cancel()
-        transcriptTask?.cancel()
-        sendTask?.cancel()
-    }
-
     func start() {
         guard sessionEventsTask == nil else { return }
         sessionEventsTask = Task { [weak self] in
@@ -122,10 +116,11 @@ final class MobileChatStore {
         let generation = transcriptGeneration
         Task { [weak self] in
             defer {
-                guard let self,
-                      generation == self.transcriptGeneration,
-                      self.selectedSessionID == sessionID else { return }
-                self.isLoadingOlder = false
+                if let self,
+                   generation == self.transcriptGeneration,
+                   self.selectedSessionID == sessionID {
+                    self.isLoadingOlder = false
+                }
             }
             do {
                 let page = try await source.history(
@@ -174,9 +169,10 @@ final class MobileChatStore {
         }
         sendTask = Task { [weak self] in
             defer {
-                guard let self, self.sendGeneration == sendGeneration else { return }
-                self.isSending = false
-                self.sendTask = nil
+                if let self, self.sendGeneration == sendGeneration {
+                    self.isSending = false
+                    self.sendTask = nil
+                }
             }
             do {
                 try await source.send(text: text, attachments: attachments, sessionID: sessionID)
