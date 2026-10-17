@@ -1,5 +1,6 @@
 import Foundation
 
+/// lint:allow namespace-type — versioned wire limits are dependency-free protocol constants.
 public enum PhoneProtocol {
     public static let name = "cmux.phone"
     public static let version = 1
