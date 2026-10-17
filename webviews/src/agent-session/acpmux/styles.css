@@ -502,8 +502,9 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-chief-card-dismiss:hover{background:color-mix(in srgb,var(--agent-text) 15%,transparent)}
 .acpmux-chief-card-dismiss span{font-size:var(--text-heading);line-height:1;font-weight:500}
 .acpmux-chief-card-dismiss:focus-visible{outline:2px solid color-mix(in srgb,var(--chief-selection) 76%,transparent);outline-offset:1px}
-.acpmux-chief-card-main>.acpmux-chief-dock-status{margin-inline-start:1px}
 .acpmux-chief-card-copy{display:flex;flex-direction:column;min-width:0;gap:2px}
+.acpmux-chief-card-copy strong{display:flex;align-items:center;gap:10px;min-width:0}
+.acpmux-chief-card-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-chief-card-copy strong,.acpmux-chief-card-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-chief-card-copy strong{font-size:var(--text-heading);line-height:var(--text-heading--line-height);font-weight:650}
 .acpmux-chief-card-copy small{color:color-mix(in srgb,var(--agent-text) 68%,var(--agent-muted));font-size:var(--text-control);line-height:var(--text-control--line-height)}

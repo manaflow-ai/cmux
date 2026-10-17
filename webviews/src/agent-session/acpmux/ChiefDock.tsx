@@ -172,13 +172,15 @@ export function ChiefDock({
                     disabled={!expanded}
                     onClick={() => onSelect(session.sessionId)}
                   >
-                    {cardStatus !== "idle" && (
-                      <span className="acpmux-chief-dock-status" data-status={cardStatus} aria-hidden="true">
-                        <Icon name={STATUS_ICONS[cardStatus]} size={20} row />
-                      </span>
-                    )}
                     <span className="acpmux-chief-card-copy">
-                      <strong>{title}</strong>
+                      <strong>
+                        {cardStatus !== "idle" && (
+                          <span className="acpmux-chief-dock-status" data-status={cardStatus} aria-hidden="true">
+                            <Icon name={STATUS_ICONS[cardStatus]} size={20} row />
+                          </span>
+                        )}
+                        <span className="acpmux-chief-card-title">{title}</span>
+                      </strong>
                       <small>{session.preview || session.branch || session.cwd || t("sidebar.sessions")}</small>
                     </span>
                     {queued > 0 && <span className="acpmux-chief-card-queue">{queued}</span>}
