@@ -6220,6 +6220,8 @@ jobs:
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           persist-credentials: false
           sparse-checkout: scripts
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
       - name: Download and mount the published DMG
         env:
           BUILD: ${{ needs.publish-nightly.outputs.build }}
