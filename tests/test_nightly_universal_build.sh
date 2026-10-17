@@ -602,6 +602,16 @@ assert "./scripts/ci/resume-stapled-app-notarization.sh" in auto
 assert "steps.prepare-outer.outputs.prepared == 'true'" in auto
 assert "scripts/ci/stage-outer-notarization-recovery.py" in auto and "--require-stapled-app" in auto
 assert "stapled-app-notarization-recovery-" in auto
+# A pending stapled-app DMG is polled until Accepted or its 6 h fallback.
+assert "./scripts/ci/poll-outer-notarizations.sh" in auto
+assert "poll-stapled:" in auto and "staple-stapled:" in auto
+assert "fromJSON(needs.poll-stapled.outputs.outer_variants)" in auto
+assert "needs.staple-stapled.result == 'success'" in auto
+assert "--stapled-app-fallback" in auto and "--stapled-app-fallback" in resume
+poller = (Path(sys.argv[1]).parents[2] / "scripts/ci/poll-outer-notarizations.sh").read_text(encoding="utf-8")
+assert "stapled_submitted_at" in poller and "CMUX_STAPLED_APP_FALLBACK_SECONDS:-21600" in poller
+smoke = (Path(sys.argv[1]).parents[2] / "scripts/ci/smoke-dmg.sh").read_text(encoding="utf-8")
+assert '"$XCRUN_TOOL" stapler validate "$APP"' in smoke and "--stapled-app-fallback)" in smoke
 assert "scripts/ci/stage-outer-notarization-recovery.py" in resume and "steps.prepare-outer.outputs.prepared == 'true'" in resume
 assert "./scripts/ci/resume-stapled-app-notarization.sh" in resume
 stapled = (Path(sys.argv[1]).parents[2] / "scripts/ci/resume-stapled-app-notarization.sh").read_text(encoding="utf-8")

@@ -228,7 +228,13 @@ jobs:
             require=()
           fi
           if [ ! -s "$outer_state" ]; then
-            echo "The failure came before an outer DMG was submitted; nothing to hand off."
+            if grep -Fxq 'stapled_app=true' "${STATE_FILE:-/dev/null}"; then
+              # A continued stapled-app DMG that is still pending before its
+              # 6 h fallback: the input artifact is unchanged.
+              echo "::warning::The DMG around the stapled app is not Accepted yet and is before its 6 h fallback; run this workflow again with the same inputs"
+            else
+              echo "The failure came before an outer DMG was submitted; nothing to hand off."
+            fi
             exit 0
           fi
           python3 scripts/ci/stage-outer-notarization-recovery.py \
@@ -303,4 +309,9 @@ jobs:
           immutable="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["immutable_path"].split("/")[-1])' "$manifest")"
           dmg="$(find recovered -type f -path "*/verified/$immutable" -print -quit)"
           test -n "$dmg"
-          ./scripts/ci/smoke-dmg.sh "$dmg" "$REQUESTED_CHANNEL"
+          # Only the 6 h fallback ships an app without its own ticket.
+          stapled=(--require-stapled-app)
+          if [ -f "$dmg.stapled-app-fallback" ]; then
+            stapled=(--stapled-app-fallback "$(cat "$dmg.stapled-app-fallback")")
+          fi
+          ./scripts/ci/smoke-dmg.sh "$dmg" "$REQUESTED_CHANNEL" "${stapled[@]}"

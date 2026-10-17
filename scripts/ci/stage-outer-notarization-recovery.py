@@ -9,7 +9,9 @@ stapled_app=true). The artifact has the canonical schema 1 manifest that
 resolve-notarization-recovery.py reads, the state and log under their
 canonical names, the DMG the state names under the release name, and an
 archive of the app as it is now (helper finished, stapled). For a stapled-app
-state it also keeps the accepted first DMG as <release>.first.dmg.
+state it also keeps the accepted first DMG (<state DMG>.first.dmg, checked
+against first_dmg_sha256) as <release>.first.dmg, for the 6 h fallback, and
+requires the recorded submit time (stapled_submitted_at).
 
 usage: stage-outer-notarization-recovery.py <source-manifest> <state> <release-dmg> <app>
        <recovery-dir> [--metadata-dir DIR] [--require-stapled-app] --source-run-id ID
@@ -75,6 +77,15 @@ def main() -> int:
     digest = sha256(dmg)
     if state.get("dmg_sha256", "").lower() != digest:
         raise SystemExit("outer state SHA-256 does not match its DMG")
+    first = Path(f"{dmg}.first.dmg")
+    if stapled_app:
+        if not state.get("stapled_submitted_at", "").isdigit():
+            raise SystemExit("stapled-app state records no submit time (stapled_submitted_at)")
+        first_id = state.get("first_submission_id", "")
+        if not first_id or not all(ch.isalnum() or ch in "._-" for ch in first_id):
+            raise SystemExit("stapled-app state records no first submission id")
+        if not first.is_file() or sha256(first) != state.get("first_dmg_sha256", "").lower():
+            raise SystemExit(f"the accepted first DMG is missing or does not match its record: {first}")
     if not (args.app / "Contents").is_dir():
         raise SystemExit(f"app not found: {args.app}")
 
@@ -109,9 +120,9 @@ def main() -> int:
         shutil.copyfile(args.state, directory / canonical_state)
         shutil.copyfile(log, directory / canonical_log)
     shutil.copyfile(dmg, args.recovery_dir / dmg.name)
-    if stapled_app and args.release_dmg.resolve() != dmg.resolve() and args.release_dmg.is_file():
-        # The accepted, stapled first DMG, kept next to the one that ships.
-        shutil.copyfile(args.release_dmg, args.recovery_dir / f"{dmg.name}.first.dmg")
+    if stapled_app:
+        # The accepted, stapled first DMG: it ships at the 6 h fallback.
+        shutil.copyfile(first, args.recovery_dir / f"{dmg.name}.first.dmg")
     # The app as it is now: a helper-finished app has a new seal, and the
     # archive in the source artifact is the app from before that.
     archive = args.recovery_dir / original["app_archive_path"]

@@ -209,6 +209,8 @@ for notary_sidecar in "$NOTARY_SUBMISSION_FILE" "$NOTARY_OUTPUT_FILE"; do
     exit 1
   fi
 done
+# The 6 h stapled-app fallback counts from here (write_notary_state).
+DMG_SUBMITTED_AT="$(date +%s)"
 set +e
 if [ "$SUBMIT_ONLY" != true ]; then
   "$XCRUN_TOOL" notarytool submit "$DMG_RELEASE" "${NOTARY_AUTH_ARGS[@]}" \
@@ -271,6 +273,10 @@ write_notary_state() {
     # The DMG around the stapled app (resume-stapled-app-notarization.sh).
     if [ "${CMUX_NOTARY_STATE_STAPLED_APP:-false}" = true ]; then
       printf 'stapled_app=true\n'
+      # The 6 h fallback clock and the accepted first DMG it ships.
+      printf 'stapled_submitted_at=%s\n' "$DMG_SUBMITTED_AT"
+      printf 'first_submission_id=%s\n' "${CMUX_NOTARY_STATE_FIRST_SUBMISSION_ID:-}"
+      printf 'first_dmg_sha256=%s\n' "${CMUX_NOTARY_STATE_FIRST_DMG_SHA256:-}"
     fi
   } > "$state_tmp"
   )

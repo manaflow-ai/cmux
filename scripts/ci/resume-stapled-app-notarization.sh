@@ -19,6 +19,18 @@
 #   <release-dmg dir>/stapled-app/<release-dmg name> (CMUX_STAPLED_APP_DMG)
 #   and replaces <release-dmg> only after Apple accepted it and it is stapled.
 #   Until then <release-dmg> stays the accepted, stapled first DMG.
+# - The state of the DMG around the stapled app records the accepted first DMG
+#   (first_submission_id, first_dmg_sha256; the DMG itself travels as
+#   <stapled-app DMG>.first.dmg) and stapled_submitted_at, the epoch of the
+#   second submission. Every hand-off keeps that state as it is.
+# - 6 h fallback: when the second submission is not Accepted (still queued or
+#   refused) CMUX_STAPLED_APP_FALLBACK_SECONDS (21600) after
+#   stapled_submitted_at, the accepted first DMG ships instead: its
+#   submission is checked Accepted again, its bytes against the record, and it
+#   is stapled. The app inside it has no ticket of its own, so the script
+#   writes <immutable-dmg>.stapled-app-fallback (the pending submission id) for
+#   the smoke (smoke-dmg.sh --stapled-app-fallback) and logs a warning. An
+#   unstapled DMG never ships.
 # - APPLE_CERTIFICATE_BASE64 and APPLE_CERTIFICATE_PASSWORD go only to
 #   signing-keychain.sh create, which runs just before the second signature;
 #   the package tool deletes the keychain after that signature.
@@ -40,6 +52,10 @@ RESUME_TOOL="${CMUX_RESUME_NIGHTLY_NOTARIZATION_TOOL:-$ROOT_DIR/scripts/ci/resum
 SIGNING_KEYCHAIN_TOOL="${CMUX_SIGNING_KEYCHAIN_TOOL:-$ROOT_DIR/scripts/ci/signing-keychain.sh}"
 STAPLED_DMG="${CMUX_STAPLED_APP_DMG:-$(dirname "$DMG_RELEASE")/stapled-app/$(basename "$DMG_RELEASE")}"
 STAPLED_WAIT_TIMEOUT="${CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT:-40m}"
+FALLBACK_SECONDS="${CMUX_STAPLED_APP_FALLBACK_SECONDS:-21600}"
+case "$FALLBACK_SECONDS" in
+  ''|*[!0-9]*) echo "CMUX_STAPLED_APP_FALLBACK_SECONDS must be a number of seconds" >&2; exit 2 ;;
+esac
 # Kept out of every child process except the keychain create below.
 CERT_BASE64="${APPLE_CERTIFICATE_BASE64:-}"
 CERT_PASSWORD="${APPLE_CERTIFICATE_PASSWORD:-}"
@@ -47,10 +63,74 @@ unset APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD
 [ -f "$STATE_FILE" ] || { echo "Notarization state not found: $STATE_FILE" >&2; exit 1; }
 [ -d "$APP_PATH/Contents" ] || { echo "Recovered signed app not found: $APP_PATH" >&2; exit 1; }
 
+sha256_of() {
+  python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$1"
+}
+state_value() {
+  awk -F= -v key="$2" '$1 == key { print substr($0, index($0, "=") + 1); exit }' "$1"
+}
+
+# continue_stapled <state> <stapled-app DMG> <target DMG>: finish the DMG
+# around the stapled app, or ship the accepted first DMG at the 6 h fallback.
+# Either way the shipped DMG ends at <target DMG>. Exit 75: not Accepted yet,
+# before the deadline (hand it off again).
+continue_stapled() {
+  local state="$1" dmg="$2" target="$3" status=0 submitted pending first first_id first_sha work
+  "$RESUME_TOOL" "$state" "$APP_PATH" "$dmg" "$DMG_IMMUTABLE" || status=$?
+  if [ "$status" -eq 0 ]; then
+    [ "$dmg" = "$target" ] || /bin/mv -f "$dmg" "$target"
+    rm -f "$DMG_IMMUTABLE.stapled-app-fallback"
+    echo "The DMG around the stapled app is accepted and ships: $target"
+    return 0
+  fi
+  # resume-nightly-notarization.sh exits 75 only when Apple did not answer
+  # Accepted (queued or refused); any other failure publishes nothing.
+  [ "$status" -eq 75 ] || return "$status"
+  pending="$(state_value "$state" submission_id)"
+  submitted="$(state_value "$state" stapled_submitted_at)"
+  if ! [[ "$submitted" =~ ^[0-9]+$ ]]; then
+    echo "The stapled-app state records no submit time; nothing is published" >&2
+    return 1
+  fi
+  if [ "$(date +%s)" -lt $((submitted + FALLBACK_SECONDS)) ]; then
+    echo "::warning::The DMG around the stapled app (submission $pending) is not Accepted yet; the accepted first DMG ships at the 6 h fallback unless Apple accepts it first"
+    return 75
+  fi
+  first="$dmg.first.dmg"
+  first_id="$(state_value "$state" first_submission_id)"
+  first_sha="$(state_value "$state" first_dmg_sha256)"
+  if ! [[ "$first_id" =~ ^[A-Za-z0-9._-]+$ ]] || [ ! -f "$first" ] || [ "$(sha256_of "$first")" != "$first_sha" ]; then
+    echo "The stapled-app DMG (submission $pending) passed its 6 h deadline, but the first DMG ($first) or its record is missing or altered; nothing is published" >&2
+    return 1
+  fi
+  # The first DMG under the release name with a state of its own: the
+  # continuation checks its submission Accepted again, its bytes, staples it,
+  # validates it and publishes it.
+  work="$(dirname "$dmg")/first-dmg-fallback"
+  rm -rf "$work"
+  mkdir -p "$work"
+  cp "$first" "$work/$(basename "$target")"
+  {
+    printf 'submission_id=%s\n' "$first_id"
+    printf 'status=Accepted\n'
+    printf 'dmg_path=%s\n' "$work/$(basename "$target")"
+    printf 'dmg_sha256=%s\n' "$first_sha"
+    printf 'submit_exit=0\n'
+    printf 'immutable_path=%s\n' "$DMG_IMMUTABLE"
+    printf 'channel=%s\n' "$(state_value "$state" channel)"
+  } > "$work/first.state"
+  CMUX_NOTARY_WAIT_TIMEOUT=2m \
+    "$RESUME_TOOL" "$work/first.state" "$APP_PATH" "$work/$(basename "$target")" "$DMG_IMMUTABLE"
+  /bin/mv -f "$work/$(basename "$target")" "$target"
+  printf '%s\n' "$pending" > "$DMG_IMMUTABLE.stapled-app-fallback"
+  echo "::warning title=App shipped without its own ticket::Apple did not accept the DMG around the stapled app (submission $pending) within 6 h of its submission; the accepted, stapled first DMG (submission $first_id) ships, and the app inside it has no ticket of its own"
+}
+
 if grep -Fxq 'stapled_app=true' "$STATE_FILE"; then
   # Already the DMG around the stapled app: continue it, build nothing.
   "$SIGNING_KEYCHAIN_TOOL" delete
-  exec "$RESUME_TOOL" "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "$DMG_IMMUTABLE"
+  continue_stapled "$STATE_FILE" "$DMG_RELEASE" "$DMG_RELEASE"
+  exit $?
 fi
 [ -f "$APP_ENTITLEMENTS" ] || { echo "App entitlements not found: $APP_ENTITLEMENTS" >&2; exit 1; }
 : "${APPLE_SIGNING_IDENTITY:?APPLE_SIGNING_IDENTITY signs the DMG around the stapled app}"
@@ -75,9 +155,13 @@ CMUX_DEFER_LAUNCH_SMOKES=true \
   "$RESUME_TOOL" "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "$DMG_IMMUTABLE"
 
 # 2. Build, sign and submit (no wait) the DMG around the stapled app at its own
-#    path. The keychain exists from here to the package tool's signature.
+#    path. The accepted, stapled first DMG travels beside it for the 6 h
+#    fallback. The keychain exists from here to the package tool's signature.
 mkdir -p "$(dirname "$STAPLED_DMG")"
 rm -f "$STAPLED_DMG" "$OUTER_STATE" "$OUTER_LOG"
+FIRST_ID="$(state_value "$STATE_FILE" submission_id)"
+cp "$DMG_RELEASE" "$STAPLED_DMG.first.dmg"
+FIRST_SHA="$(sha256_of "$STAPLED_DMG.first.dmg")"
 APPLE_CERTIFICATE_BASE64="$CERT_BASE64" APPLE_CERTIFICATE_PASSWORD="$CERT_PASSWORD" \
   "$SIGNING_KEYCHAIN_TOOL" create
 CERT_BASE64=""
@@ -88,6 +172,8 @@ CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="" \
 CMUX_NOTARY_SUBMIT_ONLY=true \
 CMUX_SKIP_NOTARY_LOG=true \
 CMUX_NOTARY_STATE_STAPLED_APP=true \
+CMUX_NOTARY_STATE_FIRST_SUBMISSION_ID="$FIRST_ID" \
+CMUX_NOTARY_STATE_FIRST_DMG_SHA256="$FIRST_SHA" \
 CMUX_NOTARY_SUBMISSION_FILE="$OUTER_STATE" \
 CMUX_NOTARY_OUTPUT_FILE="$OUTER_LOG" \
 CMUX_APP_ENTITLEMENTS="$APP_ENTITLEMENTS" \
@@ -96,7 +182,8 @@ CHANNEL_DMG_PREFIX="${CHANNEL_DMG_PREFIX:-cmux-${CMUX_CHANNEL:-nightly}-macos}" 
 NIGHTLY_VARIANT="${NIGHTLY_VARIANT:-universal}" \
   "$PACKAGE_TOOL" "$APP_PATH" "$STAPLED_DMG" "$DMG_IMMUTABLE"
 "$SIGNING_KEYCHAIN_TOOL" delete
-if ! grep -Fxq 'stapled_app=true' "$OUTER_STATE" 2>/dev/null || [ ! -s "$OUTER_LOG" ]; then
+if ! grep -Fxq 'stapled_app=true' "$OUTER_STATE" 2>/dev/null || [ ! -s "$OUTER_LOG" ] \
+  || ! grep -Eq '^stapled_submitted_at=[0-9]+$' "$OUTER_STATE"; then
   echo "The stapled-app DMG state or its evidence was not created: $OUTER_STATE" >&2
   exit 1
 fi
@@ -104,10 +191,8 @@ fi
 # 3. A bounded wait on the second submission. A wait that runs out fails, and
 #    the caller hands <outer-state>, its log and the DMG it names to its outer
 #    recovery path. The helper of this same app was checked in step 1.
-CMUX_SKIP_HELPER_RECHECK=true \
-CMUX_NOTARY_WAIT_TIMEOUT="$STAPLED_WAIT_TIMEOUT" \
-CMUX_NOTARY_EVIDENCE_FILE="$OUTER_LOG" \
-  "$RESUME_TOOL" "$OUTER_STATE" "$APP_PATH" "$STAPLED_DMG" "$DMG_IMMUTABLE"
-# Accepted, stapled and checked: only now does it replace the first DMG.
-/bin/mv -f "$STAPLED_DMG" "$DMG_RELEASE"
-echo "The DMG around the stapled app is accepted and replaces the first DMG: $DMG_RELEASE"
+#    Accepted, stapled and checked: only then does it replace the first DMG.
+export CMUX_SKIP_HELPER_RECHECK=true
+export CMUX_NOTARY_WAIT_TIMEOUT="$STAPLED_WAIT_TIMEOUT"
+export CMUX_NOTARY_EVIDENCE_FILE="$OUTER_LOG"
+continue_stapled "$OUTER_STATE" "$STAPLED_DMG" "$DMG_RELEASE"

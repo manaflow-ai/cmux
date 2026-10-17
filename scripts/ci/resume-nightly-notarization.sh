@@ -285,6 +285,11 @@ LOG_STATUS="$(extract_notary_value "$LOG_OUTPUT" status || true)"
 if [ "$WAIT_EXIT" -ne 0 ] || [ "$WAIT_STATUS" != "Accepted" ] || [ "$LOG_EXIT" -ne 0 ] || [ "$LOG_STATUS" != "Accepted" ]; then
   cat "$NOTARY_OUTPUT_FILE" >&2
   echo "Notarization submission $SUBMISSION_ID is not proven Accepted (wait: ${WAIT_STATUS:-unknown}, log: ${LOG_STATUS:-unknown}); refusing to staple or publish" >&2
+  # 75: Apple did not answer Accepted (still queued, or refused). The
+  # stapled-app continuation counts its 6 h fallback only on this code.
+  if [ "$WAIT_STATUS" != "Accepted" ]; then
+    exit 75
+  fi
   exit 1
 fi
 
