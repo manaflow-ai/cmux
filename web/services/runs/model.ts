@@ -36,6 +36,8 @@ export type RunCursor = { readonly sequence: number; readonly eventId?: string }
 export const DEFAULT_LEASE_TTL_MS = 60_000;
 /** Completed cloud terminals stay available for a bounded attach window. */
 export const DEFAULT_TERMINAL_RETENTION_MS = 10 * 60_000;
+/** Attach tickets are deliberately shorter lived than the retained terminal. */
+export const DEFAULT_ATTACH_TICKET_TTL_MS = 2 * 60_000;
 /** Reaper workers fence one another while provider teardown is in flight. */
 export const TERMINAL_CLEANUP_LEASE_MS = 60_000;
 export const MAX_EVENT_PAYLOAD_BYTES = 256 * 1024;

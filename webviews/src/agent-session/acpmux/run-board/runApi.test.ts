@@ -117,4 +117,57 @@ describe("Run API client", () => {
     });
     expect(snapshot.attempts[0]?.artifacts[0]).toMatchObject({ kind: "screenshot", verified: true });
   });
+
+  test("requests an attach ticket with the attempt cursor and normalizes the response", async () => {
+    const requests: RequestInit[] = [];
+    const client = createRunApiClient({
+      baseUrl: "https://cmux.test",
+      fetch: async (_input, init) => {
+        requests.push(init);
+        return new Response(
+          JSON.stringify({
+            attachTicket: {
+              ticket: "one-use-ticket",
+              expires_at: "2026-10-16T20:00:00.000Z",
+              transport: "cmux-remote",
+              provider_vm_id: "vm-1",
+            },
+          }),
+          { status: 200 },
+        );
+      },
+    });
+    await expect(
+      client.requestAttachTicket?.({ runId: "run-1", attemptId: "attempt-1", sessionId: "session-1", cursor: "42" }),
+    ).resolves.toMatchObject({
+      runId: "run-1",
+      attemptId: "attempt-1",
+      sessionId: "session-1",
+      cursor: "42",
+      ticket: "one-use-ticket",
+      transport: "cmux-remote",
+      providerVmId: "vm-1",
+    });
+    expect(requests).toHaveLength(2);
+    expect(requests[0]?.method).toBe("POST");
+    expect(requests[0]?.headers).toMatchObject({ "Content-Type": "application/json" });
+    expect(JSON.parse(String(requests[0]?.body))).toEqual({ sessionId: "session-1", cursor: "42" });
+    expect(JSON.parse(String(requests[1]?.body))).toEqual({ ticket: "one-use-ticket" });
+  });
+
+  test("preserves attach ticket expiry and replay error codes", async () => {
+    const client = createRunApiClient({
+      fetch: async () => new Response(JSON.stringify({ error: "run_attach_replayed", message: "ticket already consumed" }), { status: 409 }),
+    });
+    await expect(
+      client.requestAttachTicket?.({ runId: "run-1", attemptId: "attempt-1", sessionId: "session-1", cursor: "42" }),
+    ).rejects.toMatchObject({ status: 409, code: "run_attach_replayed" });
+  });
+
+  test("fails closed when the attach route returns no one-use ticket", async () => {
+    const client = createRunApiClient({ fetch: async () => new Response(JSON.stringify({}), { status: 200 }) });
+    await expect(
+      client.requestAttachTicket?.({ runId: "run-1", attemptId: "attempt-1", sessionId: "session-1", cursor: "42" }),
+    ).rejects.toMatchObject({ status: 502, code: "run_attach_invalid" });
+  });
 });

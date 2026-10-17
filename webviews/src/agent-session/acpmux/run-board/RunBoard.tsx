@@ -11,6 +11,7 @@ import {
   type RunBoardSnapshot,
 } from "./model";
 import {
+  RunApiHttpError,
   RunBoardApiSession,
   type AttachTicket,
   type AttachTicketIntent,
@@ -25,6 +26,8 @@ export type RunBoardProps = {
   client?: RunApiClient;
   /** Host bridge that turns an attempt selection into a short-lived terminal attach ticket. */
   onAttach?: (intent: AttachTicketIntent) => Promise<AttachTicket | void>;
+  /** Existing attach/session bridge consumes the one-use ticket exactly once. */
+  onAttachTicket?: (ticket: AttachTicket) => Promise<void>;
   /** Human approval is intentionally a callback; the board never integrates by itself. */
   onApprove?: (intent: NonNullable<ReturnType<typeof reduceBoard>["approval"]>) => Promise<void>;
   pollMs?: number;
@@ -136,11 +139,12 @@ function WorkspacePreview({ attempt }: { attempt: RunAttempt }) {
   );
 }
 
-export function RunBoard({ snapshot, recovered, disconnected = false, client, onAttach, onApprove, pollMs = 4_000 }: RunBoardProps) {
+export function RunBoard({ snapshot, recovered, disconnected = false, client, onAttach, onAttachTicket, onApprove, pollMs = 4_000 }: RunBoardProps) {
   const [state, dispatch] = useReducer(reduceBoard, undefined, () => initialBoard(snapshot, disconnected));
   const [tab, setTab] = useState<"preview" | "activity">("preview");
   const [apiError, setApiError] = useState<string>();
   const [actionPending, setActionPending] = useState<"attach" | "approve">();
+  const [attachState, setAttachState] = useState<"idle" | "attached" | "expired" | "replayed" | "error">("idle");
   const stateRef = useRef<ReturnType<typeof initialBoard> | undefined>(undefined);
   stateRef.current = state;
   const apiSession = useRef<RunBoardApiSession | undefined>(undefined);
@@ -201,6 +205,21 @@ export function RunBoard({ snapshot, recovered, disconnected = false, client, on
   const approved = state.snapshot.attempts.find((item) => item.id === state.approval?.attemptId);
   const done = state.snapshot.attempts.filter((item) => evidenceReady(item)).length;
   const reviewed = Boolean(state.reviewed);
+  const attachFailureState = (error: unknown): "expired" | "replayed" | "error" => {
+    if (error instanceof RunApiHttpError) {
+      const code = error.code?.toLowerCase() ?? "";
+      if (error.status === 410 || code.includes("expired") || code.includes("expire")) return "expired";
+      if (error.status === 409 && (code.includes("replay") || code.includes("consum"))) return "replayed";
+    }
+    return "error";
+  };
+  const ticketExpired = (ticket: AttachTicket): boolean => {
+    const unix = ticket.expiresAtUnix;
+    if (typeof unix === "number" && Number.isFinite(unix)) return (unix > 10_000_000_000 ? unix : unix * 1_000) <= Date.now();
+    if (ticket.expiresAt === undefined) return false;
+    const millis = typeof ticket.expiresAt === "number" ? ticket.expiresAt : Date.parse(ticket.expiresAt);
+    return Number.isFinite(millis) && millis <= Date.now();
+  };
   const attach = async () => {
     if (!attempt || state.connection !== "live" || actionPending) return;
     const intent: AttachTicketIntent = {
@@ -211,10 +230,21 @@ export function RunBoard({ snapshot, recovered, disconnected = false, client, on
     };
     try {
       setApiError(undefined);
+      setAttachState("idle");
       setActionPending("attach");
-      const ticket = await onAttach?.(intent);
+      const ticket = onAttach
+        ? await onAttach(intent)
+        : client?.requestAttachTicket
+          ? await client.requestAttachTicket(intent)
+          : undefined;
+      if (ticket && ticketExpired(ticket)) {
+        throw new RunApiHttpError(410, "This attach ticket has expired. Request a fresh ticket and try again.", "run_attach_expired");
+      }
+      if (ticket && onAttachTicket) await onAttachTicket(ticket);
       dispatch({ type: "attach", ...(ticket ? { ticket } : {}) });
+      setAttachState(ticket ? "attached" : "idle");
     } catch (error) {
+      setAttachState(attachFailureState(error));
       setApiError(error instanceof Error ? error.message : String(error));
     } finally {
       setActionPending(undefined);
@@ -236,7 +266,7 @@ export function RunBoard({ snapshot, recovered, disconnected = false, client, on
     }
   };
   return (
-    <main className="run-board" data-connection={state.connection} data-approved={state.approval?.attemptId ?? ""} data-api-error={apiError ?? ""}>
+    <main className="run-board" data-connection={state.connection} data-approved={state.approval?.attemptId ?? ""} data-api-error={apiError ?? ""} data-attach-state={attachState}>
       <header className="run-board-header">
         <div>
           <div className="run-board-eyebrow">
@@ -305,10 +335,23 @@ export function RunBoard({ snapshot, recovered, disconnected = false, client, on
               disabled={state.connection !== "live" || actionPending === "attach"}
               onClick={() => void attach()}
             >
-              {actionPending === "attach" ? "Attaching…" : state.attached === attempt.id ? "Attached to agent" : "Attach to agent"}
+              {actionPending === "attach"
+                ? "Attaching…"
+                : state.attached === attempt.id
+                  ? "Attached to agent"
+                  : attachState === "expired"
+                    ? "Attach expired · Retry"
+                    : attachState === "replayed"
+                      ? "Attach used · Retry"
+                      : attachState === "error"
+                        ? "Attach failed · Retry"
+                        : "Attach to agent"}
               <span aria-hidden="true">↗</span>
             </button>
           </div>
+          {attachState === "expired" && <p className="run-board-attach-status" role="status">The one-use attach ticket expired. Requesting a new ticket is safe.</p>}
+          {attachState === "replayed" && <p className="run-board-attach-status" role="status">That attach ticket was already consumed. Request a fresh ticket to reconnect.</p>}
+          {attachState === "error" && <p className="run-board-attach-status" role="alert">The agent session could not be attached. Try again while the worker is retained.</p>}
           <div className="run-board-workspace-content">
             {tab === "preview" ? (
               <WorkspacePreview attempt={attempt} />

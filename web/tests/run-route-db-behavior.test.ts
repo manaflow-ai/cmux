@@ -3,6 +3,12 @@ import { randomUUID } from "node:crypto";
 import postgres, { type Sql } from "postgres";
 import type { AuthedUser } from "../services/vms/auth";
 import { artifactDigest } from "../services/runs/model";
+import {
+  claimAttemptLease,
+  consumeRunAttachTicket,
+  ingestRunEvent,
+  recordAttemptProviderHandle,
+} from "../services/runs/repository";
 
 // Keep this route suite importable in a dependency-only checkout. The real
 // auth/env module validates these values while it is imported, even when all
@@ -52,6 +58,7 @@ const cancelRoute = await import("../app/api/runs/[id]/cancel/route");
 const leaseRoute = await import("../app/api/runs/[id]/attempts/[attemptId]/lease/route");
 const attemptEventsRoute = await import("../app/api/runs/[id]/attempts/[attemptId]/events/route");
 const artifactRoute = await import("../app/api/runs/[id]/attempts/[attemptId]/artifacts/route");
+const attachTicketRoute = await import("../app/api/runs/[id]/attempts/[attemptId]/attach-ticket/route");
 
 const TEAM_ID = "run-route-team";
 
@@ -253,6 +260,97 @@ describe("Run HTTP routes with a live database", () => {
       const changed = await artifactRoute.POST(new Request("https://cmux.test", { method: "POST", headers: workerHeaders(), body: JSON.stringify({ ...body, digest: artifactDigest(new TextEncoder().encode("changed")), sizeBytes: 7 }) }), attemptParams(run.id, attempt.id));
       expect(changed.status).toBe(409);
       expect((await json<{ error: string }>(changed)).error).toBe("run_artifact_conflict");
+    } finally {
+      await deleteRuns(owner);
+    }
+  });
+
+  dbTest("mints scoped attach tickets only for a retained terminal", async () => {
+    const owner = `run-route-attach-${randomUUID()}`;
+    const attacker = `run-route-attach-attacker-${randomUUID()}`;
+    try {
+      const run = await createRun(owner, undefined, 1);
+      const attempt = run.attempts[0];
+      if (!attempt) throw new Error("attempt missing");
+      authedUser = user(owner);
+      const lease = await claimAttemptLease({ runId: run.id, attemptId: attempt.id, workerId: "attach-worker" });
+      await recordAttemptProviderHandle({
+        runId: run.id,
+        attemptId: attempt.id,
+        leaseToken: lease.leaseToken,
+        leaseGeneration: lease.leaseGeneration,
+        providerVmId: "vm-attach-route",
+        providerWorkspaceId: "workspace-attach-route",
+        providerTerminalId: "terminal-attach-route",
+      });
+      await ingestRunEvent({
+        runId: run.id,
+        attemptId: attempt.id,
+        leaseToken: lease.leaseToken,
+        leaseGeneration: lease.leaseGeneration,
+        externalId: "attach-route-terminal",
+        attemptSequence: 1,
+        kind: "attempt.succeeded",
+        payload: { providerVmId: "vm-attach-route" },
+      });
+
+      const minted = await attachTicketRoute.POST(
+        new Request(`https://cmux.test/api/runs/${run.id}/attempts/${attempt.id}/attach-ticket`, { method: "POST", headers: authHeaders() }),
+        attemptParams(run.id, attempt.id),
+      );
+      expect(minted.status).toBe(201);
+      expect(minted.headers.get("cache-control")).toBe("no-store");
+      const body = await json<{ ticket: string; providerVmId: string; providerWorkspaceId: string; providerTerminalId: string; endpoint?: unknown }>(minted);
+      expect(body.ticket.length).toBeGreaterThanOrEqual(32);
+      expect(body.providerVmId).toBe("vm-attach-route");
+      expect(body.providerWorkspaceId).toBe("workspace-attach-route");
+      expect(body.providerTerminalId).toBe("terminal-attach-route");
+      expect(body.endpoint).toBeUndefined();
+
+      authedUser = user(attacker);
+      const crossTenant = await attachTicketRoute.POST(
+        new Request(`https://cmux.test/api/runs/${run.id}/attempts/${attempt.id}/attach-ticket`, { method: "POST", headers: authHeaders() }),
+        attemptParams(run.id, attempt.id),
+      );
+      expect(crossTenant.status).toBe(404);
+
+      // Consume directly to avoid starting a provider in the DB route suite;
+      // the route's replay path still exercises the one-use error contract.
+      await consumeRunAttachTicket({ runId: run.id, attemptId: attempt.id, userId: owner, ticket: body.ticket });
+      authedUser = user(owner);
+      const replay = await attachTicketRoute.POST(
+        new Request(`https://cmux.test/api/runs/${run.id}/attempts/${attempt.id}/attach-ticket`, { method: "POST", headers: { ...authHeaders(), "content-type": "application/json" }, body: JSON.stringify({ ticket: body.ticket }) }),
+        attemptParams(run.id, attempt.id),
+      );
+      expect(replay.status).toBe(409);
+      expect((await json<{ error: string }>(replay)).error).toBe("run_attach_ticket_replayed");
+    } finally {
+      await deleteRuns(owner, attacker);
+    }
+  });
+
+  dbTest("rejects expired and handle-less attach targets", async () => {
+    const owner = `run-route-attach-expired-${randomUUID()}`;
+    try {
+      const expiredRun = await createRun(owner, undefined, 1);
+      const expiredAttempt = expiredRun.attempts[0];
+      if (!expiredAttempt) throw new Error("expired attempt missing");
+      const expiredLease = await claimAttemptLease({ runId: expiredRun.id, attemptId: expiredAttempt.id, workerId: "attach-expired" });
+      await recordAttemptProviderHandle({ runId: expiredRun.id, attemptId: expiredAttempt.id, leaseToken: expiredLease.leaseToken, leaseGeneration: expiredLease.leaseGeneration, providerVmId: "vm-expired", providerWorkspaceId: "workspace-expired", providerTerminalId: "terminal-expired" });
+      await ingestRunEvent({ runId: expiredRun.id, attemptId: expiredAttempt.id, leaseToken: expiredLease.leaseToken, leaseGeneration: expiredLease.leaseGeneration, externalId: "expired-terminal", attemptSequence: 1, kind: "attempt.succeeded", payload: { providerVmId: "vm-expired" } });
+      await sql!`update run_attempts set terminal_retain_until = now() - interval '1 second' where id = ${expiredAttempt.id}`;
+      authedUser = user(owner);
+      const expired = await attachTicketRoute.POST(new Request("https://cmux.test", { method: "POST", headers: authHeaders() }), attemptParams(expiredRun.id, expiredAttempt.id));
+      expect(expired.status).toBe(410);
+
+      const missingRun = await createRun(owner, undefined, 1);
+      const missingAttempt = missingRun.attempts[0];
+      if (!missingAttempt) throw new Error("missing attempt missing");
+      await sql!`update run_attempts set terminal_retain_until = now() + interval '1 minute' where id = ${missingAttempt.id}`;
+      authedUser = user(owner);
+      const missing = await attachTicketRoute.POST(new Request("https://cmux.test", { method: "POST", headers: authHeaders() }), attemptParams(missingRun.id, missingAttempt.id));
+      expect(missing.status).toBe(409);
+      expect((await json<{ error: string }>(missing)).error).toBe("run_attach_target_unavailable");
     } finally {
       await deleteRuns(owner);
     }

@@ -244,6 +244,10 @@ export const runAttempts = pgTable(
     providerWorkspaceId: text("provider_workspace_id"),
     providerTerminalId: text("provider_terminal_id"),
     terminalRetainUntil: timestamp("terminal_retain_until", { withTimezone: true }),
+    /** Hash of the last single-use Run attach ticket; raw ticket material is never persisted. */
+    attachTicketHash: text("attach_ticket_hash"),
+    attachTicketExpiresAt: timestamp("attach_ticket_expires_at", { withTimezone: true }),
+    attachTicketConsumedAt: timestamp("attach_ticket_consumed_at", { withTimezone: true }),
     cleanupLeaseToken: text("cleanup_lease_token"),
     cleanupLeaseExpiresAt: timestamp("cleanup_lease_expires_at", { withTimezone: true }),
     leaseToken: text("lease_token"),

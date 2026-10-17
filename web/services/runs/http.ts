@@ -7,6 +7,10 @@ import {
   RunNotFoundError,
   RunPayloadTooLargeError,
   RunEventConflictError,
+  RunAttachTicketExpiredError,
+  RunAttachTicketNotFoundError,
+  RunAttachTicketReplayError,
+  RunAttachTargetUnavailableError,
 } from "./repository";
 import { encodeRunCursor, type RunCursor } from "./model";
 
@@ -32,6 +36,18 @@ export function runError(error: unknown): Response {
   }
   if (error instanceof RunEventConflictError) {
     return vmErrorResponse({ error: "run_event_conflict", status: 409, message: error.message, action: "Retry from the last accepted event sequence." });
+  }
+  if (error instanceof RunAttachTicketNotFoundError) {
+    return vmErrorResponse({ error: "run_attach_ticket_not_found", status: 404, message: "The requested run attach ticket was not found.", action: "Request a new attach ticket and retry." });
+  }
+  if (error instanceof RunAttachTicketExpiredError) {
+    return vmErrorResponse({ error: "run_attach_ticket_expired", status: 410, message: "The retained terminal attach window has expired.", action: "Request a fresh run snapshot and retry attach." });
+  }
+  if (error instanceof RunAttachTicketReplayError) {
+    return vmErrorResponse({ error: "run_attach_ticket_replayed", status: 409, message: "The run attach ticket was already consumed.", action: "Request a new attach ticket and retry." });
+  }
+  if (error instanceof RunAttachTargetUnavailableError) {
+    return vmErrorResponse({ error: "run_attach_target_unavailable", status: 409, message: "This attempt no longer has a retained terminal to attach.", action: "Refresh the run and retry with another attempt." });
   }
   console.error("[runs] route failed", error);
   return vmErrorResponse({ error: "run_unavailable", status: 503, message: "The run service is temporarily unavailable.", action: "Retry in a moment.", retryable: true, retryAfterSeconds: 5 });

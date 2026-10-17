@@ -71,9 +71,27 @@ export type AttachTicketIntent = {
   cursor: string;
 };
 
+/**
+ * The one-use capability returned by the Run attach route.  The control plane
+ * currently returns the opaque `ticket` plus the attempt identity; the
+ * optional transport fields let the host bridge carry a provider endpoint
+ * without making the board understand how to dial it.
+ */
+export type RunAttachTicket = AttachTicket & {
+  transport?: string;
+  route?: string;
+  token?: string;
+  provider?: string;
+  providerVmId?: string;
+  providerWorkspaceId?: string;
+  providerTerminalId?: string;
+};
+
 export type RunApiClient = {
   getSnapshot(runId: string): Promise<RunApiSnapshot | RunBoardSnapshot>;
   getEvents(runId: string, after?: string): Promise<RunApiEventPage>;
+  /** Mint a short-lived, one-use terminal attach capability for an attempt. */
+  requestAttachTicket?: (intent: AttachTicketIntent) => Promise<RunAttachTicket>;
 };
 
 export type RunApiClientOptions = {
@@ -108,6 +126,41 @@ async function readJson(response: Response): Promise<unknown> {
   return response.json().catch(() => ({}));
 }
 
+function attachTicketFromResponse(value: unknown, intent: AttachTicketIntent): RunAttachTicket {
+  const outer = record(value);
+  // Accept both the direct response and the `{ attachTicket: ... }` envelope
+  // used by the server route during its rollout.  Keeping this tolerant makes
+  // deploys with an older edge and a newer board reconnect cleanly.
+  const nested = record(outer.attachTicket ?? outer.attach_ticket ?? outer.attach ?? value);
+  const ticket = stringValue(nested.ticket) ?? stringValue(outer.ticket);
+  const runId = stringValue(nested.runId) ?? stringValue(nested.run_id) ?? intent.runId;
+  const attemptId = stringValue(nested.attemptId) ?? stringValue(nested.attempt_id) ?? intent.attemptId;
+  const sessionId = stringValue(nested.sessionId) ?? stringValue(nested.session_id) ?? intent.sessionId;
+  const cursor = stringValue(nested.cursor) ?? intent.cursor;
+  if (!ticket || !runId || !attemptId || !sessionId || !cursor) {
+    throw new RunApiHttpError(502, "Run attach returned an invalid ticket", "run_attach_invalid");
+  }
+  const expiresAt = nested.expiresAt ?? nested.expires_at;
+  const expiresAtUnix = nested.expiresAtUnix ?? nested.expires_at_unix;
+  const optionalString = (key: string, snake: string = key) => stringValue(nested[key]) ?? stringValue(nested[snake]);
+  return {
+    runId,
+    attemptId,
+    sessionId,
+    cursor,
+    ticket,
+    ...(typeof expiresAt === "string" || typeof expiresAt === "number" ? { expiresAt } : {}),
+    ...(typeof expiresAtUnix === "number" ? { expiresAtUnix } : {}),
+    ...(optionalString("transport") ? { transport: optionalString("transport") } : {}),
+    ...(optionalString("route") ? { route: optionalString("route") } : {}),
+    ...(optionalString("token") ? { token: optionalString("token") } : {}),
+    ...(optionalString("provider") ? { provider: optionalString("provider") } : {}),
+    ...(optionalString("providerVmId", "provider_vm_id") ? { providerVmId: optionalString("providerVmId", "provider_vm_id") } : {}),
+    ...(optionalString("providerWorkspaceId", "provider_workspace_id") ? { providerWorkspaceId: optionalString("providerWorkspaceId", "provider_workspace_id") } : {}),
+    ...(optionalString("providerTerminalId", "provider_terminal_id") ? { providerTerminalId: optionalString("providerTerminalId", "provider_terminal_id") } : {}),
+  };
+}
+
 /** Same-origin HTTP transport used by the real Run board. */
 export function createRunApiClient(options: RunApiClientOptions = {}): RunApiClient {
   const request = options.fetch ?? globalThis.fetch;
@@ -139,6 +192,40 @@ export function createRunApiClient(options: RunApiClientOptions = {}): RunApiCli
       }
       const result = body as Partial<RunApiEventPage>;
       return { events: Array.isArray(result.events) ? result.events : [], nextCursor: result.nextCursor ?? null };
+    },
+    async requestAttachTicket(intent) {
+      const path = `/api/runs/${encodeURIComponent(intent.runId)}/attempts/${encodeURIComponent(intent.attemptId)}/attach-ticket`;
+      const response = await request(
+        apiUrl(baseUrl, path),
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId: intent.sessionId, cursor: intent.cursor }),
+        },
+      );
+      const body = await readJson(response);
+      if (!response.ok) {
+        const error = body as { error?: string; code?: string; message?: string };
+        throw new RunApiHttpError(
+          response.status,
+          error.message ?? `Run attach failed (${response.status})`,
+          error.code ?? error.error,
+        );
+      }
+      const minted = attachTicketFromResponse(body, intent);
+      const redeemedResponse = await request(apiUrl(baseUrl, path), {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ ticket: minted.ticket }),
+      });
+      const redeemedBody = await readJson(redeemedResponse);
+      if (!redeemedResponse.ok) {
+        const error = redeemedBody as { error?: string; code?: string; message?: string };
+        throw new RunApiHttpError(redeemedResponse.status, error.message ?? `Run attach redemption failed (${redeemedResponse.status})`, error.code ?? error.error);
+      }
+      return attachTicketFromResponse({ ...record(redeemedBody), ...minted }, intent);
     },
   };
 }

@@ -40,7 +40,8 @@ export type AttachTicket = {
   sessionId: string;
   cursor: string;
   ticket?: string;
-  expiresAt?: string;
+  expiresAt?: string | number;
+  expiresAtUnix?: number;
 };
 
 export type RunBoardState = {
