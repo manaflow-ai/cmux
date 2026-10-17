@@ -34,12 +34,15 @@ public struct ConversationQuestion: Codable, Hashable, Sendable {
     public let options: [ConversationQuestionOption]
     /// Whether a free-form answer is accepted.
     public let allowsCustomAnswer: Bool
+    /// Whether the provider requires free-form input to be visually concealed.
+    /// Optional for compatibility with journals written before this flag existed.
+    public let isSecret: Bool?
     /// Current question index in a multi-question request.
     public let index: Int?
     /// Total questions in this request.
     public let total: Int?
     /// Creates question details.
-    public init(category: String? = nil, prompt: String, options: [ConversationQuestionOption] = [], allowsCustomAnswer: Bool = true, index: Int? = nil, total: Int? = nil) { self.category = category; self.prompt = prompt; self.options = options; self.allowsCustomAnswer = allowsCustomAnswer; self.index = index; self.total = total }
+    public init(category: String? = nil, prompt: String, options: [ConversationQuestionOption] = [], allowsCustomAnswer: Bool = true, isSecret: Bool? = nil, index: Int? = nil, total: Int? = nil) { self.category = category; self.prompt = prompt; self.options = options; self.allowsCustomAnswer = allowsCustomAnswer; self.isSecret = isSecret; self.index = index; self.total = total }
 }
 
 /// One answer in a potentially multi-question provider request.

@@ -67,6 +67,24 @@ import CmuxConversation
         await connection.close()
     }
 
+    @Test func nativeQuestionInputConstraintsArePreserved() async throws {
+        let transport = CodexFixtureTransport()
+        let connection = try await CodexConnection.open(transport: transport, session: session())
+        var iterator = connection.events.makeAsyncIterator()
+        let question: ConversationJSONValue = .object(["id": .string("choice"), "question": .string("Choose"), "isOther": .bool(false), "isSecret": .bool(true), "options": .array([.object(["label": .string("Offered")])])])
+        await transport.emit(.object(["id": .string("request"), "method": .string("item/tool/requestUserInput"), "params": .object(["threadId": .string("native-thread"), "questions": .array([question])])]))
+        let request = try #require(try await iterator.next()?.request)
+        #expect(request.question?.allowsCustomAnswer == false)
+        #expect(request.question?.isSecret == true)
+        await #expect(throws: (any Error).self) {
+            try await connection.send(.answerQuestion(requestID: request.id, answers: [.init(index: 0, text: "Unlisted")]))
+        }
+        try await connection.send(.answerQuestion(requestID: request.id, answers: [.init(index: 0, optionID: "Offered")]))
+        let result = await transport.sent.last?.objectValue?["result"]?.objectValue?["answers"]?.objectValue
+        #expect(result?["choice"]?.objectValue?["answers"] == .array([.string("Offered")]))
+        await connection.close()
+    }
+
     @Test func deltasAccumulateAndAuthoritativeCompletionReplacesThem() {
         var projection = CodexEventProjection()
         let params: [String: ConversationJSONValue] = ["threadId": .string("thread"), "turnId": .string("turn"), "itemId": .string("item"), "delta": .string("part")]

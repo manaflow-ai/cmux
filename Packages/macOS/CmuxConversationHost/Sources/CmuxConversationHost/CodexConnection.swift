@@ -179,13 +179,19 @@ actor CodexConnection: ConversationProviderConnection {
         let turn = params["turnId"]?.stringValue.map(ConversationTurnID.init(rawValue:))
         if method == "item/tool/requestUserInput" {
             let questions = params["questions"]?.arrayValue ?? []
+            let identities = questions.compactMap { $0.objectValue?["id"]?.stringValue }
+            guard !questions.isEmpty, identities.count == questions.count,
+                  identities.allSatisfy({ !$0.isEmpty }), Set(identities).count == identities.count,
+                  questions.allSatisfy({ $0.objectValue?["question"]?.stringValue?.isEmpty == false }) else {
+                throw ConversationProviderError.malformed("Codex questions have incomplete or duplicate identities")
+            }
             for (index, value) in questions.enumerated() {
                 guard let question = value.objectValue, let questionID = question["id"]?.stringValue, let prompt = question["question"]?.stringValue else { throw ConversationProviderError.malformed("Codex question is incomplete") }
                 let options = (question["options"]?.arrayValue ?? []).compactMap { option -> ConversationQuestionOption? in
                     guard let object = option.objectValue, let label = object["label"]?.stringValue else { return nil }
                     return .init(id: label, label: label, detail: object["description"]?.stringValue)
                 }
-                let request = ConversationRequest(id: .init(rawValue: "codex:\(key):\(index)"), turnID: turn, generation: session.generation, kind: params["isBlocking"]?.boolValue == false ? "question_async" : "question", question: .init(category: question["header"]?.stringValue, prompt: prompt, options: options, allowsCustomAnswer: true, index: index, total: questions.count), rawPayload: raw)
+                let request = ConversationRequest(id: .init(rawValue: "codex:\(key):\(index)"), turnID: turn, generation: session.generation, kind: params["isBlocking"]?.boolValue == false ? "question_async" : "question", question: .init(category: question["header"]?.stringValue, prompt: prompt, options: options, allowsCustomAnswer: options.isEmpty || question["isOther"]?.boolValue == true, isSecret: question["isSecret"]?.boolValue, index: index, total: questions.count), rawPayload: raw)
                 requests[request.id] = PendingRequest(nativeID: nativeID, method: method, params: params, request: request, questionID: questionID, questionCount: questions.count)
                 try emit(.init(kind: .request, turnID: turn, request: request, rawPayload: raw))
             }
@@ -225,6 +231,9 @@ actor CodexConnection: ConversationProviderConnection {
     private func answer(_ id: ConversationRequestID, answers: [ConversationQuestionAnswer]) async throws {
         guard let pending = requests[id], let questionID = pending.questionID, let answer = answers.first(where: { $0.index == pending.request.question?.index }) ?? (answers.count == 1 ? answers.first : nil) else { throw ConversationProviderError.rejected("This question is no longer pending") }
         let text = answer.text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text?.isEmpty != false || pending.request.question?.allowsCustomAnswer == true else {
+            throw ConversationProviderError.rejected("This question requires an offered answer")
+        }
         guard let value = (text?.isEmpty == false ? text : answer.optionID), !value.isEmpty else { throw ConversationProviderError.rejected("An answer is required") }
         if text?.isEmpty != false, let optionID = answer.optionID, pending.request.question?.options.contains(where: { $0.id == optionID }) != true { throw ConversationProviderError.rejected("The selected answer is not offered") }
         questionAnswers[pending.nativeID, default: [:]][questionID] = .object(["answers": .array([.string(value)])])
