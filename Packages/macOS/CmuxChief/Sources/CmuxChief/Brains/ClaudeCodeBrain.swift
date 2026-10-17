@@ -267,10 +267,12 @@ actor ClaudeConversation {
         let endpoint = configuration.endpoint
         // A model endpoint must not see the app's Anthropic routing or credentials; its own
         // settings reach Claude Code through `--settings` (``arguments(_:session:systemPrompt:)``).
-        let removing: (String) -> Bool = endpoint == nil ? { _ in false } : ChiefModelEndpoint.isClearedKey
+        let clearsAnthropic = endpoint != nil
         let environment = ChiefExecutableResolver.environment(request: request.environment,
                                                               overrides: ["CMUX_CLAUDE_HOOKS_DISABLED": "1"],
-                                                              removing: removing)
+                                                              removing: { (key: String) -> Bool in
+                                                                  clearsAnthropic && ChiefModelEndpoint.isClearedKey(key)
+                                                              })
         // Checked before anything launches: without a key the endpoint answers 401.
         if let endpoint, !endpoint.hasKey(environment: environment) {
             throw ChiefBrainError.missingCredential(endpoint.name)
