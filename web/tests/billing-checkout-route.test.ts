@@ -517,6 +517,38 @@ describe("billing checkout route", () => {
     });
   });
 
+  test("creates a first-time Pro trial checkout with payment details collected up front", async () => {
+    stripeConfigured = true;
+    userResponses = [signedInUser];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=pro&trial=1"),
+    );
+
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
+    expect(createdStripeSessions[0]).toMatchObject({
+      payment_method_collection: "always",
+      metadata: { trialDays: "14" },
+      subscription_data: {
+        trial_period_days: 14,
+        metadata: { trialDays: "14" },
+      },
+    });
+  });
+
+  test("does not offer a trial to an account with existing Stripe billing history", async () => {
+    stripeConfigured = true;
+    stripeCustomerRows = [{ id: "cus_existing" }];
+    userResponses = [signedInUser];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout?plan=pro&trial=1"),
+    );
+
+    expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=trial_unavailable");
+    expect(createdStripeSessions).toHaveLength(0);
+  });
+
   test("creates Stripe checkout for a signed-in Pro buyer", async () => {
     stripeConfigured = true;
     userResponses = [signedInUser];

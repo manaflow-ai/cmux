@@ -12,6 +12,7 @@ export const CHECKOUT_EXTERNAL_BROWSER_PARAM = EXTERNAL_BROWSER_PARAM;
 export const CHECKOUT_NATIVE_SCHEME_PARAM = "cmux_scheme";
 export const CHECKOUT_PLAN_PARAM = "plan";
 export const CHECKOUT_INTERVAL_PARAM = "interval";
+export const CHECKOUT_TRIAL_PARAM = "trial";
 export const CHECKOUT_APP_RELAY_PARAM = "cmux_app_checkout";
 export const CHECKOUT_RELAY_EXPIRES_PARAM = "cmux_relay_expires";
 export const CHECKOUT_RELAY_SIGNATURE_PARAM = "cmux_relay_signature";
@@ -64,6 +65,10 @@ export function withCheckoutInterval(
   interval: CheckoutInterval,
 ): string {
   return withSearchParam(href, CHECKOUT_INTERVAL_PARAM, interval);
+}
+
+export function withCheckoutTrial(href: string): string {
+  return withSearchParam(href, CHECKOUT_TRIAL_PARAM, "1");
 }
 
 /** Tag a checkout link with the surface that shows it (`cmux_source`). */

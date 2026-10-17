@@ -90,6 +90,8 @@ export async function captureBillingCheckoutStarted(
     readonly signedIn: boolean;
     /** True when the principal already had a Stripe customer (lapsed or canceled). */
     readonly existingStripeCustomer: boolean;
+    /** Set for a checkout that starts the first-time customer trial. */
+    readonly trialDays?: number;
     /** Stripe's `livemode` of the Checkout Session. */
     readonly livemode?: boolean;
   },
@@ -108,6 +110,7 @@ export async function captureBillingCheckoutStarted(
       stripe_checkout_session_id: input.sessionId,
       signed_in: input.signedIn,
       existing_stripe_customer: input.existingStripeCustomer,
+      ...(input.trialDays ? { trial_days: input.trialDays } : {}),
       ...checkoutAttributionProperties(input.attribution),
     },
   }, postHogFetch);
