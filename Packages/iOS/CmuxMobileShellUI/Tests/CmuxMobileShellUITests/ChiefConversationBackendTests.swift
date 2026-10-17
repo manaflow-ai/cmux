@@ -125,4 +125,62 @@ struct ChiefConversationBackendTests {
 
         #expect(ChiefConversationBackend.pendingPoll(from: message) == nil)
     }
+
+    @Test
+    func pendingPollSkipsEarlierAnsweredOrUnsupportedCards() {
+        let unsupportedQuestion = MobileChiefQuestion(
+            id: "question-4",
+            source: .init(harness: .chief, session: "chief-main", agentName: "Chief"),
+            items: [
+                .init(
+                    id: "q0",
+                    prompt: "Which region?",
+                    options: [.init(id: "us", label: "US")]
+                ),
+                .init(
+                    id: "q1",
+                    prompt: "Which tier?",
+                    options: [.init(id: "pro", label: "Pro")]
+                )
+            ]
+        )
+        let supportedQuestion = MobileChiefQuestion(
+            id: "question-5",
+            source: .init(harness: .chief, session: "chief-main", agentName: "Chief"),
+            items: [
+                .init(
+                    id: "q0",
+                    prompt: "Use the defaults?",
+                    options: [.init(id: "yes", label: "Yes"), .init(id: "no", label: "No")]
+                )
+            ]
+        )
+        let message = MobileChiefMessage(
+            id: "question-message-4",
+            seq: 5,
+            authorID: "agent_chief",
+            author: "Chief",
+            authorKind: "chief",
+            text: "Use the defaults?",
+            at: Date(),
+            parts: ["approval", "question", "question"],
+            partPayloads: [
+                MobileChiefPart(
+                    kind: "approval",
+                    approval: MobileChiefApproval(
+                        request: "request-4",
+                        prompt: "Run deploy?",
+                        options: ["allow", "deny"],
+                        decided: "allow"
+                    )
+                ),
+                MobileChiefPart(kind: "question", question: unsupportedQuestion),
+                MobileChiefPart(kind: "question", question: supportedQuestion)
+            ]
+        )
+
+        let poll = ChiefConversationBackend.pendingPoll(from: message)
+        #expect(poll?.question == "Use the defaults?")
+        #expect(poll?.options.map(\.id) == ["yes", "no"])
+    }
 }

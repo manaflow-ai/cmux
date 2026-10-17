@@ -190,9 +190,8 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             throw ConversationBackendError(code: -1, message: "Chief cards cannot be deselected")
         }
         guard let part = withState({ state in
-            state.structuredPartsByMessageID[messageID]?.first { part in
-                part.kind == "approval" || part.kind == "question"
-            }
+            guard let parts = state.structuredPartsByMessageID[messageID] else { return nil }
+            return Self.pendingPollPart(from: parts)
         }) else {
             throw unsupported("polls")
         }
@@ -475,21 +474,37 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     /// card. Answered and cancelled cards intentionally return nil so their
     /// transcript remains a compact receipt rather than a stale action.
     static func pendingPoll(from message: MobileChiefMessage) -> ConversationPoll? {
-        for part in message.partPayloads {
+        guard let part = pendingPollPart(from: message.partPayloads) else { return nil }
+        if let approval = part.approval, part.kind == "approval" {
+            let options = approval.options.filter { !$0.hasPrefix("always:") }
+            return ConversationPoll(
+                question: approval.prompt,
+                options: options.map { ConversationPollOption(id: $0, text: $0) }
+            )
+        }
+        if let question = part.question, part.kind == "question",
+           let item = pollQuestion(from: question) {
+            return ConversationPoll(
+                question: item.prompt,
+                options: item.options.map { ConversationPollOption(id: $0.id, text: $0.label) }
+            )
+        }
+        return nil
+    }
+
+    /// Select the same card that `pendingPoll(from:)` exposes. A message can
+    /// carry multiple structured cards; answered or unsupported cards must not
+    /// shadow a later pending card that the generic poll actually renders.
+    private static func pendingPollPart(from parts: [MobileChiefPart]) -> MobileChiefPart? {
+        for part in parts {
             if let approval = part.approval, part.kind == "approval", approval.decided == nil {
                 let options = approval.options.filter { !$0.hasPrefix("always:") }
                 guard !options.isEmpty else { continue }
-                return ConversationPoll(
-                    question: approval.prompt,
-                    options: options.map { ConversationPollOption(id: $0, text: $0) }
-                )
+                return part
             }
             if let question = part.question, part.kind == "question",
-               let item = pollQuestion(from: question) {
-                return ConversationPoll(
-                    question: item.prompt,
-                    options: item.options.map { ConversationPollOption(id: $0.id, text: $0.label) }
-                )
+               pollQuestion(from: question) != nil {
+                return part
             }
         }
         return nil
