@@ -673,6 +673,7 @@
 		02F97228812557C41BEEA1F7 /* ChromiumPageFailureOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E632ED4AA647EAC6DC0ADC0 /* ChromiumPageFailureOverlay.swift */; };
 		47E9FFC426714B26271F0792 /* ChromiumPageMouseRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2E120CC420E2F3051447D3 /* ChromiumPageMouseRouter.swift */; };
 		E87D9C1B79B9C3FEB079A836 /* ChromiumPopupWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E97D9C1B79B9C3FEB079A836 /* ChromiumPopupWindowController.swift */; };
+		1A9F693FA632481BF3BC325E /* ChromiumUnownedTabRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8BA3F856FC0C7B0EC63E4FA /* ChromiumUnownedTabRouter.swift */; };
 		14EF8964333D71D46D8B6198 /* ChromiumWindowOverlayHole.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8F4B2767F6738D59E946E96 /* ChromiumWindowOverlayHole.swift */; };
 		F3000002A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000003A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift */; };
 		F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */; };
@@ -5459,6 +5460,7 @@
 		7E632ED4AA647EAC6DC0ADC0 /* ChromiumPageFailureOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ChromiumPageFailureOverlay.swift; sourceTree = "<group>"; };
 		8E2E120CC420E2F3051447D3 /* ChromiumPageMouseRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ChromiumPageMouseRouter.swift; sourceTree = "<group>"; };
 		E97D9C1B79B9C3FEB079A836 /* ChromiumPopupWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/ChromiumPopupWindowController.swift"; sourceTree = "<group>"; };
+		B8BA3F856FC0C7B0EC63E4FA /* ChromiumUnownedTabRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ChromiumUnownedTabRouter.swift; sourceTree = "<group>"; };
 		C8F4B2767F6738D59E946E96 /* ChromiumWindowOverlayHole.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ChromiumWindowOverlayHole.swift; sourceTree = "<group>"; };
 		F3000003A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CJKIMEInputTests+DeadKeyComposition.swift"; sourceTree = "<group>"; };
 		F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
@@ -12507,6 +12509,7 @@
 				212EB676288166B55ECA980D /* TerminalController+BrowserProtocolTelemetry.swift */,
 				C8F4B2767F6738D59E946E96 /* ChromiumWindowOverlayHole.swift */,
 				8E2E120CC420E2F3051447D3 /* ChromiumPageMouseRouter.swift */,
+				B8BA3F856FC0C7B0EC63E4FA /* ChromiumUnownedTabRouter.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -15378,6 +15381,7 @@
 				02F97228812557C41BEEA1F7 /* ChromiumPageFailureOverlay.swift in Sources */,
 				47E9FFC426714B26271F0792 /* ChromiumPageMouseRouter.swift in Sources */,
 				E87D9C1B79B9C3FEB079A836 /* ChromiumPopupWindowController.swift in Sources */,
+				1A9F693FA632481BF3BC325E /* ChromiumUnownedTabRouter.swift in Sources */,
 				14EF8964333D71D46D8B6198 /* ChromiumWindowOverlayHole.swift in Sources */,
 				A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */,
 				64FC98B1AF19A7558C109173 /* ClickByHintPreview.swift in Sources */,

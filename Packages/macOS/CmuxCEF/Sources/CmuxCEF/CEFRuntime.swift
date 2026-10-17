@@ -57,6 +57,20 @@ public final class CEFRuntime {
     /// Chromium asked for a window or tab that no cmux page can hold (a
     /// request with no opener, an incognito window): open `url` elsewhere.
     public var openURLWithoutOpener: (@MainActor (URL, CEFDisposition) -> Void)?
+    /// The page that takes a tab or download Chromium starts for no cmux
+    /// page (an extension's background worker, an install's welcome page),
+    /// for a profile (nil: any). See `CEFRuntime+UnownedTabs.swift`.
+    public var unownedTabAnchor: (@MainActor (_ profile: UUID?) -> CEFBrowser?)?
+    /// Opens such a tab's URL as a cmux Chromium tab when no page can take
+    /// it, in the request's profile (nil when Chromium named none of cmux's).
+    public var openUnownedURL: (@MainActor (_ url: URL, _ disposition: CEFDisposition, _ profile: UUID?) -> Void)?
+    /// Where a download no page can show goes.
+    public var unownedDownloadDirectory: @MainActor () -> URL = {
+        FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
+    }
+    /// Downloads Chromium started for no cmux page, by shim token.
+    var unownedDownloads = CEFUnownedDownloads()
 
     let logger = Logger(subsystem: "com.cmuxterm.app", category: "cef")
     /// CefAppProtocol on the app's NSApplication (installed at start).
@@ -387,6 +401,9 @@ public final class CEFRuntime {
         case .tab(.windowDestroyed, _, _, let value):
             shutdownSequence?.windowDestroyed(remaining: value)
             shutdownProgressed()
+        case .download(_, let browser, let token, _, _, _, _)
+            where browsers[browser] == nil || unownedDownloads.route(for: token) != nil:
+            routeUnownedDownload(event, token: token)
         case .tab(.popupWindowCreated, let browser, let window, let type):
             popupWindowCreated(window: window, browser: browser, type: type)
         case .tab(.popupWindowBounds, _, let window, _):
@@ -397,7 +414,8 @@ public final class CEFRuntime {
             guard let id = event.browserID else { return }
             if let browser = browsers[id] {
                 browser.handle(event)
-            } else if unplacedPopups[id] != nil, unplacedEvents[id, default: []].count < Self.unplacedEventLimit {
+            } else if unplacedPopups[id] != nil || deferredOrphans.contains(id),
+                      unplacedEvents[id, default: []].count < Self.unplacedEventLimit {
                 unplacedEvents[id, default: []].append(event)
             }
         }
@@ -452,7 +470,7 @@ public final class CEFRuntime {
             // next turn, once its window is known (CEFRuntime+PopupWindows).
             return deferOrphan(id, created: created)
         }
-        guard let opener else { return closeOrphan(id, created: created) }
+        guard let opener else { return closeOrphan(id, created: created, early: early) }
         let targetURL = created.url.flatMap(URL.init(string:))
         let adopted = CEFBrowser(adopting: id, from: opener, runtime: self, targetURL: targetURL)
         register(adopted, id: id)
@@ -464,11 +482,13 @@ public final class CEFRuntime {
                                 userGesture: created.userGesture))
     }
 
-    /// A tab Chromium created with no page of cmux's as its opener: its URL
-    /// opens elsewhere (`openURLWithoutOpener`) and the tab closes.
-    func closeOrphan(_ id: Int32, created: CEFCreatedBy) {
+    /// A tab Chromium created with no page of cmux's as its opener: the
+    /// page `unownedTabAnchor` names adopts it (CEFRuntime+UnownedTabs);
+    /// without one its URL opens elsewhere and the tab closes.
+    func closeOrphan(_ id: Int32, created: CEFCreatedBy, early: [CEFShimEvent] = []) {
+        if adoptOrphan(id, created: created, early: early) { return }
         logger.notice("CEF browser \(id) created without a known opener; closing it")
-        if let url = created.url.flatMap(URL.init(string:)) { openURLWithoutOpener?(url, created.disposition) }
+        if let url = created.url.flatMap(URL.init(string:)) { openOrphanURL(url, disposition: created.disposition) }
         shim?.close(id)
     }
 

@@ -68,14 +68,15 @@ let cefDevToolsKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent i
 /// Chromium wants a window or tab (fork API 8): returns the browser whose
 /// window gets it, or 0 to open nothing in Chromium.
 let cefWindowRequestCallback: CEFShimLibrary.WindowRequestFn = { context, kind, disposition, source, hasBounds,
-    x, y, width, height, _, url, _ in
+    x, y, width, height, _, url, profile in
     guard let context, Thread.isMainThread else { return 0 }
     let address = UInt(bitPattern: context)
     let target = url.map { String(cString: $0) } ?? ""
+    let profilePath = profile.map { String(cString: $0) } ?? ""
     let bounds = hasBounds != 0 ? CGRect(x: Int(x), y: Int(y), width: Int(width), height: Int(height)) : nil
     return MainActor.assumeIsolated {
-        CEFRuntime.from(address)?.windowRequest(kind: kind, disposition: disposition, source: source, url: target,
-                                                bounds: bounds) ?? 0
+        CEFRuntime.from(address)?.routeWindowRequest(kind: kind, disposition: disposition, source: source, url: target,
+                                                     bounds: bounds, profilePath: profilePath) ?? 0
     }
 }
 
