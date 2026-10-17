@@ -112,6 +112,9 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   /** Whether this owner asks UserDO about install revocation (UserDO closes its own sockets on revoke). */
   protected checksInstallRevocation = true
   private readonly alarmSerial = new AlarmSerial()
+  /** The commit-time drain of Chief wake channels in flight (afterCommit), and whether a commit came during it. */
+  private wakeDrain: Promise<void> | undefined
+  private wakeAgain = false
   private readonly gate = new SocketGate(this.ctx, this.env, () => this.checksInstallRevocation, (ws, a) => {
     if (a.subscribed && this.engine) safeSend(ws, this.snapshotFor(this.engine, a.principal, []))
   })
@@ -343,8 +346,18 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     // A Chief's wake goes at once, not after the alarm fires (and after a running alarm's slow projection):
     // a person waits on it (staging: 1-2.4 s from the message to the brain). The alarm still drains everything,
     // so a failed send here is retried there; MuxDO takes a repeated delivery once (item ids).
+    // One commit-time drain at a time per object: a slow or hung MuxDO is not sent the same rows once per commit
+    // (and one fault never counts as many); a commit during the drain looks again when it ends.
+    if (this.wakeDrain) return void (this.wakeAgain = true)
+    if (!this.engine.outbox.dueChannels(now).some(isWakeChannel)) return
     const engine = this.engine
-    if (engine.outbox.dueChannels(now).some(isWakeChannel)) this.ctx.waitUntil(drainOutboxChannels(engine, this.env, (c) => this.targetNamespace(c), undefined, undefined, isWakeChannel).catch(() => undefined))
+    this.wakeDrain = drainOutboxChannels(engine, this.env, (c) => this.targetNamespace(c), undefined, undefined, isWakeChannel)
+      .catch(() => undefined)
+      .finally(() => {
+        this.wakeDrain = undefined
+        if (this.wakeAgain) [(this.wakeAgain = false), this.afterCommit()]
+      })
+    this.ctx.waitUntil(this.wakeDrain)
     // setAlarm refuses a time <= 0; a past time fires at once, so the alarm never goes before now.
     const at = Math.max(want, now)
     void this.ctx.storage.getAlarm().then((t) => (t === null || t > at ? this.ctx.storage.setAlarm(at) : undefined))

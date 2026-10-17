@@ -52,7 +52,7 @@ export const drainOutboxChannels = async <S>(
     // (automations, integrations) read the projection, so the projection ("") is put first explicitly.
     // (A cross-channel order was never guaranteed: each channel backs off on its own.)
     const due = outbox.dueChannels(Date.now())
-    const wake = (c: string) => c.startsWith(`${MUX_CLASS}:`)
+    const wake = isWakeChannel
     for (const channel of [...due.filter(wake), ...due.filter((c) => c === ""), ...due.filter((c) => c !== "" && !wake(c))]) {
       // After a failure a target channel sends its head alone, so a poison item is found by itself.
       if (only && !only(channel)) continue

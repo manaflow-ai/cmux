@@ -20,14 +20,13 @@ import { type ChiefBrainDO, POST_RETRY_MS, MAX_POST_TRIES, HOST, SETTLE_MS, TURN
 export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; conversation: string; seq: number; reason: string; at?: number }): Promise<{ queued: number } | { skipped: string }> {
   markPending(b.sql, "wake")
   // When MuxDO committed the wake (the conversation's outbox delivered it): Run.timing mux_at.
-  if (typeof w.at === "number" && Date.now() - w.at < 60_000) markPending(b.sql, "mux", w.at)
+  if (typeof w.at === "number" && Date.now() - w.at < 60_000) markPending(b.sql, "mux", Math.min(w.at, Date.now()))
   // A cold object: when it was made (its constructor; wasm and memory load) and when its lifecycle was ready.
   // Only when this wake made the object (another entry point that made it long ago is not a cold wake).
   if (b.bootAt !== undefined) [Date.now() - b.bootAt < 10_000 && markPending(b.sql, "boot", b.bootAt), (b.bootAt = undefined)]
   await b.lifecycle.start()
   markPending(b.sql, "life")
   // The admission and the conversation read go at the same time (the read changes nothing; a refusal ignores it).
-  b.doCtx.waitUntil(b.harness.pi().catch(() => undefined))
   const reading = readConversation(b.doEnv, w.conversation, chiefPrincipal(w.agent, w.owner))
   reading.catch(() => undefined)
   const a = await b.admitted(w.agent, w.owner, false)
@@ -35,6 +34,7 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
   // While the wake reads the conversation and the turn is admitted: the owner's turns object, the route's auth and the team's meter warm up.
   if (isMetered(a.config.model)) b.doCtx.waitUntil(b.turns(w.owner).warm().catch(() => undefined))
   if (isClaude(a.config.model)) b.doCtx.waitUntil(claudeAuthFor(b.doEnv, b.holder).catch(() => undefined))
+  b.doCtx.waitUntil(b.harness.pi().catch(() => undefined))
   b.doCtx.waitUntil(creditsCanStart(b.doEnv, a.config).catch(() => undefined))
   const view = await reading
   if ("refused" in view) return { skipped: view.refused }

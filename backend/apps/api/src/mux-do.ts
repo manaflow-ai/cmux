@@ -76,7 +76,7 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
     const item = result?.value
     // A chief run locally (mux.configure brain "local") is its host's alone: no second answer from here.
     if (!item || result?.replayed || !head?.agent || !head.owner_user || head.brain !== "cloud") return
-    // `at`: when this queue took the wake (the brain's Run.timing mux_at; a resend keeps the first time).
+    // `at`: when this queue took the wake (the brain's Run.timing mux_at; a resend from the alarm has none).
     const wake = { agent: head.agent, owner: head.owner_user, conversation: item.conversation, seq: item.seq, reason: item.reason, at: Date.now() }
     const now = pendWake(this.ctx.storage.sql, wake, Date.now())
     this.scheduleAlarm()
