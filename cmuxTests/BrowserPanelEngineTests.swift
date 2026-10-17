@@ -18,7 +18,7 @@ import WebKit
     final class FakeChromiumPage: BrowserPage, BrowserPagePlaceholderColoring {
         var placeholderColor: NSColor = .clear
         var engineKind: BrowserEngineKind { .chromium }
-        var capabilities: BrowserEngineCapabilities { [.devToolsProtocol] }
+        var capabilities: BrowserEngineCapabilities = [.devToolsProtocol]
         var presentation: BrowserPagePresentation { .childWindow }
         let contentView = NSView(frame: .zero)
         var state = BrowserPageState()
@@ -416,5 +416,65 @@ import WebKit
         )
         panel.close()
         #expect(provider.pages.first?.closeCount == 1)
+    }
+
+    /// A Chromium tab shows the speaker while its page plays sound, as a
+    /// WebKit tab does, and Mute Tab mutes the Chromium page itself.
+    @Test func chromiumMediaReportsDriveTheTabAudioIndicator() throws {
+        let provider = FakeChromiumProvider()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: runtime(providers: [provider])
+        )
+        defer { panel.close() }
+        #expect(!panel.isPlayingAudio)
+
+        panel.handleEnginePageEvent(.mediaPlaybackReported(
+            BrowserMediaPlaybackReport(frameID: "main", isPlaying: true, isAudible: true)
+        ))
+        #expect(panel.isPlayingMedia)
+        #expect(panel.isPlayingAudio)
+
+        // A new main-frame document replaces the frames that reported.
+        panel.handleEnginePageEvent(.mediaPlaybackReset)
+        #expect(!panel.isPlayingMedia)
+        #expect(!panel.isPlayingAudio)
+    }
+
+    @Test func muteTabMutesTheChromiumPage() throws {
+        let provider = FakeChromiumProvider()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: runtime(providers: [provider])
+        )
+        defer { panel.close() }
+        let page = try #require(provider.pages.first)
+        page.capabilities.insert(.mediaMuting)
+        panel.handleEnginePageEvent(.mediaPlaybackReported(
+            BrowserMediaPlaybackReport(frameID: "main", isPlaying: true, isAudible: true)
+        ))
+
+        #expect(panel.setMuted(true))
+        #expect(page.isMuted)
+        #expect(panel.isMuted)
+        #expect(!panel.isPlayingAudio)
+
+        #expect(panel.toggleMute())
+        #expect(!page.isMuted)
+        #expect(panel.isPlayingAudio)
+    }
+
+    @Test func aChromiumPageThatCannotMuteRefusesMuteTab() throws {
+        let provider = FakeChromiumProvider()
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            engineChoice: BrowserEngineChoice(engine: .chromium, source: .explicit),
+            engineRuntime: runtime(providers: [provider])
+        )
+        defer { panel.close() }
+        #expect(!panel.setMuted(true))
+        #expect(!panel.isMuted)
     }
 }

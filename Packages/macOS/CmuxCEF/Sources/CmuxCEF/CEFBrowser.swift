@@ -325,6 +325,7 @@ public final class CEFBrowser {
         }
         onWindowCreated?(id)
         if state.zoom != 1 { shim.setZoomLevel(id, Self.zoomLevel(forFactor: state.zoom)) }
+        if isAudioMuted { shim.setAudioMuted(id, 1) }
         if let restore = pendingRestore {
             pendingRestore = nil
             let restored = restore.withCString { shim.tabRestoreNavigation(id, $0) }
@@ -520,6 +521,44 @@ public final class CEFBrowser {
         emit(.stateChanged(state))
     }
 
+    /// Mute Tab: Chromium silences the whole tab. Kept for a browser
+    /// Chromium creates later (first show, Memory Saver restore).
+    public private(set) var isAudioMuted = false
+
+    public func setAudioMuted(_ muted: Bool) {
+        isAudioMuted = muted
+        browserID.map { runtime.shim?.setAudioMuted($0, muted ? 1 : 0) }
+    }
+
+    /// Chrome's sound content-setting observer sets the tab's mute again on
+    /// every main-frame navigation, which unmutes a tab muted here; Mute Tab
+    /// holds across navigations as in WebKit, so it is set again as each
+    /// main document commits and finishes loading.
+    public nonisolated static func reassertsAudioMute(after event: CEFShimEvent) -> Bool {
+        switch event {
+        case .loadStart, .loadEnd: true
+        default: false
+        }
+    }
+
+    /// Sets the mute again now and once the current Chromium callback
+    /// returned (the observer may run after this one in the same dispatch).
+    private func reassertAudioMute() {
+        guard let id = browserID else { return }
+        runtime.shim?.setAudioMuted(id, 1)
+        Task { @MainActor [weak self] in
+            guard let self, self.isAudioMuted, self.browserID == id else { return }
+            self.runtime.shim?.setAudioMuted(id, 1)
+        }
+    }
+
+    /// Whether Chromium mutes the tab now, read back from Chromium; nil
+    /// before the browser exists.
+    public var chromiumAudioMuted: Bool? {
+        guard let id = browserID, let state = runtime.shim?.isAudioMuted(id), state >= 0 else { return nil }
+        return state == 1
+    }
+
     /// Chromium zoom levels are logarithmic: factor = 1.2 ^ level.
     nonisolated static func zoomLevel(forFactor factor: Double) -> Double {
         guard factor > 0 else { return 0 }
@@ -612,6 +651,7 @@ public final class CEFBrowser {
 
     func handle(_ event: CEFShimEvent) {
         if isPlaceholder || isClosed { return }
+        if isAudioMuted, Self.reassertsAudioMute(after: event) { reassertAudioMute() }
         var changed = true
         switch event {
         case .address(_, let url):

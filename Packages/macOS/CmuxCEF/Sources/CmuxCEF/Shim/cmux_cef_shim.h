@@ -330,6 +330,12 @@ CMUX_SHIM_EXPORT void cmux_shim_set_focus(int browser_id, int focus);
 // Without a handler every focus request wins (CEF's default).
 CMUX_SHIM_EXPORT void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler);
 CMUX_SHIM_EXPORT void cmux_shim_set_zoom_level(int browser_id, double level);
+// Mute Tab (CefBrowserHost::SetAudioMuted): Chromium silences every sound
+// of the tab (media elements, Web Audio, out-of-process frames) without the
+// page seeing it. It holds across navigations of the browser.
+CMUX_SHIM_EXPORT void cmux_shim_set_audio_muted(int browser_id, int muted);
+// 1 while Chromium mutes the tab, 0 when not, -1 when the browser is gone.
+CMUX_SHIM_EXPORT int cmux_shim_is_audio_muted(int browser_id);
 // File > Print… (CefBrowserHost::Print): Chromium's print preview over the
 // page, as the page's own window.print(). Returns 0 when the browser is gone.
 CMUX_SHIM_EXPORT int cmux_shim_print(int browser_id);

@@ -94,7 +94,7 @@ public struct BrowserEngineParityChecklist: Sendable {
               webkit: .notApplicable(reason: "WKWebView cannot intercept http(s) requests"),
               chromium: .gap(owner: "automation")),
         entry("userScripts", .userScripts, webkit: .supported, chromium: .supported),
-        entry("mediaMuting", .mediaMuting, webkit: .supported, chromium: .gap(owner: "engine")),
+        entry("mediaMuting", .mediaMuting, webkit: .supported, chromium: .supported),
     ])
 
     /// Every capability the checklist names.

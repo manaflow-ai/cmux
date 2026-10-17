@@ -2823,10 +2823,18 @@ final class BrowserPanel: Panel, ObservableObject {
         browserThemeMode
     }
 
+    /// Applies Mute Tab to the page the panel shows: the non-WebKit page when
+    /// there is one (`webView` is then only its placeholder), else `webView`.
     @discardableResult
-    private func applyMuteState(_ muted: Bool? = nil, to webView: WKWebView, reason: String) -> Bool {
+    func applyMuteState(_ muted: Bool? = nil, to webView: WKWebView, reason: String) -> Bool {
         let targetMuted = muted ?? isMuted
-        let applied = webView.cmuxSetPageAudioMuted(targetMuted)
+        let applied: Bool
+        if let enginePage {
+            applied = enginePage.capabilities.contains(.mediaMuting)
+            if applied { enginePage.isMuted = targetMuted }
+        } else {
+            applied = webView.cmuxSetPageAudioMuted(targetMuted)
+        }
 #if DEBUG
         if !applied {
             cmuxDebugLog(

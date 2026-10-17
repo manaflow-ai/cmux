@@ -79,7 +79,13 @@ extension TerminalController {
             if case .string(let text) = value { return text }
             return nil
         }
+        let setMuted = params["set_muted"].flatMap { value -> Bool? in
+            if case .bool(let muted) = value { return muted }
+            return nil
+        }
         let result = v2BrowserWithPanel(params: params.mapValues(\.foundationObject)) { workspaceId, surfaceId, panel in
+            // Mute Tab's own path (the tab context menu calls the same toggle).
+            let muteApplied = setMuted.map { panel.setMuted($0) }
             var pressed = false
             if let prompt = panel.pageRecoveryPrompt {
                 switch (press ?? "", Self.debugPromptName(prompt)) {
@@ -130,6 +136,13 @@ extension TerminalController {
                 "back_menu": historyMenu(false),
                 "forward_menu": historyMenu(true),
                 "current_url": v2OrNull(panel.currentURL?.absoluteString),
+                // The tab's speaker and Mute Tab: what the panel shows, and
+                // what the page's engine reports (Chromium reads its own mute back).
+                "media_playing": panel.isPlayingMedia,
+                "audio_playing": panel.isPlayingAudio,
+                "audio_muted": panel.isMuted,
+                "page_audio_muted": panel.page.isMuted,
+                "mute_applied": v2OrNull(muteApplied),
             ])
         }
         switch result {

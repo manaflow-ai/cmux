@@ -42,4 +42,9 @@ public enum BrowserPageEvent: Equatable, Sendable {
     /// app's own scheme), which the engine cancelled instead of loading;
     /// `userGesture` is whether the user's click started it.
     case externalAppRequested(URL, userGesture: Bool)
+    /// A frame's media-playback hook (``BrowserMediaPlaybackScript``)
+    /// reported what it plays.
+    case mediaPlaybackReported(BrowserMediaPlaybackReport)
+    /// A new main-frame document replaced the frames that reported media.
+    case mediaPlaybackReset
 }
