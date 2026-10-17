@@ -32,16 +32,19 @@ struct ChatSessionReconcilerTests {
     @Test("Older descriptor pushes cannot overwrite newer state")
     func versionGating() {
         var reducer = ChatSessionReconciler()
-        #expect(reducer.upsert(descriptor("s", version: 3, state: .working(since: .now))))
-        #expect(!reducer.upsert(descriptor("s", version: 2, state: .ended)))
+        let firstApplied = reducer.upsert(descriptor("s", version: 3, state: .working(since: .now)))
+        let staleApplied = reducer.upsert(descriptor("s", version: 2, state: .ended))
+        #expect(firstApplied)
+        #expect(!staleApplied)
         #expect(reducer.descriptor(for: "s")?.version == 3)
     }
 
-    @Test("List replacement keeps a concurrent newer push and removes gone sessions") {
+    @Test("List replacement keeps a concurrent newer push and removes gone sessions")
     func listReplacement() {
         var reducer = ChatSessionReconciler()
         reducer.replace(with: [descriptor("gone", version: 1), descriptor("live", version: 4)])
-        #expect(reducer.upsert(descriptor("live", version: 5, state: .working(since: .now))))
+        let liveUpdated = reducer.upsert(descriptor("live", version: 5, state: .working(since: .now)))
+        #expect(liveUpdated)
         reducer.replace(with: [descriptor("live", version: 1)])
         #expect(reducer.descriptor(for: "gone") == nil)
         #expect(reducer.descriptor(for: "live")?.version == 5)
@@ -51,10 +54,14 @@ struct ChatSessionReconcilerTests {
     func eventFolding() {
         var reducer = ChatSessionReconciler()
         reducer.replace(with: [descriptor("s", version: 1)])
-        #expect(reducer.apply(sessionID: "s", event: .stateChanged(.needsInput(since: .now))))
+        let stateApplied = reducer.apply(sessionID: "s", event: .stateChanged(.needsInput(since: .now)))
+        #expect(stateApplied)
         #expect(reducer.descriptor(for: "s")?.state.needsAttention == true)
-        #expect(!reducer.apply(sessionID: "s", event: .stateChanged(.needsInput(since: .now))))
-        #expect(reducer.apply(sessionID: "s", event: .sessionRemoved(version: 2)))
-        #expect(!reducer.apply(sessionID: "s", event: .sessionRemoved(version: 3)))
+        let duplicateStateApplied = reducer.apply(sessionID: "s", event: .stateChanged(.needsInput(since: .now)))
+        let removed = reducer.apply(sessionID: "s", event: .sessionRemoved(version: 2))
+        let removedAgain = reducer.apply(sessionID: "s", event: .sessionRemoved(version: 3))
+        #expect(!duplicateStateApplied)
+        #expect(removed)
+        #expect(!removedAgain)
     }
 }
