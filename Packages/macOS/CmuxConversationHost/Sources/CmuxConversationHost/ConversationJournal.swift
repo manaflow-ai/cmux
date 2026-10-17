@@ -27,6 +27,7 @@ public actor ConversationJournal {
         self.decoder = JSONDecoder()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: Int(0o700)])
         try? FileManager.default.setAttributes([.posixPermissions: Int(0o700)], ofItemAtPath: directory.path)
+        self.eventOffsets = []
         var last: ConversationCursor = 0
         if FileManager.default.fileExists(atPath: journalURL.path) {
             let attributes: [FileAttributeKey: Any]
@@ -39,7 +40,6 @@ public actor ConversationJournal {
             catch { throw ConversationJournalError.corruptJournal(journalURL.path) }
             guard !data.isEmpty else {
                 try? FileManager.default.setAttributes([.posixPermissions: Int(0o600)], ofItemAtPath: journalURL.path)
-                self.eventOffsets = []
                 self.lastSequenceValue = 0
                 return
             }
@@ -59,7 +59,6 @@ public actor ConversationJournal {
             }
             try? FileManager.default.setAttributes([.posixPermissions: Int(0o600)], ofItemAtPath: journalURL.path)
         }
-        if !FileManager.default.fileExists(atPath: journalURL.path) { self.eventOffsets = [] }
         self.lastSequenceValue = last
     }
 

@@ -20,14 +20,13 @@ import CmuxConversation
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let journal = try ConversationJournal(directory: root)
-        try await journal.append(event: event(sequence: 1))
+        try await journal.append(event(sequence: 1))
         let url = root.appendingPathComponent("events.jsonl")
         var data = try Data(contentsOf: url)
-        data.removeLast()
         data.append(contentsOf: Data("{\"truncated\"".utf8))
         try data.write(to: url, options: [.atomic])
         let recovered = try ConversationJournal(directory: root)
-        try await recovered.append(event: event(sequence: 2))
+        try await recovered.append(event(sequence: 2))
         let events = try await recovered.events(after: 0)
         #expect(events.map(\.sequence) == [1, 2])
     }
@@ -36,8 +35,8 @@ import CmuxConversation
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let journal = try ConversationJournal(directory: root)
-        try await journal.append(event: event(sequence: 1))
-        try await journal.append(event: event(sequence: 2))
+        try await journal.append(event(sequence: 1))
+        try await journal.append(event(sequence: 2))
         let url = root.appendingPathComponent("events.jsonl")
         var data = try Data(contentsOf: url)
         if let newline = data.firstIndex(of: 10) { data.replaceSubrange(0..<newline, with: Data("corrupt".utf8)) }
