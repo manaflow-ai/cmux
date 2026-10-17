@@ -31,6 +31,7 @@ import {
   type AgentsRun,
   type AgentsState,
   type Domains,
+  type HandsRun,
   type HarnessesRun,
   type HarnessesState,
   type HostLists,
@@ -142,6 +143,7 @@ export class SettingsStore {
     this.queryClient.setQueryDefaults(settingsKeys.harnesses, {
       queryFn: () => this.native("cmux.settings.harnesses.state"),
     });
+    this.queryClient.setQueryDefaults(settingsKeys.hands, { queryFn: () => this.native("cmux.settings.hands.state") });
     this.queryClient.setQueryDefaults(settingsKeys.themeColors, {
       queryFn: async (): Promise<ThemeColorsData> =>
         new Map((await this.native("cmux.settings.theme.colors")).themes.map((theme) => [theme.name, theme])),
@@ -179,6 +181,7 @@ export class SettingsStore {
       this.listen("cmux.settings.harnesses.changed", (harnesses) =>
         this.queryClient.setQueryData(settingsKeys.harnesses, harnesses),
       ),
+      this.listen("cmux.settings.hands.changed", (hands) => this.queryClient.setQueryData(settingsKeys.hands, hands)),
       this.listen("cmux.page.command", (event) => {
         for (const listener of this.commandListeners) listener(event.command);
       }),
@@ -383,6 +386,13 @@ export class SettingsStore {
   async runHarnesses(run: HarnessesRun): Promise<void> {
     await this.request("cmux.settings.harnesses.run", run);
     await this.fetchNative(settingsKeys.harnesses);
+  }
+
+  /** One Hands gesture (Settings > Machines), then a fresh read of the group. A raise waits for
+   * Touch ID or the password in the host; its answer carries the reason a change did not happen. */
+  async runHands(run: HandsRun): Promise<void> {
+    await this.request("cmux.settings.hands.run", run);
+    await this.fetchNative(settingsKeys.hands);
   }
 
   /** Runs one of the page's catalog actions (`target` is `kind:id`), then re-reads the lists. */

@@ -19,6 +19,8 @@ import {
   type AgentsRun,
   type AgentsState,
   type AccountsState,
+  type HandsRun,
+  type HandsState,
   type HarnessesRun,
   type HarnessesState,
   type Diagnostic,
@@ -201,6 +203,20 @@ export class MockSettingsProvider {
         return { added };
       },
       "cmux.settings.accounts.run": (params) => this.runAccounts(params as AccountsRun),
+      "cmux.settings.hands.state": () => this.hands,
+      "cmux.settings.hands.run": (params) => {
+        const run = params as HandsRun;
+        if (run.action === "level") {
+          // Like the host: a lower applies; a raise needs the presence prompt, which a mock never passes.
+          const row = this.hands.hands.find((hand) => hand.hand === run.hand);
+          if (!row) throw new ProtocolError("cmux.settings.invalid", "hand must be a listed hand");
+          const order = this.hands.levels;
+          if (row.level && order.indexOf(run.level) > order.indexOf(row.level)) return {};
+          row.level = run.level;
+        }
+        this.handRuns.push(run);
+        return {};
+      },
       "cmux.settings.harnesses.state": () => this.harnesses,
       "cmux.settings.harnesses.run": (params) => {
         const run = params as HarnessesRun;
@@ -252,6 +268,8 @@ export class MockSettingsProvider {
       "cmux.settings.agents.run",
       "cmux.settings.harnesses.state",
       "cmux.settings.harnesses.run",
+      "cmux.settings.hands.state",
+      "cmux.settings.hands.run",
       "cmux.settings.theme.set",
       "cmux.settings.theme.colors",
       "cmux.settings.theme.accepts",
@@ -291,6 +309,30 @@ export class MockSettingsProvider {
     });
     session.provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
   }
+
+  /** The owner's Chief hands as the app serves them (`HandsService.pageState`). */
+  hands: HandsState = {
+    signed_in: true,
+    levels: ["read-only", "ask", "auto", "full"],
+    hands: [
+      {
+        hand: "hand_aaaaaaaaaaaaaaaaaaaa",
+        name: "studio-mac",
+        profile: "mac",
+        level: "auto",
+        online: true,
+        pending: 0,
+      },
+    ],
+    defaults: {},
+    secure_enclave: true,
+    prompt: null,
+    busy: null,
+    error: null,
+  };
+
+  /** Hands gestures the page sent. */
+  readonly handRuns: HandsRun[] = [];
 
   /** acpmux's harnesses as the app serves them (`SettingsHarnesses.state`). */
   harnesses: HarnessesState = {

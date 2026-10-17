@@ -25,6 +25,7 @@ export const settingsKeys = {
   host: ["settings", "host"] as const,
   accounts: ["settings", "accounts"] as const,
   harnesses: ["settings", "harnesses"] as const,
+  hands: ["settings", "hands"] as const,
   themeColors: ["settings", "theme-colors"] as const,
   write: ["settings", "write"] as const,
 };

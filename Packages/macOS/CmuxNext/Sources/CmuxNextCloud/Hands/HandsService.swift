@@ -32,6 +32,14 @@ public final class HandsService {
     public private(set) var pending: [String: HandApproval] = [:]
     /// The presence prompt that asks now, else nil.
     public private(set) var prompt: HandPresencePrompt?
+    /// Following the owner (signed in): ``start()`` until ``stop()``.
+    public private(set) var isActive = false
+    /// The level change Settings runs now (`<hand>` or `default:<profile>`), else nil.
+    public internal(set) var busy: String?
+    /// Why the last Settings level change did not happen (localized), else nil.
+    public internal(set) var pageError: String?
+    /// Owner defaults set from this app since sign-in (the server has no read for them).
+    public internal(set) var defaults: [HandProfile: HandLevel] = [:]
     /// What happened, newest last (bounded; for `debug.hands`).
     public private(set) var log: [String] = []
     /// A request now waits: post its banner (the hand's name for the title).
@@ -45,9 +53,9 @@ public final class HandsService {
     /// `profile` hands; raw level and profile values) and why a Mac without a Secure Enclave, or with no
     /// registered Cloud install, refuses raises and allows. The App sets CmuxNextAgentPane's localized `AgentApprovalBanners.handTexts`.
     @ObservationIgnored public var texts: (raiseHand: (_ name: String, _ level: String) -> String, raiseDefault: (_ profile: String, _ level: String) -> String,
-                                             unavailable: String, notLinked: String) =
+                                             unavailable: String, notLinked: String, failed: String) =
         ({ "raise the hand \($0) to \($1)" }, { "raise the default level of new \($0) hands to \($1)" }, "This Mac has no Secure Enclave.",
-         "This Mac is not set up for Cloud.")
+         "This Mac is not set up for Cloud.", "The level did not change.")
 
     @ObservationIgnored private let api: HandsAPIClient
     @ObservationIgnored private let identity: MacInstallIdentity
@@ -69,11 +77,14 @@ public final class HandsService {
 
     /// Signed in: follow the user socket; each subscribe reads the hands and their waiting requests.
     public func start() {
+        isActive = true
         wire.start { [weak self] event in self?.handle(event) }
     }
 
     /// Signed out: stop following and withdraw every banner.
     public func stop() {
+        isActive = false
+        (busy, pageError, defaults) = (nil, nil, [:])
         wire.stop()
         reads?.cancel()
         reads = nil
@@ -224,6 +235,7 @@ public final class HandsService {
             try await raise(target: target, to: level, reason: texts.raiseDefault(profile.rawValue, level.rawValue))
         }
         note("default \(profile.rawValue) -> \(level.rawValue)")
+        defaults[profile] = level
     }
 
     private func raise(target: String, to level: HandLevel, reason: String) async throws {

@@ -264,6 +264,42 @@ export type HarnessRow = {
   lastAutoUpdate?: { ok: boolean; detail: string } | null;
 };
 
+/** One of the owner's Chief hands (Settings > Machines > Hands; host `HandsService+Page`). */
+export type HandRow = {
+  hand: string;
+  name: string;
+  profile: "mac" | "sandbox" | null;
+  level: HandLevel | null;
+  online: boolean;
+  /** Requests waiting for the owner. */
+  pending: number;
+};
+
+export type HandLevel = "read-only" | "ask" | "auto" | "full";
+
+/** The Hands group: the owner's hands, the levels stricter to looser, and the raise in progress. */
+export type HandsState = {
+  signed_in: boolean;
+  levels: HandLevel[];
+  hands: HandRow[];
+  /** Owner defaults set from this app since sign-in, by profile (the server has no read for them). */
+  defaults: Partial<Record<"mac" | "sandbox", HandLevel>>;
+  secure_enclave: boolean;
+  /** The presence prompt's reason while Touch ID or the password asks, else null. */
+  prompt: string | null;
+  /** The level change running now (`<hand>` or `default:<profile>`), else null. */
+  busy: string | null;
+  /** Why the last change did not happen (localized), else null. */
+  error: string | null;
+};
+
+/** One Hands gesture: a re-read, a hand's level, or the default of new hands of a profile. A raise
+ * asks for Touch ID or the password in the host; the page never decides it. */
+export type HandsRun =
+  | { action: "refresh" }
+  | { action: "level"; hand: string; level: HandLevel }
+  | { action: "default"; profile: "mac" | "sandbox"; level: HandLevel };
+
 /** The Harnesses part: acpmux's harnesses (the host reads `_acpmux/harnesses`). */
 export type HarnessesState = {
   loading: boolean;
@@ -309,6 +345,10 @@ export type SettingsOps = {
   "cmux.settings.harnesses.state": [Record<string, never>, HarnessesState];
   /** Native: one Harnesses gesture (a terminal tab for sign-in, or a refresh). */
   "cmux.settings.harnesses.run": [HarnessesRun, unknown];
+  /** Native: the owner's Chief hands (Settings > Machines > Hands). */
+  "cmux.settings.hands.state": [Record<string, never>, HandsState];
+  /** Native: one Hands gesture; answers `{error}` when the change did not happen. */
+  "cmux.settings.hands.run": [HandsRun, { error?: string }];
   /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
   /** Native: the colors of every published theme, for the theme preview and the picker's swatches. */
@@ -369,6 +409,8 @@ export type SettingsStreams = {
   "cmux.settings.agents.changed": AgentsState;
   /** The Harnesses part changed (the event carries the new state). */
   "cmux.settings.harnesses.changed": HarnessesState;
+  /** The Hands group changed (the event carries the new state). */
+  "cmux.settings.hands.changed": HandsState;
   /** The host lists changed (the event carries the new lists). */
   "cmux.settings.host.changed": HostLists;
   /** The page bridge's link to the daemon (one stream for every page). */

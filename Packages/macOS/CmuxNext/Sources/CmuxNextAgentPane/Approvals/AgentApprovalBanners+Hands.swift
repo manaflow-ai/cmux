@@ -37,8 +37,9 @@ extension AgentApprovalBanners {
 
     /// `HandsService.texts`: the presence prompt reasons by raw level and profile values.
     public nonisolated static var handTexts: (raiseHand: (String, String) -> String, raiseDefault: (String, String) -> String,
-                                              unavailable: String, notLinked: String) {
-        ({ handRaiseReason($0, level: $1) }, { handDefaultRaiseReason(profile: $0, level: $1) }, handPresenceUnavailable, handNotLinked)
+                                              unavailable: String, notLinked: String, failed: String) {
+        ({ handRaiseReason($0, level: $1) }, { handDefaultRaiseReason(profile: $0, level: $1) }, handPresenceUnavailable, handNotLinked,
+         String(localized: "hands.level.failed", defaultValue: "The level did not change. Try again.", bundle: .module))
     }
 
     /// Why Allow or a raise does nothing: this Mac has no registered Cloud install (signed out, or Cloud is off here).

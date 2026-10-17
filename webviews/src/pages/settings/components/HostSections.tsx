@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useSettingsState, useStore } from "../context";
 import type { BrowserProfile, HostListRow, HostLists } from "../ops";
 import { t } from "../strings";
+import { HandsGroup } from "./HandsGroup";
 
 const ASSET_ICON = /^(image|svg):sha256-[0-9a-f]{64}$/;
 
@@ -74,14 +75,19 @@ export function BrowserProfiles() {
 
 export function MachinesSection({ title }: { title: string }) {
   const { host } = useSettingsState();
-  if (!host) return null;
   return (
-    <section className="group" data-card="machines">
-      <h3 className="group-title">{title}</h3>
-      <div className="rows">
-        <ListRows rows={host.machines} empty={t("settingsWindow.machinesEmpty")} marks />
-      </div>
-    </section>
+    <>
+      {host && (
+        <section className="group" data-card="machines">
+          <h3 className="group-title">{title}</h3>
+          <div className="rows">
+            <ListRows rows={host.machines} empty={t("settingsWindow.machinesEmpty")} marks />
+          </div>
+        </section>
+      )}
+      {/* Chief hands: the machines a Chief works on, and their permission levels (cx-om025). */}
+      <HandsGroup />
+    </>
   );
 }
 

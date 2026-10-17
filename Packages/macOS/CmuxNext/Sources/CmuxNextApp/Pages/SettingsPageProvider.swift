@@ -32,6 +32,8 @@ final class SettingsPageProvider: PageProvider {
     /// nil in tests without an app.
     var harnessesState: (@MainActor () -> JSONValue)?
     var harnessesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
+    /// Settings > Machines > Hands (cx-om025, `HandsService+Page`): its state and one gesture; nil in tests without an app.
+    var hands: (state: @MainActor () -> JSONValue, run: @MainActor (JSONValue) async throws -> JSONValue)?
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
     var acceptsTheme: (@MainActor (String) -> Bool)?
@@ -122,6 +124,9 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.harnesses.run":
             guard let harnessesRun else { throw PageError(code: "cmux.page.unavailable", message: "no harnesses") }
             return try await harnessesRun(params)
+        case "cmux.settings.hands.state", "cmux.settings.hands.run":
+            guard let hands else { throw PageError(code: "cmux.page.unavailable", message: "no hands") }
+            return op.hasSuffix(".state") ? hands.state() : try await hands.run(params)
         case "cmux.settings.theme.set":
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
             guard let level = params["level"]?.stringValue else { throw PageError.invalidParams("level is required") }
@@ -217,6 +222,7 @@ final class SettingsPageProvider: PageProvider {
         if stream == "cmux.settings.harnesses.changed", let harnessesState {
             return Self.watch(harnessesState, onEvent: onEvent)
         }
+        if stream == "cmux.settings.hands.changed", let hands { return Self.watch(hands.state, onEvent: onEvent) }
         if stream == "cmux.settings.host.changed", let hostLists {
             return Self.watch(hostLists, onEvent: onEvent)
         }

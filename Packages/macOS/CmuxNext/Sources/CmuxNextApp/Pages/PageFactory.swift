@@ -1,5 +1,6 @@
 import CmuxNextAccounts
 import CmuxNextActions
+import CmuxNextCloud
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
@@ -122,6 +123,8 @@ struct PageFactory {
         )
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params in try await harnesses.run(params) }
+        let hands = services.cloud.hands
+        provider.hands = ({ JSONValue(foundation: hands.pageState) ?? .null }, { JSONValue(foundation: await hands.pageRun($0.foundationObject as? [String: Any] ?? [:])) ?? .null })
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in
