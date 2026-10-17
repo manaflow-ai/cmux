@@ -158,6 +158,28 @@ describe("durable Run repository", () => {
       const attempt = created.attempts[0];
       if (!attempt) throw new Error("run did not create attempt 0");
       const firstLease = await runRepositoryModule().claimAttemptLease({ runId: created.run.id, attemptId: attempt.id, workerId: "worker-a" });
+      const acceptedEvent = await runRepositoryModule().ingestRunEvent({
+        runId: created.run.id,
+        attemptId: attempt.id,
+        leaseToken: firstLease.leaseToken,
+        leaseGeneration: firstLease.leaseGeneration,
+        externalId: "stale-event",
+        attemptSequence: 1,
+        kind: "attempt.output",
+        payload: { text: "accepted" },
+      });
+      const bytes = new TextEncoder().encode("artifact");
+      const acceptedArtifact = await runRepositoryModule().recordRunArtifact({
+        runId: created.run.id,
+        attemptId: attempt.id,
+        leaseToken: firstLease.leaseToken,
+        leaseGeneration: firstLease.leaseGeneration,
+        name: "report.txt",
+        sizeBytes: bytes.byteLength,
+        digest: artifactDigest(bytes),
+        uri: "run://stale/report.txt",
+        bytes,
+      });
       await sql!`update run_attempts set lease_expires_at = now() - interval '1 second' where id = ${attempt.id}`;
       const secondLease = await runRepositoryModule().claimAttemptLease({ runId: created.run.id, attemptId: attempt.id, workerId: "worker-b" });
       expect(secondLease.leaseGeneration).toBe(firstLease.leaseGeneration + 1);
@@ -171,7 +193,6 @@ describe("durable Run repository", () => {
         kind: "attempt.output",
         payload: { text: "stale" },
       })).rejects.toBeInstanceOf(runRepositoryModule().RunLeaseConflictError);
-      const bytes = new TextEncoder().encode("artifact");
       await expect(runRepositoryModule().recordRunArtifact({
         runId: created.run.id,
         attemptId: attempt.id,
@@ -183,6 +204,8 @@ describe("durable Run repository", () => {
         uri: "run://stale/report.txt",
         bytes,
       })).rejects.toBeInstanceOf(runRepositoryModule().RunLeaseConflictError);
+      expect(acceptedEvent.payload).toEqual({ text: "accepted" });
+      expect(acceptedArtifact.name).toBe("report.txt");
     } finally {
       await deleteRuns(userId);
     }
