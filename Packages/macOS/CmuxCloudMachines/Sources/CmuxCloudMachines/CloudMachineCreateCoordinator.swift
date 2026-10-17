@@ -66,6 +66,7 @@ public final class CloudMachineCreateCoordinator {
               case .failed = projection.operations[index].phase else { return nil }
         let attempt = CloudMachineCreateAttempt(operationID: id, canAllocateMachine: !projection.operations[index].request.isBaseSetup && projection.operations[index].createdMachineID == nil)
         projection.operations[index].phase = .running
+        projection.operations[index].refusalCode = nil
         attempts[id] = attempt
         carries[id] = nil
         return attempt
@@ -84,6 +85,7 @@ public final class CloudMachineCreateCoordinator {
         let refusedOperation = projection.operations[index]
         if let retryFailure {
             projection.operations[index].phase = .failed(output: retryFailure)
+            projection.operations[index].refusalCode = nil
         } else {
             projection.operations.remove(at: index)
         }
@@ -164,12 +166,18 @@ public final class CloudMachineCreateCoordinator {
             if operation.request.retainsPendingProjection {
                 // Keep the inline failure. The retained receipt makes retry an open, never a create.
                 projection.operations[index].phase = .failed(output: completion.failureOutput)
+                // The machine exists and a retry only opens it, so a create
+                // refusal's actions (pause, upgrade) do not apply to this row.
+                projection.operations[index].refusalCode = nil
             } else {
                 projection.operations.remove(at: index)
             }
         } else {
             outcome = .failed(output: completion.failureOutput)
             projection.operations[index].phase = .failed(output: completion.failureOutput)
+            projection.operations[index].refusalCode = completion.refusalCode
+            // The finished value reports this attempt's refusal, not the stale copy's.
+            operation.refusalCode = completion.refusalCode
         }
         transition.finished = .init(operation: operation, outcome: outcome)
         return transition

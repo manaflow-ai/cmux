@@ -84,6 +84,14 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowBranchDirectory"
     )
 
+    /// Whether workspace rows show the Cloud machine or device identity icon
+    /// independently of the Git branch and working-directory details.
+    public let showCloudDeviceIcons = DefaultsKey<Bool>(
+        id: "sidebar.showCloudDeviceIcons",
+        defaultValue: true,
+        userDefaultsKey: "sidebarShowCloudDeviceIcons"
+    )
+
     public let showPullRequests = DefaultsKey<Bool>(
         id: "sidebar.showPullRequests",
         defaultValue: true,

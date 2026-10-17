@@ -392,6 +392,50 @@ class LiveReaderTests(unittest.TestCase):
         self.assertEqual(values["side_runner"], "glaeda-aws-side-std-xcode-26.3")
         self.assertEqual(values["admission_runner"], '["glaeda-aws-root-std-xcode-26.3"]')
 
+    def test_an_overflow_run_compiles_on_a_free_12vcpu_slot(self):
+        """Compile admission is the critical leg; on 6vcpu it takes about 18 min, on 12vcpu about 10."""
+        large, small, mac15 = picker.BLACKSMITH
+        state = picker.State(jobs=3, blacksmith=(pool(large, 5, 3), pool(small, 10), pool(mac15, 10)))
+        choice = picker.pick(state)
+        self.assertEqual((choice.label, choice.admission_label), (small, large))
+        values = picker.write_outputs(choice, 3, env={"RUN_MACOS": "true"})
+        self.assertEqual(values["runner"], small)
+        self.assertEqual(values["retry_runner"], small)
+        self.assertEqual(values["admission_runner"], json.dumps([large]))
+        # No compile, nothing to move.
+        self.assertEqual(picker.write_outputs(choice, 3, env={"RUN_CLI": "true"})["admission_runner"], "")
+
+    def test_the_compile_stays_put_without_a_free_12vcpu_slot(self):
+        large, small, mac15 = picker.BLACKSMITH
+        for busy in (pool(large, 5, 5), pool(large, 5, 4, reserved=1)):
+            choice = picker.pick(picker.State(jobs=3, blacksmith=(busy, pool(small, 10), pool(mac15, 10))))
+            self.assertEqual((choice.label, choice.admission_label), (small, ""), busy)
+        # A run that fits 12vcpu already compiles there.
+        choice = picker.pick(picker.State(jobs=2, blacksmith=(pool(large, 5), pool(small, 10))))
+        self.assertEqual((choice.label, choice.admission_label), (large, ""))
+
+    def test_owned_runs_and_the_macos_15_pool_never_borrow_12vcpu(self):
+        large, small, mac15 = picker.BLACKSMITH
+        owned = picker.pick(picker.State(jobs=2, owned=(pool("glaeda-std-xcode-26.6", 8, free=2),),
+                                         blacksmith=(pool(large, 5), pool(small, 10)), owned_enabled=True))
+        self.assertEqual(owned.admission_label, "")
+        # The macOS 15 pool runs another Xcode; its product must come from that Xcode.
+        older = picker.pick(picker.State(jobs=4, blacksmith=(pool(large, 5, 3), pool(small, 10, 10),
+                                                             pool(mac15, 10, xcode_app="/Applications/Xcode_26.3.app"))))
+        self.assertEqual((older.label, older.admission_label), (mac15, ""))
+        # A fork is placed on its own route.
+        fork = picker.pick(picker.State(jobs=3, fork=True, blacksmith=(pool(large, 5, 3), pool(small, 10))))
+        self.assertEqual(fork.admission_label, "")
+
+    def test_the_compile_route_takes_the_overflow_admission_runner_on_attempt_one(self):
+        workflow = (ROOT / ".github/workflows/ci-macos.yml").read_text()
+        borrowed = ("!contains(inputs.pr_owned_jobs, ' admission ')) && (github.run_attempt == 1 && "
+                    "!contains(inputs.pr_owned_jobs, ' admission ') && inputs.pr_admission_runner && "
+                    "fromJSON(inputs.pr_admission_runner){index} || inputs.pr_retry_runner)")
+        # runs-on takes the list; the product's runner output names its label.
+        self.assertEqual(workflow.count(borrowed.format(index="")), 1)
+        self.assertEqual(workflow.count(borrowed.format(index="[0]")), 1)
+
     def test_full_suite_release_build_keeps_swift_package_off_the_minis(self):
         """swift-package-tests builds the SDK 15 helper there, which the minis cannot."""
         owned = picker.Choice("glaeda-std-xcode-26.6", "owned", owned=True)

@@ -11,6 +11,7 @@ import {
 } from "../coderouter/repository";
 import { applySubscriptionUpdate } from "./purchase";
 import { stripe } from "./stripe";
+import { planItem } from "./subscriptionItems";
 
 const DEFAULT_LIMIT = 1_000;
 const DEFAULT_CONCURRENCY = 8;
@@ -184,7 +185,7 @@ function hasDrift(
   return local.status !== remote.status ||
     local.cancelAtPeriodEnd !== remote.cancel_at_period_end ||
     epochSeconds(local.currentPeriodEnd) !==
-      (remote.items.data[0]?.current_period_end ?? null);
+      (planItem(remote)?.current_period_end ?? null);
 }
 
 function epochSeconds(value: Date | null): number | null {

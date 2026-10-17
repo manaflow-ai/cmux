@@ -1,3 +1,4 @@
+import CmuxAuthRuntime
 import CmuxCloud
 import CmuxSettings
 
@@ -34,9 +35,8 @@ extension CmuxTuiSurfaceProviderRegistry {
         if AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope != expectedTeamScope {
             throw VMClientError.notSignedIn
         }
-        guard let wireGuardHub else { throw VMClientError.cloudMachinesDisabled }
-        _ = try await wireGuardHub.prewarm(
-            allowWhenCloudDisabled: true,
+        await prepareActivationHub(
+            wireGuardHub: wireGuardHub,
             expectedTeamScope: expectedTeamScope
         )
         try Task.checkCancellation()
@@ -48,12 +48,31 @@ extension CmuxTuiSurfaceProviderRegistry {
         }
     }
 
+    /// Runs activation's carrier preparation. Kept as a seam so activation can
+    /// be tested independently from the app's live auth and VM client graph.
+    func prepareActivationHub(
+        wireGuardHub: CloudWireGuardHub?,
+        expectedTeamScope: AuthenticatedTeamScope
+    ) async {
+        // The bundled cmux-tui client is optional. Cloud activation still
+        // enables machine creation when this build cannot host the terminal
+        // carrier; restored links remain retryable when a present hub is
+        // temporarily unavailable. A present hub is also prepared in the
+        // background so a missing socket or stale enrollment cannot hold
+        // activation open.
+        guard let wireGuardHub else { return }
+        await wireGuardHub.prepareForCloudUse(
+            allowWhenCloudDisabled: true,
+            expectedTeamScope: expectedTeamScope
+        )
+    }
+
     /// Stops activation-only hub work after cancellation or a failed readiness
     /// attempt. Persisted tunnel identity remains available for the next
     /// retry; no Cloud operation is left running while the marker is off.
     func cancelActivationPreparation() async {
-        // Release only this activation's account-level claim. Other Cloud
-        // links and external clients may be using the shared hub already.
-        await wireGuardHub?.releasePrewarm()
+        // Cancel and await this activation's background task before releasing
+        // its claim. Other Cloud link leases remain owned by the shared hub.
+        await wireGuardHub?.cancelPreparation()
     }
 }

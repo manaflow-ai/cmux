@@ -503,12 +503,14 @@ jobs:
     # blocks publishing arbitrary code by dispatching the workflow against a
     # feature branch (the ASC secrets are only meant to ship reviewed main).
     if: needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
-    # Saves the iOS compilation cache. Every R2 cache writer declares this
-    # environment (#14147); the guard in test_ci_pull_request_caches_are_read_only.py
-    # enforces it.
-    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
+    # Signs with the iOS distribution certificate and the App Store Connect
+    # key, which live only in the release environment (main and v* tags), and
+    # saves the iOS compilation cache, so release also holds a copy of the R2
+    # cache write credentials. Guards: test_ci_signing_secrets_need_release_environment.py
+    # and test_ci_pull_request_caches_are_read_only.py.
+    environment: ${{ github.ref == 'refs/heads/main' && 'release' || '' }}
     outputs:
       final_build_number: ${{ steps.upload.outputs.final_build_number }}
       bundle_id: ${{ steps.distribution.outputs.bundle_id }}
@@ -610,7 +612,7 @@ jobs:
           set -euo pipefail
           # ghostty has no nested submodules; its pinned commit is fetchable
           # at depth 1.
-          git submodule update --init --depth 1 ghostty
+          bash scripts/ci/init-submodule.sh ghostty
           ./scripts/install-zig-ci.sh
 
       - name: Build fallback GhosttyKit
@@ -681,9 +683,12 @@ jobs:
           printf '%s' "$IOS_DISTRIBUTION_CERTIFICATE_BASE64" | base64 --decode > "$CERT_PATH"
           security delete-keychain "$KEYCHAIN_NAME" >/dev/null 2>&1 || true
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_NAME"
+          # xcodebuild signs at the end of a long archive, so the idle lock is
+          # the job timeout. The keychain is deleted right after the archive step.
+          security set-keychain-settings -lut 3600 "$KEYCHAIN_NAME"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
           security import "$CERT_PATH" -k "$KEYCHAIN_NAME" -P "$IOS_DISTRIBUTION_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$CERT_PATH"
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
           security list-keychains -d user -s "$KEYCHAIN_NAME"
           security find-identity -v -p codesigning "$KEYCHAIN_NAME"
@@ -941,6 +946,12 @@ jobs:
           echo "Prepared CFBundleVersion: $FINAL_BN"
 
 
+      # The archive step made the last signature. Later steps (caches, notes,
+      # dSYM uploads) run without the distribution identity.
+      - name: Delete iOS signing keychain after the archive
+        if: always()
+        run: security delete-keychain ios-testflight.keychain >/dev/null 2>&1 || true
+
       - name: Retain signed BETA app for permission verification
         if: ${{ !cancelled() && steps.upload.outcome == 'success' && steps.distribution.outputs.upload_mode == 'marketing_version_override' && github.event.inputs.prepare_only != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -1185,7 +1196,7 @@ jobs:
     # Run alongside tester assignment and even if later Mac metadata/Sentry
     # steps fail. Notes timeouts must not turn an accepted upload into a failure.
     if: ${{ !cancelled() && needs.upload.outputs.uploaded == 'success' && needs.upload.outputs.notes_artifact_id != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     continue-on-error: true
     permissions:
@@ -1224,7 +1235,7 @@ jobs:
     # `needs` otherwise skips this job before the condition is read; a
     # cancelled run still cancels assignment.
     if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.upload.outputs.uploaded == 'success' && needs.upload.outputs.assign_internal_group == '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}

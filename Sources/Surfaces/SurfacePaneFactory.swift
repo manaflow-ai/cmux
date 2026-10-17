@@ -42,8 +42,21 @@ enum SurfacePaneFactory {
     }
 
     /// A browser pane loading `url` at the destination.
-    static func makeBrowserPane(url: URL?, at destination: SurfaceDestination, focus: Bool) throws -> (workspaceID: UUID, panelID: UUID) {
-        try create(typeRaw: "browser", url: url?.absoluteString, initialCommand: nil, workingDirectory: nil, at: destination, focus: focus)
+    static func makeBrowserPane(
+        url: URL?,
+        at destination: SurfaceDestination,
+        focus: Bool,
+        creationPolicy: Workspace.BrowserPanelCreationPolicy = .automationPreload
+    ) throws -> (workspaceID: UUID, panelID: UUID) {
+        try create(
+            typeRaw: "browser",
+            url: url?.absoluteString,
+            initialCommand: nil,
+            workingDirectory: nil,
+            at: destination,
+            focus: focus,
+            browserCreationPolicy: creationPolicy
+        )
     }
 
     /// The URL a browser pane opens with when its real URL is still being resolved; the
@@ -195,7 +208,8 @@ enum SurfacePaneFactory {
         initialInput: String? = nil,
         workingDirectory: String?,
         at destination: SurfaceDestination,
-        focus: Bool
+        focus: Bool,
+        browserCreationPolicy: Workspace.BrowserPanelCreationPolicy = .automationPreload
     ) throws -> (workspaceID: UUID, panelID: UUID) {
         let workspaceID = destination.workspaceID
         guard let workspace = workspace(id: workspaceID) else { throw FactoryError.workspaceNotFound(workspaceID) }
@@ -214,14 +228,14 @@ enum SurfacePaneFactory {
             switch destination {
             case .tab(_, let paneID, _):
                 guard let requestedPane = UUID(uuidString: paneID) else { throw FactoryError.paneNotFound(paneID) }
-                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, requestedPane: requestedPane, focus: focus)
+                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, requestedPane: requestedPane, focus: focus, browserCreationPolicy: browserCreationPolicy)
             case .workspace(_, .tab):
-                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, requestedPane: nil, focus: focus)
+                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, requestedPane: nil, focus: focus, browserCreationPolicy: browserCreationPolicy)
             case .split(_, let paneID, let direction):
                 let anchor = try anchorSurface(paneID: paneID, in: workspace)
-                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, direction: direction, anchor: anchor, focus: focus)
+                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, direction: direction, anchor: anchor, focus: focus, browserCreationPolicy: browserCreationPolicy)
             case .workspace(_, .split):
-                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, direction: .right, anchor: nil, focus: focus)
+                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, direction: .right, anchor: nil, focus: focus, browserCreationPolicy: browserCreationPolicy)
             }
         }
     }
@@ -235,7 +249,8 @@ enum SurfacePaneFactory {
         initialInput: String?,
         workingDirectory: String?,
         requestedPane: UUID?,
-        focus: Bool
+        focus: Bool,
+        browserCreationPolicy: Workspace.BrowserPanelCreationPolicy
     ) throws -> (workspaceID: UUID, panelID: UUID) {
         let resolution = controller.controlSurfaceCreate(
             routing: routing,
@@ -255,7 +270,8 @@ enum SurfacePaneFactory {
                 // the drop index, so it is not honored here either.
                 requestedPaneID: requestedPane,
                 requestedFocus: focus
-            )
+            ),
+            browserCreationPolicy: browserCreationPolicy
         )
         if case .created(_, let createdWorkspaceID, _, let surfaceID, _) = resolution {
             return (createdWorkspaceID, surfaceID)
@@ -273,7 +289,8 @@ enum SurfacePaneFactory {
         workingDirectory: String?,
         direction: SurfaceSplitDirection,
         anchor: UUID?,
-        focus: Bool
+        focus: Bool,
+        browserCreationPolicy: Workspace.BrowserPanelCreationPolicy
     ) throws -> (workspaceID: UUID, panelID: UUID) {
         let resolution = controller.controlSurfaceSplit(
             routing: routing,
@@ -292,7 +309,8 @@ enum SurfacePaneFactory {
                 clientUnsupportedRemoteTmuxOptions: [],
                 requestedFocus: focus,
                 initialDividerPosition: nil
-            )
+            ),
+            browserCreationPolicy: browserCreationPolicy
         )
         if case .created(_, let createdWorkspaceID, _, let surfaceID, _) = resolution {
             return (createdWorkspaceID, surfaceID)

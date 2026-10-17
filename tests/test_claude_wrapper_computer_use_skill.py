@@ -19,6 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
 LINK_POLICY = ROOT / "skills" / "cmux-cua" / "link-policy.sh"
+CLIENT_POLICY = ROOT / "skills" / "cmux-cua" / "client-policy.sh"
 
 SKILL_MD = (
     "---\n"
@@ -74,6 +75,7 @@ def run_wrapper(
     bundled_skill.mkdir()
     (bundled_skill / "SKILL.md").write_text(SKILL_MD, encoding="utf-8")
     (bundled_skill / "link-policy.sh").write_bytes(LINK_POLICY.read_bytes())
+    (bundled_skill / "client-policy.sh").write_bytes(CLIENT_POLICY.read_bytes())
     project_skill = root / ".claude" / "skills" / "cmux-cua"
     if project_skill_collision:
         project_skill.mkdir(parents=True)

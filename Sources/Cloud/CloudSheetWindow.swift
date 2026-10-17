@@ -22,20 +22,27 @@ import SwiftUI
 @MainActor
 final class CloudSheetWindow {
     let window: NSWindow
+    private let initialContentSize: NSSize
     private var isOpening = false
     private var pendingContentSize: NSSize?
     private var isResizeScheduled = false
 
     init<Content: View>(rootView: Content) {
-        // The root view retains this object through `report`; the window is
-        // weakly reachable from here only through `window`, so no cycle.
+        // The presenter retains this wrapper while the window is presented;
+        // the root view retains the reporter that points back to this owner.
         let reporter = SizeReporter()
         let controller = NSHostingController(rootView: CloudSheetContent(content: rootView, report: reporter))
         controller.sizingOptions = []
         window = NSWindow(contentViewController: controller)
-        let initialSize = controller.view.fittingSize
+        // NSHostingController's flexible root view can report its temporary
+        // attached-sheet proposal (1×0). Measure an unattached hosting view so
+        // the first window frame is based on the content's intrinsic size.
+        let initialSize = NSHostingView(
+            rootView: CloudSheetContent(content: rootView, report: reporter)
+        ).fittingSize
+        initialContentSize = Self.rounded(initialSize)
         if initialSize.width > 0, initialSize.height > 0 {
-            window.setContentSize(Self.rounded(initialSize))
+            window.setContentSize(initialContentSize)
         }
         reporter.owner = self
     }
@@ -46,7 +53,18 @@ final class CloudSheetWindow {
         isOpening = true
         host.beginSheet(window, completionHandler: completionHandler)
         isOpening = false
+        // Some AppKit versions reset a newly attached sheet to a 1×0 content
+        // rect while the host is inactive. Restore the measured first layout
+        // before applying any later geometry report.
+        restoreInitialContentSizeIfNeeded()
         applyPendingContentSize()
+        // The reset can happen on the next run-loop turn, after beginSheet
+        // returns. Reapply after AppKit has attached the sheet as well.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.restoreInitialContentSizeIfNeeded()
+            self.applyPendingContentSize()
+        }
     }
 
     /// Shows the sheet as a centered floating window when no host is on screen.
@@ -56,6 +74,11 @@ final class CloudSheetWindow {
         window.makeKeyAndOrderFront(nil)
         isOpening = false
         applyPendingContentSize()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.restoreInitialContentSizeIfNeeded()
+            self.applyPendingContentSize()
+        }
     }
 
     fileprivate func contentIdealSizeChanged(_ size: NSSize) {
@@ -84,6 +107,13 @@ final class CloudSheetWindow {
         window.setFrame(frame, display: window.isVisible, animate: false)
     }
 
+    private func restoreInitialContentSizeIfNeeded() {
+        guard initialContentSize.width > 1, initialContentSize.height > 1 else { return }
+        let current = window.contentRect(forFrameRect: window.frame).size
+        guard current.width <= 1 || current.height <= 1 else { return }
+        window.setContentSize(initialContentSize)
+    }
+
     private static func rounded(_ size: NSSize) -> NSSize {
         NSSize(width: ceil(size.width), height: ceil(size.height))
     }
@@ -103,12 +133,17 @@ struct CloudSheetContent<Content: View>: View {
 
     var body: some View {
         content
-            .fixedSize(horizontal: false, vertical: true)
+            // Sheets in this wrapper all declare a natural width. Measuring
+            // horizontally as flexible lets an attached sheet's temporary
+            // 1-point proposal collapse the content to 1×0, so later model
+            // updates never produce a usable geometry report. Keep both axes
+            // intrinsic while the wrapper applies the measured size outside
+            // AppKit's layout pass.
+            .fixedSize(horizontal: true, vertical: true)
             .onGeometryChange(for: CGSize.self) { proxy in
                 proxy.size
             } action: { size in
                 report.owner?.contentIdealSizeChanged(size)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
