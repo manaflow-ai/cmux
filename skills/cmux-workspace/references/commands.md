@@ -60,7 +60,7 @@ cmux reorder-surface --surface surface:7 --before surface:3
 cmux move-tab-to-new-workspace --surface surface:7 --title "browser"
 ```
 
-`--command <text>` (also on `new-workspace`) types the text plus one Enter into the new terminal's interactive shell at spawn time, so no follow-up `send` or `send-key enter` is needed and the shell stays alive after the command exits. It is terminal-only (`--type browser|simulator|agent-session` rejects it), blank text is ignored, and `new-workspace --layout` ignores it.
+`--command <text>` (also on `new-workspace`) types the text plus one Enter into the new terminal's interactive shell at spawn time, so no follow-up `send` or `send-key enter` is needed and the shell stays alive after the command exits. It is terminal-only (`--type browser|simulator` rejects it), blank text is ignored, and `new-workspace --layout` ignores it.
 
 ## Input
 

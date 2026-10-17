@@ -391,25 +391,8 @@ extension TerminalController {
             return .tabManagerUnavailable
         }
         let panelType = inputs.typeRaw.flatMap { surfacePanelType(forRawToken: $0) } ?? .terminal
-
-        var providerID: AgentSessionProviderID = .codex
-        var rendererKind: AgentSessionRendererKind = .react
         if panelType == .agentSession {
-            if let providerRaw = inputs.providerRaw {
-                switch v2NormalizedToken(providerRaw) {
-                case "codex": providerID = .codex
-                case "claude", "claudecode": providerID = .claude
-                case "opencode": providerID = .opencode
-                default: return .invalidProvider(rawValue: providerRaw)
-                }
-            }
-            if let rendererRaw = inputs.rendererRaw {
-                switch v2NormalizedToken(rendererRaw) {
-                case "react": rendererKind = .react
-                case "solid": rendererKind = .solid
-                default: return .invalidRenderer(rawValue: rendererRaw)
-                }
-            }
+            return .agentSessionRejected(typeRawValue: panelType.rawValue)
         }
 
         let placement = resolveControlPlacement(inputs.placementRaw)
@@ -486,14 +469,6 @@ extension TerminalController {
         } else if panelType == .simulator {
             newPanelId = ws.newSimulatorSurface(
                 inPane: paneId,
-                focus: focus
-            )?.id
-        } else if panelType == .agentSession {
-            newPanelId = ws.newAgentSessionSurface(
-                inPane: paneId,
-                providerID: providerID,
-                rendererKind: rendererKind,
-                workingDirectory: inputs.workingDirectory,
                 focus: focus
             )?.id
         } else {

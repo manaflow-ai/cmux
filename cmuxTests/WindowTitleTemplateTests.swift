@@ -397,78 +397,6 @@ struct WindowTitleTemplateTests {
     }
 
     @MainActor
-    @Test func remoteWorkspacePresentedDirectoryFallsBackToTrustedRemoteWhenAgentFocused() throws {
-        let localDirectory = "/Users/alice/development"
-        let remoteDirectory = "/home/seepine/workspace"
-        let sshCommand = "ssh seepine@192.168.5.20"
-        let workspace = Workspace(
-            workingDirectory: localDirectory,
-            initialTerminalCommand: sshCommand
-        )
-        let remotePanelId = try #require(workspace.focusedPanelId)
-        workspace.configureRemoteConnection(
-            WorkspaceRemoteConfiguration(
-                destination: "seepine@192.168.5.20",
-                port: nil,
-                identityFile: nil,
-                sshOptions: [],
-                localProxyPort: nil,
-                relayPort: 64007,
-                relayID: "relay-\(UUID().uuidString)",
-                relayToken: String(repeating: "a", count: 64),
-                localSocketPath: "/tmp/cmux-issue-7268-agent-focus.sock",
-                terminalStartupCommand: sshCommand
-            ),
-            autoConnect: false
-        )
-        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
-
-        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
-        let agentPanel = try #require(workspace.newAgentSessionSurface(
-            inPane: paneId,
-            rendererKind: .react,
-            workingDirectory: nil,
-            focus: true
-        ))
-        #expect(workspace.panelDirectories[agentPanel.id] == remoteDirectory)
-        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == remoteDirectory)
-        let agentSnapshot = try #require(workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == agentPanel.id })
-        #expect(agentSnapshot.directoryIsTrustedRemoteReport == true)
-
-        #expect(workspace.terminalPanel(for: agentPanel.id) == nil)
-        #expect(workspace.focusedPanelId == agentPanel.id)
-        #expect(workspace.presentedCurrentDirectory == remoteDirectory)
-
-        let restored = Workspace()
-        let restoredPanelIds = restored.restoreSessionSnapshot(workspace.sessionSnapshot(includeScrollback: false))
-        let restoredAgentPanelId = try #require(restoredPanelIds[agentPanel.id])
-        #expect(restored.reportedPanelDirectory(panelId: restoredAgentPanelId) == remoteDirectory)
-        let restoredAgentSnapshot = try #require(
-            restored.sessionSnapshot(includeScrollback: false).panels.first { $0.id == restoredAgentPanelId }
-        )
-        #expect(restoredAgentSnapshot.directoryIsTrustedRemoteReport == true)
-
-        let nonReportingAgent = try #require(workspace.newAgentSessionSurface(
-            inPane: paneId,
-            rendererKind: .react,
-            workingDirectory: "",
-            focus: true
-        ))
-        #expect(workspace.reportedPanelDirectory(panelId: nonReportingAgent.id) == nil)
-        let fallbackAgent = try #require(workspace.newAgentSessionSurface(
-            inPane: paneId,
-            rendererKind: .react,
-            workingDirectory: nil,
-            focus: true
-        ))
-        #expect(workspace.reportedPanelDirectory(panelId: fallbackAgent.id) == remoteDirectory)
-
-        workspace.disconnectRemoteConnection()
-        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == nil)
-        #expect(workspace.reportedPanelDirectory(panelId: fallbackAgent.id) == nil)
-    }
-
-    @MainActor
     @Test func remoteTmuxMirrorRequiresTrustedDirectoryBeforePresentationFallback() throws {
         let localDirectory = "/Users/alice/development"
         let remoteDirectory = "/home/seepine/tmux-workspace"
@@ -483,23 +411,6 @@ struct WindowTitleTemplateTests {
         workspace.updateRemotePanelDirectoryWithMetadata(panelId: panelId, directory: remoteDirectory)
         #expect(workspace.presentedCurrentDirectory == remoteDirectory)
         #expect(workspace.reportedPanelDirectory(panelId: panelId) == remoteDirectory)
-    }
-
-    @MainActor
-    @Test func remoteWorkspaceReportsExplicitLocalAgentDirectory() throws {
-        let localDirectory = "/Users/alice/local-agent"
-        let workspace = Workspace(workingDirectory: "/Users/alice/development")
-        workspace.configureRemoteConnection(sshRemoteConfiguration(command: "ssh seepine@192.168.5.20"), autoConnect: false)
-        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
-        let agentPanel = try #require(workspace.newAgentSessionSurface(
-            inPane: paneId,
-            rendererKind: .react,
-            workingDirectory: localDirectory,
-            focus: true
-        ))
-
-        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == localDirectory)
-        #expect(workspace.presentedCurrentDirectory == localDirectory)
     }
 
     private func sshRemoteConfiguration(command: String) -> WorkspaceRemoteConfiguration {

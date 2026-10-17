@@ -208,62 +208,6 @@ final class CmuxWebViewWebContentUndoTests {
 
     @Test
     @MainActor
-    func agentSessionWebContentUndoManagerIsScopedPerWebView() throws {
-        _ = NSApplication.shared
-        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        let agentWebView = AgentSessionWebView(
-            frame: NSRect(x: 0, y: 0, width: 640, height: 420),
-            configuration: WKWebViewConfiguration()
-        )
-        // Model the page declining Cmd-Z, as the browser undo tests do.
-        // A fresh WKWebView otherwise accepts the event for asynchronous web
-        // content dispatch, so a synchronous local-undo assertion is invalid.
-        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, _ in
-            currentWebView === agentWebView ? false : nil
-        }
-        window.contentView = agentWebView
-        window.makeKeyAndOrderFront(nil)
-        try #require(window.makeFirstResponder(agentWebView))
-        defer {
-            cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil
-            agentWebView.removeFromSuperview()
-            window.orderOut(nil)
-            window.close()
-        }
-
-        let webViewUndoManager = try #require(agentWebView.undoManager)
-        #expect(webViewUndoManager !== window.undoManager)
-        let spy = WebContentUndoSpy()
-        webViewUndoManager.registerUndo(withTarget: spy) { $0.undoCount += 1 }
-        #expect(webViewUndoManager.canUndo)
-        #expect(window.undoManager?.canUndo == false)
-
-        let event = try #require(NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [.command],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
-            characters: "z",
-            charactersIgnoringModifiers: "z",
-            isARepeat: false,
-            keyCode: UInt16(kVK_ANSI_Z)
-        ))
-        #expect(window.cmuxRouteApplicationUndoRedoCommandEquivalent(event))
-        #expect(spy.undoCount == 1)
-    }
-
-    @Test
-    @MainActor
     func browserCmdZPerformsWebContentUndoWhenPageDeclinesTheChord() throws {
         try withBrowserUndoWindow { window, webView, forwardedKeyDownEvents in
             let spy = WebContentUndoSpy()

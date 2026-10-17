@@ -212,13 +212,6 @@ extension Workspace {
             surface.url = Self.configCaptureAbbreviatedPath(project.projectURL.path)
             surface.focus = focus
             return surface
-        case let agentSession as AgentSessionPanel:
-            var surface = CmuxSurfaceDefinition(type: .terminal)
-            surface.name = customName
-            surface.command = agentSession.currentProviderID.executableName
-            surface.cwd = configCaptureSurfaceCwd(agentSession.workingDirectory, workspaceCwd: workspaceCwd)
-            surface.focus = focus
-            return surface
         default:
             skippedPanelCount += 1
             return nil

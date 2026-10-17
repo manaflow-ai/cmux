@@ -72,7 +72,6 @@ jobs:
       # consumers below read a missing value as "not routed".
       swift_packages: ${{ steps.detect.outputs.swift_packages || 'false' }}
       web: ${{ steps.detect.outputs.web }}
-      agent_session_web: ${{ steps.detect.outputs.agent_session_web }}
       release_build: ${{ steps.detect.outputs.release_build }}
       owned_head_repos: ${{ steps.owned-head-repos.outputs.repos }}
       linux_guard_tests: ${{ steps.linux_guards.outputs.linux_guard_tests }}
@@ -239,7 +238,6 @@ jobs:
             {
               echo "macos=true"
               echo "web=true"
-              echo "agent_session_web=true"
               echo "cli=true"
               echo "swift_packages=true"
               echo "release_build=true"
@@ -294,7 +292,6 @@ jobs:
               {
                 echo "macos=false"
                 echo "web=false"
-                echo "agent_session_web=false"
                 echo "cli=false"
                 echo "swift_packages=false"
                 echo "release_build=false"
@@ -382,7 +379,6 @@ jobs:
               {
                 echo "macos=false"
                 echo "web=false"
-                echo "agent_session_web=false"
                 echo "cli=false"
                 echo "swift_packages=false"
                 echo "release_build=false"
@@ -442,7 +438,6 @@ jobs:
                 {
                   echo "macos=false"
                   echo "web=false"
-                  echo "agent_session_web=false"
                   echo "cli=$cli_call_site_changed"
                   echo "swift_packages=false"
                   echo "release_build=false"
@@ -1256,12 +1251,11 @@ jobs:
   web:
     # Beside static-preflight for the same reason as guards.
     needs: [changes]
-    if: ${{ needs.changes.outputs.web != 'false' || needs.changes.outputs.agent_session_web != 'false' }}
+    if: ${{ needs.changes.outputs.web != 'false' }}
     uses: ./.github/workflows/ci-web.yml
     with:
       web: ${{ needs.changes.outputs.web }}
       macos: ${{ needs.changes.outputs.macos }}
-      agent_session_web: ${{ needs.changes.outputs.agent_session_web }}
 
   claude-wrapper:
     name: Claude wrapper regressions
@@ -1489,7 +1483,7 @@ jobs:
           elif not invalid_guard_routes and guard_result not in {"success", "skipped"}:
               bad["guards"] = guard_result
 
-          web_routes = ("web", "agent_session_web")
+          web_routes = ("web",)
           invalid_web_routes = {
               route: outputs.get(route)
               for route in web_routes
@@ -1527,8 +1521,7 @@ jobs:
           print(
               "routes: "
               f"macos={outputs.get('macos')} "
-              f"web={outputs.get('web')} "
-              f"agent_session_web={outputs.get('agent_session_web')}"
+              f"web={outputs.get('web')}"
           )
           for name, data in sorted(needs.items()):
               print(f"{name}: {data['result']}")

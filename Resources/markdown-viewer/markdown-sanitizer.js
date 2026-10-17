@@ -1,7 +1,7 @@
 // Shared allowlist sanitizer for markdown rendered into privileged WebViews.
 //
 // Used by the markdown viewer shell (inlined into shell.html as a classic
-// script) and by the agent-session renderers (bundled through an ES import).
+// script) and by the markdown viewer webview (bundled through an ES import).
 //
 // Contract:
 // - Untrusted HTML is parsed only inside an inert document that has no

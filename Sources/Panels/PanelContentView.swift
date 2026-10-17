@@ -168,16 +168,10 @@ struct PanelContentView: View {
                 }
             }
         case .agentSession:
-            if let agentSessionPanel = panel as? AgentSessionPanel {
-                AgentSessionPanelView(
-                    panel: agentSessionPanel,
-                    isFocused: isFocused,
-                    isVisibleInUI: isVisibleInUI,
-                    portalPriority: portalPriority,
-                    appearance: appearance,
-                    onRequestPanelFocus: onRequestPanelFocus
-                )
-            }
+            // Retired desktop Agent Session snapshots are discarded during
+            // restore. Keep this compatibility branch inert if an old panel
+            // arrives from an in-memory migration boundary.
+            EmptyView()
         case .project:
             if let projectPanel = panel as? ProjectPanel {
                 ProjectPanelView(

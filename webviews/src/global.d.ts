@@ -2,10 +2,6 @@ import type { DiffResponse } from "./diff/generated/protocol";
 
 export {};
 
-type AgentSessionNativeReply =
-  | { ok: true; value: unknown }
-  | { ok: false; error?: { code?: string; userMessage?: string } };
-
 declare global {
   /// Opaque sanitizer policy built by `Resources/markdown-viewer/markdown-sanitizer.js`.
   type CmuxMarkdownSanitizerProfile = { readonly __cmuxMarkdownSanitizerProfile?: never };
@@ -59,9 +55,6 @@ declare global {
     };
     webkit?: {
       messageHandlers?: {
-        agentSession?: {
-          postMessage(message: unknown): Promise<AgentSessionNativeReply>;
-        };
         cmuxDiff?: {
           postMessage(message: unknown): Promise<DiffResponse>;
         };

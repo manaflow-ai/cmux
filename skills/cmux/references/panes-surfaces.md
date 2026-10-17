@@ -33,6 +33,6 @@ Surface identity is stable across move, reorder, and split-off. Layout commands 
 
 - The text is delivered literally; quoting, `&&`, pipes, and `$VARS` are interpreted by the new shell. `--command=<text>` also works, and a value is required.
 - The shell stays alive after the command exits. This differs from the socket `initial_command` param, which replaces the shell with a one-shot process.
-- Terminal-only: combining it with `--type browser`, `simulator`, or `agent-session` is an error. Blank or whitespace-only text is ignored. `new-workspace --layout` ignores it; layout surfaces define their own commands.
+- Terminal-only: combining it with `--type browser` or `simulator` is an error. Blank or whitespace-only text is ignored. `new-workspace --layout` ignores it; layout surfaces define their own commands.
 - Remote tmux mirrored workspaces reject it, so the request fails instead of silently dropping the command.
 - Socket: the same behavior is the `initial_input` param on `surface.split`, `pane.create`, `surface.create`, and `workspace.create`. It is delivered raw, so append the Enter keystroke (`\r`) yourself.

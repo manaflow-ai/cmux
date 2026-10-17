@@ -1853,7 +1853,7 @@ jobs:
       - late-placement
     # !cancelled() disables the implicit success() gate, which GitHub evaluates
     # over the transitive needs chain: linux-preflight runs behind routed linux
-    # jobs that legitimately skip (web/go/agent-session paths), and that
+    # jobs that legitimately skip (web/go paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     # A changed-suites run that compile admission ran itself
@@ -3541,7 +3541,7 @@ jobs:
     # prove it, and the SDK assertion would fail there first regardless.
     # !cancelled() disables the implicit success() gate, which GitHub evaluates
     # over the transitive needs chain: linux-preflight runs behind routed linux
-    # jobs that legitimately skip (web/go/agent-session paths), and that
+    # jobs that legitimately skip (web/go paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     # Two reasons to run: the full suite, or a change the router attributed to
@@ -3918,7 +3918,7 @@ jobs:
       - late-placement
     # !cancelled() disables the implicit success() gate, which GitHub evaluates
     # over the transitive needs chain: linux-preflight runs behind routed linux
-    # jobs that legitimately skip (web/go/agent-session paths), and that
+    # jobs that legitimately skip (web/go paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && inputs.full_suite == 'true' }}

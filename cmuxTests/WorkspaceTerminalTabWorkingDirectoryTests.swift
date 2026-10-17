@@ -11,76 +11,6 @@ import Testing
 
 @Suite("Workspace terminal tab working directory", .serialized)
 struct WorkspaceTerminalTabWorkingDirectoryTests {
-    @MainActor
-    @Test("Cmd+T after session restore uses workspace cwd when focused agent has no terminal cwd")
-    func cmdTAfterSessionRestoreUsesWorkspaceCurrentDirectoryForAgentPane() throws {
-        let workspaceDirectory = "/tmp/cmux-cmdt-restore-\(UUID().uuidString)"
-        try FileManager.default.createDirectory(atPath: workspaceDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(atPath: workspaceDirectory) }
-        let agentPanelId = UUID()
-        let snapshot = SessionWorkspaceSnapshot(
-            workspaceId: UUID(),
-            processTitle: "Agent",
-            customTitle: nil,
-            customDescription: nil,
-            customColor: nil,
-            isPinned: false,
-            groupId: nil,
-            isManuallyUnread: false,
-            hasUnreadIndicator: false,
-            notifications: nil,
-            terminalScrollBarHidden: nil,
-            currentDirectory: workspaceDirectory,
-            focusedPanelId: agentPanelId,
-            layout: .pane(SessionPaneLayoutSnapshot(
-                panelIds: [agentPanelId],
-                selectedPanelId: agentPanelId
-            )),
-            panels: [
-                SessionPanelSnapshot(
-                    id: agentPanelId,
-                    type: .agentSession,
-                    title: "Kiro",
-                    customTitle: nil,
-                    directory: nil,
-                    isPinned: false,
-                    isManuallyUnread: false,
-                    hasUnreadIndicator: false,
-                    restoredUnreadContributesToWorkspace: nil,
-                    notifications: nil,
-                    gitBranch: nil,
-                    listeningPorts: [],
-                    ttyName: nil,
-                    terminal: nil,
-                    browser: nil,
-                    markdown: nil,
-                    filePreview: nil,
-                    rightSidebarTool: nil,
-                    agentSession: SessionAgentSessionPanelSnapshot(
-                        rendererKind: .react,
-                        providerID: .codex,
-                        workingDirectory: nil
-                    ),
-                    project: nil
-                ),
-            ],
-            statusEntries: [],
-            logEntries: [],
-            progress: nil,
-            gitBranch: nil,
-            remote: nil
-        )
-
-        let restored = Workspace()
-        let restoredIds = restored.restoreSessionSnapshot(snapshot)
-        let restoredAgentPanelId = try #require(restoredIds[agentPanelId])
-
-        #expect(restored.currentDirectory == workspaceDirectory)
-        #expect(restored.focusedPanelId == restoredAgentPanelId)
-
-        let createdPanel = try #require(restored.newTerminalSurfaceInFocusedPane(focus: false))
-        #expect(createdPanel.requestedWorkingDirectory == workspaceDirectory)
-    }
 
     @MainActor
     @Test("remote restore keeps intentional nil terminal cwd")
@@ -126,7 +56,6 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
                     markdown: nil,
                     filePreview: nil,
                     rightSidebarTool: nil,
-                    agentSession: nil,
                     project: nil
                 ),
             ],
@@ -430,47 +359,6 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         let createdPanel = try #require(workspace.terminalPanel(for: createdPanelId))
 
         #expect(createdPanel.requestedWorkingDirectory == anchorDirectory)
-    }
-
-    @MainActor
-    @Test("surface.create inherits workspace cwd from focused agent pane")
-    func surfaceCreateInheritsWorkspaceCurrentDirectoryForAgentPane() throws {
-        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-        let workspaceDirectory = "/tmp/cmux-surface-create-\(UUID().uuidString)"
-        try FileManager.default.createDirectory(atPath: workspaceDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(atPath: workspaceDirectory) }
-        let manager = TabManager()
-        let workspace = try #require(manager.selectedWorkspace)
-        workspace.currentDirectory = workspaceDirectory
-        let pane = try #require(workspace.bonsplitController.focusedPaneId)
-        let agentPanel = try #require(workspace.newAgentSessionSurface(
-            inPane: pane,
-            rendererKind: .react,
-            workingDirectory: nil,
-            focus: true
-        ))
-        workspace.panelDirectories.removeValue(forKey: agentPanel.id)
-        #expect(workspace.focusedPanelId == agentPanel.id)
-        TerminalController.shared.setActiveTabManager(manager)
-        defer {
-            TerminalController.shared.setActiveTabManager(previousManager)
-        }
-
-        let response = try v2SocketResponse(
-            method: "surface.create",
-            params: [
-                "workspace_id": workspace.id.uuidString,
-                "type": "terminal",
-                "focus": false,
-            ]
-        )
-
-        #expect(response["ok"] as? Bool == true)
-        let result = try #require(response["result"] as? [String: Any])
-        let createdSurfaceIdString = try #require(result["surface_id"] as? String)
-        let createdPanelId = try #require(UUID(uuidString: createdSurfaceIdString))
-        let createdPanel = try #require(workspace.terminalPanel(for: createdPanelId))
-        #expect(createdPanel.requestedWorkingDirectory == workspaceDirectory)
     }
 
     @MainActor

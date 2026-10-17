@@ -38,7 +38,6 @@ struct AgentChatThemePayload: Codable, Equatable {
 
     init(config: GhosttyConfig, accent: CmuxAccentColor = CmuxAccentColor()) {
         let terminalTheme = TerminalTheme(ghosttyConfig: config)
-        let webTheme = AgentSessionWebTheme.resolve(appearance: .fromConfig(config), accent: accent)
         let trimmedFontFamily = config.fontFamily.trimmingCharacters(in: .whitespacesAndNewlines)
         let fontSize = Double(config.fontSize)
         background = terminalTheme.background
@@ -50,7 +49,7 @@ struct AgentChatThemePayload: Codable, Equatable {
         self.fontSize = fontSize.isFinite && fontSize > 0 ? fontSize : nil
         opacity = min(1, max(0, config.backgroundOpacity))
         blur = config.backgroundBlur.agentChatThemeValue
-        isLight = !webTheme.isDark
+        isLight = PanelAppearance.fromConfig(config).backgroundColor.markdownOpaqueSRGB.isLightColor
         source = "cmux"
     }
 

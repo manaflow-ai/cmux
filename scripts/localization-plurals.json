@@ -1,10 +1,4 @@
 {
-  "agentSession.web.log.sentCharsFormat": {
-    "source": "Sent %d chars",
-    "arguments": [
-      1
-    ]
-  },
   "browser.import.complete.importedCookies": {
     "source": "Imported cookies: %ld",
     "arguments": [

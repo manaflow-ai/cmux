@@ -1,4 +1,4 @@
-import { makeClientId } from "../agent-session/shared/ids";
+import { makeClientId } from "./ids";
 import type { DiffCommentRecord, DiffCommentSaveInput } from "./types";
 
 type NativeReply<T> =

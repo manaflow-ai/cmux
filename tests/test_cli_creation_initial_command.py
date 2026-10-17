@@ -362,20 +362,6 @@ def main() -> int:
                         "echo ignored",
                     ],
                 ),
-                (
-                    "new-surface agent-session",
-                    [
-                        "new-surface",
-                        "--workspace",
-                        WORKSPACE_ID,
-                        "--pane",
-                        PANE_ID,
-                        "--type",
-                        "agent-session",
-                        "--command",
-                        "echo ignored",
-                    ],
-                ),
             ]
             for label, args in non_terminal_cases:
                 assert_non_terminal_command_rejected(

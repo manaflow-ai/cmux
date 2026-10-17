@@ -128,7 +128,7 @@ extension SidebarCompactStatusGlyph {
             return String(localized: "feed.status.needsInput", defaultValue: "Needs input")
         }
         if states.contains(.idle) {
-            return String(localized: "agentSession.web.status.idle", defaultValue: "Idle")
+            return String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
         }
         return nil
     }

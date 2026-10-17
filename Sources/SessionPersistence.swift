@@ -1764,7 +1764,6 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
     var customSidebar: SessionCustomSidebarPanelSnapshot? = nil
     var simulator: SessionSimulatorPanelSnapshot? = nil
-    var agentSession: SessionAgentSessionPanelSnapshot? = nil
     var project: SessionProjectPanelSnapshot?
     var workspaceTodo: SessionWorkspaceTodoPanelSnapshot? = nil
     var coderouterGuide: SessionCoderouterGuidePanelSnapshot? = nil

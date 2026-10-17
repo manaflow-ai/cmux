@@ -52,7 +52,11 @@ extension TerminalController {
 
     /// Builds the stable, spatially ordered mobile descriptors for every panel.
     func mobileSurfaceDescriptors(in workspace: Workspace) -> [WorkspaceSyncRecord.Surface] {
-        orderedPanels(in: workspace).map { panel in
+        orderedPanels(in: workspace).compactMap { panel in
+            // The desktop Agent Session surface is retired. An old in-memory
+            // panel can survive only across a migration boundary, and must
+            // never be advertised to mobile clients.
+            guard panel.panelType != .agentSession else { return nil }
             let filePath: String?
             switch panel {
             case let markdown as MarkdownPanel:

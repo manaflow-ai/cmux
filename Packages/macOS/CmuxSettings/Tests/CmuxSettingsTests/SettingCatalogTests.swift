@@ -105,7 +105,6 @@ struct SettingCatalogTests {
         #expect(ids.contains("mobile.browserTunnel.allowOtherHosts"))
         #expect(ids.contains("automation.socketControlMode"))
         #expect(ids.contains("automation.socketPassword"))
-        #expect(ids.contains("automation.canonicalAgentScratch"))
     }
 
     @Test func browserCatalogIncludesDefaultZoomLevel() {

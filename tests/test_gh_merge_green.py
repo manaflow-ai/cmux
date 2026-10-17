@@ -996,7 +996,7 @@ class FreezeRegression(unittest.TestCase):
     WINDOW = (
         "[CORE] cmux-tui-core, spec/\nowner: none\n"
         "FREEZE: Packages/macOS/CmuxNext/Package.swift token=69600a4e4c73\n"
-        "FREEZE: webviews/src/agent-session/ token=0badc0ffee00\n"
+        "FREEZE: webviews/src/comments/ token=0badc0ffee00\n"
         "FREEZE: docs/frozen/ docs/app.md token=d0c5d0c5\n"
     )
 
@@ -1026,10 +1026,10 @@ class FreezeRegression(unittest.TestCase):
     def test_a_file_under_a_frozen_directory_refuses_the_merge(self):
         with tempfile.TemporaryDirectory() as directory:
             result, marker = self.run_with_window(
-                directory, self.WINDOW, ("webviews/src/agent-session/acpmux/ModelPicker.tsx",))
+                directory, self.WINDOW, ("webviews/src/comments/bridge.ts",))
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
-            self.assertIn("webviews/src/agent-session/", result.stderr)
+            self.assertIn("webviews/src/comments/", result.stderr)
 
     def test_a_sibling_of_a_frozen_prefix_still_merges(self):
         with tempfile.TemporaryDirectory() as directory:

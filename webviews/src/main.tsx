@@ -1,31 +1,11 @@
-type WebviewKind = "agent-session" | "diff";
-
-function resolveWebviewKind(): WebviewKind {
-  if (
-    document.documentElement.dataset.cmuxWebviewKind === "agent-session" ||
-    document.body.dataset.cmuxWebviewKind === "agent-session" ||
-    document.getElementById("cmux-agent-session-config")
-  ) {
-    return "agent-session";
-  }
-  return "diff";
-}
-
 const rootElement = document.getElementById("root");
 if (!rootElement) {
   throw new Error("Missing cmux webview root");
 }
 
-// Load only the active surface so each one ships as its own chunk: the diff
-// viewer pulls in `@pierre/diffs`, the agent session pulls in its editor UI,
-// and neither pays for the other. Shared vendor code (React, the router) is
-// hoisted by Rollup into chunks both surfaces reuse.
-if (resolveWebviewKind() === "agent-session") {
-  void import("./surfaces/agentSessionSurface").then((surface) => {
-    surface.mountAgentSessionSurface(rootElement);
-  });
-} else {
-  void import("./surfaces/diffSurface").then((surface) => {
-    surface.mountDiffSurface(rootElement);
-  });
-}
+// The desktop webview bundle only hosts the diff viewer. Agent Chat owns its
+// rendering and transport in the native/mobile surfaces; keeping a second
+// retired entry here caused the retired GUI to remain reachable.
+void import("./surfaces/diffSurface").then((surface) => {
+  surface.mountDiffSurface(rootElement);
+});

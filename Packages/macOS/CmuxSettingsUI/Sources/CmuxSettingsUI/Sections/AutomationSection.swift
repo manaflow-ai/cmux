@@ -19,7 +19,6 @@ public struct AutomationSection: View {
     @State private var ripgrepPathModel: DefaultsValueModel<String>
     @State private var suppressSubagentModel: DefaultsValueModel<Bool>
     @State private var agentAutoResumeModel: DefaultsValueModel<Bool>
-    @State private var canonicalAgentScratchModel: DefaultsValueModel<Bool>
     @State private var agentMessagesModel: DefaultsValueModel<Bool>
     @State private var ampModel: DefaultsValueModel<Bool>
     @State private var cursorModel: DefaultsValueModel<Bool>
@@ -75,7 +74,6 @@ public struct AutomationSection: View {
         _ripgrepPathModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ripgrepCustomBinaryPath))
         _suppressSubagentModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.suppressSubagentNotifications))
         _agentAutoResumeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.agentAutoResume))
-        _canonicalAgentScratchModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.canonicalAgentScratch))
         _agentMessagesModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.agentMessages.enabled))
         _ampModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.ampHooksEnabled))
         _cursorModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.integrations.cursorHooksEnabled))
@@ -99,7 +97,6 @@ public struct AutomationSection: View {
             ripgrepPathCard
             suppressSubagentCard
             agentAutoResumeCard
-            canonicalAgentScratchCard
             AgentMessagesSettingsCard(isEnabled: agentMessagesModel.current, setEnabled: { agentMessagesModel.set($0) })
             ampCard
             cursorCard
@@ -138,7 +135,7 @@ public struct AutomationSection: View {
             ))
         }
         .task {
-            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, piModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, agentAutoResumeModel, canonicalAgentScratchModel, agentMessagesModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
+            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, piModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, agentAutoResumeModel, agentMessagesModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
         }
         .task(id: automationRulesRefreshID) {
             await refreshAutomationRulesStatus()
@@ -492,26 +489,6 @@ public struct AutomationSection: View {
         }
     }
 
-    @ViewBuilder
-    private var canonicalAgentScratchCard: some View {
-        SettingsCard {
-            SettingsCardRow(
-                configurationReview: .json("automation.canonicalAgentScratch"),
-                String(localized: "settings.automation.canonicalAgentScratch", defaultValue: "Canonical Agent Scratch"),
-                subtitle: canonicalAgentScratchModel.current
-                    ? String(localized: "settings.automation.canonicalAgentScratch.subtitleOn", defaultValue: "Native agent panels use a cmux-owned scratch directory per session.")
-                    : String(localized: "settings.automation.canonicalAgentScratch.subtitleOff", defaultValue: "Native agent panels use the system temporary directory."),
-                controlWidth: Self.columnWidth
-            ) {
-                Toggle("", isOn: Binding(get: { canonicalAgentScratchModel.current }, set: { canonicalAgentScratchModel.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .accessibilityIdentifier("SettingsCanonicalAgentScratchToggle")
-            }
-            SettingsCardDivider()
-            SettingsCardNote(String(localized: "settings.automation.canonicalAgentScratch.note", defaultValue: "Opt in to organize new Claude, Codex, and OpenCode panel scratch files under ~/.local/state/cmux/agent-artifacts. Provider transcripts and existing files are not moved."))
-        }
-    }
     @ViewBuilder
     private var agentAutoResumeCard: some View {
         SettingsCard {

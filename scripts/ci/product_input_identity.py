@@ -229,7 +229,7 @@ def reaches_product(path: str) -> bool:
         return False
     if path in {".vercelignore", "vercel.json"}:
         return False
-    if path.startswith("webviews/") and not path.startswith("webviews/src/agent-session/"):
+    if path.startswith("webviews/"):
         return False
     name = path.rsplit("/", 1)[-1]
     if name in {"CLAUDE.md", "AGENTS.md"}:

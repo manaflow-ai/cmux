@@ -1806,13 +1806,6 @@ struct GhostMainWindowContextLifecycleTests {
                 focus: false
             )?.id
         }
-        try expectRetiredWorkspaceRejectsPanelCreation(named: "newAgentSessionSurface") { workspace, paneId in
-            workspace.newAgentSessionSurface(
-                inPane: paneId,
-                rendererKind: .react,
-                focus: false
-            )?.id
-        }
         try expectRetiredWorkspaceRejectsPanelCreation(named: "newSimulatorSurface") { workspace, paneId in
             workspace.newSimulatorSurface(
                 inPane: paneId,

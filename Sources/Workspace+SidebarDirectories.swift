@@ -112,9 +112,6 @@ extension Workspace {
         guard !remoteDirectoryTrustRequiredPanelIds.contains(panelId),
               !isRemoteTerminalSurface(panelId),
               !isRemoteTmuxMirror else { return false }
-        if let agentPanel = panels[panelId] as? AgentSessionPanel {
-            return normalizedSidebarDirectory(agentPanel.workingDirectory) != nil
-        }
         return terminalPanel(for: panelId) != nil
     }
 
@@ -122,11 +119,6 @@ extension Workspace {
         guard !panelIds.isEmpty else { return }
         let removedDirectories = Set(panelIds.compactMap { normalizedSidebarDirectory(panelDirectories[$0]) })
         for panelId in panelIds {
-            if let agentPanel = panels[panelId] as? AgentSessionPanel,
-               let workingDirectory = normalizedSidebarDirectory(agentPanel.workingDirectory),
-               removedDirectories.contains(workingDirectory) {
-                agentPanel.clearWorkingDirectory()
-            }
             panelDirectories.removeValue(forKey: panelId)
             panelDirectoryDisplayLabels.removeValue(forKey: panelId)
             clearPanelGitBranch(panelId: panelId)
@@ -154,7 +146,7 @@ extension Workspace {
               snapshot.directoryRequiresRemoteTrust == nil else { return false }
         if cloudVMBinding != nil { return true }
         if let terminal = snapshot.terminal { return terminal.isRemoteTerminal != false }
-        return snapshot.agentSession != nil
+        return snapshot.type == .agentSession
     }
 
     func currentDirectoryChangeRevisionPublisher() -> AnyPublisher<UInt64, Never> {

@@ -19,7 +19,6 @@ from typing import Iterable, Optional
 class ChangeAreas:
     macos: bool
     web: bool
-    agent_session_web: bool
     cli: bool
     swift_packages: bool
     release_build: bool
@@ -29,7 +28,6 @@ class ChangeAreas:
         return cls(
             macos=True,
             web=True,
-            agent_session_web=True,
             cli=True,
             swift_packages=True,
             release_build=True,
@@ -39,7 +37,6 @@ class ChangeAreas:
         return ChangeAreas(
             macos=self.macos or other.macos,
             web=self.web or other.web,
-            agent_session_web=self.agent_session_web or other.agent_session_web,
             cli=self.cli or other.cli,
             swift_packages=self.swift_packages or other.swift_packages,
             release_build=self.release_build or other.release_build,
@@ -49,7 +46,6 @@ class ChangeAreas:
         return [
             f"macos={bool_output(self.macos)}",
             f"web={bool_output(self.web)}",
-            f"agent_session_web={bool_output(self.agent_session_web)}",
             f"cli={bool_output(self.cli)}",
             f"swift_packages={bool_output(self.swift_packages)}",
             f"release_build={bool_output(self.release_build)}",
@@ -314,7 +310,7 @@ def _changed_workflow_jobs(
 
 
 NO_AREAS = ChangeAreas(
-    macos=False, web=False, agent_session_web=False, cli=False,
+    macos=False, web=False, cli=False,
     swift_packages=False, release_build=False,
 )
 
@@ -324,11 +320,11 @@ NO_AREAS = ChangeAreas(
 # CLI lane there (compile admission's CLI smoke checks, cli-product-tests).
 _CALLED_WORKFLOW_AREAS = {
     MACOS_WORKFLOW_PATH: ChangeAreas(
-        macos=True, web=False, agent_session_web=False, cli=True,
+        macos=True, web=False, cli=True,
         swift_packages=False, release_build=True,
     ),
     WEB_WORKFLOW_PATH: ChangeAreas(
-        macos=False, web=True, agent_session_web=True, cli=False,
+        macos=False, web=True, cli=False,
         swift_packages=False, release_build=False,
     ),
 }
@@ -498,13 +494,13 @@ def macos_workflow_change_areas(base: str, head: str) -> Optional[ChangeAreas]:
     base_jobs, head_jobs, changed = diff
     release = _release_jobs(base_jobs) | _release_jobs(head_jobs)
     return ChangeAreas(
-        macos=True, web=False, agent_session_web=False,
+        macos=True, web=False,
         cli=bool(changed & MACOS_CLI_LANE_JOBS),
         swift_packages=False, release_build=bool(changed & release),
     )
 
 
-_AREA_NAMES = ("macos", "web", "agent_session_web", "cli", "swift_packages", "release_build")
+_AREA_NAMES = ("macos", "web", "cli", "swift_packages", "release_build")
 _AREA_OUTPUT_RE = re.compile(r"needs\.changes\.outputs\.([A-Za-z0-9_]+)")
 # `changes` outputs the areas do not decide: the Linux guards route by path.
 _SELF_ROUTED_OUTPUTS = frozenset({
@@ -604,7 +600,7 @@ def _routed_job_areas(workflow: str, text: str, token: str) -> Optional[ChangeAr
             # That lane is chosen by package path, which a helper is not.
             return None
         return ChangeAreas(
-            macos=True, web=False, agent_session_web=False,
+            macos=True, web=False,
             cli=bool(naming & MACOS_CLI_LANE_JOBS), swift_packages=False,
             release_build=bool(naming & _release_jobs(jobs)),
         )
@@ -1079,8 +1075,6 @@ def is_web_change(path: str) -> bool:
         (
             "web/",
             "webviews/",
-            "Resources/agent-session-react/",
-            "Resources/agent-session-solid/",
             "Resources/markdown-viewer/",
             "config/",
             "workers/",
@@ -1101,28 +1095,8 @@ def is_web_change(path: str) -> bool:
         "scripts/ci/web_validation.py",
         "scripts/ci/web_subareas.py",
         "tests/test_web_validation.py",
-        "scripts/build-agent-session-web.sh",
         "scripts/build-webviews-app.sh",
         "scripts/check-webviews-react-compiler.mjs",
-    }
-
-
-def is_agent_session_web_change(path: str) -> bool:
-    if path.startswith(
-        (
-            "webviews/src/agent-session/",
-            "Resources/agent-session-react/",
-            "Resources/agent-session-solid/",
-        )
-    ):
-        return True
-    return path in {
-        "package.json",
-        "bun.lock",
-        "webviews/package.json",
-        "webviews/bun.lock",
-        "scripts/build-agent-session-web.sh",
-        "Resources/markdown-viewer/marked.min.js",
     }
 
 
@@ -1764,13 +1738,9 @@ def is_macos_change(
     path: str,
     macos_ios_packages: Optional[frozenset[str]],
 ) -> bool:
-    if path.startswith("webviews/src/agent-session/"):
-        return True
     if path == "docs/cli-contract.md":
         return True
     if path in {"package.json", "bun.lock", "biome.json"}:
-        return True
-    if path.startswith(("Resources/agent-session-react/", "Resources/agent-session-solid/")):
         return True
     return not is_macos_neutral(path, macos_ios_packages)
 
@@ -1863,7 +1833,6 @@ def classify_files(paths: Iterable[str], *,
                    cli_xcode_project_neutral: bool = False) -> ChangeAreas:
     macos = False
     web = False
-    agent_session_web = False
     cli = False
     release_build = False
     # Collected across the diff: the lane is selected from the whole change,
@@ -1902,7 +1871,6 @@ def classify_files(paths: Iterable[str], *,
             # Compared job by job against the base; None runs every area.
             macos = macos or ci_workflow_areas.macos
             web = web or ci_workflow_areas.web
-            agent_session_web = agent_session_web or ci_workflow_areas.agent_session_web
             cli = cli or ci_workflow_areas.cli
             release_build = release_build or ci_workflow_areas.release_build
             continue
@@ -1921,14 +1889,12 @@ def classify_files(paths: Iterable[str], *,
                 print(f"{path} runs only in routed jobs gated by: {helper_areas}")
                 macos = macos or helper_areas.macos
                 web = web or helper_areas.web
-                agent_session_web = agent_session_web or helper_areas.agent_session_web
                 cli = cli or helper_areas.cli
                 release_build = release_build or helper_areas.release_build
                 continue
         if forces_all_areas(path):
             macos = True
             web = True
-            agent_session_web = True
             release_build = True
             # ci.yml calls the CLI lane. An unowned scripts/ci helper cannot
             # reach it: is_cli_change() above already routed the helpers the
@@ -1962,7 +1928,6 @@ def classify_files(paths: Iterable[str], *,
         if path == WEB_WORKFLOW_PATH:
             # A reusable web workflow edit must exercise every job body it owns.
             web = True
-            agent_session_web = True
             continue
         # Web validation's own inputs still select its checks in CI, even when
         # the path is a workflow or guard that is neutral for macOS.
@@ -1970,8 +1935,6 @@ def classify_files(paths: Iterable[str], *,
             web = True
         if is_other_workflow_config(path) or is_guard_only_test(path, test_references):
             continue
-        if is_agent_session_web_change(path):
-            agent_session_web = True
         if is_macos_change(path, macos_ios_packages):
             # Any other script is placed by the same walk as the scripts/ci
             # helpers above. Whatever the walk cannot place (an Xcode build
@@ -1985,7 +1948,6 @@ def classify_files(paths: Iterable[str], *,
                 print(f"{path} runs only in routed jobs gated by: {script_areas if script_areas != NO_AREAS else 'none'}")
                 macos = macos or script_areas.macos
                 web = web or script_areas.web
-                agent_session_web = agent_session_web or script_areas.agent_session_web
                 cli = cli or script_areas.cli
                 release_build = release_build or script_areas.release_build
                 continue
@@ -1996,7 +1958,6 @@ def classify_files(paths: Iterable[str], *,
     return ChangeAreas(
         macos=macos,
         web=web,
-        agent_session_web=agent_session_web,
         cli=cli,
         swift_packages=bool(swift_package_test_selection(swift_package_candidates)),
         release_build=release_build,

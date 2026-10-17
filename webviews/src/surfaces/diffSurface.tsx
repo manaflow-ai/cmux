@@ -20,7 +20,7 @@ function readConfig(): DiffViewerConfig {
 /**
  * Boots the diff viewer surface: reads its config, applies appearance/labels/
  * status, then renders the diff `App` through the shared router. Loaded as its
- * own chunk so the agent session surface never ships `@pierre/diffs`.
+ * own chunk so other webview surfaces never ship `@pierre/diffs`.
  */
 export function mountDiffSurface(rootElement: HTMLElement): void {
   const config = readConfig();

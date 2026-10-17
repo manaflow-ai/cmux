@@ -66,8 +66,9 @@ surface cmux owns. This is the deterministic binding the redesign blesses.
 Entrypoint coverage (each ends with a hook whose surface resolves by the above):
 - `cmux claude-teams` / hand-typed `claude`: COVERED. Hooks injected via
   `--settings` by `cmux-claude-wrapper`; env inherited; tty/pid backstop.
-- `cmux new-surface --type agent-session` (UI/CLI): COVERED. App injects
-  `CMUX_SURFACE_ID` into the launch env (`AppDelegate.swift:6256`).
+- Desktop `agent-session` surfaces were retired. Agent hooks now bind to the
+  terminal surface that owns the provider process; mobile Agent Chat uses the
+  shared session registry and recovery index directly.
 - Session restore, fork-session, remote/ssh: COVERED (env + tty/pid).
 - `codex` (bare or `codex-teams`): PARTIAL. No `--settings`-style auto-inject
   wrapper; relies on `cmux hooks setup codex` having installed `~/.codex` hooks.

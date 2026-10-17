@@ -249,36 +249,6 @@ def main() -> int:
                 {"workspace_id": WORKSPACE_ID, "pane_id": PANE_ID, "focus": False},
             )
 
-            project_dir = Path(tmp) / "project"
-            project_dir.mkdir()
-            run_cli(
-                cli,
-                socket_path,
-                [
-                    "new-surface",
-                    "--workspace",
-                    WORKSPACE_ID,
-                    "--pane",
-                    PANE_ID,
-                    "--type",
-                    "agent-session",
-                    "--cwd",
-                    "project",
-                ],
-                cwd=tmp,
-            )
-            assert_last_call(
-                state,
-                "surface.create",
-                {
-                    "workspace_id": WORKSPACE_ID,
-                    "pane_id": PANE_ID,
-                    "type": "agent-session",
-                    "working_directory": str(project_dir.resolve()),
-                    "focus": False,
-                },
-            )
-
             run_cli(cli, socket_path, ["reorder-surface", "--surface", SURFACE_ID, "--index", "0"])
             assert_last_call(
                 state,

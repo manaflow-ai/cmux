@@ -195,7 +195,6 @@ enum SettingsSearchIndex {
             ].joined(separator: " ")
         ),
         setting(.automation, "agent-messages", String(localized: "settings.automation.agentMessages", defaultValue: "Agent Messages"), "agentMessages.enabled agent message inbox communication mute disable off send deliver"),
-        setting(.automation, "canonical-agent-scratch", String(localized: "settings.automation.canonicalAgentScratch", defaultValue: "Canonical Agent Scratch"), "agent artifacts temporary files cleanup retention claude codex opencode storage"),
         setting(.automation, "cursor", String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), "agent hooks notifications"),
         setting(.automation, "gemini", String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"), "agent hooks notifications"),
         setting(.automation, "kiro", String(localized: "settings.automation.kiro", defaultValue: "Kiro CLI Integration"), "agent hooks notifications"),

@@ -73,66 +73,6 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
     }
 
     @MainActor
-    @Test("reconnect keeps remote trust guard for agent panels")
-    func reconnectKeepsRemoteTrustGuardForAgentPanels() throws {
-        let localDirectory = "/Users/alice/development"
-        let remoteDirectory = "/home/seepine/workspace"
-        let sshCommand = "ssh seepine@192.168.5.20"
-        let workspace = Workspace(workingDirectory: localDirectory, initialTerminalCommand: sshCommand)
-        let remotePanelId = try #require(workspace.focusedPanelId)
-        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
-        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
-        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
-        let agentPanel = try #require(workspace.newAgentSessionSurface(
-            inPane: paneId,
-            rendererKind: .react,
-            workingDirectory: nil,
-            focus: true
-        ))
-        #expect(agentPanel.workingDirectory == remoteDirectory)
-        #expect(workspace.remoteDirectoryReportPanelIds.contains(agentPanel.id))
-
-        workspace.disconnectRemoteConnection()
-        #expect(workspace.remoteDirectoryTrustRequiredPanelIds.contains(agentPanel.id))
-        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == nil)
-
-        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
-        #expect(workspace.remoteDirectoryTrustRequiredPanelIds.contains(agentPanel.id))
-        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == nil)
-        #expect(workspace.presentedCurrentDirectory == nil)
-
-        workspace.updateRemotePanelDirectory(panelId: agentPanel.id, directory: remoteDirectory)
-        #expect(workspace.remoteDirectoryReportPanelIds.contains(agentPanel.id))
-        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == remoteDirectory)
-    }
-
-    @MainActor
-    @Test("reattached agent panel restores trusted remote directory provenance")
-    func reattachedAgentPanelRestoresTrustedRemoteDirectoryProvenance() throws {
-        let remoteDirectory = "/home/seepine/workspace"
-        let sshCommand = "ssh seepine@192.168.5.20"
-        let workspace = Workspace(workingDirectory: "/Users/alice/development", initialTerminalCommand: sshCommand)
-        let remotePanelId = try #require(workspace.focusedPanelId)
-        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
-        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
-        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
-        let agentPanel = try #require(workspace.newAgentSessionSurface(
-            inPane: paneId,
-            rendererKind: .react,
-            workingDirectory: nil,
-            focus: true
-        ))
-        let detached = try #require(workspace.detachSurface(panelId: agentPanel.id))
-        #expect(detached.directoryIsTrustedRemoteReport)
-
-        let attachedPanelId = try #require(workspace.attachDetachedSurface(detached, inPane: paneId, focus: true))
-        #expect(attachedPanelId == agentPanel.id)
-        #expect(workspace.remoteDirectoryReportPanelIds.contains(agentPanel.id))
-        #expect(workspace.remoteDirectoryTrustRequiredPanelIds.contains(agentPanel.id))
-        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == remoteDirectory)
-    }
-
-    @MainActor
     @Test("generic surface directory reports remain untrusted for remote panels")
     func genericSurfaceDirectoryReportsRemainUntrustedForRemotePanels() throws {
         let localDirectory = "/Users/alice/development"
@@ -157,33 +97,6 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(workspace.currentDirectory == localDirectory)
         workspace.updatePanelGitBranch(panelId: remotePanelId, branch: "stale-main", isDirty: false); workspace.markRemoteTerminalSessionEnded(surfaceId: remotePanelId, relayPort: 64007)
         #expect(workspace.reportedPanelGitBranch(panelId: remotePanelId) == nil)
-    }
-
-    @MainActor
-    @Test("generic reports cannot overwrite trusted agent directory")
-    func genericReportsCannotOverwriteTrustedAgentDirectory() throws {
-        let localDirectory = "/Users/alice/development"
-        let remoteDirectory = "/home/seepine/workspace"
-        let sshCommand = "ssh seepine@192.168.5.20"
-        let workspace = Workspace(workingDirectory: localDirectory, initialTerminalCommand: sshCommand)
-        let remotePanelId = try #require(workspace.focusedPanelId)
-        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
-        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
-        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
-        let agentPanel = try #require(workspace.newAgentSessionSurface(
-            inPane: paneId,
-            rendererKind: .react,
-            workingDirectory: nil,
-            focus: true
-        ))
-
-        #expect(!workspace.updatePanelDirectory(panelId: agentPanel.id, directory: localDirectory))
-        #expect(workspace.panelDirectories[agentPanel.id] == remoteDirectory)
-        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == remoteDirectory)
-        #expect(workspace.trustedRemoteCurrentDirectory == remoteDirectory)
-        #expect(workspace.closePanel(agentPanel.id, force: true))
-        #expect(!workspace.remoteDirectoryReportPanelIds.contains(agentPanel.id))
-        #expect(!workspace.remoteDirectoryTrustRequiredPanelIds.contains(agentPanel.id))
     }
 
     @MainActor
@@ -268,34 +181,6 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(restoredPanel.requestedWorkingDirectory == localTerminalDirectory)
         #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == localTerminalDirectory)
         #expect(!restored.remoteDirectoryTrustRequiredPanelIds.contains(restoredPanelId))
-    }
-
-    @MainActor
-    @Test("trust-required agent restore does not capture remote cwd as local")
-    func trustRequiredAgentRestoreDoesNotCaptureRemoteDirectoryAsLocal() throws {
-        let localDirectory = "/Users/alice/development"
-        let remoteDirectory = "/home/seepine/workspace"
-        let sshCommand = "ssh seepine@192.168.5.20"
-        let workspace = Workspace(workingDirectory: localDirectory, initialTerminalCommand: sshCommand)
-        let remotePanelId = try #require(workspace.focusedPanelId)
-        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
-        workspace.updateRemotePanelDirectory(panelId: remotePanelId, directory: remoteDirectory)
-        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
-        let agentPanel = try #require(workspace.newAgentSessionSurface(
-            inPane: paneId,
-            rendererKind: .react,
-            workingDirectory: nil,
-            focus: true
-        ))
-        workspace.disconnectRemoteConnection()
-        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
-
-        let restored = Workspace()
-        let restoredPanelId = try #require(restored.restoreSessionSnapshot(snapshot)[agentPanel.id])
-        let restoredAgentPanel = try #require(restored.panels[restoredPanelId] as? AgentSessionPanel)
-        #expect(restoredAgentPanel.workingDirectory == nil)
-        #expect(restored.panelDirectories[restoredPanelId] == remoteDirectory)
-        #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == nil)
     }
 
     @MainActor
@@ -390,96 +275,6 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(workspace.allowsLocalDirectoryFallback(panelId: localPanel.id))
         #expect(manager.gitProbeDirectory(for: workspace, panelId: localPanel.id) == nil)
         #expect(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [localPanel.id]) == [])
-    }
-
-    @MainActor
-    @Test("reported cwd re-trusts guarded remote agent panels")
-    func reportedDirectoryRetrustsGuardedRemoteAgentPanels() throws {
-        let localDirectory = "/Users/alice/development"
-        let remoteDirectory = "/home/seepine/workspace"
-        let sshCommand = "ssh seepine@192.168.5.20"
-        let manager = TabManager(
-            initialWorkspaceTitle: "Remote",
-            initialWorkingDirectory: localDirectory,
-            autoWelcomeIfNeeded: false
-        )
-        let workspace = try #require(manager.selectedWorkspace)
-        let remotePanelId = try #require(workspace.focusedPanelId)
-        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
-        manager.updateReportedSurfaceDirectory(tabId: workspace.id, surfaceId: remotePanelId, directory: remoteDirectory)
-        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
-        let agentPanel = try #require(workspace.newAgentSessionSurface(
-            inPane: paneId,
-            rendererKind: .react,
-            workingDirectory: nil,
-            focus: true
-        ))
-        workspace.disconnectRemoteConnection()
-        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
-
-        manager.updateReportedSurfaceDirectory(tabId: workspace.id, surfaceId: agentPanel.id, directory: remoteDirectory)
-        #expect(workspace.remoteDirectoryReportPanelIds.contains(agentPanel.id))
-        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == remoteDirectory)
-    }
-
-    @MainActor
-    @Test("reported cwd trusts unguarded remote agent panels")
-    func reportedDirectoryTrustsUnguardedRemoteAgentPanels() throws {
-        let localDirectory = "/Users/alice/development"
-        let remoteDirectory = "/home/seepine/workspace"
-        let sshCommand = "ssh seepine@192.168.5.20"
-        let manager = TabManager(
-            initialWorkspaceTitle: "Remote",
-            initialWorkingDirectory: localDirectory,
-            autoWelcomeIfNeeded: false
-        )
-        let workspace = try #require(manager.selectedWorkspace)
-        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
-        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
-        let agentPanel = try #require(workspace.newAgentSessionSurface(
-            inPane: paneId,
-            rendererKind: .react,
-            workingDirectory: nil,
-            focus: true
-        ))
-        #expect(!workspace.allowsLocalDirectoryFallback(panelId: agentPanel.id))
-
-        manager.updateReportedSurfaceDirectory(tabId: workspace.id, surfaceId: agentPanel.id, directory: remoteDirectory)
-        #expect(workspace.remoteDirectoryReportPanelIds.contains(agentPanel.id))
-        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == remoteDirectory)
-        let panelSnapshot = try #require(workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == agentPanel.id })
-        #expect(panelSnapshot.directoryIsTrustedRemoteReport == true)
-        workspace.currentDirectory = remoteDirectory; workspace.disconnectRemoteConnection(clearConfiguration: true)
-        #expect(workspace.reportedPanelDirectory(panelId: agentPanel.id) == nil)
-        #expect(workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == agentPanel.id }?.agentSession?.workingDirectory != remoteDirectory)
-    }
-
-    @MainActor
-    @Test("legacy remote-workspace agent restores guarded cwd")
-    func legacyRemoteWorkspaceAgentRestoresGuardedDirectory() throws {
-        let localDirectory = "/Users/alice/development"
-        let agentDirectory = "/Users/alice/local-agent"
-        let sshCommand = "ssh seepine@192.168.5.20"
-        let workspace = Workspace(workingDirectory: localDirectory, initialTerminalCommand: sshCommand)
-        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
-        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
-        let agentPanel = try #require(workspace.newAgentSessionSurface(
-            inPane: paneId,
-            rendererKind: .react,
-            workingDirectory: agentDirectory,
-            focus: true
-        ))
-        var snapshot = workspace.sessionSnapshot(includeScrollback: false)
-        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == agentPanel.id })
-        snapshot.panels[panelIndex].directoryIsTrustedRemoteReport = nil
-        snapshot.panels[panelIndex].directoryRequiresRemoteTrust = nil
-
-        let restored = Workspace()
-        let restoredPanelId = try #require(restored.restoreSessionSnapshot(snapshot)[agentPanel.id])
-        let restoredAgentPanel = try #require(restored.panels[restoredPanelId] as? AgentSessionPanel)
-        #expect(restoredAgentPanel.workingDirectory == nil)
-        #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == nil)
-        #expect(restored.remoteDirectoryTrustRequiredPanelIds.contains(restoredPanelId))
     }
 
     @MainActor

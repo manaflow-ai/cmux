@@ -8807,8 +8807,6 @@ struct CMUXCLI {
             let type = optionValue(commandArgs, name: "--type")
             let paneRaw = optionValue(commandArgs, name: "--pane")
             let url = optionValue(commandArgs, name: "--url")
-            let provider = optionValue(commandArgs, name: "--provider") ?? optionValue(commandArgs, name: "--provider-id")
-            let renderer = optionValue(commandArgs, name: "--renderer") ?? optionValue(commandArgs, name: "--renderer-kind")
             let workingDirectory = optionValue(commandArgs, name: "--working-directory") ?? optionValue(commandArgs, name: "--cwd")
             let placement = optionValue(commandArgs, name: "--placement")
             let focusOpt = optionValue(commandArgs, name: "--focus")
@@ -8832,8 +8830,6 @@ struct CMUXCLI {
             if let type { params["type"] = type }
             if let url { params["url"] = url }
             if let placement { params["placement"] = placement }
-            if let provider { params["provider_id"] = provider }
-            if let renderer { params["renderer_kind"] = renderer }
             if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
                !workingDirectory.isEmpty {
                 params["working_directory"] = resolvePath(workingDirectory)
@@ -22511,7 +22507,7 @@ struct CMUXCLI {
             Create a new surface (tab) in a pane.
 
             Flags:
-              --type <terminal|browser|simulator|agent-session>   Surface type (default: terminal)
+              --type <terminal|browser|simulator>   Surface type (default: terminal)
               --pane <id|ref|index>       Target pane
               --placement <workspace|dock>  Target container (default: workspace).
                                            dock adds the surface to the right-sidebar Dock
@@ -22519,10 +22515,7 @@ struct CMUXCLI {
               --workspace <id|ref|index>  Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref|index>     Window context for workspace/pane refs and indexes
               --url <url>                 URL for browser surfaces
-              --provider <codex|claude|opencode>
-                                           Provider for agent-session surfaces (default: codex)
-              --renderer <react|solid>    Renderer for agent-session surfaces (default: react)
-              --working-directory <path>   Working directory for terminal and agent surfaces
+              --working-directory <path>   Working directory for terminal surfaces
               --command <text>             \(initialCommandDescription)
               --focus <true|false>        Focus the new surface (default: false)
 
@@ -22530,7 +22523,6 @@ struct CMUXCLI {
               cmux new-surface
               cmux new-surface --type browser --pane pane:1 --url https://example.com
               cmux new-surface --type simulator --pane pane:1 --focus true
-              cmux new-surface --type agent-session --provider claude --renderer solid --focus true
               cmux new-surface --type browser --placement dock --url https://example.com
             """
         case "close-surface":

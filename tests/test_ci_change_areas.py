@@ -53,7 +53,6 @@ WEB_JOBS = (
     "react-apps-check",
     "diff-sidecar-check",
     "web-db-migrations",
-    "agent-session-web-resources",
 )
 MACOS_JOBS = (
     "macos-compile-admission",
@@ -111,12 +110,10 @@ def assert_areas(
     *,
     macos: bool,
     web: bool,
-    agent_session_web: bool = False,
 ) -> None:
     actual = module.classify_files(paths)
     assert actual.macos is macos, (paths, actual)
     assert actual.web is web, (paths, actual)
-    assert actual.agent_session_web is agent_session_web, (paths, actual)
     # The Release build is a macOS job, so it can never run without that area.
     assert actual.macos or not actual.release_build, (paths, actual)
 
@@ -210,7 +207,6 @@ def test_cli_sources_route_the_cli_lane_without_app_host_compile() -> None:
     actual = module.classify_files(["CLI/cmux.swift", "CLI/FeedEventClassifier.swift"])
     assert actual.macos is False
     assert actual.web is False
-    assert actual.agent_session_web is False
     assert actual.cli is True
     assert actual.release_build is False
 
@@ -413,7 +409,7 @@ def test_non_package_changes_leave_the_package_test_lane_unrouted() -> None:
         "cmux.xcodeproj/project.pbxproj",
         "CLI/cmux.swift",
         "web/app/page.tsx",
-        "webviews/src/agent-session/index.tsx",
+        "webviews/src/main.tsx",
         "docs/ci.md",
         "README.md",
         "package.json",
@@ -497,7 +493,6 @@ def test_package_lane_does_not_widen_any_other_area() -> None:
     assert actual.swift_packages is True
     assert actual.release_build is False
     assert actual.web is False
-    assert actual.agent_session_web is False
     assert actual.cli is False
 
 
@@ -505,7 +500,7 @@ def test_app_and_web_only_changes_skip_the_cli_lane() -> None:
     for path in (
         "Sources/AppDelegate.swift",
         "Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/TerminalEngine.swift",
-        "webviews/src/agent-session/index.tsx",
+        "webviews/src/main.tsx",
         "Resources/Localizable.xcstrings",
         "docs/ci.md",
     ):
@@ -661,7 +656,7 @@ def test_test_only_pull_request_routes_macos_without_the_release_build() -> None
     result, outputs = run_detect_step_for_paths(["cmuxTests/GhosttyConfigTests.swift"])
 
     assert result.returncode == 0, result.stderr
-    assert outputs == ["macos=true", "web=false", "agent_session_web=false", "cli=false", "swift_packages=false", "release_build=false"]
+    assert outputs == ["macos=true", "web=false", "cli=false", "swift_packages=false", "release_build=false"]
 
 
 def test_docs_only_skips_expensive_areas() -> None:
@@ -732,7 +727,7 @@ def test_routing_policy_and_build_helpers_still_run_macos() -> None:
         "scripts/ci/cache_restore_receipt.py",
         "scripts/ci/test_execution_registry.py",
     ):
-        assert_areas([path], macos=True, web=True, agent_session_web=True)
+        assert_areas([path], macos=True, web=True)
 
 
 def test_contributor_prose_skips_expensive_areas() -> None:
@@ -956,9 +951,9 @@ def test_cmux_tui_only_skips_macos() -> None:
     )
 
 
-def test_website_only_does_not_run_agent_session_resource_check() -> None:
-    assert_areas(["web/app/page.tsx"], macos=False, web=True, agent_session_web=False)
-    assert_areas(["scripts/ci/web_validation.py"], macos=False, web=True, agent_session_web=False)
+def test_website_only_routes_web() -> None:
+    assert_areas(["web/app/page.tsx"], macos=False, web=True)
+    assert_areas(["scripts/ci/web_validation.py"], macos=False, web=True)
 
 
 def test_review_rules_skip_app_builds_but_preserve_unknown_and_mixed_inputs() -> None:
@@ -968,7 +963,6 @@ def test_review_rules_skip_app_builds_but_preserve_unknown_and_mixed_inputs() ->
         assert module.classify_files(changed) == module.ChangeAreas(
             macos=False,
             web=False,
-            agent_session_web=False,
             cli=False,
             swift_packages=False,
             release_build=False,
@@ -991,7 +985,6 @@ def test_review_rules_workflow_skips_native_but_still_requires_linux_guards() ->
     assert outputs == [
         "macos=false",
         "web=false",
-        "agent_session_web=false",
         "cli=false",
         "swift_packages=false",
         "release_build=false",
@@ -1002,30 +995,11 @@ def test_review_rules_workflow_skips_native_but_still_requires_linux_guards() ->
     assert result.returncode != 0, result.stdout
 
 
-def test_agent_session_webview_sources_run_bundled_asset_check() -> None:
-    assert_areas(
-        ["webviews/src/agent-session/shared/message.test.ts"],
-        macos=True,
-        web=True,
-        agent_session_web=True,
-    )
-
-
 def test_markdown_viewer_resources_run_webviews_asset_guard() -> None:
     assert_areas(
         ["Resources/markdown-viewer/webviews-app/index.js", "Resources/markdown-viewer/marked.min.js"],
         macos=True,
         web=True,
-        agent_session_web=True,
-    )
-
-
-def test_markdown_viewer_webview_app_does_not_run_agent_session_resource_check() -> None:
-    assert_areas(
-        ["Resources/markdown-viewer/webviews-app/index.js"],
-        macos=True,
-        web=True,
-        agent_session_web=False,
     )
 
 
@@ -1034,24 +1008,7 @@ def test_root_agent_web_dependencies_run_web_and_macos() -> None:
         ["package.json", "bun.lock"],
         macos=True,
         web=True,
-        agent_session_web=True,
     )
-
-
-def test_agent_session_resources_run_web_and_macos() -> None:
-    assert_areas(
-        ["Resources/agent-session-react/index.js"],
-        macos=True,
-        web=True,
-        agent_session_web=True,
-    )
-    assert_areas(
-        ["Resources/agent-session-solid/index.js"],
-        macos=True,
-        web=True,
-        agent_session_web=True,
-    )
-    assert_areas(["Resources/agent-session-backup/index.js"], macos=True, web=False)
 
 
 def test_ios_only_skips_main_macos_ci() -> None:
@@ -1421,7 +1378,6 @@ def test_workflow_changes_run_everything() -> None:
         [".github/workflows/ci.yml"],
         macos=True,
         web=True,
-        agent_session_web=True,
     )
 
 
@@ -1429,13 +1385,13 @@ def test_publishing_helpers_skip_unrelated_product_builds() -> None:
     helpers = ["scripts/ci/download-run-artifact.py", "scripts/prebuild_sparkle_deltas.sh", "scripts/sparkle_generate_appcast.sh", "scripts/build-sign-upload.sh"]
     for path in helpers:
         actual = module.classify_files([path])
-        assert not any((actual.macos, actual.web, actual.agent_session_web, actual.cli, actual.swift_packages, actual.release_build)), (path, actual)
+        assert not any((actual.macos, actual.web, actual.cli, actual.swift_packages, actual.release_build)), (path, actual)
     actual = module.classify_files(helpers + ["Sources/AppDelegate.swift"])
     assert actual.macos and actual.release_build
     actual = module.classify_files(helpers + ["scripts/ci/unknown_publishing_helper.py"])
     assert actual.macos and actual.release_build and actual.web
     result, outputs = run_detect_step_for_paths(helpers + [".github/workflows/nightly.yml", "tests/test_sparkle_generate_appcast_no_deltas.sh"])
-    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "cli=false", "swift_packages=false", "release_build=false"], (result.stdout, outputs)
+    assert outputs == ["macos=false", "web=false", "cli=false", "swift_packages=false", "release_build=false"]
 
 
 def test_macos_admission_control_helpers_run_admission_without_web_or_release() -> None:
@@ -1446,7 +1402,6 @@ def test_macos_admission_control_helpers_run_admission_without_web_or_release() 
         actual = module.classify_files([path])
         assert actual.macos is True, (path, actual)
         assert actual.web is False, (path, actual)
-        assert actual.agent_session_web is False, (path, actual)
         assert actual.release_build is False, (path, actual)
 
 
@@ -1467,7 +1422,6 @@ def test_macos_test_product_ci_helpers_run_admission_without_web_or_release() ->
         actual = module.classify_files([path])
         assert actual.macos is True, (path, actual)
         assert actual.web is False, (path, actual)
-        assert actual.agent_session_web is False, (path, actual)
         assert actual.release_build is False, (path, actual)
 
 
@@ -1475,7 +1429,6 @@ def test_unknown_ci_helper_still_fails_open_to_every_area_the_lane_can_reach() -
     actual = module.classify_files(["scripts/ci/future_unknown_helper.py"])
     assert actual.macos is True
     assert actual.web is True
-    assert actual.agent_session_web is True
     assert actual.release_build is True
     # The CLI lane runs no unowned scripts/ci helper, so a new one
     # cannot change its result unless it shadows an import of a helper the lane
@@ -1495,7 +1448,6 @@ def test_reusable_web_workflow_edit_runs_every_owned_web_job() -> None:
     actual = module.classify_files([".github/workflows/ci-web.yml"])
     assert actual.macos is False
     assert actual.web is True
-    assert actual.agent_session_web is True
     assert actual.release_build is False
 
 
@@ -1503,7 +1455,6 @@ def test_reusable_macos_workflow_edit_runs_owned_macos_jobs() -> None:
     actual = module.classify_files([".github/workflows/ci-macos.yml"])
     assert actual.macos is True
     assert actual.web is False
-    assert actual.agent_session_web is False
     assert actual.release_build is True
 
 
@@ -1694,7 +1645,7 @@ def edit_job(workflow: str, job: str, marker: str = "# edited") -> str:
 def areas(**selected: bool) -> object:
     return module.ChangeAreas(**{
         name: selected.get(name, False)
-        for name in ("macos", "web", "agent_session_web", "cli", "swift_packages", "release_build")
+        for name in ("macos", "web", "cli", "swift_packages", "release_build")
     })
 
 
@@ -1709,7 +1660,7 @@ def test_ci_workflow_job_edits_select_only_the_area_they_call() -> None:
     # `with:` inputs, `if:` and `needs:` all live in that block.
     # The macOS caller also passes the `cli` route that runs the CLI lane.
     assert change_areas(real, edit_job(real, "macos")) == areas(macos=True, cli=True, release_build=True)
-    assert change_areas(real, edit_job(real, "web")) == areas(web=True, agent_session_web=True)
+    assert change_areas(real, edit_job(real, "web")) == areas(web=True)
     assert change_areas(
         real, edit_job(edit_job(real, "macos"), "macos-admission-gate"),
     ) == areas(macos=True, cli=True, release_build=True)
@@ -1742,7 +1693,7 @@ def test_ci_workflow_areas_route_through_classify_files() -> None:
     )
     assert selected == areas(cli=True)
     assert module.classify_files([module.CI_WORKFLOW_PATH]) == areas(
-        macos=True, web=True, agent_session_web=True, cli=True, release_build=True,
+        macos=True, web=True, cli=True, release_build=True,
     )
 
 
@@ -1956,7 +1907,6 @@ def test_workflow_routes_linux_only_ci_workflow_edit_away_from_macos() -> None:
     assert outputs == [
         "macos=false",
         "web=false",
-        "agent_session_web=false",
         "cli=false",
         "swift_packages=false",
         "release_build=false",
@@ -1970,7 +1920,6 @@ def test_workflow_routes_top_level_macos_job_edit_as_control_plane_only() -> Non
     assert outputs == [
         "macos=false",
         "web=false",
-        "agent_session_web=false",
         "cli=false",
         "swift_packages=false",
         "release_build=false",
@@ -2258,7 +2207,6 @@ def linux_preflight_needs(
         "ghosttykit_release": "true",
         "macos": "true",
         "web": "true",
-        "agent_session_web": "true",
     }
     if outputs:
         route_outputs.update(outputs)
@@ -2322,7 +2270,6 @@ def run_web_status(
     route_inputs = {
         "web": "true",
         "macos": "true",
-        "agent_session_web": "true",
     } if inputs is None else dict(inputs)
     job_results = dict.fromkeys(WEB_JOBS, "success")
     if results:
@@ -2550,7 +2497,6 @@ def test_workflow_self_change_guard_runs_before_detector_imports() -> None:
     assert outputs == [
         "macos=true",
         "web=true",
-        "agent_session_web=true",
         "cli=true",
         # The package lane is the exception to fail-open: selecting it for an
         # unrecognized path means every package, which is the sweep this
@@ -2570,7 +2516,6 @@ def test_router_policy_only_change_skips_product_areas_with_trusted_base() -> No
     assert outputs == [
         "macos=false",
         "web=false",
-        "agent_session_web=false",
         "cli=false",
         "swift_packages=false",
         "release_build=false",
@@ -2584,7 +2529,7 @@ def test_router_change_with_app_source_uses_trusted_base_product_routing() -> No
     ])
 
     assert "classifying product inputs with the trusted base router" in result.stdout
-    assert outputs == ["macos=true", "web=false", "agent_session_web=false", "cli=false", "swift_packages=false", "release_build=true"]
+    assert outputs == ["macos=true", "web=false", "cli=false", "swift_packages=false", "release_build=true"]
 
 
 def test_owned_control_plane_helper_reaches_detector_instead_of_fail_open_guard() -> None:
@@ -2594,7 +2539,6 @@ def test_owned_control_plane_helper_reaches_detector_instead_of_fail_open_guard(
     assert outputs == [
         "macos=false",
         "web=false",
-        "agent_session_web=false",
         "cli=false",
         "swift_packages=false",
         "release_build=false",
@@ -2614,7 +2558,6 @@ def test_owned_control_plane_helper_reaches_detector_instead_of_fail_open_guard(
         assert outputs == [
             "macos=true",
             "web=false",
-            "agent_session_web=false",
             f"cli={cli}",
             "swift_packages=false",
             "release_build=false",
@@ -2874,7 +2817,6 @@ def test_workflow_diff_failure_runs_all_areas() -> None:
         assert output_path.read_text(encoding="utf-8").splitlines() == [
             "macos=true",
             "web=true",
-            "agent_session_web=true",
             "cli=true",
             "swift_packages=true",
             "release_build=true",
@@ -2971,7 +2913,7 @@ def test_workflow_routes_from_shallow_synthetic_merge() -> None:
     result, outputs = run_detect_step_on_shallow_synthetic_merge(stale_event_base=False)
 
     assert "Could not compute PR diff" not in result.stderr
-    assert outputs == ["macos=false", "web=true", "agent_session_web=false", "cli=false", "swift_packages=false", "release_build=false"]
+    assert outputs == ["macos=false", "web=true", "cli=false", "swift_packages=false", "release_build=false"]
 
 
 def test_workflow_routes_when_main_moved_past_the_event_base() -> None:
@@ -2980,7 +2922,7 @@ def test_workflow_routes_when_main_moved_past_the_event_base() -> None:
     assert "Could not compute PR diff" not in result.stderr
     # base-only.txt landed on main after the event base. It is not part of the
     # pull request and must not route macOS.
-    assert outputs == ["macos=false", "web=true", "agent_session_web=false", "cli=false", "swift_packages=false", "release_build=false"]
+    assert outputs == ["macos=false", "web=true", "cli=false", "swift_packages=false", "release_build=false"]
 
 
 def test_workflow_empty_diff_skips_product_areas() -> None:
@@ -2990,7 +2932,6 @@ def test_workflow_empty_diff_skips_product_areas() -> None:
     assert outputs == [
         "macos=false",
         "web=false",
-        "agent_session_web=false",
         "cli=false",
         "swift_packages=false",
         "release_build=false",
@@ -3002,19 +2943,16 @@ def test_router_changes_run_everything() -> None:
         ["scripts/ci/detect_ci_change_areas.py"],
         macos=True,
         web=True,
-        agent_session_web=True,
     )
     assert_areas(
         ["scripts/ci/subprocess.py"],
         macos=True,
         web=True,
-        agent_session_web=True,
     )
     assert_areas(
         ["tests/test_ci_change_areas.py"],
         macos=False,
         web=False,
-        agent_session_web=False,
     )
 
 
@@ -3032,7 +2970,6 @@ def test_ghosttykit_checksum_pr_uses_release_guard_only() -> None:
     assert outputs == [
         "macos=false",
         "web=false",
-        "agent_session_web=false",
         "cli=false",
         "swift_packages=false",
         "release_build=false",
@@ -3056,7 +2993,6 @@ def test_ghosttykit_guard_wiring_pr_stays_on_release_guard() -> None:
     assert outputs == [
         "macos=false",
         "web=false",
-        "agent_session_web=false",
         "cli=false",
         "swift_packages=false",
         "release_build=false",
@@ -3072,7 +3008,6 @@ def test_workflow_only_pr_uses_trusted_base_without_product_work() -> None:
     assert outputs == [
         "macos=false",
         "web=false",
-        "agent_session_web=false",
         "cli=true",
         "swift_packages=false",
         "release_build=false",
@@ -3218,7 +3153,6 @@ def test_ci_workflow_edit_to_the_cli_call_site_runs_the_cli_lane() -> None:
         assert outputs == [
             "macos=false",
             "web=false",
-            "agent_session_web=false",
             "cli=true",
             "swift_packages=false",
             "release_build=false",
@@ -3233,7 +3167,6 @@ def test_ci_workflow_edit_elsewhere_leaves_the_cli_lane_skipped() -> None:
     assert outputs == [
         "macos=false",
         "web=false",
-        "agent_session_web=false",
         "cli=false",
         "swift_packages=false",
         "release_build=false",
@@ -3271,7 +3204,6 @@ def test_cli_writes_github_outputs() -> None:
         assert output_path.read_text(encoding="utf-8").splitlines() == [
             "macos=false",
             "web=true",
-            "agent_session_web=false",
             "cli=false",
             "swift_packages=false",
             "release_build=false",
@@ -3302,11 +3234,9 @@ def test_cli_empty_diff_runs_all_areas() -> None:
         )
 
         assert "PR diff is empty; running all CI areas." in result.stdout
-        assert "Resolved areas: macos=true web=true agent_session_web=true" in result.stdout
         assert output_path.read_text(encoding="utf-8").splitlines() == [
             "macos=true",
             "web=true",
-            "agent_session_web=true",
             "cli=true",
             "swift_packages=true",
             "release_build=true",
@@ -3322,7 +3252,9 @@ def test_non_pr_events_run_all_areas() -> None:
         stderr=subprocess.PIPE,
     )
 
-    assert "Resolved areas: macos=true web=true agent_session_web=true" in result.stdout
+    assert "Non-PR event 'workflow_dispatch'; running all CI areas." in result.stdout
+    assert "Resolved areas: macos=true web=true cli=true swift_packages=true release_build=true" in result.stdout
+
 
 
 def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
@@ -6019,7 +5951,7 @@ def test_linux_aggregate_preserves_all_routed_results() -> None:
     assert 'guard_routes = (' in block
     assert 'bad[f"guards.{route}"]' in block
     assert 'bad["guards"] = f"{guard_result} (one or more guard routes=true)"' in block
-    assert 'web_routes = ("web", "agent_session_web")' in block
+    assert 'web_routes = ("web",)' in block
     assert 'bad[f"web.{route}"]' in block
     assert 'bad["web"] = f"{web_result} (one or more web routes=true)"' in block
     assert 'allowed_routed = {' in block
@@ -6173,9 +6105,9 @@ def test_web_workflow_call_preserves_routes_and_starts_beside_static_checks() ->
     # On web pull requests, web finishes after the guards; see the guards test.
     assert "    needs: [changes]" in block
     assert "    uses: ./.github/workflows/ci-web.yml" in block
-    for route in ("web", "macos", "agent_session_web"):
+    for route in ("web", "macos"):
         assert f"      {route}: ${{{{ needs.changes.outputs.{route} }}}}" in block
-    for route in ("web", "agent_session_web"):
+    for route in ("web",):
         assert f"needs.changes.outputs.{route} != 'false'" in block
 
 
@@ -6264,7 +6196,7 @@ def test_web_status_rejects_selected_skip_failure_or_cancellation() -> None:
 
 def test_web_status_allows_unrouted_skips() -> None:
     result = run_web_status(
-        inputs={"web": "false", "macos": "false", "agent_session_web": "false"},
+        inputs={"web": "false", "macos": "false"},
         results=dict.fromkeys(WEB_JOBS, "skipped"),
     )
     assert result.returncode == 0, result.stderr
@@ -6280,7 +6212,7 @@ def test_linux_preflight_fails_when_routed_web_workflow_skips() -> None:
 def test_linux_preflight_allows_unrouted_web_workflow_skip() -> None:
     result = run_linux_preflight(
         linux_preflight_needs(
-            outputs={"web": "false", "macos": "false", "agent_session_web": "false"},
+            outputs={"web": "false", "macos": "false"},
             results={"web": "skipped"},
         )
     )
@@ -6929,18 +6861,11 @@ def test_app_host_rejects_failed_or_empty_shard_generation() -> None:
         assert not runner_invoked, (shard_mode, result.stdout)
 
 
-def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> None:
-    block = workflow_job_block("agent-session-web-resources", WEB_WORKFLOW)
-
-    assert "if: ${{ inputs.agent_session_web == 'true' }}" in block
-
-
 def test_perf_activation_runs_for_its_own_workflow_and_not_for_others() -> None:
     _, outputs = run_detect_step_for_paths([".github/workflows/relay-tls.yml"], PERF_ACTIVATION_WORKFLOW)
     assert outputs == [
         "macos=false",
         "web=false",
-        "agent_session_web=false",
         "cli=false",
         "swift_packages=false",
         "release_build=false",
@@ -6959,7 +6884,6 @@ def test_perf_activation_workflow_keeps_required_status_while_gating_benchmark()
     assert outputs == [
         "macos=false",
         "web=false",
-        "agent_session_web=false",
         "cli=false",
         "swift_packages=false",
         "release_build=false",

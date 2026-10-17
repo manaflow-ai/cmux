@@ -2172,8 +2172,7 @@
           "suppressSubagentNotifications": "Ukrywa widoczne powiadomienia o zakończeniu i zmiany statusu zagnieżdżonych agentów podrzędnych Codex lub Claude, zachowując ich zdarzenia w telemetrii Feed.",
           "workspaceAutoNaming": "Opcjonalne automatyczne nazywanie przestrzeni roboczych i kart przez AI na podstawie treści rozmów agenta. Po włączeniu cmux podsumowuje obsługiwane sesje agentów w krótkie tytuły przy użyciu własnego pliku binarnego każdego agenta; ręczne zmiany nazw zawsze mają pierwszeństwo.",
           "autoNamingAgent": "Który agent generuje automatyczne nazwy dla każdej sesji. „auto” (domyślnie) nazywa każdą sesję jej własnym agentem; dowolny identyfikator agenta (claude, codex, grok, opencode, pi, omp, …) zastępuje nazewnictwo dla wszystkich sesji, nawet innych agentów. Niedostępni lub niezainstalowani agenci wracają do agenta danej sesji, więc nazewnictwo nigdy się nie psuje.",
-          "agentAutoResume": "Wysyła `continue`, z narastającym opóźnieniem, do agenta uruchomionego przez cmux, którego tura zakończyła się błędem po stronie usługi, który można ponowić (brak przepustowości modelu, przeciążenie lub utrata połączenia). Tury czekające na człowieka nigdy nie są wznawiane.",
-          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
+          "agentAutoResume": "Wysyła `continue`, z narastającym opóźnieniem, do agenta uruchomionego przez cmux, którego tura zakończyła się błędem po stronie usługi, który można ponowić (brak przepustowości modelu, przeciążenie lub utrata połączenia). Tury czekające na człowieka nigdy nie są wznawiane."
         },
         "app": {
           "confirmQuit": "Określa, kiedy cmux prosi o potwierdzenie przed zamknięciem. Buildy DEV zawsze zamykają się natychmiast niezależnie od tego ustawienia. Starsze app.warnBeforeQuit jest nadal akceptowane jako zapasowa wartość logiczna.",

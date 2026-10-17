@@ -553,11 +553,6 @@ extension Workspace {
                !directory.isEmpty {
                 return directory
             }
-            if let agentPanel = panel as? AgentSessionPanel,
-               let agentDirectory = agentPanel.workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !agentDirectory.isEmpty {
-                return agentDirectory
-            }
             if let restorableDirectory = effectiveRestorableAgent?.workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
                !restorableDirectory.isEmpty {
                 return restorableDirectory
@@ -606,7 +601,6 @@ extension Workspace {
         let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
         let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?; var customSidebarSnapshot: SessionCustomSidebarPanelSnapshot? = nil
         var simulatorSnapshot: SessionSimulatorPanelSnapshot? = nil
-        let agentSessionSnapshot: SessionAgentSessionPanelSnapshot?
         let projectSnapshot: SessionProjectPanelSnapshot?; var workspaceTodoSnapshot: SessionWorkspaceTodoPanelSnapshot? = nil
         var coderouterGuideSnapshot: SessionCoderouterGuidePanelSnapshot? = nil
         var notificationsPanelSnapshot: SessionNotificationsPanelSnapshot? = nil
@@ -715,7 +709,6 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
-            agentSessionSnapshot = nil
             projectSnapshot = nil
         case .browser:
             terminalSnapshot = nil
@@ -750,7 +743,6 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
-            agentSessionSnapshot = nil
             projectSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
@@ -759,7 +751,6 @@ extension Workspace {
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
-            agentSessionSnapshot = nil
             projectSnapshot = nil
         case .filePreview:
             guard let filePreviewPanel = panel as? FilePreviewPanel, filePreviewPanel.cloudPreviewLease == nil, filePreviewPanel.cloudPreviewRemotePath == nil else { return nil }
@@ -768,7 +759,6 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
             rightSidebarToolSnapshot = nil
-            agentSessionSnapshot = nil
             projectSnapshot = nil
         case .rightSidebarTool:
             guard let toolPanel = panel as? RightSidebarToolPanel else { return nil }
@@ -777,29 +767,19 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = SessionRightSidebarToolPanelSnapshot(mode: toolPanel.mode)
-            agentSessionSnapshot = nil
             projectSnapshot = nil
         case .customSidebar:
             guard let snapshot = customSidebarSessionSnapshot(for: panel) else { return nil }
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil; rightSidebarToolSnapshot = nil
-            customSidebarSnapshot = snapshot; agentSessionSnapshot = nil; projectSnapshot = nil
+            customSidebarSnapshot = snapshot; projectSnapshot = nil
         case .simulator:
             guard let snapshot = simulatorSessionSnapshot(for: panel) else { return nil }
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil; rightSidebarToolSnapshot = nil
-            simulatorSnapshot = snapshot; agentSessionSnapshot = nil; projectSnapshot = nil
+            simulatorSnapshot = snapshot; projectSnapshot = nil
         case .agentSession:
-            guard let agentPanel = panel as? AgentSessionPanel else { return nil }
-            terminalSnapshot = nil
-            browserSnapshot = nil
-            markdownSnapshot = nil
-            filePreviewSnapshot = nil
-            rightSidebarToolSnapshot = nil
-            agentSessionSnapshot = SessionAgentSessionPanelSnapshot(
-                rendererKind: agentPanel.rendererKind,
-                providerID: agentPanel.currentProviderID,
-                workingDirectory: directory
-            )
-            projectSnapshot = nil
+            // Keep decoding old panel kinds, but never persist the retired
+            // desktop Agent Session surface again.
+            return nil
         case .project:
             guard let projectPanel = panel as? ProjectPanel else { return nil }
             terminalSnapshot = nil
@@ -814,18 +794,17 @@ extension Workspace {
                 selectedSchemeName: projectPanel.selectedSchemeName,
                 selectedConfigurationName: projectPanel.selectedConfigurationName
             )
-            agentSessionSnapshot = nil
         case .workspaceTodo:
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
-            rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
+            rightSidebarToolSnapshot = nil; projectSnapshot = nil
             workspaceTodoSnapshot = SessionWorkspaceTodoPanelSnapshot()
         case .coderouterGuide:
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
-            rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
+            rightSidebarToolSnapshot = nil; projectSnapshot = nil
             coderouterGuideSnapshot = SessionCoderouterGuidePanelSnapshot()
         case .notifications:
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
-            rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
+            rightSidebarToolSnapshot = nil; projectSnapshot = nil
             notificationsPanelSnapshot = SessionNotificationsPanelSnapshot()
         case .extensionBrowser:
             return nil
@@ -864,7 +843,6 @@ extension Workspace {
             rightSidebarTool: rightSidebarToolSnapshot,
             customSidebar: customSidebarSnapshot,
             simulator: simulatorSnapshot,
-            agentSession: agentSessionSnapshot,
             project: projectSnapshot,
             workspaceTodo: workspaceTodoSnapshot,
             coderouterGuide: coderouterGuideSnapshot,
@@ -2335,18 +2313,10 @@ extension Workspace {
         case .customSidebar: return restoreCustomSidebarPanel(from: snapshot, inPane: paneId)
         case .simulator: return restoreSimulatorPanel(from: snapshot, inPane: paneId)
         case .agentSession:
-            guard let agentSession = snapshot.agentSession,
-                  let agentPanel = newAgentSessionSurface(
-                    inPane: paneId,
-                    providerID: agentSession.providerID,
-                    rendererKind: agentSession.rendererKind,
-                    workingDirectory: restoresUntrustedSavedDirectory ? nil : (agentSession.workingDirectory ?? snapshot.directory),
-                    focus: false
-                  ) else {
-                return nil
-            }
-            applySessionPanelMetadata(snapshot, toPanelId: agentPanel.id)
-            return agentPanel.id
+            // Old snapshots may still contain this panel kind. It is
+            // intentionally not recreated after the desktop Agent Session
+            // surface was retired.
+            return nil
         case .project:
             guard let projectPath = snapshot.project?.projectPath,
                   let projectPanel = newProjectSurface(
@@ -3023,12 +2993,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var surfaceTransferringPanelIds: Set<UUID> = []
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
-    private var agentSessionPanelCallbackIds: Set<UUID> = []
-    /// Terminal pairings belong to the workspace currently owning the agent
-    /// panel. Moving an agent panel drops the old pairing and lets the new
-    /// workspace lazily establish its own terminal on the next command.
-    private var agentSessionPairedTerminalPanelIds: [UUID: UUID] = [:]
-
     /// Aggregate media-device activity across every browser pane in this
     /// workspace (audio / microphone / camera), surfaced to the sidebar
     /// workspace row so a noisy or capturing background pane is discoverable.
@@ -5482,39 +5446,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             resolvedPanelTitle(panelId: panelId, fallback: metadata.title),
             panelCustomTitles[panelId] != nil
         )
-    }
-
-    private func installAgentSessionPanelSubscription(_ agentPanel: AgentSessionPanel) {
-        agentPanel.onDisplayStateChanged = { [weak self, weak agentPanel] newTitle, isDirty in
-            guard let self,
-                  let agentPanel,
-                  let tabId = self.surfaceIdFromPanelId(agentPanel.id) else { return }
-            guard let existing = self.bonsplitController.tab(tabId) else { return }
-
-            if self.panelTitles[agentPanel.id] != newTitle {
-                self.panelTitles[agentPanel.id] = newTitle
-            }
-            let resolvedTitle = self.resolvedPanelTitle(panelId: agentPanel.id, fallback: newTitle)
-            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
-            let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
-            guard titleUpdate != nil || dirtyUpdate != nil else { return }
-            self.bonsplitController.updateTab(
-                tabId,
-                title: titleUpdate,
-                hasCustomTitle: self.panelCustomTitles[agentPanel.id] != nil,
-                isDirty: dirtyUpdate
-            )
-        }
-        agentSessionPanelCallbackIds.insert(agentPanel.id)
-    }
-
-    func discardAgentSessionPanelSubscription(panelId: UUID, panel: (any Panel)?) {
-        if let agentPanel = panel as? AgentSessionPanel {
-            agentPanel.onDisplayStateChanged = nil
-            agentPanel.onRunCommand = nil
-        }
-        agentSessionPanelCallbackIds.remove(panelId)
-        agentSessionPairedTerminalPanelIds.removeValue(forKey: panelId)
     }
 
     func discardBrowserPanelSubscription(panelId _: UUID, panel: (any Panel)?) {
@@ -10982,149 +10913,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     @discardableResult
-    func newAgentSessionSurface(
-        inPane paneId: PaneID,
-        providerID: AgentSessionProviderID = .codex,
-        rendererKind: AgentSessionRendererKind,
-        workingDirectory: String? = nil,
-        focus: Bool? = nil,
-        targetIndex: Int? = nil
-    ) -> AgentSessionPanel? {
-        guard !isRetiredFromOwningTabManager else { return nil }
-        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
-        let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
-        let directory: String? = {
-            if let workingDirectory { return workingDirectory }
-            return usesRemoteDirectoryProvenance ? presentedCurrentDirectory : currentDirectory
-        }()
-        let focusedPanelUsesRemoteFallback = focusedPanelId.map { reportedPanelDirectory(panelId: $0) == nil && terminalPanel(for: $0) == nil } ?? true
-        let trustsAgentDirectory = workingDirectory == nil &&
-            (focusedPanelId.map { remoteDirectoryReportPanelIds.contains($0) } == true ||
-                (usesRemoteDirectoryProvenance && focusedPanelUsesRemoteFallback && directory != nil))
-
-        let agentPanel = AgentSessionPanel(
-            workspaceId: id,
-            rendererKind: rendererKind,
-            initialProviderID: providerID,
-            workingDirectory: directory
-        )
-        panels[agentPanel.id] = agentPanel
-        panelTitles[agentPanel.id] = agentPanel.displayTitle
-        if let directory, !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            panelDirectories[agentPanel.id] = directory
-            if trustsAgentDirectory { remoteDirectoryReportPanelIds.insert(agentPanel.id); remoteDirectoryTrustRequiredPanelIds.insert(agentPanel.id) }
-        }
-
-        guard let newTabId = bonsplitController.createTab(
-            title: agentPanel.displayTitle,
-            icon: agentPanel.displayIcon,
-            kind: SurfaceKind.agentSession.rawValue,
-            isDirty: agentPanel.isDirty,
-            isLoading: false,
-            isPinned: false,
-            inPane: paneId
-        ) else {
-            panels.removeValue(forKey: agentPanel.id)
-            panelTitles.removeValue(forKey: agentPanel.id)
-            return nil
-        }
-
-        bindSurface(newTabId, toPanelId: agentPanel.id)
-        if let targetIndex {
-            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
-        }
-        publishCmuxSurfaceCreated(
-            agentPanel.id,
-            paneId: paneId,
-            kind: "agent_session",
-            origin: "agent_session_tab",
-            focused: shouldFocusNewTab
-        )
-
-        if shouldFocusNewTab {
-            bonsplitController.focusPane(paneId)
-            bonsplitController.selectTab(newTabId)
-            agentPanel.focus()
-            applyTabSelection(tabId: newTabId, inPane: paneId)
-        } else {
-            preserveFocusAfterNonFocusSplit(
-                preferredPanelId: previousFocusedPanelId,
-                splitPanelId: agentPanel.id,
-                previousHostedView: previousHostedView
-            )
-        }
-
-        installAgentSessionPanelSubscription(agentPanel)
-        installAgentSessionCommandRouting(agentPanel)
-
-        return agentPanel
-    }
-
-    /// Binds composer command routing to this workspace's current ownership.
-    private func installAgentSessionCommandRouting(_ agentPanel: AgentSessionPanel) {
-        agentPanel.onRunCommand = { [weak self, weak agentPanel] command in
-            guard let self, let agentPanel,
-                  self.panels[agentPanel.id] === agentPanel,
-                  agentPanel.workspaceId == self.id else {
-                throw AgentSessionBridgeError.unsupportedTransport("terminal")
-            }
-            return try self.runAgentSessionCommand(command, for: agentPanel)
-        }
-    }
-
-    /// Creates the paired command terminal without arming the generic deferred
-    /// focus-repair path. Bonsplit selection is restored synchronously so later
-    /// user or layout selection changes remain authoritative.
-    private func newAgentSessionBackgroundTerminalSurface(
-        inPane paneId: PaneID,
-        workingDirectory: String?
-    ) -> TerminalPanel? {
-        newTerminalSurface(
-            inPane: paneId,
-            focus: false,
-            workingDirectory: workingDirectory,
-            autoRefreshMetadata: false,
-            preserveFocusWhenUnfocused: false,
-            preserveBonsplitSelectionWhenUnfocused: true
-        )
-    }
-
-    /// Routes composer shell commands to a terminal owned by this workspace.
-    /// The terminal is created once and reused so stateful commands such as `cd`
-    /// remain in effect for subsequent commands.
-    private func runAgentSessionCommand(
-        _ command: String,
-        for agentPanel: AgentSessionPanel
-    ) throws -> [String: Any] {
-        let resolvedTerminalPanel: TerminalPanel?
-        if let pairedTerminalPanelId = agentSessionPairedTerminalPanelIds[agentPanel.id],
-           let existing = terminalPanel(for: pairedTerminalPanelId) {
-            resolvedTerminalPanel = existing
-        } else {
-            agentSessionPairedTerminalPanelIds.removeValue(forKey: agentPanel.id)
-            guard let paneId = paneId(forPanelId: agentPanel.id),
-                  let created = newAgentSessionBackgroundTerminalSurface(
-                      inPane: paneId,
-                      workingDirectory: agentPanel.workingDirectory
-                  ) else {
-                throw AgentSessionBridgeError.unsupportedTransport("terminal")
-            }
-            agentSessionPairedTerminalPanelIds[agentPanel.id] = created.id
-            resolvedTerminalPanel = created
-        }
-
-        guard let terminalPanel = resolvedTerminalPanel,
-              terminalPanel.sendInputResult(command + "\n").accepted else {
-            throw AgentSessionBridgeError.unsupportedTransport("terminal")
-        }
-        return [
-            "accepted": true,
-            "terminalPanelId": terminalPanel.id.uuidString
-        ]
-    }
-
-    @discardableResult
     func splitPaneWithFilePreview(
         targetPane paneId: PaneID,
         orientation: SplitOrientation,
@@ -11618,13 +11406,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         var detached = splitLayout.takeDetachedTransfer(tabId)
         detached?.surfaceMachine = surfaceMachine
         detached?.origin = .workspace(id)
-        if detached != nil, let agentPanel = sourcePanel as? AgentSessionPanel {
-            // A detached panel is between owners. Drop this workspace's command
-            // route immediately; attachDetachedSurface installs the destination
-            // route after ownership has moved.
-            agentPanel.onRunCommand = nil
-            agentSessionPairedTerminalPanelIds.removeValue(forKey: agentPanel.id)
-        }
         if detached == nil {
             (sourcePanel as? any FileContentChangeObservingPanel)?.stopWatchingForFileChanges()
             AgentHibernationController.shared.discardTrackingStateForClosedPanel(
@@ -11767,10 +11548,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             panelPrompts.removeValue(forKey: detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
             discardBrowserPanelSubscription(panelId: detached.panelId, panel: detached.panel)
-            if let agentPanel = detached.panel as? AgentSessionPanel {
-                agentPanel.onDisplayStateChanged = nil
-                agentSessionPanelCallbackIds.remove(detached.panelId)
-            }
 #if DEBUG
             cmuxDebugLog(
                 "split.attach.fail ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
@@ -11864,13 +11641,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         if let filePreviewPanel = detached.panel as? FilePreviewPanel {
             filePreviewPanel.bindTabMetadata(to: self)
-        }
-        if let agentPanel = detached.panel as? AgentSessionPanel {
-            agentPanel.updateWorkspaceId(id)
-            if !agentSessionPanelCallbackIds.contains(agentPanel.id) {
-                installAgentSessionPanelSubscription(agentPanel)
-            }
-            installAgentSessionCommandRouting(agentPanel)
         }
         if detached.directoryIsTrustedRemoteReport {
             remoteDirectoryReportPanelIds.insert(detached.panelId); remoteDirectoryTrustRequiredPanelIds.insert(detached.panelId)
