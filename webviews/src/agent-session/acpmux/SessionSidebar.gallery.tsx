@@ -116,6 +116,35 @@ const switchViews = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector('[aria-label="Closed sessions"] .acpmux-sidebar-title'));
 };
 
+/**
+ * The sidebar's rail is also the workspace-switch affordance in the native shell. Keep one
+ * canonical rapid round-trip for visual review: the play runner records each transition's frame
+ * timing, settle latency, anchor geometry and layout shift. This deliberately uses the existing
+ * play/manifest contract instead of introducing a second animation recorder.
+ */
+const animationAudit = async (ctx: PlayContext) => {
+  const sidebar = ctx.find({ selector: ".acpmux-sidebar" });
+  const before = sidebar.getBoundingClientRect();
+  const transitions: Array<[string, string]> = [
+    ["History", 'section[aria-label="History"] .acpmux-sidebar-title'],
+    ["Pull requests", 'section[aria-label="Pull requests"] .acpmux-sidebar-empty'],
+    ["Closed sessions", 'section[aria-label="Closed sessions"] .acpmux-sidebar-title'],
+    ["Sessions", ".acpmux-sidebar-active"],
+  ];
+  for (const [label, section] of transitions) {
+    await ctx.click({ role: "button", name: label });
+    await ctx.waitFor(() => ctx.document.querySelector(section) !== null);
+    const after = sidebar.getBoundingClientRect();
+    const moved = Math.max(
+      Math.abs(before.left - after.left),
+      Math.abs(before.top - after.top),
+      Math.abs(before.width - after.width),
+      Math.abs(before.height - after.height),
+    );
+    if (moved > 0.5) throw new Error(`${label} moved the sidebar frame by ${moved.toFixed(1)}px`);
+  }
+};
+
 const contextActions = async (ctx: PlayContext) => {
   const openMenu = (sessionId: string) => {
     const row = ctx.find({ selector: `[data-session-id="${sessionId}"]` });
@@ -201,6 +230,25 @@ const entry = componentEntry<Props>({
       note: "History, Pull requests and Closed sessions each replace the list in the same pane.",
       props: baseProps,
       play: switchViews,
+    },
+    "view-switching-animation-audit": {
+      note: "Rapidly round-trip the sidebar rail through History, Pull requests, Closed sessions and Sessions. The shared play report is the animation receipt: frame timing, settle latency, layout shift and sidebar geometry are checked together.",
+      props: baseProps,
+      checks: {
+        layoutShiftMax: {
+          value: 0,
+          reason: "Workspace/sidebar view switches replace the scroll content without moving the sidebar frame.",
+        },
+        longFrameFailMs: {
+          value: 33,
+          reason: "Rail view switches should not introduce a long animation frame over two display frames.",
+        },
+        settleMaxMs: {
+          value: 250,
+          reason: "Each local rail transition should settle within a quarter second for rapid workspace review.",
+        },
+      },
+      play: animationAudit,
     },
     "context-actions": {
       note: "Right-click an active row to Settle and a settled row to Continue; each menu returns focus cleanly.",
