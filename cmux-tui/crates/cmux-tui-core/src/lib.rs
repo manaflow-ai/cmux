@@ -163,6 +163,7 @@ pub use remote_relay_state::{
 };
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
+pub use shell_integration::AGENT_SHIMS_ENV;
 pub use short_id::assign_short_ids;
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
