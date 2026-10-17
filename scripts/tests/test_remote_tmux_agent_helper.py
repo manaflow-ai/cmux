@@ -187,6 +187,22 @@ with open(os.environ['PROVIDER_LOG'], 'w') as f: json.dump(sys.argv[1:], f)
         ))
         self.assertTrue(any("send-keys" in call and "init.sh" in " ".join(call) for call in calls))
 
+    def test_install_configures_every_session_it_is_given(self):
+        import base64
+
+        payload = base64.b64encode(HELPER.read_bytes()).decode()
+        result = self._run("--install", "$1", "$2", payload)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self._tmux_calls()
+        for session in ("$1", "$2"):
+            self.assertTrue(any(
+                "set-option" in call and "default-command" in call and session in call
+                for call in calls
+            ), session)
+            self.assertTrue(any(
+                call[2:6] == ["list-panes", "-s", "-t", session] for call in calls
+            ), session)
+
     def test_install_does_not_inject_into_busy_shell_input(self):
         import base64
 

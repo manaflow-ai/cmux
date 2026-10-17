@@ -309,6 +309,7 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
     func seedPane(paneId: Int, clearScrollback: Bool) -> UUID? {
         underlying.seedPane(paneId: paneId, clearScrollback: clearScrollback)
     }
+    func queuePaneSeed(paneId: Int) { underlying.queuePaneSeed(paneId: paneId) }
     func unsubscribePanePath(paneId: Int) { underlying.unsubscribePanePath(paneId: paneId) }
     func unsubscribePaneReflow(paneId: Int) { underlying.unsubscribePaneReflow(paneId: paneId) }
     func unsubscribePaneHeader(paneId: Int) { underlying.unsubscribePaneHeader(paneId: paneId) }
@@ -350,10 +351,7 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
         for command in RemoteTmuxControlConnection.mirrorEnvironmentCommands(target: target, pairs: pairs) {
             guard underlying.send(command) else { return }
         }
-        let installTarget = scopedSessionId.map { "$\($0)" } ?? scopedSessionName
-        if let command = RemoteTmuxAgentHookInstaller.installCommand(sessionTarget: installTarget) {
-            underlying.send(command)
-        }
+        underlying.requestAgentHookInstall(sessionTarget: scopedSessionId.map { "$\($0)" } ?? scopedSessionName)
     }
     /// Applies a reorder of *this session's* windows to the stored home-session order.
     /// The shared stream's own ledger is deliberately untouched: it tracks the hidden
