@@ -27,7 +27,6 @@ public final class CEFBrowserPage: BrowserPage {
     /// User scripts added before the Chromium browser existed.
     private(set) var pendingUserScriptSources: [String] = []
     private var devToolsVisible = false
-    private var muted = false
     private var lastFaviconURL: URL?
     private let faviconFetcher = CEFFaviconFetcher()
     private var isClosed = false
@@ -55,11 +54,14 @@ public final class CEFBrowserPage: BrowserPage {
     var telemetry = (
         recorder: BrowserProtocolTelemetryRecorder(), wanted: false, enabledBrowserID: Int32?.none
     )
+    /// A `Runtime.addBinding` for the media-playback hook is queued
+    /// (CEFBrowserPage+MediaPlayback).
+    var mediaBindingRefreshPending = false
 
     /// The capabilities of every Chromium page.
     public static let engineCapabilities: BrowserEngineCapabilities = [
         .devTools, .devToolsProtocol, .trustedInput, .snapshots, .paneFullscreen,
-        .crossOriginFrames, .userScripts, .findMatchCount, .nativeFind, .downloads,
+        .crossOriginFrames, .userScripts, .findMatchCount, .nativeFind, .downloads, .mediaMuting,
     ]
 
     /// The page's extension side (toolbar actions, extension calls); nil
@@ -98,7 +100,10 @@ public final class CEFBrowserPage: BrowserPage {
         browser.onWindowCreated = { [weak self] id in
             self?.enableProtocolTelemetryIfWanted(browserID: id)
             self?.registerPendingUserScripts(browserID: id)
+            self?.installMediaPlaybackHook(browserID: id)
         }
+        // A popup Chromium already created never runs `onWindowCreated`.
+        if let id = browser.browserID { installMediaPlaybackHook(browserID: id) }
     }
 
     /// Always ``BrowserEngineKind/chromium``.
@@ -394,11 +399,13 @@ public final class CEFBrowserPage: BrowserPage {
 
     // MARK: Media, restore, teardown
 
-    /// The last mute state set through this page. Chromium page muting is
-    /// not wired yet, so setting it does not silence the page.
+    /// Mute Tab: Chromium's own tab mute (`CefBrowserHost::SetAudioMuted`),
+    /// which silences media elements, Web Audio and out-of-process frames
+    /// without the page seeing it, as WebKit's page mute does. Reads back
+    /// Chromium's state once the browser exists.
     public var isMuted: Bool {
-        get { muted }
-        set { muted = newValue }
+        get { browser.chromiumAudioMuted ?? browser.isAudioMuted }
+        set { browser.setAudioMuted(newValue) }
     }
 
     /// Turns Chromium's agent navigation guard on or off (mode bit 4): while
@@ -493,6 +500,7 @@ public final class CEFBrowserPage: BrowserPage {
         }
         switch event {
         case .devToolsMessage(_, let json):
+            receiveMediaPlaybackMessage(json)
             receiveProtocolMessage(json)
         case .jsDialog(_, let token, let kind, let message, let origin, let defaultText, let isReload):
             handleJavaScriptDialog(token: token, kind: kind, message: message, origin: origin,

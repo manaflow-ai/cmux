@@ -27,15 +27,7 @@ public final class BrowserMediaPlaybackMessageHandler: NSObject, WKScriptMessage
         didReceive message: WKScriptMessage
     ) {
         guard message.webView === webView,
-              let body = message.body as? [String: Any],
-              let frameID = body["frameID"] as? String,
-              let playing = body["playing"] as? Bool else { return }
-        let report = BrowserMediaPlaybackReport(
-            frameID: frameID,
-            isPlaying: playing,
-            isAudible: body["audible"] as? Bool ?? false,
-            isPictureInPicture: body["pip"] as? Bool ?? false
-        )
+              let report = BrowserMediaPlaybackReport(body: message.body) else { return }
         // WebKit delivers script messages on the main thread. Apply the report
         // synchronously instead of hopping through a `Task` so it lands in
         // WebKit's delivery order relative to navigation callbacks: a report

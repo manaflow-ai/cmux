@@ -288,6 +288,7 @@ public final class CEFBrowser {
         }
         onWindowCreated?(id)
         if state.zoom != 1 { shim.setZoomLevel(id, Self.zoomLevel(forFactor: state.zoom)) }
+        if isAudioMuted { shim.setAudioMuted(id, 1) }
         if let restore = pendingRestore {
             pendingRestore = nil
             let restored = restore.withCString { shim.tabRestoreNavigation(id, $0) }
@@ -436,6 +437,22 @@ public final class CEFBrowser {
         state.zoom = factor
         browserID.map { runtime.shim?.setZoomLevel($0, Self.zoomLevel(forFactor: factor)) }
         emit(.stateChanged(state))
+    }
+
+    /// Mute Tab: Chromium silences the whole tab. Kept for a browser
+    /// Chromium creates later (first show, Memory Saver restore).
+    public private(set) var isAudioMuted = false
+
+    public func setAudioMuted(_ muted: Bool) {
+        isAudioMuted = muted
+        browserID.map { runtime.shim?.setAudioMuted($0, muted ? 1 : 0) }
+    }
+
+    /// Whether Chromium mutes the tab now, read back from Chromium; nil
+    /// before the browser exists.
+    public var chromiumAudioMuted: Bool? {
+        guard let id = browserID, let state = runtime.shim?.isAudioMuted(id), state >= 0 else { return nil }
+        return state == 1
     }
 
     /// Chromium zoom levels are logarithmic: factor = 1.2 ^ level.

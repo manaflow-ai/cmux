@@ -1,7 +1,7 @@
 import Foundation
 
 /// A per-frame media-playback report from the injected media-playback hook.
-public struct BrowserMediaPlaybackReport: Sendable {
+public struct BrowserMediaPlaybackReport: Equatable, Sendable {
     /// Stable id for the reporting frame's document, so the native side can
     /// aggregate playback across the main frame and any (cross-origin) iframes.
     public let frameID: String
@@ -22,5 +22,26 @@ public struct BrowserMediaPlaybackReport: Sendable {
         self.isPlaying = isPlaying
         self.isAudible = isAudible
         self.isPictureInPicture = isPictureInPicture
+    }
+
+    /// The hook's report object (`{ frameID, playing, audible, pip }`), or
+    /// `nil` when it lacks the frame id or the playing state.
+    public init?(body: Any?) {
+        guard let body = body as? [String: Any],
+              let frameID = body["frameID"] as? String,
+              let playing = body["playing"] as? Bool else { return nil }
+        self.init(
+            frameID: frameID,
+            isPlaying: playing,
+            isAudible: body["audible"] as? Bool ?? false,
+            isPictureInPicture: body["pip"] as? Bool ?? false
+        )
+    }
+
+    /// The same report as JSON text (Chromium's binding payload).
+    public init?(json: String) {
+        guard let data = json.data(using: .utf8),
+              let body = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        self.init(body: body)
     }
 }

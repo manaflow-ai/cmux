@@ -163,6 +163,8 @@ extension BrowserPanel {
         // Chromium disables notifications; install a deterministic fallback so
         // requestPermission settles as denied instead of throwing or pending.
         enginePage.addUserScript(BrowserNotificationDenialScript.userScript)
+        // Mute Tab set before the page existed (session restore) applies now.
+        if isMuted { applyMuteState(to: webView, reason: "enginePageStart") }
         applyEnginePageState(enginePage.state)
         let events = enginePage.events
         enginePageEventsTask = Task { @MainActor [weak self] in
@@ -210,6 +212,18 @@ extension BrowserPanel {
             enginePageDelegate.permissionCoordinator.pageWillLoad()
         case .downloadUpdated(let download):
             enginePageDelegate.applyDownload(download)
+        case .mediaPlaybackReported(let report):
+            applyMediaPlaybackReport(report)
+#if DEBUG
+            cmuxDebugLog(
+                "browser.media.playback panel=\(id.uuidString.prefix(5)) engine=\(engineKind.rawValue) " +
+                "frame=\(report.frameID.prefix(5)) playing=\(report.isPlaying ? 1 : 0) " +
+                "audible=\(report.isAudible ? 1 : 0) pip=\(report.isPictureInPicture ? 1 : 0) " +
+                "anyPlaying=\(isPlayingMedia ? 1 : 0) anyAudible=\(isPlayingAudio ? 1 : 0)"
+            )
+#endif
+        case .mediaPlaybackReset, .processTerminated:
+            resetMediaPlaybackTracking()
         case .focusLeftPage:
             // Tab or Shift+Tab past the page's last or first control moves to
             // the address bar, as in Chrome and cmux Next. Only focus the user

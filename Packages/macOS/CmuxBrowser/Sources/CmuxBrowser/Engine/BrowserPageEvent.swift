@@ -38,4 +38,9 @@ public enum BrowserPageEvent: Equatable, Sendable {
     /// Keyboard focus left the page: Tab (`forward`) or Shift+Tab passed
     /// its last or first control.
     case focusLeftPage(forward: Bool)
+    /// A frame's media-playback hook (``BrowserMediaPlaybackScript``)
+    /// reported what it plays.
+    case mediaPlaybackReported(BrowserMediaPlaybackReport)
+    /// A new main-frame document replaced the frames that reported media.
+    case mediaPlaybackReset
 }

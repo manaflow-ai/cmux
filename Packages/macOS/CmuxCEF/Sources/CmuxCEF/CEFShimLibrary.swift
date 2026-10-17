@@ -57,6 +57,10 @@ public struct CEFShimLibrary: @unchecked Sendable {
     public let stop: @convention(c) (Int32) -> Void
     public let setFocus: @convention(c) (Int32, Int32) -> Void
     public let setZoomLevel: @convention(c) (Int32, Double) -> Void
+    /// Mute Tab: Chromium silences the whole tab (non-zero mutes).
+    public let setAudioMuted: @convention(c) (Int32, Int32) -> Void
+    /// 1 while the tab is muted, 0 when not, -1 when the browser is gone.
+    public let isAudioMuted: @convention(c) (Int32) -> Int32
     /// Chromium's print preview over the page; 0 when the browser is gone.
     public let printPage: @convention(c) (Int32) -> Int32
     public let find: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32, Int32, Int32) -> Void
@@ -269,6 +273,8 @@ public struct CEFShimLibrary: @unchecked Sendable {
         stop = try r("cmux_shim_stop")
         setFocus = try r("cmux_shim_set_focus")
         setZoomLevel = try r("cmux_shim_set_zoom_level")
+        setAudioMuted = try r("cmux_shim_set_audio_muted")
+        isAudioMuted = try r("cmux_shim_is_audio_muted")
         printPage = try r("cmux_shim_print")
         find = try r("cmux_shim_find")
         stopFinding = try r("cmux_shim_stop_finding")
