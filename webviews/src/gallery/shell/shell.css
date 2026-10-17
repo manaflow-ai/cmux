@@ -126,6 +126,8 @@ body {
 }
 .gallery-entry {
   padding: 4px 10px 8px;
+  content-visibility: auto;
+  contain-intrinsic-size: 0 56px;
 }
 .gallery-entry-title {
   display: flex;
