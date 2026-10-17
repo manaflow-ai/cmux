@@ -55,8 +55,6 @@ KNOWN_GAPS = {
     "D_rotate_page": "cx-22w3i",
     "D_responsive_page": "cx-22w3i",
     "D_zoom_page": "cx-22w3i",
-    # CRLSet registers but no version folder appears within the run.
-    "W_crlset_installed": "cx-22w3i",
 }
 
 
@@ -476,7 +474,8 @@ def main():
                         hits.append(os.path.relpath(dirpath, base))
                 return sorted(hits) or None
             status["cdm_dir"] = fresh("WidevineCdm", "libwidevinecdm.dylib")
-            status["crlset_dir"] = fresh("CertificateRevocation", "crl-set")
+            # CRLSet comes in a later update round than Widevine (seen at 90-150 s with fast-update).
+            status["crlset_dir"] = wait_for(lambda: fresh("CertificateRevocation", "crl-set"), max(0, 240 - (time.time() - started)), 5)
             # H.264/AAC (proprietary_codecs, cmux.28): a plain MP4 plays with picture and sound.
             target = cmux.cdp.call("Target.createTarget", {"url": "%s/mp4-%s" % (ORIGIN, RUN)}).get("result", {}).get("targetId")
             session = cmux.cdp.call("Target.attachToTarget", {"targetId": target, "flatten": True}).get("result", {}).get("sessionId")
