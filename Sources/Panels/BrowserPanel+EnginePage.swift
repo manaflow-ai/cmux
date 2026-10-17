@@ -210,6 +210,13 @@ extension BrowserPanel {
             enginePageDelegate.permissionCoordinator.pageWillLoad()
         case .downloadUpdated(let download):
             enginePageDelegate.applyDownload(download)
+        case .focusLeftPage:
+            // Tab or Shift+Tab past the page's last or first control moves to
+            // the address bar, as in Chrome and cmux Next. Only focus the user
+            // is in leaves the page: keys automation sends to a page the user
+            // is not typing in must not take the user's first responder.
+            guard NSApp.isActive, let enginePage, Self.enginePageHasKeyboardFocus(enginePage) else { return }
+            _ = AppDelegate.shared?.focusBrowserAddressBar(in: self)
         default:
             break
         }

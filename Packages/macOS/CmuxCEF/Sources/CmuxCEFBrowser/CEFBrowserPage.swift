@@ -472,21 +472,12 @@ public final class CEFBrowserPage: BrowserPage {
 
     private func handle(_ event: CEFShimEvent) {
         features.handle(event)
+        if let pageEvent = Self.pageEvent(forShimEvent: event) {
+            if case .devToolsVisibilityChanged(let open) = pageEvent { devToolsVisible = open }
+            emit(pageEvent)
+            return
+        }
         switch event {
-        case .devToolsOpened:
-            devToolsVisible = true
-            emit(.devToolsVisibilityChanged(true))
-        case .devToolsClosed:
-            devToolsVisible = false
-            emit(.devToolsVisibilityChanged(false))
-        case .fullscreen(_, let entering):
-            emit(.contentFullscreenChanged(entering))
-        case .renderTerminated(_, let status, let code, _):
-            emit(.processTerminated(Self.processExit(status: status, code: code)))
-        case .renderUnresponsive:
-            emit(.unresponsiveChanged(true))
-        case .renderResponsive:
-            emit(.unresponsiveChanged(false))
         case .jsDialog(_, let token, let kind, let message, let origin, let defaultText, let isReload):
             handleJavaScriptDialog(token: token, kind: kind, message: message, origin: origin,
                                    defaultText: defaultText, isReload: isReload)
@@ -495,6 +486,22 @@ public final class CEFBrowserPage: BrowserPage {
         default:
             // Permissions and downloads (CEFBrowserPage+Data.swift).
             dataBridge.handle(event, page: self)
+        }
+    }
+
+    /// The page event a shim event becomes as is, or `nil` for one the page
+    /// answers itself (dialogs) or hands to its data bridge.
+    nonisolated static func pageEvent(forShimEvent event: CEFShimEvent) -> BrowserPageEvent? {
+        switch event {
+        case .devToolsOpened: .devToolsVisibilityChanged(true)
+        case .devToolsClosed: .devToolsVisibilityChanged(false)
+        case .fullscreen(_, let entering): .contentFullscreenChanged(entering)
+        case .renderTerminated(_, let status, let code, _): .processTerminated(processExit(status: status, code: code))
+        case .renderUnresponsive: .unresponsiveChanged(true)
+        case .renderResponsive: .unresponsiveChanged(false)
+        // Tab or Shift+Tab past the page's last or first control.
+        case .takeFocus(_, let forward): .focusLeftPage(forward: forward)
+        default: nil
         }
     }
 

@@ -35,4 +35,7 @@ public enum BrowserPageEvent: Equatable, Sendable {
     case devToolsVisibilityChanged(Bool)
     /// The page asked to close itself (`window.close()`).
     case closeRequested
+    /// Keyboard focus left the page: Tab (`forward`) or Shift+Tab passed
+    /// its last or first control.
+    case focusLeftPage(forward: Bool)
 }
