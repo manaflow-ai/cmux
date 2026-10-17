@@ -6,6 +6,8 @@ struct RemoteTmuxInvocation: Equatable {
         case mirror
         case list
         case attach(session: String)
+        /// Terminates the named remote session (`tmux kill-session`); never mirrors.
+        case kill(session: String)
     }
 
     let action: Action
@@ -20,7 +22,7 @@ struct RemoteTmuxInvocation: Equatable {
     let transportHelperPath: String?
     let broker: String?
 
-    /// Parses `cmux ssh-tmux` arguments, including the list/attach subcommands.
+    /// Parses `cmux ssh-tmux` arguments, including the list/attach/kill subcommands.
     ///
     /// The destination remains the first positional argument for compatibility with the
     /// existing command. The default action is the historical bulk mirror.
@@ -137,13 +139,14 @@ struct RemoteTmuxInvocation: Equatable {
                 }
                 if destination == nil {
                     destination = arg
-                } else if action == nil, ["list", "ls", "attach"].contains(arg.lowercased()) {
+                } else if action == nil, ["list", "ls", "attach", "kill"].contains(arg.lowercased()) {
                     switch arg.lowercased() {
                     case "list", "ls": action = .list
                     case "attach": action = .attach(session: "")
+                    case "kill": action = .kill(session: "")
                     default: break
                     }
-                } else if case .attach = action, requestedSession == nil {
+                } else if requestedSession == nil, action?.takesPositionalSession == true {
                     requestedSession = arg
                 } else {
                     throw CLIError(message: "ssh-tmux: unexpected extra argument '\(arg)'")
@@ -172,6 +175,22 @@ struct RemoteTmuxInvocation: Equatable {
                 throw CLIError(message: "ssh-tmux attach requires a session name")
             }
             resolvedAction = .attach(session: requestedSession)
+        case .kill:
+            guard let requestedSession = requestedSession?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !requestedSession.isEmpty else {
+                throw CLIError(message: String(
+                    localized: "cli.sshTmux.error.killRequiresSession",
+                    defaultValue: "ssh-tmux kill requires a session name"
+                ))
+            }
+            // kill never opens a workspace, so workspace placement flags have no meaning.
+            guard workspaceName == nil, newWindow == false, focus == nil else {
+                throw CLIError(message: String(
+                    localized: "cli.sshTmux.error.killConnectionOptionsOnly",
+                    defaultValue: "ssh-tmux kill only accepts connection options"
+                ))
+            }
+            resolvedAction = .kill(session: requestedSession)
         case .mirror:
             resolvedAction = .mirror
         case nil:
@@ -224,6 +243,16 @@ struct RemoteTmuxInvocation: Equatable {
         case "true", "1", "yes": return true
         case "false", "0", "no": return false
         default: return nil
+        }
+    }
+}
+
+private extension RemoteTmuxInvocation.Action {
+    /// Subcommands whose next bare argument is the session name.
+    var takesPositionalSession: Bool {
+        switch self {
+        case .attach, .kill: return true
+        case .mirror, .list: return false
         }
     }
 }

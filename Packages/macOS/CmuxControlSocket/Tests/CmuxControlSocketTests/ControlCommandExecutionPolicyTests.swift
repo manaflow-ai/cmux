@@ -53,7 +53,7 @@ struct ControlCommandExecutionPolicyTests {
             "agent.message.ack",
             "agent.message.mark_read", "agent.message.poll", "agent.message.settings",
             "browser.download.list", "browser.download.wait", "system.top", "system.memory",
-            "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
+            "workspace.remote.pty_bridge", "workspace.env", "remote.tmux.kill_session", "sidebar.custom.reload",
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "debug.mobile.transport.disconnect", "debug.mobile.transport.reconnect_loop",
             "debug.window.screenshot", "debug.window_hints", "debug.global_search.query", "mobile.attach_ticket.create",

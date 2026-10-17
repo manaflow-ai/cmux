@@ -2122,6 +2122,8 @@ class TerminalController {
             return v2RemoteTmuxAttach(id: request.id, params: request.params)
         case "remote.tmux.detach":
             return v2RemoteTmuxDetach(id: request.id, params: request.params)
+        case "remote.tmux.kill_session":
+            return v2RemoteTmuxKillSession(id: request.id, params: request.params)
         case "remote.tmux.state":
             return v2RemoteTmuxState(id: request.id, params: request.params)
         case "remote.tmux.attach_progress": return v2RemoteTmuxAttachProgress(id: request.id, params: request.params)
@@ -4358,6 +4360,10 @@ class TerminalController {
         case .success(let payload):
             return v2Ok(id: id, result: payload)
         case .failure(let error):
+            if let remoteTmuxError = error as? RemoteTmuxError,
+               case .sessionNotFound = remoteTmuxError {
+                return v2Error(id: id, code: "not_found", message: remoteTmuxError.message)
+            }
             if case VMClientError.disabledByManagedPolicy = error {
                 return v2Error(id: id, code: "cloud_disabled", message: String(describing: error))
             }

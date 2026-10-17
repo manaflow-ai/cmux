@@ -112,6 +112,15 @@ final class RemoteTmuxController {
         try await transport(for: host).listSessions()
     }
 
+    /// Terminates the remote tmux session named `sessionName` on `host`.
+    ///
+    /// A one-shot over the host's shared SSH master, so it works whether or not the
+    /// session is mirrored. A live mirror of it sees its control client exit and
+    /// closes through the normal remote-exit path.
+    func killSession(host: RemoteTmuxHost, sessionName: String) async throws {
+        try await transport(for: host).killSession(named: sessionName)
+    }
+
     /// Tears down a host's shared SSH master (used when removing a host).
     func disconnect(host: RemoteTmuxHost) async {
         await transportRegistry.disconnectMaster(host: host)

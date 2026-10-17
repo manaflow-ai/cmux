@@ -65,6 +65,28 @@ actor RemoteTmuxSSHTransport {
         return RemoteTmuxSessionListParser.parse(result.stdout)
     }
 
+    /// Ends exactly the session named `name` on the remote server (`tmux kill-session`).
+    ///
+    /// The `=` target prefix makes tmux match the name exactly, so `work` never
+    /// resolves to `work-old` by prefix. Other sessions and the server itself are
+    /// left alone; tmux exits the server on its own only when this was its last
+    /// session.
+    ///
+    /// - Throws: ``RemoteTmuxError/sessionNotFound(session:destination:)`` when no
+    ///   session has that name (including when no tmux server is running), or
+    ///   ``RemoteTmuxError/commandFailed`` for an SSH or tmux failure.
+    func killSession(named name: String) async throws {
+        let result = try await runTmux(["kill-session", "-t", "=\(name)"])
+        guard !result.succeeded else { return }
+        if Self.indicatesAuthRequired(result.stderr) {
+            throw RemoteTmuxError.commandFailed(exitCode: result.exitCode, stderr: result.stderr)
+        }
+        if Self.indicatesNoServer(result.stderr) || Self.indicatesSessionNotFound(result.stderr) {
+            throw RemoteTmuxError.sessionNotFound(session: name, destination: host.destination)
+        }
+        throw commandFailure(result)
+    }
+
     /// Probes the remote tmux client version via `tmux -V`.
     ///
     /// - Returns: the parsed version, or `nil` when `tmux -V` succeeds but its
@@ -336,6 +358,12 @@ actor RemoteTmuxSSHTransport {
         return lowered.contains("no server running")
             || lowered.contains("no sessions")
             || (lowered.contains("error connecting to /") && lowered.contains("/tmux-"))
+    }
+
+    /// Whether stderr is tmux's "can't find session" for an unknown `-t` target.
+    static func indicatesSessionNotFound(_ stderr: String) -> Bool {
+        let lowered = stderr.lowercased()
+        return lowered.contains("can't find session") || lowered.contains("session not found")
     }
 
     static func indicatesRefreshClientSubscriptionUnsupported(_ stderr: String) -> Bool {
