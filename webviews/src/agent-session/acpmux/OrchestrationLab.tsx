@@ -206,7 +206,13 @@ export function OrchestrationLab({
       ? "orchestration-state orchestration-state-recorded"
       : `orchestration-state orchestration-state-${item.status}`;
   const visibleRowNote = (item: WorkItem) =>
-    item.decision !== "none" && decision[item.id] ? `Choice: ${decisionText(decision[item.id])}` : item.blocker;
+    item.decision !== "none"
+      ? decision[item.id]
+        ? `Choice: ${decisionText(decision[item.id])}`
+        : ""
+      : item.blocker === "No blocker"
+        ? ""
+        : item.blocker;
   const pendingDecisionItems = workItems.filter((item) => item.decision !== "none" && !decision[item.id]);
 
   return (
@@ -217,7 +223,7 @@ export function OrchestrationLab({
       </header>
       <Toolbar label="Work summary" className="orchestration-attention">
         <span className="orchestration-attention-count">
-          <StatusGlyph name="working" size={12} label="Work status" />
+          <StatusGlyph name="working" size={12} />
           {workItems.filter((item) => item.status === "working").length} running ·{" "}
           {workItems.filter((item) => item.status === "blocked").length} blocked
         </span>
@@ -229,7 +235,7 @@ export function OrchestrationLab({
             onPress={() => selectWork(pendingDecisionItems[0].id)}
           >
             <StatusGlyph name="waiting" size={12} />
-            Review decision ({pendingDecisionItems.length})
+            <span>Review decision ({pendingDecisionItems.length})</span>
           </ToolbarButton>
         ) : (
           <span className="orchestration-no-decisions">No decisions waiting</span>
@@ -240,7 +246,6 @@ export function OrchestrationLab({
         <section className="orchestration-work-list" aria-label="Work by agent and machine">
           <div className="orchestration-section-heading">
             <h2>Sessions</h2>
-            <span>{workItems.length} sample items</span>
           </div>
           <div className="orchestration-work-rows" aria-label="Select work">
             {workItems.map((item) => {
@@ -254,14 +259,14 @@ export function OrchestrationLab({
                   onClick={() => selectWork(item.id)}
                 >
                   <span className="orchestration-work-row-top">
-                    <StatusGlyph name={visibleGlyph(item)} size={12} label={visibleStatus(item)} />
+                    <StatusGlyph name={visibleGlyph(item)} size={12} />
                     <strong>{item.title}</strong>
                     <span className={visibleStateClass(item)}>{visibleStatus(item)}</span>
                   </span>
                   <span className="orchestration-work-row-meta">
                     {item.agent} · {item.machine}
                   </span>
-                  {visibleRowNote(item) !== "No blocker" && (
+                  {visibleRowNote(item) && (
                     <span className={`orchestration-work-row-blocker${item.status === "blocked" ? " is-blocked" : ""}`}>
                       {visibleRowNote(item)}
                     </span>
@@ -279,39 +284,20 @@ export function OrchestrationLab({
         >
           <div className="orchestration-detail-heading">
             <div>
-              <div className="orchestration-detail-title-row">
-                <StatusGlyph name={visibleGlyph(selected)} size={14} label={visibleStatus(selected)} />
-                <h2>{selected.title}</h2>
-              </div>
+              <h2>{selected.title}</h2>
               <p>
                 {selected.agent} · {selected.machine}
               </p>
             </div>
-            <span className={visibleStateClass(selected)}>{visibleStatus(selected)}</span>
           </div>
 
-          {!chosenDecision && (
-            <dl className="orchestration-work-facts">
-              <div>
-                <dt>Blocker</dt>
-                <dd>{selected.blocker}</dd>
-              </div>
-              <div>
-                <dt>Latest update</dt>
-                <dd>{selected.outcome}</dd>
-              </div>
-            </dl>
+          {selected.decision === "none" && selected.status === "working" && (
+            <p className="orchestration-latest-update">{selected.outcome}</p>
           )}
 
           {selected.decision !== "none" ? (
-            <section className="orchestration-decision" aria-label="Decision needed">
-              <div className="orchestration-decision-heading">
-                <div>
-                  <h3>{chosenDecision ? "Choice recorded" : "Needs your decision"}</h3>
-                  <p>{selected.decisionQuestion}</p>
-                </div>
-                <span>Preview</span>
-              </div>
+            <section className="orchestration-decision" aria-label="Decision">
+              <h3>{selected.decisionQuestion}</h3>
               <div className="orchestration-decision-actions">
                 <button
                   type="button"
@@ -328,15 +314,15 @@ export function OrchestrationLab({
                   Use cloud
                 </button>
               </div>
-              <p className="orchestration-local-note">
-                {chosenDecision
-                  ? `Preview choice: ${decisionText(chosenDecision)}; no work was dispatched.`
-                  : "Choices only change this gallery preview."}
-              </p>
+              {chosenDecision && (
+                <p className="orchestration-local-note">
+                  {`Preview choice: ${decisionText(chosenDecision)}; no work was dispatched.`}
+                </p>
+              )}
             </section>
           ) : selected.status === "blocked" ? (
             <section className="orchestration-blocked" aria-label="Blocked work">
-              <h3>Blocked</h3>
+              <h3>{selected.blocker}</h3>
               <p>No action is needed from you. Mina is checking the cleanup results.</p>
             </section>
           ) : null}

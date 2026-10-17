@@ -12,7 +12,7 @@ const selectHugeBlue: Play = async (ctx) => {
 
 const selectDecision: Play = async (ctx) => {
   await ctx.click({ role: "button", name: /Run gallery checks/ });
-  await ctx.waitFor(() => ctx.find({ role: "heading", name: "Needs your decision" }));
+  await ctx.waitFor(() => ctx.find({ role: "heading", name: "Move gallery checks to the cloud worker?" }));
 };
 
 const jumpToDecision: Play = async (ctx) => {
