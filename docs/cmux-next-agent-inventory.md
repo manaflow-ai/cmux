@@ -75,3 +75,26 @@ currently carries invalidations, not arbitrary inventory payloads. Do not
 advertise `agent_cli.watch` until native/app subscription, revocation and
 replacement behavior is implemented and verified. CLI/MCP remain on the
 existing read catalog during this carrier slice.
+
+## Swift native consumer contract
+
+`MachineAgentInventoryWatchRequest` and `MachineAgentInventoryUnwatchRequest`
+require the independently advertised `agent-inventory-watch-v1` capability.
+Both carry the captured canonical owner and a fixed boolean, without selectors,
+commands or a caller-selected watch ID. Enabling decodes a typed
+`AgentInventoryWatchReceipt` directly from native bytes, preserving every
+`UInt64` revision.
+
+`AgentInventoryWatchEvent` recognizes only the two targeted inventory notices.
+Wire decoding validates canonical owner and lease IDs, bounds ended reasons and
+projects only lease fields. In the generic side-event payload, a revision is
+retained as exact decimal text (as pairing IDs already are), avoiding the
+`JSONValue` floating-point boundary. This is a Swift projection; native wire
+revisions remain unsigned JSON numbers. Malformed notices have no usable
+payload, and unrelated event payloads retain their existing shape.
+
+These lease events survive the tree snapshot barrier. The eventual bridge must
+still match the captured ready connection generation, owner and watch ID, then
+recheck route admission. The typed value itself grants no permission. App-facing
+provider subscription/invalidations are not connected or advertised by these
+models.
