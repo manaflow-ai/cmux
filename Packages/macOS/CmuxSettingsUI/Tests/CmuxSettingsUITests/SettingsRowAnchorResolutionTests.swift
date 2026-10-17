@@ -61,6 +61,7 @@ struct SettingsRowAnchorResolutionTests {
         "app.warnBeforeClosingTabXButton",
         "app.warnBeforeClosingWindow",
         "app.warnBeforeClosingWorkspace",
+        "app.alwaysConfirmWorkspaceClose",
         "app.workspaceInheritWorkingDirectory",
         "agentMessages.enabled",
         "automation.agentAutoResume",
