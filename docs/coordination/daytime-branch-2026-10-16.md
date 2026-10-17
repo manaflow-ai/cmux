@@ -29,7 +29,7 @@ substitute for reviewing the resulting diff.
 | ID | Owner | Scope | Commit(s) | State | Checks / receipt |
 | --- | --- | --- | --- | --- | --- |
 | `DAY-000` | Leo | Inherited checkout history before the pilot | `7f62f3c` | accepted | Starting-point receipt above |
-| `DAY-001` | Leo | Pilot branch policy and ledger | pending | active | This document |
+| `DAY-001` | Leo | Pilot branch policy and ledger | `7451d1f` | complete | `git diff --check`; remote head matched at setup |
 
 Add one row per work slice. Use the commit SHA after committing, and record
 focused checks in the final column. If two slices need the same scope, record a
