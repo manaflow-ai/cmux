@@ -85,3 +85,12 @@ fn cmux_next_machine_owner_identity_survives_a_persistent_daemon_reopen() {
 #[cfg(unix)]
 #[path = "machine_catalog_tests.rs"]
 mod machine_catalog_tests;
+
+#[test]
+fn cmux_next_machine_catalog_owner_metadata_matches_the_native_snapshot() {
+    let mux = identity_mux();
+    let identity = run(&mux, json!({"cmd":"identify"})).unwrap();
+    let machine = listed_machine(&mux);
+    assert_eq!(identity["machine_platform"], machine["platform"]);
+    assert_eq!(identity["machine_capabilities"], machine["capabilities"]);
+}
