@@ -1,3 +1,4 @@
+import CmuxProductAnalytics
 import AppKit
 import CmuxAgentChat
 import CmuxCloudMachines
@@ -279,6 +280,16 @@ class TabManager: ObservableObject {
     func workspaceTabsWillChange(to newValue: [Workspace]) {
         objectWillChange.send()
         tabsPublisher.send(newValue)
+        if newValue.count != tabs.count, ProductAnalytics.app.isEnabled {
+            // A window that already had a workspace gaining one, outside
+            // restore, is a created workspace (whatever entrypoint created it).
+            // A new window's first workspace is not.
+            if newValue.count > tabs.count, !tabs.isEmpty, !isRestoringSessionSnapshot {
+                ProductAnalytics.app.reach(.firstWorkspace)
+            }
+            // After the commit, so the count reads the new list. Reorders skip this.
+            Task { @MainActor in AppDelegate.shared?.refreshProductAnalyticsActivityContext() }
+        }
     }
 
     /// Legacy `@Published workspaceGroups` willSet.
@@ -3827,6 +3838,32 @@ class TabManager: ObservableObject {
         return toggleReactGrab(in: workspace, browserSurfaceId: nil, returnTerminalSurfaceId: nil) != nil
     }
 
+    /// The browser ``toggleReactGrab(in:browserSurfaceId:returnTerminalSurfaceId:)``
+    /// acts on, without acting: an explicit surface is authoritative (it
+    /// must be a browser, no fallback to a different browser); otherwise the
+    /// route's browser from focus. The socket method asks it first, to
+    /// refuse a tab a browser REPL session drives.
+    func reactGrabBrowserPanelId(in workspace: Workspace, browserSurfaceId: UUID?) -> UUID? {
+        reactGrabBrowserPanelId(in: workspace, browserSurfaceId: browserSurfaceId, route: reactGrabShortcutRoute(in: workspace))
+    }
+
+    private func reactGrabShortcutRoute(in workspace: Workspace) -> ReactGrabShortcutRoute? {
+        resolveReactGrabShortcutRoute(panels: workspace.panels.values.map { panel in
+            ReactGrabShortcutPanelSnapshot(
+                id: panel.id,
+                panelType: panel.panelType,
+                isFocused: panel.id == workspace.focusedPanelId
+            )
+        })
+    }
+
+    private func reactGrabBrowserPanelId(in workspace: Workspace, browserSurfaceId: UUID?, route: ReactGrabShortcutRoute?) -> UUID? {
+        if let explicit = browserSurfaceId {
+            return workspace.browserPanel(for: explicit) != nil ? explicit : nil
+        }
+        return route?.browserPanelId
+    }
+
     /// Toggles React Grab for a specific workspace. When `browserSurfaceId`/`returnTerminalSurfaceId`
     /// are nil this mirrors the keyboard shortcut: it resolves the browser + return terminal from the
     /// focused panel layout. An explicit browser surface (must be a browser) or return terminal
@@ -3840,25 +3877,10 @@ class TabManager: ObservableObject {
         browserSurfaceId: UUID?,
         returnTerminalSurfaceId: UUID?
     ) -> UUID? {
-        let snapshots = workspace.panels.values.map { panel in
-            ReactGrabShortcutPanelSnapshot(
-                id: panel.id,
-                panelType: panel.panelType,
-                isFocused: panel.id == workspace.focusedPanelId
-            )
+        let route = reactGrabShortcutRoute(in: workspace)
+        guard let browserPanelId = reactGrabBrowserPanelId(in: workspace, browserSurfaceId: browserSurfaceId, route: route) else {
+            return nil
         }
-        let route = resolveReactGrabShortcutRoute(panels: snapshots)
-
-        // Browser target: an explicit surface is authoritative (it must be a browser, no
-        // fallback to a different browser); otherwise resolve the route's browser from focus.
-        let browserPanelId: UUID?
-        if let explicit = browserSurfaceId {
-            guard workspace.browserPanel(for: explicit) != nil else { return nil }
-            browserPanelId = explicit
-        } else {
-            browserPanelId = route?.browserPanelId
-        }
-        guard let browserPanelId else { return nil }
 
         // Return terminal: an explicit return surface is authoritative (must be a terminal in
         // this workspace, no fallback) so pasteback never silently goes to the wrong terminal.
@@ -4591,23 +4613,6 @@ class TabManager: ObservableObject {
     /// Select the previous surface in the currently focused pane of the selected workspace
     func selectPreviousSurface() {
         selectedWorkspace?.selectPreviousSurface()
-    }
-
-    /// Previous/Next (Cmd-Shift-[ / Cmd-Shift-], Ctrl-Tab / Ctrl-Shift-Tab, the View menu): steps
-    /// the focused pane's tabs when it holds two or more, wrapping inside the pane; otherwise moves
-    /// to the previous or next sidebar workspace, wrapping at the ends (Leo 2026-10-09, rapid
-    /// switching). `dock` is the focused Dock, whose pane follows the same rule. Next/Previous Tab
-    /// in Pane and Next/Previous Workspace stay explicit.
-    func stepTabOrWorkspace(forward: Bool, dock: DockSplitStore? = nil) {
-        if let dock {
-            if dock.focusedPaneHasTabsToStep {
-                _ = dock.performShortcutCommand(forward ? .selectNextSurface : .selectPreviousSurface)
-                return
-            }
-        } else if selectedWorkspace?.stepFocusedPaneTab(forward: forward) == true {
-            return
-        }
-        if forward { selectNextTab() } else { selectPreviousTab() }
     }
 
     /// Select a surface by index in the currently focused pane of the selected workspace

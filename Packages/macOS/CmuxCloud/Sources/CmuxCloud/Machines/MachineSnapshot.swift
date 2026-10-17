@@ -8,7 +8,7 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
         provider: String,
         image: String,
         isDesktop: Bool,
-        capabilities: VMCapabilities = .all,
+        capabilities: VMCapabilities = .legacy,
         activity: Activity,
         createdAt: Date? = nil,
         createdBy: VMCreator? = nil,
@@ -71,7 +71,7 @@ public struct MachineSnapshot: Equatable, Identifiable, Sendable {
     public let image: String
     public let isDesktop: Bool
     /// Verbs the provider can honor; menus omit Checkpoint/Fork when unsupported.
-    public var capabilities: VMCapabilities = .all
+    public var capabilities: VMCapabilities = .legacy
     public let activity: Activity
     public let createdAt: Date?
     /// Who made this machine; nil for machines the surface catalog discovered

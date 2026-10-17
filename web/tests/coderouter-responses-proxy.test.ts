@@ -768,12 +768,12 @@ describe("codex responses proxy session routing", () => {
 });
 
 describe("codex responses proxy with no account configured", () => {
-  function noAccountProxy(configured: boolean) {
+  function noAccountProxy(configured: boolean, vmId: string | null = null) {
     const selects: number[] = [];
     const configuredChecks: string[] = [];
     const sleptBefore = sleeps.length;
     const proxy = createCodexResponsesProxy({
-      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
+      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId, poolId: vmId ? "pool-1" : null }),
       select: async () => {
         selects.push(1);
         return null;
@@ -806,6 +806,19 @@ describe("codex responses proxy with no account configured", () => {
     expect(run.selects).toHaveLength(1);
     expect(run.configuredChecks).toEqual(["team-1"]);
     expect(run.slept()).toBe(0);
+  });
+
+  test("tells a Cloud machine that private accounts must be shared with its team", async () => {
+    const run = noAccountProxy(false, "vm-1");
+    const response = await run.proxy(responsesRequest({ "x-cmux-vm-id": "vm-1" }));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: {
+        message: "No Codex account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, or add one here with `cr add codex` (accounts added on a Cloud machine are shared with its team). Or use your own Codex sign-in on this machine: run `cr use own codex`, then `codex login` (on older machines, start Codex with `codex -c model_provider=openai` after `codex login`).",
+        type: "invalid_request_error",
+        code: "no_account_configured",
+      },
+    });
   });
 
   test("a team whose accounts are all unavailable still gets a retryable 503", async () => {

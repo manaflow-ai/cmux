@@ -46,6 +46,7 @@ struct ControlCommandExecutionPolicyTests {
             "auth.team.members", "auth.team.invite", "auth.team.invite_link",
             "auth.team.revoke_invite", "auth.team.remove_member", "auth.team.open_members",
             "auth.team.invitations", "auth.team.accept_invite", "auth.team.decline_invite",
+            "coderouter.handoff.complete",
             "feed.jump", "feed.push", "agent.hook.enqueue", "agent.hook.barrier",
             "agent.restore.admit", "agent.restore.release",
             "agent.message.send", "agent.message.list", "agent.message.claim",
@@ -80,6 +81,7 @@ struct ControlCommandExecutionPolicyTests {
             "browser.errors.list", "browser.state.save", "browser.state.load",
             "browser.addinitscript", "browser.addscript", "browser.addstyle",
             "browser.design_mode.set", "browser.design_mode.status",
+            "browser.geolocation.set", "browser.offline.set",
         ] {
             #expect(ControlCommandExecutionPolicy(forMethod: method).runsOnSocketWorker, "\(method)")
         }
@@ -216,6 +218,17 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.fetch") == .mainActor)
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.thumbnail") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "vm.create") == .socketWorker(mainThreadCallable: false))
+    }
+
+    @Test func coderouterHandoffRunsOffMainAndIsNotMainThreadCallable() {
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "coderouter.handoff.complete")
+                == .socketWorker(mainThreadCallable: false)
+        )
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "coderouter.handoff")
+                == .socketWorker(mainThreadCallable: false)
+        )
     }
 
     @Test func terminalReadsRunOnTheWorkerAndAreNotMainThreadCallable() {

@@ -1,4 +1,6 @@
 import CmuxCommandPalette
+import CmuxSidebar
+import CmuxWorkspaces
 import Foundation
 import XCTest
 
@@ -9,6 +11,38 @@ import XCTest
 #endif
 
 final class RightSidebarCommandPaletteTests: XCTestCase {
+    @MainActor
+    func testCustomSidebarDataContextIncludesWorkspaceGroups() throws {
+        let group = WorkspaceGroup(
+            id: UUID(),
+            name: "Work",
+            isCollapsed: true,
+            isPinned: false,
+            anchorWorkspaceId: UUID(),
+            customColor: "#FF8800",
+            iconSymbol: "briefcase.fill"
+        )
+
+        let context = ContentView.customSidebarDataContext(
+            workspaces: [],
+            workspaceGroups: [group],
+            selectedWorkspaceId: nil,
+            selectedWorkspaceTitle: "",
+            totalUnreadCount: 0,
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        let groups = try XCTUnwrap(context["groups"]?.iterationValues)
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups[0].member("id"), .string(group.id.uuidString))
+        XCTAssertEqual(groups[0].member("name"), .string("Work"))
+        XCTAssertEqual(groups[0].member("collapsed"), .bool(true))
+        XCTAssertEqual(groups[0].member("pinned"), .bool(false))
+        XCTAssertEqual(groups[0].member("anchorId"), .string(group.anchorWorkspaceId.uuidString))
+        XCTAssertEqual(groups[0].member("color"), .string("#FF8800"))
+        XCTAssertEqual(groups[0].member("icon"), .string("briefcase.fill"))
+    }
+
     func testStoredLegacyDockOptOutDoesNotHideDockCommand() throws {
         let defaults = UserDefaults.standard
         let key = "rightSidebar.beta.dock.enabled"
@@ -165,8 +199,6 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
 
         var terminalContext = CommandPaletteContextSnapshot()
         terminalContext.setBool(ContentView.commandPaletteShortcutTerminalFocusedKey, true)
-        var agentTurnsContext = CommandPaletteContextSnapshot()
-        agentTurnsContext.setBool(ContentView.commandPaletteAgentTurnsAvailableKey, true)
         var browserContext = CommandPaletteContextSnapshot()
         browserContext.setBool(CommandPaletteContextKeys.panelIsBrowser, true)
         var workspaceContext = CommandPaletteContextSnapshot()
@@ -185,7 +217,6 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             XCTAssertFalse(contribution.when(emptyContext), command.rawValue)
             let visibleContext: CommandPaletteContextSnapshot = switch command.scope {
             case .terminal: terminalContext
-            case .agentTurns: agentTurnsContext
             case .browser: browserContext
             case .workspace: workspaceContext
             case .splits: splitsContext
@@ -196,7 +227,6 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         let covered = Set(ShortcutParityPaletteCommand.allCases.map(\.shortcutAction))
         for action: KeyboardShortcutSettings.Action in [
             .toggleTerminalCopyMode,
-            .previousAgentTurn, .nextAgentTurn,
             .increaseWorkspaceTerminalFontSize,
             .decreaseWorkspaceTerminalFontSize,
             .resetWorkspaceTerminalFontSize,

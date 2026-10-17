@@ -21,6 +21,10 @@ import { publicationErrorResponse } from "../publications/routeShared";
 import { vmModelPlaneRevoker } from "../../../../services/vms/modelPlaneGateway";
 
 
+// Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
+// route's answer deadline continues through after() until this limit.
+export const maxDuration = 300;
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -112,7 +116,7 @@ export async function PATCH(
         teamIds: user.teamIds,
         providerVmId: id,
         displayName,
-      }), { request });
+      }), { request, deadline: { operation: "rename" } });
       if (!run.ok) return run.response;
       const vm = run.value;
       return jsonResponse({
@@ -157,7 +161,7 @@ export async function DELETE(
         teamIds: user.teamIds,
         providerVmId: id,
         modelPlane: vmModelPlaneRevoker(),
-      }), { request });
+      }), { request, deadline: { operation: "destroy" } });
       if (!run.ok) return run.response;
       return jsonResponse({ ok: true });
     },

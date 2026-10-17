@@ -95,7 +95,7 @@ public actor CloudTuiPersistentResourceConnection {
         _ request: CloudTuiRequest, timeout: Duration, clock: RequestClock
     ) async throws -> Data where RequestClock.Duration == Duration {
         try Task.checkCancellation()
-        guard timeout > .zero else { throw CloudMachineLink.LinkError.timedOut }
+        guard timeout > .zero else { throw CloudMachineLink.LinkError.requestTimedOut }
         try await start()
         try Task.checkCancellation()
         guard !closed else { throw Self.protocolFailure }
@@ -112,7 +112,7 @@ public actor CloudTuiPersistentResourceConnection {
                 // A genuine request deadline, owned and cancelled with its pending entry.
                 let deadline = Task { [weak self, clock] in
                     do { try await clock.sleep(until: expiresAt, tolerance: nil) } catch { return }
-                    await self?.retire(id, error: CloudMachineLink.LinkError.timedOut)
+                    await self?.retire(id, error: CloudMachineLink.LinkError.requestTimedOut)
                 }
                 pending[id] = Pending(
                     continuation: continuation, request: request, deadline: deadline,
@@ -268,7 +268,7 @@ public actor CloudTuiPersistentResourceConnection {
         }
         // After suspend/resume, the socket reader may run before the deadline task.
         guard !entry.isExpired() else {
-            retire(id, error: CloudMachineLink.LinkError.timedOut)
+            retire(id, error: CloudMachineLink.LinkError.requestTimedOut)
             return
         }
         pending.removeValue(forKey: id)

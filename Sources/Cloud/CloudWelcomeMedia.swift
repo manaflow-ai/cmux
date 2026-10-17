@@ -14,23 +14,15 @@ struct CloudWelcomeSlide: Identifiable, Equatable {
     let title: String
     let caption: String
 
+    /// Five features, ending on the one only Cloud can do.
     static let all: [CloudWelcomeSlide] = [
         CloudWelcomeSlide(
             id: "spin-up",
             symbol: "bolt",
             title: String(localized: "cloud.welcome.slide.spinUp.title", defaultValue: "Create machines in seconds"),
             caption: String(
-                localized: "cloud.welcome.slide.spinUp.caption",
-                defaultValue: "Each one opens as a regular cmux workspace with a terminal ready."
-            )
-        ),
-        CloudWelcomeSlide(
-            id: "keeps-running",
-            symbol: "terminal",
-            title: String(localized: "cloud.welcome.slide.keepsRunning.title", defaultValue: "Runs while you’re away"),
-            caption: String(
-                localized: "cloud.welcome.slide.keepsRunning.caption",
-                defaultValue: "Agents and terminals keep running after you close your laptop. Use the cmux CLI to connect local agents to your Cloud machines."
+                localized: "cloud.welcome.slide.spinUp.line",
+                defaultValue: "Give every agent task its own machine, ready in seconds."
             )
         ),
         CloudWelcomeSlide(
@@ -38,8 +30,8 @@ struct CloudWelcomeSlide: Identifiable, Equatable {
             symbol: "display",
             title: String(localized: "cloud.welcome.slide.displays.title", defaultValue: "See the machine’s desktop"),
             caption: String(
-                localized: "cloud.welcome.slide.displays.caption",
-                defaultValue: "Open a display next to your terminal and watch apps and browsers run."
+                localized: "cloud.welcome.slide.displays.line",
+                defaultValue: "Watch agents drive a real browser on the machine."
             )
         ),
         CloudWelcomeSlide(
@@ -47,8 +39,8 @@ struct CloudWelcomeSlide: Identifiable, Equatable {
             symbol: "person.badge.plus",
             title: String(localized: "cloud.welcome.slide.invite.title", defaultValue: "Invite your team"),
             caption: String(
-                localized: "cloud.welcome.slide.invite.caption",
-                defaultValue: "Add teammates by email so they can use your team’s Cloud machines."
+                localized: "cloud.welcome.slide.invite.line",
+                defaultValue: "Add teammates by email to your team’s machines."
             )
         ),
         CloudWelcomeSlide(
@@ -56,8 +48,17 @@ struct CloudWelcomeSlide: Identifiable, Equatable {
             symbol: "person.2",
             title: String(localized: "cloud.welcome.slide.team.title", defaultValue: "Work together on one machine"),
             caption: String(
-                localized: "cloud.welcome.slide.team.caption",
-                defaultValue: "Invite teammates to the same machine and collaborate in a shared workspace."
+                localized: "cloud.welcome.slide.team.line",
+                defaultValue: "Work on the same machine as your teammates, live."
+            )
+        ),
+        CloudWelcomeSlide(
+            id: "keeps-running",
+            symbol: "moon",
+            title: String(localized: "cloud.welcome.slide.keepsRunning.title", defaultValue: "Runs while you’re away"),
+            caption: String(
+                localized: "cloud.welcome.slide.keepsRunning.line",
+                defaultValue: "Close your laptop. Your agents keep working."
             )
         ),
     ]
@@ -82,6 +83,19 @@ struct CloudWelcomeMediaCarousel: View {
     /// List variant: a bar for the current feature and a dot for each other one,
     /// each centered on its text, in place of a bar per feature.
     var listUsesDots = false
+    /// The headline shown in the poster's title band.
+    var posterHeadline: String? = CloudWelcomeView.headline
+    /// The user's New Cloud Machine shortcut, shown on the Create row.
+    var newMachineShortcut: String? = "⇧⌘Y"
+    /// The title sits in a dark band under the clip; false runs the clip full
+    /// bleed and puts the title under it, above the features.
+    var posterShowsTitle = true
+    /// The app icon beside the title in the band.
+    var posterShowsIcon = true
+    /// A "New" badge after the title (title under the clip only).
+    var showsNewBadge = false
+    /// The card's width; the clip fills it at 16:10.
+    var cardWidth: CGFloat = CloudWelcomeMediaCarousel.posterWidth
 
     /// How long a slide without a clip (or with an unreadable one) stays up.
     private static let fallbackDuration: Double = 4
@@ -105,21 +119,29 @@ struct CloudWelcomeMediaCarousel: View {
     var body: some View {
         Group {
             if showsFeatureList {
-                HStack(alignment: .center, spacing: 18) {
+                VStack(alignment: .leading, spacing: 0) {
+                    poster
+                    if !posterShowsTitle {
+                        bodyTitle
+                            .padding(.horizontal, 24)
+                            .padding(.top, 18)
+                    }
                     featureList
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    media
+                        .padding(.horizontal, 24)
+                        .padding(.top, 18)
                 }
-                .padding(.leading, 28)
-                .padding(.trailing, 28)
             } else {
                 stacked
             }
         }
         .task { await observePlayback() }
         .task(id: currentSlide.id) { await loadDuration() }
-        .task(id: AdvanceKey(slide: currentSlide.id, isPaused: playback.isPaused, duration: duration, movieFailed: movieFailed)) {
+        .task(id: AdvanceKey(slide: currentSlide.id, revision: playback.revision, isPaused: playback.isPaused, duration: duration, movieFailed: movieFailed)) {
             await advanceWhenDone()
+        }
+        .onChange(of: reduceMotion, initial: true) { _, reduced in
+            playback.setReduceMotion(reduced)
         }
     }
 
@@ -149,7 +171,123 @@ struct CloudWelcomeMediaCarousel: View {
     /// Beside the list the clip takes the room the titles don't need, so it
     /// reads larger (same 16:10, so recorded clips fit either layout).
     private var mediaFrame: CGSize {
-        showsFeatureList ? CGSize(width: 390, height: 244) : mediaSize
+        showsFeatureList ? CGSize(width: cardWidth, height: cardWidth / 1.6) : mediaSize
+    }
+
+    // MARK: Poster
+
+    static let posterWidth: CGFloat = 460
+    /// The dark band under the clip that holds the app icon and the title.
+    private static let posterBandHeight: CGFloat = 64
+    /// How much of the clip's bottom edge fades into the band.
+    private static let posterFeather: CGFloat = 44
+
+    /// The clip edge to edge, its bottom fading into a dark band with the app
+    /// icon and "Introducing cmux cloud", and a hairline that fills with the clip.
+    /// Always dark, like the clips, whatever the window's appearance.
+    private var poster: some View {
+        VStack(spacing: 0) {
+            if posterShowsTitle {
+            media
+                .mask(
+                    LinearGradient(
+                        stops: [
+                            .init(color: .black, location: 0),
+                            .init(color: .black, location: 1 - Self.posterFeather / mediaFrame.height),
+                            .init(color: .clear, location: 1),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+            Color.clear.frame(height: Self.posterBandHeight)
+            } else {
+                media
+            }
+        }
+        .background(Color(white: 0.05))
+        .overlay(alignment: .bottomLeading) {
+            if posterShowsTitle {
+                posterTitle
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 16)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.white.opacity(0.08))
+                .frame(height: 1.5)
+                .overlay {
+                    TimelineView(.animation(paused: playback.isPaused || reduceMotion || !autoplays)) { context in
+                        RailFill(fraction: progress(at: context.date), vertical: false)
+                    }
+                }
+        }
+        .environment(\.colorScheme, .dark)
+    }
+
+    private var posterTitle: some View {
+        HStack(spacing: 11) {
+            if posterShowsIcon {
+                // The asset carries the icon grid's margin; 44 pt draws a ~38 pt tile.
+                // CloudWelcomeIcon is the dark icon without its edge bevel, which reads
+                // as a bright ring this small on the dark band.
+                Image(nsImage: NSImage(named: "CloudWelcomeIcon") ?? NSApp.applicationIconImage)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 44, height: 44)
+                    .padding(EdgeInsets(top: -3, leading: -5, bottom: -3, trailing: -3))
+                    .accessibilityHidden(true)
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(introducingText)
+                    .cmuxFont(size: 12)
+                    .foregroundStyle(.white.opacity(0.55))
+                Text(titleText)
+                    .cmuxFont(size: posterShowsIcon ? 20 : 22, weight: .semibold)
+                    .tracking(-0.3)
+                    .foregroundStyle(.white)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    /// The title under a full-bleed clip, above the features, with an optional
+    /// "New" badge.
+    private var bodyTitle: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(introducingText)
+                .cmuxFont(size: 12.5)
+                .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(titleText)
+                    .cmuxFont(size: 19, weight: .semibold)
+                    .tracking(-0.2)
+                if showsNewBadge {
+                    Text(String(localized: "cloud.welcome.newBadge", defaultValue: "New"))
+                        .cmuxFont(size: 10.5, weight: .semibold)
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 7)
+                        .frame(height: 18)
+                        .background(Capsule(style: .continuous).fill(Color.accentColor.opacity(0.16)))
+                        .alignmentGuide(.firstTextBaseline) { $0[.firstTextBaseline] + 2 }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    private var introducingText: String {
+        posterHeadline == nil
+            ? String(localized: "cloud.welcome.introducing", defaultValue: "Introducing")
+            : String(localized: "cloud.welcome.introducingCloud", defaultValue: "Introducing cmux cloud")
+    }
+
+    private var titleText: String {
+        posterHeadline ?? String(localized: "cloud.welcome.title.eyebrow", defaultValue: "cmux cloud")
     }
 
     // MARK: Feature list
@@ -172,38 +310,48 @@ struct CloudWelcomeMediaCarousel: View {
         }
     }
 
-    /// A feature: a segment of the rail and its title; the selected one lights
-    /// its segment and opens to show its line, the rest stay quiet until hovered.
+    /// A feature as text only: the playing one bright with its line open, the
+    /// rest dimmed until hovered or their turn.
     private func featureRow(_ slide: CloudWelcomeSlide, isCurrent: Bool, action: @escaping () -> Void) -> some View {
         let isHovered = hoveredRow == slide.id
+        let ink = Color.primary.opacity(isCurrent ? 1 : (isHovered ? 0.62 : 0.42))
         return Button(action: action) {
-            HStack(alignment: listUsesDots ? .center : .top, spacing: 12) {
-                if listUsesDots {
-                    dotMarker(isCurrent: isCurrent, isHovered: isHovered)
-                } else {
-                    // Inset top and bottom so each feature has its own bar, with a
-                    // clear gap to the next one.
-                    railSegment(isCurrent: isCurrent)
-                        .frame(width: 2.5)
-                        .padding(.vertical, 4)
-                }
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Image(systemName: slide.symbol)
+                    .cmuxFont(size: 13)
+                    .foregroundStyle(ink)
+                    .frame(width: 18)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(slide.title)
-                        .cmuxFont(size: 13, weight: .medium)
-                        .foregroundStyle(isCurrent || isHovered ? Color.primary : Color.secondary)
+                        .cmuxFont(size: 13.5, weight: .medium)
+                        .foregroundStyle(ink)
                         .fixedSize(horizontal: false, vertical: true)
                     if isCurrent {
+                        // One line, so the card keeps its height in every language.
                         Text(slide.caption)
-                            .cmuxFont(size: 11.5)
+                            .cmuxFont(size: 12.5)
                             .foregroundStyle(.secondary)
-                            .lineSpacing(1)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                             .transition(Self.captionTransition)
                     }
                 }
-                .padding(.vertical, 7)
                 Spacer(minLength: 0)
             }
+            // Beside the title only, so the line under it keeps the full width.
+            .overlay(alignment: .topTrailing) {
+                if slide.id == "spin-up", let newMachineShortcut {
+                    Text(newMachineShortcut)
+                        .cmuxFont(size: 11.5)
+                        .tracking(0.6)
+                        .foregroundStyle(Color.primary.opacity(isCurrent ? 0.55 : 0.42))
+                        .padding(.top, 1)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -220,7 +368,7 @@ struct CloudWelcomeMediaCarousel: View {
     // MARK: Media
 
     private var media: some View {
-        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: showsFeatureList ? 0 : 10, style: .continuous)
         return ZStack {
             slideMedia(currentSlide)
                 .id(currentSlide.id)
@@ -229,9 +377,12 @@ struct CloudWelcomeMediaCarousel: View {
         .frame(width: mediaFrame.width, height: mediaFrame.height)
         .background(shape.fill(Color.black.opacity(0.35)))
         .contentShape(shape)
-        .onTapGesture {
-            if autoplays { setPaused(!playback.isPaused) }
-        }
+        // The launch card has no pause, so its clip doesn't take the click
+        // and the window still drags by it.
+        .gesture(
+            TapGesture().onEnded { if autoplays { setPaused(!playback.isPaused) } },
+            including: showsFeatureList ? .subviews : .all
+        )
         // Keep the controls outside the clip's gesture so one button click
         // cannot also toggle playback through the surrounding media surface.
         .overlay { mediaControls }
@@ -239,14 +390,16 @@ struct CloudWelcomeMediaCarousel: View {
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.15)) { isHoveringMedia = hovering }
         }
-        .overlay(shape.strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
+        .overlay(shape.strokeBorder(Color.primary.opacity(showsFeatureList ? 0 : 0.12), lineWidth: 0.5))
     }
 
     /// Autoplay: a pause button while the pointer is over the clip (a play button
     /// stays while paused). Manual: previous and next arrows on hover.
     @ViewBuilder
     private var mediaControls: some View {
-        if autoplays {
+        if showsFeatureList {
+            EmptyView()
+        } else if autoplays {
             if isHoveringMedia || playback.isPaused {
                 controlButton(
                     symbol: playback.isPaused ? "play.fill" : "pause.fill",
@@ -299,7 +452,7 @@ struct CloudWelcomeMediaCarousel: View {
     @ViewBuilder
     private func slideMedia(_ slide: CloudWelcomeSlide) -> some View {
         if let url = mediaURL(slide) {
-            Player(url: url, playback: playback)
+            Player(url: url, playback: playback, reduceMotion: reduceMotion)
         } else {
             placeholder(slide)
         }
@@ -363,46 +516,6 @@ struct CloudWelcomeMediaCarousel: View {
             .clipShape(Capsule(style: .continuous))
     }
 
-    /// Dots variant: the current feature's bar spans its title and line (and
-    /// fills with the clip when autoplaying); the others are dots centered on
-    /// their title. The dot stretches into the bar as a row becomes current.
-    private func dotMarker(isCurrent: Bool, isHovered: Bool) -> some View {
-        ZStack {
-            if isCurrent {
-                railSegment(isCurrent: true)
-                    .frame(width: 2.5)
-                    .padding(.vertical, 8)
-                    .transition(.scale(scale: 0.1, anchor: .center).combined(with: .opacity))
-            } else {
-                Circle()
-                    .fill(Color.primary.opacity(isHovered ? 0.5 : 0.25))
-                    .frame(width: 5, height: 5)
-                    .transition(.opacity)
-            }
-        }
-        .frame(width: 5)
-        .frame(maxHeight: .infinity)
-    }
-
-    /// A row's part of the rail. Manual: the selected one is lit. Autoplay: the
-    /// selected one fills top to bottom with its clip, then the next row takes over.
-    @ViewBuilder
-    private func railSegment(isCurrent: Bool) -> some View {
-        if isCurrent && autoplays && !reduceMotion {
-            Capsule(style: .continuous)
-                .fill(Color.primary.opacity(0.16))
-                .overlay {
-                    TimelineView(.animation(paused: playback.isPaused)) { context in
-                        RailFill(fraction: progress(at: context.date), vertical: true)
-                    }
-                }
-                .clipShape(Capsule(style: .continuous))
-        } else {
-            Capsule(style: .continuous)
-                .fill(Color.primary.opacity(isCurrent ? 0.9 : 0.12))
-        }
-    }
-
     /// The clip's playhead when it is a movie, so the pill never drifts from
     /// what is on screen; the wall clock for a GIF or a placeholder.
     private func progress(at date: Date) -> Double {
@@ -432,6 +545,7 @@ struct CloudWelcomeMediaCarousel: View {
 
     private struct AdvanceKey: Equatable {
         let slide: String
+        let revision: Int
         let isPaused: Bool
         let duration: Double
         let movieFailed: Bool
@@ -442,7 +556,11 @@ struct CloudWelcomeMediaCarousel: View {
     }
 
     private func show(_ newIndex: Int) {
-        guard newIndex != index else { return }
+        // Picking the slide that's already up plays it again from the start.
+        guard newIndex != index else {
+            playback.restart()
+            return
+        }
         playback.detach()
         durationLoadFailed = false
         // Picking a slide plays it, even if the last one was paused.
@@ -472,14 +590,16 @@ struct CloudWelcomeMediaCarousel: View {
         guard autoplays, !reduceMotion, !playback.isPaused, slides.count > 1, (!isMovie || movieFailed) else { return }
         let slideID = currentSlide.id
         let slideIndex = index
+        let revision = playback.revision
         let remaining = duration - playback.elapsed(at: Date())
         if remaining > 0 {
-            await playback.waitForAdvance(after: remaining)
+            guard await playback.waitForAdvance(after: remaining) else { return }
         }
         // A pause, a new slide or a stale failed-movie callback can land just as
         // the timer ends. Only the task that scheduled this slide may advance it.
         guard !Task.isCancelled,
               !playback.isPaused,
+              playback.revision == revision,
               index == slideIndex,
               currentSlide.id == slideID
         else { return }
@@ -614,25 +734,39 @@ struct CloudWelcomeMediaCarousel: View {
         }
     }
 
-    /// Plays a clip muted and looping, filling the frame. Movies (the format to
-    /// ship) decode in hardware and composite on the GPU through AVPlayerLayer;
-    /// GIF is a fallback for quick drafts only (CPU decoded, 256 colors).
-    private struct Player: NSViewRepresentable {
+    /// Configures a movie layer to show the entire recorded frame in the poster.
+    ///
+    /// The layer configuration lives on the carousel so the presentation rule
+    /// stays centralized for every movie view.
+    fileprivate static func configureMovieLayer(_ layer: AVPlayerLayer) {
+        layer.videoGravity = .resizeAspect
+    }
+
+    /// Plays a clip muted and looping. Movies decode in hardware through
+    /// ``AVPlayerLayer``; GIF is a fallback for quick drafts only.
+    struct Player: NSViewRepresentable {
         let url: URL
         let playback: Playback
+        let reduceMotion: Bool
 
         func makeNSView(context: Context) -> NSView {
+            playback.setReduceMotion(reduceMotion)
             if url.pathExtension.lowercased() == "gif" {
                 let view = NSImageView()
                 view.image = NSImage(contentsOf: url)
-                view.animates = true
+                view.animates = !reduceMotion
                 view.imageScaling = .scaleProportionallyUpOrDown
                 return view
             }
             return MovieView(url: url, playback: playback)
         }
 
-        func updateNSView(_ nsView: NSView, context: Context) {}
+        func updateNSView(_ nsView: NSView, context: Context) {
+            playback.setReduceMotion(reduceMotion)
+            if let imageView = nsView as? NSImageView {
+                imageView.animates = !reduceMotion
+            }
+        }
 
         final class MovieView: NSView {
             private let player = AVQueuePlayer()
@@ -648,7 +782,7 @@ struct CloudWelcomeMediaCarousel: View {
                 playerLayer = AVPlayerLayer(player: player)
                 super.init(frame: .zero)
                 wantsLayer = true
-                playerLayer.videoGravity = .resizeAspectFill
+                CloudWelcomeMediaCarousel.configureMovieLayer(playerLayer)
                 // Hidden until the first frame is decoded, then faded in, so a
                 // slide change never flashes an empty frame.
                 playerLayer.opacity = 0
@@ -754,8 +888,12 @@ extension CloudWelcomeMediaCarousel {
         @ObservationIgnored private let loopContinuation: AsyncStream<Void>.Continuation
         private weak var player: AVPlayer?
         private(set) var index = 0
-        private(set) var isPaused = false
+        private var manuallyPaused = false
+        private var reduceMotion = false
+        var isPaused: Bool { manuallyPaused || reduceMotion }
         private(set) var movieFailed = false
+        /// A restarted slide invalidates its previous fallback deadline.
+        private(set) var revision = 0
         private var pausedElapsed: Double?
         private var startedAt: Date?
         private var advanceTimer: CloudWelcomeAdvanceTimer?
@@ -771,7 +909,7 @@ extension CloudWelcomeMediaCarousel {
         /// Waits for a cancellable one-shot presentation deadline. A dispatch
         /// timer is used instead of task sleep so changing slides tears down the
         /// deadline immediately and does not leave a sleeping UI task behind.
-        func waitForAdvance(after seconds: Double) async {
+        func waitForAdvance(after seconds: Double) async -> Bool {
             cancelAdvanceTimer()
             let (events, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
             advanceContinuation = continuation
@@ -798,6 +936,7 @@ extension CloudWelcomeMediaCarousel {
             }, onCancel: { [weak self] in
                 Task { @MainActor in self?.cancelAdvanceTimer(ifGeneration: generation) }
             })
+            return !Task.isCancelled && generation == advanceGeneration
         }
 
         private func cancelAdvanceTimer(ifGeneration generation: Int? = nil) {
@@ -831,32 +970,60 @@ extension CloudWelcomeMediaCarousel {
         }
 
         func setPaused(_ paused: Bool) {
-            guard paused != isPaused else { return }
+            let wasPaused = isPaused
+            manuallyPaused = paused
+            updatePlaybackPause(wasPaused: wasPaused)
+        }
+
+        /// Every media attachment and slide transition obeys Reduce Motion.
+        func setReduceMotion(_ enabled: Bool) {
+            guard enabled != reduceMotion else { return }
+            let wasPaused = isPaused
+            reduceMotion = enabled
+            if enabled {
+                startedAt = Date()
+                pausedElapsed = 0
+            }
+            updatePlaybackPause(wasPaused: wasPaused)
+            if enabled {
+                player?.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+            }
+        }
+
+        private func updatePlaybackPause(wasPaused: Bool) {
+            guard wasPaused != isPaused else { return }
             let now = Date()
-            if paused {
+            if isPaused {
                 pausedElapsed = elapsed(at: now)
-                isPaused = true
                 player?.pause()
             } else {
                 if let held = pausedElapsed {
                     startedAt = now.addingTimeInterval(-held)
                 }
                 pausedElapsed = nil
-                isPaused = false
                 player?.play()
             }
         }
 
         /// Starts the new slide's playhead and clears any pause carried by the old slide.
-        func startNewSlide(at newIndex: Int? = nil) {
+        func startNewSlide(at newIndex: Int? = nil, resetsFailure: Bool = true) {
+            cancelAdvanceTimer()
+            revision += 1
             if let newIndex {
                 index = newIndex
             }
-            movieFailed = false
+            if resetsFailure { movieFailed = false }
             startedAt = Date()
-            pausedElapsed = nil
-            isPaused = false
-            player?.play()
+            manuallyPaused = false
+            pausedElapsed = reduceMotion ? 0 : nil
+            if isPaused { player?.pause() } else { player?.play() }
+        }
+
+        /// Plays the current movie again from its first frame.
+        func restart() {
+            cancelAdvanceTimer()
+            player?.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+            startNewSlide(resetsFailure: false)
         }
 
         /// Returns elapsed playhead time, including a held value while paused.

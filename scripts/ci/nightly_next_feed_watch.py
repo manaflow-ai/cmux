@@ -31,7 +31,7 @@ import sys
 import urllib.parse
 import urllib.request
 
-FEED_URL = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
+FEED_URL = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"  # cmux NEXT (cx-x7hwx)
 LABEL = "nightly-next-feed-stale"
 PUSH_WORKFLOW = "cmux-next-guards.yml"  # every feat-cmux-next push, no path filter
 RELEASE_COMPILE_JOB = "cmux-next Release compile (Xcode 26)"
