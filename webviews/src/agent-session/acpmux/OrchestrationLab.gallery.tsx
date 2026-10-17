@@ -15,6 +15,11 @@ const selectDecision: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.find({ role: "heading", name: "Needs your decision" }));
 };
 
+const jumpToDecision: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Review decision (1)" });
+  await ctx.waitFor(() => ctx.find({ role: "heading", name: "Run gallery checks" }));
+};
+
 const openInspector: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Inspect technical receipt" });
   await ctx.waitFor(() => ctx.find({ role: "dialog", name: /technical receipt/ }));
@@ -52,6 +57,11 @@ export default componentEntry<{
       note: "Decision-needed work exposes preview-only Use cloud and Keep local choices.",
       props: { initialStrategy: "cloud-fair-share" },
       play: selectDecision,
+    },
+    "jump-to-decision": {
+      note: "The summary action selects the first pending decision without exposing receipt details.",
+      props: { initialStrategy: "local-queue" },
+      play: jumpToDecision,
     },
     inspector: {
       note: "Technical receipt is behind the per-work inspector and closed by default on the main view.",

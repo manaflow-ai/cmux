@@ -60,9 +60,29 @@
 .orchestration-attention {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 7px;
   margin: 0;
   color: var(--agent-muted);
+}
+
+.orchestration-attention-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.orchestration-decision-jump {
+  color: var(--agent-accent);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+
+.orchestration-no-decisions {
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
 }
 
 .orchestration-work-view {
@@ -199,6 +219,11 @@
     var(--agent-success, var(--agent-accent)) 14%,
     transparent
   );
+}
+
+.orchestration-state-recorded {
+  color: var(--agent-muted);
+  background: var(--agent-control);
 }
 
 .orchestration-work-detail {

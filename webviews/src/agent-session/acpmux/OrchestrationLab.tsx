@@ -4,6 +4,7 @@ import { Disclosure } from "../../ui/Disclosure";
 import { Popover } from "../../ui/Popover";
 import { StatusGlyph } from "../../ui/StatusGlyph";
 import type { StatusGlyphName } from "../../ui/statusGlyphs.generated";
+import { Toolbar, ToolbarButton } from "../../ui/Toolbar";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 
 type WorkStatus = "working" | "blocked" | "waiting" | "done";
@@ -57,8 +58,8 @@ const workItems: WorkItem[] = [
     agent: "Mina",
     machine: "Huge Blue · Linux",
     status: "blocked",
-    blocker: "Waiting on build capacity evidence",
-    outcome: "Hold admission until the cleanup receipt is reviewed",
+    blocker: "Waiting for cleanup verification",
+    outcome: "Waiting for cleanup verification",
     decision: "none",
     route: "ssh · enrolled host",
     transport: "ssh",
@@ -77,9 +78,9 @@ const workItems: WorkItem[] = [
     machine: "Cloud worker · proposed",
     status: "waiting",
     blocker: "Waiting for your approval",
-    outcome: "Wait for approval before moving the checks to cloud capacity",
+    outcome: "Waiting for approval to run checks on the proposed cloud worker",
     decision: "needs-approval",
-    decisionQuestion: "Move gallery checks to cloud capacity?",
+    decisionQuestion: "Move gallery checks to the cloud worker?",
     route: "durable lease · cloud-router",
     transport: "lease",
     task: "orch-cloud-12",
@@ -198,12 +199,19 @@ export function OrchestrationLab({
   const decisionText = (value: PreviewChoice) => (value === "keep-local" ? "keep local" : "use cloud");
   const visibleStatus = (item: WorkItem) =>
     item.decision !== "none" && decision[item.id] ? "Preview selected" : statusLabels[item.status];
+  const visibleGlyph = (item: WorkItem): StatusGlyphName =>
+    item.decision !== "none" && decision[item.id] ? "idle" : statusGlyphs[item.status];
+  const visibleStateClass = (item: WorkItem) =>
+    item.decision !== "none" && decision[item.id]
+      ? "orchestration-state orchestration-state-recorded"
+      : `orchestration-state orchestration-state-${item.status}`;
   const visibleBlocker = (item: WorkItem) =>
     item.decision !== "none" && decision[item.id]
       ? `Preview choice recorded: ${decisionText(decision[item.id])}; no dispatch`
       : item.blocker;
   const visibleOutcome = (item: WorkItem) =>
     item.decision !== "none" && decision[item.id] ? "Preview choice recorded; no work was dispatched." : item.outcome;
+  const pendingDecisionItems = workItems.filter((item) => item.decision !== "none" && !decision[item.id]);
 
   return (
     <main className="orchestration-gallery" data-orchestration-lab>
@@ -211,12 +219,26 @@ export function OrchestrationLab({
         <h1>Work</h1>
         <span className="orchestration-sample-marker">Sample data · preview only</span>
       </header>
-      <p className="orchestration-attention" aria-live="polite">
-        <StatusGlyph name="working" size={12} label="Work status" />
-        {workItems.filter((item) => item.status === "working").length} running ·{" "}
-        {workItems.filter((item) => item.status === "blocked").length} blocked ·{" "}
-        {workItems.filter((item) => item.status === "waiting" && !decision[item.id]).length} needs your decision
-      </p>
+      <Toolbar label="Work summary" className="orchestration-attention">
+        <span className="orchestration-attention-count">
+          <StatusGlyph name="working" size={12} label="Work status" />
+          {workItems.filter((item) => item.status === "working").length} running ·{" "}
+          {workItems.filter((item) => item.status === "blocked").length} blocked
+        </span>
+        {pendingDecisionItems.length > 0 ? (
+          <ToolbarButton
+            label={`Review decision (${pendingDecisionItems.length})`}
+            tooltip={false}
+            className="orchestration-decision-jump"
+            onPress={() => selectWork(pendingDecisionItems[0].id)}
+          >
+            <StatusGlyph name="waiting" size={12} />
+            Review decision ({pendingDecisionItems.length})
+          </ToolbarButton>
+        ) : (
+          <span className="orchestration-no-decisions">No decisions waiting</span>
+        )}
+      </Toolbar>
 
       <div className="orchestration-work-view">
         <section className="orchestration-work-list" aria-label="Work by agent and machine">
@@ -236,18 +258,18 @@ export function OrchestrationLab({
                   onClick={() => selectWork(item.id)}
                 >
                   <span className="orchestration-work-row-top">
-                    <StatusGlyph name={statusGlyphs[item.status]} size={12} label={visibleStatus(item)} />
+                    <StatusGlyph name={visibleGlyph(item)} size={12} label={visibleStatus(item)} />
                     <strong>{item.title}</strong>
-                    <span className={`orchestration-state orchestration-state-${item.status}`}>
-                      {visibleStatus(item)}
-                    </span>
+                    <span className={visibleStateClass(item)}>{visibleStatus(item)}</span>
                   </span>
                   <span className="orchestration-work-row-meta">
                     {item.agent} · {item.machine}
                   </span>
-                  <span className={`orchestration-work-row-blocker${item.status === "blocked" ? " is-blocked" : ""}`}>
-                    {visibleBlocker(item)}
-                  </span>
+                  {visibleBlocker(item) !== "No blocker" && (
+                    <span className={`orchestration-work-row-blocker${item.status === "blocked" ? " is-blocked" : ""}`}>
+                      {visibleBlocker(item)}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -262,16 +284,14 @@ export function OrchestrationLab({
           <div className="orchestration-detail-heading">
             <div>
               <div className="orchestration-detail-title-row">
-                <StatusGlyph name={statusGlyphs[selected.status]} size={14} label={visibleStatus(selected)} />
+                <StatusGlyph name={visibleGlyph(selected)} size={14} label={visibleStatus(selected)} />
                 <h2>{selected.title}</h2>
               </div>
               <p>
                 {selected.agent} · {selected.machine}
               </p>
             </div>
-            <span className={`orchestration-state orchestration-state-${selected.status}`}>
-              {visibleStatus(selected)}
-            </span>
+            <span className={visibleStateClass(selected)}>{visibleStatus(selected)}</span>
           </div>
 
           <dl className="orchestration-work-facts">
@@ -319,10 +339,7 @@ export function OrchestrationLab({
           ) : selected.status === "blocked" ? (
             <section className="orchestration-blocked" aria-label="Blocked work">
               <h3>Blocked</h3>
-              <p>
-                No action is needed from you. The next step is to review the cleanup evidence before capacity is
-                admitted.
-              </p>
+              <p>No action is needed from you. Mina is checking the cleanup results.</p>
             </section>
           ) : null}
 
