@@ -88,9 +88,6 @@ final class AgentChatModeModel {
     private var answeringRequestKeys: Set<String> = []
     private var answeredRequestKeysBySession: [String: Set<String>] = [:]
     private var removedSessionVersions: [String: Int] = [:]
-    /// Once a host-wide state push carries a revision, the per-session event
-    /// stream's legacy unversioned duplicate must not overwrite it.
-    private var latestVersionedStateBySession: [String: Int] = [:]
     private var sourceGeneration = 0
     private let reconnectDelay: @Sendable (_ attempt: Int) async -> Void
 
@@ -204,7 +201,6 @@ final class AgentChatModeModel {
         answeringRequestKeys = []
         answeredRequestKeysBySession = [:]
         removedSessionVersions = [:]
-        latestVersionedStateBySession = [:]
         loadingSessionIDs = []
         sendingSessionIDs = []
         interruptingSessionIDs = []
@@ -252,6 +248,10 @@ final class AgentChatModeModel {
         guard let source else { return }
         let generation = sourceGeneration
         sessionTasks[session.id]?.cancel()
+        // The host-wide stream already carries transcript events for this
+        // session with their revisions intact. A second per-session stream
+        // would discard those revisions and could replay an old update after
+        // the host-wide stream applied a newer one.
         sessionTasks[session.id] = Task { [weak self] in
             guard let self else { return }
             await self.loadHistory(
@@ -260,10 +260,6 @@ final class AgentChatModeModel {
                 reset: true,
                 generation: generation
             )
-            guard !Task.isCancelled,
-                  generation == self.sourceGeneration,
-                  self.selectedSessionID == session.id else { return }
-            await self.observe(sessionID: session.id, source: source, generation: generation)
         }
     }
 
@@ -669,46 +665,6 @@ final class AgentChatModeModel {
         }
     }
 
-    private func observe(
-        sessionID: String,
-        source: any AgentChatSessionSource,
-        generation: Int
-    ) async {
-        var reconnectAttempt = 0
-        while !Task.isCancelled,
-              generation == sourceGeneration,
-              selectedSessionID == sessionID {
-            let stream = await source.events(sessionID: sessionID)
-            guard !Task.isCancelled,
-                  generation == sourceGeneration,
-                  selectedSessionID == sessionID else { return }
-            reconnectAttempt = 0
-            for await event in stream {
-                guard !Task.isCancelled,
-                      generation == sourceGeneration,
-                      selectedSessionID == sessionID else { return }
-                apply(event, to: sessionID)
-            }
-            guard !Task.isCancelled,
-                  generation == sourceGeneration,
-                  selectedSessionID == sessionID else { return }
-            reconnectAttempt += 1
-            await reconnectDelay(reconnectAttempt)
-            guard !Task.isCancelled,
-                  generation == sourceGeneration,
-                  selectedSessionID == sessionID else { return }
-            // Session streams do not replay missed events after EOF. Reload
-            // the transcript before subscribing again so the next stream
-            // starts from a complete, current sequence.
-            await loadHistory(
-                sessionID: sessionID,
-                source: source,
-                reset: true,
-                generation: generation
-            )
-        }
-    }
-
     private func apply(_ event: ChatSessionEvent, to sessionID: String, version: Int? = nil) {
         if let version {
             // Host pushes are best-effort and can arrive out of order. Equal
@@ -737,15 +693,7 @@ final class AgentChatModeModel {
             // hosts omit the frame revision and retain the best-effort legacy
             // behavior for compatibility.
             if let version {
-                latestVersionedStateBySession[sessionID] = max(
-                    version,
-                    latestVersionedStateBySession[sessionID] ?? Int.min
-                )
                 guard version > old.version else { return }
-            } else if latestVersionedStateBySession[sessionID] != nil {
-                // `events(sessionID:)` predates revision-bearing frames and
-                // still carries the same state event without metadata.
-                return
             }
             upsert(old.withState(state, version: version))
         case .descriptorChanged(let descriptor): upsert(descriptor)
@@ -772,7 +720,6 @@ final class AgentChatModeModel {
             historyHasMore[sessionID] = nil
             transcriptRevisions[sessionID] = nil
             historyResetTokens[sessionID] = nil
-            latestVersionedStateBySession[sessionID] = nil
             latestVersionBySession[sessionID] = max(
                 version,
                 latestVersionBySession[sessionID] ?? Int.min

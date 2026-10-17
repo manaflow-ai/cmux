@@ -195,6 +195,34 @@ import Testing
         #expect(model.selectedMessages.map { proseText($0) } == ["newer"])
     }
 
+    @Test func delayedPerSessionDuplicateCannotOverwriteHostUpdate() async {
+        let source = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)],
+            pages: ["session": [page(message(id: "one", seq: 1, text: "initial"))]]
+        )
+        let model = AgentChatModeModel()
+
+        model.updateSource(source)
+        await settle()
+        await source.emitHost(
+            sessionID: "session",
+            event: .updated([message(id: "one", seq: 1, text: "newer")]),
+            version: 2
+        )
+        await settle()
+
+        // A second stream would strip the revision and could deliver this
+        // older duplicate after the host-wide stream applied the newer one.
+        await source.emit(
+            sessionID: "session",
+            event: .updated([message(id: "one", seq: 1, text: "stale")])
+        )
+        await settle()
+
+        #expect(model.selectedMessages.map { proseText($0) } == ["newer"])
+        #expect(await source.sessionSubscriptionCount == 0)
+    }
+
     @Test func versionGapPullsSnapshotAndReloadsHistoryBeforeApplyingPush() async {
         let source = FakeAgentChatSource(
             sessions: [descriptor(id: "session", agent: .codex)],
@@ -231,27 +259,6 @@ import Testing
         #expect((await source.historyRequests).map(\.beforeSeq) == [nil, nil])
         #expect(model.selectedSession == latest)
         #expect(model.selectedMessages.map(\.id) == ["after-gap"])
-    }
-
-    @Test func sessionStreamEOFReloadsHistoryBeforeResubscribing() async {
-        let source = FakeAgentChatSource(
-            sessions: [descriptor(id: "session", agent: .codex)],
-            pages: [
-                "session": [
-                    page(message(id: "before-gap", seq: 1, text: "before gap")),
-                    page(message(id: "during-gap", seq: 2, text: "during gap")),
-                ],
-            ]
-        )
-        let model = AgentChatModeModel(reconnectDelay: { _ in })
-
-        model.updateSource(source)
-        await settle()
-        await source.finishEvents(sessionID: "session")
-        await settle()
-
-        #expect(model.selectedMessages.map(\.id) == ["during-gap"])
-        #expect((await source.historyRequests).map(\.beforeSeq) == [nil, nil])
     }
 
     @Test func historyPaginationDeduplicatesAndPrependsOlderMessages() async {
@@ -317,21 +324,21 @@ import Testing
 
         model.updateSource(source)
         await settle()
-        await source.emit(sessionID: "session", event: .appended([appended]))
+        await source.emitHost(sessionID: "session", event: .appended([appended]))
         await settle()
         #expect(model.selectedMessages.map(\.id) == ["one", "two"])
 
-        await source.emit(sessionID: "session", event: .updated([replacement]))
+        await source.emitHost(sessionID: "session", event: .updated([replacement]))
         await settle()
         #expect(model.selectedMessages.map { proseText($0) } == ["edited", "two"])
 
         let streaming = message(id: "stream", seq: 3, text: "draft")
-        await source.emit(sessionID: "session", event: .streamingProse(streaming))
+        await source.emitHost(sessionID: "session", event: .streamingProse(streaming))
         await settle()
         #expect(model.selectedStreamingMessage == streaming)
 
         let since = Date(timeIntervalSince1970: 42)
-        await source.emit(sessionID: "session", event: .stateChanged(.needsInput(since: since)))
+        await source.emitHost(sessionID: "session", event: .stateChanged(.needsInput(since: since)))
         await settle()
         #expect(model.selectedSession?.state == .needsInput(since: since))
 
@@ -347,7 +354,7 @@ import Testing
         await settle()
         #expect(model.selectedSession?.title == "Renamed")
 
-        await source.emit(sessionID: "session", event: .reset)
+        await source.emitHost(sessionID: "session", event: .reset)
         await settle()
         #expect(model.selectedMessages.map(\.id) == ["one"])
         #expect(model.selectedStreamingMessage == nil)
@@ -379,7 +386,7 @@ import Testing
 
         model.draft = "old prompt"
         await model.sendDraft()
-        await source.emit(sessionID: "session", event: .reset)
+        await source.emitHost(sessionID: "session", event: .reset)
         await settle()
         await model.retryLastTurn()
 
@@ -539,7 +546,7 @@ import Testing
         await settle()
         #expect(model.selectedSessionID == "first")
 
-        await source.emit(sessionID: "first", event: .sessionRemoved(version: 1))
+        await source.emitHost(sessionID: "first", event: .sessionRemoved(version: 1))
         await settle()
 
         #expect(model.sessions.map(\.id) == ["second"])
@@ -650,6 +657,7 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
     private var hostContinuation: AsyncStream<ChatSessionEventFrame>.Continuation?
     private(set) var hostSubscriptionCount = 0
     private var pendingHostEvents: [ChatSessionEventFrame] = []
+    private(set) var sessionSubscriptionCount = 0
     private var eventContinuations: [String: AsyncStream<ChatSessionEvent>.Continuation] = [:]
     private var pendingEvents: [String: [ChatSessionEvent]] = [:]
 
@@ -691,6 +699,7 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
     }
 
     func events(sessionID: String) async -> AsyncStream<ChatSessionEvent> {
+        sessionSubscriptionCount += 1
         return AsyncStream { continuation in
             Task { await self.setEventContinuation(continuation, for: sessionID) }
         }
