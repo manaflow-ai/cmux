@@ -19,7 +19,6 @@
 .cmux-comparison-sidebar { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--agent-border); background: var(--agent-page-bg); }
 .cmux-comparison-sidebar-label { flex: none; padding: 12px 16px 6px; color: var(--agent-muted); font: var(--text-caption) / 1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .06em; text-transform: uppercase; }
 .cmux-comparison-sidebar > .acpmux-sidebar { flex: 1; min-height: 0; }
-.cmux-comparison-preview-anchor { display: block; flex: none; height: 8px; margin: 0 10px 4px; }
 .cmux-comparison-preview-toggle { display: flex; flex: none; gap: 2px; margin: 0 10px 12px; padding: 2px; border: 1px solid var(--agent-border); border-radius: var(--ui-row-radius); background: var(--agent-control); }
 .cmux-comparison-preview-toggle button { flex: 1; padding: 5px 3px; font-size: var(--text-caption); text-transform: capitalize; }
 .cmux-comparison-main { display: grid; grid-template-rows: minmax(0, 1fr) auto auto auto; min-width: 0; min-height: 0; background: var(--agent-page-bg); }

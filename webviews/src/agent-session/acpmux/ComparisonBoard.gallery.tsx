@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixture labels are a read-only visual comparison surface.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { session } from "../../gallery/fixtures/acpmux";
@@ -146,9 +146,18 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
   ]);
   const [section, setSection] = useState<Props["defaultSection"]>(defaultSection);
   const [preview, setPreview] = useState(previewVariant);
+  const sidebarRef = useRef<HTMLElement | null>(null);
   const [previewAnchor, setPreviewAnchor] = useState<HTMLElement | null>(null);
   const showSlider = section === "overview" || section === "slider";
   const showSidebar = section === "overview" || section === "sidebar";
+  useEffect(() => {
+    if (!showSidebar) {
+      setPreviewAnchor(null);
+      return;
+    }
+    // Keep the stable specimen attached to the same row that drives the real hover card.
+    setPreviewAnchor(sidebarRef.current?.querySelector<HTMLElement>('[data-session-id="comparison-review"]') ?? null);
+  }, [preview, showSidebar]);
   const composerSnapshot: AcpmuxSnapshot = {
     ...baseComposerSnapshot,
     summary: {
@@ -197,7 +206,7 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
         aria-labelledby={`comparison-tab-${section}`}
       >
         {showSidebar && (
-          <aside className="cmux-comparison-sidebar" aria-label={`Sidebar preview: ${preview}`}>
+          <aside ref={sidebarRef} className="cmux-comparison-sidebar" aria-label={`Sidebar preview: ${preview}`}>
             <div className="cmux-comparison-sidebar-label">Sessions · {preview}</div>
             <SessionSidebar
               sessions={sessions}
@@ -209,7 +218,6 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
               preview
               previewVariant={preview}
             />
-            <span ref={setPreviewAnchor} className="cmux-comparison-preview-anchor" aria-hidden="true" />
             {previewAnchor && (
               <SessionPreviewCard anchor={previewAnchor} open id="comparison-preview-card" previewVariant={preview}>
                 <div className="acpmux-session-preview-title">Review the sidebar polish</div>
@@ -281,8 +289,8 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
               aria-label={`Visible ${sliderStyle} reasoning slider specimen`}
             >
               <div className="cmux-comparison-specimen-heading">
-                <span>Reasoning slider</span>
-                <strong>{sliderStyle === "accent" ? "Accent" : "Minimal"}</strong>
+                <span>Reasoning</span>
+                <strong>{efforts.find((choice) => choice.id === effort)?.name ?? "High"}</strong>
               </div>
               <EffortTrack
                 efforts={efforts}
@@ -294,7 +302,7 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
             </div>
             {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- compact treatment controls are not a form fieldset. */}
             <div className="cmux-comparison-slider-toggle" role="group" aria-label="Reasoning slider treatment">
-              <span>Reasoning treatment</span>
+              <span>Treatment</span>
               {(["accent", "minimal"] as const).map((name) => (
                 <span key={name} className={sliderStyle === name ? "is-active" : ""}>
                   {name}
