@@ -107,6 +107,8 @@ const THREAD_STACK_BYTES: usize = 256 * 1024;
 #[derive(Default)]
 pub(crate) struct AgentSessions {
     socket: RwLock<Option<PathBuf>>,
+    /// Bounded cache reads share this owner's socket, never its start path.
+    pub(super) inventory_reads: std::sync::atomic::AtomicUsize,
     state: Mutex<AttachState>,
     /// `agent-session-start-v1`: the acpmux starter and the tabs starting.
     starts: agent_session_start::AgentSessionStarts,
