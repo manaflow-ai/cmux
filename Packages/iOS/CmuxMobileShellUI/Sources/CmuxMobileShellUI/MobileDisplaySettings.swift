@@ -181,6 +181,18 @@ public final class MobileDisplaySettings {
         }
     }
 
+    /// Whether the Developer settings force the rebuilt keyboard-dock path on
+    /// iOS 26 and earlier. The terminal host reads the same shared defaults key
+    /// when it is created; iOS 27 ignores this override.
+    public var forceRebuildKeyboardDock: Bool {
+        didSet {
+            defaults.set(
+                forceRebuildKeyboardDock,
+                forKey: UserDefaults.cmuxForceRebuildKeyboardDockKey
+            )
+        }
+    }
+
 
     /// Creates the display settings, seeding stored values from `defaults`.
     /// - Parameter defaults: The store backing the persisted preferences.
@@ -223,6 +235,7 @@ public final class MobileDisplaySettings {
             storedUnreadBadgeDiameter ?? Self.defaultUnreadBadgeDiameter,
             to: Self.unreadBadgeDiameterRange
         )
+        self.forceRebuildKeyboardDock = defaults.cmuxForceRebuildKeyboardDock
     }
 
     /// Clamps a stored or assigned preview line count to the supported range.
