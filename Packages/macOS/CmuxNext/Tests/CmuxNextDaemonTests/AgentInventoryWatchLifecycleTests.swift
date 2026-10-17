@@ -99,6 +99,8 @@ struct AgentInventoryWatchLifecycleTests {
             let fresh = try await connection.agentInventoryWatch(expectedMachineID: machine)
             #expect(old !== fresh)
             _ = try await fresh.enable()
+            do { _ = try await old.enable(); Issue.record("closed transport returned a cached live receipt") }
+            catch { #expect((error as? DaemonError)?.isLostConnection == true) }
             do { try await old.disable(); Issue.record("closed transport acknowledged cleanup") }
             catch { #expect((error as? DaemonError)?.isLostConnection == true) }
             let calls = try await connection.request(Inspect())
