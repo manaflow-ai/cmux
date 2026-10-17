@@ -72,6 +72,13 @@ on:
 # A newer event's debounce supersedes an older wait inside the script, which then
 # exits 0, and a running batch is never cancelled (its own group queues).
 
+# Pull-request debounce runs share one group per PR so a new source push
+# cancels the superseded macOS admission. Dispatched batch runs use their own
+# ref group and remain controlled by the batch controller.
+concurrency:
+  group: cmux-next-batch-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 

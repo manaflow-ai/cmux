@@ -21,7 +21,7 @@ CATEGORIES = {
     "fr": {"one", "many", "other"},
     "es": {"one", "many", "other"},
 }
-OMISSION_CLASSES = {"brand", "technical", "format", "price", "syntax"}
+OMISSION_CLASSES = {"brand", "technical", "format", "price", "syntax", "pending"}
 FORMAT = re.compile(
     r"%%|%(?:\d+\$)?#@[^@]+@|%(?:\d+\$)?[-+ #0']*(?:\d+|\*(?:\d+\$)?)?"
     r"(?:\.(?:\d+|\*(?:\d+\$)?))?(?:hh|ll|[hlLqjzt])?[diouxXfFeEgGaAcCsSp@]"
@@ -239,10 +239,10 @@ def omission(key: str, english: str, metadata: dict) -> bool:
 
 def identity_allowed(key: str, english: str, locale: str, metadata: dict) -> bool:
     record = metadata.get(key, {})
+    rule = record.get("identityLocales", {}).get(locale)
     return omission(key, english, metadata) or (
         record.get("source") == english
-        and isinstance(record.get("identityLocales", {}).get(locale), str)
-        and bool(record.get("identityLocales", {}).get(locale))
+        and ((isinstance(rule, str) and bool(rule)) or (isinstance(rule, dict) and bool(rule.get("reason"))))
     )
 
 
@@ -258,6 +258,7 @@ def validate_localization(english: str, localization: dict, locale: str, allow_i
                           source_localization: dict | None = None,
                           allowed_identity_values: set[str] | None = None) -> list[str]:
     errors = []
+    review_values = set()
     expected = signature(english)
     expected_arguments = {argument: specifier for argument, specifier in expected if argument}
     source_values = {canonical_text(english)}
@@ -276,8 +277,10 @@ def validate_localization(english: str, localization: dict, locale: str, allow_i
 
     def validate_unit(location, unit):
         value = unit.get("value")
-        if unit.get("state") != "translated":
+        if unit.get("state") not in {"translated", "needs_review"}:
             errors.append(f"{location}: state is {unit.get('state')!r}")
+        if unit.get("state") == "needs_review" and isinstance(value, str):
+            review_values.add(canonical_text(value))
         if not isinstance(value, str) or not value.strip():
             errors.append(f"{location}: empty value")
             return None
@@ -294,7 +297,7 @@ def validate_localization(english: str, localization: dict, locale: str, allow_i
         # the parent supplies translated words. Text-bearing leaves may not copy English.
         if numeric_leaf and not FORMAT.sub("", value).strip():
             return
-        if canonical_text(value) in (allowed_identity_values or set()):
+        if canonical_text(value) in (allowed_identity_values or set()) or canonical_text(value) in review_values:
             return
         if canonical_text(value) in source_values:
             errors.append(f"{location}: identical to English; translate or document an invariant literal")
@@ -356,6 +359,8 @@ def validate_localization(english: str, localization: dict, locale: str, allow_i
 def check_entry(entry: Member, locale: str, omissions: dict, counts: dict) -> list[str]:
     english = source(entry.value)
     allowed = omission(entry.key, english, omissions)
+    if omissions.get(entry.key, {}).get("class") == "pending" and omissions.get(entry.key, {}).get("source") == english:
+        return []
     localization = entry.value.get("localizations", {}).get(locale)
     if localization is None:
         return [] if allowed and locale not in {"en", "ja"} else ["missing locale entry"]
