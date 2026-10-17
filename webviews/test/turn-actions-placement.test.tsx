@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { configureTurnActionsPlacement, turnActionsPlacementSnapshot } from "../src/agent-session/acpmux/turnActionsPlacement";
+import {
+  configureTurnActionsPlacement,
+  turnActionsPlacementSnapshot,
+} from "../src/agent-session/acpmux/turnActionsPlacement";
 
 test("turn footer placement defaults right and only accepts the left opt-in", () => {
   configureTurnActionsPlacement(undefined);
