@@ -29,7 +29,11 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         /// send request is still waiting for its follow-up read. Keep that
         /// echo for `send` so its fallback cannot return a second local row.
         var correlatedMessagesByClientID: [String: MobileChiefMessage] = [:]
-        var meID = "mobile-user"
+        // ChiefConversationOwner's canonical signed-in participant id.
+        // Keep own-message styling correct even when the newest page contains
+        // only Chief/tool output and therefore has no human row to infer it
+        // from.
+        var meID = "me"
         var pollTask: Task<Void, Never>?
         var continuation: AsyncStream<ConversationBackendEvent>.Continuation?
         var closed = false
