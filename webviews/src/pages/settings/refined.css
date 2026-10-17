@@ -3,11 +3,11 @@
   --polish-ink: var(--cmux-text, var(--agent-text, CanvasText));
   --polish-base: var(--cmux-surface-solid, var(--agent-accent-text, Canvas));
   --polish-content: light-dark(
-    color-mix(in srgb, var(--polish-base) 35%, var(--cmux-app-elevated, var(--polish-base))),
+    color-mix(in srgb, var(--polish-base) 35%, Canvas),
     color-mix(in srgb, var(--polish-ink) 4%, var(--polish-base))
   );
   --polish-raised: light-dark(
-    color-mix(in srgb, var(--polish-base) 15%, var(--cmux-app-elevated, var(--polish-base))),
+    color-mix(in srgb, var(--polish-base) 15%, Canvas),
     color-mix(in srgb, var(--polish-ink) 7%, var(--polish-base))
   );
   --polish-edge: light-dark(
