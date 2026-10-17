@@ -743,17 +743,33 @@ fn a_touch_emulating_tab_gets_touch_events_and_mouse_again_after_clear() {
     assert!(input.iter().all(|(m, _)| m == "Input.dispatchTouchEvent"), "{input:?}");
     let types: Vec<&str> = input.iter().map(|(_, p)| p["type"].as_str().unwrap()).collect();
     assert_eq!(types, ["touchStart", "touchMove", "touchEnd"], "a hover move sends nothing");
-    assert_eq!((input[0].1["touchPoints"][0]["x"].as_f64(), input[0].1["touchPoints"][0]["y"].as_f64()), (Some(5.0), Some(10.0)));
-    assert_eq!((input[1].1["touchPoints"][0]["x"].as_f64(), input[1].1["touchPoints"][0]["y"].as_f64()), (Some(6.0), Some(12.0)));
+    assert_eq!(
+        (input[0].1["touchPoints"][0]["x"].as_f64(), input[0].1["touchPoints"][0]["y"].as_f64()),
+        (Some(5.0), Some(10.0))
+    );
+    assert_eq!(
+        (input[1].1["touchPoints"][0]["x"].as_f64(), input[1].1["touchPoints"][0]["y"].as_f64()),
+        (Some(6.0), Some(12.0))
+    );
     assert_eq!(input[2].1["touchPoints"], json!([]));
 
     h.driver.set_touch_emulation(false);
     let mark = h.mark();
-    h.call("input.mouse", json!({"targetId": target, "type": "down", "x": 10, "y": 20, "button": "left"}));
-    h.call("input.mouse", json!({"targetId": target, "type": "up", "x": 10, "y": 20, "button": "left"}));
+    h.call(
+        "input.mouse",
+        json!({"targetId": target, "type": "down", "x": 10, "y": 20, "button": "left"}),
+    );
+    h.call(
+        "input.mouse",
+        json!({"targetId": target, "type": "up", "x": 10, "y": 20, "button": "left"}),
+    );
     let methods: Vec<String> =
         h.methods_since(mark).into_iter().filter(|m| m.starts_with("Input.")).collect();
-    assert_eq!(methods, ["Input.dispatchMouseEvent", "Input.dispatchMouseEvent"], "after clear: mouse again");
+    assert_eq!(
+        methods,
+        ["Input.dispatchMouseEvent", "Input.dispatchMouseEvent"],
+        "after clear: mouse again"
+    );
 }
 
 #[test]
