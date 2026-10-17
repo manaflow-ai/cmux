@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { Icon } from "./icons/Icon";
 import { type StringKey, useT } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
@@ -125,6 +125,7 @@ export function ChiefDock({
                   data-status={cardStatus}
                   data-steering={steering ? "true" : undefined}
                   data-depth={index}
+                  style={{ "--chief-depth": index } as CSSProperties}
                 >
                   <button
                     type="button"
@@ -135,6 +136,7 @@ export function ChiefDock({
                     disabled={!expanded}
                     onClick={() => onSelect(session.sessionId)}
                   >
+                    <span className="acpmux-chief-dock-dot" data-status={cardStatus} aria-hidden="true" />
                     <span className="acpmux-chief-card-copy">
                       <strong>{title}</strong>
                       <small>{session.preview || session.branch || session.cwd || t("sidebar.sessions")}</small>
