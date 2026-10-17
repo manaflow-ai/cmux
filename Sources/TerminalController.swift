@@ -302,6 +302,9 @@ class TerminalController {
     private static let mobileViewportUncapApplyStabilityWindow: Duration = .seconds(3)
     var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]; private var mobileViewportGenerationsBySurfaceID: [UUID: [String: UInt64]] = [:]
     private var mobileTerminalPasteInFlightSurfaceIDs: Set<UUID> = []
+    /// Covers the attachment path writes that happen before chat delegates
+    /// the prompt text to `v2MobileTerminalPaste`.
+    private var mobileChatSendInFlightSurfaceIDs: Set<UUID> = []
     private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
     var mobileViewportApplyGovernorsBySurfaceID: [UUID: MobileViewportApplyGovernor] = [:]
     /// Shared-sizing hosts of local terminals (docs/shared-terminal-sizing.md).
@@ -316,6 +319,19 @@ class TerminalController {
     /// The one size panel popover, anchored at a terminal's tab.
     let terminalSizePanelPresenter = TerminalSizePanelPresenter()
     private var mobileViewportGovernorFlushTasksBySurfaceID: [UUID: Task<Void, Never>] = [:]
+
+    /// Reserves a terminal for the whole chat send, including attachment
+    /// writes that happen before `v2MobileTerminalPaste` takes its own guard.
+    func beginMobileChatSend(surfaceID: UUID) -> Bool {
+        guard !mobileTerminalPasteInFlightSurfaceIDs.contains(surfaceID) else {
+            return false
+        }
+        return mobileChatSendInFlightSurfaceIDs.insert(surfaceID).inserted
+    }
+
+    func endMobileChatSend(surfaceID: UUID) {
+        mobileChatSendInFlightSurfaceIDs.remove(surfaceID)
+    }
 #if DEBUG
     private nonisolated static let socketCommandDebugLogEnvironmentKey = "CMUX_DEBUG_SOCKET_COMMAND_LOG"
     private nonisolated static let socketCommandSlowThresholdMs: Double = 500
@@ -16579,7 +16595,10 @@ class TerminalController {
     /// Mac and inject the shell-escaped path as terminal input, exactly the way a
     /// local clipboard-image paste does, so the running TUI (e.g. Claude Code)
     /// attaches the image from the path.
-    func v2MobileTerminalPasteImage(params: [String: Any]) -> V2CallResult {
+    func v2MobileTerminalPasteImage(
+        params: [String: Any],
+        allowChatSendOwner: Bool = false
+    ) -> V2CallResult {
         guard let base64 = v2RawString(params, "image_base64"),
               let imageData = Data(base64Encoded: base64), !imageData.isEmpty else {
             return .err(code: "invalid_params", message: "Missing or invalid image_base64", data: nil)
@@ -16597,6 +16616,9 @@ class TerminalController {
         let surfaceId = resolved.surfaceID
         let terminalTarget = resolved.target
         let terminalPanel = terminalTarget.panel
+        if !allowChatSendOwner, mobileChatSendInFlightSurfaceIDs.contains(surfaceId) {
+            return .err(code: "busy", message: "A prompt is already being submitted to this terminal", data: nil)
+        }
         let delivery = mobileInputDelivery(params: params)
         if let answer = mobileInputAdmissionAnswer(delivery, workspaceID: resolved.workspace.id, surfaceID: surfaceId) {
             return answer
@@ -16654,7 +16676,10 @@ class TerminalController {
     ///
     /// `submit_key` is optional: `return`/`enter` (default) or `ctrl+enter`
     /// submit; `none` pastes without submitting so the composer can keep editing.
-    func v2MobileTerminalPaste(params: [String: Any]) async -> V2CallResult {
+    func v2MobileTerminalPaste(
+        params: [String: Any],
+        allowChatSendOwner: Bool = false
+    ) async -> V2CallResult {
         guard let text = v2RawString(params, "text"), !text.isEmpty else {
             return .err(code: "invalid_params", message: "Missing text", data: nil)
         }
@@ -16694,6 +16719,9 @@ class TerminalController {
             return answer
         }
 
+        if !allowChatSendOwner, mobileChatSendInFlightSurfaceIDs.contains(surfaceId) {
+            return .err(code: "busy", message: "A prompt is already being submitted to this terminal", data: nil)
+        }
         guard mobileTerminalPasteInFlightSurfaceIDs.insert(surfaceId).inserted else {
             return .err(code: "busy", message: "A prompt is already being submitted to this terminal", data: nil)
         }
@@ -16761,6 +16789,7 @@ class TerminalController {
                     "workspace_id": resolved.workspace.id.uuidString,
                     "surface_id": surfaceId.uuidString,
                     "submitted": false,
+                    "text_accepted": true,
                     "submit_error": "cancelled",
                 ])
             }
@@ -16773,6 +16802,7 @@ class TerminalController {
                     "workspace_id": resolved.workspace.id.uuidString,
                     "surface_id": surfaceId.uuidString,
                     "submitted": false,
+                    "text_accepted": true,
                     "submit_error": "surface_changed",
                 ])
             }
@@ -16813,6 +16843,7 @@ class TerminalController {
             "workspace_id": resolved.workspace.id.uuidString,
             "surface_id": terminalPanel.id.uuidString,
             "delivery": textResult == .sent ? "delivered" : "queued",
+            "text_accepted": true,
             "submitted": submitted,
         ]
         if let submitError {

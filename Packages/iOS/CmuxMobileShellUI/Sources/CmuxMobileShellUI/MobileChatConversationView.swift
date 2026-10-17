@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxMobileShellModel
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -14,12 +15,24 @@ struct MobileChatConversationView: View {
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var pendingAttachments: [MobileChatComposerAttachment] = []
     @State private var isLoadingAttachment = false
+    @State private var attachmentErrorMessage: String?
+    @State private var photoLoadGeneration = UUID()
     @FocusState private var composerFocused: Bool
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
+                    if let errorMessage = model.errorMessage {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .accessibilityLabel("Chat error: \(errorMessage)")
+                            .accessibilityIdentifier("MobileChatError")
+                    }
                     if let session {
                         MobileChatConversationContext(
                             provider: provider,
@@ -57,9 +70,16 @@ struct MobileChatConversationView: View {
                             .padding(.top, 28)
                     }
                     ForEach(model.messages(for: sessionID)) { message in
-                        MobileChatMessageRow(message: message) { optionIndex in
-                            Task { await model.answer(optionIndex: optionIndex, in: sessionID) }
-                        }
+                        MobileChatMessageRow(
+                            message: message,
+                            feedback: model.feedback(for: sessionID, messageID: message.id),
+                            onFeedback: { value in
+                                model.toggleFeedback(for: sessionID, messageID: message.id, value: value)
+                            },
+                            onAnswer: { optionIndex in
+                                Task { await model.answer(optionIndex: optionIndex, in: sessionID) }
+                            }
+                        )
                         .id(message.id)
                     }
                     if model.messages(for: sessionID).isEmpty,
@@ -91,6 +111,9 @@ struct MobileChatConversationView: View {
                 selectedPhotos: $selectedPhotos,
                 attachments: pendingAttachments,
                 isLoadingAttachment: isLoadingAttachment,
+                isLoadingConversation: model.loadingSessionIDs.contains(sessionID),
+                isSendBlocked: model.isSendBlocked(for: sessionID),
+                attachmentErrorMessage: attachmentErrorMessage,
                 onSend: send,
                 onRemoveAttachment: removeAttachment,
                 onStop: {
@@ -139,9 +162,12 @@ struct MobileChatConversationView: View {
         }
         .onChange(of: selectedPhotos) { _, items in
             guard !items.isEmpty else { return }
-            Task { await loadPhotos(items) }
+            let generation = UUID()
+            photoLoadGeneration = generation
+            Task { await loadPhotos(items, generation: generation) }
         }
         .onDisappear {
+            photoLoadGeneration = UUID()
             model.close(sessionID: sessionID)
         }
     }
@@ -171,49 +197,85 @@ struct MobileChatConversationView: View {
     private func send() {
         let text = composerText
         let attachments = pendingAttachments
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else {
+        guard !isLoadingAttachment,
+              !model.loadingSessionIDs.contains(sessionID),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else {
             return
         }
         composerText = ""
         pendingAttachments.removeAll()
         composerFocused = false
         Task { @MainActor in
-            let didSend = await model.send(
+            let result = await model.send(
                 text,
                 attachments: attachments.map(\.outbound),
                 to: sessionID
             )
-            if !didSend {
+            if case .failed = result {
                 pendingAttachments.insert(contentsOf: attachments, at: 0)
                 composerText = text
             }
         }
     }
 
-    private func loadPhotos(_ items: [PhotosPickerItem]) async {
+    @MainActor
+    private func loadPhotos(_ items: [PhotosPickerItem], generation: UUID) async {
+        let attachmentPolicy = MobileChatAttachmentPolicy()
+        guard photoLoadGeneration == generation else { return }
         isLoadingAttachment = true
+        attachmentErrorMessage = nil
         defer {
-            selectedPhotos = []
-            isLoadingAttachment = false
+            if photoLoadGeneration == generation {
+                selectedPhotos = []
+                isLoadingAttachment = false
+            }
         }
         for item in items {
-            guard let data = try? await item.loadTransferable(type: Data.self),
-                  let image = UIImage(data: data) else { continue }
-            if let jpeg = image.jpegData(compressionQuality: 0.86) {
-                pendingAttachments.append(
-                    MobileChatComposerAttachment(
-                        image: image,
-                        outbound: ChatOutboundAttachment(data: jpeg, format: .jpeg)
-                    )
-                )
-            } else if let png = image.pngData() {
-                pendingAttachments.append(
-                    MobileChatComposerAttachment(
-                        image: image,
-                        outbound: ChatOutboundAttachment(data: png, format: .png)
-                    )
-                )
+            guard !Task.isCancelled, photoLoadGeneration == generation else { return }
+            guard pendingAttachments.count < attachmentPolicy.maximumCount else {
+                attachmentErrorMessage = "You can attach up to 4 photos."
+                break
             }
+            let imported: ImportedPhotoLibraryFile?
+            do {
+                imported = try await ImportedPhotoLibraryFile.load(item)
+            } catch {
+                imported = nil
+            }
+            guard !Task.isCancelled, photoLoadGeneration == generation else { return }
+            guard let imported else {
+                attachmentErrorMessage = "That photo couldn’t be loaded."
+                continue
+            }
+            let sourceURL = imported.url
+            defer { try? FileManager.default.removeItem(at: sourceURL) }
+            guard imported.kind == .image else {
+                attachmentErrorMessage = "That photo couldn’t be loaded."
+                continue
+            }
+            guard let sourceBytes = try? sourceURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+                  sourceBytes <= MobileImageAttachmentPreparer.maximumRawInputBytes else {
+                attachmentErrorMessage = "That photo is too large to attach."
+                continue
+            }
+            guard let prepared = await MobileImageAttachmentPreparer().prepare(url: sourceURL),
+                  let image = UIImage(data: prepared.thumbnailData ?? prepared.data) else {
+                attachmentErrorMessage = "That photo couldn’t be prepared for sending."
+                continue
+            }
+            guard !Task.isCancelled, photoLoadGeneration == generation else { return }
+            let format: ChatOutboundAttachment.Format = prepared.format == "png" ? .png : .jpeg
+            let currentBytes = pendingAttachments.reduce(0) { $0 + $1.outbound.data.count }
+            guard currentBytes + prepared.data.count <= attachmentPolicy.maximumTotalBytes else {
+                attachmentErrorMessage = "Photos must fit within a 4 MB total attachment limit."
+                continue
+            }
+            pendingAttachments.append(
+                MobileChatComposerAttachment(
+                    image: image,
+                    outbound: ChatOutboundAttachment(data: prepared.data, format: format)
+                )
+            )
         }
     }
 
@@ -230,12 +292,21 @@ private struct MobileChatComposer: View {
     @Binding var selectedPhotos: [PhotosPickerItem]
     let attachments: [MobileChatComposerAttachment]
     let isLoadingAttachment: Bool
+    let isLoadingConversation: Bool
+    let isSendBlocked: Bool
+    let attachmentErrorMessage: String?
     let onSend: () -> Void
     let onRemoveAttachment: (MobileChatComposerAttachment) -> Void
     let onStop: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if let attachmentErrorMessage {
+                Label(attachmentErrorMessage, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier("MobileChatAttachmentError")
+            }
             if isLoadingAttachment || !attachments.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -259,7 +330,7 @@ private struct MobileChatComposer: View {
                 Menu {
                     PhotosPicker(
                         selection: $selectedPhotos,
-                        maxSelectionCount: 4,
+                        maxSelectionCount: MobileChatAttachmentPolicy().maximumCount,
                         matching: .images,
                         photoLibrary: .shared()
                     ) {
@@ -284,6 +355,7 @@ private struct MobileChatComposer: View {
                     .frame(minHeight: 30)
                     .accessibilityLabel("Message \(providerTitle)")
                     .accessibilityIdentifier("MobileChatComposer")
+                    .disabled(isSendBlocked || isLoadingConversation)
                 if isWorking {
                     Button(action: onStop) {
                         Image(systemName: "stop.fill")
@@ -303,8 +375,12 @@ private struct MobileChatComposer: View {
                             .background(Color.accentColor, in: Circle())
                     }
                     .disabled(
-                        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        isSendBlocked
+                            || isLoadingConversation
+                            || isLoadingAttachment
+                            || (text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             && attachments.isEmpty
+                            )
                     )
                     .accessibilityLabel("Send message")
                     .accessibilityIdentifier("MobileChatSend")

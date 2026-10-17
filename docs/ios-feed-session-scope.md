@@ -2,6 +2,11 @@
 
 This is the living scope record for the Feed work continued in this session. It includes the existing feature carried forward, subsequent user requests, implementation decisions, evidence, and unfinished work. Code being present does not mean the feature has passed a real phone check.
 
+> Historical note (2026-10-17): The AgentFeed implementation and tests named
+> below were retired when the native Chat surface replaced Feed. This document
+> remains a record of the earlier Feed scope and evidence; links to those old
+> paths are historical references and may not exist in the current checkout.
+
 - Updated: 2026-09-24. Markdown and multi-question handling are implemented; final visual and device verification are recorded separately below.
 - Branch: `task-ios-feed-tab`.
 - Initial feature inventory snapshot: `c8ec337d105`. Later changes are recorded below.

@@ -1,6 +1,7 @@
 public import CMUXMobileCore
 public import CmuxAgentChat
 public import CmuxMobileRPC
+import CmuxMobileShellModel
 public import Foundation
 
 private let mobileChatStreamCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000
@@ -15,6 +16,24 @@ private actor MobileArtifactDownloadByteCounter {
     var value: Int {
         storedValue
     }
+}
+
+/// The host can accept a bracketed paste while failing the following Return
+/// keypress. Callers need to distinguish that partial outcome from a request
+/// that never reached the terminal so they do not paste the same prompt twice.
+public enum MobileChatSendOutcome: Sendable, Equatable {
+    /// The host accepted both the prompt and its submit key.
+    case submitted
+    /// Some part of the request was accepted into the agent's input, but the
+    /// final submit key was not. The existing terminal input must not be
+    /// retried blindly. `textAccepted` distinguishes a partial attachment
+    /// send from a prompt that is waiting for Return.
+    case acceptedButNotSubmitted(reason: String?, textAccepted: Bool)
+}
+
+private enum MobileChatSendError: Error {
+    case acceptedButNotSubmitted(reason: String?)
+    case requestTooLarge
 }
 
 /// The iOS implementation of ``CmuxAgentChat/ChatEventSource``: adapts the
@@ -267,7 +286,22 @@ public actor MobileChatEventSource: ChatEventSource {
         return stream
     }
 
-    public func send(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {
+    /// Sends a prompt and reports whether the host's final submit key was
+    /// accepted. A `false` submit acknowledgement is a partial success: the
+    /// prompt is already in the terminal input and must not be retried as a
+    /// fresh paste.
+    public func sendWithOutcome(
+        text: String,
+        attachments: [ChatOutboundAttachment],
+        sessionID: String
+    ) async throws -> MobileChatSendOutcome {
+        let attachmentBytes = attachments.reduce(0) { $0 + $1.data.count }
+        let attachmentPolicy = MobileChatAttachmentPolicy()
+        guard text.utf8.count <= attachmentPolicy.maximumTextBytes,
+              attachments.count <= attachmentPolicy.maximumCount,
+              attachmentBytes <= attachmentPolicy.maximumTotalBytes else {
+            throw MobileChatSendError.requestTooLarge
+        }
         var params: [String: Any] = [
             "session_id": sessionID,
             "text": text,
@@ -281,7 +315,39 @@ public actor MobileChatEventSource: ChatEventSource {
             }
         }
         let request = try MobileCoreRPCClient.requestData(method: "mobile.chat.send", params: params)
-        _ = try await client.sendRequest(request)
+        let result = try await client.sendRequest(request)
+        let response: MobileTerminalPasteResponse
+        do {
+            response = try MobileTerminalPasteResponse.decode(result)
+        } catch {
+            // The request has already crossed the transport boundary. A
+            // malformed or unexpectedly empty response cannot prove that the
+            // host rejected the paste, so keep it on the ambiguous-send path
+            // instead of restoring a draft that could be pasted twice.
+            throw MobileShellConnectionError.invalidResponse
+        }
+        guard response.submitted else {
+            // Current hosts report this explicitly. Older hosts only returned
+            // `submitted`; a successful response for a non-empty prompt still
+            // proves that the prompt text was accepted before Return failed.
+            let textAccepted = response.textAccepted ?? (!text.isEmpty)
+            return .acceptedButNotSubmitted(
+                reason: response.submitError,
+                textAccepted: textAccepted
+            )
+        }
+        return .submitted
+    }
+
+    public func send(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {
+        let outcome = try await sendWithOutcome(
+            text: text,
+            attachments: attachments,
+            sessionID: sessionID
+        )
+        if case .acceptedButNotSubmitted(let reason, _) = outcome {
+            throw MobileChatSendError.acceptedButNotSubmitted(reason: reason)
+        }
     }
 
     public func interrupt(sessionID: String, hard: Bool) async throws {

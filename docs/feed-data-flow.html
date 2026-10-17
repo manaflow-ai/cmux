@@ -12,6 +12,7 @@
 <body><main>
 <header><div class="label">Implementation walkthrough · 24 September 2026</div>
 <h1>Where Feed data comes from, and where it lives</h1>
+<p class="meta"><strong>Historical note (17 October 2026):</strong> The AgentFeed implementation traced here was retired when the native Chat surface replaced Feed. This page remains an archival walkthrough of the earlier design; some linked AgentFeed source paths may no longer exist in the current checkout.</p>
 <p>Feed is a view of agent activity recorded by the Mac. The phone fetches and combines that activity from its connected Macs. Notifications are also a Feed input. The Notifications tab keeps its own read and dismissal surface, while Feed projects the same durable notification records alongside agent activity.</p>
 <p class="meta">Code traced at <code>32a5891c772eeb3b3ce2db75dc8747be95ae84ed</code> on <code>task-ios-feed-tab</code>. This maps the current feature branch. Its latest UI checks passed; newer main still needs reconciliation. <a href="https://github.com/manaflow-ai/cmux/pull/10218">PR 10218</a>, author: Abdulaziz Albahar.</p>
 <nav aria-label="Contents"><a href="#answers">Direct answers</a><a href="#flow">Follow an event</a><a href="#storage">Persistence</a><a href="#lifecycle">Offline and restart</a><a href="#shipping">Shipping decisions</a><a href="#evidence">Evidence</a></nav></header>

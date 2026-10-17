@@ -36,14 +36,25 @@ public struct MobileTerminalInputResponse: Decodable, Sendable {
 /// prompt.
 public struct MobileTerminalPasteResponse: Decodable, Sendable {
     public let submitted: Bool
+    /// Whether the prompt text reached the terminal input. Older hosts omit
+    /// this field; callers infer it from the request shape when needed.
+    public let textAccepted: Bool?
+    /// A short host-side reason when the paste was accepted but its submit key
+    /// was not. The text is intentionally optional because older hosts only
+    /// reported the boolean.
+    public let submitError: String?
 
     private enum CodingKeys: String, CodingKey {
         case submitted
+        case textAccepted = "text_accepted"
+        case submitError = "submit_error"
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         submitted = try container.decodeIfPresent(Bool.self, forKey: .submitted) ?? false
+        textAccepted = try container.decodeIfPresent(Bool.self, forKey: .textAccepted)
+        submitError = try container.decodeIfPresent(String.self, forKey: .submitError)
     }
 
     public static func decode(_ data: Data) throws -> MobileTerminalPasteResponse {

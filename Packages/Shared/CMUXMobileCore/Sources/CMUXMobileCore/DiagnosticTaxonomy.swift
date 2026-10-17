@@ -881,7 +881,10 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     /// how much of restore the dial overlapped.
     case storedMacReconnectStartedDuringAuthRestore = 667
 
-    // MARK: Appended agent Feed events
+    // MARK: Historical Agent Feed events
+    // These values remain in the append-only vocabulary so diagnostic logs
+    // written by older Feed builds continue to decode. The native Chat
+    // surface no longer emits them.
     /// The Feed became visible. `c` is the visible item count.
     case agentFeedOpened = 668
     case agentFeedClosed = 669

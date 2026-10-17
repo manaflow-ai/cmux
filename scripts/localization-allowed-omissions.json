@@ -4911,19 +4911,6 @@
       "zh-Hant": "Format-only string; the placeholders and separator are invariant."
     }
   },
-  "mobile.agentFeed.filter": {
-    "source": "Filter",
-    "identityLocales": {
-      "de": "Filter has the same spelling in this locale; a translated entry is still required."
-    }
-  },
-  "mobile.agentFeed.title": {
-    "source": "Feed",
-    "identityLocales": {
-      "de": "Feed is the established product term in this locale; a translated entry is still required.",
-      "es": "Feed is the established product term in this locale; a translated entry is still required."
-    }
-  },
   "mobile.tabs.feed": {
     "source": "Feed",
     "identityLocales": {
@@ -4970,12 +4957,6 @@
       "es": "Format-only string; the placeholders and separator are invariant.",
       "fr": "Format-only string; the placeholders and separator are invariant.",
       "ko": "Format-only string; the placeholders and separator are invariant."
-    }
-  },
-  "mobile.agentFeed.question.pageLabel": {
-    "source": "Question %lld",
-    "identityLocales": {
-      "fr": "Question has the same spelling in this locale; the placeholder is invariant."
     }
   },
   "globalSearch.agent.claude": {

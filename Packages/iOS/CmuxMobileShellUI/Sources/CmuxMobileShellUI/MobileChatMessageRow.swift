@@ -5,12 +5,19 @@ import UIKit
 /// Renders one typed transcript item as a native message, tool, or action card.
 struct MobileChatMessageRow: View {
     let message: ChatMessage
+    let feedback: MobileChatFeedback?
+    let onFeedback: (MobileChatFeedback) -> Void
     let onAnswer: (Int) -> Void
 
     var body: some View {
         switch message.kind {
         case .prose(let prose):
-            MobileChatProseRow(role: message.role, text: prose.text)
+            MobileChatProseRow(
+                role: message.role,
+                text: prose.text,
+                feedback: feedback,
+                onFeedback: onFeedback
+            )
         case .thought(let thought):
             MobileChatThoughtRow(text: thought.text)
         case .toolUse(let tool):
@@ -36,7 +43,8 @@ struct MobileChatMessageRow: View {
 private struct MobileChatProseRow: View {
     let role: ChatRole
     let text: String
-    @State private var feedback: MobileChatFeedback?
+    let feedback: MobileChatFeedback?
+    let onFeedback: (MobileChatFeedback) -> Void
 
     var body: some View {
         VStack(alignment: role == .user ? .trailing : .leading, spacing: 7) {
@@ -67,20 +75,22 @@ private struct MobileChatProseRow: View {
                 HStack(spacing: 14) {
                     MobileChatCopyButton(text: text)
                     Button {
-                        feedback = feedback == .positive ? nil : .positive
+                        onFeedback(.positive)
                     } label: {
                         Image(systemName: feedback == .positive ? "hand.thumbsup.fill" : "hand.thumbsup")
                     }
                     .foregroundStyle(feedback == .positive ? Color.accentColor : .secondary)
+                    .frame(minWidth: 44, minHeight: 44)
                     .accessibilityLabel("Good response")
                     .accessibilityValue(feedback == .positive ? "Selected" : "")
                     .accessibilityIdentifier("MobileChatThumbsUp")
                     Button {
-                        feedback = feedback == .negative ? nil : .negative
+                        onFeedback(.negative)
                     } label: {
                         Image(systemName: feedback == .negative ? "hand.thumbsdown.fill" : "hand.thumbsdown")
                     }
                     .foregroundStyle(feedback == .negative ? Color.accentColor : .secondary)
+                    .frame(minWidth: 44, minHeight: 44)
                     .accessibilityLabel("Needs improvement")
                     .accessibilityValue(feedback == .negative ? "Selected" : "")
                     .accessibilityIdentifier("MobileChatThumbsDown")
@@ -88,14 +98,9 @@ private struct MobileChatProseRow: View {
                 .font(.caption)
             }
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier(role == .user ? "MobileChatUserMessage" : "MobileChatAgentMessage")
     }
-}
-
-private enum MobileChatFeedback {
-    case positive
-    case negative
 }
 
 private struct MobileChatMarkdownText: View {
@@ -126,6 +131,7 @@ private struct MobileChatCopyButton: View {
         } label: {
             Image(systemName: "doc.on.doc")
         }
+        .frame(minWidth: 44, minHeight: 44)
         .accessibilityLabel("Copy response")
     }
 }

@@ -1,7 +1,23 @@
 import CmuxAgentChat
+import CmuxMobileRPC
 import CmuxMobileShell
 import Foundation
 import Observation
+
+enum MobileChatSendResult: Equatable, Sendable {
+    case submitted
+    case acceptedButNotSubmitted(reason: String?, textAccepted: Bool)
+    /// The request may have reached the Mac, but no authoritative response
+    /// arrived. Do not put the draft back in the composer: retrying a
+    /// non-idempotent send could paste the prompt or attachments twice.
+    case uncertain
+    case failed
+}
+
+enum MobileChatFeedback: String, Equatable, Sendable {
+    case positive
+    case negative
+}
 
 /// Main-actor state and transport coordinator for the native Chat surface.
 @MainActor
@@ -25,13 +41,18 @@ final class MobileChatHomeModel {
     private var openSessionIDs: Set<String> = []
     private var pendingLocalMessages: [String: [ChatMessage]] = [:]
     private var bufferedEventsBySessionID: [String: [ChatSessionEvent]] = [:]
+    private var partialSendBlockedSessionIDs: Set<String> = []
+    private var partialSendMinimumSeqBySessionID: [String: Int] = [:]
     private var hydratingSessionIDs: Set<String> = []
     private var resettingSessionIDs: Set<String> = []
     private var resetTokensBySessionID: [String: UUID] = [:]
     private var sessionListStreamActive = false
     private var sessionVersions: [String: Int] = [:]
     private var removedSessionVersions: [String: Int] = [:]
+    private var feedbackByKey: [String: MobileChatFeedback] = [:]
     private var refreshGeneration = UUID()
+
+    private static let feedbackDefaultsPrefix = "cmux.mobile.chat.feedback.v1."
 
     isolated deinit {
         sessionEventsTask?.cancel()
@@ -50,6 +71,8 @@ final class MobileChatHomeModel {
             messagesBySessionID.removeAll()
             streamingMessageBySessionID.removeAll()
             pendingLocalMessages.removeAll()
+            partialSendBlockedSessionIDs.removeAll()
+            partialSendMinimumSeqBySessionID.removeAll()
             hasMoreHistoryBySessionID.removeAll()
             loadingSessionIDs.removeAll()
             loadingOlderHistorySessionIDs.removeAll()
@@ -82,6 +105,8 @@ final class MobileChatHomeModel {
             messagesBySessionID.removeAll()
             streamingMessageBySessionID.removeAll()
             pendingLocalMessages.removeAll()
+            partialSendBlockedSessionIDs.removeAll()
+            partialSendMinimumSeqBySessionID.removeAll()
             hasMoreHistoryBySessionID.removeAll()
             bufferedEventsBySessionID.removeAll()
             hydratingSessionIDs.removeAll()
@@ -247,6 +272,10 @@ final class MobileChatHomeModel {
         historyTasks[sessionID]?.cancel()
         historyTasks[sessionID] = nil
         bufferedEventsBySessionID[sessionID] = nil
+        let optimisticIDs = Set(pendingLocalMessages[sessionID, default: []].map(\.id))
+        messagesBySessionID[sessionID]?.removeAll { optimisticIDs.contains($0.id) }
+        pendingLocalMessages[sessionID] = nil
+        clearPartialSendBlock(for: sessionID)
         hydratingSessionIDs.remove(sessionID)
         resettingSessionIDs.remove(sessionID)
         resetTokensBySessionID[sessionID] = nil
@@ -323,6 +352,46 @@ final class MobileChatHomeModel {
         loadingOlderHistorySessionIDs.contains(sessionID)
     }
 
+    /// A prompt that reached the terminal but is waiting for Return must be
+    /// resolved on the Mac before another phone send can safely clear it.
+    func isSendBlocked(for sessionID: String) -> Bool {
+        partialSendBlockedSessionIDs.contains(sessionID)
+    }
+
+    /// Returns the locally persisted rating for one assistant response.
+    func feedback(for sessionID: String, messageID: String) -> MobileChatFeedback? {
+        let key = Self.feedbackKey(sessionID: sessionID, messageID: messageID)
+        if let feedback = feedbackByKey[key] {
+            return feedback
+        }
+        guard let rawValue = UserDefaults.standard.string(
+            forKey: key
+        ),
+        let feedback = MobileChatFeedback(rawValue: rawValue) else {
+            return nil
+        }
+        feedbackByKey[key] = feedback
+        return feedback
+    }
+
+    /// Toggles one assistant-response rating and keeps it across view and app
+    /// lifetimes. The rating is local until the host exposes a dedicated
+    /// response-feedback RPC.
+    func toggleFeedback(for sessionID: String, messageID: String, value: MobileChatFeedback) {
+        let key = Self.feedbackKey(sessionID: sessionID, messageID: messageID)
+        if feedbackByKey[key] == value {
+            feedbackByKey[key] = nil
+            UserDefaults.standard.removeObject(forKey: key)
+        } else {
+            feedbackByKey[key] = value
+            UserDefaults.standard.set(value.rawValue, forKey: key)
+        }
+    }
+
+    private static func feedbackKey(sessionID: String, messageID: String) -> String {
+        feedbackDefaultsPrefix + sessionID + "." + messageID
+    }
+
     /// Sends a prompt and any image attachments to an existing agent session.
     ///
     /// The host emits the authoritative attachment transcript rows after the
@@ -333,10 +402,14 @@ final class MobileChatHomeModel {
         _ text: String,
         attachments: [ChatOutboundAttachment] = [],
         to sessionID: String
-    ) async -> Bool {
+    ) async -> MobileChatSendResult {
+        guard !partialSendBlockedSessionIDs.contains(sessionID) else {
+            errorMessage = "Press Return on the Mac to finish the pending message before sending another one."
+            return .uncertain
+        }
         guard let currentSource = source else {
             errorMessage = "Connect a computer before sending a message."
-            return false
+            return .failed
         }
         let source = currentSource
         let generation = refreshGeneration
@@ -344,11 +417,12 @@ final class MobileChatHomeModel {
               session.state != .ended
         else {
             errorMessage = "This chat has ended. Start a new chat to continue."
-            return false
+            return .failed
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty || !attachments.isEmpty else { return false }
+        guard !trimmed.isEmpty || !attachments.isEmpty else { return .failed }
 
+        let sendBaselineSeq = messagesBySessionID[sessionID]?.map(\.seq).max() ?? -1
         let optimisticStartedAt = Date()
         let optimisticMessageID: String?
         if !trimmed.isEmpty {
@@ -376,34 +450,87 @@ final class MobileChatHomeModel {
             )
         }
         do {
-            try await source.send(text: trimmed, attachments: attachments, sessionID: sessionID)
+            let outcome = try await source.sendWithOutcome(
+                text: trimmed,
+                attachments: attachments,
+                sessionID: sessionID
+            )
+            if case .acceptedButNotSubmitted = outcome {
+                // Record this before the route/generation check as well. A
+                // refresh can race the response, but it does not make a
+                // partially written terminal input safe to retry.
+                partialSendBlockedSessionIDs.insert(sessionID)
+                partialSendMinimumSeqBySessionID[sessionID] = sendBaselineSeq
+            }
             guard !Task.isCancelled,
                   refreshGeneration == generation,
                   self.source === source,
                   openSessionIDs.contains(sessionID),
                   sessions.contains(where: { $0.id == sessionID && $0.state != .ended }) else {
-                rollbackOptimisticSend(
-                    sessionID: sessionID,
-                    messageID: optimisticMessageID,
-                    previousSession: session,
-                    startedAt: optimisticStartedAt,
-                    source: source,
-                    generation: generation
-                )
-                return false
+                // A response proves the host accepted (or rejected after
+                // accepting) this request. The route may have been refreshed
+                // while it was in flight, but restoring the draft here could
+                // paste the same prompt a second time after the host accepted
+                // it. Leave authoritative reconciliation to the next history
+                // snapshot and keep the composer cleared.
+                return Self.sendResult(for: outcome)
             }
-            errorMessage = nil
-            return true
+            switch outcome {
+            case .submitted:
+                errorMessage = nil
+                return .submitted
+            case .acceptedButNotSubmitted(let reason, let textAccepted):
+                // Any accepted-but-unsubmitted request may already have
+                // written an attachment path before the prompt or Return
+                // failed. Keep the composer locked until an authoritative
+                // user row, reset, close, or session replacement reconciles
+                // that terminal input; retrying the whole draft could paste
+                // an attachment twice.
+                partialSendBlockedSessionIDs.insert(sessionID)
+                partialSendMinimumSeqBySessionID[sessionID] = sendBaselineSeq
+                if textAccepted {
+                    // The host has already pasted the prompt into the
+                    // terminal. Keep the optimistic row so a later terminal
+                    // event can reconcile it, but never ask the composer to
+                    // paste it again.
+                    updateSession(id: sessionID) { descriptor in
+                        guard descriptor.lastActivityAt == optimisticStartedAt else { return descriptor }
+                        return descriptor.withState(
+                            session.state,
+                            lastActivityAt: session.lastActivityAt
+                        )
+                    }
+                } else {
+                    // An attachment may have reached the terminal before the
+                    // prompt itself failed. The whole draft is unsafe to
+                    // retry, so drop the optimistic text and leave the
+                    // attachment outcome to the host's transcript.
+                    removeOptimisticSend(messageID: optimisticMessageID, sessionID: sessionID)
+                    updateSession(id: sessionID) { descriptor in
+                        guard descriptor.lastActivityAt == optimisticStartedAt else { return descriptor }
+                        return descriptor.withState(
+                            session.state,
+                            lastActivityAt: session.lastActivityAt
+                        )
+                    }
+                }
+                errorMessage = Self.partialSendMessage(reason: reason, textAccepted: textAccepted)
+                return .acceptedButNotSubmitted(reason: reason, textAccepted: textAccepted)
+            }
         } catch is CancellationError {
-            rollbackOptimisticSend(
+            return uncertainSendResult(
                 sessionID: sessionID,
-                messageID: optimisticMessageID,
-                previousSession: session,
-                startedAt: optimisticStartedAt,
                 source: source,
-                generation: generation
+                generation: generation,
+                baselineSeq: sendBaselineSeq
             )
-            return false
+        } catch let error as MobileShellConnectionError where Self.isAmbiguousSendError(error) {
+            return uncertainSendResult(
+                sessionID: sessionID,
+                source: source,
+                generation: generation,
+                baselineSeq: sendBaselineSeq
+            )
         } catch {
             rollbackOptimisticSend(
                 sessionID: sessionID,
@@ -417,10 +544,84 @@ final class MobileChatHomeModel {
                   self.source === source,
                   openSessionIDs.contains(sessionID),
                   sessions.contains(where: { $0.id == sessionID && $0.state != .ended }) else {
-                return false
+                return .failed
             }
             errorMessage = "Your message could not be sent."
+            return .failed
+        }
+    }
+
+    private func uncertainSendResult(
+        sessionID: String,
+        source: MobileChatEventSource,
+        generation: UUID,
+        baselineSeq: Int
+    ) -> MobileChatSendResult {
+        if openSessionIDs.contains(sessionID) {
+            // A timeout, cancellation, or malformed transport response may
+            // arrive after the host accepted the paste. Keep the composer
+            // locked until a newer authoritative user row or an explicit
+            // session lifecycle action proves that it is safe to retry.
+            partialSendBlockedSessionIDs.insert(sessionID)
+            partialSendMinimumSeqBySessionID[sessionID] = baselineSeq
+        }
+        guard refreshGeneration == generation,
+              self.source === source,
+              openSessionIDs.contains(sessionID) else {
+            return .uncertain
+        }
+        errorMessage = "Your message may have been sent. Check the conversation before retrying."
+        return .uncertain
+    }
+
+    private static func isAmbiguousSendError(_ error: MobileShellConnectionError) -> Bool {
+        switch error {
+        case .rpcError, .authorizationFailed, .accountMismatch:
+            // The host definitely rejected these before applying the send.
             return false
+        default:
+            // A timeout, disconnect, malformed response, or local transport
+            // failure can happen after the Mac accepted input.
+            return true
+        }
+    }
+
+    private static func partialSendMessage(reason: String?, textAccepted: Bool) -> String {
+        if let detail = friendlyPartialSendReason(reason) {
+            if textAccepted {
+                return "The message is in the agent’s input, but Return was not accepted: \(detail) Press Return on the Mac to continue."
+            }
+            return "Some attachments reached the agent, but the message was not submitted: \(detail) Remove the partial input on the Mac before trying again."
+        }
+        if textAccepted {
+            return "The message is in the agent’s input, but Return was not accepted. Press Return on the Mac to continue."
+        }
+        return "Some attachments reached the agent, but the message was not submitted. Remove the partial input on the Mac before trying again."
+    }
+
+    private static func friendlyPartialSendReason(_ reason: String?) -> String? {
+        switch reason {
+        case "input_queue_full":
+            "The Mac is busy."
+        case "surface_unavailable":
+            "The terminal is unavailable."
+        case "process_exited":
+            "The terminal process exited."
+        case "surface_changed":
+            "The terminal changed before Return was pressed."
+        case "cancelled":
+            "The request was cancelled."
+        default:
+            nil
+        }
+    }
+
+    private static func sendResult(for outcome: MobileChatSendOutcome) -> MobileChatSendResult {
+        switch outcome {
+        case .submitted:
+            .submitted
+        case .acceptedButNotSubmitted(let reason, let textAccepted):
+            .acceptedButNotSubmitted(reason: reason, textAccepted: textAccepted)
         }
     }
 
@@ -536,6 +737,8 @@ final class MobileChatHomeModel {
         )
         loadingOlderHistorySessionIDs = []
         bufferedEventsBySessionID = [:]
+        partialSendBlockedSessionIDs = []
+        partialSendMinimumSeqBySessionID = [:]
         hydratingSessionIDs = []
         resettingSessionIDs = []
         resetTokensBySessionID = [:]
@@ -622,9 +825,10 @@ final class MobileChatHomeModel {
         case .appended(let messages), .updated(let messages):
             var transcript = messagesBySessionID[sessionID, default: []]
             for message in messages {
-                if let localIndex = transcript.firstIndex(where: {
+                let matchedOptimisticMessage = transcript.firstIndex(where: {
                     Self.isOptimisticMatch($0, serverMessage: message)
-                }) {
+                })
+                if let localIndex = matchedOptimisticMessage {
                     transcript.remove(at: localIndex)
                 }
                 if let index = transcript.firstIndex(where: { $0.id == message.id }) {
@@ -635,6 +839,24 @@ final class MobileChatHomeModel {
                 pendingLocalMessages[sessionID]?.removeAll {
                     Self.isOptimisticMatch($0, serverMessage: message)
                 }
+                if matchedOptimisticMessage != nil {
+                    clearPartialSendBlock(for: sessionID)
+                }
+            }
+            if partialSendBlockedSessionIDs.contains(sessionID),
+               messages.contains(where: { message in
+                   guard message.role == .user else { return false }
+                   guard let minimumSeq = partialSendMinimumSeqBySessionID[sessionID] else {
+                       return true
+                   }
+                   return message.seq > minimumSeq
+               }) {
+                // Attachment transcript rows can include normalized paths and
+                // therefore differ from the optimistic prose exactly. Only a
+                // user row newer than the send baseline proves the Mac
+                // accepted a recovery Return; delayed history must not unlock
+                // the composer and permit a duplicate paste.
+                clearPartialSendBlock(for: sessionID)
             }
             messagesBySessionID[sessionID] = transcript.sorted { $0.seq < $1.seq }
             streamingMessageBySessionID[sessionID] = nil
@@ -658,6 +880,7 @@ final class MobileChatHomeModel {
             messagesBySessionID[sessionID] = []
             streamingMessageBySessionID[sessionID] = nil
             pendingLocalMessages[sessionID] = []
+            clearPartialSendBlock(for: sessionID)
             hasMoreHistoryBySessionID[sessionID] = false
             loadingOlderHistorySessionIDs.remove(sessionID)
             guard openSessionIDs.contains(sessionID) else {
@@ -728,6 +951,7 @@ final class MobileChatHomeModel {
         messagesBySessionID[sessionID] = nil
         streamingMessageBySessionID[sessionID] = nil
         pendingLocalMessages[sessionID] = nil
+        clearPartialSendBlock(for: sessionID)
         hasMoreHistoryBySessionID[sessionID] = nil
     }
 
@@ -739,18 +963,14 @@ final class MobileChatHomeModel {
         source: MobileChatEventSource,
         generation: UUID
     ) {
-        // A completion from a superseded source may represent a request the
-        // Mac accepted just before the route was refreshed. Leave its local
-        // row for the authoritative snapshot to reconcile; session removal
-        // still clears it through removeSessionState.
-        guard refreshGeneration == generation, self.source === source else { return }
         // A failed request must not leave a prompt that never reached the Mac
         // in the transcript. If a server echo already reconciled it, the
         // optimistic row has been replaced and this removal is a no-op.
-        if let messageID {
-            messagesBySessionID[sessionID]?.removeAll { $0.id == messageID }
-            pendingLocalMessages[sessionID]?.removeAll { $0.id == messageID }
-        }
+        removeOptimisticSend(messageID: messageID, sessionID: sessionID)
+        // A completion from a superseded source may arrive after the route
+        // was refreshed. The local row is still safe to remove for a definite
+        // host rejection, but do not rewrite the newer session state.
+        guard refreshGeneration == generation, self.source === source else { return }
         updateSession(id: sessionID) { descriptor in
             guard descriptor.lastActivityAt == startedAt else { return descriptor }
             return descriptor.withState(
@@ -758,6 +978,17 @@ final class MobileChatHomeModel {
                 lastActivityAt: previousSession.lastActivityAt
             )
         }
+    }
+
+    private func removeOptimisticSend(messageID: String?, sessionID: String) {
+        guard let messageID else { return }
+        messagesBySessionID[sessionID]?.removeAll { $0.id == messageID }
+        pendingLocalMessages[sessionID]?.removeAll { $0.id == messageID }
+    }
+
+    private func clearPartialSendBlock(for sessionID: String) {
+        partialSendBlockedSessionIDs.remove(sessionID)
+        partialSendMinimumSeqBySessionID.removeValue(forKey: sessionID)
     }
 
     private static func sortedSessions(_ sessions: [ChatSessionDescriptor]) -> [ChatSessionDescriptor] {

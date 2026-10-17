@@ -11,8 +11,10 @@ struct MobileTerminalPasteResponseTests {
         #expect(submitted.submitted)
 
         let notSubmitted = try MobileTerminalPasteResponse.decode(
-            Data(#"{"submitted":false,"submit_error":"surface_unavailable"}"#.utf8)
+            Data(#"{"submitted":false,"text_accepted":true,"submit_error":"surface_unavailable"}"#.utf8)
         )
         #expect(!notSubmitted.submitted)
+        #expect(notSubmitted.textAccepted == true)
+        #expect(notSubmitted.submitError == "surface_unavailable")
     }
 }

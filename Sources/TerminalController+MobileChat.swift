@@ -277,9 +277,42 @@ extension TerminalController {
             return .err(code: "invalid_params", message: "Missing session_id", data: nil)
         }
         let text = v2RawString(params, "text") ?? ""
-        let attachments = params["attachments"] as? [[String: Any]] ?? []
+        let attachments: [[String: Any]]
+        if let rawAttachments = params["attachments"] {
+            guard let parsedAttachments = rawAttachments as? [[String: Any]] else {
+                return .err(code: "invalid_params", message: "Attachments must be an array", data: nil)
+            }
+            attachments = parsedAttachments
+        } else {
+            attachments = []
+        }
         guard !text.isEmpty || !attachments.isEmpty else {
             return .err(code: "invalid_params", message: "Nothing to send", data: nil)
+        }
+        // Keep the host-side request budget in sync with the iOS client. The
+        // RPC handler must reject oversized or malformed payloads before it
+        // clears the existing terminal prompt or writes any attachment path;
+        // otherwise an old client could bypass the client-side limit and a
+        // retry could duplicate partially accepted input.
+        let maximumAttachmentCount = 4
+        let maximumAttachmentBytes = 4 * 1024 * 1024
+        let maximumTextBytes = 2 * 1024 * 1024
+        guard text.utf8.count <= maximumTextBytes else {
+            return .err(code: "invalid_params", message: "Chat text is too large", data: nil)
+        }
+        guard attachments.count <= maximumAttachmentCount else {
+            return .err(code: "invalid_params", message: "Too many chat attachments", data: nil)
+        }
+        var attachmentBytes = 0
+        for attachment in attachments {
+            guard let base64 = attachment["data_b64"] as? String,
+                  let decoded = Data(base64Encoded: base64) else {
+                return .err(code: "invalid_params", message: "Attachment has invalid image data", data: nil)
+            }
+            attachmentBytes += decoded.count
+            guard attachmentBytes <= maximumAttachmentBytes else {
+                return .err(code: "invalid_params", message: "Chat attachments are too large", data: nil)
+            }
         }
         guard let terminalParams = await mobileChatTerminalParams(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
@@ -291,20 +324,64 @@ extension TerminalController {
                 "session_id": sessionID
             ])
         }
+        let terminalPanel = terminalTarget.panel
+        guard beginMobileChatSend(surfaceID: terminalPanel.id) else {
+            return .err(
+                code: "busy",
+                message: "A prompt is already being submitted to this terminal",
+                data: nil
+            )
+        }
+        defer { endMobileChatSend(surfaceID: terminalPanel.id) }
         let clearResult = clearAgentPrompt(terminalTarget)
         guard clearResult.accepted else {
             return mobileChatInputError(clearResult)
         }
+
+        // Attachments are pasted one path at a time because each image is
+        // materialized into the Mac's temporary pasteboard directory. If a
+        // later path, separator, or the prompt itself is rejected, returning
+        // an RPC error would make the phone restore and retry the whole draft,
+        // duplicating every path that already reached the terminal. Once one
+        // path is accepted, convert later write failures into a successful
+        // partial acknowledgement instead.
+        var acceptedAttachmentCount = 0
+        func partialAttachmentResult(
+            code: String,
+            message: String
+        ) -> V2CallResult {
+            guard acceptedAttachmentCount > 0 else {
+                return .err(code: code, message: message, data: nil)
+            }
+            return .ok([
+                "workspace_id": terminalParams["workspace_id"] as? String ?? "",
+                "surface_id": terminalPanel.id.uuidString,
+                "submitted": false,
+                "text_accepted": false,
+                "accepted_attachments": acceptedAttachmentCount,
+                "submit_error": code,
+            ])
+        }
+
         for (index, attachment) in attachments.enumerated() {
             guard let base64 = attachment["data_b64"] as? String else {
-                return .err(code: "invalid_params", message: "Attachment missing data_b64", data: nil)
+                return partialAttachmentResult(
+                    code: "invalid_params",
+                    message: "Attachment missing data_b64"
+                )
             }
             var imageParams = terminalParams
             imageParams["image_base64"] = base64
             imageParams["image_format"] = (attachment["format"] as? String) ?? "png"
-            let result = v2MobileTerminalPasteImage(params: imageParams)
-            if case .err = result {
-                return result
+            let result = v2MobileTerminalPasteImage(
+                params: imageParams,
+                allowChatSendOwner: true
+            )
+            switch result {
+            case .ok:
+                acceptedAttachmentCount += 1
+            case .err(let code, let message, _):
+                return partialAttachmentResult(code: code, message: message)
             }
             // Separate each pasted path from the next path or the prompt
             // (the local Mac paste joins with spaces too) so the agent
@@ -314,20 +391,30 @@ extension TerminalController {
             let needsSeparator = index < attachments.count - 1 || !text.isEmpty
             if needsSeparator {
                 guard let currentTarget = mobileCanonicalTerminalTarget(params: terminalParams)?.target else {
-                    return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
-                        "session_id": sessionID
-                    ])
+                    return partialAttachmentResult(
+                        code: "not_found",
+                        message: Self.chatTerminalBindingErrorMessage
+                    )
                 }
                 let separatorResult = currentTarget.sendInputResult(" ")
                 switch separatorResult {
                 case .sent, .queued:
                     break
                 case .inputQueueFull:
-                    return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: nil)
+                    return partialAttachmentResult(
+                        code: "input_queue_full",
+                        message: Self.terminalInputQueueFullMessage
+                    )
                 case .surfaceUnavailable:
-                    return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: nil)
+                    return partialAttachmentResult(
+                        code: "surface_unavailable",
+                        message: Self.terminalSurfaceUnavailableMessage
+                    )
                 case .processExited:
-                    return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: nil)
+                    return partialAttachmentResult(
+                        code: "process_exited",
+                        message: Self.terminalProcessExitedMessage
+                    )
                 }
             }
         }
@@ -336,16 +423,32 @@ extension TerminalController {
             // agent's prompt; submit it so the send actually reaches the
             // agent instead of idling in the line editor.
             guard let currentTarget = mobileCanonicalTerminalTarget(params: terminalParams)?.target else {
-                return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
-                    "session_id": sessionID
-                ])
+                return partialAttachmentResult(
+                    code: "not_found",
+                    message: Self.chatTerminalBindingErrorMessage
+                )
             }
             let keyResult = currentTarget.sendNamedKeyResult("return")
-            return .ok(["submitted": keyResult.accepted])
+            var payload: [String: Any] = [
+                "submitted": keyResult.accepted,
+                "text_accepted": false,
+                "accepted_attachments": acceptedAttachmentCount,
+            ]
+            if !keyResult.accepted {
+                payload["submit_error"] = "submit_failed"
+            }
+            return .ok(payload)
         }
         var pasteParams = terminalParams
         pasteParams["text"] = text
-        return await v2MobileTerminalPaste(params: pasteParams)
+        let result = await v2MobileTerminalPaste(
+            params: pasteParams,
+            allowChatSendOwner: true
+        )
+        if case .err(let code, let message, _) = result {
+            return partialAttachmentResult(code: code, message: message)
+        }
+        return result
     }
 
     /// `mobile.chat.interrupt`: polite (Esc) or hard (ctrl-C) interrupt of
