@@ -1,11 +1,11 @@
 import React, { useEffect, useRef } from "react";
 import type { Choice } from "./ComposerPickers";
+import type { ReasoningSliderStyle } from "./composerSettings";
 import { useT } from "./i18n";
 
 /// The effort's stepped slider: a native range input (arrow keys, Home and End step it), drawn
 /// as a track with one stop per level the agent offers (a click on the track jumps to the
-/// nearest stop), over its ends (Faster, Smarter) and the level the model recommends. The model
-/// picker's reasoning panel draws it.
+/// nearest stop) and the level the model recommends. The model picker's reasoning panel draws it.
 export function EffortTrack({
   efforts,
   current,
@@ -15,6 +15,7 @@ export function EffortTrack({
   fallback,
   onRangeKey,
   onRangeClick,
+  sliderStyle = "accent",
 }: {
   efforts: Choice[];
   current?: string;
@@ -29,6 +30,8 @@ export function EffortTrack({
   /// A click on the slider, after any change it made (the reasoning menu commits the resting level).
   onRangeClick?(): void;
   autoFocus?: boolean;
+  /// Visual treatment for the opt-in reasoning slider.
+  sliderStyle?: ReasoningSliderStyle;
 }) {
   const t = useT();
   const range = useRef<HTMLInputElement>(null);
@@ -38,7 +41,6 @@ export function EffortTrack({
   const at = (id: string | undefined) => efforts.findIndex((choice) => choice.id === id);
   const level = Math.max(0, at(current) >= 0 ? at(current) : at(fallback));
   const name = efforts[level]?.name ?? t("effort.title");
-  const recommended = efforts.find((choice) => choice.recommended);
   const pick = (index: number) => {
     const choice = efforts[index];
     if (choice && choice.id !== current) onPick(choice.id);
@@ -46,7 +48,11 @@ export function EffortTrack({
   const share = efforts.length > 1 ? level / (efforts.length - 1) : 0;
   return (
     <>
-      <div className="acpmux-effort-track" style={{ "--acpmux-effort": share } as React.CSSProperties}>
+      <div
+        className="acpmux-effort-track"
+        data-slider-style={sliderStyle}
+        style={{ "--acpmux-effort": share } as React.CSSProperties}
+      >
         <span className="acpmux-effort-fill" />
         {efforts.map((choice, index) =>
           index === level ? null : (
@@ -79,14 +85,6 @@ export function EffortTrack({
             onEscape();
           }}
         />
-      </div>
-      {/* Claude's slider reads from Faster to Smarter, with the model's own pick named. */}
-      <div className="acpmux-effort-ends" aria-hidden="true">
-        <span className="acpmux-effort-faster">{t("effort.faster")}</span>
-        {recommended && (
-          <span className="acpmux-effort-recommended">{t("effort.recommendedLevel", { level: recommended.name })}</span>
-        )}
-        <span className="acpmux-effort-smarter">{t("effort.smarter")}</span>
       </div>
     </>
   );
