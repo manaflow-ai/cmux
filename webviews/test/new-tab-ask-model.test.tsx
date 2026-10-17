@@ -167,3 +167,21 @@ test("a New Tab does not show chat-only placeholder controls while its harness s
     await act(async () => root.unmount());
   }
 });
+
+test("a New Tab can start a chat without a project", async () => {
+  const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
+  const calls: { method: string; params?: Record<string, unknown> }[] = [];
+  const actions = newTabScreenActions({
+    callNative: async (method, params) => void calls.push({ method, params }),
+    leave: noop,
+    selectSession: noop,
+    showAllChats: noop,
+    runShell: noop,
+  });
+  actions.onAsk("claude", "hello", "/Users/you/src/app", "claude-sonnet-5", true);
+  expect(calls.find((call) => call.method === "chat.new")?.params).toEqual({
+    harness: "claude",
+    noProject: true,
+    model: "claude-sonnet-5",
+  });
+});
