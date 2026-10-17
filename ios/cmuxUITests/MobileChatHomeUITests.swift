@@ -29,7 +29,8 @@ final class MobileChatHomeUITests: XCTestCase {
         app.buttons["MobileChatSession-preview-codex"].tap()
         let back = app.buttons["MobileChatBackToChats"]
         XCTAssertTrue(back.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["MobileChatComposer"].exists)
+        let composer = app.descendants(matching: .any)["MobileChatComposer"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS %@", "existing shell entry point")
         ).firstMatch.exists)
