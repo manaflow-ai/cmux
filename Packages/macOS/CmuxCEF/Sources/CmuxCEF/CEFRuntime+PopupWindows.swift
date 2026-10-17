@@ -96,7 +96,9 @@ extension CEFRuntime {
 
     /// CMUX_POPUP_WINDOW_BOUNDS (chrome.windows.update): the popup follows.
     func popupWindowBoundsChanged(window: Int32) {
-        guard let popup = browsers.values.first(where: { $0.popupWindow == window }),
+        // Before it is attached, the window only reports its own placement
+        // (the create bounds, then the host view's first size).
+        guard let popup = browsers.values.first(where: { $0.popupWindow == window }), popup.isPopupWindowAttached,
               let bounds = popupWindowBounds(window) else { return }
         guard !CEFPopupWindows.isOwnPlacement(bounds, hostFrame: popup.hostView.screenFrameFromTop) else { return }
         notePopupWindow("window=\(window) bounds \(Int(bounds.width))x\(Int(bounds.height))")
