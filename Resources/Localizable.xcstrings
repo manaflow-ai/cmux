@@ -655198,6 +655198,962 @@
           }
         }
       }
+    },
+    "cli.vm.terminal.pruneHelp": {
+      "extractionState": "manual",
+      "localizations": {
+
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End every live terminal with no workspace tab; exited history stays."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースタブのない実行中のターミナルをすべて終了します。終了した履歴は保持されます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "结束所有没有工作区标签页的运行中终端；保留已退出的历史记录。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle laufenden Terminals ohne Workspace-Tab beenden; der Verlauf beendeter Terminals bleibt erhalten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ferme tous les terminaux actifs sans onglet d’espace de travail ; l’historique des terminaux terminés est conservé."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إنهاء جميع الطرفيات النشطة التي لا تحتوي على علامة تبويب لمساحة عمل؛ مع الاحتفاظ بسجل الطرفيات المنتهية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finaliza todos los terminales activos sin pestaña de espacio de trabajo; se conserva el historial de los terminados."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結束所有沒有工作區標籤頁的執行中終端機；保留已結束的歷史記錄。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 탭이 없는 실행 중인 터미널을 모두 종료하고 종료된 기록은 유지합니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatvori svaki aktivni terminal bez kartice radnog prostora; historija završenih ostaje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afslut alle aktive terminaler uden en arbejdsområdefane; historikken for afsluttede terminaler bevares."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Termina ogni terminale attivo senza una scheda dell’area di lavoro; la cronologia dei terminali usciti resta disponibile."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទស្ថានីយដែលកំពុងដំណើរការទាំងអស់ដែលគ្មានផ្ទាំង workspace; រក្សាទុកប្រវត្តិដែលបានបញ្ចប់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avslutt alle aktive terminaler uten en arbeidsområdefane; historikken for avsluttede beholdes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zakończ wszystkie działające terminale bez karty obszaru roboczego; historia zakończonych pozostaje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encerra todos os terminais ativos sem uma aba de workspace; o histórico dos encerrados é mantido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завершить все работающие терминалы без вкладки рабочего пространства; история завершённых сохраняется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดเทอร์มินัลที่กำลังทำงานทั้งหมดซึ่งไม่มีแท็บเวิร์กสเปซ โดยเก็บประวัติที่ออกแล้วไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma alanı sekmesi olmayan tüm canlı terminalleri sonlandırır; kapatılmış geçmiş korunur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завершити всі активні термінали без вкладки робочого простору; історію завершених буде збережено."
+          }
+        }
+      }
+    },
+    "cli.vm.terminal.pruned": {
+      "extractionState": "manual",
+      "localizations": {
+
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK pruned %#@count@ with no workspace tab on %2$@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "d",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d live terminal"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d live terminals"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースタブのない %#@count@ を %2$@ で終了しました"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "d",
+              "variations": {
+                "plural": {
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "実行中のターミナル %d 個"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+              "value": "已清理 %#@count@ 个没有工作区标签页的终端（位于 %2$@）"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "d",
+              "variations": {
+                "plural": {
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d 个运行中终端"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@count@ ohne Workspace-Tab auf %2$@ beendet"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "d",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d laufendes Terminal"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d laufende Terminals"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@count@ sans onglet d’espace de travail fermé sur %2$@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "d",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d terminal actif"
+                    }
+                  },
+                  "many": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d terminaux actifs"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d terminaux actifs"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إنهاء %#@count@ التي لا تحتوي على علامة تبويب لمساحة عمل على %2$@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "d",
+              "variations": {
+                "plural": {
+                  "zero": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d طرفيات نشطة"
+                    }
+                  },
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "طرفية نشطة واحدة (%d)"
+                    }
+                  },
+                  "two": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "طرفيتان نشطتان (%d)"
+                    }
+                  },
+                  "few": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d طرفيات نشطة"
+                    }
+                  },
+                  "many": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d طرفية نشطة"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d طرفية نشطة"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+              "value": "Se han finalizado %#@count@ sin pestaña de espacio de trabajo en %2$@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "d",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d terminal activo"
+                    }
+                  },
+                  "many": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d terminales activos"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d terminales activos"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+              "value": "已結束 %#@count@ 個沒有工作區標籤頁的終端機（位於 %2$@）"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "d",
+              "variations": {
+                "plural": {
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d 個執行中終端機"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+              "value": "작업 공간 탭이 없는 %#@count@를 %2$@에서 종료했습니다"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "d",
+              "variations": {
+                "plural": {
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "실행 중인 터미널 %d개"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U redu, očišćeno %#@count@ bez kartice radnog prostora na %2$@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "d",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d aktivni terminal"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d aktivnih terminala"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK, ryddede %#@count@ uden en arbejdsområdefane på %2$@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "d",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d aktiv terminal"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d aktive terminaler"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK, rimossi %#@count@ senza scheda dell’area di lavoro su %2$@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "d",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d terminale attivo"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d terminali attivi"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានសម្អាត %#@count@ ដែលគ្មានផ្ទាំង workspace នៅលើ %2$@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "d",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "ស្ថានីយកំពុងដំណើរការ %d"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "ស្ថានីយកំពុងដំណើរការ %d"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK, fjernet %#@count@ uten en arbeidsområdefane på %2$@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "d",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d aktiv terminal"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d aktive terminaler"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK, usunięto %#@count@ bez karty obszaru roboczego na %2$@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "d",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d działający terminal"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d działające terminale"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK, removidos %#@count@ sem aba de workspace em %2$@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "d",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d terminal ativo"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d terminais ativos"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Готово: очищено %#@count@ без вкладки рабочего пространства на %2$@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "d",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d работающий терминал"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d работающих терминала"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เรียบร้อย ล้าง %#@count@ ที่ไม่มีแท็บเวิร์กสเปซบน %2$@ แล้ว"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "d",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "เทอร์มินัลที่กำลังทำงาน %d รายการ"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "เทอร์มินัลที่กำลังทำงาน %d รายการ"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamam, %2$@ üzerinde çalışma alanı sekmesi olmayan %#@count@ temizlendi"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "d",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d canlı terminal"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d canlı terminal"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Готово, очищено %#@count@ без вкладки робочого простору на %2$@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "d",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d активний термінал"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%d активних терміналів"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "cli.vm.terminal.pruneRequiresIdRunCmuxVmLsTo": {
+      "extractionState": "manual",
+      "localizations": {
+
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.terminal_prune requires `id`. Run `cmux vm ls` to find one."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.terminal_prune には `id` が必要です。`cmux vm ls` を実行して確認してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.terminal_prune 需要 `id`。运行 `cmux vm ls` 查找可用 ID。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.terminal_prune benötigt `id`. Führe `cmux vm ls` aus, um eine zu finden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.terminal_prune nécessite `id`. Exécutez `cmux vm ls` pour en trouver un."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب vm.terminal_prune الحقل `id`. شغّل `cmux vm ls` للعثور على واحد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.terminal_prune requiere `id`. Ejecuta `cmux vm ls` para encontrar uno."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.terminal_prune 需要 `id`。請執行 `cmux vm ls` 來尋找 ID。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.terminal_prune에는 `id`가 필요합니다. `cmux vm ls`를 실행해 ID를 찾으세요."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.terminal_prune zahtijeva `id`. Pokrenite `cmux vm ls` da pronađete jedan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.terminal_prune kræver `id`. Kør `cmux vm ls` for at finde en."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.terminal_prune richiede `id`. Esegui `cmux vm ls` per trovarne uno."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.terminal_prune ត្រូវការ `id`។ ដំណើរការ `cmux vm ls` ដើម្បីស្វែងរក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.terminal_prune krever `id`. Kjør `cmux vm ls` for å finne en."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.terminal_prune wymaga `id`. Uruchom `cmux vm ls`, aby je znaleźć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.terminal_prune requer `id`. Execute `cmux vm ls` para encontrar um."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для vm.terminal_prune требуется `id`. Выполните `cmux vm ls`, чтобы найти его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.terminal_prune ต้องมี `id` เรียกใช้ `cmux vm ls` เพื่อค้นหา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.terminal_prune için `id` gerekir. Bir tane bulmak için `cmux vm ls` çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.terminal_prune потребує `id`. Виконайте `cmux vm ls`, щоб знайти його."
+          }
+        }
+      }
+    },
+    "cli.vm.terminal.pruneFailed": {
+      "extractionState": "manual",
+      "localizations": {
+
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm terminal prune: failed to close %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm terminal prune: %@ の終了に失敗しました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm terminal prune：无法关闭 %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm terminal prune: %@ konnte nicht beendet werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm terminal prune : impossible de fermer %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm terminal prune: تعذّر إغلاق %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm terminal prune: no se pudo cerrar %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm terminal prune：無法結束 %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm terminal prune: %@을(를) 종료하지 못했습니다"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm terminal prune: nije moguće zatvoriti %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm terminal prune: kunne ikke lukke %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm terminal prune: impossibile chiudere %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm terminal prune៖ មិនអាចបិទ %@ បានទេ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm terminal prune: kunne ikke lukke %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm terminal prune: nie udało się zamknąć %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm terminal prune: não foi possível fechar %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm terminal prune: не удалось закрыть %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm terminal prune: ปิด %@ ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm terminal prune: %@ kapatılamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm terminal prune: не вдалося закрити %@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

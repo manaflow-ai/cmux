@@ -271,6 +271,7 @@ cmux vm workspace rename <id> <ws> <name>
 cmux vm workspace rm <id> <ws>              # close the workspace AND kill every terminal in it (the sidebar's Close Workspace…)
 cmux vm workspace close <id> <ws>           # CLI-only: close the workspace but keep its terminals running in the Terminals pool
 cmux vm terminal close <id> <term>          # end one terminal (the process and its tab)
+cmux vm terminal prune <id>                 # end live terminals left in the machine's no-workspace pool; JSON reports failures
 cmux vm terminal send <id> <term> 'bun test' --keys enter   # type into a terminal headlessly, then press keys (no pane, no focus)
 cmux vm terminal wait <id> <term> --pattern 'pass|fail' [--timeout 120]   # block until the screen matches; exit 1 on timeout
 cmux vm terminal wait-exit <id> <term> [--timeout <s>]   # block until the process exits (exited code=<n> | pending)

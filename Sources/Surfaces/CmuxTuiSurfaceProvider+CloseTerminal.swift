@@ -21,9 +21,10 @@ extension CmuxTuiSurfaceProvider {
     }
 
     private func closeLocalPanes(showing ids: [SurfaceResourceID]) {
-        let wanted = Set(ids)
-        for projection in catalog.projections where wanted.contains(projection.resource) {
-            SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
+        for id in ids {
+            for projection in catalog.projections(of: id) {
+                SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
+            }
         }
     }
 }

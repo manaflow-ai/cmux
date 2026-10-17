@@ -31,7 +31,14 @@ final class SurfaceCatalog {
     private struct CloudProjectionKey: Hashable { let panelID: UUID; let workspaceID: UUID }
     /// Derived storage must not publish when a SwiftUI read rebuilds it.
     @ObservationIgnored private var cloudProjectionIndex: Set<CloudProjectionKey>?
-    private(set) var projections: Set<SurfaceProjection> = [] { didSet { cloudProjectionIndex = nil; noteProjectionChanges(from: oldValue) } }
+    @ObservationIgnored var projectionsByResourceIndex: [SurfaceResourceID: [SurfaceProjection]]?
+    private(set) var projections: Set<SurfaceProjection> = [] {
+        didSet {
+            cloudProjectionIndex = nil
+            projectionsByResourceIndex = nil
+            noteProjectionChanges(from: oldValue)
+        }
+    }
     var projectionVersions: [SurfaceMachineID: UInt64] = [:]; var projectionMachinesByWorkspace: [UUID: Set<SurfaceMachineID>] = [:]
     /// Resource IDs grouped by machine so providers can answer presence checks
     /// without sorting the full catalog snapshot on every refresh.
