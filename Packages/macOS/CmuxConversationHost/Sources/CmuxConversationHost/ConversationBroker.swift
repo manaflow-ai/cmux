@@ -75,7 +75,7 @@ public actor ConversationBroker: ConversationClient {
     /// Creates an account-scoped broker.
     /// - Parameters:
     ///   - directory: Private durable storage root for this account and app bundle.
-    ///   - adapters: Provider adapters. When omitted, native stdio adapters are created for Codex and Claude; OpenCode requires an HTTP/SSE factory.
+    ///   - adapters: Provider adapters. When omitted, native Codex, Claude, and OpenCode adapters are created.
     ///   - onChange: Optional revision notification callback; the callback receives only session and cursor.
     ///   - snapshotInterval: Number of events between crash-safe snapshots.
     public init(directory: URL, adapters: [any ConversationProviderAdapter]? = nil, onChange: (@Sendable (ConversationID, ConversationCursor) -> Void)? = nil, snapshotInterval: Int = 32) throws {
@@ -119,11 +119,12 @@ public actor ConversationBroker: ConversationClient {
         guard !isShutdown else { throw ConversationBrokerError.brokerShutDown }
         let requestFingerprint = try Self.fingerprint(CreateFingerprint(provider: request.provider, workspaceID: request.workspaceID, title: request.title))
         if let requestID = request.requestID, let reservation = creationReservations[requestID] {
-            guard reservation.fingerprint == requestFingerprint else {
-                throw ConversationBrokerError.idempotencyConflict("create request ID was reused with a different payload")
-            }
             guard let existing = sessions[reservation.sessionID] else {
                 throw ConversationBrokerError.creationUncertain(requestID)
+            }
+            let legacyMatches = reservation.fingerprint.hasPrefix("legacy:") && existing.session.provider == request.provider && existing.session.workspaceID == request.workspaceID && (request.title ?? request.provider.rawValue.capitalized) == existing.session.title
+            guard reservation.fingerprint == requestFingerprint || legacyMatches else {
+                throw ConversationBrokerError.idempotencyConflict("create request ID was reused with a different payload")
             }
             return existing.session
         }
@@ -680,6 +681,15 @@ public actor ConversationBroker: ConversationClient {
                 state.pendingRequests = state.pendingRequests.map { request in
                     ConversationRequest(id: request.id, turnID: request.turnID, generation: generation, kind: request.kind, state: .stale, approval: request.approval, question: request.question, rawPayload: request.rawPayload)
                 }
+                let fingerprints = state.commandFingerprints.reduce(into: [String: String]()) { $0[$1.key.rawValue] = $1.value }
+                let updatedRecord = SessionRecord(session: state.session, target: state.target, commandFingerprints: fingerprints)
+                do {
+                    let updatedData = try JSONEncoder().encode(updatedRecord)
+                    try updatedData.write(to: url, options: [.atomic])
+                    try? FileManager.default.setAttributes([.posixPermissions: Int(0o600)], ofItemAtPath: url.path)
+                } catch {
+                    throw ConversationJournalError.corruptSession(url.path)
+                }
             }
             loaded[record.session.id] = state
         }
@@ -720,7 +730,12 @@ public actor ConversationBroker: ConversationClient {
             if let receipt = event.receipt { if let index = state.receipts.firstIndex(where: { $0.id == receipt.id }) { state.receipts[index] = receipt } else { state.receipts.append(receipt) } }
         case .turn, .run:
             if let turnID = event.turnID, event.state == "running" { state.currentTurnID = turnID; state.dispatchingTurn = false }
-            if ["completed", "succeeded", "failed", "stopped", "cancelled", "idle"].contains(event.state ?? "") { state.currentTurnID = nil; state.dispatchingTurn = false }
+            if ["completed", "succeeded", "failed", "stopped", "cancelled", "idle"].contains(event.state ?? "") {
+                let matchesActiveTurn: Bool
+                if let activeTurn = state.currentTurnID { matchesActiveTurn = event.turnID == activeTurn }
+                else { matchesActiveTurn = state.dispatchingTurn && event.turnID != nil }
+                if matchesActiveTurn { state.currentTurnID = nil; state.dispatchingTurn = false }
+            }
         case .restarted:
             state.session.generation = event.generation; state.session.state = .stopped; state.currentTurnID = nil; state.dispatchingTurn = false
             let generation = state.session.generation
@@ -752,6 +767,8 @@ public enum ConversationBrokerError: Error, Codable, Hashable, Sendable, CustomS
     case creationUncertain(ConversationCommandID)
     /// Durable journal writes failed; later events must stop until recovery.
     case durabilityFailed(String)
+    /// The broker has been retired during account logout or service replacement.
+    case brokerShutDown
 
     public var description: String {
         switch self {
@@ -762,6 +779,7 @@ public enum ConversationBrokerError: Error, Codable, Hashable, Sendable, CustomS
         case .idempotencyConflict(let value): "idempotency conflict: \(value)"
         case .creationUncertain(let id): "creation request has no durable session: \(id.rawValue)"
         case .durabilityFailed(let value): "durability failed: \(value)"
+        case .brokerShutDown: "conversation broker is shut down"
         }
     }
 }

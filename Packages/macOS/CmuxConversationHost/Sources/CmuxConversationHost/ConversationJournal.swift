@@ -29,6 +29,11 @@ public actor ConversationJournal {
         try? FileManager.default.setAttributes([.posixPermissions: Int(0o700)], ofItemAtPath: directory.path)
         var last: ConversationCursor = 0
         if FileManager.default.fileExists(atPath: journalURL.path) {
+            let attributes: [FileAttributeKey: Any]
+            do { attributes = try FileManager.default.attributesOfItem(atPath: journalURL.path) }
+            catch { throw ConversationJournalError.corruptJournal(journalURL.path) }
+            let fileSize = (attributes[.size] as? NSNumber)?.intValue ?? 0
+            guard fileSize <= maximumJournalBytes else { throw ConversationJournalError.fileTooLarge(journalURL.path) }
             let data: Data
             do { data = try Data(contentsOf: journalURL) }
             catch { throw ConversationJournalError.corruptJournal(journalURL.path) }
