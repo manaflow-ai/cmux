@@ -8,7 +8,8 @@ public import Foundation
 /// - `link.inspect {paths, urls}`: where each path is (``AgentPaneReplyPaths``) and the favicon
 ///   and title cmux already has for each URL (no fetch). Passive: no gesture, no effect.
 /// - `link.openPath {path}`: open a path chip. Spends a user gesture.
-/// - `image.load {src}`: a reply image, a file inside the roots or an https URL (host fetch).
+/// - `image.load {src}`: a reply image, a file or an https URL (host fetch). A file outside the
+///   roots follows `agentPane.links.outsideRoots` (`confirm` spends a gesture, `text` refuses).
 ///   A web image spends a gesture unless `agentPane.images.remote` is `always`.
 /// - `media.load {src}`: a video or audio file inside the roots, as a URL the pane plays
 ///   (``AgentPaneMediaGrants``). Passive.

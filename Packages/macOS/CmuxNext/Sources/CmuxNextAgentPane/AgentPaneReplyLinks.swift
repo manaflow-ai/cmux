@@ -134,8 +134,10 @@ extension AgentPaneModel {
         }
     }
 
-    /// A reply image (D5): a file inside the roots, read by the host; or an https image fetched
-    /// under the network rules, after a click unless `agentPane.images.remote` is `always`.
+    /// A reply image (D5): a file inside the roots, read by the host; one outside them as
+    /// `agentPane.links.outsideRoots` says (Open: at once, Ask: after a click, Text: never), so a
+    /// screenshot the agent saved in a temporary folder shows in the chat; or an https image
+    /// fetched under the network rules, after a click unless `agentPane.images.remote` is `always`.
     func loadReplyImage(_ src: String) async -> [String: Any] {
         if let url = URL(string: src), let scheme = url.scheme?.lowercased(), scheme != "file" {
             guard scheme == "https", AgentPaneSafeFetch.isFetchable(url) else { return Self.replyFailure(.imageRefused) }
@@ -153,8 +155,17 @@ extension AgentPaneModel {
         switch resolved.place {
         case .root: return Self.replyImage(await AgentPaneReplyImages.local(resolved.path))
         case .denied: return Self.replyFailure(.pathDenied)
-        case .outside: return Self.replyFailure(.pathOutsideRoots)
         case .missing: return Self.replyFailure(.pathInvalid)
+        case .outside:
+            switch replyLinks.settings().outsideRoots {
+            case .text: return Self.replyFailure(.pathOutsideRoots)
+            case .open: break
+            case .confirm: guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
+            }
+            // The link may have changed between the check and now: check the secret names again.
+            guard let canonical = AcpmuxPathPolicy.canonical(resolved.path) else { return Self.replyFailure(.pathInvalid) }
+            guard !replyPaths().isDenied(canonical) else { return Self.replyFailure(.pathDenied) }
+            return Self.replyImage(await AgentPaneReplyImages.local(canonical))
         }
     }
 

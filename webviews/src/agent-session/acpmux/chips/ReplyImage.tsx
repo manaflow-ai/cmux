@@ -3,9 +3,11 @@
 // a data URL. A file inside the session's folders loads at once; a web image follows
 // `agentPane.images.remote`: a placeholder with its site and "Load image" (click, the default),
 // its link only (never), or at once (always). Every web load uses the host's network rules.
-// A local image the host will not show (outside the folders, missing, or a failed load) draws as
-// a compact card: its alt text, its file name and Open, the path chip's open with the same
-// outside-folders confirmation. A deny-listed path is its alt text only.
+// A local image outside the folders follows `agentPane.links.outsideRoots`: it loads at once
+// (Open, the default), after Load image (Ask First), or never (Show as Text). One the host will
+// not show (missing, refused, or a failed load) draws as a compact card: its alt text, its file
+// name and Open, the path chip's open with the same outside-folders confirmation. A deny-listed
+// path is its alt text only.
 import { useContext, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { ImageIcon, Lock } from "../conversation/icons";
@@ -103,21 +105,29 @@ function LocalImage({ src, path, alt, fallback }: { src: string; path: string; a
   const { info, answered, policy } = usePathInfo(path);
   const place = info?.place;
   const denied = place === "denied" || isDeniedPath(path);
-  // The host refuses a file outside the folders, so the page asks only for one it may show.
-  const loadable = answered && !denied && place !== "outside" && place !== "missing";
-  const { state } = useImageLoad(src, loadable);
+  const outside = place === "outside";
+  // A file outside the folders follows `agentPane.links.outsideRoots`: Open shows it at once, Ask
+  // after a click (the host spends the gesture), Text never; the host checks the setting again.
+  const loadable = answered && !denied && place !== "missing" && (!outside || policy.outsideRoots === "open");
+  const { state, load } = useImageLoad(src, loadable);
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} />;
   if (denied) return <span className="cv-chip-plain">{alt || pathName(path)}</span>;
-  const outside = place === "outside";
-  if (!outside && place !== "missing" && state.kind !== "failed") return <>{fallback}</>;
-  const canOpen = outside ? policy.outsideRoots !== "text" : place !== "missing";
+  const shows = !outside || policy.outsideRoots === "open";
+  if (shows && place !== "missing" && state.kind !== "failed") return <>{fallback}</>;
+  const canLoad = outside && policy.outsideRoots === "confirm" && state.kind !== "failed";
+  const canOpen = !canLoad && (outside ? policy.outsideRoots !== "text" : place !== "missing");
   return (
     <span className={`cv-image-file${outside ? " is-outside" : ""}`} data-path={path}>
       <ImageIcon size={16} className="cv-chip__icon" />
       {alt && <span className="cv-image-file__alt">{alt}</span>}
       <span className="cv-image-file__name">{pathName(path)}</span>
       {outside && <Lock size={11} className="cv-chip__lock" />}
-      {!outside && <span className="cv-image-file__note">{t("image.unavailable")}</span>}
+      {(!outside || state.kind === "failed") && <span className="cv-image-file__note">{t("image.unavailable")}</span>}
+      {canLoad && (
+        <button type="button" className="cv-image-file__open" disabled={state.kind === "loading"} onClick={load}>
+          {t("image.load")}
+        </button>
+      )}
       {canOpen && (
         <button
           type="button"
