@@ -7645,6 +7645,17 @@ extension SessionPersistenceTests {
         XCTAssertNil(binding)
     }
 
+    func testPlainSSHProcessDetectedResumeBindingRejectsForcedTTYRemoteCommand() {
+        let binding = TerminalSSHSessionDetector.resumeBinding(
+            processName: "ssh",
+            processPath: "/usr/bin/ssh",
+            arguments: ["ssh", "-tt", "tinybox", "tmux", "new-session"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
     func testPlainSSHProcessDetectedResumeBindingDoesNotReplaceManagedPTYBinding() {
         let binding = TerminalSSHSessionDetector.resumeBinding(
             processName: "ssh",

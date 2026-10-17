@@ -38,6 +38,10 @@ jobs:
       - name: Find the trusted org-member dogfood artifact
         id: pr
         env:
+          # This job runs in the artifacts environment, whose trust boundary
+          # intentionally contains only R2 credentials. Keep GitHub API calls
+          # on its explicitly scoped workflow token; the capture job below has
+          # no artifact secrets and may use cmux-bot's separate budget.
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RUN_ID: ${{ github.event.workflow_run.id }}
@@ -247,13 +251,27 @@ jobs:
       contents: read
       pull-requests: write
     env:
-      GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       PR: ${{ needs.publish.outputs.pr }}
       HEAD_SHA: ${{ needs.publish.outputs.sha }}
       CAPTURE_HOST_TOOL: ${{ vars.CMUX_NEXT_CAPTURE_HOST_TOOL || 'capture-host' }}
       CUA_SSH: ${{ vars.CMUX_NEXT_CUA_SSH || 'cua-ssh' }}
     steps:
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-checks: read
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
+
       - name: Checkout capture workflow scripts
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -265,6 +283,8 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       - name: Download the published head archive
+        env:
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/capture/head"
@@ -276,6 +296,8 @@ jobs:
 
       - name: Find the exact base cmux-next artifact
         id: base
+        env:
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
         run: |
           set -euo pipefail
           base_sha="$(gh api "repos/$GH_REPO/pulls/$PR" --jq '.base.sha')"
@@ -322,6 +344,7 @@ jobs:
 
       - name: Post before/after capture link
         env:
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           MARKER: '<!-- cmux-next-before-after-capture -->'
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           BUILD_TIME: ${{ needs.publish.outputs.build_time }}
