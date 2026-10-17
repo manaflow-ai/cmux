@@ -3,7 +3,7 @@
 //   byMachine one section per machine, a row per CLI, missing ones folded
 //   matrix    CLI by machine grid of versions, details of the selected cell below
 
-import { type CliEntry, highestLevel, type Machine, statusOf } from "../model/entries.ts"
+import { capabilitySummary, type CliEntry, highestLevel, type Machine, statusOf } from "../model/entries.ts"
 import { displayName, providerRank } from "../model/providers.ts"
 import { shortVersion } from "../model/version.ts"
 import { t } from "../l10n.ts"
@@ -125,6 +125,10 @@ function machineSection(m: () => Machine) {
       () => {
         const platform = machinePlatform(m())
         return platform ? Text(platform).font("caption").secondary() : null
+      },
+      () => {
+        const capabilities = capabilitySummary(m())
+        return capabilities ? Text(capabilities).font("caption").secondary().lineLimit(1).truncation("tail") : null
       },
       Text(() => (m().status === "running" ? "" : m().status)).font("caption").secondary(),
       Spacer()
