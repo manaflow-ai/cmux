@@ -255,13 +255,16 @@ private struct ChiefConversationRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(conversation.working ? Color.orange : Color.blue)
-                    .frame(width: 45, height: 45)
-                Image(systemName: conversation.working ? "bolt.fill" : "sparkles")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.white)
+            ZStack(alignment: .bottomTrailing) {
+                ChiefAvatarView(size: 45)
+                if conversation.working {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(4)
+                        .background(.orange, in: Circle())
+                        .overlay(Circle().stroke(Color(uiColor: .systemGroupedBackground), lineWidth: 2))
+                }
             }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
