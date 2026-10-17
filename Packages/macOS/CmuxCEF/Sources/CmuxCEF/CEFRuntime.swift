@@ -469,7 +469,7 @@ public final class CEFRuntime {
             // next turn, once its window is known (CEFRuntime+PopupWindows).
             return deferOrphan(id, created: created)
         }
-        guard let opener else { return closeOrphan(id, created: created) }
+        guard let opener else { return closeOrphan(id, created: created, early: early) }
         let targetURL = created.url.flatMap(URL.init(string:))
         let adopted = CEFBrowser(adopting: id, from: opener, runtime: self, targetURL: targetURL)
         register(adopted, id: id)
@@ -481,11 +481,13 @@ public final class CEFRuntime {
                                 userGesture: created.userGesture))
     }
 
-    /// A tab Chromium created with no page of cmux's as its opener: its URL
-    /// opens elsewhere (`openURLWithoutOpener`) and the tab closes.
-    func closeOrphan(_ id: Int32, created: CEFCreatedBy) {
+    /// A tab Chromium created with no page of cmux's as its opener: the
+    /// page `unownedTabAnchor` names adopts it (CEFRuntime+UnownedTabs);
+    /// without one its URL opens elsewhere and the tab closes.
+    func closeOrphan(_ id: Int32, created: CEFCreatedBy, early: [CEFShimEvent] = []) {
+        if adoptOrphan(id, created: created, early: early) { return }
         logger.notice("CEF browser \(id) created without a known opener; closing it")
-        if let url = created.url.flatMap(URL.init(string:)) { openURLWithoutOpener?(url, created.disposition) }
+        if let url = created.url.flatMap(URL.init(string:)) { openOrphanURL(url, disposition: created.disposition) }
         shim?.close(id)
     }
 

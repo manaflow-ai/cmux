@@ -74,6 +74,35 @@ extension CEFRuntime {
         disposition == .newBackgroundTab ? .newBackgroundTab : .newForegroundTab
     }
 
+    /// A tab Chromium created in no cmux page's window (no opener it could
+    /// name): the anchor page adopts it as its own new tab, with the events
+    /// it sent before (`early`). False when no page can take it.
+    func adoptOrphan(_ id: Int32, created: CEFCreatedBy, early: [CEFShimEvent]) -> Bool {
+        guard created.disposition != .offTheRecord, browsers[id] == nil,
+              let anchor = unownedTabAnchor?(nil), let anchorID = anchor.browserID,
+              Self.canTakeUnownedTab(anchor, registered: browsers[anchorID], profilePath: "") else { return false }
+        logger.notice("CEF browser \(id) created without a known opener; browser \(anchorID) adopts it")
+        let adopted = CEFBrowser(adopting: id, from: anchor, runtime: self,
+                                 targetURL: created.url.flatMap(URL.init(string:)))
+        register(adopted, id: id)
+        for event in early { adopted.handle(event) }
+        anchor.emit(.newBrowser(adopted, disposition: Self.unownedDisposition(created.disposition),
+                                features: nil, userGesture: false))
+        return true
+    }
+
+    /// An orphan tab's URL as a new cmux tab (`openUnownedURL`), else
+    /// through `openURLWithoutOpener`. Never an incognito tab's.
+    func openOrphanURL(_ url: URL, disposition: CEFDisposition) {
+        guard disposition != .offTheRecord else { return }
+        if let openUnownedURL {
+            let placement = Self.unownedDisposition(disposition)
+            Task { @MainActor in openUnownedURL(url, placement, nil) }
+        } else {
+            openURLWithoutOpener?(url, disposition)
+        }
+    }
+
     // MARK: Downloads
 
     /// A download event of no live page (browser 0: a background worker's
