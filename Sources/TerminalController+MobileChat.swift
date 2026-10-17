@@ -118,7 +118,15 @@ extension TerminalController {
             }
             #endif
             let descriptors = service.sessionRecords(workspaceID: nil)
-                .filter { mobileChatBindingIsCurrentAgent($0) }
+                .filter { record in
+                    // Ended sessions remain useful read-only history rows even
+                    // after their agent pid and terminal binding disappear.
+                    // Live sessions still require the binding check so a stale
+                    // record cannot route Chat to a reused terminal.
+                    record.state == .ended
+                        ? service.shouldListEndedSession(record)
+                        : mobileChatBindingIsCurrentAgent(record)
+                }
                 .map(\.descriptor)
             let encoded = descriptors.compactMap { service.wirePayload($0) }
             #if DEBUG
