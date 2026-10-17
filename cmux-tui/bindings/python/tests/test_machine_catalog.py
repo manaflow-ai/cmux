@@ -33,11 +33,16 @@ class MachineCatalogTests(unittest.TestCase):
         self.assertEqual(str(decoded.id), "machine_" + "a" * 32)
         self.assertEqual(decoded.origin, "local")
         self.assertTrue(decoded.connectable)
+        self.assertIsNone(decoded.platform)
+        self.assertEqual(decoded.capabilities, ())
+        nullable = _machine_snapshot(self.snapshot(platform={"os": None, "arch": None}))
+        self.assertIsNone(nullable.platform.os)
+        self.assertIsNone(nullable.platform.arch)
 
     def test_malformed_metadata_and_unknown_siblings_remain_refused(self):
         for patch in ({"platform": 1}, {"platform": {"os": 1}},
                       {"platform": {"os": "linux", "path": "/private"}},
-                      {"capabilities": "terminal"}, {"capabilities": [1]},
+                      {"capabilities": "terminal"}, {"capabilities": None}, {"capabilities": [1]},
                       {"command": "echo bad"}):
             with self.subTest(patch=patch), self.assertRaises(ProtocolError):
                 _machine_snapshot(self.snapshot(**patch))

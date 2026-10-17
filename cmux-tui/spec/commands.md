@@ -8928,6 +8928,39 @@ chat on another machine reaches the verb that way, behind its relay's
 fresh-gesture rule. A WebSocket client of acpmux still cannot
 answer (`trust.remote`). At most 8 calls run at once (`agent_session.limit`).
 
+## Machine catalog publication
+
+On Unix builds, `identify` advertises `machine-catalog-publish-v1`. The verified
+local cmux app may send `{id, cmd:"machine-catalog-publish",
+expected_machine_id:"machine_…", sequence:1, machines:[...]}` on its existing
+connection. This is an internal host publication handshake, like app-provider
+registration; callers continue to discover machines through the existing
+`machine.list` and `machine.get` catalog operations, CLI and SDK surfaces.
+It is not another machine-list operation or an enrollment command.
+
+The required owner ID must match this daemon's persisted public ID. Each remote
+record has a canonical `id`, bounded display `name`, `origin` (`cloud`, `ssh`,
+`server`), `status` (`running`, `connecting`, `unavailable`, `sleeping`, `stopped`),
+optional `platform:{os?,arch?}`, and up to 16 bounded capability tokens. A snapshot
+has at most 256 records and a 128 KiB frame. Unknown fields, local impersonation,
+duplicate IDs, malformed tokens, control characters, paths and command fields
+are refused atomically. No credentials or connection endpoints are published.
+
+Exactly one live verified-app connection owns the projection. A positive,
+increasing `sequence` replaces it atomically; exact replay is harmless and an
+older or conflicting sequence is `machine_catalog.stale`. A competing connection
+gets `machine_catalog.taken`. Disconnect removes the entire publication under
+the client-registry lock. Unverified, agent-bound, WebSocket and remote relay
+clients cannot publish (`machine_catalog.not_trusted`); a wrong daemon is
+`machine_catalog.owner_mismatch` and malformed data is `machine_catalog.bad_request`.
+
+The native local record always remains first and authoritative. Remote metadata
+is read-only: it never opens a connection, creates a session, supplies routing
+credentials or grants command execution. Remote session operations still require
+their own authenticated owner path; catalog membership never falls back to a local
+session. Without a publisher the existing local-only behavior is preserved.
+The app's event-driven publication adapter is a separate integration step.
+
 ## Agent CLI inventory
 
 `agent-inventory-v1` is advertised when the daemon has its own acpmux socket
