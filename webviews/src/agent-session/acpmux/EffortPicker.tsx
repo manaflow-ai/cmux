@@ -1,10 +1,11 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
 import { useT } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
 import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
+import type { ReasoningSliderStyle } from "./composerSettings";
 
 /// A switch section in the reasoning menu: Claude Code's Fast Mode (On/Off) or Codex's Service
 /// Tier (Standard/Fast), and Claude Code's Ultracode. `on` is the choice the chip names.
@@ -26,7 +27,8 @@ export type SpeedSection = {
 /// With `slider` (the Debug Settings toggle `agent.reasoningSlider`, off by default) the Reasoning
 /// section is the model picker's stepped slider (EffortTrack) instead of the rows, when the model
 /// offers two or more levels. The slider picks as it moves and keeps the menu open; Escape closes
-/// it back to the chip.
+/// it back to the chip. `sliderStyle` is an opt-in visual comparison choice and defaults to the
+/// current accent treatment.
 export function EffortPicker({
   label,
   efforts,
@@ -37,6 +39,7 @@ export function EffortPicker({
   speed,
   chevron,
   slider = false,
+  sliderStyle: requestedSliderStyle = "accent",
 }: {
   /// The stable name automation opens it by (`openPicker`), whatever the UI language.
   label: string;
@@ -50,6 +53,8 @@ export function EffortPicker({
   chevron?: React.ReactNode;
   /// Draw the Reasoning section as a slider (the person's opt-in); the list is the default.
   slider?: boolean;
+  /// Visual treatment for the opt-in slider; the current accent treatment is the default.
+  sliderStyle?: ReasoningSliderStyle;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -64,6 +69,7 @@ export function EffortPicker({
   const fast = speed !== undefined && speed.current === speed.on;
   // One level is nothing to slide between: the list shows it as a single checked row.
   const sliding = slider && visibleEfforts.length > 1;
+  const sliderStyle = requestedSliderStyle;
   const recommended = visibleEfforts.find((choice) => choice.recommended);
   // The level the thumb shows: the picked one, else (the agent's own default) the recommended one.
   const shown = selectedVisible ?? recommended ?? visibleEfforts[0];
@@ -115,6 +121,9 @@ export function EffortPicker({
     <span className="acpmux-picker acpmux-effort">
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-picker-button" label={t("effort.title")} data-menu={label} aria-haspopup="menu">
+          <svg className="acpmux-effort-bolt" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M13.4 2 4.7 13h5.8L9.8 22l9.5-12.1h-5.9L13.4 2Z" />
+          </svg>
           <span>{fast ? `${level} ${t("picker.chipFast")}` : level}</span>
           {chevron}
         </MenuButton>
@@ -126,6 +135,7 @@ export function EffortPicker({
               current={selectedVisible?.id}
               shown={shown}
               fallback={recommended?.id}
+              sliderStyle={sliderStyle}
               onPick={onPick}
               onClose={() => setOpen(false)}
             />
@@ -197,6 +207,7 @@ function ReasoningSlider({
   current,
   shown,
   fallback,
+  sliderStyle,
   onPick,
   onClose,
 }: {
@@ -205,10 +216,10 @@ function ReasoningSlider({
   current?: string;
   shown?: Choice;
   fallback?: string;
+  sliderStyle: ReasoningSliderStyle;
   onPick(value: string): void;
   onClose(): void;
 }) {
-  const titleId = useId();
   // The host echoes `current` back after a pick, so the click that ends a drag (or a second Enter)
   // must not resend the level that was just sent.
   const sent = useRef<string | undefined>(undefined);
@@ -249,11 +260,8 @@ function ReasoningSlider({
   };
   return (
     // A group (a fieldset), as the list's MenuGroup is: the menu holds groups, rows and separators.
-    <fieldset className="acpmux-effort-slider" aria-labelledby={titleId}>
+    <fieldset className="acpmux-effort-slider" aria-label={title}>
       <div className="acpmux-effort-slider-head">
-        <span id={titleId} className="ui-menu-group-label">
-          {title}
-        </span>
         {/* tooltip-allow: the slider row shows only the level's name; the tooltip is its description */}
         <span className="acpmux-effort-slider-level" title={shown?.description}>
           {shown?.name}
@@ -263,6 +271,7 @@ function ReasoningSlider({
         efforts={efforts}
         current={current}
         fallback={fallback}
+        sliderStyle={sliderStyle}
         onPick={commit}
         onEscape={onClose}
         onRangeKey={onRangeKey}
