@@ -113,6 +113,27 @@ export const runEventKind = pgEnum("run_event_kind", [
   "run.completed",
 ]);
 
+/** Runtime lifetime is independent from the compute placement that hosts it. */
+export const cloudRuntimeKind = pgEnum("cloud_runtime_kind", [
+  "persistent",
+  "ephemeral",
+]);
+
+/** Lifecycle transitions are owned by the control plane and fence stale workers. */
+export const cloudRuntimeLifecycle = pgEnum("cloud_runtime_lifecycle", [
+  "provisioning",
+  "ready",
+  "running",
+  "draining",
+  "suspended",
+  "stopped",
+  "released",
+  "failed",
+]);
+
+export type CloudRuntimeKind = (typeof cloudRuntimeKind.enumValues)[number];
+export type CloudRuntimeLifecycle = (typeof cloudRuntimeLifecycle.enumValues)[number];
+
 /** Teams own pools; a VM is assigned one pool from its own team. */
 export const coderouterPools = pgTable("coderouter_pools", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -200,6 +221,41 @@ export const cloudVms = pgTable(
       .where(sql`${table.billingTeamId} is not null and ${table.slug} is not null and ${table.status} in ('provisioning', 'running', 'paused')`),
   ],
 );
+
+/** Durable runtime identity. VM status and provider addresses remain owned by cloud_vms. */
+export const cloudRuntimes = pgTable("cloud_runtimes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  ownerTeamId: text("owner_team_id").notNull(),
+  runtimeKind: cloudRuntimeKind("runtime_kind").notNull().default("persistent"),
+  lifecycleState: cloudRuntimeLifecycle("lifecycle_state").notNull().default("provisioning"),
+  /** Null until a host explicitly binds its authoritative journal lineage. */
+  journalSessionId: text("journal_session_id"),
+  /** M0 pins one runtime to one VM; deleting compute retains the runtime. */
+  machineId: uuid("machine_id").references(() => cloudVms.id, { onDelete: "set null" }),
+  /** Incremented on every placement change and used as an optimistic fence. */
+  placementGeneration: integer("placement_generation").notNull().default(1),
+  /** Runtime operation lease; never expose the token in public API views. */
+  leaseToken: text("lease_token"),
+  leaseGeneration: integer("lease_generation").notNull().default(0),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  /** Optional tenant-scoped idempotency key for runtime creation. */
+  idempotencyKey: text("idempotency_key"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  releasedAt: timestamp("released_at", { withTimezone: true }),
+}, (table) => [
+  index("cloud_runtimes_owner_idx").on(table.ownerTeamId),
+  index("cloud_runtimes_owner_lifecycle_idx").on(table.ownerTeamId, table.lifecycleState, table.updatedAt),
+  index("cloud_runtimes_lease_idx").on(table.lifecycleState, table.leaseExpiresAt),
+  uniqueIndex("cloud_runtimes_machine_unique").on(table.machineId),
+  uniqueIndex("cloud_runtimes_journal_unique").on(table.journalSessionId),
+  uniqueIndex("cloud_runtimes_owner_idempotency_unique")
+    .on(table.ownerTeamId, table.idempotencyKey)
+    .where(sql`${table.idempotencyKey} is not null`),
+  check("cloud_runtimes_generation_positive", sql`${table.placementGeneration} > 0`),
+  check("cloud_runtimes_lease_generation_nonnegative", sql`${table.leaseGeneration} >= 0`),
+  check("cloud_runtimes_owner_nonempty", sql`length(trim(${table.ownerTeamId})) > 0`),
+]);
 
 /** A durable fan-out run. Source and recipe are immutable after creation. */
 export const runs = pgTable(
@@ -308,6 +364,8 @@ export const runAttempts = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+    /** Tenant-scoped durable runtime selected for this execution attempt. */
+    runtimeId: uuid("runtime_id").references(() => cloudRuntimes.id, { onDelete: "set null" }),
     ordinal: integer("ordinal").notNull(),
     status: runAttemptStatus("status").notNull().default("queued"),
     providerVmId: text("provider_vm_id"),
@@ -337,6 +395,7 @@ export const runAttempts = pgTable(
     index("run_attempts_lease_idx").on(table.status, table.leaseExpiresAt),
     index("run_attempts_terminal_retention_idx").on(table.status, table.terminalRetainUntil, table.cleanupLeaseExpiresAt),
     index("run_attempts_run_status_idx").on(table.runId, table.status),
+    index("run_attempts_runtime_idx").on(table.runtimeId, table.createdAt, table.id),
     check("run_attempts_lease_generation_check", sql`${table.leaseGeneration} >= 0`),
   ],
 );
@@ -444,24 +503,6 @@ export const cloudVmSnapshotRequests = pgTable(
     check("cloud_vm_snapshot_requests_key_length", sql`length(${table.idempotencyKey}) between 1 and 128`),
   ],
 );
-
-/** Durable Hive identity. VM status and provider addresses remain owned by cloud_vms. */
-export const cloudRuntimes = pgTable("cloud_runtimes", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  ownerTeamId: text("owner_team_id").notNull(),
-  /** Null until a host explicitly binds its authoritative journal lineage. */
-  journalSessionId: text("journal_session_id"),
-  /** M0 pins one runtime to one VM; deleting compute retains the runtime. */
-  machineId: uuid("machine_id").references(() => cloudVms.id, { onDelete: "set null" }),
-  placementGeneration: integer("placement_generation").notNull().default(1),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index("cloud_runtimes_owner_idx").on(table.ownerTeamId),
-  uniqueIndex("cloud_runtimes_machine_unique").on(table.machineId),
-  uniqueIndex("cloud_runtimes_journal_unique").on(table.journalSessionId),
-  check("cloud_runtimes_generation_positive", sql`${table.placementGeneration} > 0`),
-  check("cloud_runtimes_owner_nonempty", sql`length(trim(${table.ownerTeamId})) > 0`),
-]);
 
 /** Provider-owned agent identities; multiple root/child threads can share a runtime. */
 export const cloudRuntimeAgentBindings = pgTable("cloud_runtime_agent_bindings", {
