@@ -77,8 +77,7 @@
   border: 0;
   background: color-mix(in srgb, var(--agent-text) 12%, transparent);
 }
-/* The opt-in slider (Debug Settings agent.reasoningSlider): the title row names the level the
-   thumb sits on and the line below names the model's recommendation. */
+/* The opt-in slider (Debug Settings agent.reasoningSlider) keeps the native effort control compact. */
 .acpmux-effort-menu:has(.acpmux-effort-slider) {
   width: min(232px, calc(100vw - 24px));
 }
@@ -177,21 +176,6 @@
   border-width: 1.5px;
   background: var(--surface-popup);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 32%, transparent);
-}
-/* Keep the recommendation centered below the track; the stops and level name provide the scale. */
-.acpmux-effort-ends {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  margin-top: 6px;
-  direction: ltr;
-  font-size: var(--text-detail);
-  line-height: 16px;
-  color: var(--agent-muted);
-}
-.acpmux-effort-recommended {
-  text-align: center;
-  direction: initial;
 }
 .acpmux-effort-range {
   position: absolute;

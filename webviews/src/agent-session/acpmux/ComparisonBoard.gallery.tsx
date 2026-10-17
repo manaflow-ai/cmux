@@ -286,12 +286,8 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
             </div>
             <div
               className="cmux-comparison-slider-specimen"
-              aria-label={`Visible ${sliderStyle} reasoning slider specimen`}
+              aria-label={`Visible ${sliderStyle} effort control specimen`}
             >
-              <div className="cmux-comparison-specimen-heading">
-                <span>Reasoning</span>
-                <strong>{efforts.find((choice) => choice.id === effort)?.name ?? "High"}</strong>
-              </div>
               <EffortTrack
                 efforts={efforts}
                 current={effort}
@@ -299,15 +295,6 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
                 onPick={setEffort}
                 sliderStyle={sliderStyle}
               />
-            </div>
-            {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- compact treatment controls are not a form fieldset. */}
-            <div className="cmux-comparison-slider-toggle" role="group" aria-label="Reasoning slider treatment">
-              <span>Treatment</span>
-              {(["accent", "minimal"] as const).map((name) => (
-                <span key={name} className={sliderStyle === name ? "is-active" : ""}>
-                  {name}
-                </span>
-              ))}
             </div>
           </div>
         )}

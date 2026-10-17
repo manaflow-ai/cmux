@@ -129,10 +129,10 @@ accessibility tree, focused typecheck, and independent read-only review in the h
 should inspect reference fidelity, token/component ownership, gallery reproducibility, and live
 dogfood separately.
 
-Reasoning controls should name the selected level and, when useful, the model recommendation (for
-example, `Recommended: High`). Avoid explanatory endpoint slogans such as `Faster` and `Smarter`
-when the scale and level names already communicate the tradeoff; they add noise and talk down to
-experienced users.
+Reasoning controls should let the selected level and native scale speak for themselves. Avoid
+recommendation labels and explanatory endpoint slogans such as `Faster` and `Smarter` when the
+model chip, stops, and available level names already communicate the choice; extra copy adds noise
+and talks down to experienced users.
 
 ## Remote CLI relay
 
