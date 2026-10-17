@@ -25,7 +25,11 @@ export const TEAM_SEATS_BUSY: unique symbol = Symbol("team-seats-busy");
  */
 export type TeamSeatQueue = {
   markDirty(stackTeamId: string): Promise<void>;
-  /** Dirty teams, oldest first, optionally narrowed to `teamIds`. */
+  /**
+   * Dirty teams, least recently attempted first (never attempted before any),
+   * then oldest dirty first, optionally narrowed to `teamIds`. A team that
+   * keeps failing moves behind the others instead of starving them.
+   */
   listDirty(limit: number, teamIds?: readonly string[]): Promise<readonly DirtyTeamSeatRow[]>;
   /** Run `work` while holding the team's reconcile lock, or `TEAM_SEATS_BUSY`. */
   withTeamLock<T>(stackTeamId: string, work: () => Promise<T>): Promise<T | typeof TEAM_SEATS_BUSY>;
@@ -56,7 +60,10 @@ export const databaseTeamSeatQueue: TeamSeatQueue = {
       .select({ stackTeamId: teamSeatReconciles.stackTeamId, dirtyAt: teamSeatReconciles.dirtyAt })
       .from(teamSeatReconciles)
       .where(scope)
-      .orderBy(asc(teamSeatReconciles.dirtyAt))
+      .orderBy(
+        sql`${teamSeatReconciles.lastReconciledAt} asc nulls first`,
+        asc(teamSeatReconciles.dirtyAt),
+      )
       .limit(limit);
     return rows.filter((row): row is DirtyTeamSeatRow => row.dirtyAt !== null);
   },
