@@ -630,7 +630,12 @@ export function ComposerPickers({
         !reported && pendingEffort && <PendingChip kind="effort" label={pendingEffort} />
       )}
       {modes.length === 0 && !hasGrants && startMode && startModeName && (
-        <PendingChip kind="mode" label={startModeName} modeId={startMode.borrowed ? undefined : startMode.modeId} />
+        <PendingChip
+          kind="mode"
+          label={startModeName}
+          modeId={startMode.borrowed ? undefined : startMode.modeId}
+          onPick={startMode.borrowed ? undefined : onMode}
+        />
       )}
       {/* Granted folder trust and chat allowance stay revocable when the harness offers no modes. */}
       {(modes.length > 0 || hasGrants) && (
@@ -677,7 +682,17 @@ export function ComposerPickers({
 /// A control the session has not reported yet, as this harness's chats last showed it: the real
 /// chip's face (EffortPicker, AccessMenu), inert until the session's own replaces it in place.
 /// `modeId` is read from storage: only a string names a mode that may skip approvals.
-function PendingChip({ kind, label, modeId }: { kind: "effort" | "mode"; label: string; modeId?: unknown }) {
+function PendingChip({
+  kind,
+  label,
+  modeId,
+  onPick,
+}: {
+  kind: "effort" | "mode";
+  label: string;
+  modeId?: unknown;
+  onPick?(modeId: string): void;
+}) {
   const warning = typeof modeId === "string" && unrestricted(modeId) ? " acpmux-unrestricted" : "";
   return kind === "effort" ? (
     <span className="acpmux-picker acpmux-effort acpmux-chip-pending" aria-hidden="true">
@@ -687,12 +702,21 @@ function PendingChip({ kind, label, modeId }: { kind: "effort" | "mode"; label: 
       </span>
     </span>
   ) : (
-    <span className={`acpmux-mode acpmux-access acpmux-chip-pending${warning}`} aria-hidden="true">
-      <span className="acpmux-picker-button acpmux-access-trigger">
+    <span className={`acpmux-mode acpmux-access acpmux-chip-pending acpmux-pending-access${warning}`}>
+      <button
+        type="button"
+        className="acpmux-picker-button acpmux-access-trigger"
+        aria-label={label}
+        title={label}
+        disabled={typeof modeId !== "string" || onPick === undefined}
+        onClick={() => {
+          if (typeof modeId === "string") onPick?.(modeId);
+        }}
+      >
         <ModeShield modeId={modeId} />
         <span className="acpmux-mode-text">{label}</span>
         <ChevronIcon />
-      </span>
+      </button>
     </span>
   );
 }
