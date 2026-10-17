@@ -35,7 +35,8 @@ fn call(s: &mut UnixStream, kind: u8, payload: &[u8]) -> Vec<u8> {
 }
 
 fn parse(cols: u16, rows: u16, bytes: &[u8]) -> Terminal {
-    let mut t = Terminal::new(cols, rows, SCROLLBACK, Callbacks::default()).unwrap_or_else(|e| die(e));
+    let mut t =
+        Terminal::new(cols, rows, SCROLLBACK, Callbacks::default()).unwrap_or_else(|e| die(e));
     t.vt_write(bytes);
     t
 }
@@ -55,12 +56,15 @@ fn onlcr(data: &[u8]) -> Vec<u8> {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let file = args.first().unwrap_or_else(|| die("usage: mux2-verify FILE [--size CxR] [--attach-midway]"));
+    let file = args
+        .first()
+        .unwrap_or_else(|| die("usage: mux2-verify FILE [--size CxR] [--attach-midway]"));
     let (mut cols, mut rows) = (120u16, 40u16);
     if let Some(i) = args.iter().position(|a| a == "--size") {
         let v = args.get(i + 1).unwrap_or_else(|| die("--size needs COLSxROWS"));
         let (c, r) = v.split_once('x').unwrap_or_else(|| die("size is COLSxROWS"));
-        (cols, rows) = (c.parse().unwrap_or_else(|_| die("cols")), r.parse().unwrap_or_else(|_| die("rows")));
+        (cols, rows) =
+            (c.parse().unwrap_or_else(|_| die("cols")), r.parse().unwrap_or_else(|_| die("rows")));
     }
     let midway = args.iter().any(|a| a == "--attach-midway");
     // The viewer reads nothing until the program has exited, so the server
@@ -71,7 +75,8 @@ fn main() {
     let resize = args.iter().any(|a| a == "--resize-midway");
     let data = std::fs::read(file).unwrap_or_else(|e| die(e));
     let path = proto::socket_path();
-    let mut ctl = UnixStream::connect(&path).unwrap_or_else(|e| die(format!("connect {}: {e}", path.display())));
+    let mut ctl = UnixStream::connect(&path)
+        .unwrap_or_else(|e| die(format!("connect {}: {e}", path.display())));
 
     // The program waits for one line before it prints, so the attach happens
     // at a known point. tty echo of that line is part of the expected bytes.
@@ -92,7 +97,12 @@ fn main() {
         // Attach while output is flowing: wait until the screen shows output
         // beyond the echoed line, so the snapshot holds real content and the
         // stream the rest.
-        while call(&mut ctl, proto::SCREEN, &idp).iter().filter(|b| !b.is_ascii_whitespace()).count() < 64 {}
+        while call(&mut ctl, proto::SCREEN, &idp)
+            .iter()
+            .filter(|b| !b.is_ascii_whitespace())
+            .count()
+            < 64
+        {}
         if midway {
             proto::write_frame(&mut viewer, proto::ATTACH, &idp).unwrap_or_else(|e| die(e));
         }
@@ -115,7 +125,8 @@ fn main() {
     let mut snapshots = 0u32;
     let mut stream_bytes = 0u64;
     loop {
-        let (k, body) = proto::read_frame(&mut viewer).unwrap_or_else(|e| die(format!("viewer: {e}")));
+        let (k, body) =
+            proto::read_frame(&mut viewer).unwrap_or_else(|e| die(format!("viewer: {e}")));
         match k {
             proto::SNAPSHOT => {
                 snapshots += 1;

@@ -9,7 +9,8 @@ use ghostty_vt::{Callbacks, Terminal};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let data = std::fs::read(args.first().expect("usage: mux2-parsebench FILE [CHUNK]")).expect("read");
+    let data =
+        std::fs::read(args.first().expect("usage: mux2-parsebench FILE [CHUNK]")).expect("read");
     let chunk: usize = args.get(1).and_then(|c| c.parse().ok()).unwrap_or(16384);
     let mut bytes = Vec::with_capacity(data.len() + data.len() / 16);
     for &b in &data {
@@ -20,7 +21,8 @@ fn main() {
     }
     let (cols, rows, scrollback) = (200u16, 50u16, 10_000_000usize);
 
-    let mut wrapped = Terminal::new(cols, rows, scrollback, Callbacks::default()).expect("terminal");
+    let mut wrapped =
+        Terminal::new(cols, rows, scrollback, Callbacks::default()).expect("terminal");
     let t = Instant::now();
     for c in bytes.chunks(chunk) {
         wrapped.vt_write(c);
@@ -32,7 +34,11 @@ fn main() {
     // pointer stays valid until ghostty_terminal_free below.
     unsafe {
         assert_eq!(sys::ghostty_terminal_new(std::ptr::null(), &mut raw, cols, rows), 0);
-        sys::ghostty_terminal_set(raw, sys::GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES, (&raw const scrollback).cast());
+        sys::ghostty_terminal_set(
+            raw,
+            sys::GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
+            (&raw const scrollback).cast(),
+        );
     }
     let t = Instant::now();
     for c in bytes.chunks(chunk) {
@@ -46,6 +52,9 @@ fn main() {
     let mb = bytes.len() as f64 / 1e6;
     println!(
         "{{\"parsebench\":\"{}\",\"chunk\":{chunk},\"mb\":{mb:.1},\"wrapper_mb_s\":{:.1},\"raw_mb_s\":{:.1},\"wrapper_overhead\":{:.2}}}",
-        args[0], mb / wrapper_s, mb / raw_s, wrapper_s / raw_s
+        args[0],
+        mb / wrapper_s,
+        mb / raw_s,
+        wrapper_s / raw_s
     );
 }

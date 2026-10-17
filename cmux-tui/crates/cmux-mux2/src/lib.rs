@@ -212,7 +212,13 @@ impl QueryStripper {
                 StrPass | StrPassEsc => {
                     out.push(b);
                     let end = b == 0x07 || b == 0x18 || b == 0x1a || self.state == StrPassEsc;
-                    self.state = if end { Ground } else if b == 0x1b { StrPassEsc } else { StrPass };
+                    self.state = if end {
+                        Ground
+                    } else if b == 0x1b {
+                        StrPassEsc
+                    } else {
+                        StrPass
+                    };
                 }
             }
         }
@@ -242,12 +248,15 @@ fn csi_is_query(seq: &[u8]) -> bool {
     let body = &seq[2..seq.len() - 1];
     let first = body.first().copied();
     match fin {
-        b'c' | b'n' | b'x' => true,                     // DA1/2/3, DSR/CPR, DECREQTPARM
-        b'p' => body.last() == Some(&b'$'),             // DECRQM
-        b'q' => first == Some(b'>'),                    // XTVERSION
-        b'u' => first == Some(b'?'),                    // kitty keyboard flags query
+        b'c' | b'n' | b'x' => true,         // DA1/2/3, DSR/CPR, DECREQTPARM
+        b'p' => body.last() == Some(&b'$'), // DECRQM
+        b'q' => first == Some(b'>'),        // XTVERSION
+        b'u' => first == Some(b'?'),        // kitty keyboard flags query
         b't' => {
-            let ps: u32 = body.iter().take_while(|c| c.is_ascii_digit()).fold(0, |a, c| a * 10 + u32::from(c - b'0'));
+            let ps: u32 = body
+                .iter()
+                .take_while(|c| c.is_ascii_digit())
+                .fold(0, |a, c| a * 10 + u32::from(c - b'0'));
             matches!(ps, 11 | 13 | 14 | 15 | 16 | 18 | 19 | 20 | 21) // XTWINOPS reports
         }
         _ => false,
@@ -259,8 +268,8 @@ fn string_is_query(seq: &[u8]) -> bool {
     let end = if seq.last() == Some(&0x07) { seq.len() - 1 } else { seq.len() - 2 };
     let body = &seq[2..end.max(2)];
     match seq[1] {
-        b']' => body.split(|c| *c == b';').any(|field| field == b"?"),   // OSC color/clipboard queries
-        b'P' => body.starts_with(b"+q") || body.starts_with(b"$q"),     // XTGETTCAP, DECRQSS
+        b']' => body.split(|c| *c == b';').any(|field| field == b"?"), // OSC color/clipboard queries
+        b'P' => body.starts_with(b"+q") || body.starts_with(b"$q"),    // XTGETTCAP, DECRQSS
         b'_' => body.first() == Some(&b'G') && body.windows(3).any(|w| w == b"a=q"), // kitty graphics query
         _ => false,
     }

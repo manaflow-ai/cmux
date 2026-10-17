@@ -52,7 +52,8 @@ fn connect() -> UnixStream {
             Ok(())
         });
     }
-    let mut child = cmd.spawn().unwrap_or_else(|e| die(format!("cannot start {}: {e}", daemon.display())));
+    let mut child =
+        cmd.spawn().unwrap_or_else(|e| die(format!("cannot start {}: {e}", daemon.display())));
     drop(wr);
     // The daemon writes one byte once it listens, or exits and closes the pipe.
     let mut byte = [0u8; 1];
@@ -97,16 +98,22 @@ fn term_size() -> (u16, u16) {
 
 fn create_from_args(s: &mut UnixStream, args: &[String]) -> u32 {
     let (mut cols, mut rows) = term_size();
-    let mut cwd = std::env::current_dir().map(|p| p.as_os_str().as_bytes().to_vec()).unwrap_or_default();
+    let mut cwd =
+        std::env::current_dir().map(|p| p.as_os_str().as_bytes().to_vec()).unwrap_or_default();
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--cwd" => {
-                cwd = args.get(i + 1).unwrap_or_else(|| die("--cwd needs a value")).as_bytes().to_vec();
+                cwd = args
+                    .get(i + 1)
+                    .unwrap_or_else(|| die("--cwd needs a value"))
+                    .as_bytes()
+                    .to_vec();
                 i += 2;
             }
             "--size" => {
-                (cols, rows) = size_arg(args.get(i + 1).unwrap_or_else(|| die("--size needs a value")));
+                (cols, rows) =
+                    size_arg(args.get(i + 1).unwrap_or_else(|| die("--size needs a value")));
                 i += 2;
             }
             "--" => {
@@ -153,7 +160,9 @@ fn bench(s: &mut UnixStream, args: &[String]) {
                 w.extend_from_slice(format!("{mark}\n").as_bytes());
                 let t = Instant::now();
                 call(s, proto::WRITE, &w);
-                while !String::from_utf8_lossy(&call(s, proto::SCREEN, &idp(t_id))).contains(&mark) {}
+                while !String::from_utf8_lossy(&call(s, proto::SCREEN, &idp(t_id))).contains(&mark)
+                {
+                }
                 lat.push(t.elapsed().as_secs_f64() * 1e6);
             }
         }
@@ -161,7 +170,10 @@ fn bench(s: &mut UnixStream, args: &[String]) {
     }
     println!(
         "{{\"bench\":\"{}\",\"n\":{n},\"p50_us\":{:.1},\"p95_us\":{:.1},\"p99_us\":{:.1}}}",
-        args[0], pct(&mut lat, 0.5), pct(&mut lat, 0.95), pct(&mut lat, 0.99)
+        args[0],
+        pct(&mut lat, 0.5),
+        pct(&mut lat, 0.95),
+        pct(&mut lat, 0.99)
     );
 }
 
@@ -208,7 +220,8 @@ fn attach(s: UnixStream, t: u32) -> i32 {
         libc::pthread_sigmask(libc::SIG_BLOCK, &winch, std::ptr::null_mut());
     }
     // Frames from different threads must not interleave on the socket.
-    let writer = std::sync::Arc::new(std::sync::Mutex::new(s.try_clone().unwrap_or_else(|e| die(e))));
+    let writer =
+        std::sync::Arc::new(std::sync::Mutex::new(s.try_clone().unwrap_or_else(|e| die(e))));
     let send = |w: &std::sync::Mutex<UnixStream>, kind: u8, payload: &[u8]| {
         proto::write_frame(&mut *w.lock().expect("writer"), kind, payload).is_ok()
     };
@@ -216,14 +229,22 @@ fn attach(s: UnixStream, t: u32) -> i32 {
     send(&writer, proto::ATTACH, &idp(t));
     let raw = RawMode::enter();
     let winch_writer = writer.clone();
-    std::thread::spawn(move || loop {
-        let mut sig = 0;
-        // SAFETY: waiting on the blocked SIGWINCH set.
-        if unsafe { libc::sigwait(&winch, &mut sig) } != 0 {
-            return;
-        }
-        if proto::write_frame(&mut *winch_writer.lock().expect("writer"), proto::RESIZE, &resize_payload(t)).is_err() {
-            return;
+    std::thread::spawn(move || {
+        loop {
+            let mut sig = 0;
+            // SAFETY: waiting on the blocked SIGWINCH set.
+            if unsafe { libc::sigwait(&winch, &mut sig) } != 0 {
+                return;
+            }
+            if proto::write_frame(
+                &mut *winch_writer.lock().expect("writer"),
+                proto::RESIZE,
+                &resize_payload(t),
+            )
+            .is_err()
+            {
+                return;
+            }
         }
     });
     let mut reader = s;
@@ -281,7 +302,9 @@ fn attach(s: UnixStream, t: u32) -> i32 {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let Some(cmd) = args.first().map(String::as_str) else { die("usage: mux2 new|run|ls|screen|replay|write|resize|wait|kill|attach|bench|stats|stop") };
+    let Some(cmd) = args.first().map(String::as_str) else {
+        die("usage: mux2 new|run|ls|screen|replay|write|resize|wait|kill|attach|bench|stats|stop")
+    };
     let mut s = connect();
     let mut stdout = io::stdout().lock();
     match cmd {

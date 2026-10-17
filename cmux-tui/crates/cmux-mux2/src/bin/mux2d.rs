@@ -162,7 +162,14 @@ fn needs_immediate_parse(data: &[u8]) -> bool {
 }
 
 impl Server {
-    fn kev(&self, ident: usize, filter: i16, flags: u16, fflags: u32, udata: u64) -> io::Result<()> {
+    fn kev(
+        &self,
+        ident: usize,
+        filter: i16,
+        flags: u16,
+        fflags: u32,
+        udata: u64,
+    ) -> io::Result<()> {
         // SAFETY: zeroed kevent is a valid value; fields are set below.
         let mut ev: libc::kevent = unsafe { std::mem::zeroed() };
         ev.ident = ident;
@@ -181,7 +188,14 @@ impl Server {
         while !self.shutdown {
             // SAFETY: events has the capacity passed.
             let n = unsafe {
-                libc::kevent(self.kq, std::ptr::null(), 0, events.as_mut_ptr(), events.len() as i32, std::ptr::null())
+                libc::kevent(
+                    self.kq,
+                    std::ptr::null(),
+                    0,
+                    events.as_mut_ptr(),
+                    events.len() as i32,
+                    std::ptr::null(),
+                )
             };
             if n < 0 {
                 let err = io::Error::last_os_error();
@@ -211,7 +225,8 @@ impl Server {
     fn accept(&mut self) {
         loop {
             // SAFETY: accept on our listening socket.
-            let fd = unsafe { libc::accept(self.listen, std::ptr::null_mut(), std::ptr::null_mut()) };
+            let fd =
+                unsafe { libc::accept(self.listen, std::ptr::null_mut(), std::ptr::null_mut()) };
             if fd < 0 {
                 return;
             }
@@ -225,13 +240,35 @@ impl Server {
             let nosig: libc::c_int = 1;
             // SAFETY: setting SO_NOSIGPIPE with a valid option value.
             unsafe {
-                libc::setsockopt(fd, libc::SOL_SOCKET, libc::SO_NOSIGPIPE, (&raw const nosig).cast(), 4);
+                libc::setsockopt(
+                    fd,
+                    libc::SOL_SOCKET,
+                    libc::SO_NOSIGPIPE,
+                    (&raw const nosig).cast(),
+                    4,
+                );
             }
-            self.conns.insert(id, Conn {
-                fd, inbuf: Vec::new(), out: VecDeque::new(), front_sent: 0, queued: 0, attached: None,
-                write_armed: false, read_armed: true, closing: false,
-            });
-            let _ = self.kev(fd as usize, libc::EVFILT_READ, libc::EV_ADD, 0, KIND_CONN | u64::from(id));
+            self.conns.insert(
+                id,
+                Conn {
+                    fd,
+                    inbuf: Vec::new(),
+                    out: VecDeque::new(),
+                    front_sent: 0,
+                    queued: 0,
+                    attached: None,
+                    write_armed: false,
+                    read_armed: true,
+                    closing: false,
+                },
+            );
+            let _ = self.kev(
+                fd as usize,
+                libc::EVFILT_READ,
+                libc::EV_ADD,
+                0,
+                KIND_CONN | u64::from(id),
+            );
         }
     }
 
@@ -381,7 +418,9 @@ impl Server {
     }
 
     fn detach(&mut self, c: u32) {
-        let Some(old) = self.conns.get_mut(&c).and_then(|conn| conn.attached.take()) else { return };
+        let Some(old) = self.conns.get_mut(&c).and_then(|conn| conn.attached.take()) else {
+            return;
+        };
         if let Some(term) = self.terms.get_mut(&old) {
             term.attached.retain(|x| *x != c);
         }
@@ -413,7 +452,9 @@ impl Server {
             }
             proto::SCREEN | proto::REPLAY => {
                 let Some(t) = r.u32() else { return self.err(id, "bad request") };
-                let Some(term) = self.terms.get_mut(&t) else { return self.err(id, "no such terminal") };
+                let Some(term) = self.terms.get_mut(&t) else {
+                    return self.err(id, "no such terminal");
+                };
                 flush_parse(term);
                 let out = if kind == proto::SCREEN {
                     term.vt.viewport_text().map(String::into_bytes)
@@ -432,8 +473,12 @@ impl Server {
                 let mut text = String::new();
                 for t in ids {
                     let term = &self.terms[&t];
-                    let state = term.exit.map_or_else(|| "running".to_string(), |s| format!("exited {s}"));
-                    text.push_str(&format!("{t}\t{}\t{}x{}\t{state}\n", term.pid, term.cols, term.rows));
+                    let state =
+                        term.exit.map_or_else(|| "running".to_string(), |s| format!("exited {s}"));
+                    text.push_str(&format!(
+                        "{t}\t{}\t{}x{}\t{state}\n",
+                        term.pid, term.cols, term.rows
+                    ));
                 }
                 self.send(id, proto::OK, text.as_bytes());
             }
@@ -490,7 +535,9 @@ impl Server {
                     return self.err(id, "bad resize");
                 };
                 let attached = self.conns.get(&id).is_some_and(|c| c.attached == Some(t));
-                let Some(term) = self.terms.get_mut(&t) else { return self.err(id, "no such terminal") };
+                let Some(term) = self.terms.get_mut(&t) else {
+                    return self.err(id, "no such terminal");
+                };
                 flush_parse(term);
                 let (cols, rows) = (cols.max(1), rows.max(1));
                 if (cols, rows) != (term.cols, term.rows) {
@@ -502,7 +549,8 @@ impl Server {
                     // The resize may emit an in-band size report (mode 2048).
                     self.flush_replies(t);
                     // Every viewer must continue from the new geometry.
-                    let viewers = self.terms.get(&t).map(|x| x.attached.clone()).unwrap_or_default();
+                    let viewers =
+                        self.terms.get(&t).map(|x| x.attached.clone()).unwrap_or_default();
                     for c in viewers {
                         self.snapshot_to(t, c);
                     }
@@ -516,7 +564,9 @@ impl Server {
                 let bytes: u64 = self.terms.values().map(|t| t.bytes_in).sum();
                 let text = format!(
                     "pid\t{}\nterminals\t{}\nclients\t{}\npending_bytes\t{pending}\nbytes_in\t{bytes}\n",
-                    std::process::id(), self.terms.len(), self.conns.len()
+                    std::process::id(),
+                    self.terms.len(),
+                    self.conns.len()
                 );
                 self.send(id, proto::OK, text.as_bytes());
             }
@@ -560,12 +610,33 @@ impl Server {
 
         let t = self.next_term;
         self.next_term = self.next_term.wrapping_add(1).max(1);
-        self.terms.insert(t, Term {
-            pid, master, vt, cols, rows, pending: Vec::new(), replies, input: VecDeque::new(), input_armed: false,
-            attached: Vec::new(), waiters: Vec::new(), exit: None, pty_open: true, bytes_in: 0,
-        });
+        self.terms.insert(
+            t,
+            Term {
+                pid,
+                master,
+                vt,
+                cols,
+                rows,
+                pending: Vec::new(),
+                replies,
+                input: VecDeque::new(),
+                input_armed: false,
+                attached: Vec::new(),
+                waiters: Vec::new(),
+                exit: None,
+                pty_open: true,
+                bytes_in: 0,
+            },
+        );
         self.kev(master as usize, libc::EVFILT_READ, libc::EV_ADD, 0, KIND_PTY | u64::from(t))?;
-        if let Err(e) = self.kev(pid as usize, libc::EVFILT_PROC, libc::EV_ADD | libc::EV_ONESHOT, libc::NOTE_EXIT, KIND_PROC | u64::from(t)) {
+        if let Err(e) = self.kev(
+            pid as usize,
+            libc::EVFILT_PROC,
+            libc::EV_ADD | libc::EV_ONESHOT,
+            libc::NOTE_EXIT,
+            KIND_PROC | u64::from(t),
+        ) {
             // The child exited before the filter was added: reap it now.
             if e.raw_os_error() == Some(libc::ESRCH) {
                 self.child_exited(t, pid);
@@ -622,7 +693,8 @@ impl Server {
         let mut total = 0;
         while total < budget {
             // SAFETY: buf is valid for its length.
-            let n = unsafe { libc::read(term.master, self.buf.as_mut_ptr().cast(), self.buf.len()) };
+            let n =
+                unsafe { libc::read(term.master, self.buf.as_mut_ptr().cast(), self.buf.len()) };
             if n > 0 {
                 let chunk = &self.buf[..n as usize];
                 total += chunk.len();
@@ -687,7 +759,11 @@ impl Server {
         // SAFETY: reaping our own child; NOTE_EXIT means it has exited.
         let r = unsafe { libc::waitpid(pid, &mut status, 0) };
         let code = if r == pid {
-            if libc::WIFEXITED(status) { libc::WEXITSTATUS(status) } else { 128 + libc::WTERMSIG(status) }
+            if libc::WIFEXITED(status) {
+                libc::WEXITSTATUS(status)
+            } else {
+                128 + libc::WTERMSIG(status)
+            }
         } else {
             -1
         };
@@ -701,7 +777,8 @@ impl Server {
         let Some(term) = self.terms.get_mut(&t) else { return };
         flush_parse(term);
         term.exit = Some(code);
-        let notify: Vec<u32> = term.waiters.drain(..).chain(term.attached.iter().copied()).collect();
+        let notify: Vec<u32> =
+            term.waiters.drain(..).chain(term.attached.iter().copied()).collect();
         self.flush_replies(t);
         for c in notify {
             self.send(c, proto::EXIT, &code.to_le_bytes());
@@ -727,15 +804,25 @@ fn set_winsize(fd: RawFd, cols: u16, rows: u16) {
 /// Opens a PTY and starts `argv` on it as a session leader with the PTY as
 /// its controlling terminal. The server is single-threaded, so fork is safe;
 /// the child only calls async-signal-safe functions before exec.
-fn spawn_pty(argv: &[CString], cwd: Option<&std::ffi::CStr>, cols: u16, rows: u16) -> io::Result<(RawFd, libc::pid_t)> {
+fn spawn_pty(
+    argv: &[CString],
+    cwd: Option<&std::ffi::CStr>,
+    cols: u16,
+    rows: u16,
+) -> io::Result<(RawFd, libc::pid_t)> {
     let mut master = -1;
     let mut slave = -1;
     let mut ws = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
     // SAFETY: openpty writes two descriptors; null name/termios are allowed.
-    cvt(unsafe { libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null_mut(), &mut ws) })?;
+    cvt(unsafe {
+        libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null_mut(), &mut ws)
+    })?;
     if let Err(e) = set_nonblock_cloexec(master) {
         // SAFETY: closing descriptors we own.
-        unsafe { libc::close(master); libc::close(slave) };
+        unsafe {
+            libc::close(master);
+            libc::close(slave)
+        };
         return Err(e);
     }
     let mut ptrs: Vec<*const libc::c_char> = argv.iter().map(|a| a.as_ptr()).collect();
@@ -746,7 +833,10 @@ fn spawn_pty(argv: &[CString], cwd: Option<&std::ffi::CStr>, cols: u16, rows: u1
     if pid < 0 {
         let err = io::Error::last_os_error();
         // SAFETY: closing descriptors we own.
-        unsafe { libc::close(master); libc::close(slave) };
+        unsafe {
+            libc::close(master);
+            libc::close(slave)
+        };
         return Err(err);
     }
     if pid == 0 {
@@ -816,7 +906,13 @@ fn raise_nofile() {
             let mut max: libc::c_int = 0;
             let mut len = size_of::<libc::c_int>();
             let name = c"kern.maxfilesperproc";
-            libc::sysctlbyname(name.as_ptr(), (&raw mut max).cast(), &mut len, std::ptr::null_mut(), 0);
+            libc::sysctlbyname(
+                name.as_ptr(),
+                (&raw mut max).cast(),
+                &mut len,
+                std::ptr::null_mut(),
+                0,
+            );
             let want = if max > 0 { (max as libc::rlim_t).min(lim.rlim_max) } else { lim.rlim_max };
             lim.rlim_cur = want;
             libc::setrlimit(libc::RLIMIT_NOFILE, &lim);
@@ -827,7 +923,8 @@ fn raise_nofile() {
 fn main() {
     let path = proto::socket_path();
     raise_nofile();
-    let ready_fd = std::env::var_os("MUX2_READY_FD").and_then(|v| OsStr::to_str(&v)?.parse::<RawFd>().ok());
+    let ready_fd =
+        std::env::var_os("MUX2_READY_FD").and_then(|v| OsStr::to_str(&v)?.parse::<RawFd>().ok());
     // SAFETY: single-threaded at this point.
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_IGN);
@@ -848,10 +945,18 @@ fn main() {
     // SAFETY: kqueue has no preconditions.
     let kq = unsafe { libc::kqueue() };
     let mut server = Server {
-        kq, listen, terms: HashMap::new(), conns: HashMap::new(), next_term: 1, next_conn: 1,
-        buf: vec![0; READ_CHUNK], shutdown: false,
+        kq,
+        listen,
+        terms: HashMap::new(),
+        conns: HashMap::new(),
+        next_term: 1,
+        next_conn: 1,
+        buf: vec![0; READ_CHUNK],
+        shutdown: false,
     };
-    server.kev(listen as usize, libc::EVFILT_READ, libc::EV_ADD, 0, TOKEN_LISTEN).expect("register listener");
+    server
+        .kev(listen as usize, libc::EVFILT_READ, libc::EV_ADD, 0, TOKEN_LISTEN)
+        .expect("register listener");
     // Readiness: the client that started us waits on this descriptor.
     if let Some(fd) = ready_fd {
         // SAFETY: writing one byte to the inherited pipe, then closing it.
