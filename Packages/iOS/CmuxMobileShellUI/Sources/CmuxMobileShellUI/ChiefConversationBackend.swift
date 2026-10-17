@@ -19,6 +19,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     private var state = State()
 
     private struct State {
+        static let cachedMessageLimit = 2_048
         var previousMessagesByID: [String: MobileChiefMessage] = [:]
         /// Structured Chief cards are kept as backend metadata while the
         /// generic conversation model renders pending cards as polls.
@@ -90,10 +91,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             map($0, clientMessageID: clientMessageID(for: $0))
         }
         withState { state in
-            state.previousMessagesByID.merge(
-                result.messages.reduce(into: [:]) { $0[$1.id] = $1 },
-                uniquingKeysWith: { _, new in new }
-            )
+            mergeMessages(result.messages, into: &state)
         }
         return ConversationHistoryPage(messages: mapped, hasMore: result.hasMore)
     }
@@ -333,10 +331,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                     // from that page remains answerable and can be reread by
                     // `before_seq` after the RPC commits.
                     withState { state in
-                        state.previousMessagesByID.merge(
-                            result.messages.reduce(into: [:]) { $0[$1.id] = $1 },
-                            uniquingKeysWith: { _, new in new }
-                        )
+                        mergeMessages(result.messages, into: &state)
                     }
                     lastSeq = result.messages.map(\.seq).max() ?? 0
                     continuation.yield(.connected(
@@ -379,10 +374,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                     // newest-page window, and `votePoll` needs its sequence to
                     // perform the targeted reread.
                     withState { state in
-                        state.previousMessagesByID.merge(
-                            result.messages.reduce(into: [:]) { $0[$1.id] = $1 },
-                            uniquingKeysWith: { _, new in new }
-                        )
+                        mergeMessages(result.messages, into: &state)
                     }
                     lastSeq = max(lastSeq, result.messages.map(\.seq).max() ?? 0)
                     continuation.yield(.readState(ConversationReadState(
@@ -592,6 +584,30 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     private func takeCorrelatedMessage(for clientMessageID: String) -> MobileChiefMessage? {
         withState { state in
             state.correlatedMessagesByClientID.removeValue(forKey: clientMessageID)
+        }
+    }
+
+    /// Keep enough transcript history to answer cards loaded from an older
+    /// page without retaining an unbounded conversation in a long-lived view.
+    /// Pending cards stay protected so polling cannot make a visible action
+    /// disappear before the user taps it.
+    private func mergeMessages(_ messages: [MobileChiefMessage], into state: inout State) {
+        state.previousMessagesByID.merge(
+            messages.reduce(into: [:]) { $0[$1.id] = $1 },
+            uniquingKeysWith: { _, new in new }
+        )
+        guard state.previousMessagesByID.count > State.cachedMessageLimit else { return }
+        let protectedIDs = Set(state.structuredPartsByMessageID.compactMap { id, parts in
+            Self.pendingPollPart(from: parts) == nil ? nil : id
+        })
+        let removeCount = state.previousMessagesByID.count - State.cachedMessageLimit
+        let removable = state.previousMessagesByID.values
+            .filter { !protectedIDs.contains($0.id) }
+            .sorted { $0.seq < $1.seq }
+            .prefix(removeCount)
+        for message in removable {
+            state.previousMessagesByID.removeValue(forKey: message.id)
+            state.structuredPartsByMessageID.removeValue(forKey: message.id)
         }
     }
 
