@@ -36,9 +36,9 @@ struct WorkspaceShellHost: View {
         MobileChatHomeView(
             store: store,
             isRestoringStoredMac: isRestoringStoredMac && !loadingTimedOut,
-            showAddDevice: showAddDevice,
             showSettings: showSettings,
-            showComputers: showComputers
+            showComputers: showComputers,
+            showAddDevice: showAddDevice
         )
         .task(id: deadlineTaskID) {
             await updateLoadingDeadline()

@@ -18,7 +18,7 @@ final class MobileChatHomeModel {
     private var sessionEventsTask: Task<Void, Never>?
     private var conversationTasks: [String: Task<Void, Never>] = [:]
 
-    nonisolated deinit {
+    isolated deinit {
         sessionEventsTask?.cancel()
         conversationTasks.values.forEach { $0.cancel() }
     }
