@@ -11,7 +11,13 @@ import {
   withoutChildren,
 } from "./sessionList";
 
-const CHIEF_AVATAR = new URL("./ChiefAvatar.png", import.meta.url).href;
+export type ChiefMascot = "orb" | "machine" | "moon";
+
+const CHIEF_MASCOTS: Record<ChiefMascot, string> = {
+  orb: new URL("./mascots/ChiefMascotOrb.png", import.meta.url).href,
+  machine: new URL("./mascots/ChiefMascotMachine.png", import.meta.url).href,
+  moon: new URL("./mascots/ChiefMascotMoon.png", import.meta.url).href,
+};
 
 export type ChiefDockProps = {
   sessions: readonly AcpmuxSessionEntry[];
@@ -21,6 +27,7 @@ export type ChiefDockProps = {
   onMoveToTab(sessionId: string): void;
   queueCounts?: ReadonlyMap<string, number>;
   steeringIds?: ReadonlySet<string>;
+  mascot?: ChiefMascot;
 };
 
 const MAX_CARDS = 4;
@@ -67,6 +74,7 @@ export function ChiefDock({
   onMoveToTab,
   queueCounts,
   steeringIds,
+  mascot = "orb",
 }: ChiefDockProps) {
   const t = useT();
   const [attached, setAttached] = useState(true);
@@ -187,7 +195,7 @@ export function ChiefDock({
           title={t("header.agentChat")}
           onClick={() => setExpanded((value) => !value)}
         >
-          <img src={CHIEF_AVATAR} alt="" aria-hidden="true" />
+          <img src={CHIEF_MASCOTS[mascot]} alt="" aria-hidden="true" />
           {attention > 0 && (
             <span className="acpmux-chief-dock-badge" aria-label={`${attention}`}>
               {attention}
@@ -212,7 +220,13 @@ export function ChiefDock({
             aria-pressed={attached}
             onClick={() => setAttached((value) => !value)}
           >
-            <Icon name="media.audio" size={20} selected={attached} />
+            <span className="acpmux-chief-dock-wave" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+              <i />
+              <i />
+            </span>
           </button>
           <button
             type="button"

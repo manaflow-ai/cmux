@@ -68,10 +68,32 @@ export default componentEntry({
   load: async () => ChiefDock,
   variants: {
     baseline: {
-      note: "A Chief mascot rail with a stacked set of working, attention and quiet agent chats; spawned child chats stay folded.",
+      note: "The default Chief orb with a stacked set of working, attention and quiet agent chats; spawned child chats stay folded.",
       props: {
         sessions: base,
         currentId: "chief-working",
+        onSelect: () => undefined,
+        onNewChat: () => undefined,
+        onMoveToTab: () => undefined,
+      },
+    },
+    "mascot-machine": {
+      note: "Mascot option: a tiny friendly machine with a compact, readable pixel silhouette.",
+      props: {
+        sessions: base,
+        currentId: "chief-working",
+        mascot: "machine",
+        onSelect: () => undefined,
+        onNewChat: () => undefined,
+        onMoveToTab: () => undefined,
+      },
+    },
+    "mascot-moon": {
+      note: "Mascot option: a soft moon-moth companion, kept as an alternate Chief personality.",
+      props: {
+        sessions: base,
+        currentId: "chief-working",
+        mascot: "moon",
         onSelect: () => undefined,
         onNewChat: () => undefined,
         onMoveToTab: () => undefined,
