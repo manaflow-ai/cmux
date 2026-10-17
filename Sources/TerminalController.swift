@@ -12334,7 +12334,7 @@ class TerminalController {
     private func v2BrowserNetworkRequests(params: [String: Any]) -> V2CallResult {
         if let surfaceId = v2UUID(params, "surface_id") {
             let items = v2BrowserUnsupportedNetworkRequestsBySurface[surfaceId] ?? []
-            return .err(code: "not_supported", message: "browser.network.requests is not supported on WKWebView", data: [
+            return .err(code: "not_supported", message: "browser.network.requests is not supported by cmux browser automation yet", data: [
                 "details": "Request interception logs are unavailable without CDP network hooks",
                 "recorded_requests": items
             ])
