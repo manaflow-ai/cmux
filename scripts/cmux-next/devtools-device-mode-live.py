@@ -279,7 +279,12 @@ def suite(br, page, front):
     probe = lambda: br.cdp.eval("probe()", page, 20)
     wait_for(lambda: isinstance(fe("state"), dict), 30, 1)
     out["devices"] = fe("devices")
-    out["base"] = (None, probe())
+    # DevTools may still move to its remembered dock side: read the base once the page size holds.
+    seen = []
+    def steady():
+        seen.append(probe())
+        return len(seen) >= 2 and seen[-1] and seen[-2] and (seen[-1]["w"], seen[-1]["h"]) == (seen[-2]["w"], seen[-2]["h"]) and seen[-1]
+    out["base"] = (None, wait_for(steady, 12, 1) or seen[-1])
     out["toggle"] = (fe("toggle"), probe())
     out["iphone"] = (fe("device", {"title": "iPhone 14 Pro Max"}), None)
     br.cdp.call("Page.reload", {}, page); wait_for(lambda: br.cdp.eval("typeof probe", page, 5) == "function", 20)
