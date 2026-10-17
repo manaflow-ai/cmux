@@ -5,7 +5,8 @@ OpenCode 1.x (including the current dev channel) calls `default.server(ctx)`
 inside the TUI process with `{ client, project, worktree, directory,
 serverUrl, $ }` and delivers events through the returned `event` hook. It
 loads `cmux-feed.js`, `cmux-session.js` and `plugins/cmux/index.js`, so the
-server entries must deliver one Stop per turn instead of returning `{}`.
+server entries must have unique IDs and deliver one Stop per turn instead of
+returning `{}`.
 """
 from __future__ import annotations
 
@@ -95,10 +96,17 @@ const waitFor = async (predicate, message) => {
 // Load the three cmux entries for one plugin scope, as OpenCode does.
 const loadScope = async (scopeCtx) => {
   const hooks = [];
-  for (const file of ["cmux-feed.js", "cmux-session.js", path.join("cmux", "index.js")]) {
+  const files = ["cmux-feed.js", "cmux-session.js", path.join("cmux", "index.js")];
+  const modules = [];
+  for (const file of files) {
     const mod = await import(path.join(pluginDir, file));
     if (typeof mod.default?.server !== "function") throw new Error(`${file} lacks a server entry`);
+    modules.push([file, mod]);
     hooks.push(await mod.default.server(scopeCtx, {}));
+  }
+  const ids = modules.map(([file, mod]) => `${file}:${mod.default.id}`);
+  if (new Set(modules.map(([, mod]) => mod.default.id)).size !== modules.length) {
+    throw new Error(`OpenCode plugin IDs must be unique: ${ids.join(", ")}`);
   }
   const active = hooks.filter((hook) => hook && typeof hook.event === "function");
   if (active.length === 0) throw new Error("no OpenCode server entry subscribed to events");
@@ -188,10 +196,11 @@ def main() -> int:
         package_dir = plugin_dir / "cmux"
         package_dir.mkdir(parents=True)
         feed_source = (ROOT / "Resources/opencode-plugin.js").read_text(encoding="utf-8")
+        server_source = feed_source.replace('id: "cmux.feed"', 'id: "cmux.server"')
         (plugin_dir / "cmux-feed.js").write_text(feed_source, encoding="utf-8")
         (plugin_dir / "cmux-session.js").write_text(session_plugin_source(), encoding="utf-8")
         (package_dir / "index.js").write_text(
-            "// cmux-opencode-tui-plugin-server-marker v2\n" + feed_source, encoding="utf-8"
+            "// cmux-opencode-tui-plugin-server-marker v2\n" + server_source, encoding="utf-8"
         )
         (plugin_dir / "package.json").write_text('{"type":"module"}', encoding="utf-8")
         (package_dir / "package.json").write_text('{"type":"module"}', encoding="utf-8")

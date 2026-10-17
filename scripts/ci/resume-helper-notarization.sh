@@ -21,6 +21,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 HELPER_TOOL="${CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL:-$ROOT_DIR/scripts/ci/notarize-computer-use-helper.sh}"
 PACKAGE_TOOL="${CMUX_NOTARIZE_NIGHTLY_DMG_TOOL:-$ROOT_DIR/scripts/ci/notarize-nightly-dmg.sh}"
 RESUME_TOOL="${CMUX_RESUME_NIGHTLY_NOTARIZATION_TOOL:-$ROOT_DIR/scripts/ci/resume-nightly-notarization.sh}"
+SIGNING_KEYCHAIN_TOOL="${CMUX_SIGNING_KEYCHAIN_TOOL:-$ROOT_DIR/scripts/ci/signing-keychain.sh}"
 
 [ -f "$HELPER_STATE" ] || { echo "Computer Use helper state not found: $HELPER_STATE" >&2; exit 1; }
 [ -d "$APP_PATH/Contents" ] || { echo "Recovered signed app not found: $APP_PATH" >&2; exit 1; }
@@ -48,6 +49,10 @@ CHANNEL_RELEASE_TAG="${CHANNEL_RELEASE_TAG:-${CMUX_CHANNEL:-nightly}}" \
 CHANNEL_DMG_PREFIX="${CHANNEL_DMG_PREFIX:-cmux-${CMUX_CHANNEL:-nightly}-macos}" \
 NIGHTLY_VARIANT="${NIGHTLY_VARIANT:-universal}" \
   "$PACKAGE_TOOL" "$APP_PATH" "$DMG_RELEASE" "$DMG_IMMUTABLE"
+
+# The package tool already deleted the CI signing keychain after the DMG
+# signature. Delete again before the continuation launches the stapled app.
+"$SIGNING_KEYCHAIN_TOOL" delete
 
 [ -f "$OUTER_STATE" ] || { echo "Outer DMG notarization state was not created: $OUTER_STATE" >&2; exit 1; }
 [ -s "$OUTER_LOG" ] || { echo "Outer DMG notarization evidence was not created: $OUTER_LOG" >&2; exit 1; }

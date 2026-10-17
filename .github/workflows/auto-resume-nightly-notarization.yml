@@ -131,6 +131,19 @@ jobs:
           metadata = [f"cmux-{channel}-notarization-metadata-{variant}-{short_sha}" for variant in ("arm64", "x86_64", "universal")]
           print(f"metadata_only={'true' if all(name in names for name in metadata) else 'false'}")
           PY
+          if grep -Fxq 'ready=true' "$RUNNER_TEMP/artifact-check"; then
+            # Bundle code runs only in the source run's secret-free verify jobs.
+            # Publish a variant only when the latest run of its verify job passed.
+            gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/jobs?filter=latest&per_page=100" \
+              --jq '.jobs[] | [.name, (.conclusion // "")] | @tsv' > "$RUNNER_TEMP/source-jobs.tsv"
+            for variant in arm64 x86_64 universal; do
+              if ! grep -Fxq "$(printf 'Verify signed nightly app (%s)\tsuccess' "$variant")" "$RUNNER_TEMP/source-jobs.tsv"; then
+                echo "::warning::Verify signed nightly app ($variant) did not pass in run $SOURCE_RUN_ID; nothing is continued."
+                printf 'ready=false\nreason=verify-job-did-not-pass\n' > "$RUNNER_TEMP/artifact-check"
+                break
+              fi
+            done
+          fi
           cat "$RUNNER_TEMP/artifact-check" > "$GITHUB_OUTPUT"
           {
             echo "channel=$channel"
@@ -152,7 +165,7 @@ jobs:
     outputs:
       all_accepted: ${{ steps.poll.outputs.all_accepted }}
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 90
     concurrency:
       group: notarization-poll-${{ needs.preflight.outputs.channel }}-${{ needs.preflight.outputs.short_sha }}
@@ -284,20 +297,17 @@ jobs:
     permissions:
       actions: read
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
     timeout-minutes: 90
+    # Secrets and the job token are set only on the steps that use them, so the
+    # steps that launch the recovered app do not inherit them.
     env:
-      GH_TOKEN: ${{ github.token }}
       SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
       SOURCE_RUN_ATTEMPT: ${{ needs.preflight.outputs.source_run_attempt }}
       SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
       CHANNEL: ${{ needs.preflight.outputs.channel }}
       SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
       VARIANT: ${{ matrix.variant }}
-      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
-      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
-      ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
     steps:
       - name: Set outer notarization receipt paths
         run: |
@@ -336,26 +346,9 @@ jobs:
           chmod +x "$wrapper_dir/create-dmg"
           echo "$wrapper_dir" >> "$GITHUB_PATH"
 
-      - name: Import signing certificate for recovered DMG
-        env:
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          set -euo pipefail
-          [ -n "$APPLE_CERTIFICATE_BASE64" ] || { echo "Missing APPLE_CERTIFICATE_BASE64" >&2; exit 1; }
-          [ -n "$APPLE_CERTIFICATE_PASSWORD" ] || { echo "Missing APPLE_CERTIFICATE_PASSWORD" >&2; exit 1; }
-          KEYCHAIN_PASSWORD="$(uuidgen)"
-          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > /tmp/cert.p12
-          security delete-keychain build.keychain >/dev/null 2>&1 || true
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -lut 21600 build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-          ./scripts/import-apple-developer-id-intermediates.sh build.keychain
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-          security list-keychains -d user -s build.keychain
-
       - name: Download exact recovery artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           artifact="cmux-${CHANNEL}-notarization-recovery-${VARIANT}-${SHORT_SHA}"
@@ -373,8 +366,28 @@ jobs:
             printf '%s=%s\n' "$key" "$value" >> "$GITHUB_ENV"
           done < "$RUNNER_TEMP/recovery.env"
 
+      # Only a recovered Computer Use helper needs a signature here: the helper
+      # re-seals the app and the outer DMG is signed. A recovered DMG is
+      # already signed, so that path never imports the certificate.
+      # notarize-nightly-dmg.sh deletes the keychain after the DMG signature,
+      # before the continuation launches the stapled app.
+      - name: Import signing certificate for recovered DMG
+        if: env.RECOVERY_KIND == 'computer-use-helper'
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: ./scripts/ci/signing-keychain.sh create
+
       - name: Wait, staple, and validate exact submitted DMG
         id: wait-staple
+        env:
+          # Launch smokes of the stapled DMG run in verify-stapled, which holds
+          # no secrets. No bundle code runs in this job.
+          CMUX_DEFER_LAUNCH_SMOKES: "true"
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
           mkdir -p verified
@@ -533,7 +546,9 @@ jobs:
 
       - name: Cleanup signing keychain
         if: always()
-        run: security delete-keychain build.keychain >/dev/null 2>&1 || true
+        run: |
+          ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
+            || security delete-keychain build.keychain >/dev/null 2>&1 || true
 
   poll-outer:
     needs: [preflight, wait-and-staple]
@@ -543,7 +558,7 @@ jobs:
     outputs:
       all_accepted: ${{ steps.poll.outputs.all_accepted }}
       outer_variants: ${{ steps.poll.outputs.outer_variants }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 90
     environment: release
     permissions:
@@ -658,7 +673,7 @@ jobs:
     permissions:
       actions: read
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
     timeout-minutes: 30
     env:
       GH_TOKEN: ${{ github.token }}
@@ -701,6 +716,9 @@ jobs:
           while IFS='=' read -r key value; do printf '%s=%s\n' "$key" "$value" >> "$GITHUB_ENV"; done < "$RUNNER_TEMP/recovery.env"
 
       - name: Staple and validate accepted outer DMG
+        env:
+          # Launch smokes run in verify-stapled, which holds no secrets.
+          CMUX_DEFER_LAUNCH_SMOKES: "true"
         run: |
           set -euo pipefail
           mkdir -p verified
@@ -746,11 +764,69 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  publish:
+  verify-stapled:
+    name: Verify stapled DMG (${{ matrix.variant }})
+    # No environment and no secrets: this job launches the app inside each
+    # exact stapled DMG and records the digest it tested. publish accepts only
+    # those bytes.
     needs: [preflight, wait-and-staple, staple-outer]
     if: >-
       always() && needs.preflight.outputs.ready == 'true' &&
       (needs.wait-and-staple.result == 'success' || needs.staple-outer.result == 'success')
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [arm64, x86_64, universal]
+    permissions:
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 30
+    env:
+      CHANNEL: ${{ needs.preflight.outputs.channel }}
+      SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
+      VARIANT: ${{ matrix.variant }}
+    steps:
+      - name: Checkout trusted continuation tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: refs/heads/main
+
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download accepted variant
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-${{ needs.preflight.outputs.channel }}-notarization-verified-${{ matrix.variant }}-${{ needs.preflight.outputs.short_sha }}
+          path: verified
+
+      - name: Launch the app inside the exact stapled DMG
+        run: |
+          set -euo pipefail
+          manifest=verified/cmux-nightly-notarization-recovery.json
+          immutable="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["immutable_path"].split("/")[-1])' "$manifest")"
+          expected="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["final_dmg_sha256"])' "$manifest")"
+          mkdir -p tested
+          ./scripts/ci/smoke-dmg.sh "verified/$immutable" "$CHANNEL" --expect-sha256 "$expected" 3>"$RUNNER_TEMP/tested.line"
+          awk '$1 == "tested" {print $2 "  " $3}' "$RUNNER_TEMP/tested.line" > "tested/tested-${VARIANT}.sha256"
+          test -s "tested/tested-${VARIANT}.sha256"
+          cat "tested/tested-${VARIANT}.sha256"
+
+      - name: Upload tested digest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-${{ needs.preflight.outputs.channel }}-launch-tested-${{ matrix.variant }}-${{ needs.preflight.outputs.short_sha }}
+          path: tested/tested-${{ matrix.variant }}.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: [preflight, wait-and-staple, staple-outer, verify-stapled]
+    if: >-
+      always() && needs.preflight.outputs.ready == 'true' &&
+      (needs.wait-and-staple.result == 'success' || needs.staple-outer.result == 'success') &&
+      needs.verify-stapled.result == 'success'
     outputs:
       published: ${{ steps.publication-result.outputs.published }}
     environment: release
@@ -758,7 +834,7 @@ jobs:
       actions: read
       contents: write
       issues: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     concurrency:
       group: release-publish-${{ needs.preflight.outputs.release_tag }}
       cancel-in-progress: false
@@ -788,6 +864,13 @@ jobs:
           path: verified
           merge-multiple: false
 
+      - name: Download tested digests
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: cmux-${{ needs.preflight.outputs.channel }}-launch-tested-*-${{ needs.preflight.outputs.short_sha }}
+          path: tested
+          merge-multiple: true
+
       - name: Download immutable remote daemon assets
         run: |
           set -euo pipefail
@@ -815,6 +898,11 @@ jobs:
             expected="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["final_dmg_sha256"])' "$manifest")"
             actual="$(shasum -a 256 "$dir/$immutable" | awk '{print $1}')"
             [ "${actual,,}" = "${expected,,}" ] || { echo "$variant stapled DMG SHA-256 mismatch" >&2; exit 1; }
+            tested="$(find tested -type f -name "tested-${variant}.sha256" -print -quit)"
+            if [ -z "$tested" ] || ! grep -Fxq "$actual  $immutable" "$tested"; then
+              echo "$variant DMG is not the one verify-stapled launched" >&2
+              exit 1
+            fi
             cp "$dir/$immutable" "nightly-out/$immutable"
             cp "$dir/$immutable" "nightly-out/${DMG_PREFIX}-${variant}.dmg"
             feed="appcast-${variant}.xml"
@@ -1082,7 +1170,7 @@ jobs:
       fail-fast: false
       matrix:
         variant: [arm64, x86_64, universal]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
     timeout-minutes: 45
     env:
       GH_TOKEN: ${{ github.token }}
