@@ -252,7 +252,8 @@ final class MobileChatStore {
         do {
             // Install the listener before the authoritative pull. This closes
             // the gap where a new agent could start between the list request
-            // and event subscription; the snapshot still wins on ordering.
+            // and event subscription; the reconciler preserves pushes that
+            // arrive after the snapshot cursor.
             let stream = await source.sessionEvents()
             let eventPump = Task { @MainActor [weak self] in
                 for await frame in stream {

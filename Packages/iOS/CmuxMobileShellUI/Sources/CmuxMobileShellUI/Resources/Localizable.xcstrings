@@ -23364,34 +23364,34 @@
           }
         }
       }
-    }
-  },
-  "mobile.tabs.chat": {
-    "extractionState": "manual",
-    "localizations": {
-      "en": {"stringUnit": {"state": "translated", "value": "Chat"}},
-      "de": {"stringUnit": {"state": "translated", "value": "Chat"}},
-      "fr": {"stringUnit": {"state": "translated", "value": "Chat"}},
-      "ar": {"stringUnit": {"state": "translated", "value": "محادثة"}},
-      "es": {"stringUnit": {"state": "translated", "value": "Chat"}},
-      "zh-Hant": {"stringUnit": {"state": "translated", "value": "聊天"}},
-      "zh-Hans": {"stringUnit": {"state": "translated", "value": "聊天"}},
-      "ko": {"stringUnit": {"state": "translated", "value": "채팅"}},
-      "ja": {"stringUnit": {"state": "translated", "value": "チャット"}}
-    }
-  },
-  "mobile.chat.search.placeholder": {
-    "extractionState": "manual",
-    "localizations": {
-      "en": {"stringUnit": {"state": "translated", "value": "Search chats"}},
-      "de": {"stringUnit": {"state": "translated", "value": "Chats durchsuchen"}},
-      "fr": {"stringUnit": {"state": "translated", "value": "Rechercher des chats"}},
-      "ar": {"stringUnit": {"state": "translated", "value": "البحث في المحادثات"}},
-      "es": {"stringUnit": {"state": "translated", "value": "Buscar chats"}},
-      "zh-Hant": {"stringUnit": {"state": "translated", "value": "搜尋聊天"}},
-      "zh-Hans": {"stringUnit": {"state": "translated", "value": "搜索聊天"}},
-      "ko": {"stringUnit": {"state": "translated", "value": "채팅 검색"}},
-      "ja": {"stringUnit": {"state": "translated", "value": "チャットを検索"}}
+    },
+    "mobile.tabs.chat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Chat"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Chat"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Chat"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "محادثة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Chat"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "聊天"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "聊天"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "채팅"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "チャット"}}
+      }
+    },
+    "mobile.chat.search.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Search chats"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Chats durchsuchen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Rechercher des chats"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "البحث في المحادثات"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Buscar chats"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "搜尋聊天"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "搜索聊天"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "채팅 검색"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "チャットを検索"}}
+      }
     }
   },
   "version": "1.0"
