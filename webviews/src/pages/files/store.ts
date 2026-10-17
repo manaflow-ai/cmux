@@ -2,7 +2,7 @@
 // expanded and which row is selected. Folders list on first expand and again on refresh. React reads
 // it through `useSyncExternalStore`.
 import { isPageError, type PageClient } from "../shared/pageClient";
-import { CLIPBOARD_WRITE, FilesOps, type FileEntry, type Listing, type RootInfo } from "./types";
+import { CLIPBOARD_WRITE, FilesOps, type FileEntry, type Listing, type RootInfo, type SearchResults } from "./types";
 
 export interface FolderState {
   entries?: FileEntry[];
@@ -30,6 +30,9 @@ export interface FilesSnapshot {
   /** Why the last file did not open; the next selection clears it. */
   notice?: string;
   rows: Row[];
+  /** The search field's text, and its matches (relative paths) once they came back. */
+  query: string;
+  results?: string[];
   folders: ReadonlyMap<string, FolderState>;
   expanded: ReadonlySet<string>;
   selected?: string;
@@ -50,7 +53,10 @@ export class FilesStore {
   private folders = new Map<string, FolderState>();
   private expanded = new Set<string>();
   private selected?: string;
-  private snapshot: FilesSnapshot = { rows: [], folders: this.folders, expanded: new Set() };
+  private query = "";
+  private results?: string[];
+  private lastSearch = 0;
+  private snapshot: FilesSnapshot = { rows: [], query: "", folders: this.folders, expanded: new Set() };
   private listeners = new Set<() => void>();
 
   constructor(
@@ -81,10 +87,34 @@ export class FilesStore {
     if (first && this.selected === undefined) this.select(first.path);
   }
 
-  /** Lists `path` again, and every expanded folder under it. */
+  /** Lists `path` again, and every expanded folder under it; a search runs again too. */
   async refresh(): Promise<void> {
     const folders = ["", ...[...this.expanded].sort()];
-    await Promise.all(folders.map((folder) => this.list(folder)));
+    await Promise.all([
+      ...folders.map((folder) => this.list(folder)),
+      ...(this.query.trim() ? [this.search(this.query)] : []),
+    ]);
+  }
+
+  /** Searches the folder for `query` (an empty one shows the tree again); a reply older than the
+   * last query is dropped. */
+  async search(query: string): Promise<void> {
+    this.query = query;
+    const request = ++this.lastSearch;
+    if (!query.trim() || !this.client) {
+      this.results = undefined;
+      return this.emit();
+    }
+    this.emit();
+    try {
+      const reply = await this.client.call<SearchResults>(FilesOps.search, { query });
+      if (request !== this.lastSearch) return;
+      this.results = reply.results.map((result) => result.path);
+    } catch {
+      if (request !== this.lastSearch) return;
+      this.results = [];
+    }
+    this.emit();
   }
 
   select(path: string | undefined): void {
@@ -204,6 +234,8 @@ export class FilesStore {
       unavailable: this.unavailable,
       notice: this.notice,
       rows: this.rows(),
+      query: this.query,
+      results: this.results,
       folders: this.folders,
       expanded: new Set(this.expanded),
       selected: this.selected,

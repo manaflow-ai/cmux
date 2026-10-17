@@ -1,7 +1,7 @@
 // l10n-allow-file: fixture file names, not shipped UI.
 // An in-memory `cmux.files.*` provider for the browser dev loop (`/files/?mock`) and the gallery.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
-import { FilesOps, type FileEntry, type Listing, type RootInfo } from "./types";
+import { FilesOps, type FileEntry, type Listing, type RootInfo, type SearchResults } from "./types";
 
 /** A folder tree: a folder is an object of its children, a file is `null`. */
 export type MockTree = { [name: string]: MockTree | null };
@@ -20,12 +20,17 @@ export const sampleTree: MockTree = {
   "tsconfig.json": null,
 };
 
+/// The dev loop's tree: the sample plus what git ignores there (greyed out in the page).
+export const devTree: MockTree = { ...sampleTree, ".env": null, node_modules: { react: { "index.js": null } } };
+
 export class MockFilesProvider implements PageClient {
   readonly opened: string[] = [];
   /** Folders whose listing says more children were left out. */
   readonly truncated = new Set<string>();
   /** When set, `open` fails with this message. */
   openFailure?: string;
+  /** Top-level names git ignores (listed greyed out, never found by search). */
+  readonly ignored = new Set(["node_modules", ".env"]);
 
   constructor(
     private readonly tree: MockTree = sampleTree,
@@ -41,6 +46,8 @@ export class MockFilesProvider implements PageClient {
         return this.root as R;
       case FilesOps.list:
         return this.list(path) as R;
+      case FilesOps.search:
+        return this.search(String((params as { query?: unknown } | undefined)?.query ?? "")) as R;
       case FilesOps.open:
         if (this.openFailure) throw pageError("cmux.files.open_failed", this.openFailure);
         this.opened.push(path);
@@ -57,6 +64,22 @@ export class MockFilesProvider implements PageClient {
     return () => {};
   }
 
+  /** Every file path whose name holds the query's letters in order, as the session host ranks loosely. */
+  private search(query: string): SearchResults {
+    const needle = query.toLowerCase();
+    const paths: string[] = [];
+    const walk = (node: MockTree, prefix: string) => {
+      for (const [name, child] of Object.entries(node)) {
+        const path = prefix ? `${prefix}/${name}` : name;
+        if (child) walk(child, path);
+        else if (this.ignored.has(path.split("/")[0]!)) continue;
+        else if (path.toLowerCase().includes(needle)) paths.push(path);
+      }
+    };
+    walk(this.tree, "");
+    return { results: paths.map((path) => ({ path })) };
+  }
+
   private list(path: string): Listing {
     let node: MockTree | null | undefined = this.tree;
     for (const part of path ? path.split("/") : []) node = node?.[part];
@@ -64,6 +87,7 @@ export class MockFilesProvider implements PageClient {
     const entries: FileEntry[] = Object.entries(node).map(([name, child]) => ({
       name,
       kind: child ? "directory" : "file",
+      ...(this.ignored.has(path ? `${path}/${name}` : name) ? { ignored: true } : {}),
     }));
     entries.sort(
       (a, b) =>

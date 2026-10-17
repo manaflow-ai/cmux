@@ -6,7 +6,7 @@ import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { FilesPage } from "./FilesPage";
-import { MockFilesProvider } from "./mockProvider";
+import { MockFilesProvider, devTree } from "./mockProvider";
 import { FilesStore } from "./store";
 import "../shared/pageBase.css";
 import "./styles.css";
@@ -27,7 +27,7 @@ export function mountFilesPage(root: HTMLElement, client: PageClient | null = de
 
 function defaultClient(): PageClient | null {
   const mock = new URLSearchParams(location.search).has("mock");
-  return createPageClient(mock ? () => new MockFilesProvider() : undefined);
+  return createPageClient(mock ? () => new MockFilesProvider(devTree) : undefined);
 }
 
 const root = document.getElementById("root");
