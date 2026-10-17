@@ -199,8 +199,11 @@ const openMode: Play = async (ctx) => {
   if (labels.length !== expected.length || labels.some((label, index) => label !== expected[index]))
     throw new Error(`Permission mode titles are not in menu order: ${labels.join(" | ")}`);
   for (const [index, item] of [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].entries()) {
-    if (item.querySelector(".ui-menu-check"))
-      throw new Error("Permission mode rows should not render a leading checkmark");
+    const check = item.querySelector<HTMLElement>(".ui-menu-check");
+    const checkStyle = check && ctx.document.defaultView?.getComputedStyle(check);
+    const checkRect = check?.getBoundingClientRect();
+    if (!check || checkStyle?.display !== "none" || checkRect?.width !== 0 || checkRect?.height !== 0)
+      throw new Error("Permission mode rows should hide the shared checkmark without reserving layout");
     if (item.querySelector<HTMLElement>(".ui-menu-shortcut")?.textContent?.trim() !== String(index + 1))
       throw new Error("Permission mode shortcut is not a trailing hint");
   }
