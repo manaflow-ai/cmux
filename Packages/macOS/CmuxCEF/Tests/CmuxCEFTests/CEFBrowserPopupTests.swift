@@ -77,6 +77,41 @@ struct CEFBrowserPopupTests {
         #expect(runtime.browser(id: 42) === popup.0)
     }
 
+    /// `window.close()` in a popup (or its opener's `popup.close()`) has
+    /// Chromium destroy the page without a close request: the popup's tab
+    /// or popup window stayed open around a dead page. A page Chromium
+    /// destroyed on its own asks its owner to close it; one cmux closed
+    /// does not.
+    @MainActor @Test
+    func aPageChromiumClosedAsksItsOwnerToClose() {
+        let runtime = CEFRuntime(layout: nil)
+        func page(_ id: Int32) -> (CEFBrowser, () -> [String]) {
+            let browser = CEFBrowser(
+                configuration: CEFBrowserConfiguration(profile: UUID(), initialURL: URL(string: "https://example.com/")),
+                runtime: runtime
+            )
+            runtime.register(browser, id: id)
+            var events: [String] = []
+            browser.onEvent = { event in
+                switch event {
+                case .closeRequested: events.append("closeRequested")
+                case .closed: events.append("closed")
+                default: break
+                }
+            }
+            return (browser, { events })
+        }
+
+        let (byPage, pageEvents) = page(1)
+        byPage.browserDidClose()
+        #expect(pageEvents() == ["closeRequested", "closed"])
+
+        let (byCmux, cmuxEvents) = page(2)
+        byCmux.close()
+        byCmux.browserDidClose()
+        #expect(cmuxEvents() == ["closed"])
+    }
+
     @Test
     func afterCreatedEventCarriesThePopupTargetURL() throws {
         let event = CEFShimEvent(
