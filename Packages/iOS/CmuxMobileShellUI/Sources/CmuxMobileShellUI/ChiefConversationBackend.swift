@@ -242,6 +242,21 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         if let message = refreshed.messages.first(where: { $0.id == messageID }) {
             return map(message, clientMessageID: clientMessageID(for: message))
         }
+        // A card loaded from an older history page may be outside the newest
+        // 200-message tail. Read the page ending at that message so an
+        // answered card collapses to the server receipt instead of leaving a
+        // stale actionable poll in the store.
+        if let previous = withState({ $0.previousMessagesByID[messageID] }),
+           previous.seq < UInt64.max,
+           let targeted = try? await client.read(
+               conversation: conversationID,
+               beforeSeq: previous.seq + 1,
+               limit: 1
+           ),
+           let message = targeted.messages.first(where: { $0.id == messageID }) {
+            withState { $0.previousMessagesByID[messageID] = message }
+            return map(message, clientMessageID: clientMessageID(for: message))
+        }
         // The answer RPC commits before the transcript snapshot necessarily
         // includes the changed card. Return the last known row so the store
         // does not show a false vote failure; the next poll will collapse it
