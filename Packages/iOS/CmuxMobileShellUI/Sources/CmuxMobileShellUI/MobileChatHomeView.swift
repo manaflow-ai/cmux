@@ -100,6 +100,10 @@ public struct MobileChatHomeView: View {
                     isShowingSidebar = false
                     navigationPath.append(.activity)
                 },
+                onComputers: {
+                    isShowingSidebar = false
+                    showComputers()
+                },
                 onSettings: {
                     isShowingSidebar = false
                     showSettings()
@@ -107,10 +111,6 @@ public struct MobileChatHomeView: View {
                 onSignOut: {
                     isShowingSidebar = false
                     signOut()
-                },
-                onComputers: {
-                    isShowingSidebar = false
-                    showComputers()
                 }
             )
             .presentationDetents([.large])

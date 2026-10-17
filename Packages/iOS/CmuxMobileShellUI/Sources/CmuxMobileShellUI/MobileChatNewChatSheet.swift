@@ -206,7 +206,11 @@ private struct MobileChatPromptEditor: View {
                     .accessibilityIdentifier("MobileChatPrompt")
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.title3)
-                    .foregroundStyle(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .tertiary : Color.accentColor)
+                    .foregroundStyle(
+                        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ? Color.secondary.opacity(0.45)
+                            : Color.accentColor
+                    )
             }
             .padding(.horizontal, 13)
             .padding(.vertical, 11)

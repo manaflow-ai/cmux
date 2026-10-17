@@ -165,10 +165,14 @@ final class MobileChatHomeModel {
 
     /// The last user-facing prose line shown under a recent chat title.
     func previewText(for sessionID: String) -> String? {
-        messages(for: sessionID).reversed().compactMap { message in
-            guard case .prose(let prose) = message.kind else { return nil }
-            return prose.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        }.first
+        for message in messages(for: sessionID).reversed() {
+            guard case .prose(let prose) = message.kind else { continue }
+            let text = prose.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty {
+                return text
+            }
+        }
+        return nil
     }
 
     /// Seeds the deterministic UI preview without touching a transport.
