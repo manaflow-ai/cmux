@@ -313,6 +313,11 @@ enum TerminalSettingsFileMapping {
             invalidPath: terminal.showCopyConfirmation.id
         ),
         .init(
+            jsonKey: "accessibilityScreenText",
+            defaultsKey: terminal.accessibilityScreenText.userDefaultsKey,
+            invalidPath: terminal.accessibilityScreenText.id
+        ),
+        .init(
             jsonKey: "reflowHardWrapOnCopy",
             defaultsKey: terminal.reflowHardWrapOnCopy.userDefaultsKey,
             invalidPath: terminal.reflowHardWrapOnCopy.id
