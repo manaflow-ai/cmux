@@ -35,8 +35,17 @@ struct MachineCatalogAppJourneyTests {
 
             try await fixture.grantInventory(true)
             let removed = try #require(fixture.server)
+            let beforeWithdrawal = fixture.publisher?.publishedSequence
             _ = fixture.registry.removeServer(removed.machineID)
-            try await fixture.wait("registry withdrawal") { fixture.publisher?.publishedSequence == 2 }
+            do {
+                try await fixture.wait("registry withdrawal") { fixture.publisher?.publishedSequence == 2 }
+            } catch {
+                let observed = try? await fixture.run("discover")
+                let observedIDs = observed?.arrayValue?.compactMap { $0["id"]?.stringValue }
+                let projectedIDs = fixture.publisher?.current?.machines.map { $0.id.rawValue }
+                print("catalog withdrawal: before=\(String(describing: beforeWithdrawal)), after=\(String(describing: fixture.publisher?.publishedSequence)), projected=\(String(describing: projectedIDs)), observed=\(String(describing: observedIDs))")
+                throw error
+            }
             let after = try #require(try await fixture.run("discover").arrayValue)
             #expect(after.map { $0["id"] } == [.string(local)])
             await expectRefusal("machine.unavailable") { try await fixture.run("inventory", params: ["machine": .string(server)]) }
