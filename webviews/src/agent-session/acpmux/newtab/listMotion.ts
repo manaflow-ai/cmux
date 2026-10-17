@@ -68,11 +68,13 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   const signature = JSON.stringify(keys);
   // Keep one immutable key list per value signature so unrelated owner renders do not rerun layout reads.
   const keyList = useMemo(() => keys, [signature]);
-  const observed = useRef<{ root: HTMLElement; observer: ResizeObserver } | null>(null);
+  const observed = useRef<{ root: HTMLElement; rows: string; observer: ResizeObserver } | null>(null);
+  const sampled = useRef<{ root: HTMLElement; rows: string; signature: string } | null>(null);
   useLayoutEffect(
     () => () => {
       observed.current?.observer.disconnect();
       observed.current = null;
+      sampled.current = null;
       cancelRunning(running);
     },
     [],
@@ -83,7 +85,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   // layout-only changes such as a grid column switch.
   useLayoutEffect(() => {
     const root = list.current;
-    if (observed.current?.root !== root) {
+    if (observed.current?.root !== root || observed.current?.rows !== rows) {
       if (observed.current?.root) cancelRunning(running);
       observed.current?.observer.disconnect();
       observed.current = null;
@@ -94,15 +96,20 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
             places.current = measure(root, elements, shownKeys.current);
         });
         observer.observe(root);
-        observed.current = { root, observer };
+        observed.current = { root, rows, observer };
       }
     }
+    // A ref object stays the same when React replaces its DOM node. Check its current root on
+    // every commit, but leave geometry alone until the root, selector or row keys change.
+    if (sampled.current?.root === root && sampled.current.rows === rows && sampled.current.signature === signature)
+      return;
     const elements = root ? [...root.querySelectorAll<HTMLElement>(`:scope > ${rows}`)] : [];
     if (!root || elements.length !== keyList.length) {
       cancelRunning(running);
       places.current = new Map();
       shown.current = "";
       shownKeys.current = [];
+      sampled.current = null;
       return;
     }
     if (isAgentMotionOff()) {
@@ -110,6 +117,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
       places.current = measure(root, elements, keyList);
       shown.current = signature;
       shownKeys.current = keyList;
+      sampled.current = { root, rows, signature };
       return;
     }
     const changed = shown.current !== "" && shown.current !== signature;
@@ -121,6 +129,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     places.current = after;
     shown.current = signature;
     shownKeys.current = keyList;
+    sampled.current = { root, rows, signature };
     if (!changed) return;
     const style = getComputedStyle(root);
     const reduced = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -154,6 +163,6 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
         );
       }
     }
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `keys` is represented by its value signature.
-  }, [keyList, list, rows, signature]);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- intentionally runs after every commit to detect ref-backed DOM replacement.
+  });
 }
