@@ -102,8 +102,8 @@ Next steps, each gated on `mux2-verify`: idle scrollback compression with
 | 4 | System memory at 200 shells | 590 MB | 750 MB | 325 MB | 1.8x | zsh itself, ~3.2 MB each |
 | 5 | Empty server RSS | 37.6 MB | 50 MB | 2.0 MB | 19x | |
 | 6 | Server start to ready | 36 ms | 64 ms | 6.3 ms | 5.7x | |
-| 7 | Throughput, plain, no client | 389 MB/s | 69 MB/s | 371 MB/s | 0.95x | PTY round trip |
-| 8 | Throughput, SGR, no client | 221 MB/s | 45 MB/s | 163 MB/s | 0.74x | parse 278 MB/s on one core |
+| 7 | Throughput, plain, no client | 389-450 MB/s | 69 MB/s | 454 MB/s | 1.0-1.2x | PTY round trip |
+| 8 | Throughput, SGR, no client | 221 MB/s | 45 MB/s | 266 MB/s | 1.2x | parse 278 MB/s per terminal |
 | 9 | Throughput, plain, client attached | 155 MB/s | 69 MB/s | 368 MB/s | 2.4x | |
 | 9 | Throughput, SGR, client attached | 106 MB/s | 45 MB/s | 173 MB/s | 1.6x | |
 | 10 | Server CPU, 256 MB SGR | 1.18 s | 3.53 s | 1.57 s | 0.75x | parse cost |
@@ -114,7 +114,7 @@ Next steps, each gated on `mux2-verify`: idle scrollback compression with
 | 16 | Most terminals | 998 | 998 | 998 | bound | `ptmx_max` 999 |
 | 17 | Processes per terminal beyond the program | 1 (`login`) | 1 (helper) | 0 | | |
 | 18 | Server binary | 89 MB universal | 80 MB universal | 2.0 MB arm64 | 22x (one arch) | |
-| 20 | Query reply, CPR (p50, warm) | 11.9 µs | | 6.0 µs | 2.0x | PTY round trip |
+| 20 | Query reply, CPR (p50, warm) | 11.9 µs | | 5.0 µs | 2.4x | PTY round trip |
 | 21 | Upgrade keeping every terminal | not offered | helper processes | in place, same pid | | |
 
 ghostty-vt wrapper parse rate (shared with cmux-tui), 16 KiB writes:
@@ -134,6 +134,19 @@ Concurrent floods, N terminals each `cat` 256 MB at once, no viewers
 | 4 | SGR | 162 MB/s | 204 MB/s | 6.3 s | 17.0 s |
 | 8 | SGR | 154 MB/s | 134 MB/s | 13.3 s | 61.6 s |
 
+With parse workers (unwatched batches parsed off the event loop, one
+worker per terminal's batches, `MUX2_PARSE_WORKERS`; unfinished CSI tails
+carried to the next read):
+
+| N | Payload | mux2 aggregate | vs Rex | mux2 server CPU | vs Rex CPU |
+|---|---|---|---|---|---|
+| 1 | plain | 454 MB/s | 1.0x | 0.74 s | |
+| 1 | SGR | 266 MB/s | 1.2x | 1.77 s | |
+| 4 | plain | 455 MB/s | 2.0x | 3.0 s | 5.2x less |
+| 4 | SGR | 312 MB/s | 1.5x | 7.4 s | 2.3x less |
+| 8 | plain | 448 MB/s | 3.0x | 6.1 s | 9.4x less |
+| 8 | SGR | 312 MB/s | 2.3x | 14.8 s | 4.2x less |
+
 Rex runs one reader thread per PTY that spins before blocking; with
 several busy terminals the threads compete and its throughput falls while
 its CPU use grows tenfold. mux2 stays flat on its one thread. The next
@@ -151,9 +164,10 @@ scrollback, modes, title, pwd, colors, mouse format) but not the wrapper's
 prompt-semantic tracker state (which rows are prompt or input, saved
 alternate-screen modes); cmux-tui's own replays share this limit.
 
-Open: SGR throughput without a viewer is parse-bound on the one server
-thread (Rex parses the same bytes in 1.18 s of CPU, mux2 in 1.57 s);
-parsing busy terminals off the read thread can reach about 278 MB/s.
+Unwatched batches are parsed on worker threads while the event loop keeps
+reading; a terminal's batches go to one worker in order, and any access to
+a terminal's state first waits for its batches. `mux2-verify --no-viewer`
+checks that path: the whole stream unwatched, then the final state.
 
 Rex starts shells through `login -fp` (as Terminal.app does), which writes
 login records; mux2 runs `$SHELL -l` directly.

@@ -32,7 +32,7 @@ mod scan;
 mod state;
 
 use os::*;
-use scan::needs_immediate_parse;
+use scan::{incomplete_tail_start, needs_immediate_parse};
 use state::{STATE_MAGIC, parse_state};
 
 const READ_CHUNK: usize = 64 << 10;
@@ -64,11 +64,23 @@ const INDEX_MASK: u64 = 0xffff_ffff;
 struct Term {
     pid: libc::pid_t,
     master: RawFd,
-    vt: Terminal,
+    /// The parser. Unwatched batches may be parsed on a worker thread; every
+    /// other access goes through [`Term::vt`], which first waits for them.
+    parser: Arc<Mutex<Terminal>>,
+    /// Batches handed to a worker and not parsed yet.
+    inflight: Arc<Inflight>,
+    /// Whether the last chunk parsed here left a sequence open (a later chunk
+    /// may complete a query). Deferred chunks never do, by construction of
+    /// `needs_immediate_parse`, so this needs no worker round trip.
+    open_seq: bool,
     cols: u16,
     rows: u16,
     /// PTY bytes not yet given to the parser.
     pending: Vec<u8>,
+    /// An unfinished `ESC [ ...` (or lone ESC) at the end of the last
+    /// unwatched read, prepended to the next read so the batch decision
+    /// sees whole sequences. Parsed, in order, before any state access.
+    carry: Vec<u8>,
     /// Bytes the parser asked to write back to the program (query replies).
     replies: Arc<Mutex<Vec<u8>>>,
     /// Bytes queued for the program's input (client writes and replies).
@@ -110,6 +122,59 @@ impl Conn {
     }
 }
 
+#[derive(Default)]
+struct Inflight {
+    count: Mutex<usize>,
+    done: std::sync::Condvar,
+}
+
+impl Inflight {
+    fn wait_idle(&self) {
+        let mut count = self.count.lock().expect("inflight");
+        while *count > 0 {
+            count = self.done.wait(count).expect("inflight");
+        }
+    }
+}
+
+/// One unwatched batch for a parse worker. A terminal's batches always go
+/// to the same worker, so they are parsed in order.
+struct ParseJob {
+    parser: Arc<Mutex<Terminal>>,
+    inflight: Arc<Inflight>,
+    bytes: Vec<u8>,
+}
+
+impl Term {
+    /// The parser, after every batch handed to a worker is parsed.
+    fn vt(&self) -> std::sync::MutexGuard<'_, Terminal> {
+        self.inflight.wait_idle();
+        self.parser.lock().expect("parser")
+    }
+}
+
+fn spawn_parse_workers() -> Vec<std::sync::mpsc::Sender<ParseJob>> {
+    let cores = std::thread::available_parallelism().map_or(1, usize::from);
+    let n = tunable("MUX2_PARSE_WORKERS", cores.saturating_sub(1).min(8));
+    (0..n)
+        .map(|i| {
+            let (tx, rx) = std::sync::mpsc::channel::<ParseJob>();
+            std::thread::Builder::new()
+                .name(format!("mux2-parse-{i}"))
+                .spawn(move || {
+                    for job in rx {
+                        job.parser.lock().expect("parser").vt_write(&job.bytes);
+                        let mut count = job.inflight.count.lock().expect("inflight");
+                        *count -= 1;
+                        job.inflight.done.notify_all();
+                    }
+                })
+                .expect("parse worker");
+            tx
+        })
+        .collect()
+}
+
 struct Server {
     kq: RawFd,
     listen: RawFd,
@@ -123,6 +188,8 @@ struct Server {
     read_spins: u32,
     /// Children of killed terminals not reaped yet; kept across upgrades.
     orphans: Vec<libc::pid_t>,
+    /// Parse workers for unwatched batches (MUX2_PARSE_WORKERS, 0 = inline).
+    workers: Vec<std::sync::mpsc::Sender<ParseJob>>,
 }
 
 impl Server {
@@ -362,7 +429,7 @@ impl Server {
     fn snapshot_to(&mut self, t: u32, c: u32) {
         let Some(term) = self.terms.get_mut(&t) else { return };
         flush_parse(term);
-        let payload = term.vt.vt_replay_bytes().ok().map(|replay| {
+        let payload = term.vt().vt_replay_bytes().ok().map(|replay| {
             let mut p = Vec::with_capacity(replay.len() + 4);
             p.extend_from_slice(&term.cols.to_le_bytes());
             p.extend_from_slice(&term.rows.to_le_bytes());
@@ -421,9 +488,9 @@ impl Server {
                 };
                 flush_parse(term);
                 let out = if kind == proto::SCREEN {
-                    term.vt.viewport_text().map(String::into_bytes)
+                    term.vt().viewport_text().map(String::into_bytes)
                 } else {
-                    term.vt.vt_replay_bytes()
+                    term.vt().vt_replay_bytes()
                 };
                 self.flush_replies(t);
                 match out {
@@ -508,7 +575,7 @@ impl Server {
                 if (cols, rows) != (term.cols, term.rows) {
                     // Pixel sizes are unknown to the server; size reports
                     // in pixels answer 0, as with an unknown cell size.
-                    let _ = term.vt.resize(cols, rows, 0, 0);
+                    let _ = term.vt().resize(cols, rows, 0, 0);
                     (term.cols, term.rows) = (cols, rows);
                     set_winsize(term.master, cols, rows);
                     // The resize may emit an in-band size report (mode 2048).
@@ -586,7 +653,10 @@ impl Server {
             Term {
                 pid,
                 master,
-                vt,
+                parser: Arc::new(Mutex::new(vt)),
+                inflight: Arc::default(),
+                open_seq: false,
+                carry: Vec::new(),
                 cols,
                 rows,
                 pending: Vec::new(),
@@ -672,14 +742,32 @@ impl Server {
             let n =
                 unsafe { libc::read(term.master, self.buf.as_mut_ptr().cast(), self.buf.len()) };
             if n > 0 {
-                let chunk = &self.buf[..n as usize];
-                total += chunk.len();
-                term.bytes_in += chunk.len() as u64;
+                let read = &self.buf[..n as usize];
+                total += read.len();
+                term.bytes_in += read.len() as u64;
+                let joined;
+                let data: &[u8] = if term.carry.is_empty() {
+                    read
+                } else {
+                    term.carry.extend_from_slice(read);
+                    joined = std::mem::take(&mut term.carry);
+                    &joined
+                };
+                let (chunk, tail) = if watched {
+                    (data, &[][..])
+                } else {
+                    data.split_at(incomplete_tail_start(data))
+                };
                 // Mid-sequence bytes complete whatever the last parse left
                 // open, possibly a query: never defer them.
-                if watched || !term.vt.vt_stream_is_ground() || needs_immediate_parse(chunk) {
+                if chunk.is_empty() {
+                } else if watched || term.open_seq || needs_immediate_parse(chunk) {
                     flush_parse(term);
-                    let accepted = term.vt.vt_write_with_normalized(chunk);
+                    let mut vt = term.vt();
+                    let accepted = vt.vt_write_with_normalized(chunk);
+                    let open = !vt.vt_stream_is_ground();
+                    drop(vt);
+                    term.open_seq = open;
                     if watched {
                         forwarded.extend_from_slice(&accepted);
                     }
@@ -694,9 +782,12 @@ impl Server {
                 } else {
                     term.pending.extend_from_slice(chunk);
                     if term.pending.len() >= parse_batch {
-                        flush_parse(term);
+                        let worker = (!self.workers.is_empty())
+                            .then(|| &self.workers[t as usize % self.workers.len()]);
+                        offload_parse(term, worker);
                     }
                 }
+                term.carry.extend_from_slice(tail);
                 spins = 0;
                 continue;
             }
@@ -790,12 +881,34 @@ fn write_input_now(term: &mut Term) {
     }
 }
 
+/// Parses every pending byte now, after the batches already handed out.
 fn flush_parse(term: &mut Term) {
+    if !term.carry.is_empty() {
+        let carry = std::mem::take(&mut term.carry);
+        term.pending.extend_from_slice(&carry);
+    }
     if !term.pending.is_empty() {
         let pending = std::mem::take(&mut term.pending);
-        term.vt.vt_write(&pending);
+        term.vt().vt_write(&pending);
         term.pending = pending;
         term.pending.clear();
+    }
+}
+
+/// Hands the pending batch to `worker` while the loop keeps reading; parses
+/// it inline when there is no worker.
+fn offload_parse(term: &mut Term, worker: Option<&std::sync::mpsc::Sender<ParseJob>>) {
+    let Some(worker) = worker else {
+        return flush_parse(term);
+    };
+    let capacity = term.pending.capacity();
+    let bytes = std::mem::replace(&mut term.pending, Vec::with_capacity(capacity));
+    *term.inflight.count.lock().expect("inflight") += 1;
+    let job = ParseJob { parser: term.parser.clone(), inflight: term.inflight.clone(), bytes };
+    if let Err(std::sync::mpsc::SendError(job)) = worker.send(job) {
+        // The worker is gone: parse here, keeping the order.
+        *term.inflight.count.lock().expect("inflight") -= 1;
+        term.vt().vt_write(&job.bytes);
     }
 }
 
@@ -873,6 +986,7 @@ pub fn main() {
         parse_batch: tunable("MUX2_PARSE_BATCH", PARSE_BATCH),
         read_spins: tunable("MUX2_READ_SPINS", READ_SPINS as usize) as u32,
         orphans: Vec::new(),
+        workers: spawn_parse_workers(),
     };
     server
         .kev(listen as usize, libc::EVFILT_READ, libc::EV_ADD, 0, TOKEN_LISTEN)

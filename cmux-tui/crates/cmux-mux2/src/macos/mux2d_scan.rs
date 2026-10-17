@@ -50,3 +50,19 @@ pub(super) fn needs_immediate_parse(data: &[u8]) -> bool {
     }
     false
 }
+
+/// Where an unfinished `ESC [ ...` or a lone ESC at the end of `data`
+/// starts, or `data.len()`. Only the last 64 bytes are looked at; a longer
+/// unfinished CSI is left in place and parsed at once instead.
+pub(super) fn incomplete_tail_start(data: &[u8]) -> usize {
+    let from = data.len().saturating_sub(64);
+    let Some(esc) = data[from..].iter().rposition(|&b| b == 0x1b).map(|i| from + i) else {
+        return data.len();
+    };
+    let rest = &data[esc + 1..];
+    match rest.first() {
+        None => esc,
+        Some(b'[') if rest[1..].iter().all(|b| (0x20..0x40).contains(b)) => esc,
+        _ => data.len(),
+    }
+}

@@ -109,13 +109,13 @@ impl Server {
             flush_parse(term);
             // A replay cut inside a long control string would not resume the
             // stream exactly; refuse rather than lose state.
-            if !term.vt.vt_replay_resumes_stream() {
+            if !term.vt().vt_replay_resumes_stream() {
                 return Err(io::Error::other(format!(
                     "terminal {t} is inside a long control sequence; retry"
                 )));
             }
             let replay = term
-                .vt
+                .vt()
                 .vt_replay_bytes()
                 .map_err(|e| io::Error::other(format!("terminal {t}: {e}")))?;
             self.flush_replies(t);
@@ -217,7 +217,12 @@ impl Server {
                 Term {
                     pid,
                     master,
-                    vt: r.vt,
+                    // A replay may end inside the sequence the old parser
+                    // was in; the next chunk must then parse at once.
+                    open_seq: !r.vt.vt_stream_is_ground(),
+                    parser: Arc::new(Mutex::new(r.vt)),
+                    inflight: Arc::default(),
+                    carry: Vec::new(),
                     cols: r.cols,
                     rows: r.rows,
                     pending: Vec::new(),

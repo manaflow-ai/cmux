@@ -73,6 +73,10 @@ fn main() {
     // Resize while output flows: the reference cannot know where the resize
     // landed, so the client must match the server exactly instead.
     let resize = args.iter().any(|a| a == "--resize-midway");
+    // Nobody watches until the program has exited: every byte goes through
+    // the unwatched path (batches, parse workers, carried tails), and the
+    // viewer only checks the final snapshot.
+    let no_viewer = args.iter().any(|a| a == "--no-viewer");
     let data = std::fs::read(file).unwrap_or_else(|e| die(e));
     let path = proto::socket_path();
     let mut ctl = UnixStream::connect(&path)
@@ -87,7 +91,7 @@ fn main() {
     let idp = id.to_le_bytes();
 
     let mut viewer = UnixStream::connect(&path).unwrap_or_else(|e| die(e));
-    if !midway {
+    if !midway && !no_viewer {
         proto::write_frame(&mut viewer, proto::ATTACH, &idp).unwrap_or_else(|e| die(e));
     }
     let mut w = idp.to_vec();
@@ -120,6 +124,11 @@ fn main() {
         call(&mut waiter, proto::WAIT, &idp);
     }
 
+    if no_viewer {
+        let mut waiter = UnixStream::connect(&path).unwrap_or_else(|e| die(e));
+        call(&mut waiter, proto::WAIT, &idp);
+        proto::write_frame(&mut viewer, proto::ATTACH, &idp).unwrap_or_else(|e| die(e));
+    }
     // Rebuild the terminal on the client side from what the server sent.
     let mut client: Option<Terminal> = None;
     let mut snapshots = 0u32;
