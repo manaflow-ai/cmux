@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -56,6 +57,7 @@ package struct SimulatorPOSIXProcessLauncher: Sendable {
         let spawnFlags = Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETPGROUP)
         try throwPOSIXErrorIfNeeded(posix_spawnattr_setpgroup(&attributes, 0))
         try throwPOSIXErrorIfNeeded(posix_spawnattr_setflags(&attributes, spawnFlags))
+        try throwPOSIXErrorIfNeeded(POSIXSpawnSignalPolicy().apply(to: &attributes))
 
         var mergedEnvironment = inheritedEnvironment
         for (key, value) in environment {

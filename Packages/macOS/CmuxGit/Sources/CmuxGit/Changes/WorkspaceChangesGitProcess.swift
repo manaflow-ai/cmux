@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -110,6 +111,7 @@ final class WorkspaceChangesGitProcess {
         )
         try throwIfPOSIXError(posix_spawnattr_setflags(&attributes, flags))
         try throwIfPOSIXError(posix_spawnattr_setpgroup(&attributes, 0))
+        try throwIfPOSIXError(POSIXSpawnSignalPolicy().apply(to: &attributes))
 
         let executablePath = executableURL.path
         let argumentStrings = [executablePath] + arguments
