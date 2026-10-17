@@ -128,13 +128,14 @@ struct ChiefHomeView: View {
         defer { isLoading = false }
         do {
             var rows = try await client.conversations()
+            var startupFailure: String?
             if rows.isEmpty {
                 let status = try? await client.status()
                 if let failure = status?.startFailure, !failure.isEmpty {
                     // Do not manufacture a tappable conversation when the
                     // Mac could not open Chief's home. The transcript would
                     // only fail later and hide the useful startup error.
-                    errorMessage = failure
+                    startupFailure = failure
                 } else if status?.started == true,
                           let id = status?.defaultConversation,
                           !id.isEmpty {
@@ -145,7 +146,7 @@ struct ChiefHomeView: View {
                 if $0.pinned != $1.pinned { return $0.pinned && !$1.pinned }
                 return $0.updatedAt > $1.updatedAt
             }
-            errorMessage = nil
+            errorMessage = startupFailure
         } catch {
             errorMessage = String(describing: error)
         }
