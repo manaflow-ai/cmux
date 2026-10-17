@@ -109,7 +109,8 @@ public final class WorkstreamStore {
             return
         }
         let task = Task { @MainActor [weak self] in
-            await self?.performStart()
+            guard let self else { return }
+            await self.performStart()
         }
         startTask = task
         await task.value
