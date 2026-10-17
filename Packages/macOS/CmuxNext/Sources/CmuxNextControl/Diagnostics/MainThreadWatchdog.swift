@@ -27,8 +27,11 @@ public final class MainThreadWatchdog: Sendable {
         public var hangThreshold: Duration
         /// At most one hang report per this interval (default 5 min).
         public var hangReportInterval: Duration
-        /// Debug builds: a hang still running this long fails an assertion
-        /// (default 10 s; nil in release builds).
+        /// Debug builds: when explicitly enabled, a hang still running this
+        /// long fails an assertion (10 s; nil by default and in release
+        /// builds). Dogfood builds keep the hang report and stack sample
+        /// without terminating the app; set `CMUX_NEXT_ASSERT_HANGS=1` when
+        /// deliberately testing the crash path.
         public var hangAssertThreshold: Duration?
 
         /// `CMUX_NEXT_HANG_THRESHOLD_MS` lowers the threshold for a
@@ -39,10 +42,24 @@ public final class MainThreadWatchdog: Sendable {
             return .milliseconds(min(max(raw, 4), 1_000))
         }
 
+        static func defaultHangAssertThreshold(environment: [String: String], isDebugBuild: Bool) -> Duration? {
+            guard isDebugBuild else { return nil }
+            let enabled = environment["CMUX_NEXT_ASSERT_HANGS"]?.lowercased()
+            guard enabled == "1" || enabled == "true" || enabled == "yes" else { return nil }
+            return .seconds(10)
+        }
+
+        /// The opt-in debug crash threshold. Hang reports stay enabled by
+        /// default; only the fatal assertion is gated for dogfood stability.
+        public static var environmentHangAssertThreshold: Duration? {
+            defaultHangAssertThreshold(environment: ProcessInfo.processInfo.environment,
+                                        isDebugBuild: ControlService.isDebugBuild)
+        }
+
         public init(threshold: Duration = Configuration.environmentThreshold, capacity: Int = 128, sampleStacks: Bool = true,
                     logStalls: Bool = ControlService.isDebugBuild, hangThreshold: Duration = .seconds(2),
                     hangReportInterval: Duration = .seconds(300),
-                    hangAssertThreshold: Duration? = ControlService.isDebugBuild ? .seconds(10) : nil) {
+                    hangAssertThreshold: Duration? = Configuration.environmentHangAssertThreshold) {
             self.threshold = threshold
             self.capacity = capacity
             self.sampleStacks = sampleStacks
