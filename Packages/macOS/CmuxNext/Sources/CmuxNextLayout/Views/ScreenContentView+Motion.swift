@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 extension ScreenContentView {
     // MARK: Animation
-    private var hasMotion: Bool {
+    var hasMotion: Bool {
         if !isUserScrolling && (scroll.value != scroll.target || scroll.velocity != 0) { return true }
         if rowsMoving { return true }
         return zoomMotion.isMoving || paneFrames.values.contains { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }

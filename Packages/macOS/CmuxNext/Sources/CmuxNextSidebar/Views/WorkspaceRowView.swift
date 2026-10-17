@@ -15,13 +15,13 @@ final class WorkspaceRowView: SidebarRowView {
     let timeLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont), metaLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     let activity = StatusIndicatorView()
     /// The running agent's brand mark (`SidebarAgentMarkVariant`); hidden when off.
-    fileprivate let agentMark = NSImageView()
-    fileprivate(set) var agentMarkVariant = SidebarAgentMarkVariant.off
+    internal let agentMark = NSImageView()
+    internal(set) var agentMarkVariant = SidebarAgentMarkVariant.off
     /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
-    fileprivate(set) var lastConfiguration: (SidebarWorkspace, SidebarRow, SidebarRowBadgeStyle?)?
-    fileprivate var activityState = StatusIndicatorState.idle
+    internal(set) var lastConfiguration: (SidebarWorkspace, SidebarRow, SidebarRowBadgeStyle?)?
+    var activityState = StatusIndicatorState.idle
     let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
-    fileprivate var rowBadgeStyle = SidebarRowBadgeStyle.corner
+    var rowBadgeStyle = SidebarRowBadgeStyle.corner
     /// The agents acting in the workspace (`sidebar.presenceDots`, cx-gg84).
     let presenceDots = PresenceDotsView()
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
@@ -40,24 +40,24 @@ final class WorkspaceRowView: SidebarRowView {
     let disclosureButton = SidebarIconButton(icon: .disclosureCollapsed, pointSize: { Metrics.smallIconSize - Metrics.space2 },
                                              label: Strings.showTabs)
     /// `sidebar.workspaceRow.tabCount`: the workspace's tab count, in a fixed-width slot.
-    fileprivate let tabCount = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    let tabCount = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// `sidebar.workspaceRow.pullRequest`: the PR / CI badge a hook reported.
-    fileprivate let prBadge = SidebarRowView.label(font: SidebarStyle.subtitleFont)
-    fileprivate var badgeText: String?
-    fileprivate(set) var disclosure: SidebarTabDisclosure?
-    fileprivate(set) var count: Int?
+    let prBadge = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    var badgeText: String?
+    internal(set) var disclosure: SidebarTabDisclosure?
+    internal(set) var count: Int?
 
     /// Progress under the row (`SidebarWorkspace.progress`): a track and a
     /// fill; an indeterminate one fills the whole track, dimmed.
     let progressTrack = CALayer()
     let progressFill = CALayer()
-    fileprivate(set) var progress: SidebarProgress?
+    internal(set) var progress: SidebarProgress?
     /// Classic's status block under the name (`WorkspaceRowContent.status`).
     let statusBlock = WorkspaceStatusView()
-    fileprivate(set) var statusHeight: CGFloat = 0
+    internal(set) var statusHeight: CGFloat = 0
     var hasSubtitle = false, isExpanded = false, timeText: String?
-    fileprivate var grouped = false
-    fileprivate var iconKind: WorkspaceIcon?
+    var grouped = false
+    var iconKind: WorkspaceIcon?
     /// Selected but not active (the active row paints the selection fill).
     var isSecondarySelected = false { didSet { if isSecondarySelected != oldValue { needsDisplay = true } } }
     /// A tab dragged from a pane would move into this workspace.
@@ -70,28 +70,28 @@ final class WorkspaceRowView: SidebarRowView {
     var onSelect: (() -> Void)?
     var onToggleTabs: (() -> Void)?
     /// The row draws a placeholder bar instead of a title.
-    fileprivate(set) var isShowingPlaceholder = false
+    internal(set) var isShowingPlaceholder = false
     /// Any placeholder, titled or not: no hover fill, no marquee, no press (cx-gaq9).
-    fileprivate var isPlaceholderRow = false
+    var isPlaceholderRow = false
     /// The row's workspace can close (`SidebarWorkspace.isClosable`); the
     /// home row shows no close button.
-    fileprivate(set) var isClosable = true
+    internal(set) var isClosable = true
     /// A static tonal bar where the title goes (no shimmer).
-    fileprivate let placeholderBar = NSView()
+    let placeholderBar = NSView()
     /// The bar's share of the text width, varied per row so a column of
     /// placeholders does not read as one block.
-    fileprivate var placeholderFraction: CGFloat = 0.6
+    var placeholderFraction: CGFloat = 0.6
     /// The last title painted by this view. Recycled rows clear this so a
     /// different workspace never inherits a title transition.
-    fileprivate var lastTitle: String?
+    internal var lastTitle: String?
     /// A placeholder row can become a titled row after the daemon reports it.
     /// Keep both layers alive until the first post-layout frame so the loading
     /// bar can fade away as the title arrives instead of disappearing first.
-    fileprivate var titleArrivalPending = false
-    fileprivate var titleArrivalScheduled = false
-    fileprivate var titleArrivalActive = false
-    fileprivate var titleArrivalGeneration: UInt = 0
-    fileprivate var titleArrivalVariant = SidebarWorkspaceTitleMotionVariant.instant
+    var titleArrivalPending = false
+    var titleArrivalScheduled = false
+    var titleArrivalActive = false
+    internal var titleArrivalGeneration: UInt = 0
+    internal var titleArrivalVariant = SidebarWorkspaceTitleMotionVariant.instant
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
@@ -291,7 +291,7 @@ final class WorkspaceRowView: SidebarRowView {
     /// Starts after layout has placed both the title and its placeholder bar.
     /// The title transition and bar fade then share a frame, so a new name
     /// never flashes in after the loading state has already vanished.
-    private func startTitleArrival() {
+    func startTitleArrival() {
         titleArrivalScheduled = false
         guard titleArrivalPending else { return }
         titleArrivalPending = false
@@ -318,5 +318,5 @@ final class WorkspaceRowView: SidebarRowView {
         })
     }
 
-    fileprivate var renaming = false
+    var renaming = false
 }

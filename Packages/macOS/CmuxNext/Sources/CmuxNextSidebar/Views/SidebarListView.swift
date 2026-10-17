@@ -52,7 +52,7 @@ final class SidebarListView: NSView {
     var hoveredKey: SidebarRowKey?
     /// True while a scroll moves the hover to the row under a still pointer: that row's hover
     /// shows at once instead of fading, so a scroll does not start a fade on every row it passes.
-    fileprivate var hoverFollowsScroll = false
+    var hoverFollowsScroll = false
     /// Workspace hover card (title, cwd, CPU and memory).
     let hoverCard = WorkspaceHoverCardController()
     var press: Press?
@@ -82,7 +82,7 @@ final class SidebarListView: NSView {
     /// The active row the last reload laid out (close-focus.md: reveal on change).
     var revealedActive: SidebarRowKey?
     /// The row that stands for the selection (`SidebarLayout.selectedRowKey`).
-    private(set) var selectedRowKey: SidebarRowKey?
+    internal(set) var selectedRowKey: SidebarRowKey?
     /// The anchor step moves the offset; rows wait for the new layout.
     var isShiftingViewport = false
     /// Offered a row drag whose pointer left the sidebar sideways (another

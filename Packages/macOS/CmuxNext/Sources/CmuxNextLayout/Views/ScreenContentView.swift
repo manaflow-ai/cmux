@@ -19,19 +19,19 @@ final class ScreenContentView: NSView {
     /// `baseGeometry` at the presented row offsets (`shiftingRows`): what
     /// hit testing, drops, focus and the strip scroll read.
     var geometry: ScreenGeometry
-    private(set) var paneFrames: [PaneID: AnimatedFrame] = [:]
+    internal(set) var paneFrames: [PaneID: AnimatedFrame] = [:]
     private(set) var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
-    private(set) var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
+    internal(set) var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
     /// Panes growing in from a split's edge (`PaneArrival.presentation`), and the dock columns that change added.
-    fileprivate var arriving: Set<PaneID> = [], newDockColumns: Set<ColumnID> = []
+    var arriving: Set<PaneID> = [], newDockColumns: Set<ColumnID> = []
     /// A zoom or unzoom: the pane that owns the motion, and the panes a zoom leaves fading out under it.
-    private(set) var zoomMotion = PaneZoomMotion()
+    internal(set) var zoomMotion = PaneZoomMotion()
     var covered: Set<PaneID> { Set(zoomMotion.leaving.keys) }
     /// Split motion moves layers only (DESIGN P4): while a split or a close springs, each pane that
     /// changes size keeps one host frame (`SplitMotion.heldFrame`), so its terminal or page lays
     /// out once, and is clipped to the frame the spring presents.
-    fileprivate var heldFrames: [PaneID: CGRect] = [:]
-    fileprivate var motionState: ScreenPaneMotionState
+    var heldFrames: [PaneID: CGRect] = [:]
+    var motionState: ScreenPaneMotionState
     /// A divider released with this pointer velocity (pt/s along its axis): the next layout's
     /// spring starts from it (`SplitMotion.seed`).
     var releasedDivider: (kind: DividerHandleView.Kind, velocity: CGFloat, time: CFTimeInterval)?
@@ -262,7 +262,7 @@ final class ScreenContentView: NSView {
     }
 
     /// Lets go of the panes a zoom left as each one's fade ends (every one with `all`).
-    fileprivate func releaseCovered(all: Bool = false) {
+    func releaseCovered(all: Bool = false) {
         for pane in zoomMotion.settled(all: all) where paneFrames[pane] == nil && !context.livePanes.contains(pane) {
             context.release(pane)
         }
