@@ -18,7 +18,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::agent_session_attach::{AGENT_SESSION_ATTACH_CAPABILITY, MAX_ATTACHMENTS_PER_CLIENT};
+use super::agent_session_attach::{
+    AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_OBSERVE_CAPABILITY, MAX_ATTACHMENTS_PER_CLIENT,
+};
 use super::*;
 
 pub(super) const WAIT: Duration = Duration::from_secs(5);
@@ -409,6 +411,11 @@ fn attach(client: &mut Client, surface: SurfaceId) -> Value {
                           "kinds":["transcript"]}))
 }
 
+fn observe(client: &mut Client, surface: SurfaceId) -> Value {
+    client.request(json!({"cmd":"agent-session-observe","surface":surface,"limit":400,
+                          "kinds":["transcript"]}))
+}
+
 pub(super) fn assert_code(reply: &Value, code: &str) {
     assert_eq!(reply["ok"], json!(false), "{reply}");
     assert_eq!(reply["error_code"], json!(code), "{reply}");
@@ -429,8 +436,23 @@ fn the_capability_is_advertised_only_with_an_acpmux_socket() {
             .any(|value| value == AGENT_SESSION_ATTACH_CAPABILITY)
     };
     assert!(advertised(&identity));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == AGENT_SESSION_OBSERVE_CAPABILITY)
+    );
     mux.set_acpmux_socket(None);
-    assert!(!advertised(&run(&mux, json!({"cmd":"identify"}))));
+    let without_socket = run(&mux, json!({"cmd":"identify"}));
+    assert!(!advertised(&without_socket));
+    assert!(
+        !without_socket["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == AGENT_SESSION_OBSERVE_CAPABILITY)
+    );
 }
 
 #[test]
@@ -454,12 +476,26 @@ fn the_remote_relay_denies_every_agent_session_verb() {
 fn every_verb(surface: SurfaceId) -> Vec<Value> {
     vec![
         json!({"id":1,"cmd":"agent-session-attach","surface":surface}),
+        json!({"id":7,"cmd":"agent-session-observe","surface":surface}),
         json!({"id":2,"cmd":"agent-session-events","surface":surface}),
         json!({"id":3,"cmd":"agent-session-prompt","surface":surface,"prompt_id":"p1","text":"hi"}),
         json!({"id":4,"cmd":"agent-session-cancel","surface":surface}),
         json!({"id":5,"cmd":"agent-session-permission","surface":surface,
                "permission_id":"perm_attach","option_id":"allow"}),
         json!({"id":6,"cmd":"agent-session-detach","surface":surface}),
+    ]
+}
+
+/// Commands exercised after a connection already owns an attachment. Keep
+/// this explicit so adding another attach mode cannot silently drop one of
+/// the driving or paging verbs from the scope tests.
+fn attached_verbs(surface: SurfaceId) -> Vec<Value> {
+    vec![
+        json!({"id":2,"cmd":"agent-session-events","surface":surface}),
+        json!({"id":3,"cmd":"agent-session-prompt","surface":surface,"prompt_id":"p1","text":"hi"}),
+        json!({"id":4,"cmd":"agent-session-cancel","surface":surface}),
+        json!({"id":5,"cmd":"agent-session-permission","surface":surface,
+               "permission_id":"perm_attach","option_id":"allow"}),
     ]
 }
 
@@ -621,6 +657,103 @@ fn attach_replays_the_page_and_streams_live_records_of_that_session_only() {
     assert_eq!(changed["event"], json!("agent-session-changed"));
     assert_eq!(changed["change"]["session"]["status"], json!("idle"));
     assert!(client.event(Duration::from_millis(200)).is_none(), "nothing of other sessions");
+}
+
+#[test]
+fn observe_replays_and_streams_but_rejects_session_mutations() {
+    let mut fake = FakeAcpmux::start("observe");
+    let mux = mux_with(&fake, "asa-observe");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "observe");
+    let reply = observe(&mut client, surface);
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert_eq!(reply["data"]["lastSeq"], json!(1));
+    assert_eq!(reply["data"]["events"][0]["seq"], json!(1));
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/attach"));
+    assert_eq!(sent["params"]["sessionId"], json!(SESSION));
+    assert_eq!(sent["params"]["eventStream"], json!(true));
+
+    let early = client.event(WAIT).expect("the early record");
+    assert_eq!(early["event"], json!("agent-session-record"));
+    assert_eq!(early["record"]["seq"], json!(2));
+    fake.notify("_acpmux/event", json!({"sessionId":SESSION,"seq":3,"kind":"agent_message"}));
+    let live = client.event(WAIT).expect("the live record");
+    assert_eq!(live["event"], json!("agent-session-record"));
+    assert_eq!(live["record"]["seq"], json!(3));
+
+    for mutation in [
+        json!({"cmd":"agent-session-prompt","surface":surface,"prompt_id":"p1","text":"hi"}),
+        json!({"cmd":"agent-session-cancel","surface":surface}),
+        json!({"cmd":"agent-session-permission","surface":surface,
+               "permission_id":"perm_attach","option_id":"allow"}),
+    ] {
+        assert_code(&client.request(mutation), "agent_session.read_only");
+    }
+    fake.no_frame();
+}
+
+#[test]
+fn observe_pages_from_a_cursor_and_preserves_close_reasons() {
+    let mut fake = FakeAcpmux::start("observe-cursor");
+    let mux = mux_with(&fake, "asa-observe-cursor");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "observe-cursor");
+    assert_eq!(observe(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    let _ = client.event(WAIT).expect("the early record");
+
+    let page = client.request(json!({"cmd":"agent-session-events","surface":surface,
+                                      "after_seq":2,"limit":100000}));
+    assert_eq!(page["ok"], json!(true), "{page}");
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/events"));
+    assert_eq!(sent["params"]["sessionId"], json!(SESSION));
+    assert_eq!(sent["params"]["afterSeq"], json!(2));
+    assert_eq!(sent["params"]["limit"], json!(500));
+
+    fake.notify("_acpmux/lagged", json!({"dropped":3}));
+    let closed = client.event(WAIT).expect("the close reason");
+    assert_eq!(closed["event"], json!("agent-session-closed"));
+    assert_eq!(closed["reason"], json!("lagged"));
+}
+
+#[test]
+fn observe_upgrades_an_existing_attach_without_reopening_mutations() {
+    let mut fake = FakeAcpmux::start("observe-upgrade");
+    let mux = mux_with(&fake, "asa-observe-upgrade");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "observe-upgrade");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    let _ = client.event(WAIT).expect("the early record");
+
+    assert_eq!(observe(&mut client, surface)["ok"], json!(true));
+    assert_eq!(fake.frame()["method"], json!("_acpmux/attach"));
+    let _ = client.event(WAIT).expect("the replayed early record");
+    for mutation in attached_verbs(surface).into_iter().skip(1) {
+        assert_code(&client.request(mutation), "agent_session.read_only");
+    }
+    fake.no_frame();
+}
+
+#[test]
+fn an_attach_after_observe_does_not_downgrade_the_observer() {
+    let mut fake = FakeAcpmux::start("observe-preserve");
+    let mux = mux_with(&fake, "asa-observe-preserve");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "observe-preserve");
+    assert_eq!(observe(&mut client, surface)["ok"], json!(true));
+    assert_eq!(fake.frame()["method"], json!("_acpmux/attach"));
+    let _ = client.event(WAIT).expect("the early record");
+
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    assert_eq!(fake.frame()["method"], json!("_acpmux/attach"));
+    let _ = client.event(WAIT).expect("the replayed early record");
+    for mutation in attached_verbs(surface).into_iter().skip(1) {
+        assert_code(&client.request(mutation), "agent_session.read_only");
+    }
+    fake.no_frame();
 }
 
 #[test]
@@ -920,7 +1053,7 @@ fn another_connection_cannot_drive_an_attachment() {
     assert_eq!(attach(&mut owner, surface)["ok"], json!(true));
     let _ = fake.frame();
     let mut stranger = Client::connect(&mux, "stranger");
-    for frame in every_verb(surface).into_iter().skip(1).take(4) {
+    for frame in attached_verbs(surface) {
         let mut frame = frame;
         frame.as_object_mut().unwrap().remove("id");
         assert_code(&stranger.request(frame), "agent_session.not_attached");
@@ -943,7 +1076,7 @@ fn every_verb_refuses_session_cwd_command_and_meta_params() {
         json!({"_meta":{"acpmux":{"steer":true}}}),
         json!({"prompt":[{"type":"text","text":"x"}]}),
     ] {
-        for mut frame in every_verb(surface).into_iter().skip(1).take(4) {
+        for mut frame in attached_verbs(surface) {
             frame.as_object_mut().unwrap().remove("id");
             for (key, value) in extra.as_object().unwrap() {
                 frame[key] = value.clone();
