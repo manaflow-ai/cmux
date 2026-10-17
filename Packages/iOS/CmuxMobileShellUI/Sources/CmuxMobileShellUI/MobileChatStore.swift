@@ -145,6 +145,7 @@ final class MobileChatStore {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (!text.isEmpty || !stagedAttachments.isEmpty),
               let sessionID = selectedSessionID,
+              sessions.first(where: { $0.id == sessionID })?.state != .ended,
               let source = sourceProvider(),
               !isSending else { return }
         draft = ""
@@ -210,7 +211,9 @@ final class MobileChatStore {
     }
 
     func answer(optionIndex: Int) {
-        guard let sessionID = selectedSessionID, let source = sourceProvider() else { return }
+        guard let sessionID = selectedSessionID,
+              sessions.first(where: { $0.id == sessionID })?.state != .ended,
+              let source = sourceProvider() else { return }
         let generation = operationGeneration
         Task { [weak self] in
             do {

@@ -585,13 +585,22 @@ private struct MobileChatTranscriptView: View {
                                 .padding(.vertical, 4)
                         }
                         ForEach(store.messages) { message in
-                            MobileChatMessageRow(message: message, provider: descriptor.agentKind) { index in
+                            MobileChatMessageRow(
+                                message: message,
+                                provider: descriptor.agentKind,
+                                allowsInteraction: descriptor.state != .ended
+                            ) { index in
                                 store.answer(optionIndex: index)
                             }
                             .id(message.id)
                         }
                         if let preview = store.streamingProse {
-                            MobileChatMessageRow(message: preview, provider: descriptor.agentKind, isStreaming: true) { index in
+                            MobileChatMessageRow(
+                                message: preview,
+                                provider: descriptor.agentKind,
+                                isStreaming: true,
+                                allowsInteraction: descriptor.state != .ended
+                            ) { index in
                                 store.answer(optionIndex: index)
                             }
                             .id("streaming-preview")
@@ -703,6 +712,7 @@ private struct MobileChatMessageRow: View {
     let message: ChatMessage
     let provider: ChatAgentKind
     var isStreaming = false
+    var allowsInteraction = true
     let answer: (Int) -> Void
 
     var body: some View {
@@ -834,8 +844,12 @@ private struct MobileChatMessageRow: View {
                     .foregroundStyle(resolution == .approved ? .green : .secondary)
             } else {
                 HStack {
-                    Button("Allow") { answer(0) }.buttonStyle(.borderedProminent)
-                    Button("Deny", role: .destructive) { answer(1) }.buttonStyle(.bordered)
+                    Button("Allow") { answer(0) }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!allowsInteraction)
+                    Button("Deny", role: .destructive) { answer(1) }
+                        .buttonStyle(.bordered)
+                        .disabled(!allowsInteraction)
                 }
             }
         }
@@ -859,7 +873,7 @@ private struct MobileChatMessageRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.bordered)
-                .disabled(question.selectedOptionLabel != nil)
+                .disabled(question.selectedOptionLabel != nil || !allowsInteraction)
             }
             if let selected = question.selectedOptionLabel {
                 Text("Selected: \(selected)").font(.caption).foregroundStyle(.secondary)
