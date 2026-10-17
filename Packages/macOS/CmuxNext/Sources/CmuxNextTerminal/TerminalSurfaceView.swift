@@ -193,6 +193,9 @@ public final class TerminalSurfaceView: NSView {
 
     public override func viewDidHide() {
         super.viewDidHide()
+        // Parked hidden in its pane (a tab switch): shown again at a new size, it takes it at
+        // once, as on entering a window; nothing on screen moves to settle against meanwhile.
+        sizesAtOnce = true
         updateOcclusion()
     }
 

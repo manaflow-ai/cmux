@@ -90,6 +90,8 @@ public final class TabStripView: NSView {
     var hasSynced = false
     var lastSelectedID: TabID?
     var lastModelOrder: [TabID] = []
+    /// The model input of the last sync (`syncFromModel` skips its echo).
+    var lastSyncedInput: ModelSnapshot?
     var lastStyle: TabStripStyle?
     var lastViewportWidth: CGFloat = -1
     /// Springs and drag autoscroll step on the window's one `MotionClock`,
@@ -187,7 +189,16 @@ public final class TabStripView: NSView {
     public override var isFlipped: Bool { true }
     public override var mouseDownCanMoveWindow: Bool { false }
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    public override var acceptsFirstResponder: Bool { true }
+    /// Keyboard navigation (the key view loop, Full Keyboard Access) may focus the strip, where F2
+    /// renames the selected tab (#17188). A click never does: the window would make the strip first
+    /// responder on mouse-down and the focus model would move the keyboard back to the content, one
+    /// responder hop per tab click; the keyboard stays where it is.
+    public override var acceptsFirstResponder: Bool {
+        switch NSApp.currentEvent?.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown: false
+        default: true
+        }
+    }
 
     /// F2 starts the same inline editor as a screen-tab double-click. The
     /// strip owns this path so pane tabs and screen tabs share one editor.

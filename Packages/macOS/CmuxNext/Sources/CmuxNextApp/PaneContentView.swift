@@ -289,6 +289,21 @@ final class PaneContentView: NSView, PaneContentChrome {
         reportHeaderIfChanged()
     }
 
+    /// The pane shows nothing for now (a first visit, whose surface comes on
+    /// the next frame): what showed is retired here (`retire`: parked when it
+    /// parks), not taken out of the window.
+    func withdrawContent() {
+        releaseBand()
+        endPaintHold()
+        let shown = hostsContent ? content : nil
+        (shown as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
+        content = nil
+        if let shown { retire(shown) }
+        applyCornerRadius()
+        updateBand()
+        reportHeaderIfChanged()
+    }
+
     /// `content` is installed in this pane (another pane may have taken it).
     var hostsContent: Bool {
         guard let content else { return false }

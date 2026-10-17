@@ -126,7 +126,7 @@ extension TabStripView {
 
     func reveal(_ id: TabID, animated: Bool) {
         guard let slot = result.slot(id) else { return }
-        scroll.target = TabScrollMath.offset(
+        let target = TabScrollMath.offset(
             revealing: slot,
             current: scroll.target,
             contentWidth: result.contentWidth,
@@ -134,6 +134,9 @@ extension TabStripView {
             margin: metrics.scrollFadeWidth,
             fixedLeading: scrollMapping.band
         )
+        // Already in view (a switch between shown tabs): the strip does not move.
+        guard target != scroll.target else { return }
+        scroll.target = target
         if !animated || reduceMotion { scroll.snap() }
         startAnimating()
     }

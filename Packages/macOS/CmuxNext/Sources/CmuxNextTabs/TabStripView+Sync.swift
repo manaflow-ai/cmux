@@ -5,7 +5,45 @@ import QuartzCore
 extension TabStripView {
     // MARK: - Model sync (`animating: false`: every tab at its place now, no springs)
 
+    /// Applies the model when it changed since the strip last synced: the App's
+    /// calls (a switch shows strip and content in one transaction, L4) and the
+    /// observation's echo of the same change do the work once (I6). A tab switch
+    /// updates the two cells whose selection changed; geometry moves only when
+    /// the strip is too narrow for every tab (`dependsOnSelection`).
+    public func syncFromModel() {
+        let input = ModelSnapshot(model)
+        if hasSynced, window != nil, let last = lastSyncedInput, isAtRest {
+            if input == last { return }
+            if input.differsOnlyInSelection(from: last) { return syncSelection(input) }
+        }
+        sync(fromModel: true)
+    }
+
+    /// No gesture, drop, close or override in flight: `displayed` is the model's order.
+    private var isAtRest: Bool {
+        drag == nil && groups.drag == nil && pendingDrop == nil && dying.isEmpty && orderOverride == nil
+            && groups.membershipOverride.isEmpty && detachedID == nil && groups.detachedGroupID == nil
+    }
+
+    private func syncSelection(_ input: ModelSnapshot) {
+        let selected = input.selectedID
+        if let lastSelectedID { cells[lastSelectedID]?.isSelected = false }
+        if let selected { cells[selected]?.isSelected = true }
+        lastSyncedInput = input
+        if result.dependsOnSelection {
+            relayout(animated: !reduceMotion)
+        } else {
+            // Same geometry: only what the selected tab draws over or hides changes.
+            TabSeparatorVisibility.apply(to: self)
+            TabOcclusion.apply(cells: cells, selected: selected, in: tabsClip.layer, band: scrollMapping.band)
+        }
+        if let selected { reveal(selected, animated: !reduceMotion) }
+        lastSelectedID = selected
+        refreshHoverCard()
+    }
+
     public func sync(fromModel: Bool, animating: Bool = true) {
+        lastSyncedInput = ModelSnapshot(model)
         let modelOrdered = model.orderedTabs
         groups.byID = Dictionary(model.groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         if fromModel {

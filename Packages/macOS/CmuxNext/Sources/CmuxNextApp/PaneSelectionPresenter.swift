@@ -17,9 +17,9 @@ struct PaneSelectionPresenter {
         }
         if let key = pane.currentTabKey {
             pane.services.cache.withdraw(key, by: pane)
-            pane.surfaceWasDisplaced(key)
+            pane.withdrawShown()
         }
-        if pane.view.stripView.window != nil { pane.view.stripView.sync(fromModel: true) }
+        if pane.view.stripView.window != nil { pane.view.stripView.syncFromModel() }
         if pane.isFocusedInWorkspace, pane.showsLiveTerminal {  // keys typed meanwhile wait for its surface
             pane.services.keyRouter.creationInputCoordinator.holdUntilShown(in: pane.view.window)
         }
