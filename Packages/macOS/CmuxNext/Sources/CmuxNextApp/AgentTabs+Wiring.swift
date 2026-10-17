@@ -133,14 +133,15 @@ extension AgentTabStore {
                   let homeConnection = home.connection,
                   let worker = services.machines.daemon(machine: request.providerVMID),
                   worker.connection != nil,
-                  let identity = worker.identity else {
+                  let identity = worker.identity,
+                  let sessionID = identity.sessionID else {
                 throw DaemonError.notConnected
             }
             guard home.supports(DaemonCapabilities.shared.remoteTerminalTabs) else {
                 throw DaemonError.missingCapabilities([DaemonCapabilities.shared.remoteTerminalTabs])
             }
             let sessionName = services.machines.machineName(request.providerVMID) ?? request.providerVMID
-            let ref = RemoteTerminalRef(sessionID: identity.sessionID,
+            let ref = RemoteTerminalRef(sessionID: sessionID,
                                         terminalID: TerminalID(rawValue: request.providerTerminalID), sessionName: sessionName)
             _ = try await homeConnection.newRemoteTerminalTab(ref, in: pane.handle, title: RemoteStrings.terminalOn(sessionName))
         }
