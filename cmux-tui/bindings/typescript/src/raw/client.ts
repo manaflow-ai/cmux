@@ -746,8 +746,8 @@ export class CmuxClient {
     throw new CmuxCommandError(response.error || "unknown error", response.id, response);
   }
 
-  async identify(): Promise<IdentifyResult> {
-    const result = await this.request("identify");
+  async identify(params: CmuxRequestParams<"identify"> = {}): Promise<IdentifyResult> {
+    const result = await this.request("identify", params);
     this.rememberIdentity(result);
     return result;
   }

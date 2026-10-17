@@ -7,8 +7,9 @@ selectors, fields, results, errors, constraints, or stream types.
 ## Transported operations
 
 `cmux.protocol/2` transports the operations in `resource-operations-v2.json` for one local mux
-session. Cross-machine aggregation and provider lifecycle require a later
-broker protocol.
+session. `machine.list/get` can explicitly opt in to admitted remote metadata
+with `catalog:true`; this supplies no remote execution route. Cross-machine
+session aggregation and provider lifecycle require a later broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
