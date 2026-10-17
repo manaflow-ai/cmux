@@ -34,6 +34,18 @@ SPCTL_TOOL="${CMUX_SPCTL_TOOL:-spctl}"
 SYSPOLICY_TOOL="${CMUX_SYSPOLICY_TOOL:-syspolicy_check}"
 SMOKE_TOOL="${CMUX_SMOKE_TOOL:-$ROOT_DIR/scripts/smoke-launch-macos-app.sh}"
 VERIFY_METADATA_TOOL="${CMUX_VERIFY_METADATA_TOOL:-$ROOT_DIR/scripts/verify-app-bundle-channel-metadata.sh}"
+# CMUX_DEFER_LAUNCH_SMOKES=true: skip the launch smokes here. The caller runs
+# them in a separate job that holds no secrets (scripts/ci/smoke-dmg.sh on the
+# final DMG), so no bundle code runs in a job that signs, notarizes or publishes.
+DEFER_LAUNCH_SMOKES="${CMUX_DEFER_LAUNCH_SMOKES:-false}"
+launch_smokes() {
+  if [ "$DEFER_LAUNCH_SMOKES" = true ]; then
+    echo "Launch smokes for $1 run in the secret-free verify job"
+    return 0
+  fi
+  CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$1"
+  CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$1"
+}
 VERIFY_LICENSES_TOOL="${CMUX_VERIFY_LICENSES_TOOL:-$ROOT_DIR/scripts/verify-app-bundle-licenses.sh}"
 NOTARY_WAIT_TIMEOUT="${CMUX_NOTARY_WAIT_TIMEOUT:-60m}"
 NOTARY_LOG_TIMEOUT_SECONDS="${CMUX_NOTARY_LOG_TIMEOUT_SECONDS:-300}"
@@ -258,8 +270,9 @@ verify_computer_use_helper
 "$XCRUN_TOOL" stapler staple "$APP_PATH"
 "$XCRUN_TOOL" stapler validate "$APP_PATH"
 "$SPCTL_TOOL" -a -vv --type execute "$APP_PATH"
-CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP_PATH"
-CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP_PATH"
+# Apple is done with this artifact; the app below must not find the key.
+notary_auth_forget "$NOTARY_DIR"
+launch_smokes "$APP_PATH"
 "$VERIFY_METADATA_TOOL" "$APP_PATH" "$CHANNEL"
 "$VERIFY_LICENSES_TOOL" "$APP_PATH"
 "$SYSPOLICY_TOOL" distribution "$APP_PATH"
@@ -274,8 +287,7 @@ if [ -z "$MOUNTED_APP" ]; then
   exit 1
 fi
 "$SPCTL_TOOL" -a -vv --type execute "$MOUNTED_APP"
-CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$MOUNTED_APP"
-CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$MOUNTED_APP"
+launch_smokes "$MOUNTED_APP"
 "$VERIFY_METADATA_TOOL" "$MOUNTED_APP" "$CHANNEL"
 "$VERIFY_LICENSES_TOOL" "$MOUNTED_APP"
 "$HDIUTIL_TOOL" detach "$MOUNT_DIR" || "$HDIUTIL_TOOL" detach -force "$MOUNT_DIR"
