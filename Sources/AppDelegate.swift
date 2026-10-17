@@ -12818,6 +12818,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             workspace.setPanelCustomTitle(panelId: betaPanelId, title: betaTitle)
             var gammaPanelId: UUID?
             var deltaPanelId: UUID?
+            var actionLaneReapply: (() -> Void)?
             if fourTabSetup {
                 tabManager.newSurface()
                 guard let createdGammaPanelId = workspace.focusedPanelId,
@@ -12863,13 +12864,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         tooltip: actionTitle
                     )
                 }
+                let globalConfigPath = cmuxConfigStore.globalConfigPath
                 workspace.applySurfaceTabBarButtons(
                     buttons,
                     sourcePath: nil,
-                    globalConfigPath: cmuxConfigStore.globalConfigPath,
+                    globalConfigPath: globalConfigPath,
                     terminalCommandSourcePaths: [:],
                     workspaceCommands: [:]
                 )
+                // Creating the extra surfaces above publishes tab-manager changes
+                // that reapply the normal config on the next main-actor turn. Keep
+                // the fixture's action lane installed after that startup refresh;
+                // otherwise the UI test can never exercise the narrow overflow
+                // layout it is meant to cover.
+                // Panel-title persistence also triggers the config file watcher
+                // after its coalescing delay, so wait until that refresh settles.
+                actionLaneReapply = {
+                    workspace.applySurfaceTabBarButtons(
+                        buttons,
+                        sourcePath: nil,
+                        globalConfigPath: globalConfigPath,
+                        terminalCommandSourcePaths: [:],
+                        workspaceCommands: [:]
+                    )
+                }
             }
             if startWithHiddenSidebar {
                 context.sidebarState.setVisible(false)
@@ -12888,7 +12906,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     .flatMap(RightSidebarMode.init(rawValue:)) ?? .files
                 fileExplorerState.setVisible(true)
             }
-            self.writeBonsplitTabDragUITestData([
+            let readyData = [
                 "ready": "1",
                 "sidebarVisible": startWithHiddenSidebar ? "0" : "1",
                 "rightSidebarVisible": context.fileExplorerState?.isVisible == true ? "1" : "0",
@@ -12903,12 +12921,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "betaPanelId": betaPanelId.uuidString,
                 "gammaPanelId": gammaPanelId?.uuidString ?? "",
                 "deltaPanelId": deltaPanelId?.uuidString ?? "",
-            ])
-            self.startBonsplitTabDragUITestRecorder(
-                workspaceId: workspace.id,
-                alphaPanelId: alphaPanelId,
-                betaPanelId: betaPanelId
-            )
+            ]
+            let finishSetup = { [weak self] in
+                guard let self else { return }
+                self.writeBonsplitTabDragUITestData(readyData)
+                self.startBonsplitTabDragUITestRecorder(
+                    workspaceId: workspace.id,
+                    alphaPanelId: alphaPanelId,
+                    betaPanelId: betaPanelId
+                )
+            }
+            if let actionLaneReapply {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    actionLaneReapply()
+                    finishSetup()
+                }
+            } else {
+                finishSetup()
+            }
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in

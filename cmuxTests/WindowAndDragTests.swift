@@ -1104,6 +1104,24 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertTrue(windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle, eventType: .leftMouseDown))
     }
 
+    func testDragHandleYieldsToTranslatedSiblingHit() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 48))
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        let translatedControl = CapturingView(frame: NSRect(x: 84, y: 12, width: 24, height: 20))
+        container.addSubview(translatedControl)
+
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(
+                NSPoint(x: 96, y: 22),
+                in: dragHandle,
+                eventType: .leftMouseDown
+            ),
+            "Sibling hit testing must convert through the sibling's superview coordinate space."
+        )
+    }
+
     func testTitlebarControlGapsAreOutsideButtonHitColumns() {
         let config = TitlebarControlsStyle.classic.config
         let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
