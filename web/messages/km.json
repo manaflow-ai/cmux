@@ -2264,6 +2264,13 @@
               "enabled": "នៅពេលជ្រើសកន្លែងធ្វើការ tmux ពីចម្ងាយ “កន្លែងធ្វើការថ្មី” នឹងចាប់ផ្តើមសម័យ tmux លើម៉ាស៊ីនមេរបស់កន្លែងធ្វើការនោះ។"
             }
           }
+        },
+        "chief": {
+          "description": "Chief ភ្នាក់ងារទំព័រដើម៖ ថាតើត្រូវបង្ហាញ ហើយប្រើ harness ម៉ូដែល និងកម្រិតខិតខំណា។",
+          "enabled": "បង្ហាញជួរទំព័រដើម និងច្រកចូល Chief។ ពេល false ជួរទំព័រដើម ផ្លូវកាត់បើក Chief ធាតុម៉ឺនុយ និងធាតុផ្ទាំងពាក្យបញ្ជានឹងត្រូវលាក់។",
+          "harness": "harness ភ្នាក់ងារដែល Chief ដំណើរការ៖ claude (Claude Code) ឬ codex (Codex)។",
+          "model": "ម៉ូដែលដែលបញ្ជូនទៅ harness។ ទុកទទេដើម្បីប្រើលំនាំដើមរបស់ harness។",
+          "effort": "កម្រិតខិតខំវែកញែកដែលបញ្ជូនទៅ harness ដូចជា low, medium ឬ high។ ទុកទទេដើម្បីប្រើលំនាំដើមរបស់ harness។"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

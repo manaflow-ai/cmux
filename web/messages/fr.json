@@ -2264,6 +2264,13 @@
               "enabled": "Lorsqu’un espace de travail tmux distant est sélectionné, « Nouvel espace de travail » démarre une session tmux sur son hôte."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, l’agent d’accueil : s’il est affiché et quel environnement, modèle et effort il utilise.",
+          "enabled": "Affiche la ligne Accueil et les points d’entrée de Chief. Si false, la ligne Accueil, le raccourci Ouvrir Chief, l’élément de menu et les entrées de la palette de commandes sont masqués.",
+          "harness": "Environnement d’agent sur lequel Chief s’exécute : claude (Claude Code) ou codex (Codex).",
+          "model": "Modèle transmis à l’environnement. Laissez vide pour utiliser la valeur par défaut de l’environnement.",
+          "effort": "Effort de raisonnement transmis à l’environnement, par exemple low, medium ou high. Laissez vide pour utiliser la valeur par défaut de l’environnement."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
