@@ -59,6 +59,13 @@ enum SurfacePaneFactory {
         )
     }
 
+    /// A browser pane an existing Cloud resource (a display or a port) is about
+    /// to bind. Restoration policy keeps it out of a Cloud workspace's new-browser
+    /// lane, which would start a daemon browser in the pane instead.
+    static func makeCloudResourceBrowserPane(at destination: SurfaceDestination, focus: Bool) throws -> (workspaceID: UUID, panelID: UUID) {
+        try makeBrowserPane(url: nil, at: destination, focus: focus, creationPolicy: .restoration)
+    }
+
     /// The URL a browser pane opens with when its real URL is still being resolved; the
     /// caller fills the pane with ``SurfaceBrowserPlaceholder`` content and navigates later.
     static let blankURL = URL(string: "about:blank")!
