@@ -107,7 +107,6 @@ const (
 	defaultPTYExitDrainTimeout                = time.Second
 	maxConcurrentPTYSessionStartOwnersPerHub  = 16
 	maxConcurrentPTYSessionStartWaitersPerHub = 64
-	standardExecutablePath                    = "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
 )
 
 type wsPTYOutgoingFrame struct {
@@ -774,7 +773,11 @@ func defaultWebSocketPTYEnv(shellPath string) []string {
 		}
 	}
 
-	set("PATH", pathWithStandardExecutableDirectories(env["PATH"]))
+	// The daemon may have been launched through SSH, in which case its PATH can
+	// be the client's PATH (for example, a macOS path on a Linux host). Leave
+	// PATH unset so the PTY's login shell reconstructs it from the remote host's
+	// own startup files instead of carrying that foreign value into the session.
+	delete(env, "PATH")
 	set("TERM", "xterm-256color")
 	// Force cmux's own terminal identity. These are inherited from the daemon's
 	// host environment (tmux, iTerm, Apple Terminal, ...); leaking the host
@@ -807,22 +810,6 @@ func defaultWebSocketPTYEnv(shellPath string) []string {
 		out = append(out, key+"="+value)
 	}
 	return out
-}
-
-func pathWithStandardExecutableDirectories(inheritedPath string) string {
-	entries := filepath.SplitList(inheritedPath)
-	present := make(map[string]struct{}, len(entries))
-	for _, entry := range entries {
-		present[entry] = struct{}{}
-	}
-	for _, standardDirectory := range filepath.SplitList(standardExecutablePath) {
-		if _, ok := present[standardDirectory]; ok {
-			continue
-		}
-		entries = append(entries, standardDirectory)
-		present[standardDirectory] = struct{}{}
-	}
-	return strings.Join(entries, string(os.PathListSeparator))
 }
 
 func envMapWithOrder(values []string) (map[string]string, []string) {
