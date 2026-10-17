@@ -28,7 +28,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         eprintln!("cmux: streams require --jsonl, --quiet, or human output");
         return 2;
     }
-    if let Err(error) = super::resolve::apply_global_route(&global, &mut plan.params) {
+    if let Err(error) = super::resolve::apply_global_route(&global, &mut plan) {
         eprintln!("cmux: {error}");
         return 2;
     }

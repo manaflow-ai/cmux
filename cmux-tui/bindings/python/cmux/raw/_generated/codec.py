@@ -89,6 +89,7 @@ MODEL_BY_PATH = {
     'types/ListTerminalsResult': models.ListTerminalsResult,
     'types/LivePane': models.LivePane,
     'types/MachineListeningTcpResult': models.MachineListeningTcpResult,
+    'types/MachinePlatform': models.MachinePlatform,
     'types/MachineUsage': models.MachineUsage,
     'types/MachineUsageResult': models.MachineUsageResult,
     'types/MintTerminalRendererResult': models.MintTerminalRendererResult,
