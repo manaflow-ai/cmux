@@ -556,6 +556,9 @@ fi
 # A DMG submission scans nested code and issues a ticket for the exact signed
 # app. Require that independently usable ticket before accepting the artifact.
 "$XCRUN_TOOL" stapler staple "$APP_PATH"
+# The ticket file ships inside the stapled-app DMG: readable by every user,
+# whatever umask the notary sidecar writers left.
+if [ -f "$APP_PATH/Contents/CodeResources" ]; then chmod 0644 "$APP_PATH/Contents/CodeResources"; fi
 "$XCRUN_TOOL" stapler validate "$APP_PATH"
 "$SPCTL_TOOL" -a -vv --type execute "$APP_PATH"
 
