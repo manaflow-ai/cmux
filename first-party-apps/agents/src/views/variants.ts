@@ -9,7 +9,7 @@ import { shortVersion } from "../model/version.ts"
 import { t } from "../l10n.ts"
 import { showMissing } from "../settings.ts"
 import { byMachine, jobOf, loaded, machines, machinesError, selected, setSelected, stateOf } from "../store.ts"
-import { accountLines, allLists, badgeFor, errorState, hintLines, levelBadge, machineName, nameOf, primaryAction, statusSymbol, statusTone, toolbar, versionLine } from "./common.ts"
+import { accountLines, allLists, badgeFor, errorState, hintLines, levelBadge, machineName, machinePlatform, nameOf, primaryAction, statusSymbol, statusTone, toolbar, versionLine } from "./common.ts"
 import { summaryText } from "./section.ts"
 import { jobText } from "./common.ts"
 
@@ -122,6 +122,10 @@ function machineSection(m: () => Machine) {
     HStack({ spacing: 6 }, [
       Icon(() => (m().origin === "local" ? "laptopcomputer" : "server.rack")).secondary(),
       Text(() => machineName(m())).font("headline"),
+      () => {
+        const platform = machinePlatform(m())
+        return platform ? Text(platform).font("caption").secondary() : null
+      },
       Text(() => (m().status === "running" ? "" : m().status)).font("caption").secondary(),
       Spacer()
     ]).padding({ top: 10, leading: 12, bottom: 4, trailing: 12 }),

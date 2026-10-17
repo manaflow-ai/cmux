@@ -139,10 +139,12 @@ extension CloudHandlers {
         }
         bind("cloudCopyLink", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), port = try port(invocation)
+            try require(.ports, on: session)
             run("copy machine link", context) { CloudPresenter.copy(try await cloud.api.openPort(session.machineID, port: port).url) }
         }
         bind("cloudResizeMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
+            try require(.sizing, on: session)
             guard let size = invocation["size"]?.stringValue, let (cpu, memory) = sizes[size] else {
                 throw ActionFailure(message: CloudStrings.sizeMustBeOneOf(sizes.keys.sorted().joined(separator: ", ")))
             }
@@ -150,6 +152,7 @@ extension CloudHandlers {
         }
         bind("palette.cloud.status", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
+            try require(.stats, on: session)
             run("machine status", context) {
                 let stats = try await cloud.api.stats(session.machineID)
                 CloudPresenter.show(CloudStrings.statusTitle, describe(session, stats), copyable: true, in: window(context))
@@ -167,6 +170,7 @@ extension CloudHandlers {
         }
         bind("palette.cloud.tools", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
+            try require(.exec, on: session)
             run("machine tools", context) {
                 let result = try await cloud.api.exec(session.machineID, command: toolsProbe)
                 CloudPresenter.show(CloudStrings.toolsTitle, result.stdout, copyable: true, in: window(context))
@@ -183,6 +187,7 @@ extension CloudHandlers {
         }
         bind("palette.cloud.snapshot", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
+            try require(.snapshot, on: session)
             run("snapshot machine", context) {
                 let snapshot = try await cloud.api.snapshot(session.machineID, name: nil)
                 CloudPresenter.show(CloudStrings.snapshotTitle, CloudStrings.snapshotBody(snapshot.id), copyable: true, in: window(context))
@@ -202,6 +207,7 @@ extension CloudHandlers {
         // machine, which Restore Cloud Machine then starts new machines from.
         bind("palette.cloud.promoteTemplate", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
+            try require(.snapshot, on: session)
             run("promote machine to template", context) {
                 let snapshot = try await cloud.api.snapshot(session.machineID, name: templateName(session.machineID, at: Date()))
                 CloudPresenter.show(CloudStrings.templateTitle, CloudStrings.templateBody(snapshot.id), copyable: true, in: window(context))
@@ -216,6 +222,7 @@ extension CloudHandlers {
         }
         bind("palette.cloud.fork", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
+            try require(.fork, on: session)
             run("fork machine", context) {
                 _ = try await cloud.api.fork(session.machineID, name: nil)
                 await cloud.refresh()
@@ -247,6 +254,15 @@ extension CloudHandlers {
 
     /// `size` choices -> (vCPUs, MiB). Pro allows up to 24 GiB.
     static let sizes: [String: (Int, Int)] = ["small": (2, 4096), "medium": (4, 8192), "large": (8, 16384), "xlarge": (16, 24576)]
+
+    /// Provider capability checks happen before a network request so an
+    /// unsupported Cloud verb is reported as an unavailable action rather
+    /// than becoming a provider error or an unaudited mutation attempt.
+    static func require(_ operation: CloudMachine.Capabilities.Operation, on session: CloudMachineSession) throws {
+        guard session.machine.capabilities.supports(operation) else {
+            throw ActionFailure(message: "The Cloud machine does not advertise the \(operation.rawValue) capability.")
+        }
+    }
 
     static func filePath(_ invocation: ActionInvocation) throws -> String {
         guard let path = invocation["path"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
