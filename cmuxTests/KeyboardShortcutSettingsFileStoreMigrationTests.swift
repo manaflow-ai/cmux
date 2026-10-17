@@ -250,6 +250,17 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             store.override(for: .selectWorkspaceByNumber),
             StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
         )
+
+        // Legacy shortcut resolution performs conflict checks across actions.
+        // Keep the multi-binding lookup on that path covered so its context
+        // lookup cannot recurse back into shortcut resolution.
+        let originalStore = KeyboardShortcutSettings.settingsFileStore
+        defer { KeyboardShortcutSettings.settingsFileStore = originalStore }
+        KeyboardShortcutSettings.settingsFileStore = store
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcutBindings(for: .openBrowser).first?.shortcut,
+            StoredShortcut(key: "2", command: true, shift: false, option: false, control: false)
+        )
     }
 
     func testSettingsFileURLForEditingReturnsCanonicalConfigWhenLegacyFallbackExists() throws {

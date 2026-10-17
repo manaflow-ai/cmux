@@ -139,7 +139,11 @@ extension KeyboardShortcutSettings {
     /// ``ShortcutWhenClause``. Drives both runtime availability and conflict
     /// detection so the same keystroke can be context-routed.
     static func effectiveWhenClause(for action: Action) -> ShortcutWhenClause {
-        shortcutBindings(for: action).first?.whenClause
+        // Read the parsed file state directly. Resolving a legacy shortcut
+        // calls into conflict detection, which asks for this clause again;
+        // going through `shortcutBindings(for:)` here would recurse while
+        // resolving default shortcuts during app startup.
+        settingsFileStore.configuredBindings(for: action)?.first?.whenClause
             ?? settingsFileStore.whenClause(for: action)
             ?? action.shortcutContext.defaultWhenClause
     }
