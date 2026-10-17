@@ -262,7 +262,8 @@ describe("Run HTTP routes with a live database", () => {
       const cancelled = await cancelRoute.POST(new Request(`https://cmux.test/api/runs/${run.id}/cancel`, { method: "POST", headers: authHeaders() }), routeParams(run.id));
       expect(cancelled.status).toBe(200);
       const snapshot = await json<{ run: { status: string }; attempts: Array<{ id: string; status: string }> }>(cancelled);
-      expect(snapshot.run.status).toBe("cancelling");
+      expect(snapshot.run.status).toBe("cancelled");
+      expect(snapshot.attempts.find((attempt) => attempt.id === activeAttempt.id)?.status).toBe("cancelled");
       expect(snapshot.attempts.find((attempt) => attempt.id === run.attempts[1]?.id)?.status).toBe("cancelled");
       const rejected = await leaseRoute.POST(new Request("https://cmux.test", { method: "POST", headers: workerHeaders(), body: JSON.stringify({ workerId: "late-worker" }) }), attemptParams(run.id, run.attempts[1]!.id));
       expect(rejected.status).toBe(409);
