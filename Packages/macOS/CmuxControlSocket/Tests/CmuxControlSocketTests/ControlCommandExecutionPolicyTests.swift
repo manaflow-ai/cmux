@@ -81,6 +81,7 @@ struct ControlCommandExecutionPolicyTests {
             "browser.errors.list", "browser.state.save", "browser.state.load",
             "browser.addinitscript", "browser.addscript", "browser.addstyle",
             "browser.design_mode.set", "browser.design_mode.status",
+            "browser.extension.list", "browser.extension.load", "browser.extension.install_crx", "browser.extension.enable", "browser.extension.disable", "browser.extension.remove", "browser.extension.reload", "browser.extension.pin", "browser.extension.unpin", "browser.extension.move", "browser.extension.options", "browser.extension.run", "browser.extension.command", "browser.extension.open_page",
             "browser.geolocation.set", "browser.offline.set",
             "browser.input_mouse", "browser.input_keyboard",
             "browser.viewport.set",
