@@ -8,7 +8,7 @@ import { RETRY_MS } from "./memory.ts"
 import { creditsCanStart, creditsNotice, turnFailedNotice, isClaude, isMetered, liveOf, pickTurnModel } from "./models.ts"
 import { clipReply, formatMessage, isNoReply, replyTarget } from "./brain-text.ts"
 import { turnThread } from "./brain-spawn.ts"
-import { type ChiefBrainDO, POST_RETRY_MS, MAX_POST_TRIES, HOST, SETTLE_MS, TURN_MS, HANDS_CONTINUE, type Admission } from "./brain-do.ts"
+import { type ChiefBrainDO, POST_RETRY_MS, MAX_POST_TRIES, HOST, SETTLE_MS, TURN_MS, handsContinueText, type Admission } from "./brain-do.ts"
 
 /**
  * The turn loop of a ChiefBrainDO (brain-do.ts): a wake queues messages, the drain admits and opens one
@@ -253,7 +253,8 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
       b.sql.exec(`INSERT INTO cb_marks (turn, mark, at) VALUES (?, 'continuation', ?) ON CONFLICT DO NOTHING`, id, Date.now())
       b.startTurnHands()
       // pi takes a repeated operation id once, so a resumed turn submits again safely.
-      await b.harness.submit([{ type: "text" as const, text: HANDS_CONTINUE }], { operationId: `${id}:hands` })
+      const info = b.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `hands_cont_info:${id}`).toArray()[0]?.value
+      await b.harness.submit([{ type: "text" as const, text: handsContinueText(info, b.doEnv.HAND_SANDBOX_WORKDIR || "/root/proj") }], { operationId: `${id}:hands` })
       result = await Promise.race([b.harness.wait(`${id}:hands`), limit])
       // Messages that joined during the continuation: wait for them too.
       for (let i = steeredBefore; i < b.steered.length && result !== "timeout"; i++) {
@@ -276,7 +277,7 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
     clearTimeout(timer)
     b.turnLive = false
     b.steered = []
-    b.sql.exec(`DELETE FROM cb_config WHERE name IN (?, ?)`, `steer:${id}`, `hands_cont:${id}`)
+    b.sql.exec(`DELETE FROM cb_config WHERE name IN (?, ?, ?)`, `steer:${id}`, `hands_cont:${id}`, `hands_cont_info:${id}`)
     b.turnId = undefined
     b.turnConversation = undefined
   }

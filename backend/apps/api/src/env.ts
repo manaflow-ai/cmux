@@ -284,6 +284,8 @@ export interface Env {
   readonly CHIEF_OPENCODE_CONTAINER?: string
   /** "1": test-only fault hooks (chief-fault.ts) for the crash-mid-turn conformance case; ignored on staging and production. */
   readonly CHIEF_FAULT_HOOKS?: string
+  /** The work folder a new sandbox hand starts in (the Chief's continuation names it; default /root/proj). */
+  readonly HAND_SANDBOX_WORKDIR?: string
   /** The host model gateway's Anthropic Messages base URL for O brains (default: O's own stub route). */
   readonly CHIEF_OPENCODE_GATEWAY_URL?: string
   /** One AddressDO per invited address (HMAC id): suppression, limits, provider sends. */

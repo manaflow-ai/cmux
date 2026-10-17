@@ -222,6 +222,8 @@ const respond: FauxResponseFactory = async (context, options, _state, model) => 
   // "tool:<name> <json args>" calls any registered tool (the hands e2e drives `hands` and `agent` this way).
   // The brain's continuation after a first hand: run the original request's "then:<tool> <json>" script.
   if (text.includes("Your new hand is ready")) {
+    // Without the hand's details the model lists its hands first (staging, 2026-10-16); with them it goes on.
+    if (!text.includes("Your hand:")) return withThinking(fauxAssistantMessage([fauxToolCall("hands", { action: "list" })], { stopReason: "toolUse" }));
     const then = /then:([a-z_]+)\s+(\{[^\n]*?\})\s+tool:/.exec(blocksOf(firstUser?.content).join("\n"));
     if (then) return withThinking(fauxAssistantMessage([fauxToolCall(then[1]!, JSON.parse(then[2]!) as Parameters<typeof fauxToolCall>[1])], { stopReason: "toolUse" }));
   }
