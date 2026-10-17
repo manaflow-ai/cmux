@@ -1,3 +1,4 @@
+public import AppKit
 public import CmuxBrowser
 public import CoreGraphics
 
@@ -16,6 +17,10 @@ extension CEFBrowserPage: BrowserPageDevToolsHosting {
 
     public func setDevToolsFocused(_ focused: Bool) {
         features.devTools.setFocused(focused)
+    }
+
+    public func devToolsContains(window: NSWindow) -> Bool {
+        features.devTools.contains(window: window)
     }
 }
 

@@ -187,10 +187,18 @@ extension BrowserPanel {
         case .navigationFinished(let url):
             finishEngineNavigation(failure: nil)
             historyStore.recordVisit(url: url, title: pageTitle)
+            // As for a WebKit page: the find bar stays open and its query
+            // runs again on the new document.
+            restoreFindStateAfterNavigation(replaySearch: true)
         case .closeRequested:
             webViewDidRequestClose?()
         case .devToolsVisibilityChanged(let open):
             isEngineDevToolsOpen = open
+            if !open { engineDevToolsHasKeyboard = false }
+        case .contentFullscreenChanged(let fullscreen):
+            applyEngineContentFullscreen(fullscreen)
+        case .externalAppRequested(let url, _):
+            openEngineExternalAppURL(url)
         case .navigationFailed(let url, let code, _, _):
             // A Chromium runtime that failed to start reports it as a failed
             // load: the panel opens the page in WebKit instead of staying blank.
@@ -202,6 +210,7 @@ extension BrowserPanel {
             // next navigation) replaced: it must not fail the newer load's wait.
             if code != Self.engineAbortedErrorCode {
                 finishEngineNavigation(failure: "navigation failed")
+                restoreFindStateAfterNavigation(replaySearch: false)
             }
             applyEnginePageNavigationFailure(url: url)
         case .navigationStarted:
@@ -220,6 +229,42 @@ extension BrowserPanel {
         default:
             break
         }
+    }
+
+    /// Page content entered or left fullscreen (an HTML5 video's fullscreen
+    /// button). Chromium sizes the element to the page's view, so the pane's
+    /// chrome steps aside and the page fills the pane until the page leaves
+    /// fullscreen (Esc, the page's own button), as in cmux Next. Never
+    /// persisted: a restored pane keeps its saved chrome policy.
+    func applyEngineContentFullscreen(_ fullscreen: Bool) {
+        chromeState.setContentFullscreen(fullscreen)
+    }
+
+    /// A link to another app (mailto:, tel:, an app's own scheme) that the
+    /// Chromium page cancelled instead of loading. It gets the handling a
+    /// WebKit page's link gets (`BrowserNavigationDelegate`): the URL
+    /// allowlist, an `intent:` link's web fallback in this pane, otherwise the
+    /// "Open External App?" confirmation before the app opens. As in WebKit,
+    /// the confirmation is the gate, with or without a user gesture.
+    func openEngineExternalAppURL(_ url: URL) {
+        guard enginePage != nil, BrowserURLAllowlistPolicy(defaults: .standard).allows(url) else { return }
+        let presentAlert: BrowserAlertPresenter = engineExternalAppAlertPresenter ?? { [weak self] alert, _, completion, _ in
+            if let window = browserInteractiveModalHostWindow(self?.enginePage?.contentView.window) {
+                alert.beginSheetModal(for: window, completionHandler: completion)
+            } else {
+                completion(alert.runModal())
+            }
+        }
+        browserHandleExternalNavigation(
+            url,
+            source: "chromium",
+            webView: webView,
+            loadFallbackRequest: { [weak self] request in
+                guard let url = request.url else { return }
+                self?.navigate(to: url)
+            },
+            presentAlert: presentAlert
+        )
     }
 
     /// Loads a request that already passed the panel's navigation policy
@@ -257,12 +302,51 @@ extension BrowserPanel {
         }
     }
 
+    /// The text of a non-WebKit page's JavaScript dialog.
+    struct EngineJavaScriptDialogText: Equatable {
+        /// The title, or `nil` for the page's host.
+        var title: String?
+        var message: String
+        var ok: String
+        var cancel: String
+    }
+
+    /// A page's own text for alert, confirm and prompt. A beforeunload dialog
+    /// uses Chrome's wording (Leave site? / Reload site?, Leave / Reload,
+    /// Cancel) and ignores the page's message, as Chrome does.
+    static func engineJavaScriptDialogText(
+        for kind: BrowserPageJavaScriptDialog.Kind,
+        message: String
+    ) -> EngineJavaScriptDialogText {
+        let ok = String(localized: "common.ok", defaultValue: "OK")
+        let cancel = String(localized: "common.cancel", defaultValue: "Cancel")
+        guard case .beforeUnload(let isReload) = kind else {
+            return EngineJavaScriptDialogText(title: nil, message: message, ok: ok, cancel: cancel)
+        }
+        let unsaved = String(localized: "browser.beforeUnload.message", defaultValue: "Changes you made may not be saved.")
+        if isReload {
+            return EngineJavaScriptDialogText(
+                title: String(localized: "browser.beforeUnload.reload.title", defaultValue: "Reload site?"),
+                message: unsaved,
+                ok: String(localized: "browser.reload", defaultValue: "Reload"),
+                cancel: cancel
+            )
+        }
+        return EngineJavaScriptDialogText(
+            title: String(localized: "browser.beforeUnload.leave.title", defaultValue: "Leave site?"),
+            message: unsaved,
+            ok: String(localized: "browser.beforeUnload.leave", defaultValue: "Leave"),
+            cancel: cancel
+        )
+    }
+
     private func presentEngineJavaScriptDialog(
         _ dialog: BrowserPageJavaScriptDialog,
         finish: @escaping @MainActor (BrowserPageJavaScriptDialogResponse) -> Void
     ) {
-        let okLabel = String(localized: "common.ok", defaultValue: "OK")
-        let cancelLabel = String(localized: "common.cancel", defaultValue: "Cancel")
+        let text = Self.engineJavaScriptDialogText(for: dialog.kind, message: dialog.message)
+        let okLabel = text.ok
+        let cancelLabel = text.cancel
         let type: String
         let kind: MobileBrowserDialogKind
         var defaultText: String?
@@ -271,8 +355,8 @@ extension BrowserPanel {
             type = "alert"; kind = .javaScriptAlert
         case .confirm, .beforeUnload:
             type = "confirm"; kind = .javaScriptConfirm
-        case .prompt(let text):
-            type = "prompt"; kind = .javaScriptPrompt; defaultText = text
+        case .prompt(let promptText):
+            type = "prompt"; kind = .javaScriptPrompt; defaultText = promptText
         }
         if let attachment = BrowserReplTabAttachments.shared.attachment(for: id),
            attachment.handleDialog(type: type, message: dialog.message, defaultValue: defaultText, respond: { accept, text in
@@ -282,8 +366,8 @@ extension BrowserPanel {
         }
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = dialog.origin?.host ?? ""
-        alert.informativeText = dialog.message
+        alert.messageText = text.title ?? dialog.origin?.host ?? ""
+        alert.informativeText = text.message
         alert.addButton(withTitle: okLabel)
         let isAlert = kind == .javaScriptAlert
         if !isAlert { alert.addButton(withTitle: cancelLabel) }
@@ -299,7 +383,7 @@ extension BrowserPanel {
         _ = presentMobileBrowserDialog(
             kind: kind,
             title: alert.messageText,
-            message: dialog.message,
+            message: text.message,
             host: dialog.origin?.host,
             buttons: buttons,
             textField: field.map { MobileBrowserDialogTextField(placeholder: nil, initial: $0.stringValue, secure: false) },

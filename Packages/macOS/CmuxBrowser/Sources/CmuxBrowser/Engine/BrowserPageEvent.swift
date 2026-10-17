@@ -38,4 +38,8 @@ public enum BrowserPageEvent: Equatable, Sendable {
     /// Keyboard focus left the page: Tab (`forward`) or Shift+Tab passed
     /// its last or first control.
     case focusLeftPage(forward: Bool)
+    /// The page navigated to a link another app opens (mailto:, tel:, an
+    /// app's own scheme), which the engine cancelled instead of loading;
+    /// `userGesture` is whether the user's click started it.
+    case externalAppRequested(URL, userGesture: Bool)
 }

@@ -10,9 +10,16 @@ public final class BrowserChromeState {
     /// The pane's current browser chrome policy.
     public private(set) var visibility: BrowserChromeVisibility
 
+    /// Page content is fullscreen in the pane (an HTML5 video's fullscreen
+    /// button in a Chromium page): the chrome steps aside so the page fills
+    /// the pane. Transient; ``visibility`` (what persistence stores) keeps the
+    /// pane's own policy. cmux Next: `BrowserChromeView` hides its toolbar
+    /// while `isContentFullscreen`.
+    public private(set) var isContentFullscreen = false
+
     /// Whether the pane should render its address bar and toolbar.
     public var isOmnibarVisible: Bool {
-        visibility.isOmnibarVisible
+        visibility.isOmnibarVisible && !isContentFullscreen
     }
 
     /// Creates pane-owned browser chrome state.
@@ -34,6 +41,17 @@ public final class BrowserChromeState {
         return true
     }
 
+    /// Records that page content entered or left fullscreen.
+    ///
+    /// - Parameter fullscreen: Whether page content is fullscreen.
+    /// - Returns: `true` when the state changed.
+    @discardableResult
+    public func setContentFullscreen(_ fullscreen: Bool) -> Bool {
+        guard isContentFullscreen != fullscreen else { return false }
+        isContentFullscreen = fullscreen
+        return true
+    }
+
     /// Applies a user-requested omnibar visibility change when policy permits it.
     ///
     /// - Parameter visible: Whether browser chrome should be visible.
@@ -50,7 +68,7 @@ public final class BrowserChromeState {
     ///   hidden and returns `false`.
     @discardableResult
     public func toggleOmnibarVisibility() -> Bool {
-        _ = setOmnibarVisible(!isOmnibarVisible)
-        return isOmnibarVisible
+        _ = setOmnibarVisible(!visibility.isOmnibarVisible)
+        return visibility.isOmnibarVisible
     }
 }

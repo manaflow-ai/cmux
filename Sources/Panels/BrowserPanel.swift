@@ -2154,6 +2154,13 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var engineFallbackReason: BrowserEngineUnavailableReason?
     /// Whether a Chromium page's DevTools are open (the toolbar button shows its pressed fill).
     @Published var isEngineDevToolsOpen = false
+    /// The user chose the Chromium page's docked DevTools (a click into them):
+    /// panel focus gives them the keyboard instead of the page until the page
+    /// is clicked or the tools close.
+    var engineDevToolsHasKeyboard = false
+    /// Shows the external-app confirmation for a Chromium page; `nil` shows a
+    /// sheet on the page's window (tests answer it themselves).
+    var engineExternalAppAlertPresenter: BrowserAlertPresenter?
     var enginePageEventsTask: Task<Void, Never>?
     /// Identity of the latest load handed to the non-WebKit page, so browser
     /// automation can wait for that load to commit (`automationNavigationCoordinator`).
@@ -5218,8 +5225,8 @@ final class BrowserPanel: Panel, ObservableObject {
         if shouldSuppressWebViewFocus() {
             return
         }
-        if let enginePage {
-            enginePage.setFocused(true)
+        if enginePage != nil {
+            focusEnginePageContent()
             return
         }
 
@@ -6811,6 +6818,7 @@ extension BrowserPanel {
         if estimatedProgress != state.estimatedProgress { estimatedProgress = state.estimatedProgress }
         if canGoBack != state.canGoBack { canGoBack = state.canGoBack }
         if canGoForward != state.canGoForward { canGoForward = state.canGoForward }
+        applyEngineContentFullscreen(state.isContentFullscreen)
     }
 
     /// A non-WebKit page's main-frame load failed. Chromium shows its own
@@ -8183,7 +8191,9 @@ extension BrowserPanel {
         return .forwardToWebView
     }
 
-    private func restoreFindStateAfterNavigation(replaySearch: Bool) {
+    /// Keeps the find bar open across a navigation; `replaySearch` runs its
+    /// query again on the new document (WebKit and Chromium pages alike).
+    func restoreFindStateAfterNavigation(replaySearch: Bool) {
         guard let state = searchState else { return }
         state.total = nil
         state.selected = nil

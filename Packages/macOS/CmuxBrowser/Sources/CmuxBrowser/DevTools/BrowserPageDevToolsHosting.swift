@@ -1,4 +1,4 @@
-import Foundation
+public import AppKit
 
 /// A ``BrowserPage`` whose engine shows developer tools inside the pane and can dock them
 /// (Chromium). WebKit pages do not conform; their inspector stays owned by the panel.
@@ -18,4 +18,10 @@ public protocol BrowserPageDevToolsHosting: BrowserPage {
     /// Gives keyboard focus to the open tools, or returns it to the page.
     /// - Parameter focused: `true` to focus the tools.
     func setDevToolsFocused(_ focused: Bool)
+
+    /// Whether `window` (one that became key or took a click) is these tools: their own
+    /// window, or the engine's child window over the docked area.
+    /// - Parameter window: The window.
+    /// - Returns: `true` when the window shows these DevTools.
+    func devToolsContains(window: NSWindow) -> Bool
 }

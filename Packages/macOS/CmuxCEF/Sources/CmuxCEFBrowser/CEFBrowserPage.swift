@@ -521,6 +521,10 @@ public final class CEFBrowserPage: BrowserPage {
             pendingDialogs.removeValue(forKey: token)?.cancel()
         case .tab(.sidePanelChanged, _, _, _):
             sidePanel.scheduleRefresh()
+        case .keyUnhandled(_, 0x1B, _) where browser.state.isFullscreen:
+            // Esc (Windows key code 0x1B) the page did not handle while its content is fullscreen:
+            // leave fullscreen, as Chrome's Esc does.
+            exitContentFullscreen()
         default:
             // Permissions and downloads (CEFBrowserPage+Data.swift).
             dataBridge.handle(event, page: self)
@@ -539,6 +543,9 @@ public final class CEFBrowserPage: BrowserPage {
         case .renderResponsive: .unresponsiveChanged(false)
         // Tab or Shift+Tab past the page's last or first control.
         case .takeFocus(_, let forward): .focusLeftPage(forward: forward)
+        // A link to another app; the shim cancelled it (external_url.h).
+        case .externalURL(_, let url, let userGesture):
+            URL(string: url).map { .externalAppRequested($0, userGesture: userGesture) }
         default: nil
         }
     }
@@ -573,6 +580,17 @@ public final class CEFBrowserPage: BrowserPage {
             case .dismiss:
                 CEFRuntime.shared.answerJSDialog(token: token, accept: false)
             }
+        }
+    }
+
+    /// Ends the page's content fullscreen (`document.exitFullscreen()`); the
+    /// shim then reports the page leaving fullscreen.
+    public func exitContentFullscreen() {
+        guard browser.state.isFullscreen else { return }
+        Task { @MainActor [weak self] in
+            _ = try? await self?.evaluateJavaScript(
+                "document.fullscreenElement && document.exitFullscreen(); true", in: .page
+            )
         }
     }
 

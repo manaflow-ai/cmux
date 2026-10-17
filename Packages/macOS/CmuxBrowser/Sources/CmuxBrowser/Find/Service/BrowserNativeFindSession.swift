@@ -18,6 +18,9 @@ public final class BrowserNativeFindSession: BrowserFinding {
     private let driver: any BrowserNativeFindDriving
     private let matchCase: Bool
     private var needle = ""
+    /// The page committed a new document since the last request: the next request starts a
+    /// fresh search instead of stepping from a match the old document had.
+    private var documentChanged = false
     private var pending: CheckedContinuation<BrowserFindMatchCount?, Never>?
 
     /// Creates a session over an engine's native find.
@@ -40,24 +43,25 @@ public final class BrowserNativeFindSession: BrowserFinding {
     /// like typing Return in Chrome's find bar.
     public func search(needle: String) async -> BrowserFindMatchCount? {
         guard !needle.isEmpty else { return nil }
-        let isNewNeedle = needle != self.needle
+        let isNewNeedle = needle != self.needle || documentChanged
         self.needle = needle
         return await request(forward: true, findNext: !isNewNeedle)
     }
 
     public func next() async -> BrowserFindMatchCount? {
         guard !needle.isEmpty else { return nil }
-        return await request(forward: true, findNext: true)
+        return await request(forward: true, findNext: !documentChanged)
     }
 
     public func previous() async -> BrowserFindMatchCount? {
         guard !needle.isEmpty else { return nil }
-        return await request(forward: false, findNext: true)
+        return await request(forward: false, findNext: !documentChanged)
     }
 
     public func clear() async {
         cancelPending()
         needle = ""
+        documentChanged = false
         // Chrome keeps the active match selected when its find bar closes.
         driver.stopFinding(clearSelection: false)
     }
@@ -83,11 +87,13 @@ public final class BrowserNativeFindSession: BrowserFinding {
         continuation.resume(returning: nil)
     }
 
-    /// Forgets the current needle after the page committed a new document, so the next
-    /// ``search(needle:)`` starts a fresh search instead of stepping a stale one.
+    /// The page committed a new document: the next request (``search(needle:)``, ``next()``,
+    /// ``previous()``) starts a fresh search for the same needle instead of stepping a stale
+    /// one. The needle stays, so the find bar's Return and Cmd-G keep working across a
+    /// navigation, as they do for a WebKit page.
     public func resetForNewDocument() {
         cancelPending()
-        needle = ""
+        documentChanged = true
     }
 
     /// Maps Chromium's result to the find bar's count: a 1-based active ordinal becomes the
@@ -105,6 +111,7 @@ public final class BrowserNativeFindSession: BrowserFinding {
     private func request(forward: Bool, findNext: Bool) async -> BrowserFindMatchCount? {
         cancelPending()
         let needle = self.needle
+        documentChanged = false
         return await withCheckedContinuation { continuation in
             pending = continuation
             guard driver.find(needle, forward: forward, matchCase: matchCase, findNext: findNext) else {
