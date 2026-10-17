@@ -394,8 +394,11 @@ public final class LayoutRootView: NSView {
     }
 
     override public func setFrameOrigin(_ newOrigin: NSPoint) {
+        let moved = frame.origin != newOrigin
         super.setFrameOrigin(newOrigin)
-        if overlayPlane.syncFrame() { setNeedsOverlaySync() }
+        // A move keeps the plane's frame here but moves every pane in the
+        // window: the hosts re-read their window frames in the sync.
+        if overlayPlane.syncFrame() || moved { setNeedsOverlaySync() }
     }
 
     override public func viewWillMove(toWindow newWindow: NSWindow?) {

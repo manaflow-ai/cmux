@@ -70,15 +70,22 @@ public final class LayoutModel {
         guard followsDesignMetrics else { return key.resolved(design: baseStyle) }
         _ = designStyleGeneration
         if let cachedStyle, cachedStyle.key == key { return cachedStyle.value }
-        let design = withObservationTracking {
-            baseStyle.applyingDesignMetrics()
-        } onChange: { [weak self] in
-            // A will-set: the new value is not stored yet. Drop the cache at
-            // once (a read after the write resolves again), and once more
-            // after the write, with the bump that wakes the views (a read
-            // between the will-set and the write cached the old value).
-            if Thread.isMainThread { MainActor.assumeIsolated { self?.cachedStyle = nil } } // main-proof: checked on this line
-            Task { @MainActor in self?.designStyleDidChange() }
+        let design: LayoutStyle
+        if styleTrackingArmed {
+            // A tracking is live: it already watches every setting this reads.
+            design = baseStyle.applyingDesignMetrics()
+        } else {
+            styleTrackingArmed = true
+            design = withObservationTracking {
+                baseStyle.applyingDesignMetrics()
+            } onChange: { [weak self] in
+                // A will-set: the new value is not stored yet. Drop the cache
+                // at once (a read after the write resolves again), and once
+                // more after the write, with the bump that wakes the views (a
+                // read between the will-set and the write cached the old value).
+                if Thread.isMainThread { MainActor.assumeIsolated { self?.cachedStyle = nil } } // main-proof: checked on this line
+                Task { @MainActor in self?.designStyleDidChange() }
+            }
         }
         let value = key.resolved(design: design)
         cachedStyle = (key, value)
@@ -101,7 +108,11 @@ public final class LayoutModel {
     /// `style` observe it.
     private var designStyleGeneration = 0
 
+    /// One tracking of the design settings is live at a time.
+    @ObservationIgnored private var styleTrackingArmed = false
+
     private func designStyleDidChange() {
+        styleTrackingArmed = false
         cachedStyle = nil
         designStyleGeneration &+= 1
     }
