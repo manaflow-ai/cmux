@@ -274,8 +274,14 @@ if opts.card_only:
             check(bool(group), "card: Settings > Machines has a Hands group")
             signed_out = page_query("[data-hands-signed-out]")
             report["steps"]["signed_out"] = signed_out
-            check(bool(signed_out) and "settingsWindow." not in signed_out[0].get("text", ""),
-                  f"card: signed out, the group says to sign in ({signed_out[0].get('text') if signed_out else None!r})")
+            check(bool(signed_out), "card: signed out, the group shows its sign-in line ([data-hands-signed-out])")
+            # An automation launch's page window is not drawn on screen, so innerText is often empty;
+            # check the words only when the page reports them.
+            shown = signed_out[0].get("text", "") if signed_out else ""
+            if shown:
+                check("settingsWindow." not in shown and "Sign in" in shown, f"card: the sign-in line reads {shown!r}")
+            else:
+                print("note the page reported no innerText here; the words are not checked", flush=True)
     finally:
         if app is not None:
             rpc("action.run", {"action": "quitEndSessions"})

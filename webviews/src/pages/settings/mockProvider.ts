@@ -308,6 +308,7 @@ export class MockSettingsProvider {
       ctx.signal.addEventListener("abort", () => this.agents.listeners.delete(listener));
     });
     session.provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
+    session.provide("cmux.settings.hands.changed", (ctx) => this.track(this.handsChanged, ctx));
   }
 
   /** The owner's Chief hands as the app serves them (`HandsService.pageState`). */
@@ -370,6 +371,7 @@ export class MockSettingsProvider {
   /** Harnesses gestures the page sent. */
   readonly harnessRuns: HarnessesRun[] = [];
   private readonly harnessesChanged = new Set<EventSourceContext>();
+  private readonly handsChanged = new Set<EventSourceContext>();
 
   /** Replaces the Harnesses part and tells the page, like the app's observation push. */
   setHarnesses(harnesses: HarnessesState): void {

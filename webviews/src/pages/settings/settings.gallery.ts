@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
-import type { AccountsRow, AccountsState, HostLists } from "./ops";
+import type { AccountsRow, AccountsState, HandsState, HostLists } from "./ops";
 import { categories, homes } from "./categories";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
@@ -112,6 +112,25 @@ const longRows = Array.from({ length: 48 }, (_, i) => ({
   title: `Research environment ${i + 1} with a long descriptive name`,
   subtitle: "Sample project · development environment",
   active: i === 0,
+}));
+/** Settings > Machines > Hands: the owner's hands (HandsService.pageState). */
+const handsBase: HandsState = {
+  signed_in: true,
+  levels: ["read-only", "ask", "auto", "full"],
+  hands: [{ hand: "hand_aaaaaaaaaaaaaaaaaaaa", name: "studio-mac", profile: "mac", level: "auto", online: true, pending: 1 }],
+  defaults: {},
+  secure_enclave: true,
+  prompt: null,
+  busy: null,
+  error: null,
+};
+const longHands: HandsState["hands"] = longRows.map((r, i) => ({
+  hand: `hand_sample${i}`,
+  name: r.title,
+  profile: i % 2 === 0 ? "sandbox" : "mac",
+  level: (["full", "auto", "ask", "read-only"] as const)[i % 4]!,
+  online: i % 3 !== 0,
+  pending: i % 5,
 }));
 const longProfiles = longRows.map((r, i) => ({
   id: r.id,
@@ -381,10 +400,15 @@ Object.assign(variants, {
   "managed-controls": variant("browser", { focus: "browser.remoteLocalhost" }),
   "empty-rooms": variant("rooms", { host: { ...host, rooms: [], browser_profiles: [] } }),
   "unsupported-rooms": variant("rooms", { host: { ...host, rooms: null } }),
-  "empty-machines": variant("machines", { host: { ...host, machines: [] } }),
+  "empty-machines": variant("machines", { host: { ...host, machines: [] }, hands: { ...handsBase, hands: [] } }),
   "long-rooms": variant("rooms", { host: { ...host, rooms: longRows, browser_profiles: longProfiles } }),
   "long-profiles": variant("browser", { host: { ...host, rooms: [], browser_profiles: longProfiles } }),
-  "long-machines": variant("machines", { host: { ...host, machines: longRows } }),
+  "long-machines": variant("machines", { host: { ...host, machines: longRows }, hands: { ...handsBase, hands: longHands } }),
+  "hands-signed-out": variant("machines", { hands: { ...handsBase, signed_in: false, hands: [] } }),
+  "hands-prompt": variant("machines", {
+    hands: { ...handsBase, prompt: "raise the hand “studio-mac” to Full", busy: "hand_aaaaaaaaaaaaaaaaaaaa" },
+    note: "A raise waits for Touch ID or the password; the levels are disabled meanwhile.",
+  }),
   "profile-editor": variant("browser", {
     steps: [
       click('[data-profile="p-work"] .host-toggle'),

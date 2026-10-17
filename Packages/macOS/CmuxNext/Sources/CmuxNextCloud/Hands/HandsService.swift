@@ -113,6 +113,7 @@ public final class HandsService {
         do {
             let listed = try await api.hands()
             try Task.checkCancellation()
+            guard isActive else { return }
             hands = listed
             var seen: Set<String> = []
             for hand in listed where (hand.pendingApprovals ?? 1) > 0 {
@@ -211,11 +212,12 @@ public final class HandsService {
     public func setLevel(hand id: String, to level: HandLevel) async throws {
         guard let index = hands.firstIndex(where: { $0.hand == id }) else { throw Failure.unknownHand(id) }
         let hand = hands[index]
-        if let from = hand.level, !from.isRaise(to: level) {
+        if hand.level.map({ !$0.isRaise(to: level) }) ?? true {
+            // A lower, or an unknown level: the plain PUT first; the server refuses a raise, which then takes the proof.
             do {
                 try await api.setLevel(target: id, level: level, proof: nil)
             } catch CloudAPIError.http(_, let code, _) where code == "hand.level_refused" {
-                // The known level was stale (a Chief lowered it): this is a raise after all.
+                // A raise after all (the known level was stale, or unknown): the presence proof.
                 try await raise(target: id, to: level, reason: texts.raiseHand(hand.name.isEmpty ? id : hand.name, level.rawValue))
             }
         } else {

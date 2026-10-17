@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useStore } from "../context";
 import type { HandLevel, HandRow, HandsState } from "../ops";
 import { settingsKeys } from "../queries";
+import { TransportError } from "../transport";
 import { t } from "../strings";
 
 const LEVEL_KEYS: Record<HandLevel, string> = {
@@ -107,7 +108,9 @@ function DefaultRow({ profile, state }: { profile: "mac" | "sandbox"; state: Han
 
 export function HandsGroup() {
   const store = useStore();
-  const { data: state } = useQuery<HandsState>({ queryKey: settingsKeys.hands, enabled: false });
+  const { data: state, error } = useQuery<HandsState>({ queryKey: settingsKeys.hands, enabled: false });
+  // The host serves no hands (a build or a window without Cloud): say so, not "loading" forever.
+  const unavailable = !state && error instanceof TransportError && error.code === "unavailable";
   // Read again when the group mounts (a stable callback ref runs once per mount), like Harnesses.
   const mounted = useCallback(
     (node: HTMLElement | null) => {
@@ -118,7 +121,21 @@ export function HandsGroup() {
   return (
     <section className="group" data-card="hands" ref={mounted}>
       <h3 className="group-title">{t("settingsWindow.hands.title")}</h3>
-      {!state || !state.signed_in ? (
+      {!state ? (
+        <div className="rows">
+          <div className="row">
+            {unavailable ? (
+              <div className="empty" data-hands-unavailable="">
+                {t("settingsWindow.hands.unavailable")}
+              </div>
+            ) : (
+              <div className="empty" data-hands-loading="">
+                {t("settingsWindow.hands.loading")}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : state.signed_in === false ? (
         <div className="rows">
           <div className="row">
             <div className="empty" data-hands-signed-out="">

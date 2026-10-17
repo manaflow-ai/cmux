@@ -52,7 +52,10 @@ extension HandsService {
 
     /// One level change at a time; the log line is the one `debug.hands` writes (`<label>: ok`).
     private func change(_ target: String, label: String, _ work: () async throws -> Void) async -> [String: Any] {
-        guard busy == nil else { return ["error": texts.failed] }
+        guard busy == nil else {
+            pageError = texts.failed
+            return ["error": texts.failed]
+        }
         (busy, pageError) = (target, nil)
         defer { busy = nil }
         do {
