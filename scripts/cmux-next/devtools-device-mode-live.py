@@ -31,7 +31,7 @@ failed. A known gap that passes fails the run, so the fix removes it from the li
 Writes results.json, window snapshots and the pages' screenshots to $NX_ARTIFACTS (or --out).
 Ends with debug.quit and $NX_APP_STOP; quits the Chrome it started. Exits 1 when a check fails.
 """
-import argparse, base64, glob, http.server, json, os, random, socket, struct, subprocess, sys, tempfile, threading, time, urllib.request
+import argparse, base64, hashlib, http.server, json, os, random, socket, struct, subprocess, sys, tempfile, threading, time, urllib.request
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="devtools-device-mode-"))
@@ -338,14 +338,41 @@ def rpc(method, params=None, timeout=30):
     return out
 
 
+def find(value, key):
+    if isinstance(value, dict):
+        if key in value:
+            return value[key]
+        value = list(value.values())
+    for child in value if isinstance(value, list) else []:
+        hit = find(child, key)
+        if hit is not None:
+            return hit
+    return None
+
+
+HOST = {}
+
+
 def host_socket():
-    """The browser host the tagged app's daemon started last (bh-*/browser-host.sock)."""
-    tmp = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip().rstrip("/")
-    found = set()
-    for base in {tmp, "/tmp", os.environ.get("TMPDIR", "/tmp").rstrip("/")}:
-        for pattern in ("bh-*/browser-host.sock", "*/bh-*/browser-host.sock", "cmux-*/bh-*/browser-host.sock"):
-            found.update(f for f in glob.glob(os.path.join(base, pattern)) if os.path.exists(f))
-    return max(found, key=os.path.getmtime) if found else None
+    """The browser host of the tagged app's own daemon: bh-<sha256(daemon socket)[:12]>/browser-host.sock
+    beside that socket (another app's host on this Mac does not know the tab)."""
+    if HOST.get("sock") and os.path.exists(HOST["sock"]):
+        return HOST["sock"]
+    p = subprocess.run([HOST["cli"], "--json", "daemon", "status"], capture_output=True, text=True, timeout=60)
+    try:
+        status = json.loads(p.stdout)
+    except ValueError:
+        status = {}
+    for daemon in [v for v in (find(status, k) for k in ("socket", "socket_path", "path")) if isinstance(v, str)]:
+        leaf = "bh-" + hashlib.sha256(daemon.encode()).hexdigest()[:12]
+        for candidate in (os.path.join(os.path.dirname(daemon), leaf, "browser-host.sock"),
+                          os.path.join("/tmp/cmux-tui-%d" % os.getuid(), leaf, "browser-host.sock")):
+            if os.path.exists(candidate):
+                HOST["sock"] = candidate
+                log(daemon_socket=daemon, host_socket=candidate)
+                return candidate
+    log(host_socket=None, daemon_status=status)
+    return None
 
 
 def host(method, params, timeout=90):
@@ -488,6 +515,7 @@ def main():
                   and frame[2] < devtools_frame[2], page_frame=frame, devtools_frame=devtools_frame, frontend=state)
             # T (cx-3ny35): device mode turned touch on (the frontend's call, not cmux's): an agent's click
             # through the browser host (CDP Input) lands on a link and a button; before, it timed out at 30 s.
+            HOST["cli"] = app_cli
             agent_clicks(page, cmux, tab, "devtools_iphone")
             fe("toggle")
             agent_clicks(page, cmux, tab, "after_device_mode")
