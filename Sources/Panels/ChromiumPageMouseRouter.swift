@@ -52,7 +52,12 @@ final class ChromiumPageMouseRouter {
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             // A press in the cmux window itself, not in one of its pages.
-            if eventWindow === window { pressGate.pressBegan(in: window) }
+            guard eventWindow === window else { return }
+            pressGate.pressBegan(in: window)
+            // A divider drag moves the page under the band's old rect (no
+            // events reach this monitor during AppKit's drag loop): close the
+            // hole; the held press keeps the mouse with this window meanwhile.
+            if bandWindow === window, event.type == .leftMouseDown { clearBand() }
         default:
             updateDividerBand(in: window, registry: registry)
         }

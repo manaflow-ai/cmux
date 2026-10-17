@@ -90,7 +90,9 @@ public final class ChromiumPagePressGate {
     /// A press began in `window` itself (not in one of its page windows):
     /// its shown page windows ignore the mouse until every button is up.
     public func pressBegan(in window: NSWindow) {
-        if let current = self.window, current !== window { release() }
+        // A hold for another window (or one that closed meanwhile) ends first,
+        // so the observer always follows the window holding now.
+        if updateObserver != nil || isHolding, self.window !== window { release() }
         let pages = (window.childWindows ?? []).filter { $0.isChromiumPageWindow && !$0.ignoresMouseEvents }
         guard !pages.isEmpty else { return }
         self.window = window
