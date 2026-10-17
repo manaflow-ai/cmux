@@ -115,7 +115,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
               const capped = capText(text)
               const out = clip(text)
               if (call.name === "agent") this.agentCallEnded(call.id, text)
-              this.logOnce(`echo:${call.id}`, "echo", capped, { id: `tool:${call.id}`, kind: "tool", status: "done", ...(out.truncated ? { truncated: true } : {}), tool: { name: call.name, output: out.text, ended_at: Date.now() } })
+              this.logOnce(`echo:${call.id}`, "echo", capped, { id: `tool:${call.id}`, kind: "tool", status: "done", ...(out.truncated ? { truncated: true } : {}), ...((now) => ({ ended_at: now, tool: { name: call.name, output: out.text, ended_at: now } }))(Date.now()) })
               return capped === text ? undefined : { ...result, content: [{ type: "text", text: capped }] }
             }
           })
@@ -151,7 +151,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
       },
       onBuilt: () => undefined,
       onFirstFailure: (l, i, error) => console.warn(JSON.stringify({ msg: "chief_brain.compactor_failed", node: `${l}:${i}`, error: error.slice(0, 300) })),
-      onRetryWait: (at) => this.schedule("compact", "compact", at)
+      onRetryWait: (at) => this.schedule("compact", "compact", at),
+      retryBaseMs: Number(env.CHIEF_BRAIN_COMPACT_RETRY_BASE_MS) || undefined
     })
   }
 
@@ -358,7 +359,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
   onResponse(message: AssistantMessage, taskId: string): void {
     if (message.stopReason === "error" || message.stopReason === "aborted") return
     const text = textParts(message.content as ReadonlyArray<{ type: string; text?: string }>).trim()
-    if (text) this.logOnce(`talk:${taskId}`, "talk", text, { id: `talk:${taskId}`, kind: "talk", ...clip(text) })
+    if (text) this.logOnce(`talk:${taskId}`, "talk", text, { id: `talk:${taskId}`, kind: "talk", ...clip(text), ended_at: Date.now() })
     for (const part of message.content) {
       if (part.type !== "toolCall") continue
       if (part.name === "agent") this.agentCalls.set(part.id, Date.now())

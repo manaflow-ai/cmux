@@ -9,7 +9,7 @@ extension TabStripView {
     func beginDrag(_ press: TabStripPress) {
         guard let index = displayed.firstIndex(where: { $0.id == press.id }), let m = motion[press.id] else { return }
         let local = convert(press.start, to: tabsClip)
-        let contentX = local.x + scroll.value
+        let contentX = scrollMapping.contentX(local.x, isPinned: displayed[index].isPinned)
         drag = TabStripDrag(
             id: press.id,
             grabOffset: contentX - m.x.value,
@@ -38,7 +38,7 @@ extension TabStripView {
         }
         drag.lastPoint = point
         guard let width = motion[drag.id]?.width.target else { return }
-        let contentX = convert(point, to: tabsClip).x + scroll.value
+        let contentX = scrollMapping.contentX(convert(point, to: tabsClip).x, isPinned: drag.isPinned)
         let region = result.slots.filter { $0.isPinned == drag.isPinned && $0.id != Self.placeholderID }
         guard let first = region.first, let last = region.last else { return }
         let x = min(max(contentX - drag.grabOffset, first.x), last.maxX - width)
@@ -93,14 +93,17 @@ extension TabStripView {
     /// trailing edge to join or leave the group.
     static var groupJoinHysteresis: CGFloat { TabTunables.groupJoinHysteresis.value }
 
-    /// Scrolls an overflowing strip while a dragged tab sits in an edge fade.
+    /// Scrolls an overflowing strip while a dragged tab sits in an edge fade. The leading fade is after a
+    /// fixed pinned band; a pinned tab dragged in that band scrolls nothing.
     func autoscrollDuringDrag(_ dt: CGFloat) -> Bool {
         guard let point = drag?.lastPoint ?? groups.drag?.lastPoint ?? phantomPoint, result.isOverflowing else { return false }
-        let local = convert(point, to: tabsClip).x
+        let band = scrollMapping.band
+        if drag?.isPinned == true, band > 0 { return false }
+        let local = max(convert(point, to: tabsClip).x, band)
         let edge = metrics.scrollFadeWidth
         var speed: CGFloat = 0
         let gain = TabTunables.autoscrollGain.value
-        if local < edge { speed = -(edge - local) * gain }
+        if local < band + edge { speed = -(band + edge - local) * gain }
         if local > viewportWidth - edge { speed = (local - (viewportWidth - edge)) * gain }
         guard speed != 0 else { return false }
         let target = TabScrollMath.clamp(scroll.value + speed * dt, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
@@ -295,7 +298,8 @@ extension TabStripView {
 
     /// Where `id`'s cell shows now, its center in window coordinates; nil when it shows nowhere.
     public func tabCenterInWindow(_ id: TabID) -> CGPoint? {
-        guard let m = motion[id] else { return nil }
-        return tabsClip.convert(CGPoint(x: m.x.value - scroll.value + m.width.value / 2, y: tabsClip.bounds.midY), to: nil)
+        guard let m = motion[id], let cell = cells[id] else { return nil }
+        let x = scrollMapping.viewX(m.x.value + m.width.value / 2, isPinned: cell.item.isPinned)
+        return tabsClip.convert(CGPoint(x: x, y: tabsClip.bounds.midY), to: nil)
     }
 }

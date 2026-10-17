@@ -27,7 +27,11 @@ export const gatewayOptions = (ctx: DurableObjectState, env: Env, now: () => Bra
     return { run: n.run, conversation: n.live === false ? undefined : n.conversation, agent: n.config.agent }
   })
   // First request and first token of each run (the first write of each mark wins): Run.timing.
-  live.onMark = (run, mark, at) => void ctx.storage.sql.exec(`INSERT INTO cb_timing (turn, ${mark === "request" ? "request_at" : "first_token_at"}) VALUES (?, ?) ON CONFLICT (turn) DO UPDATE SET ${mark === "request" ? "request_at = COALESCE(request_at, excluded.request_at)" : "first_token_at = COALESCE(first_token_at, excluded.first_token_at)"}`, run, at)
+  live.onMark = (run, mark, at) => {
+    // The first output of a generation after the run's hands continuation started (brain-turn.ts mark "continuation").
+    if (mark === "generation_first_token") return void ctx.storage.sql.exec(`INSERT INTO cb_marks (turn, mark, at) SELECT ?, 'continuation_first_token', ? WHERE EXISTS (SELECT 1 FROM cb_marks WHERE turn = ? AND mark = 'continuation') ON CONFLICT DO NOTHING`, run, at, run)
+    ctx.storage.sql.exec(`INSERT INTO cb_timing (turn, ${mark === "request" ? "request_at" : "first_token_at"}) VALUES (?, ?) ON CONFLICT (turn) DO UPDATE SET ${mark === "request" ? "request_at = COALESCE(request_at, excluded.request_at)" : "first_token_at = COALESCE(first_token_at, excluded.first_token_at)"}`, run, at)
+  }
   return {
     who: () => {
       const n = now()
