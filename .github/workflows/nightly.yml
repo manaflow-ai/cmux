@@ -5159,6 +5159,8 @@ jobs:
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "could not resolve CMUXCommit $short" >&2; exit 1; }
           for required in $REQUIRED; do
             status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$required...$sha" --jq .status)"
+            # Keep this as a [[ ]] conditional: the workflow guard analyzes
+            # this protected run step with bashlex before signing is admitted.
             if [[ "$status" != "ahead" && "$status" != "identical" ]]; then
               echo "build commit $sha lacks required commit $required ($status); refusing before any Apple submission" >&2
               : > "$RUNNER_TEMP/legacy-requirement-refused"
