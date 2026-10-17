@@ -87,13 +87,18 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var capturesTitleBeforeCommit = false
     /// The pending find-in-page request (`CEFFindRequests`).
     @ObservationIgnored var findRequests = CEFFindRequests()
-    /// The daemon's resolved emulation (`CEFTab+DeviceEmulation`), its last fit scale,
+    /// The daemon's resolved emulation (`CEFTab+DeviceEmulation`), its last layout size and scale,
     /// whether an override is on the page, and the calls in flight.
     @ObservationIgnored public internal(set) var deviceEmulation: BrowserEmulation?
-    @ObservationIgnored var deviceEmulationScale: CGFloat?
+    @ObservationIgnored var deviceEmulationViewport: BrowserEmulation.Viewport?
+    /// View points per CSS px the emulation applies now (the viewport's scale; 1 for none). Observed:
+    /// the app announces it to the browser host, which scales an agent's mouse input by it (cx-mogig).
+    public internal(set) var emulationInputScale: Double = 1
     @ObservationIgnored var deviceEmulationApplied = false
     @ObservationIgnored var deviceEmulationTask: Task<Void, Never>?
     @ObservationIgnored var deviceEmulationDirty = false
+    /// The next emulation run clears this session's metrics first (after DevTools device mode).
+    @ObservationIgnored var deviceEmulationNeedsReset = false
     @ObservationIgnored var faviconTask: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
     @ObservationIgnored private var isOccluded = false

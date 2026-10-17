@@ -43,14 +43,14 @@ export const readConversation = async (env: Env, id: string, principal: Principa
   return { head: snap.state, messages: (snap.rows?.rows ?? []).map((x) => x.row).sort((a, b) => a.seq - b.seq) }
 }
 
-export type SendOutcome = { readonly ok: true; readonly message: string | null } | { readonly ok: false; readonly code: string; readonly message: string }
+export type SendOutcome = { readonly ok: true; readonly message: string | null; readonly seq?: number } | { readonly ok: false; readonly code: string; readonly message: string }
 
 const outcome = (frames: ReadonlyArray<OwnerFrame>): SendOutcome => {
   const f = frames.find((x) => x.t === "result" || x.t === "reject")
   if (!f) return { ok: false, code: "owner.unreachable", message: "no reply from the owner" }
   if (f.t === "reject") return { ok: false, code: f.code, message: f.message }
-  const value = (f as { value?: { message_id?: string } }).value
-  return { ok: true, message: value?.message_id ?? null }
+  const value = (f as { value?: { message_id?: string; seq?: number } }).value
+  return { ok: true, message: value?.message_id ?? null, ...(typeof value?.seq === "number" ? { seq: value.seq } : {}) }
 }
 
 export interface Reply {
@@ -81,6 +81,26 @@ export const postReply = async (env: Env, principal: Principal, r: Reply): Promi
   return outcome(res.frames)
 }
 
+/**
+ * A subagent's report as the chief: a text-less `work` card (session = the child run), so the loop
+ * guard's turn budget and 2 s gap do not apply (home-core budget.ts); idempotent by `key`.
+ */
+export const postWork = async (env: Env, principal: Principal, w: { conversation: string; key: string; session: string; host: string; status: "done" | "failed"; preview: string; thread_root?: string }): Promise<SendOutcome> => {
+  const params = { conversation: w.conversation, client_msg_id: w.key, parts: [{ type: "work", session: w.session, host: w.host, status: w.status, preview: w.preview }], ...(w.thread_root ? { thread_root: w.thread_root } : {}) }
+  const res = await conv(env, w.conversation).submit(w.conversation, principal, { t: "op", op: "message.send", params, idempotency_key: w.key, origin: "script" })
+  return outcome(res.frames)
+}
+
+/** One live frame (contract.ts LiveFrame) for every member's socket, outside a turn's model stream. Best effort. */
+export const liveFrame = (env: Env, conversation: string, agent: string, frame: unknown): Promise<void> =>
+  (conv(env, conversation) as unknown as { agentFrame(e: string, a: string, f: { live: unknown }): Promise<void> }).agentFrame(conversation, agent, { live: frame }).catch(() => undefined)
+
+/** A plain text message as the chief (a notice: the out-of-credits line), idempotent by `key`. */
+export const postText = async (env: Env, principal: Principal, conversation: string, text: string, key: string): Promise<SendOutcome> => {
+  const res = await conv(env, conversation).submit(conversation, principal, { t: "op", op: "message.send", params: { conversation, client_msg_id: key, parts: [{ type: "text", text }] }, idempotency_key: key, origin: "script" })
+  return outcome(res.frames)
+}
+
 /** Moves the chief's wake cursor in this conversation (MuxDO `mux.ack`). */
 export const ackWake = async (env: Env, agent: string, principal: Principal, conversation: string, seq: number): Promise<SendOutcome> => {
   const res = await mux(env, agent).submit(agent, principal, { t: "op", op: "mux.ack", params: { agent, conversation, seq }, idempotency_key: `brain-ack:${conversation}:${seq}`, origin: "script" })
@@ -103,7 +123,25 @@ export const chiefOwnedBy = async (env: Env, agent: string, principal: Principal
 }
 
 /** The chief's record as its owner's UserDO holds it (chief.list, as the owner), or null for an unknown or archived chief. */
-export const chiefRecord = async (env: Env, owner: string, agent: string): Promise<{ display_name: string; brain_place: unknown } | null> => {
+type ChiefRecord = { display_name: string; brain_place: unknown } | null
+const records = new Map<string, { at: number; record: ChiefRecord }>()
+/** How long a turn admission may reuse a chief record it read: an archive or a placement stops new turns within this time. */
+const RECORD_MS = 10_000
+/**
+ * chiefRecord, reused for RECORD_MS inside this object (the wake and the turn of one message both ask;
+ * one UserDO round trip less on the wake path). A failed read is never reused.
+ */
+export const chiefRecordFresh = async (env: Env, owner: string, agent: string, now = Date.now()): Promise<ChiefRecord> => {
+  const key = `${owner}/${agent}`
+  const hit = records.get(key)
+  if (hit && now - hit.at < RECORD_MS) return hit.record
+  const record = await chiefRecord(env, owner, agent)
+  records.set(key, { at: now, record })
+  if (records.size > 64) records.delete(records.keys().next().value!)
+  return record
+}
+
+export const chiefRecord = async (env: Env, owner: string, agent: string): Promise<ChiefRecord> => {
   const stub = env.USER_DO.get(env.USER_DO.idFromName(owner)) as unknown as OwnerStub
   const r = await stub.readOp(owner, { identity: `session:${owner}`, kind: "session", user: owner }, "chief.list", {})
   if (!r.ok) return null

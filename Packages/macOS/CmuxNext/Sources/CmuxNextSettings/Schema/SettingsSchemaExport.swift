@@ -126,6 +126,7 @@ public struct SettingsSchemaExport {
         case .timeRange: row["kind"] = "time_range"
         case .theme: row["kind"] = "theme"
         case .fontFamily: row["kind"] = "font_family"
+        case .text: row["kind"] = "text"
         case .numberList(let number):
             row["kind"] = "number_list"
             row["range"] = range(number)
@@ -164,6 +165,7 @@ public struct SettingsSchemaExport {
     nonisolated func range(_ number: SettingNumber) -> [String: Any] {
         let unit: String = switch number.unit {
         case .points: "points"
+        case .milliseconds: "milliseconds"
         case .seconds: "seconds"
         case .minutes: "minutes"
         case .days: "days"

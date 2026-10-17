@@ -21,6 +21,9 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+#[path = "agent_message_acpmux.rs"]
+mod agent_message_acpmux;
+
 /// Largest acpmux line the daemon reads: an attach or events page of
 /// records with big tool outputs stays under it (the daemon then trims the
 /// page to `MAX_PAGE_BYTES` for its client); a longer line ends the link.
@@ -41,7 +44,13 @@ pub(crate) enum LinkError {
     /// acpmux answered with an error: its message (for the daemon log
     /// only) and its `data` (`Null` without one).
     Rpc(String, Value),
+    /// acpmux does not know the method (JSON-RPC -32601, an acpmux from
+    /// before it): its message.
+    MethodNotFound(String),
 }
+
+/// JSON-RPC's method-not-found code (acpmux `RpcError::method_not_found`).
+const METHOD_NOT_FOUND: i64 = -32601;
 
 /// What the reader thread hands the link's owner.
 pub(crate) enum Inbound {
@@ -135,7 +144,7 @@ impl AcpmuxLink {
     }
 
     /// Ends the socket; the reader thread reports the close.
-    pub(super) fn close(&self) {
+    pub(crate) fn close(&self) {
         self.closed.store(true, Ordering::Release);
         let stream = self.stream.lock().unwrap_or_else(|e| e.into_inner());
         let _ = stream.shutdown(std::net::Shutdown::Both);
@@ -183,10 +192,17 @@ fn read_loop(
             && !message.contains_key("method")
         {
             let outcome = match message.remove("error") {
-                Some(error) => Err(LinkError::Rpc(
-                    error.get("message").and_then(Value::as_str).unwrap_or("error").to_string(),
-                    error.get("data").cloned().unwrap_or(Value::Null),
-                )),
+                Some(error) => {
+                    let text = error.get("message").and_then(Value::as_str).unwrap_or("error");
+                    Err(if error.get("code").and_then(Value::as_i64) == Some(METHOD_NOT_FOUND) {
+                        LinkError::MethodNotFound(text.to_string())
+                    } else {
+                        LinkError::Rpc(
+                            text.to_string(),
+                            error.get("data").cloned().unwrap_or(Value::Null),
+                        )
+                    })
+                }
                 None => Ok(message.remove("result").unwrap_or(Value::Null)),
             };
             let sender = pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);

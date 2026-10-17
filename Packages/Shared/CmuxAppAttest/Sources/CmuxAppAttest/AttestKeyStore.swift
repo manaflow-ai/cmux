@@ -29,6 +29,10 @@ public struct AttestKeyStoreError: Error, Sendable, Equatable {
     public init(status: Int32) {
         self.status = status
     }
+
+    /// The stored item exists but its content is not a key id (`errSecDecode`): the caller may
+    /// replace it with one fresh key.
+    public var isDamagedItem: Bool { status == errSecDecode }
 }
 
 /// ``AttestKeyStore`` in one generic-password item of the login keychain

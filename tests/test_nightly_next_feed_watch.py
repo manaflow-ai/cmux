@@ -190,5 +190,28 @@ class IssueTests(unittest.TestCase):
         self.assertEqual(watch.PUBLISHED_MARKER.search("<!-- cmux-published-sha: " + "b" * 40 + " -->").group(1), "b" * 40)
 
 
+class ContinuationTests(unittest.TestCase):
+    """The schedule also publishes a build Apple accepted after its run stopped
+    waiting. Without it, an accepted build waited for the next green
+    feat-cmux-next compile, so a quiet branch held the feed."""
+
+    ROOT = Path(__file__).resolve().parents[1]
+
+    def test_the_schedule_requests_a_continuation(self):
+        workflow = (self.ROOT / ".github/workflows/nightly-next-feed-watch.yml").read_text()
+        self.assertIn("actions: write", workflow)
+        call = 'run: scripts/cmux-next/continue-nightly-next.sh --repo "$REPOSITORY"'
+        self.assertIn(call, workflow)
+        step = workflow[:workflow.index(call)].rsplit("- name:", 1)[1]
+        self.assertIn("continue-on-error: true", step)
+
+    def test_the_continuation_script_passes_its_own_test(self):
+        import subprocess
+        test = self.ROOT / "scripts/cmux-next/tests/continue-nightly-next.test.sh"
+        self.assertTrue(test.is_file(), test)
+        result = subprocess.run(["bash", str(test)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

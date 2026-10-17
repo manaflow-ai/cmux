@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // The Settings page scrolls in one place (cx-jh7kq), in real engines (headless Chromium and WebKit
 // from Playwright) on the settings dev server with the in-memory mock (`?mock`):
 // - the content column is the page's only scroller: the document never scrolls, also while a
@@ -14,7 +15,9 @@ import { spawn, type ChildProcess } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { stopDevServer } from "./support/devServer";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("settings-scroll.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -46,24 +49,25 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
     server = spawn(
       path.join(webviews, "node_modules/.bin/vp"),
       ["dev", "--config", "vite.config.settings-page.mjs", "--port", String(port), "--strictPort"],
-      // Its own process group: vp starts vite as a child, and the whole group stops in afterAll.
-      { cwd: webviews, stdio: ["ignore", "ignore", "ignore"], detached: true },
+      { cwd: webviews, stdio: ["ignore", "ignore", "ignore"] },
     );
     base = `http://127.0.0.1:${port}`;
     const deadline = Date.now() + 60_000;
-    while (Date.now() < deadline) {
+    let listening = false;
+    while (!listening && Date.now() < deadline) {
       try {
-        if ((await fetch(`${base}/`)).ok) return;
+        listening = (await fetch(`${base}/`)).ok;
       } catch {
         // Not listening yet.
       }
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      if (!listening) await new Promise((resolve) => setTimeout(resolve, 250));
     }
-    throw new Error("settings dev server did not start");
-  });
+    if (!listening) throw new Error("settings dev server did not start");
+    await warmDevServer(base, "/");
+  }, 180_000);
 
   afterAll(() => {
-    if (server?.pid) process.kill(-server.pid, "SIGTERM");
+    stopDevServer(server);
   });
 
   /** The page's scroll state: the document's, and every element that scrolls a row. */

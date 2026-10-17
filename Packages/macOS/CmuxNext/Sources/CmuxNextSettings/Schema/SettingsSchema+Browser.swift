@@ -8,6 +8,7 @@ nonisolated enum BrowserSettingsSchema {
         let remote = SettingsText.keyed("settings.group.remote", "Remote Machines")
         let bookmarks = SettingsText.keyed("settings.group.bookmarks", "Bookmarks")
         let toolbar = SettingsText.keyed("settings.group.toolbar", "Toolbar")
+        let extensions = SettingsText.keyed("settings.group.extensions", "Extensions")
         return [
             BrowserToolbarButtonsSetting.descriptor(group: toolbar),
             SettingDescriptor(
@@ -31,6 +32,12 @@ nonisolated enum BrowserSettingsSchema {
                 title: SettingsText.keyed("settings.browser.showBookmarksBar", "Show Bookmarks Bar"),
                 help: SettingsText.keyed("settings.browser.showBookmarksBar.help", "A row of bookmarks under each browser toolbar."),
                 kind: .toggle, default: .bool(false), keywords: ["bookmarks", "favorites", "bar"]
+            ),
+            SettingDescriptor(
+                BuiltInAdBlockerSetting().configPath, section: .browser, group: extensions,
+                title: SettingsText.keyed("settings.browser.builtInAdBlocker", "Built-in uBlock Origin"),
+                help: SettingsText.keyed("settings.browser.builtInAdBlocker.help", "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts."),
+                kind: .toggle, default: .bool(BuiltInAdBlockerSetting().fallback), keywords: ["ublock", "ad blocker", "adblock", "extensions", "trackers"]
             ),
             SettingDescriptor(
                 BrowserHibernationSetting.configPath, section: .browser, group: memory,
@@ -60,7 +67,7 @@ nonisolated enum BrowserSettingsSchema {
                 title: SettingsText.keyed("settings.browser.remoteLocalhost", "Open localhost on the Workspace's Machine"),
                 kind: .toggle, default: .bool(RemoteLocalhostSetting.fallback.enabled), keywords: ["ssh", "cloud", "port"]
             ),
-        ] + OmnibarSettingsSchema.descriptors + BrowserLinkClickSchema.descriptors + TerminalLinkRoutingSchema.descriptors
+        ] + OmnibarSettingsSchema.descriptors + BrowserLinkClickSchema.descriptors + LinkRoutingSchema.descriptors
             + BrowserPasswordsSettingsSchema.descriptors
     }
 }

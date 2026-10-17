@@ -15,6 +15,7 @@ import fnmatch
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -198,7 +199,7 @@ class GodfileScopes(unittest.TestCase):
         (rust / "at_budget.rs").write_text("// x\n" * 1000)
         (rust / "many_fns.rs").write_text("fn f() {}\n" * 61)
         (rust / "tests.rs").write_text("fn t() {}\n" * 120 + "// x\n" * 1380)
-        git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+        git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"]
         subprocess.run([*git, "init", "-q"], check=True)
         subprocess.run([*git, "add", "."], check=True)
         subprocess.run([*git, "commit", "-qm", "fixture"], check=True)
@@ -299,7 +300,7 @@ class GodfilePullRequestScope(unittest.TestCase):
 
     def git(self, *args: str) -> None:
         subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@t",
-                        "-c", "commit.gpgsign=false", *args], check=True, capture_output=True)
+                        "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", *args], check=True, capture_output=True)
 
     def commit(self, message: str) -> None:
         self.git("add", "-A")
@@ -848,6 +849,43 @@ class FastTierTriggers(unittest.TestCase):
             for path in ("scripts/cmux-next/fast-tier.py", "scripts/cmux-next/fast-tier.json",
                          "scripts/cmux-next/quarantine.json", "scripts/cmux-next/tests/fast-tier.test.sh"):
                 self.assertTrue(any(fnmatch.fnmatch(path, pattern) for pattern in paths), f"{event}: {path}")
+
+
+class NightlyControlPushAdmission(unittest.TestCase):
+    def release_compile_requested(self, changed_path):
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        triggers = document.get("on", document.get(True))
+        if not any(fnmatch.fnmatchcase(changed_path, pattern) for pattern in triggers["push"]["paths"]):
+            return False
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/ci/cmux_next_route.py"), "--event", "push"],
+            cwd=ROOT, capture_output=True, text=True, check=True,
+        )
+        return "native=true" in result.stdout.splitlines()
+
+    def test_a_merged_nightly_repair_can_get_its_exact_release_compile(self):
+        # #21144 repaired publication but changed only nightly.yml and its tests.
+        # No push workflow ran, so the exact-SHA promotion guard could never admit it.
+        for changed_path in (
+            ".github/workflows/nightly.yml",
+            "scripts/ci/nightly_version.py",
+            "scripts/ci/find-nightly-next-recovery.py",
+            "scripts/ci/notarize-nightly-dmg.sh",
+            "scripts/ci/publish-release-assets.py",
+            "scripts/ci/finalize-release.py",
+            "scripts/ci/upload-r2-object.py",
+            "scripts/ci/update-release-tag.py",
+            "scripts/ci/signing-keychain.sh",
+            "scripts/ci/download-run-artifact.py",
+            "scripts/import-apple-developer-id-intermediates.sh",
+            "scripts/apple-developer-id-certs/DeveloperIDG2CA.cer",
+            "scripts/prune_nightly_release_assets.py",
+        ):
+            with self.subTest(changed_path=changed_path):
+                self.assertTrue(self.release_compile_requested(changed_path), changed_path)
+
+    def test_unrelated_ci_changes_do_not_request_a_release_compile(self):
+        self.assertFalse(self.release_compile_requested("scripts/ci/ci-health-report.py"))
 
 
 FAST_TIER_FORK_CLAUSE = (

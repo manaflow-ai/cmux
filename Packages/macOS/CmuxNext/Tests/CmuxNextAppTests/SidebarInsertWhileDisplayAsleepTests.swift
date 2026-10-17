@@ -28,6 +28,14 @@ struct SidebarInsertWhileDisplayAsleepTests {
         return Motion.speed != .off
     }
 
+    /// A new workspace row opens with motion only with `ui.animations.newWorkspace` on (off by
+    /// default, hq-1d): each test turns it on, as it turns Reduce Motion off. Returns the restore.
+    private static func newWorkspaceMotionOn() -> () -> Void {
+        let kinds = DesignSettings.shared.enabledAnimations
+        DesignSettings.shared.enabledAnimations.insert(.newWorkspace)
+        return { DesignSettings.shared.enabledAnimations = kinds }
+    }
+
     /// A sidebar of workspaces 1 to 3 in a window on screen, the first selected.
     private static func sidebar() throws -> (SidebarModel, SidebarView, NSWindow) {
         let before = sections([1, 2, 3])
@@ -44,6 +52,10 @@ struct SidebarInsertWhileDisplayAsleepTests {
         return (model, sidebar, window)
     }
 
+    /// A closing row whose completion ran: the list recycled it, which parks it hidden in place
+    /// (dea9671b35d5/5763d7372701) or, out of the list, takes it out.
+    private static func recycled(_ row: SidebarRowView) -> Bool { row.superview == nil || row.isHidden }
+
     /// Shows the workspaces `ids` (the selection stays, so new rows open with motion) and
     /// returns the last one's row.
     private static func show(_ ids: [Int], in model: SidebarModel, _ sidebar: SidebarView) throws -> SidebarRowView {
@@ -58,6 +70,8 @@ struct SidebarInsertWhileDisplayAsleepTests {
     func aRowInsertedWhileTheDisplaySleepsShowsWhole() throws {
         let (model, sidebar, window) = try Self.sidebar()
         defer { window.orderOut(nil) }
+        let restoreKinds = Self.newWorkspaceMotionOn()
+        defer { restoreKinds() }
         try #require(window.screen != nil)
         // Every display reads as asleep (Core Graphics decides in the app); synchronous to the reset.
         Motion.reduceMotionOverride = false
@@ -78,6 +92,8 @@ struct SidebarInsertWhileDisplayAsleepTests {
     func rowsStillMovingWhenTheDisplaySleepsEndAtOnce() throws {
         let (model, sidebar, window) = try Self.sidebar()
         defer { window.orderOut(nil) }
+        let restoreKinds = Self.newWorkspaceMotionOn()
+        defer { restoreKinds() }
         try #require(window.screen != nil)
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
@@ -88,7 +104,7 @@ struct SidebarInsertWhileDisplayAsleepTests {
         let opening = try Self.show([1, 3, 4], in: model, sidebar)
         let shown = Set(list.rowViews.values.map(ObjectIdentifier.init))
         let leaving = list.subviews.compactMap { $0 as? SidebarRowView }
-            .filter { before.contains(ObjectIdentifier($0)) && !shown.contains(ObjectIdentifier($0)) }
+            .filter { before.contains(ObjectIdentifier($0)) && !shown.contains(ObjectIdentifier($0)) && !Self.recycled($0) }
         try #require(opening.alphaValue < 1, "the new row appeared in one frame with the display awake")
         try #require(leaving.count == 1, "the removed row did not stay to close its slot")
 
@@ -100,7 +116,7 @@ struct SidebarInsertWhileDisplayAsleepTests {
         // No frame draws from here: what was moving must be final now.
         #expect(opening.alphaValue == 1, "the opening row stopped at alpha \(opening.alphaValue)")
         #expect(opening.frame.height > 0, "the opening row stopped at height \(opening.frame.height)")
-        #expect(leaving.allSatisfy { $0.superview == nil }, "the closing row stays in the list: its completion never ran")
+        #expect(leaving.allSatisfy(Self.recycled), "the closing row stays in the list: its completion never ran")
     }
 
     /// A change replayed at sleep never puts back what a newer reload changed: here the rows a
@@ -109,6 +125,8 @@ struct SidebarInsertWhileDisplayAsleepTests {
     func rowsANewerReloadPlacedKeepTheirPlacesWhenTheDisplaySleeps() throws {
         let (model, sidebar, window) = try Self.sidebar()
         defer { window.orderOut(nil) }
+        let restoreKinds = Self.newWorkspaceMotionOn()
+        defer { restoreKinds() }
         try #require(window.screen != nil)
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
@@ -141,6 +159,8 @@ struct SidebarInsertWhileDisplayAsleepTests {
     func aClosingRowLeavesEvenAfterItsReplayExpired() async throws {
         let (model, sidebar, window) = try Self.sidebar()
         defer { window.orderOut(nil) }
+        let restoreKinds = Self.newWorkspaceMotionOn()
+        defer { restoreKinds() }
         try #require(window.screen != nil)
         Motion.reduceMotionOverride = false
         MotionInFlight.expirySlack = -100
@@ -155,12 +175,12 @@ struct SidebarInsertWhileDisplayAsleepTests {
         _ = try Self.show([1, 3], in: model, sidebar)
         let shown = Set(list.rowViews.values.map(ObjectIdentifier.init))
         let leaving = list.subviews.compactMap { $0 as? SidebarRowView }
-            .filter { before.contains(ObjectIdentifier($0)) && !shown.contains(ObjectIdentifier($0)) }
+            .filter { before.contains(ObjectIdentifier($0)) && !shown.contains(ObjectIdentifier($0)) && !Self.recycled($0) }
         try #require(leaving.count == 1, "the removed row did not stay to close its slot")
         _ = try Self.show([1, 3, 4], in: model, sidebar)
 
         try await Task.sleep(for: .seconds(1.5))
-        #expect(leaving.allSatisfy { $0.superview == nil }, "the closed row stays in the list: its completion was dropped")
+        #expect(leaving.allSatisfy(Self.recycled), "the closed row stays in the list: its completion was dropped")
     }
 
     /// The look with the display awake is unchanged: the new row still opens with motion.
@@ -168,6 +188,8 @@ struct SidebarInsertWhileDisplayAsleepTests {
     func aRowInsertedWhileTheDisplayIsAwakeStillOpens() throws {
         let (model, sidebar, window) = try Self.sidebar()
         defer { window.orderOut(nil) }
+        let restoreKinds = Self.newWorkspaceMotionOn()
+        defer { restoreKinds() }
         try #require(window.screen != nil)
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }

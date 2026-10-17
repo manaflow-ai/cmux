@@ -40,6 +40,7 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
     case "sound":
       return has("select") && has("button.icon-button") ? null : "no menu + play button";
     case "url":
+    case "text":
       return has("input.text") ? null : "no text field";
     case "host_list":
       return has("input.token-input") ? null : "no token field";

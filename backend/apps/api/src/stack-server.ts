@@ -16,6 +16,8 @@ export interface StackServer {
   findUserByEmail(email: string): Promise<{ id: string; email_verified: boolean } | undefined>
   createUser(email: string, displayName: string | undefined): Promise<{ id: string }>
   createSession(userId: string, expiresInMillis: number | undefined): Promise<{ access_token: string; refresh_token: string }>
+  /** When the user's session (a token's refresh_token_id) was created, ms; null when Stack lists no such session. */
+  sessionCreatedAt(userId: string, sessionId: string): Promise<number | null>
   /**
    * The Stack team now, or null when Stack answers TEAM_NOT_FOUND (team webhooks, cx-3bi.43).
    * `plan` is the team's client_read_only_metadata.cmuxPlan (web billing's team plan mirror,
@@ -48,6 +50,11 @@ export interface StackMember {
   readonly display_name: string | null
   /** Team permission ids, `$` system ones included (team-roles.ts stackRole maps them to a role). */
   readonly permissions: ReadonlyArray<string>
+  /**
+   * The member is a Stack anonymous user (profile user.is_anonymous). The Hexclave browser SDK signs every
+   * cmux.com visitor up anonymously, and Stack gives each one a personal team; the sync mirrors none of them.
+   */
+  readonly anonymous?: boolean
 }
 
 const API = "https://api.stack-auth.com/api/v1"
@@ -151,11 +158,11 @@ export const stackServer = (
       return isGone(r) ? "user_gone" : readOnlyPlan(r.client_read_only_metadata)
     },
     listTeamMembers: async (teamId) => {
-      const out: Array<{ user_id: string; display_name: string | null; permissions: ReadonlyArray<string> }> = []
+      const out: Array<{ user_id: string; display_name: string | null; permissions: ReadonlyArray<string>; anonymous: boolean }> = []
       let cursor: string | undefined
       // Stack answers {is_paginated: false, items}; a cursor is followed if it ever pages (checked live 2026-10-09).
       for (let page = 0; page < 1000; page++) {
-        const r = await lookup<{ items?: Array<{ user_id?: unknown; display_name?: unknown; user?: { display_name?: unknown } }>; pagination?: { next_cursor?: unknown } | null }>(`/team-member-profiles?team_id=${encodeURIComponent(teamId)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, "team members", ["TEAM_NOT_FOUND"])
+        const r = await lookup<{ items?: Array<{ user_id?: unknown; display_name?: unknown; user?: { display_name?: unknown; is_anonymous?: unknown } }>; pagination?: { next_cursor?: unknown } | null }>(`/team-member-profiles?team_id=${encodeURIComponent(teamId)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, "team members", ["TEAM_NOT_FOUND"])
         if (isGone(r)) return "team_gone"
         // A team event removes every member this list leaves out, so an answer we cannot read fails the
         // delivery (Svix retries) and changes nothing: no items array, or an item without its user_id.
@@ -163,7 +170,7 @@ export const stackServer = (
         for (const m of r.items) {
           if (typeof m !== "object" || m === null || typeof m.user_id !== "string" || !m.user_id) throw new Error("stack GET team members: malformed item")
           const name = typeof m.display_name === "string" && m.display_name ? m.display_name : typeof m.user?.display_name === "string" ? m.user.display_name : null
-          out.push({ user_id: m.user_id, display_name: name, permissions: [] })
+          out.push({ user_id: m.user_id, display_name: name, permissions: [], anonymous: m.user?.is_anonymous === true })
         }
         const next = r.pagination?.next_cursor
         if (typeof next !== "string" || !next) {
@@ -190,13 +197,13 @@ export const stackServer = (
       throw new Error("stack GET team members: too many pages")
     },
     getTeamMember: async (teamId, userId) => {
-      const r = await lookup<{ display_name?: unknown; user?: { display_name?: unknown } }>(`/team-member-profiles/${encodeURIComponent(teamId)}/${encodeURIComponent(userId)}`, "team member", ["TEAM_NOT_FOUND", "TEAM_MEMBERSHIP_NOT_FOUND", "USER_NOT_FOUND"])
+      const r = await lookup<{ display_name?: unknown; user?: { display_name?: unknown; is_anonymous?: unknown } }>(`/team-member-profiles/${encodeURIComponent(teamId)}/${encodeURIComponent(userId)}`, "team member", ["TEAM_NOT_FOUND", "TEAM_MEMBERSHIP_NOT_FOUND", "USER_NOT_FOUND"])
       if (isGone(r)) return r.gone === "TEAM_NOT_FOUND" ? "team_gone" : null
       const name = typeof r.display_name === "string" && r.display_name ? r.display_name : typeof r.user?.display_name === "string" ? r.user.display_name : null
       const perms = await permissions(teamId, userId)
       if (perms === "team_gone") return "team_gone"
       // This read names the member, so an answer without entries means they hold no permission: role member (cx-6wc8).
-      return { display_name: name, permissions: perms.get(normal(userId)) ?? [] }
+      return { display_name: name, permissions: perms.get(normal(userId)) ?? [], anonymous: r.user?.is_anonymous === true }
     },
     removeTeamMember: async (teamId, userId) => {
       const res = await http(new Request(`${API}/team-memberships/${encodeURIComponent(teamId)}/${encodeURIComponent(userId)}`, { method: "DELETE", headers, body: "{}", signal: AbortSignal.timeout(10_000) }))
@@ -215,7 +222,12 @@ export const stackServer = (
     createUser: async (email, displayName) =>
       call<{ id: string }>("POST", "/users", { primary_email: email, primary_email_verified: true, ...(displayName ? { display_name: displayName } : {}) }),
     createSession: async (userId, expiresInMillis) =>
-      call<{ access_token: string; refresh_token: string }>("POST", "/auth/sessions", { user_id: userId, ...(expiresInMillis ? { expires_in_millis: expiresInMillis } : {}) })
+      call<{ access_token: string; refresh_token: string }>("POST", "/auth/sessions", { user_id: userId, ...(expiresInMillis ? { expires_in_millis: expiresInMillis } : {}) }),
+    sessionCreatedAt: async (userId, sessionId) => {
+      const r = await call<{ items?: Array<{ id?: string; created_at?: number }> }>("GET", `/auth/sessions?user_id=${encodeURIComponent(userId)}`)
+      const hit = (r.items ?? []).find((s) => s.id === sessionId)
+      return typeof hit?.created_at === "number" ? hit.created_at : null
+    }
   }
 }
 

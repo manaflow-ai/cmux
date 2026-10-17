@@ -29,11 +29,53 @@ use serde_json::{Map, Value, json};
 pub const DEFAULT_CHIEF: &str = cmux_chief::rules::AGENT_MUX;
 
 /// The model tools a grant can hold (the registry's closed catalog names
-/// `spawn` and `tell`; the brain adds `profile` from `self_edit`).
-pub const MODEL_TOOLS: [&str; 3] = ["spawn", "tell", "profile"];
+/// `spawn`, `tell` and `chiefs`; the brain adds `profile` from `self_edit`).
+pub const MODEL_TOOLS: [&str; 4] = ["spawn", "tell", "profile", "chiefs"];
 
 /// The tool definition shared with the docs (schemas/chief-profile/tool.json).
 const TOOL_FILE: &str = include_str!("../../../../schemas/chief-profile/tool.json");
+
+/// The `chiefs` tool's definition (schemas/chief-profile/chiefs-tool.json).
+const CHIEFS_TOOL_FILE: &str = include_str!("../../../../schemas/chief-profile/chiefs-tool.json");
+
+/// The env key of this host's turn key: the host gives it to its own turn
+/// sessions only (session env, never a subagent's, never a preset or the
+/// launcher file), and the tools socket answers `chiefs` only to a caller
+/// that sends it.
+// Not named *KEY*/*TOKEN*/*SECRET*: codex's default shell environment
+// policy drops such names, and its `chief chiefs` call would lose it.
+pub const TURN_KEY_ENV: &str = "OPTCHAT_TURN_SEAL";
+
+/// The `chiefs` tool (name, description, input schema) for the MCP list.
+pub fn chiefs_tool() -> Value {
+    let file: Value = serde_json::from_str(CHIEFS_TOOL_FILE).unwrap_or_else(|_| json!({}));
+    file.get("tool")
+        .cloned()
+        .unwrap_or_else(|| json!({"name": "chiefs"}))
+}
+
+/// This host process's turn seal: made once, given to its own turn
+/// sessions only (their acpmux `session/new` env, brain/turns.rs), never to
+/// a preset (acpmux keeps those readable) or a file.
+pub fn process_turn_seal() -> &'static str {
+    static SEAL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SEAL.get_or_init(fresh_turn_key)
+}
+
+fn new_turn_key() -> String {
+    process_turn_seal().to_owned()
+}
+
+/// A fresh turn key: 32 random bytes, hex.
+fn fresh_turn_key() -> String {
+    use ring::rand::SecureRandom;
+    let mut bytes = [0_u8; 32];
+    // No randomness: an empty key, which no caller can match.
+    if ring::rand::SystemRandom::new().fill(&mut bytes).is_err() {
+        return String::new();
+    }
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
 
 /// The `profile` tool (name, description, input schema) for the MCP list.
 pub fn profile_tool() -> Value {
@@ -173,7 +215,8 @@ impl Grant {
     pub fn allows(&self, tool: &str) -> bool {
         match &self.tools {
             _ if matches!(tool, "zoom" | "date") => true,
-            None => tool != "profile",
+            // No record: no profile and no chiefs (both need the registry).
+            None => !matches!(tool, "profile" | "chiefs"),
             Some(set) => set.contains(tool),
         }
     }
@@ -232,6 +275,8 @@ impl Grant {
 pub struct ChiefTools {
     state: std::sync::RwLock<Loaded>,
     client: Option<ProfileClient>,
+    /// This host's turn key ([`TURN_KEY_ENV`]).
+    turn_key: String,
 }
 
 #[derive(Clone, Debug)]
@@ -252,6 +297,7 @@ impl ChiefTools {
                 pending: false,
             }),
             client: None,
+            turn_key: new_turn_key(),
         }
     }
 
@@ -263,6 +309,7 @@ impl ChiefTools {
                 pending: false,
             }),
             client: Some(client),
+            turn_key: new_turn_key(),
         }
     }
 
@@ -315,6 +362,7 @@ impl ChiefTools {
                         pending: true,
                     }),
                     client: Some(client),
+                    turn_key: new_turn_key(),
                 })
             }
             Err(e) => Err(format!("reading this Chief's record: {e}")),
@@ -406,6 +454,37 @@ impl ChiefTools {
         self.grant()
             .mcp_value()
             .unwrap_or_else(|| "spawn,tell".to_owned())
+    }
+
+    /// This host's turn key, for its own turn sessions' presets only.
+    pub fn turn_key(&self) -> &str {
+        &self.turn_key
+    }
+
+    /// Whether `key` is this host's turn key (constant time; an empty key
+    /// never matches).
+    pub fn is_turn(&self, key: Option<&str>) -> bool {
+        let (Some(key), mine) = (key, self.turn_key.as_bytes()) else {
+            return false;
+        };
+        let key = key.as_bytes();
+        if mine.is_empty() || key.len() != mine.len() {
+            return false;
+        }
+        key.iter().zip(mine).fold(0_u8, |d, (a, b)| d | (a ^ b)) == 0
+    }
+
+    /// The `chiefs` tool: see, make and edit other Chiefs. The daemon checks
+    /// the rules on this Chief's bound connection.
+    pub fn chiefs_call(&self, args: &Value) -> Result<String, String> {
+        if !self.grant().allows("chiefs") {
+            return Err(Grant::refusal("chiefs"));
+        }
+        let client = self
+            .client
+            .as_ref()
+            .ok_or("this Chief has no record here")?;
+        client.manage(args)
     }
 
     /// The `profile` tool: read the record, or change the fields in `args`.
@@ -527,6 +606,19 @@ impl ProfileClient {
         mut params: Map<String, Value>,
         mutation: bool,
     ) -> Result<Value, SdkError> {
+        params.insert("chief".into(), json!(self.chief));
+        self.v2_raw(operation, params, mutation, None)
+    }
+
+    /// A v2 request on this Chief's bound connection with `params` as they
+    /// are; `key` is the idempotency key of a mutation (None: a fresh one).
+    fn v2_raw(
+        &self,
+        operation: &str,
+        mut params: Map<String, Value>,
+        mutation: bool,
+        key: Option<String>,
+    ) -> Result<Value, SdkError> {
         let mut client = self.connect().map_err(|e| SdkError::Protocol {
             code: "transport".into(),
             message: e,
@@ -535,7 +627,6 @@ impl ProfileClient {
         })?;
         params.insert("machine".into(), json!("current"));
         params.insert("session".into(), json!("current"));
-        params.insert("chief".into(), json!(self.chief));
         // A v2 request id is a string; a mutation's key is unique per call.
         let n = KEYS.fetch_add(1, Ordering::Relaxed);
         let nanos = std::time::SystemTime::now()
@@ -549,7 +640,7 @@ impl ProfileClient {
         let mut frame = json!({"protocol": "cmux.protocol/2", "type": "request", "id": unique,
                                "operation": operation, "params": params});
         if mutation {
-            frame["idempotency_key"] = json!(unique);
+            frame["idempotency_key"] = json!(key.unwrap_or(unique));
         }
         let Value::Object(frame) = frame else {
             unreachable!("a JSON object")
@@ -653,6 +744,248 @@ reach your system prompt when your brain next starts.",
             serde_json::to_string_pretty(&record).unwrap_or_default()
         ))
     }
+}
+
+/// The fields `chiefs` create and update pass to the daemon.
+const MANAGE_FIELDS: [&str; 10] = [
+    "display_name",
+    "role",
+    "personality",
+    "instructions",
+    "tools",
+    "harnesses",
+    "self_edit",
+    "harness",
+    "model",
+    "effort",
+];
+
+impl ProfileClient {
+    /// The `chiefs` tool's work (schemas/chief-profile/chiefs-tool.json).
+    pub fn manage(&self, args: &Value) -> Result<String, String> {
+        let args = args.as_object().cloned().unwrap_or_default();
+        if let Some(unknown) = args.keys().find(|k| {
+            !MANAGE_FIELDS.contains(&k.as_str())
+                && !matches!(
+                    k.as_str(),
+                    "action" | "chief" | "avatar_path" | "clear_avatar"
+                )
+        }) {
+            return Err(format!("chiefs: no field {unknown}"));
+        }
+        let action = args.get("action").and_then(Value::as_str).unwrap_or("list");
+        let pretty = |v: &Value| serde_json::to_string_pretty(v).unwrap_or_default();
+        let listed = || -> Result<Vec<Value>, String> {
+            let v = self
+                .v2_raw("chief.profile.list", Map::new(), false, None)
+                .map_err(manage_denied)?;
+            Ok(v.get("chiefs")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default())
+        };
+        let resolve = |records: &[Value]| -> Result<String, String> {
+            let wanted = args
+                .get("chief")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|w| !w.is_empty())
+                .ok_or("chiefs: give chief, its id (agent_...) or its name")?;
+            let field =
+                |r: &Value, k: &str| r.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+            if records.iter().any(|r| field(r, "id") == wanted) {
+                return Ok(wanted.to_owned());
+            }
+            let named: Vec<String> = records
+                .iter()
+                .filter(|r| field(r, "display_name") == wanted)
+                .map(|r| field(r, "id"))
+                .collect();
+            match named.as_slice() {
+                [one] => Ok(one.clone()),
+                [] => Err(format!("chiefs: no Chief is named {wanted}")),
+                _ => Err(format!(
+                    "chiefs: more than one Chief is named {wanted}; use its id"
+                )),
+            }
+        };
+        let fields: Map<String, Value> = args
+            .iter()
+            .filter(|(k, _)| MANAGE_FIELDS.contains(&k.as_str()))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let clear = args
+            .get("clear_avatar")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let path = args
+            .get("avatar_path")
+            .and_then(Value::as_str)
+            .map(str::trim);
+        if clear && path.is_some() {
+            return Err("chiefs: give avatar_path or clear_avatar, not both".to_owned());
+        }
+        match action {
+            "list" => Ok(pretty(&Value::Array(listed()?))),
+            "get" => {
+                let id = resolve(&listed()?)?;
+                let mut p = Map::new();
+                p.insert("chief".into(), json!(id));
+                let v = self
+                    .v2_raw("chief.profile.get", p, false, None)
+                    .map_err(manage_denied)?;
+                Ok(pretty(&v))
+            }
+            "create" | "update" => {
+                let picture = match path {
+                    Some(p) => Some(read_picture(p)?),
+                    None => None,
+                };
+                let (id, mut record) = if action == "create" {
+                    if !fields.contains_key("display_name") {
+                        return Err("chiefs: create needs display_name".to_owned());
+                    }
+                    let made = self
+                        .v2_raw("chief.profile.create", fields.clone(), true, None)
+                        .map_err(manage_denied)?;
+                    let record = made.get("value").cloned().unwrap_or(made);
+                    let id = record
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned();
+                    (id, record)
+                } else {
+                    let id = resolve(&listed()?)?;
+                    if fields.is_empty() && picture.is_none() && !clear {
+                        return Err("chiefs: update needs at least one change".to_owned());
+                    }
+                    let mut record = Value::Null;
+                    if !fields.is_empty() {
+                        let mut p = fields.clone();
+                        p.insert("chief".into(), json!(id));
+                        let v = self
+                            .v2_raw("chief.profile.update", p, true, None)
+                            .map_err(manage_denied)?;
+                        record = v.get("value").cloned().unwrap_or(v);
+                    }
+                    (id, record)
+                };
+                if picture.is_some() || clear {
+                    let mut p = Map::new();
+                    p.insert("chief".into(), json!(id));
+                    match picture {
+                        Some((media_type, bytes)) => {
+                            p.insert("media_type".into(), json!(media_type));
+                            p.insert(
+                                "data".into(),
+                                json!(base64::engine::general_purpose::STANDARD.encode(bytes)),
+                            );
+                        }
+                        None => {
+                            p.insert("clear".into(), json!(true));
+                        }
+                    }
+                    let set = self
+                        .v2_raw("chief.profile.avatar.set", p, true, None)
+                        .map_err(|e| {
+                            let e = manage_denied(e);
+                            if record.is_null() {
+                                e
+                            } else {
+                                format!("{e} (The other changes did commit.)")
+                            }
+                        })?;
+                    // The create's brain outcome stays (the picture's answer has none).
+                    let brain = record.get("brain").cloned();
+                    record = set.get("value").cloned().unwrap_or(set);
+                    if let (Some(brain), Some(fields)) = (brain, record.as_object_mut()) {
+                        fields.insert("brain".into(), brain);
+                    }
+                }
+                let note = if action == "create" {
+                    brain_note(&record)
+                } else {
+                    "A changed name or picture shows at once; changed text reaches that Chief's \
+system prompt when its brain next starts."
+                };
+                Ok(format!("{}\n{note}", pretty(&record)))
+            }
+            other => Err(format!(
+                "chiefs: no action {other}; one of list, get, create, update"
+            )),
+        }
+    }
+}
+
+/// What the create answered about the new Chief's brain (the daemon's real
+/// state), said plainly so the Chief tells the person the truth.
+fn brain_note(record: &Value) -> &'static str {
+    let brain = record.get("brain");
+    let state = brain.and_then(|b| b.get("state")).and_then(Value::as_str);
+    let reason = brain.and_then(|b| b.get("reason")).and_then(Value::as_str);
+    match (state, reason) {
+        (Some("started"), _) => {
+            "Its brain started: it answers in its own conversation. Tell the person so."
+        }
+        (Some("not_started"), Some("no_supervisor")) => {
+            "Its brain did NOT start: this cmux runs no Chief brains here (no supervisor). \
+Tell the person plainly that the new Chief exists but will not answer until its brain runs."
+        }
+        (Some("not_started"), Some("launch_disabled")) => {
+            "Its brain did NOT start: agents are turned off in this build session. Tell the \
+person plainly that the new Chief exists but will not answer here."
+        }
+        (Some("not_started"), Some("unconfirmed")) => {
+            "Whether its brain started is not confirmed yet (the supervisor was busy). Tell \
+the person it may answer soon, and do not promise it."
+        }
+        (Some("not_started"), _) => {
+            "Its brain did NOT start (an error; the daemon log says why). Tell the person \
+plainly that the new Chief exists but will not answer until this is fixed."
+        }
+        _ => {
+            "Whether its brain started is unknown (an older cmux). Do not tell the person it \
+answers; say it was created."
+        }
+    }
+}
+
+/// The daemon's refusal of a `chiefs` call, phrased for the model.
+fn manage_denied(error: SdkError) -> String {
+    if let SdkError::Protocol {
+        code,
+        message,
+        details,
+        ..
+    } = &error
+    {
+        let reason = details
+            .get("reason")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if code == "operation.failed" && !reason.is_empty() {
+            let extra = details.get("extra").unwrap_or(details);
+            let why = extra
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or(message);
+            let fields: Vec<&str> = extra
+                .get("fields")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_str).collect())
+                .unwrap_or_default();
+            return if fields.is_empty() {
+                format!("Not allowed ({reason}): {why}.")
+            } else {
+                format!("Not allowed ({reason}): {why} [{}].", fields.join(", "))
+            };
+        }
+        if code == "validation.invalid" {
+            return format!("chiefs: {message}");
+        }
+    }
+    format!("chiefs: {error}")
 }
 
 const BAD_IMAGE: &str = "The picture must be a PNG, JPEG, GIF or WebP file of at most 1 MiB.";

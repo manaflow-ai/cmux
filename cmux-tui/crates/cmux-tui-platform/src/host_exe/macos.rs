@@ -73,6 +73,29 @@ pub(super) fn terminal_host_executable() -> io::Result<PathBuf> {
     }
 }
 
+pub(super) fn prepare_in_background() {
+    static STARTED: Once = Once::new();
+    STARTED.call_once(|| {
+        let warm = || {
+            let Ok(path) = terminal_host_executable() else { return };
+            if crate::platform::self_exe_for_spawn().is_ok_and(|own| own == path) {
+                return;
+            }
+            // A new file's first exec checks its code signature; a host
+            // started after this one does not wait for that check.
+            use std::os::unix::process::CommandExt;
+            let _ = std::process::Command::new(&path)
+                .arg0(EXE_NAME)
+                .arg("--version")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+        };
+        let _ = std::thread::Builder::new().name("cmux-host-exe".into()).spawn(warm);
+    });
+}
+
 /// A spawn of `path` failed: stop using the copy for this daemon.
 pub(super) fn copy_failed(path: &Path) {
     let mut installed = INSTALLED.lock().unwrap_or_else(PoisonError::into_inner);

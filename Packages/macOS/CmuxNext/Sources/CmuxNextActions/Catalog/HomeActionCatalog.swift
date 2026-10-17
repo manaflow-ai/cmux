@@ -36,12 +36,45 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
             // The channels Home (webviews/src/pages/home-channels) as a tab next to the native
-            // Home, over the same Home data, so both can be open at once.
+            // Home, over the same Home data, so both can be open at once. Only while Channels is
+            // enabled (hq-6d 2026-10-15): hidden from the palette and menus and refused otherwise.
             ActionDescriptor(
                 id: "home.channels", title: t("action.home.channels", "Open Channels"),
                 keywords: ["home", "channels", "threads", "direct messages", "conversations", "messages"],
-                category: .window, symbol: "number", surfaces: [.palette, .menu], cliName: "home channels",
+                category: .window, symbol: "number", surfaces: [.palette, .menu], requires: [.homeChannelsEnabled], cliName: "home channels",
                 mainMenu: .file,
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            // The docked Home's two views of the same data, the sidebar's Home and Channels entries
+            // (Lawrence 2026-10-15: "2 diff things in section like Home and Channels"): `messages` is
+            // Home (native, the default), `channels` the React page while Channels is enabled. The
+            // Channels entry's click and the page's cmux.host.home.switchView run it. No `view`: the
+            // other one. No default shortcut (Ctrl-Option-Cmd-H is gone with the header switch).
+            ActionDescriptor(
+                id: "home.switchView", title: t("action.home.switchView", "Switch Home View"),
+                keywords: ["home", "messages", "channels", "slack", "imessage", "view", "toggle", "switch", "layout"],
+                category: .window, symbol: "arrow.left.arrow.right", surfaces: [.palette, .keyboard, .menu],
+                arguments: [ActionArgument(name: "view", title: t("argument.home.view", "View"),
+                                           kind: .enumeration([ActionEnumCase(value: "messages", title: t("argument.home.view.messages", "Home")),
+                                                               ActionEnumCase(value: "channels", title: t("argument.home.view.channels", "Channels"))]),
+                                           isRequired: false)],
+                cliName: "home switch-view",
+                mainMenu: .view,
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            // The Channels entry after Home is off by default; the palette turns it on and off
+            // (`home.channelsEnabled`; Lawrence 2026-10-15: "u have to cmd shift p to enable channels
+            // in the first place"). The palette lists the one that changes something.
+            ActionDescriptor(
+                id: "home.enableChannels", title: t("action.home.enableChannels", "Enable Channels"),
+                keywords: ["home", "channels", "slack", "threads", "enable", "show", "sidebar"],
+                category: .window, symbol: "number", surfaces: [.palette], cliName: "home enable-channels",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "home.disableChannels", title: t("action.home.disableChannels", "Disable Channels"),
+                keywords: ["home", "channels", "slack", "threads", "disable", "hide", "sidebar"],
+                category: .window, symbol: "number", surfaces: [.palette], cliName: "home disable-channels",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
             ActionDescriptor(

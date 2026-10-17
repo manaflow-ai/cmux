@@ -1,3 +1,4 @@
+import CCmuxMotionFFI
 public import CoreGraphics
 public import Foundation
 
@@ -12,6 +13,24 @@ public nonisolated struct SpringParameters: Hashable, Sendable {
     public init(response: Double, dampingFraction: Double) {
         self.response = response
         self.dampingFraction = dampingFraction
+    }
+
+    /// SwiftUI `Spring(duration:bounce:)`: `duration` is the perceptual
+    /// duration (the response), `bounce` 0 is critically damped, above 0
+    /// overshoots (0.15 is a subtle bounce), below 0 is over-damped.
+    public init(duration: Double, bounce: Double) {
+        self.response = duration
+        self.dampingFraction = bounce >= 0 ? 1 - bounce : 1 / (1 + bounce)
+    }
+
+    /// SwiftUI's bounce for this damping fraction (0 critically damped).
+    public var bounce: Double {
+        dampingFraction <= 1 ? 1 - dampingFraction : 1 / dampingFraction - 1
+    }
+
+    /// The same response with `bounce` (SwiftUI semantics).
+    public func withBounce(_ bounce: Double) -> SpringParameters {
+        SpringParameters(duration: response, bounce: bounce)
     }
 
     /// Angular frequency (rad/s).
@@ -73,26 +92,50 @@ public nonisolated struct SpringValue: Hashable, Sendable {
         self.target = value
     }
 
-    /// Advances by `dt` seconds using fixed substeps (semi-implicit Euler),
-    /// stable for every frame rate up to 120 Hz and beyond. `dt` is capped
-    /// at 0.1 s so a stalled frame never teleports.
+    /// Advances by `dt` seconds with the closed-form solution of the damped
+    /// harmonic oscillator (under-, critically or over-damped), so the path
+    /// is exact and identical at every frame rate: two 60 Hz frames land
+    /// where four 120 Hz frames do. `dt` is capped at 0.1 s so a stalled
+    /// frame never teleports. The solution is cmux-motion's, through the app
+    /// FFI (`cmux_motion_step`, no settle: epsilon 0); a non-finite or
+    /// non-positive tuning takes `move`'s (cmux-motion `finite_or`).
     public mutating func step(_ dt: Double, parameters: SpringParameters) {
-        let stiffness = parameters.stiffness
-        let damping = parameters.damping
-        var remaining = min(max(dt, 0), 0.1)
-        let maxStep = 1.0 / 480.0
-        var x = Double(value)
-        var v = Double(velocity)
-        let t = Double(target)
-        while remaining > 0 {
-            let h = min(remaining, maxStep)
-            let acceleration = -stiffness * (x - t) - damping * v
-            v += acceleration * h
-            x += v * h
-            remaining -= h
+        _ = stepFFI(dt, parameters: parameters, epsilon: 0)
+    }
+
+    /// Displacement from the target and velocity `time` seconds after a state, for `parameters`
+    /// (mass 1), from cmux-motion's closed form (`cmux_motion_step` with no settle). The FFI caps one
+    /// step at 0.1 s, so a time is solved in exact 0.1 s pieces (the solution composes), at most 100:
+    /// at or past the settle horizon, min(10 s, 20 x response), and for a non-finite time, the spring
+    /// is at rest. A non-finite or non-positive tuning takes `move`'s, as cmux-motion `finite_or` does,
+    /// so an undamped spring settles too. (ColorTransition is the only caller; it moves to
+    /// cmux_motion_spring_progress_monotone, after which this goes.)
+    public static func solve(displacement x0: Double, velocity v0: Double, time t: Double,
+                             parameters: SpringParameters) -> (displacement: Double, velocity: Double) {
+        let fallback = MotionSpring.move.base
+        let response = parameters.response.isFinite && parameters.response > 0 ? parameters.response : fallback.response
+        let damping = parameters.dampingFraction.isFinite && parameters.dampingFraction > 0 ? parameters.dampingFraction : fallback.dampingFraction
+        guard t.isFinite, t < min(10, 20 * response) else { return (0, 0) }
+        var state = CmuxMotionState(value: x0, velocity: v0, target: 0)
+        let spring = CmuxMotionSpring(response: response, damping_fraction: damping)
+        var left = max(t, 0)
+        while left > 0 {
+            let dt = min(left, 0.1)
+            _ = cmux_motion_step(&state, dt, spring, 0)
+            left -= dt
         }
-        value = CGFloat(x)
-        velocity = CGFloat(v)
+        return (state.value, state.velocity)
+    }
+
+    /// One `cmux_motion_step` call on this value: steps, and snaps once
+    /// within `epsilon` and slower than 8 x `epsilon` per second.
+    private mutating func stepFFI(_ dt: Double, parameters: SpringParameters, epsilon: CGFloat) -> Bool {
+        var state = CmuxMotionState(value: Double(value), velocity: Double(velocity), target: Double(target))
+        let spring = CmuxMotionSpring(response: parameters.response, damping_fraction: parameters.dampingFraction)
+        let moving = cmux_motion_step(&state, dt, spring, Double(epsilon))
+        value = CGFloat(state.value)
+        velocity = CGFloat(state.velocity)
+        return moving
     }
 
     public func isSettled(epsilon: CGFloat) -> Bool {
@@ -111,14 +154,9 @@ public nonisolated struct SpringValue: Hashable, Sendable {
         snap()
     }
 
-    /// Steps and snaps once settled. Returns true while still moving.
+    /// Steps and snaps once settled (cmux-motion `advance_spring`). Returns
+    /// true while still moving.
     public mutating func advance(_ dt: Double, parameters: SpringParameters, epsilon: CGFloat) -> Bool {
-        guard value != target || velocity != 0 else { return false }
-        step(dt, parameters: parameters)
-        if isSettled(epsilon: epsilon) {
-            snap()
-            return false
-        }
-        return true
+        stepFFI(dt, parameters: parameters, epsilon: epsilon)
     }
 }

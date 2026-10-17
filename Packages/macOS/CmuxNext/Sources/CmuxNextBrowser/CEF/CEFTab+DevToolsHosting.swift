@@ -42,7 +42,12 @@ extension CEFTab {
             host.hostView.occlusionRects = CEFHostView.outermost(Self.local(rects, in: pageFrame))
         }
         if let views = devToolsController.views {
-            views.host.occlusionRects = frames.grab.isEmpty ? [] : Self.local([frames.grab], in: views.host.frame)
+            if devToolsController.deviceModeActive {
+                // Device mode: DevTools cover the content view; the page shows (and takes the mouse) through this hole.
+                views.host.occlusionRects = Self.local([frames.page], in: views.host.frame)
+            } else {
+                views.host.occlusionRects = frames.grab.isEmpty ? [] : Self.local([frames.grab], in: views.host.frame)
+            }
         }
     }
 

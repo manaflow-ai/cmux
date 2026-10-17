@@ -134,7 +134,7 @@ import AppKit
         // Only a header the keyboard focused (ring shown): a click focuses
         // without a ring and already toggled.
         guard let id = list.focusedGroup, list.showsFocusRing else { return false }
-        if let group = model.group(id), group.isPinned, group.workspaces.isEmpty {
+        if let group = model.group(id), group.isPinned, group.workspaces.isEmpty, group.items.isEmpty {
             model.send(.openGroup(id))
             list.reload(animated: true)
         } else {

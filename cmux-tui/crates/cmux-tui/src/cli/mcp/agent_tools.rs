@@ -397,7 +397,7 @@ impl Arguments<'_> {
 /// A receipt that fits the result limit: when the snapshot makes it too
 /// large, `state` alone gives way, so the action, its result (the new ids)
 /// and the idempotency key survive.
-fn fit_receipt(mut receipt: Value) -> Value {
+pub(super) fn fit_receipt(mut receipt: Value) -> Value {
     let size = serde_json::to_vec(&receipt).map(|bytes| bytes.len()).unwrap_or(usize::MAX);
     if size > super::MAX_RESULT_BYTES {
         receipt["state"] = json!({"truncated": true, "hint": "call agents_snapshot"});

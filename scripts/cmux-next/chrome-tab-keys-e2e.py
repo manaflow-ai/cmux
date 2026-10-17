@@ -3,8 +3,8 @@
 
 Leo 2026-10-12: "chrome/chatgpt/claude has them all the same". Sidebar items are what Chrome
 calls tabs, so by default, with no preset and no rebinding:
-  - Ctrl-Tab, Cmd-Shift-], Cmd-Opt-Right and Ctrl-PageDown select the next sidebar item;
-  - Ctrl-Shift-Tab, Cmd-Shift-[, Cmd-Opt-Left and Ctrl-PageUp select the previous one;
+  - Ctrl-Cmd-], Cmd-Opt-Right and Ctrl-PageDown select the next sidebar item;
+  - Ctrl-Cmd-[, Cmd-Opt-Left and Ctrl-PageUp select the previous one;
   - Cmd-1 to Cmd-8 select the nth item and Cmd-9 the last.
 They win over the focused surface: a terminal (and its Ghostty keybinds), the New Tab page's
 field and an agent chat's composer, in a pane with one tab and in a pane with two (where the
@@ -17,7 +17,8 @@ and compares the selection with what the matching sidebar action (`nextSidebarTa
 `prevSidebarTab`, `selectWorkspaceByNumber`) selects from the same start. A key that switches
 the pane's tabs, or that the surface swallows, leaves a different selection.
 
-Leo's two Karabiner paths also go in transition by transition with their timing (Cmd down,
+Leo's two Karabiner paths (Cmd-Shift-] / [, Ctrl-Tab) now cycle the pane's tabs, so they are no
+longer checked here (SEQUENCES is empty). They went in transition by transition with their timing (Cmd down,
 Shift down, ] down ~5 ms apart; Ctrl down, Tab down ~270 ms later and held ~175 ms) through
 `debug.key` `sequence`, which builds each as a CGEvent and posts it to the app's event queue.
 Other keys go in as real key-downs through cua-driver (`--real`, the app frontmost on a whole mini,
@@ -39,17 +40,17 @@ parser.add_argument("--surfaces", default="terminal,terminal2,newtab,newtab2,com
                     help="also copymode, page, settings, home")
 parser.add_argument("--tidy", action="store_true",
                     help="first close every other workspace (a tag's workspaces persist between launches)")
-parser.add_argument("--keys", help="only these key labels, comma separated (e.g. Ctrl-Tab,Cmd-Shift-])")
+parser.add_argument("--keys", help="only these key labels, comma separated (e.g. Ctrl-Cmd-],Ctrl-PageDown)")
 parser.add_argument("--out", default="/tmp")
 opts = parser.parse_args()
 ROWS = []
 
 NEXT, PREV = "nextSidebarTab", "prevSidebarTab"
 KEYS = [
-    ("Ctrl-Tab", "tab", ["ctrl"], NEXT, None),
-    ("Ctrl-Shift-Tab", "tab", ["ctrl", "shift"], PREV, None),
-    ("Cmd-Shift-]", "]", ["cmd", "shift"], NEXT, None),
-    ("Cmd-Shift-[", "[", ["cmd", "shift"], PREV, None),
+    # Ctrl-Tab and Cmd-Shift-] / [ cycle the focused pane's tabs (Leo 2026-10-12, Lawrence
+    # 2026-10-15), never workspaces: CtrlTabCyclesPaneTabsTests.
+    ("Ctrl-Cmd-]", "]", ["ctrl", "cmd"], NEXT, None),
+    ("Ctrl-Cmd-[", "[", ["ctrl", "cmd"], PREV, None),
     ("Cmd-Opt-Right", "right", ["cmd", "option"], NEXT, None),
     ("Cmd-Opt-Left", "left", ["cmd", "option"], PREV, None),
     ("Ctrl-PageDown", "pagedown", ["ctrl"], NEXT, None),
@@ -78,12 +79,10 @@ def karabiner_ctrl_tab(shift):
 
 
 # Sent with `debug.key` `sequence` (the app's event queue, the timing above), in both modes.
-SEQUENCES = [
-    ("Karabiner Cmd-Shift-]", karabiner_cmd_shift(30), "]", ["cmd", "shift"], NEXT),
-    ("Karabiner Cmd-Shift-[", karabiner_cmd_shift(33), "[", ["cmd", "shift"], PREV),
-    ("Karabiner Ctrl-Tab", karabiner_ctrl_tab(False), "tab", ["ctrl"], NEXT),
-    ("Karabiner Ctrl-Shift-Tab", karabiner_ctrl_tab(True), "tab", ["ctrl", "shift"], PREV),
-]
+# Leo's Karabiner sends Cmd-Shift-] / [ and Ctrl-Tab, which now cycle the pane's tabs, so no
+# sequence selects a sidebar item; `karabiner_cmd_shift` / `karabiner_ctrl_tab` stay for a
+# pane-tab check.
+SEQUENCES = []
 
 
 def rpc(method, params=None, timeout=30):

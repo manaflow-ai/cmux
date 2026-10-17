@@ -36,7 +36,7 @@ enum HomeMapping {
     /// parts mapped only when a reply asks for it.
     static func roots(in items: [TranscriptItem], aliases: [IdempotencyKey: ID], summary: ConversationSummary?,
                       media: @escaping Media = { _ in nil }, links: @escaping Links = { _ in nil }) -> Roots {
-        let wanted = Set(items.compactMap(\.threadRoot))
+        let wanted = indexed(items)
         guard !wanted.isEmpty else { return { _ in nil } }
         var byID: [MessageID: TranscriptItem] = [:]
         for item in items {
@@ -69,10 +69,13 @@ enum HomeMapping {
         // `Message.format`; plain by default, so a local send is plain before HomeStore has it).
         let mentions = item.parts.contains { if case let .text(_, m) = $0 { return !m.isEmpty } else { return false } }
         let format: MessageFormat = isAgent(item.author, summary) && !mentions ? .markdown : .plain
-        return Message(id: messageID, senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
+        var message = Message(id: messageID, senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
                 parts: parts, replyTo: replyTo(item, roots: roots), status: status(item, me: me, summary: summary), edits: nil,
                 retractedAt: item.isRetracted ? Instant.format(item.editedAt ?? item.createdAt) : nil,
                 reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) }, format: format)
+        // ThreadMode.tree: the message a nested reply answers (HomeMapping+Tree.swift).
+        message.parent = parent(item, roots: roots)
+        return message
     }
 
     /// The item's parts as MessagesLab shows them, and for each one the

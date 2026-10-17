@@ -151,3 +151,34 @@ takes 2.1 min, and SwiftPM links every test target into one bundle, so each
 shard pays the 2.6 min build again and asks for one more mini. The 10.4 min
 on #17470 was contention on a busy mini. Selecting only the affected targets
 reduces that contention, and sharding would add to it.
+
+## Measuring test builds
+
+The `swift-test`, `daemon-test` and `generated-files` jobs wrap their explicit
+`swift build --build-tests` command with `scripts/ci/swiftpm_build_metrics.py`.
+Each uploads a `cmux-next-build-metrics-<role>-<attempt>` artifact containing
+`<role>.json` and the streamed `<role>.log`, including after a failed build.
+The step summary reports build-step wall time and recognized SwiftPM progress
+events. This does not measure compiler CPU or later builds a test or generator
+script may invoke.
+
+Compare `build_inputs_sha256` to find candidates for a shared build. It covers
+the whole tracked working repository (recipe and dependency pins included) and
+generated package inputs outside `.build` and dependency stores. Clean files
+use Git object IDs; changed and generated inputs use their bytes. The separate
+`compatibility_sha256` includes the toolchain, selected build environment,
+absolute package path and resolved workspace state. The combined
+`build_identity_sha256` binds both; these diagnostic identities do not authorize
+product reuse. An unavailable source identity or dirty submodule leaves the
+candidate identity null. `measurement_setup_seconds` reports collection overhead
+separately from `build_step_seconds`.
+Missing toolchain metadata leaves the compatibility identity null; the combined
+identity is null whenever either component is unknown.
+
+`scratch_before` and `scratch_after` report the linked scratch key and existing
+build markers. Warm state does not prove a cache hit; `cache_hit` stays null.
+`web_bundle_restore` records the existing restore action's outcome and hit
+output separately. Compile/module event counts use `swiftpm-progress/v1`;
+zero events mean no recognized progress was observed, not proof of zero compile
+work or a cache hit. Matching candidate identities and elapsed times identify
+possible duplicate build steps, not measured redundant compiler CPU.

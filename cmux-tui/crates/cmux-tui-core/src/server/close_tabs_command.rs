@@ -39,6 +39,11 @@ pub(super) fn run(
         "resource_revision": outcome.resource_revision,
         "replayed": outcome.replayed,
     });
+    // The closed groups this close stored (absent on a replay of a close
+    // committed before they were reported).
+    if let Some(ids) = outcome.result.get("closed_ids") {
+        reply["closed_ids"] = ids.clone();
+    }
     if let Some(transaction) = transaction {
         reply["transaction"] = json!(transaction);
     }
