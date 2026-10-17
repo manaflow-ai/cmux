@@ -330,7 +330,11 @@ actor ClaudeConversation {
             case .unsupportedControl(let id, let subtype):
                 write(ClaudeStreamParser.unsupportedResponse(requestID: id, subtype: subtype))
             case .rejectedCredential:
-                break
+                // Only a model endpoint's key: Claude Code's own sign-in keeps its retries.
+                guard let endpoint = configuration.endpoint, continuation != nil else { break }
+                stopProcess()
+                end(.failed(ChiefText.invalidCredential(endpoint.name)))
+                return
             }
         }
     }
