@@ -167,9 +167,16 @@ SPAWN_REQUEST="$(jq -nc --arg workspace "$WORKSPACE_ID" --arg marker "$MARKER" '
 SPAWN="$(rpc "$SPAWN_REQUEST")"
 PROCESS_ID="$(echo "$SPAWN" | jq -r '.process // .result.Ok.process')"
 test -n "$PROCESS_ID" && test "$PROCESS_ID" != "null"
-sleep 2
 SNAPSHOT_REQUEST="$(jq -nc --arg process "$PROCESS_ID" '{type:"snapshot-process-terminal",process:$process}')"
-FIRST="$(rpc "$SNAPSHOT_REQUEST")"
+# Poll until the login shell has printed, rather than sampling once after a
+# fixed delay: on a snapshot whose blocks are not yet cached on the host, the
+# first \`bash -l\` can take several seconds just reading its files from disk.
+FIRST=""
+for attempt in $(seq 1 60); do
+  FIRST="$(rpc "$SNAPSHOT_REQUEST")"
+  if echo "$FIRST" | jq -e --arg marker "$MARKER" 'tostring | contains($marker)' >/dev/null; then break; fi
+  sleep 0.5
+done
 echo "$FIRST" | jq -e --arg marker "$MARKER" 'tostring | contains($marker)' >/dev/null
 # The whole point of the daemon layout: a pane it opens is a shell of the work
 # user on a machine named cmux, which is what the prompt shows a person.
