@@ -358,7 +358,7 @@
 .acpmux-composer-context .acpmux-location-label {
   font-size: var(--text-detail);
 }
-@media (max-width: 480px) {
+@container composer (max-width: 480px) {
   .acpmux-composer-context { gap: 2px; }
   .acpmux-location-button,
   .acpmux-location-readonly { max-width: 145px; }
@@ -475,6 +475,13 @@
   display: inline-flex;
   align-items: center;
 }
+/* The composer is the size container (Leo 2026-10-14, "squashed composers"): a split pane, the
+   New Tab page and interface scale collapse the row the same way; the window's width never decides
+   it (agent-pane.narrow, test/narrow-layouts.test.ts). */
+.acpmux-composer,
+.nt-composer {
+  container: composer / inline-size;
+}
 /* The row's two clusters (hq#1957 item 15): + and the chips (model, effort, permission mode,
    Plan) on the left, hugging their controls; the mic and Send (or Stop) on the right
    (.acpmux-composer-actions, margin-left: auto). The row's free space sits only between the two,
@@ -485,14 +492,18 @@
    reaches its min width before the next gives up a pixel. Neither the bar nor the footer ever
    shrinks. */
 .acpmux-composer-bar { flex: none; }
+/* The New Tab card's pickers (.nt-pickers) give way in the same order. */
 .acpmux-composer-bar .acpmux-chips { flex: 0 1 auto; min-width: 0; }
+/* The New Tab row wraps (.nt-pickers): its chips take the free space from a zero basis, so they
+   shrink before the mic and Send would wrap under them. */
+.nt-pickers .acpmux-chips { flex: 1 1 0%; min-width: 0; }
 .acpmux-composer-bar > :not(.acpmux-chips),
-.acpmux-composer-bar .acpmux-chips > * { flex: none; }
-.acpmux-composer-bar .acpmux-chips > .acpmux-effort { flex: 0 100000 auto; min-width: 44px; }
-.acpmux-composer-bar .acpmux-chips > .acpmux-model { flex: 0 1 auto; min-width: 56px; }
-.acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
-.acpmux-composer-bar .acpmux-model .acpmux-picker-button { min-width: 0; max-width: 100%; }
-.acpmux-composer-bar .acpmux-picker-button > :not(span) { flex: none; }
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips > * { flex: none; }
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips > .acpmux-effort { flex: 0 100000 auto; min-width: 44px; }
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-chips > .acpmux-model { flex: 0 1 auto; min-width: 56px; }
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-effort .acpmux-picker-button,
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-model .acpmux-picker-button { min-width: 0; max-width: 100%; }
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button > :not(span) { flex: none; }
 /* Out of the row but still laid out, so composerRowFit.ts knows the width it would take back. */
 .acpmux-composer-bar[data-fit="icons"] .acpmux-mode-text {
   position: absolute;
@@ -501,9 +512,40 @@
   visibility: hidden;
   pointer-events: none;
 }
+/* Past effort's and the model's min widths the row still overflows: below a 298px composer (a
+   pane under about 334px; the composer pads itself 18px a side) Mode runs into the mic. The model,
+   which gave way last, goes to its icon (its menu names it; "Add agent", which has no icon,
+   keeps its words), the chevrons go,
+   the group gap narrows and the card reaches 10px from the pane's edges. The turn's own controls
+   (+, mic, Stop, Send) never shrink. */
+@container composer (max-width: 297.98px) {
+  .acpmux-composer-bar .acpmux-chips > .acpmux-model { min-width: 32px; }
+  .acpmux-composer-bar .acpmux-model .acpmux-picker-button:not(.acpmux-add-harness) {
+    width: 32px;
+    justify-content: center;
+    gap: 0;
+    padding-inline: 0;
+    overflow: hidden;
+  }
+  .acpmux-composer-bar .acpmux-model-name:not(.acpmux-add-harness *),
+  .acpmux-composer-bar .acpmux-model .acpmux-picker-button .acpmux-icon:last-child,
+  .acpmux-composer-bar .acpmux-mode .acpmux-access-trigger .acpmux-icon:last-child { display: none; }
+  .acpmux-composer-bar { --acpmux-row-group-gap: 8px; }
+  /* The permission label gave way before the model did: out of the row, as data-fit="icons" puts it
+     (still laid out, so composerRowFit.ts keeps measuring it). */
+  .acpmux-composer-bar .acpmux-access-trigger { overflow: clip; }
+  .acpmux-composer-bar .acpmux-mode-text {
+    position: absolute;
+    top: 0;
+    left: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .acpmux-composer:not(.acpmux-quick .acpmux-composer) > .acpmux-composer-box { margin-inline: -8px; }
+}
 /* Keep the complete control rail usable in a very narrow pane: preserve every action and only
    tighten their rhythm. */
-@media (max-width: 220px) {
+@container composer (max-width: 220px) {
   .acpmux-composer-bar { --acpmux-row-group-gap: 8px; --acpmux-row-edge: 8px; }
   .acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button { width: 24px; }
 }
