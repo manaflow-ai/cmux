@@ -144,6 +144,32 @@ struct AgentSessionSearchTranscriptTests {
     }
 
     @Test
+    func webSearchCardsContributeQueryAndCitationText() throws {
+        let message = ChatMessage(
+            id: "search-1",
+            seq: 1,
+            role: .agent,
+            timestamp: Date(timeIntervalSince1970: 1),
+            kind: .webSearch(ChatWebSearch(
+                query: "Swift networking retry guidance",
+                sources: [
+                    ChatWebSearch.Source(
+                        title: "URLSession documentation",
+                        url: "https://developer.apple.com/documentation/foundation/urlsession",
+                        snippet: "Retry transient failures with bounded backoff."
+                    ),
+                ]
+            ))
+        )
+
+        let entry = try #require(AgentSessionSearchText.entry(for: message))
+        #expect(entry.text.contains("Swift networking retry guidance"))
+        #expect(entry.text.contains("URLSession documentation"))
+        #expect(entry.text.contains("https://developer.apple.com/documentation/foundation/urlsession"))
+        #expect(entry.text.contains("Retry transient failures with bounded backoff."))
+    }
+
+    @Test
     func lineSplitterDropsAPartialFirstLineAndOversizedLines() {
         let oversized = String(repeating: "o", count: AgentSessionSearchTranscript.maxParsedLineBytes + 1)
         let buffer = Data("tail of a cut line\nkept one\n\(oversized)\nkept two\npartial".utf8)

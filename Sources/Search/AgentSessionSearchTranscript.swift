@@ -209,6 +209,14 @@ struct AgentSessionSearchText: Equatable, Sendable {
             parts = [question.prompt] + question.options.map(\.label)
         case .permissionRequest(let request):
             parts = [request.title, request.subject]
+        case .webSearch(let search):
+            // Search cards carry useful text outside the rendered query: a
+            // source title, URL, or excerpt may be the only searchable trace
+            // of what the agent found. Keep all of it in the bounded "other"
+            // queue so global search can find both the question and its
+            // citations without changing transcript ordering.
+            parts = [search.query]
+                + search.sources.flatMap { [$0.title, $0.url, $0.snippet] }
         case .thought, .status, .attachment, .unsupported:
             return nil
         }
