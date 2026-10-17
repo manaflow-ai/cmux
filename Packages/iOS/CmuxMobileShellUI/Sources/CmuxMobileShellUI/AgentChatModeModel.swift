@@ -389,17 +389,17 @@ final class AgentChatModeModel {
             guard !Task.isCancelled,
                   generation.map({ $0 == sourceGeneration }) ?? true else { return }
             let currentByID = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0) })
-            let reconciled = loaded.filter { descriptor in
+            let reconciled = loaded.compactMap { descriptor -> ChatSessionDescriptor? in
                 if let removedVersion = removedSessionVersions[descriptor.id],
                    descriptor.version <= removedVersion {
-                    return false
+                    return nil
                 }
                 // A snapshot can have started before a newer live descriptor
                 // event arrived. Keep the newer in-memory value in that case.
                 if let current = currentByID[descriptor.id], current.version > descriptor.version {
-                    return false
+                    return current
                 }
-                return true
+                return descriptor
             }
             for descriptor in reconciled {
                 if let removedVersion = removedSessionVersions[descriptor.id],
