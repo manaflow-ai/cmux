@@ -3,13 +3,13 @@
 //   byMachine one section per machine, a row per CLI, missing ones folded
 //   matrix    CLI by machine grid of versions, details of the selected cell below
 
-import { type CliEntry, highestLevel, type Machine, statusOf } from "../model/entries.ts"
+import { capabilitySummary, type CliEntry, highestLevel, type Machine, statusOf } from "../model/entries.ts"
 import { displayName, providerRank } from "../model/providers.ts"
 import { shortVersion } from "../model/version.ts"
 import { t } from "../l10n.ts"
 import { showMissing } from "../settings.ts"
 import { byMachine, jobOf, loaded, machines, machinesError, selected, setSelected, stateOf } from "../store.ts"
-import { accountLines, allLists, badgeFor, errorState, hintLines, levelBadge, machineName, nameOf, primaryAction, statusSymbol, statusTone, toolbar, versionLine } from "./common.ts"
+import { accountLines, allLists, badgeFor, errorState, hintLines, levelBadge, machineName, machinePlatform, nameOf, primaryAction, statusSymbol, statusTone, toolbar, versionLine } from "./common.ts"
 import { summaryText } from "./section.ts"
 import { jobText } from "./common.ts"
 
@@ -122,6 +122,14 @@ function machineSection(m: () => Machine) {
     HStack({ spacing: 6 }, [
       Icon(() => (m().origin === "local" ? "laptopcomputer" : "server.rack")).secondary(),
       Text(() => machineName(m())).font("headline"),
+      () => {
+        const platform = machinePlatform(m())
+        return platform ? Text(platform).font("caption").secondary() : null
+      },
+      () => {
+        const capabilities = capabilitySummary(m())
+        return capabilities ? Text(capabilities).font("caption").secondary().lineLimit(1).truncation("tail") : null
+      },
       Text(() => (m().status === "running" ? "" : m().status)).font("caption").secondary(),
       Spacer()
     ]).padding({ top: 10, leading: 12, bottom: 4, trailing: 12 }),
