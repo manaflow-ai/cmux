@@ -521,7 +521,7 @@ import Testing
 
         model.draft = "Use the smaller fixture"
         await model.steerDraft()
-        await source.emit(
+        await source.emitHost(
             sessionID: "working",
             event: .stateChanged(.failed(
                 since: Date(timeIntervalSince1970: 20),
