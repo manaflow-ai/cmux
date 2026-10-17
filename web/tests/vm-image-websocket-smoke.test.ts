@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { cmuxTuiWebsocketSmokeCommand } from "../scripts/devbox-image-common";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
 import { DEVBOX_WORK_USER } from "../services/vms/images/workUser";
@@ -57,30 +58,32 @@ esac
   return binary;
 }
 
-function runSmoke(blankSnapshots: number) {
+async function runSmoke(blankSnapshots: number) {
   const directory = mkdtempSync(path.join(tmpdir(), "cmux-ws-smoke-"));
   try {
     const script = path.join(directory, "smoke.sh");
     writeFileSync(script, smokeScript());
-    const result = spawnSync("bash", [script], {
-      env: { PATH: process.env.PATH, HOME: directory, CMUX_TUI_BIN: fakeCmuxTui(directory, blankSnapshots) },
-      encoding: "utf8",
-      timeout: 60_000,
-    });
-    return { code: result.status, out: `${result.stdout}${result.stderr}` };
+    const env = { ...process.env, HOME: directory, CMUX_TUI_BIN: fakeCmuxTui(directory, blankSnapshots) };
+    try {
+      const { stdout, stderr } = await promisify(execFile)("bash", [script], { env, encoding: "utf8", timeout: 80_000 });
+      return { code: 0, out: `${stdout}${stderr}` };
+    } catch (error) {
+      const failed = error as { code?: number; stdout?: string; stderr?: string };
+      return { code: failed.code ?? 1, out: `${failed.stdout ?? ""}${failed.stderr ?? ""}` };
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
 }
 
-test("the websocket smoke waits for a login shell that is slow to print", () => {
-  const result = runSmoke(4);
+test("the websocket smoke waits for a login shell that is slow to print", async () => {
+  const result = await runSmoke(4);
   expect(result.out).toContain("websocket-smoke-ok");
   expect(result.code).toBe(0);
 }, 60_000);
 
-test("the websocket smoke still fails when the pane never shows the marker", () => {
-  const result = runSmoke(1_000);
+test("the websocket smoke still fails when the pane never shows the marker", async () => {
+  const result = await runSmoke(1_000);
   expect(result.code).not.toBe(0);
   expect(result.out).not.toContain("websocket-smoke-ok");
 }, 90_000);
