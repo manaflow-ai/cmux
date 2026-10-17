@@ -18,9 +18,13 @@ extension TabStripView {
         guard let window else { return }
         let point = convert(window.convertPoint(fromScreen: hoverCards.currentPointer()), from: nil)
         let lit = buttonReveal.pointerInStrip || hoveredID != nil || groups.hoveredChip != nil
-        if bounds.intersection(visibleRect).contains(point), !isHiddenOrHasHiddenAncestor {
+        let inside = bounds.intersection(visibleRect).contains(point) && !isHiddenOrHasHiddenAncestor
+        if inside {
             if lit { updateHover(at: point, moved: false) }
         } else if lit || newTabButton.isHovered || closingModeWidth != nil { pointerLeft() }
+        // A strip away from the pointer, with no card of its own, changes no card: no window
+        // hit test for it (a tab switch or a strip animation elsewhere in the window).
+        guard inside || lit || hoverCard.isVisible else { return }
         hoverCards.geometryChanged(in: window)
     }
 

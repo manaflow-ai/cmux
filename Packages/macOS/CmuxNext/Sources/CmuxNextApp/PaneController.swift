@@ -228,24 +228,25 @@ final class PaneController: SurfacePresenter, PresentablePane {
             // coordinator's expectation, not decided here).
             showSelected()
         } else if let selectedID, selectedID.rawValue != currentTabKey {
-            PaneSelectionPresenter(pane: self).present() // a close selected the neighbor
+            presentSelection() // a close selected the neighbor
         } else {
             // Model-driven: show on the next frame, coalescing transient selections.
             services.presentation.setNeedsShowSelected(self)
         }
         // Focus follows selection; the coordinator re-targets the keyboard.
         workspace?.sendTopology()
-        dropClosedParkedBrowsers(snapshot)
+        dropClosedParked(snapshot)
     }
 
-    /// A browser or agent page parked in this pane (`PaneContentView+Parking`)
+    /// A terminal, browser or agent page parked in this pane (`PaneContentView+Parking`)
     /// whose tab closed, moved away or got a new view leaves the window.
-    private func dropClosedParkedBrowsers(_ snapshot: Snapshot) {
+    private func dropClosedParked(_ snapshot: Snapshot) {
         guard !view.parked.isEmpty else { return }
         let agentTabs = services.agentTabs
         let live = Set(snapshot.items.flatMap { item -> [NSView] in
             let key = item.id.rawValue
-            return [services.cache.existingBrowser(key)?.chrome, agentTabs.existingView(key)].compactMap { $0 }
+            return [services.cache.existingBrowser(key)?.chrome, agentTabs.existingView(key),
+                    services.cache.existingTerminal(key)?.session.view].compactMap { $0 }
         }.map(ObjectIdentifier.init))
         view.prunePark { live.contains(ObjectIdentifier($0)) }
     }
@@ -292,7 +293,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let content = key.flatMap(content(for:))
         currentTabKey = key
         if let key, content != nil { services.cache.present(key, by: self, presence: presence) }
-        if view.stripView.window != nil { view.stripView.sync(fromModel: true) } // strip + content: one transaction (L4)
+        if view.stripView.window != nil { view.stripView.syncFromModel() } // strip + content: one transaction (L4)
         view.show(content?.view)
         // Terminals come in on their first frame (`LaunchSettle`); other
         // content (a page, an agent) is ready once shown.
@@ -306,10 +307,11 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Another pane took `key`'s view (the tab moved there) or its surface
     /// was destroyed. Let the view go without pausing it; re-present when
     /// this pane shows the tab again.
-    func surfaceWasDisplaced(_ key: String) {
+    func surfaceWasDisplaced(_ key: String) { letGo(key, parks: false) }
+    func letGo(_ key: String, parks: Bool) {
         guard currentTabKey == key else { return }
         currentTabKey = nil
-        view.detachContent()
+        view.detachContent(parks: parks)
         services.surfaceInvariant.noteChange()
     }
 

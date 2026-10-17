@@ -71,7 +71,7 @@ extension PaneController {
         guard stripModel.selectedID != id || currentTabKey != id.rawValue, let state else { return }
         state.selection.select(id.rawValue, in: paneKey)
         stripModel.selectedID = id
-        PaneSelectionPresenter(pane: self).present()
+        presentSelection()
         services.windows.recordSaver.stateDidChange(state)
     }
 
