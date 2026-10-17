@@ -227,6 +227,8 @@ impl Page {
 struct FakeCloud {
     base: String,
     requests: Arc<Mutex<Vec<(String, String, Value)>>>,
+    /// The entries `inbox.list` answers.
+    inbox: Arc<Mutex<Value>>,
 }
 
 impl FakeCloud {
@@ -235,6 +237,11 @@ impl FakeCloud {
         let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
         let requests = Arc::new(Mutex::new(Vec::new()));
         let seen = requests.clone();
+        let inbox = Arc::new(Mutex::new(json!([{"conversation":CONV,"rev":4,"kind":"group",
+            "title":"Cloud team","last_seq":3,"last_at":"2026-10-13T00:00:00Z","preview":"hi",
+            "removed":false,"unread":1,"mentions":0,"counts_rev":1,"pinned":false,"muted":false,
+            "archived":false,"archived_seq":0,"marked_unread":false}])));
+        let entries = inbox.clone();
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { return };
@@ -276,10 +283,8 @@ impl FakeCloud {
                         "status":"done","turn":"turn:cloud:1","started_at":1,"ended_at":2,"step_count":1}],
                         "has_more":false}})
                 } else if body["op"] == "inbox.list" {
-                    json!({"ok":true,"value":{"entries":[{"conversation":CONV,"rev":4,"kind":"group",
-                        "title":"Cloud team","last_seq":3,"last_at":"2026-10-13T00:00:00Z","preview":"hi",
-                        "removed":false,"unread":1,"mentions":0,"counts_rev":1,"pinned":false,"muted":false,
-                        "archived":false,"archived_seq":0,"marked_unread":false}]},"revision":"7"})
+                    let entries = entries.lock().unwrap().clone();
+                    json!({"ok":true,"value":{"entries":entries},"revision":"7"})
                 } else {
                     json!({"ok":true,"op":body["op"],"value":{"rev":5,"seq":4,
                         "message_id":"msg_0000000000000000000000000Z"},
@@ -295,7 +300,7 @@ impl FakeCloud {
                 let _ = reader.get_mut().write_all(response.as_bytes());
             }
         });
-        Self { base, requests }
+        Self { base, requests, inbox }
     }
 
     fn requests(&self) -> Vec<(String, String, Value)> {
@@ -649,4 +654,39 @@ fn the_persons_page_gets_cloud_rows_in_the_home_inbox() {
         other["data"]["rows"].as_array().unwrap().iter().all(|row| row["owner"] != "cloud"),
         "{other}"
     );
+}
+
+/// The shared Cloud row corpus (tests/fixtures/home-inbox-cloud-cases.json):
+/// the daemon's rows for each entry. The Channels page's Cloud list is held to
+/// the same corpus by webviews/test/home-cloud-rows.test.ts, so the two Cloud
+/// projections cannot drift apart silently.
+#[test]
+fn home_inbox_cloud_rows_follow_the_shared_corpus() {
+    let corpus: Value =
+        serde_json::from_str(include_str!("fixtures/home-inbox-cloud-cases.json")).unwrap();
+    let cases = corpus["cases"].as_array().unwrap();
+    let fixture = Fixture::start("corpus");
+    let cloud = FakeCloud::start();
+    *cloud.inbox.lock().unwrap() =
+        Value::Array(cases.iter().map(|case| case["entry"].clone()).collect());
+    let mut app = fixture.app();
+    assert_eq!(app.rpc(lease(&cloud.base, &person_token()))["ok"], true);
+    let (addr, _) = fixture.credential();
+    let mut page = Page::open(&addr, &page_credential(&mut app));
+    let inbox = page.rpc(json!({"cmd":"home-inbox","owners":["cloud"]}));
+    assert_eq!(inbox["data"]["cloud"], "included", "{inbox}");
+    let rows = inbox["data"]["rows"].as_array().unwrap();
+    for case in cases {
+        let id = &case["entry"]["conversation"];
+        let row = rows.iter().find(|row| &row["id"] == id);
+        match case["row"].as_object() {
+            None => assert!(row.is_none(), "{}: {row:?}", case["name"]),
+            Some(expected) => {
+                let row = row.unwrap_or_else(|| panic!("{}: no row in {inbox}", case["name"]));
+                for (field, value) in expected {
+                    assert_eq!(&row[field], value, "{} {field}: {row}", case["name"]);
+                }
+            }
+        }
+    }
 }
