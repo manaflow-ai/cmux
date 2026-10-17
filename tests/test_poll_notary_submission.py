@@ -61,6 +61,7 @@ class PollNotarySubmissionTests(unittest.TestCase):
         self.assertEqual(body["http_status"], 401)
 
     def test_response_for_another_submission_fails_closed(self) -> None:
+        # Not admitted: an answer for another id is a failed query (3).
         with patch.object(MODULE, "_token", return_value="fixture-token"), patch.object(
             MODULE,
             "_api",
@@ -70,7 +71,7 @@ class PollNotarySubmissionTests(unittest.TestCase):
             ),
         ):
             result = MODULE.main([str(self.state), "--output", str(self.output)])
-        self.assertEqual(result, 1)
+        self.assertEqual(result, 3)
 
 
 if __name__ == "__main__":
