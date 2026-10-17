@@ -116,6 +116,12 @@ extension AgentChatSessionRegistry {
             if case .needsInput = previous { return previous }
             return .needsInput(since: event.receivedAt)
         case .stop:
+            if event.isError == true {
+                return .failed(
+                    since: event.receivedAt,
+                    reason: failureReason(for: event)
+                )
+            }
             return .idle
         case .subagentStart, .subagentStop:
             // Subagent lifecycle says nothing about the parent
@@ -131,6 +137,42 @@ extension AgentChatSessionRegistry {
             return true
         }
         return false
+    }
+
+    /// Extracts the bounded provider detail attached to an error stop hook.
+    /// Stop hooks have carried both a JSON object (`error`/`message`) and a
+    /// plain string across provider versions; retain whichever useful detail
+    /// is available while keeping arbitrary payloads out of the session list.
+    nonisolated private static func failureReason(for event: WorkstreamEvent) -> String {
+        let candidates = [event.toolInputJSON, event.extraFieldsJSON].compactMap { $0 }
+        for raw in candidates {
+            if let data = raw.data(using: .utf8),
+               let object = try? JSONSerialization.jsonObject(with: data) {
+                if let text = object as? String, let bounded = boundedFailureReason(text) {
+                    return bounded
+                }
+                if let dictionary = object as? [String: Any] {
+                    for key in ["error", "message", "reason", "detail", "stderr", "output"] {
+                        if let value = dictionary[key] as? String,
+                           let bounded = boundedFailureReason(value) {
+                            return bounded
+                        }
+                    }
+                }
+            }
+            if let bounded = boundedFailureReason(raw), raw != "{}" {
+                return bounded
+            }
+        }
+        return "The agent turn failed."
+    }
+
+    nonisolated private static func boundedFailureReason(_ raw: String) -> String? {
+        let normalized = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ")
+        guard !normalized.isEmpty else { return nil }
+        return normalized.count > 500 ? String(normalized.prefix(500)) + "…" : normalized
     }
 
 }

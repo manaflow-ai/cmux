@@ -78,9 +78,10 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
     static func selectionPriority(_ state: ChatAgentState) -> Int {
         switch state {
         case .needsInput: return 0
-        case .working: return 1
-        case .idle: return 2
-        case .ended: return 3
+        case .failed: return 1
+        case .working: return 2
+        case .idle: return 3
+        case .ended: return 4
         }
     }
 

@@ -13,19 +13,28 @@ public enum ChatAgentState: Sendable, Equatable {
     /// The agent is blocked on the user (question or permission) since the
     /// associated time.
     case needsInput(since: Date)
+    /// The most recent turn failed and can be retried by sending the same
+    /// prompt again. This is distinct from ``ended``: the session remains
+    /// attached to its terminal and accepts a retry or a new prompt.
+    case failed(since: Date, reason: String?)
     /// The agent process ended.
     case ended
 
     /// Whether the user's attention is required.
     public var needsAttention: Bool {
-        if case .needsInput = self { return true }
-        return false
+        switch self {
+        case .needsInput, .failed: return true
+        case .idle, .working, .ended: return false
+        }
     }
 
     /// Returns the state after accepted user input reaches the agent terminal.
     /// Hook events remain authoritative for subsequent transitions.
     public func afterExplicitInput(at: Date) -> Self {
         if case .needsInput = self {
+            return .working(since: at)
+        }
+        if case .failed = self {
             return .working(since: at)
         }
         return self
@@ -36,12 +45,14 @@ extension ChatAgentState: Codable {
     private enum CodingKeys: String, CodingKey {
         case state
         case since
+        case reason
     }
 
     private enum StateName: String {
         case idle
         case working
         case needsInput = "needs_input"
+        case failed
         case ended
     }
 
@@ -55,6 +66,11 @@ extension ChatAgentState: Codable {
             self = .working(since: try container.decode(Date.self, forKey: .since))
         case .needsInput:
             self = .needsInput(since: try container.decode(Date.self, forKey: .since))
+        case .failed:
+            self = .failed(
+                since: try container.decode(Date.self, forKey: .since),
+                reason: try container.decodeIfPresent(String.self, forKey: .reason)
+            )
         case .ended:
             self = .ended
         case .none:
@@ -73,6 +89,10 @@ extension ChatAgentState: Codable {
         case .needsInput(let since):
             try container.encode(StateName.needsInput.rawValue, forKey: .state)
             try container.encode(since, forKey: .since)
+        case .failed(let since, let reason):
+            try container.encode(StateName.failed.rawValue, forKey: .state)
+            try container.encode(since, forKey: .since)
+            try container.encodeIfPresent(reason, forKey: .reason)
         case .ended:
             try container.encode(StateName.ended.rawValue, forKey: .state)
         }

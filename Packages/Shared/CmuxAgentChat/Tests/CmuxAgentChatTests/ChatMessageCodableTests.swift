@@ -92,6 +92,16 @@ struct ChatMessageCodableTests {
         #expect(kind["command"] as? String == "ls")
     }
 
+    @Test("legacy permission cards decode with rich approval choices")
+    func legacyPermissionDefaults() throws {
+        let json = """
+        {"title":"Claude wants permission","subject":"Bash: ls","resolution":null}
+        """
+        let request = try JSONDecoder().decode(ChatPermissionRequest.self, from: Data(json.utf8))
+        #expect(request.options.map(\.label) == ["Allow once", "Always allow", "Allow all", "Deny"])
+        #expect(request.scope == nil)
+    }
+
     @Test("unknown kind decodes as unsupported, preserving the raw type")
     func unknownKindFailsOpen() throws {
         let json = """

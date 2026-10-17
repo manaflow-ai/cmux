@@ -57,6 +57,8 @@ final class AgentChatTranscriptService {
         let timestamp: Date
         let title: String
         let subject: String
+        let options: [ChatPermissionRequest.Option]
+        let scope: String?
         var resolution: ChatPermissionRequest.Resolution?
 
         var message: ChatMessage {
@@ -68,7 +70,9 @@ final class AgentChatTranscriptService {
                 kind: .permissionRequest(ChatPermissionRequest(
                     title: title,
                     subject: subject,
-                    resolution: resolution
+                    resolution: resolution,
+                    options: options,
+                    scope: scope
                 ))
             )
         }

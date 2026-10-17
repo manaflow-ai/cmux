@@ -361,8 +361,10 @@ final class AgentChatSessionRegistry {
     func noteUserInput(surfaceID: String, at: Date = Date()) -> Int {
         let sessionIDs = indexedRecords(surfaceID: surfaceID)
             .filter { record in
-                if case .needsInput = record.state { return true }
-                return false
+                switch record.state {
+                case .needsInput, .failed: return true
+                case .idle, .working, .ended: return false
+                }
             }
             .map(\.sessionID)
         for sessionID in sessionIDs {

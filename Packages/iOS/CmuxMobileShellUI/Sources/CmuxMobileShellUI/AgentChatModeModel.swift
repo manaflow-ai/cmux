@@ -53,6 +53,7 @@ final class AgentChatModeModel {
     private(set) var loadingSessionIDs: Set<String> = []
     private(set) var sendingSessionIDs: Set<String> = []
     private(set) var interruptingSessionIDs: Set<String> = []
+    private(set) var retryingSessionIDs: Set<String> = []
     private(set) var connectionState: ConnectionState = .disconnected
     private(set) var errorMessage: String?
     private(set) var attachments: [PendingAttachment] = []
@@ -73,6 +74,10 @@ final class AgentChatModeModel {
     private var transcriptRevisions: [String: Int] = [:]
     private var historyResetTokens: [String: Int] = [:]
     private var pendingSendsBySession: [String: [QueuedSend]] = [:]
+    /// Last prompt that began a turn. The host does not need a provider-
+    /// specific retry RPC: retrying resends this exact prompt through the
+    /// ordinary send path, preserving the existing terminal binding.
+    private var lastTurnBySession: [String: QueuedSend] = [:]
     /// Answer cards can remain visually pending until the host republishes the
     /// resolved transcript message. Keep a local guard so a double tap cannot
     /// submit the same decision twice during that window.
@@ -153,6 +158,19 @@ final class AgentChatModeModel {
         return pendingSendsBySession[selectedSessionID]?.count ?? 0
     }
 
+    var canRetrySelectedTurn: Bool {
+        guard let selectedSession,
+              case .failed = selectedSession.state,
+              lastTurnBySession[selectedSession.id] != nil else { return false }
+        return !retryingSessionIDs.contains(selectedSession.id)
+    }
+
+    var selectedFailureReason: String? {
+        guard let selectedSession,
+              case .failed(_, let reason) = selectedSession.state else { return nil }
+        return reason
+    }
+
     func updateSource(_ next: (any AgentChatSessionSource)?) {
         sourceGeneration += 1
         let generation = sourceGeneration
@@ -174,12 +192,14 @@ final class AgentChatModeModel {
         transcriptRevisions = [:]
         historyResetTokens = [:]
         pendingSendsBySession = [:]
+        lastTurnBySession = [:]
         answeringRequestKeys = []
         answeredRequestKeysBySession = [:]
         removedSessionVersions = [:]
         loadingSessionIDs = []
         sendingSessionIDs = []
         interruptingSessionIDs = []
+        retryingSessionIDs = []
         guard let next else { return }
         sourceTask = Task { [weak self] in
             await self?.loadAndObserve(source: next, generation: generation)
@@ -261,6 +281,7 @@ final class AgentChatModeModel {
         pendingSendsBySession[selectedSessionID, default: []].append(
             QueuedSend(text: text, attachments: pendingAttachments)
         )
+        lastTurnBySession[selectedSessionID] = QueuedSend(text: text, attachments: pendingAttachments)
         await drainSendQueue(
             sessionID: selectedSessionID,
             source: source,
@@ -372,6 +393,30 @@ final class AgentChatModeModel {
         do {
             try await source.interrupt(sessionID: selectedSessionID, hard: hard)
         } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Replays the most recent prompt after a provider-reported turn failure.
+    /// The session remains in its failed state until the host publishes the
+    /// authoritative working/idle transition, so a successful RPC cannot make
+    /// the UI claim a retry started when terminal delivery was only queued.
+    func retryLastTurn() async {
+        guard let selectedSessionID,
+              let source,
+              let selectedSession,
+              case .failed = selectedSession.state,
+              let queued = lastTurnBySession[selectedSessionID],
+              retryingSessionIDs.insert(selectedSessionID).inserted else { return }
+        defer { retryingSessionIDs.remove(selectedSessionID) }
+        do {
+            try await source.send(
+                text: queued.text,
+                attachments: queued.attachments.map(\.outbound),
+                sessionID: selectedSessionID
+            )
+        } catch {
+            guard !Task.isCancelled else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -639,6 +684,7 @@ final class AgentChatModeModel {
             transcriptRevisions[sessionID] = nil
             historyResetTokens[sessionID] = nil
             pendingSendsBySession[sessionID] = nil
+            lastTurnBySession[sessionID] = nil
             answeredRequestKeysBySession[sessionID] = nil
             answeringRequestKeys = answeringRequestKeys.filter { !$0.hasPrefix("\(sessionID):") }
             sendingSessionIDs.remove(sessionID)
@@ -694,6 +740,18 @@ final class AgentChatModeModel {
         current = byID.values.sorted { $0.seq < $1.seq }
         messagesBySession[sessionID] = current
         streamingBySession[sessionID] = nil
+        if lastTurnBySession[sessionID] == nil,
+           let latestPrompt = current
+               .filter({ $0.role == .user })
+               .sorted(by: { $0.seq > $1.seq })
+               .compactMap({ message -> String? in
+                   guard case .prose(let prose) = message.kind else { return nil }
+                   let text = prose.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                   return text.isEmpty ? nil : text
+               })
+               .first {
+            lastTurnBySession[sessionID] = QueuedSend(text: latestPrompt, attachments: [])
+        }
     }
 
     private func upsert(_ descriptor: ChatSessionDescriptor) {

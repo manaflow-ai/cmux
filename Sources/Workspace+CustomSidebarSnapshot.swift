@@ -109,6 +109,9 @@ extension Workspace {
             case .needsInput(let since):
                 status = "needs_input"
                 stateSince = since
+            case .failed(let since, _):
+                status = "failed"
+                stateSince = since
             case .ended:
                 status = "ended"
                 stateSince = nil

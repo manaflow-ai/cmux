@@ -39,6 +39,7 @@ extension AgentChatTranscriptService {
         let messageID = "permission:\(sessionID):\(identity)"
         let title = "\(agentKind.displayName) wants permission"
         let subject = permissionSubject(toolName: event.toolName, toolInputJSON: event.toolInputJSON)
+        let scope = permissionScope(from: event)
         // Reserve a separate seq range so synthetic cards never collide with
         // transcript line numbers. The history merge still honors before_seq
         // and keeps the card in the newest page.
@@ -51,6 +52,8 @@ extension AgentChatTranscriptService {
             timestamp: event.receivedAt,
             title: title,
             subject: subject,
+            options: ChatPermissionRequest.defaultOptions,
+            scope: scope,
             resolution: nil
         )
         records[identity] = record
@@ -184,7 +187,12 @@ extension AgentChatTranscriptService {
         guard let candidate else { return false }
         guard candidate.resolution == nil else { return true }
         var updated = candidate
-        updated.resolution = optionIndex == 0 ? .approved : .denied
+        updated.resolution = switch optionIndex {
+        case 0: .approved
+        case 1: .approvedAlways
+        case 2: .approvedAll
+        default: .denied
+        }
         records[updated.identity] = updated
         permissionRecordsBySessionID[sessionID] = records
         if chatEventsAreSubscribed {
@@ -247,7 +255,7 @@ extension AgentChatTranscriptService {
             return FeedAnswerRequest(
                 requestID: requestID,
                 kind: .permission,
-                optionLabels: ["Approve", "Deny"]
+                optionLabels: record.options.map(\.label)
             )
         }
         if let record = questionRecordsBySessionID[sessionID]?.values.first(where: {
@@ -279,8 +287,15 @@ extension AgentChatTranscriptService {
         }
         switch request.kind {
         case .permission:
-            guard optionIndex < 2 else { return nil }
-            let decision: WorkstreamDecision = .permission(optionIndex == 0 ? .once : .deny)
+            guard request.optionLabels.indices.contains(optionIndex) else { return nil }
+            let mode: WorkstreamPermissionMode
+            switch optionIndex {
+            case 0: mode = .once
+            case 1: mode = .always
+            case 2: mode = .all
+            default: mode = .deny
+            }
+            let decision: WorkstreamDecision = .permission(mode)
             guard resolvePermission(
                 sessionID: sessionID,
                 requestID: messageID,
@@ -454,6 +469,17 @@ extension AgentChatTranscriptService {
             if let value = object[key] as? String, !value.isEmpty { return value }
         }
         return nil
+    }
+
+    private func permissionScope(from event: WorkstreamEvent) -> String? {
+        guard let raw = event.extraFieldsJSON,
+              let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return event.toolName }
+        for key in ["pattern", "command_pattern", "scope", "tool_name"] {
+            if let value = object[key] as? String, !value.isEmpty { return value }
+        }
+        return event.toolName
     }
 
     private func permissionFingerprint(for event: WorkstreamEvent, rawRequestID: String?) -> String {

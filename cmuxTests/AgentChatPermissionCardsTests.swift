@@ -55,6 +55,8 @@ struct AgentChatPermissionCardsTests {
         }
         #expect(request.subject == "Bash: echo hello")
         #expect(request.resolution == nil)
+        #expect(request.options.map(\.label) == ["Allow once", "Always allow", "Allow all", "Deny"])
+        #expect(request.scope == "Bash")
 
         let appended = try decodeFrames(payloads).filter {
             if case .appended = $0.event { return true }
@@ -74,6 +76,25 @@ struct AgentChatPermissionCardsTests {
             return
         }
         #expect(resolved.resolution == .approved)
+
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .permissionRequest,
+            source: "claude",
+            surfaceId: surfaceID,
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"echo again"}"#,
+            requestId: "request-2",
+            receivedAt: Date(timeIntervalSince1970: 101)
+        ))
+        let second = try #require(await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50)).messages.last
+        #expect(service.resolvePermission(sessionID: sessionID, requestID: second.id, optionIndex: 1))
+        let third = try #require(await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50)).messages.last
+        guard case .permissionRequest(let alwaysAllowed) = third.kind else {
+            Issue.record("Expected second permission card")
+            return
+        }
+        #expect(alwaysAllowed.resolution == .approvedAlways)
         let updated = decodeFrames(payloads).filter {
             if case .updated = $0.event { return true }
             return false

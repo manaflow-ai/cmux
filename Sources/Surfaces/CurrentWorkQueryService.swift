@@ -71,6 +71,7 @@ struct CurrentWorkQueryService {
             case .idle: state = record.hasHookLifecycleState ? "idle" : "unknown"
             case .working: state = "working"
             case .needsInput: state = "needs_input"
+            case .failed: state = "failed"
             case .ended: state = "ended"
             }
             agents[panelID, default: []].append(.init(

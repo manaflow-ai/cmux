@@ -493,6 +493,7 @@ private struct AgentStatusIndicator: View {
             switch state {
             case .working: ProgressView().controlSize(.small)
             case .needsInput: Image(systemName: "hand.raised.fill").foregroundStyle(.orange)
+            case .failed: Image(systemName: "arrow.clockwise.circle.fill").foregroundStyle(.red)
             case .idle: Circle().fill(.secondary).frame(width: 8, height: 8)
             case .ended: Image(systemName: "checkmark.circle").foregroundStyle(.secondary)
             }
@@ -504,6 +505,7 @@ private struct AgentStatusIndicator: View {
         switch state {
         case .working: return "Working"
         case .needsInput: return "Needs input"
+        case .failed: return "Turn failed; retry available"
         case .idle: return "Idle"
         case .ended: return "Ended"
         }
@@ -520,6 +522,14 @@ private struct AgentChatTranscriptView: View {
         VStack(spacing: 0) {
             if let session = model.selectedSession {
                 AgentExecutionContextBar(session: session)
+                if case .failed = session.state {
+                    AgentFailedTurnNotice(
+                        reason: model.selectedFailureReason,
+                        isRetrying: model.retryingSessionIDs.contains(session.id),
+                        canRetry: model.canRetrySelectedTurn,
+                        retry: { Task { await model.retryLastTurn() } }
+                    )
+                }
             }
             ScrollViewReader { proxy in
                 ScrollView {
@@ -590,6 +600,55 @@ private struct AgentChatTranscriptView: View {
         }
         .background(Color(.systemBackground))
         .accessibilityIdentifier("MobileAgentConversation")
+    }
+}
+
+private struct AgentFailedTurnNotice: View {
+    let reason: String?
+    let isRetrying: Bool
+    let canRetry: Bool
+    let retry: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Turn failed")
+                    .font(.subheadline.weight(.semibold))
+                if let reason, !reason.isEmpty {
+                    Text(reason)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                } else {
+                    Text("The agent did not complete this turn.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 4)
+            Button {
+                retry()
+            } label: {
+                if isRetrying {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(!canRetry || isRetrying)
+            .accessibilityLabel(isRetrying ? "Retrying failed turn" : "Retry failed turn")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("MobileAgentFailedTurnNotice")
     }
 }
 
@@ -957,18 +1016,46 @@ private struct AgentPermissionCard: View {
             Label(request.title, systemImage: "hand.raised.fill")
                 .font(.headline)
             Text(request.subject).font(.caption.monospaced()).textSelection(.enabled)
+            if let scope = request.scope, !scope.isEmpty {
+                Label("Scope: \(scope)", systemImage: "scope")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
             if let resolution = request.resolution {
-                Text(resolution.rawValue.capitalized).foregroundStyle(.secondary)
+                Text(resolutionLabel(resolution)).foregroundStyle(.secondary)
             } else {
-                HStack {
-                    Button("Approve") { answer?(0) }.buttonStyle(.borderedProminent)
-                    Button("Deny") { answer?(1) }.buttonStyle(.bordered)
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(Array(request.options.enumerated()), id: \.offset) { index, option in
+                        Button {
+                            answer?(index)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(option.label).font(.subheadline.weight(.semibold))
+                                if let detail = option.detail {
+                                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(index == request.options.count - 1 ? .bordered : .borderedProminent)
+                    }
                 }
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func resolutionLabel(_ resolution: ChatPermissionRequest.Resolution) -> String {
+        switch resolution {
+        case .approved: return "Allowed once"
+        case .approvedAlways: return "Always allowed"
+        case .approvedAll: return "All matching actions allowed"
+        case .denied: return "Denied"
+        case .expired: return "Expired"
+        }
     }
 }
 
