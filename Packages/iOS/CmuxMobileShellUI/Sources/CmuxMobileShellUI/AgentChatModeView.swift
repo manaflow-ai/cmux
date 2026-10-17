@@ -5,53 +5,55 @@ import PhotosUI
 import SwiftUI
 import UIKit
 
-/// A dedicated ChatGPT/Codex-style mobile mode for coding-agent sessions.
-/// It intentionally lives in a sheet so the existing workspace and Feed
-/// navigation remain available while a user triages an agent turn.
+/// A dedicated ChatGPT/Codex-style mode for coding-agent sessions.
+///
+/// The mode owns its own navigation shell so the agent history stays visible
+/// while a user moves between sessions. ``NavigationSplitView`` gives iPad a
+/// persistent history column and turns that column into a native push stack
+/// on iPhone.
 struct AgentChatModeView: View {
     @Bindable var store: CMUXMobileShellStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var model = AgentChatModeModel()
-    @State private var isShowingSessionList = true
+    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+    @State private var searchText = ""
+    @State private var isLoading = true
+    @State private var isShowingNewSessionGuide = false
 
     var body: some View {
-        NavigationStack {
-            AgentChatTranscriptView(model: model)
-                .navigationTitle(model.selectedSession?.title ?? "Agents")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button {
-                            isShowingSessionList = true
-                        } label: {
-                            Image(systemName: "sidebar.left")
-                        }
-                        .accessibilityLabel("Agent sessions")
-                    }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Menu {
-                            Button("Refresh") { Task { await model.refresh() } }
-                            Picker("Provider", selection: $model.selectedProvider) {
-                                Text("All agents").tag("all")
-                                Text("Claude Code").tag("claude")
-                                Text("Codex").tag("codex")
-                                Text("OpenCode").tag("opencode")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
-                        }
-                        .accessibilityLabel("Agent mode options")
-                    }
-                }
-                .sheet(isPresented: $isShowingSessionList) {
-                    AgentChatSessionList(model: model)
-                        .presentationDetents([.medium, .large])
-                }
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            AgentChatSidebar(
+                model: model,
+                searchText: $searchText,
+                isLoading: isLoading,
+                isConnected: store.connectionState == .connected,
+                selectSession: selectSession,
+                showNewSessionGuide: { isShowingNewSessionGuide = true },
+                refresh: { await refresh() }
+            )
+            .navigationTitle("Agents")
+            .navigationBarTitleDisplayMode(.inline)
+        } detail: {
+            AgentChatDetail(
+                model: model,
+                isLoading: isLoading,
+                isConnected: store.connectionState == .connected,
+                showSidebar: { columnVisibility = .all },
+                refresh: { await refresh() }
+            )
         }
+        .navigationSplitViewStyle(.balanced)
         .task {
-            model.updateSource(store.makeChatEventSource())
+            await updateSourceAndRefresh()
         }
         .onChange(of: store.connectionState) { _, _ in
-            model.updateSource(store.makeChatEventSource())
+            Task { await updateSourceAndRefresh() }
+        }
+        .onChange(of: model.sessions.count) { _, _ in
+            // A successful empty result is still a loaded state. Keeping this
+            // local avoids making the model expose transport bookkeeping just
+            // for a progress indicator.
+            isLoading = false
         }
         .alert("Agent mode error", isPresented: Binding(
             get: { model.errorMessage != nil },
@@ -61,72 +63,410 @@ struct AgentChatModeView: View {
         } message: {
             Text(model.errorMessage ?? "Unknown error")
         }
+        .sheet(isPresented: $isShowingNewSessionGuide) {
+            AgentNewSessionGuide {
+                isShowingNewSessionGuide = false
+                Task { await refresh() }
+            }
+            .presentationDetents([.medium])
+        }
+    }
+
+    private func updateSourceAndRefresh() async {
+        isLoading = true
+        model.updateSource(store.makeChatEventSource())
+        await model.refresh()
+        isLoading = false
+    }
+
+    private func refresh() async {
+        isLoading = true
+        await model.refresh()
+        isLoading = false
+    }
+
+    private func selectSession(_ session: ChatSessionDescriptor) {
+        model.select(session)
+        // Compact NavigationSplitView presents the detail column as a push;
+        // regular width keeps both columns available for rapid triage.
+        if horizontalSizeClass == .compact {
+            columnVisibility = .detailOnly
+        }
     }
 }
 
-private struct AgentChatSessionList: View {
+private struct AgentChatSidebar: View {
     @Bindable var model: AgentChatModeModel
-    @Environment(\.dismiss) private var dismiss
+    @Binding var searchText: String
+    let isLoading: Bool
+    let isConnected: Bool
+    let selectSession: (ChatSessionDescriptor) -> Void
+    let showNewSessionGuide: () -> Void
+    let refresh: () async -> Void
+
+    private var filteredSessions: [ChatSessionDescriptor] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return model.visibleSessions }
+        return model.visibleSessions.filter { session in
+            [
+                session.title,
+                session.agentKind.displayName,
+                session.workingDirectory,
+                session.workspaceID,
+                session.terminalID
+            ]
+            .compactMap { $0 }
+            .contains { $0.localizedCaseInsensitiveContains(query) }
+        }
+    }
+
+    private var needsAttention: [ChatSessionDescriptor] {
+        filteredSessions.filter { $0.state.needsAttention }
+    }
+
+    private var recentSessions: [ChatSessionDescriptor] {
+        filteredSessions.filter { !$0.state.needsAttention }
+    }
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            AgentSidebarHeader(
+                selectedProvider: $model.selectedProvider,
+                showNewSessionGuide: showNewSessionGuide,
+                refresh: refresh
+            )
+
+            if !isConnected {
+                AgentConnectionNotice(isConnected: false, refresh: refresh)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+            } else if let error = model.errorMessage {
+                AgentErrorNotice(message: error)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+            }
+
             List {
-                if model.visibleSessions.isEmpty {
-                    ContentUnavailableView("No agent sessions", systemImage: "sparkles", description: Text("Start Claude Code, Codex, or OpenCode in cmux."))
+                if isLoading {
+                    AgentSessionLoadingRows()
+                        .listRowSeparator(.hidden)
+                } else if filteredSessions.isEmpty {
+                    AgentSessionEmptyRow(
+                        hasSearch: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                        isConnected: isConnected,
+                        clearSearch: { searchText = "" },
+                        showNewSessionGuide: showNewSessionGuide
+                    )
+                    .listRowSeparator(.hidden)
                 } else {
-                    ForEach(model.visibleSessions) { session in
-                        Button {
-                            model.select(session)
-                            dismiss()
-                        } label: {
-                            AgentChatSessionRow(session: session, isSelected: session.id == model.selectedSessionID)
+                    if !needsAttention.isEmpty {
+                        Section("Needs your attention") {
+                            ForEach(needsAttention) { session in
+                                AgentChatSessionRow(
+                                    session: session,
+                                    isSelected: session.id == model.selectedSessionID,
+                                    select: { selectSession(session) }
+                                )
+                            }
                         }
-                        .buttonStyle(.plain)
+                    }
+                    Section("Recent") {
+                        ForEach(recentSessions) { session in
+                            AgentChatSessionRow(
+                                session: session,
+                                isSelected: session.id == model.selectedSessionID,
+                                select: { selectSession(session) }
+                            )
+                        }
                     }
                 }
             }
-            .navigationTitle("Agents")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
+            .listStyle(.insetGrouped)
+            .searchable(text: $searchText, placement: .sidebar, prompt: "Search sessions")
+            .refreshable { await refresh() }
+        }
+        .background(Color(.systemGroupedBackground))
+        .accessibilityIdentifier("MobileAgentSessionsSidebar")
+    }
+}
+
+private struct AgentSidebarHeader: View {
+    @Binding var selectedProvider: String
+    let showNewSessionGuide: () -> Void
+    let refresh: () async -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Label("Agent history", systemImage: "clock.arrow.circlepath")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Spacer()
+            Menu {
+                Button { showNewSessionGuide() } label: {
+                    Label("New session", systemImage: "plus")
+                }
+                Button { Task { await refresh() } } label: {
+                    Label("Refresh sessions", systemImage: "arrow.clockwise")
+                }
+                Divider()
+                Picker("Provider", selection: $selectedProvider) {
+                    Text("All agents").tag("all")
+                    Text("Claude Code").tag("claude")
+                    Text("Codex").tag("codex")
+                    Text("OpenCode").tag("opencode")
+                }
+            } label: {
+                Image(systemName: "plus.circle.fill")
+                    .font(.title3)
+                    .symbolRenderingMode(.hierarchical)
+            }
+            .accessibilityLabel("New agent session and filters")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
+    }
+}
+
+private struct AgentChatDetail: View {
+    @Bindable var model: AgentChatModeModel
+    @Environment(\.dismiss) private var dismiss
+    let isLoading: Bool
+    let isConnected: Bool
+    let showSidebar: () -> Void
+    let refresh: () async -> Void
+
+    var body: some View {
+        Group {
+            if isLoading {
+                AgentLoadingState()
+            } else if model.selectedSession == nil {
+                AgentNoSelectionState(isConnected: isConnected, refresh: refresh)
+            } else {
+                VStack(spacing: 0) {
+                    if !isConnected {
+                        AgentConnectionNotice(isConnected: false, refresh: refresh)
+                            .padding(.horizontal, 12)
+                            .padding(.top, 8)
+                    } else if let error = model.errorMessage {
+                        AgentErrorNotice(message: error)
+                            .padding(.horizontal, 12)
+                            .padding(.top, 8)
+                    }
+                    AgentChatTranscriptView(model: model)
                 }
             }
         }
+        .navigationTitle(model.selectedSession?.title ?? "Agents")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(action: showSidebar) {
+                    Image(systemName: "sidebar.left")
+                }
+                .accessibilityLabel("Agent sessions")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button { Task { await refresh() } } label: {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                    Button { dismiss() } label: {
+                        Label("Close", systemImage: "xmark")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .accessibilityLabel("Agent mode options")
+            }
+        }
+    }
+}
+
+private struct AgentLoadingState: View {
+    var body: some View {
+        ContentUnavailableView {
+            ProgressView()
+                .controlSize(.large)
+        } description: {
+            Text("Loading agent sessions…")
+        }
+        .accessibilityIdentifier("MobileAgentLoadingState")
+    }
+}
+
+private struct AgentNoSelectionState: View {
+    let isConnected: Bool
+    let refresh: () async -> Void
+
+    var body: some View {
+        ContentUnavailableView {
+            Label(
+                isConnected ? "Choose an agent session" : "Reconnecting to your Mac",
+                systemImage: isConnected ? "sparkles" : "wifi.exclamationmark"
+            )
+        } description: {
+            Text(isConnected
+                ? "Select a session from Agent history to view its conversation."
+                : "Your agent history will appear here when the connection is restored.")
+        } actions: {
+            Button {
+                Task { await refresh() }
+            } label: {
+                Label("Try again", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .accessibilityIdentifier(isConnected ? "MobileAgentNoSelectionState" : "MobileAgentReconnectingState")
+    }
+}
+
+private struct AgentSessionEmptyRow: View {
+    let hasSearch: Bool
+    let isConnected: Bool
+    let clearSearch: () -> Void
+    let showNewSessionGuide: () -> Void
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: hasSearch ? "magnifyingglass" : (isConnected ? "sparkles" : "wifi.exclamationmark"))
+                .font(.title2)
+                .foregroundStyle(.secondary)
+            Text(hasSearch ? "No matching sessions" : (isConnected ? "No agent sessions yet" : "Waiting for a connection"))
+                .font(.headline)
+                .multilineTextAlignment(.center)
+            Text(hasSearch
+                ? "Try a different name, project, or provider."
+                : (isConnected
+                    ? "Start Claude Code, Codex, or OpenCode in cmux to see it here."
+                    : "Reconnect to your Mac to load agent history."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            if hasSearch {
+                Button("Clear search", action: clearSearch)
+                    .buttonStyle(.bordered)
+            } else if isConnected {
+                Button("How to start a session", action: showNewSessionGuide)
+                    .buttonStyle(.bordered)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 36)
+    }
+}
+
+private struct AgentSessionLoadingRows: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ProgressView()
+            Text("Loading sessions…")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.vertical, 32)
+    }
+}
+
+private struct AgentNewSessionGuide: View {
+    let refresh: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ContentUnavailableView {
+                Label("Start a new agent session", systemImage: "plus.bubble")
+            } description: {
+                Text("Launch Claude Code, Codex, or OpenCode in a connected cmux workspace. New sessions will appear in Agent history automatically.")
+            } actions: {
+                Button("Refresh sessions", action: refresh)
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding(.horizontal, 18)
+            .navigationTitle("New session")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+private struct AgentConnectionNotice: View {
+    let isConnected: Bool
+    let refresh: () async -> Void
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: isConnected ? "checkmark.circle.fill" : "wifi.exclamationmark")
+                .foregroundStyle(isConnected ? .green : .orange)
+            Text(isConnected ? "Connected to your Mac" : "Reconnecting to your Mac…")
+                .font(.caption.weight(.medium))
+            Spacer(minLength: 8)
+            if !isConnected {
+                Button("Retry") { Task { await refresh() } }
+                    .font(.caption.weight(.semibold))
+            }
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 9)
+        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct AgentErrorNotice: View {
+    let message: String
+
+    var body: some View {
+        Label(message, systemImage: "exclamationmark.triangle.fill")
+            .font(.caption)
+            .foregroundStyle(.red)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 9)
+            .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+            .accessibilityElement(children: .combine)
     }
 }
 
 private struct AgentChatSessionRow: View {
     let session: ChatSessionDescriptor
     let isSelected: Bool
+    let select: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: iconName)
-                .foregroundStyle(iconColor)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(session.title ?? session.agentKind.displayName)
-                    .font(.headline)
-                    .lineLimit(2)
-                HStack(spacing: 6) {
-                    Text(session.agentKind.displayName)
-                    if let cwd = session.workingDirectory {
-                        Text(cwd)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+        Button(action: select) {
+            HStack(spacing: 12) {
+                Image(systemName: iconName)
+                    .foregroundStyle(iconColor)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(session.title ?? session.agentKind.displayName)
+                        .font(.headline)
+                        .lineLimit(2)
+                    HStack(spacing: 6) {
+                        Text(session.agentKind.displayName)
+                        if let cwd = session.workingDirectory {
+                            Text(cwd)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        if let activity = session.lastActivityAt {
+                            Text(activity, style: .relative)
+                                .lineLimit(1)
+                        }
                     }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                AgentStatusIndicator(state: session.state)
             }
-            Spacer(minLength: 8)
-            AgentStatusIndicator(state: session.state)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+            .overlay(alignment: .leading) {
+                if isSelected { Capsule().fill(.tint).frame(width: 3) }
+            }
         }
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
-        .overlay(alignment: .leading) {
-            if isSelected { Capsule().fill(.tint).frame(width: 3) }
-        }
+        .buttonStyle(.plain)
+        .listRowBackground(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(session.agentKind.displayName), \(session.title ?? "Untitled session")")
     }
@@ -365,12 +705,7 @@ private struct AgentProseBubble: View {
     var body: some View {
         HStack {
             if role == .user { Spacer(minLength: 36) }
-            AgentFeedMarkdownText(
-                markdown: text,
-                font: role == .user ? .body : .body,
-                color: role == .user ? .white : .primary
-            )
-                .textSelection(.enabled)
+            AgentChatMarkdownText(markdown: text, color: role == .user ? .white : .primary)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 11)
                 .background(role == .user ? Color.accentColor : Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18))
@@ -378,6 +713,29 @@ private struct AgentProseBubble: View {
                 .opacity(isStreaming ? 0.9 : 1)
             if role != .user { Spacer(minLength: 36) }
         }
+    }
+}
+
+/// Lightweight Markdown rendering owned by Agent mode. Keeping this local
+/// means the transcript does not inherit presentation decisions from the
+/// legacy Feed surface.
+private struct AgentChatMarkdownText: View {
+    let markdown: String
+    let color: Color
+
+    var body: some View {
+        Text(renderedMarkdown)
+        .font(.body)
+        .foregroundStyle(color)
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var renderedMarkdown: AttributedString {
+        var options = AttributedString.MarkdownParsingOptions()
+        options.interpretedSyntax = .full
+        options.failurePolicy = .returnPartiallyParsedIfPossible
+        return (try? AttributedString(markdown: markdown, options: options)) ?? AttributedString(markdown)
     }
 }
 
