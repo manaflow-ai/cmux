@@ -258,7 +258,7 @@ def main(argv: list[str] | None = None) -> int:
         args.max_hitch_total_ms,
         args.max_hitch_max_ms,
     )
-    if any(value is not None and value < 0 for value in non_negative):
+    if any(value is not None and (not math.isfinite(float(value)) or value < 0) for value in non_negative):
         print("budgets must be non-negative", file=sys.stderr)
         return 2
     budgets = Budgets(
