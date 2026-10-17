@@ -10,7 +10,15 @@ public import Foundation
 /// `chief.*` methods describe a conversation list and a compact transcript
 /// projection. Keeping that boundary explicit lets the UI share the Messages
 /// style without treating a Chief conversation as a terminal session.
-public enum MobileChiefCapability {
+public struct MobileChiefCapability: Hashable, Sendable {
+    /// The wire capability name. The instance form keeps this type usable as
+    /// a value while the static names remain convenient for capability sets.
+    public let rawValue: String
+
+    public init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
     public static let status = "chief.status"
     public static let conversations = "chief.conversations"
     public static let read = "chief.read"
