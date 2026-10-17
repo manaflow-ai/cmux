@@ -4,6 +4,37 @@ import CmuxMobileShell
 import Foundation
 import Observation
 
+/// A local attachment staged in the ChatGPT-style composer.
+///
+/// The host protocol intentionally carries only encoded image bytes. Keeping
+/// the draft here lets the UI show a thumbnail and lets a failed send restore
+/// the exact payload without touching the transcript reducer.
+struct AgentChatDraftAttachment: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let displayName: String
+    let data: Data
+    let format: ChatOutboundAttachment.Format
+    let thumbnailData: Data?
+
+    init(
+        id: UUID = UUID(),
+        displayName: String,
+        data: Data,
+        format: ChatOutboundAttachment.Format,
+        thumbnailData: Data?
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.data = data
+        self.format = format
+        self.thumbnailData = thumbnailData
+    }
+
+    var outbound: ChatOutboundAttachment {
+        ChatOutboundAttachment(data: data, format: format)
+    }
+}
+
 /// Main-actor owner for one native agent conversation.
 @MainActor
 @Observable
@@ -16,6 +47,7 @@ final class AgentChatViewModel {
     var selectedSessionID: String?
     var timeline: AgentChatTimelineState?
     var composerText = ""
+    var pendingAttachments: [AgentChatDraftAttachment] = []
     var isLoadingSessions = false
     var isSending = false
     var isInterrupting = false
@@ -54,7 +86,8 @@ final class AgentChatViewModel {
     var canSend: Bool {
         source != nil
             && selectedSessionID != nil
-            && !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !pendingAttachments.isEmpty)
             && !isSending
             && state != .ended
     }
@@ -150,6 +183,16 @@ final class AgentChatViewModel {
         loadHistory(for: sessionID, beforeSeq: nil, prepending: false)
     }
 
+    /// Selects the most useful live conversation for a provider picker. The
+    /// host keeps provider identity in the open `agent_kind` string, so this
+    /// also matches forward-compatible OpenCode values carried as `other`.
+    func selectFirstSession(sourceName: String) {
+        let matching = sessions.filter {
+            $0.agentKind.sourceName.caseInsensitiveCompare(sourceName) == .orderedSame
+        }
+        select(ChatSessionDescriptor.openable(matching).first)
+    }
+
     func loadOlderHistory() {
         guard let sessionID = selectedSessionID,
               let timeline,
@@ -159,15 +202,36 @@ final class AgentChatViewModel {
         loadHistory(for: sessionID, beforeSeq: firstSeq, prepending: true)
     }
 
+    func addAttachment(_ attachment: AgentChatDraftAttachment) {
+        guard pendingAttachments.count < 8 else { return }
+        let currentBytes = pendingAttachments.reduce(0) { $0 + $1.data.count }
+        guard currentBytes + attachment.data.count <= 8 * 1024 * 1024 else { return }
+        pendingAttachments.append(attachment)
+    }
+
+    func removeAttachment(id: AgentChatDraftAttachment.ID) {
+        pendingAttachments.removeAll { $0.id == id }
+    }
+
+    func clearComposer() {
+        composerText = ""
+        pendingAttachments = []
+    }
+
     func send() {
         let text = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, let source, let sessionID = selectedSessionID, !isSending else { return }
-        composerText = ""
+        let drafts = pendingAttachments
+        guard (!text.isEmpty || !drafts.isEmpty), let source, let sessionID = selectedSessionID, !isSending else { return }
+        clearComposer()
         isSending = true
         errorMessage = nil
         Task { [weak self] in
             do {
-                try await source.send(text: text, attachments: [], sessionID: sessionID)
+                try await source.send(
+                    text: text,
+                    attachments: drafts.map(\.outbound),
+                    sessionID: sessionID
+                )
                 guard let self, !Task.isCancelled else { return }
                 self.isSending = false
                 if let current = self.timeline?.descriptor {
@@ -178,6 +242,7 @@ final class AgentChatViewModel {
                 self.isSending = false
                 self.errorMessage = error.localizedDescription
                 self.composerText = text
+                self.pendingAttachments = drafts + self.pendingAttachments
             }
         }
     }
