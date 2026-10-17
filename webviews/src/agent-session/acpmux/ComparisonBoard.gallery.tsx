@@ -169,11 +169,13 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
           <p className="cmux-comparison-eyebrow">Interactive comparison board</p>
           <h1>Composer and sidebar treatments</h1>
         </div>
+        {/* ui-allow: gallery board uses explicit tab semantics for the comparison fixture. */}
         <div className="cmux-comparison-tabs" role="tablist" aria-label="Comparison sections">
           {(["overview", "slider", "sidebar"] as const).map((name) => (
             <button
               key={name}
               type="button"
+              // ui-allow: gallery board uses explicit tab semantics for the comparison fixture.
               role="tab"
               id={`comparison-tab-${name}`}
               aria-controls={`comparison-panel-${name}`}
@@ -189,6 +191,7 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
 
       <div
         className="cmux-comparison-body"
+        // ui-allow: gallery board uses explicit tab semantics for the comparison fixture.
         role="tabpanel"
         id={`comparison-panel-${section}`}
         aria-labelledby={`comparison-tab-${section}`}

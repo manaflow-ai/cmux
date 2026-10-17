@@ -87,11 +87,13 @@ export function EffortTrack({
           }}
         />
       </div>
-      {/* The recommendation is useful context; the level names and stops carry the rest. */}
+      {/* Claude's slider reads from Faster to Smarter, with the model's own pick named. */}
       <div className="acpmux-effort-ends" aria-hidden="true">
+        <span className="acpmux-effort-faster">{t("effort.faster")}</span>
         {recommended && (
           <span className="acpmux-effort-recommended">{t("effort.recommendedLevel", { level: recommended.name })}</span>
         )}
+        <span className="acpmux-effort-smarter">{t("effort.smarter")}</span>
       </div>
     </>
   );

@@ -131,6 +131,7 @@ export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialS
           </div>
           <span className="orchestration-gallery-hint">Arrow keys · Enter</span>
         </div>
+        {/* ui-allow: gallery route cards use explicit radio semantics for the fixture. */}
         <div className="orchestration-gallery-routes" role="radiogroup" aria-label="Select a route">
           {strategies.map((strategy, index) => {
             const selectedRoute = strategy.id === selected.id;
@@ -140,15 +141,18 @@ export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialS
                 className={`orchestration-gallery-route${selectedRoute ? " is-selected" : ""}`}
                 type="button"
                 // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rich route cards need button semantics and roving focus.
+                // ui-allow: gallery route cards use explicit radio semantics for the fixture.
                 role="radio"
                 aria-checked={selectedRoute}
                 aria-controls="orchestration-gallery-receipt"
+                // ui-allow: gallery route cards use roving focus for the fixture.
                 tabIndex={selectedRoute ? 0 : -1}
                 data-route-id={strategy.id}
                 ref={(element) => {
                   routeRefs.current[strategy.id] = element;
                 }}
                 onClick={() => setSelectedId(strategy.id)}
+                // ui-allow: gallery route cards use roving keyboard focus for the fixture.
                 onKeyDown={(event) => handleRouteKeyDown(event, index)}
               >
                 <span>
