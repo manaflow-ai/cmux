@@ -70,8 +70,8 @@ test("cmux_next_machine_sdk_catalog_opt_in keeps defaults and the captured owner
     await client.listMachines({ catalog: true });
     await client.listMachines({ catalog: false });
     for (const catalog of [1, "true", null]) {
-      await assert.rejects(client.listMachines({ catalog: catalog as boolean }), TypeError);
-      assert.throws(() => owner.refresh({ catalog: catalog as boolean }), TypeError);
+      await assert.rejects(client.listMachines({ catalog: catalog as unknown as boolean }), TypeError);
+      assert.throws(() => owner.refresh({ catalog: catalog as unknown as boolean }), TypeError);
     }
     await owner.refresh();
     const rich = await owner.refresh({ catalog: true });
