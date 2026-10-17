@@ -1,0 +1,81 @@
+name: CmuxNextMobile
+options:
+  bundleIdPrefix: dev.cmux.next
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: ${CNM_TEAM_ID}
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_STRICT_CONCURRENCY: complete
+    "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
+packages:
+  CNMKit:
+    path: ../Packages/CNMKit
+  CmuxGhosttyKit:
+    path: ../../Packages/Shared/CmuxGhosttyKit
+targets:
+  CmuxNext:
+    type: application
+    platform: iOS
+    sources:
+      - path: CmuxNext
+    dependencies:
+      - package: CNMKit
+        product: CNMProtocol
+      - package: CNMKit
+        product: CNMTransport
+      - package: CNMKit
+        product: CNMWebRTC
+      - package: CNMKit
+        product: CNMBackend
+      - package: CmuxGhosttyKit
+        product: CmuxGhosttyKit
+    entitlements:
+      path: CmuxNext/Resources/CmuxNext.entitlements
+      properties:
+        com.apple.developer.applesignin: [Default]
+    info:
+      path: CmuxNext/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: cmux
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UIApplicationSupportsIndirectInputEvents: true
+        ITSAppUsesNonExemptEncryption: false
+        NSCameraUsageDescription: "Scan the pairing code shown on your Mac."
+        NSLocalNetworkUsageDescription: "Connect directly to your Mac when it is on the same network."
+        CNMBackendURL: $(CNM_BACKEND_URL)
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.next.native
+        PRODUCT_NAME: CmuxNext
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CNM_BACKEND_URL: https://cmux-next-mobile-native.debussy.workers.dev
+        TARGETED_DEVICE_FAMILY: "1"
+        OTHER_LDFLAGS: [-lc++]
+  CmuxNextUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [CmuxNextUITests]
+    dependencies:
+      - target: CmuxNext
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.next.native.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: CmuxNext
+schemes:
+  CmuxNext:
+    build:
+      targets:
+        CmuxNext: all
+    test:
+      targets: [CmuxNextUITests]
