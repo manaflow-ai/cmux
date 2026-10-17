@@ -23,6 +23,7 @@ debug.app.activate
 debug.bonsplit_underflow.count
 debug.bonsplit_underflow.reset
 debug.browser.address_bar_focused
+debug.browser.chromium_extension_ui
 debug.browser.crashes
 debug.browser.favicon
 debug.browser.page_status
