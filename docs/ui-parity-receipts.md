@@ -141,13 +141,30 @@ measurements.
   renders three sessions and one `Release notes` tab so the browse and review surfaces have stable
   context.
 - **Source:** gallery journey commit `dd237189826f7fb33c27339fc4255fa94ddcb926`, integrated here
-  as `ca963862daf9`.
+  as `ca963862daf9`; the visual capture below is from exact integrated head
+  `af4b19dcce8ed9b48222250a13125ac6c76ba14f`.
 - **Behavior verifier:** **PASS** — 12 portable/browser assertions pass; local gallery browse-layout
   Chromium/WebKit checks pass (2/2). The default browser lane skips outside CI/Freestyle by design.
-- **Visual/feel verifier:** **BLOCKED / PENDING** — a fresh exact-head Vite gallery did not reach
-  `galleryReady` within the bounded capture window; the available prior server was stale. No valid
-  screenshots are claimed. A local capture attempt is retained for diagnosis at
-  `/Users/leoli/Projects/briefs/workspace-switch-journey-20261017/` (not a hosted artifact).
-- **Next action:** recapture from the exact integrated head on a fresh gallery server, then attach a
-  hosted or explicitly local viewport receipt before marking visual/feel complete. Native workspace
-  performance remains warning-only and is tracked by the existing async receipt workflow.
+- **Visual/feel verifier:** **PASS with warning** — fresh Vite gallery capture on Chromium 151.0.7922.34
+  at `http://127.0.0.1:4241` produced four valid local receipts. Every capture has `galleryReady=1`,
+  nonblank body content, zero console/page/request errors, and the expected
+  `tab.jump(target="workspace", id="workspace-release")` log. Normal is 760x560; narrow is 420x560.
+  Dark uses `Apple System Colors`; light uses `Apple System Colors Light`. The normal and narrow
+  screenshots both show the prompt, workspace suggestion, tab result, and session list; narrow truncates
+  long session labels cleanly without overflow.
+
+  - [normal dark receipt](../../briefs/workspace-switch-journey-20261017/visual-normal-dark.json) —
+    PNG SHA256 `e2b4f06d45c7c7a89c80f992b18eeac7b0ee3e3535f8f40273bb98008f910e49`
+  - [normal light receipt](../../briefs/workspace-switch-journey-20261017/visual-normal-light.json) —
+    PNG SHA256 `0b04f2ec8cdda21b310e515627f5de9b579a53416fcf5b54b8ecf8a6324eecb9`
+  - [narrow dark receipt](../../briefs/workspace-switch-journey-20261017/visual-narrow-dark.json) —
+    PNG SHA256 `e3678b846ddd1f5acf07ab0a60c6a632e3f45fb267026cfcd183754d82161aa8`
+  - [narrow light receipt](../../briefs/workspace-switch-journey-20261017/visual-narrow-light.json) —
+    PNG SHA256 `3465374f72b35c9d6a5f829443957db852e395824ff7e00b02f6b6577960fbdc9`
+
+  The play report remains warning-only: the type step observed one test-time long frame over 33 ms
+  (60.7 ms dark, 69.7 ms normal light, 64.6 ms narrow light; the other dark/narrow run was similar);
+  the click step passed, with no layout-shift or popup problems. This does not invalidate the visual
+  receipt and remains a candidate for the async perf workflow.
+- **Native boundary:** this packet verifies the gallery journey and browser feel. Native workspace
+  switch timing remains warning-only and is tracked by the existing async receipt workflow.
