@@ -49,7 +49,7 @@ export type AgentSessionTheme = {
   /// `standard`, `wide` or `wideBlocks`. Absent means standard.
   chatWidth?: string;
   /// Codex-style tool runs in a running turn (Debug Settings `agentPane.debug.codexToolRuns`,
-  /// acpmux codexToolRuns.ts). Absent means off.
+  /// acpmux codexToolRuns.ts). Absent keeps the default-on presentation; false opts out.
   codexToolRuns?: boolean;
   /// The host's motion durations in seconds (MotionFade after ui.animationSpeed and Reduce
   /// Motion; 0 means apply at once), as `--agent-motion-*`. Absent keeps the stylesheet defaults.
