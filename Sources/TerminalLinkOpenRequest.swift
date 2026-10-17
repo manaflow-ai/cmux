@@ -2,6 +2,9 @@ import Foundation
 import CmuxTerminal
 
 /// Immutable context captured when Ghostty asks cmux to open a terminal link.
+///
+/// Terminal link callbacks are authorized only for the Command-click gesture;
+/// plain clicks remain available to the terminal program and its mouse reporting.
 struct TerminalLinkOpenRequest: Sendable {
     /// Which browser the caller is asking for.
     enum Destination: Sendable {

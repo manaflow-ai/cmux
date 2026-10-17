@@ -8592,7 +8592,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             windowNumber: event.windowNumber,
             timestamp: event.timestamp,
             modifierFlagsRawValue: pressFlags.rawValue,
-            permitsLinkActivation: pressFlags.contains(.command) && bounds.contains(eventPoint),
+            permitsLinkActivation: TerminalLinkActivationPolicy().permitsCommandClick(
+                modifierFlagsRawValue: pressFlags.rawValue,
+                commandModifierRawValue: NSEvent.ModifierFlags.command.rawValue,
+                capsLockModifierRawValue: NSEvent.ModifierFlags.capsLock.rawValue,
+                isInsideBounds: bounds.contains(eventPoint)
+            ),
             pressPointX: eventPoint.x,
             pressPointY: eventPoint.y
         )
@@ -8675,7 +8680,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ? handleCodexActionCommand(at: point, surface: surface)
             : false
         let linkActivationAuthorized = completion?.permitsLinkActivation == true
-            && event.modifierFlags.contains(.command) && bounds.contains(point) && desiredFocus
+            && bounds.contains(point) && desiredFocus
             && !codexActionHandled
         if let completion,
            let terminalSurface,
