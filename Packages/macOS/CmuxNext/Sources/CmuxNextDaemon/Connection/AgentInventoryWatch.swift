@@ -30,6 +30,7 @@ public actor AgentInventoryWatch {
         try Task.checkCancellation()
         try await finishRetirement()
         try Task.checkCancellation()
+        guard !transport.isClosed else { throw DaemonError.connectionClosed(reason: "inventory watch transport retired") }
         if let active { return active }
         if pending == nil {
             generation += 1
@@ -51,6 +52,7 @@ public actor AgentInventoryWatch {
                 throw CancellationError()
             }
             guard generation == admittedGeneration else { throw CancellationError() }
+            guard !transport.isClosed else { throw DaemonError.connectionClosed(reason: "inventory watch transport retired") }
             pending = nil
             active = receipt
             return receipt
@@ -90,9 +92,11 @@ public actor AgentInventoryWatch {
     }
 
     private func finishRetirement() async throws {
-        guard let retiring = retirement else { return }
-        let retiringGeneration = generation
-        try await retiring.value
-        if generation == retiringGeneration { retirement = nil }
+        // A different caller can start another retirement while this await resumes.
+        while let retiring = retirement {
+            let retiringGeneration = generation
+            try await retiring.value
+            if generation == retiringGeneration { retirement = nil }
+        }
     }
 }
