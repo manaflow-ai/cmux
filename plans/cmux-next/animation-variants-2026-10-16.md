@@ -15,7 +15,9 @@ The current CMUX path resolves a row title as `page.title ?? workspace.displayNa
 `SidebarMapping`, then assigns it directly to `WorkspaceRowView.title`. That makes a late
 agent-derived or browser-derived name appear as a synchronous text replacement. The new
 prototype keeps the row geometry stable and uses the existing Motion fade tokens for the
-title layer transition. Placeholder rows remain static until a real title exists.
+title layer transition. A blank placeholder remains static while generation is pending; when
+the live row receives its first title, the title layer and placeholder bar share the same
+post-layout crossfade or lift so the loading state does not vanish before the name appears.
 
 The reference behavior is consistent across the public product surfaces: Claude documents
 conversation names as a user-visible title that can be renamed from the conversation header,
@@ -31,6 +33,7 @@ All commands ran from `Packages/macOS/CmuxNext` on the animation worktree.
 - `swift test --filter PaneMotionVariantTests` — 5 tests passed.
 - `swift test --filter SidebarCollapseMotionTests` — 2 tests passed.
 - `swift test --filter TabLoadingAnimationTests` — 3 tests passed.
+- `swift test --filter WorkspaceRowHoverMotionTests` — 1 test passed.
 - `scripts/cmux-next/check-motion.sh Packages/macOS/CmuxNext` — passed.
 - `swiftc -frontend -parse` over all edited Swift sources — passed.
 - `git diff --check` — passed.
