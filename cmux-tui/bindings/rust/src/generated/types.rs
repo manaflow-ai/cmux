@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 8f0292cb1ae63c2801133b77ada166669820d539180350575b6ff7dbda4c8bb4.
+// cmux-tui mux protocol 12, IR c450054bda0e02b45b916309c70461c7800d01ddfcf0276e9ef621873518cd17.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -931,7 +931,13 @@ pub struct IdentifyResult {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub lifecycle_ready: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub machine_capabilities: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub machine_id: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub machine_name: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub machine_platform: Option<MachinePlatform>,
     pub pid: u32,
     pub protocol: u32,
     pub registry_id: String,
@@ -1054,6 +1060,13 @@ pub struct LivePane {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MachineListeningTcpResult {
     pub stdout: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachinePlatform {
+    pub arch: String,
+    pub os: String,
 }
 
 #[rustfmt::skip]
