@@ -20272,6 +20272,31 @@ private extension NSWindow {
             )
             return true
         }
+
+        // A browser menu equivalent with no browser owner still belongs to the
+        // focused terminal. Route this fallback before stale menu suppression,
+        // whose generic terminal replay would bypass Ghostty's menu-miss path.
+        if let firstResponderGhosttyView,
+           AppDelegate.shared?.shortcutEventBrowserPanel(event) == nil,
+           KeyboardShortcutSettings.Action.allCases.contains(where: { action in
+               action.shortcutContext.forwardsMenuEquivalentToFocusedTerminal &&
+                   !action.isBrowserContentShortcut &&
+                   KeyboardShortcutSettings.shortcutBindings(for: action).contains {
+                       $0.shortcut.matches(event: event)
+                   }
+           }) {
+            if firstResponderGhosttyView.performKeyEquivalentAfterMenuMiss(with: event) {
+                return true
+            }
+            if cmuxForceDispatchKeyDownOnce(
+                event,
+                to: firstResponderGhosttyView,
+                reason: "browser surface shortcut to terminal without browser owner"
+            ) {
+                return true
+            }
+        }
+
         if AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) == true {
             if AppDelegate.shared?.handleFocusedFileExplorerOpenSelectionShortcut(event, preferredWindow: self) == true {
 #if DEBUG
@@ -20580,31 +20605,6 @@ private extension NSWindow {
             // or WebKit can observe the same key equivalent a second time before AppKit
             // reaches keyDown/menu fallback.
             return true
-        }
-
-        // A browser menu equivalent with no browser owner still belongs to the
-        // focused terminal. Route this fallback before the app shortcut
-        // dispatcher, whose browser-scoped action cannot handle it without a
-        // browser panel in the event window.
-        if let firstResponderGhosttyView,
-           AppDelegate.shared?.shortcutEventBrowserPanel(event) == nil,
-           KeyboardShortcutSettings.Action.allCases.contains(where: { action in
-               action.shortcutContext.forwardsMenuEquivalentToFocusedTerminal &&
-                   !action.isBrowserContentShortcut &&
-                   KeyboardShortcutSettings.shortcutBindings(for: action).contains {
-                       $0.shortcut.matches(event: event)
-                   }
-           }) {
-            if firstResponderGhosttyView.performKeyEquivalentAfterMenuMiss(with: event) {
-                return true
-            }
-            if cmuxForceDispatchKeyDownOnce(
-                event,
-                to: firstResponderGhosttyView,
-                reason: "browser surface shortcut to terminal without browser owner"
-            ) {
-                return true
-            }
         }
 
         if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
