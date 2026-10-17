@@ -152,10 +152,25 @@ fn read(socket: &Path) -> Result<Value, Failure> {
             LinkError::MethodNotFound(_) => Failure::Unsupported,
             _ => Failure::Unavailable,
         })?;
-    let inventory: Inventory =
+    let mut inventory: Inventory =
         serde_json::from_value(result).map_err(|_| Failure::InvalidResponse)?;
     if !inventory.valid() {
         return Err(Failure::InvalidResponse);
+    }
+    // Unknown future families remain unknown. Never forward an arbitrary
+    // new metadata string or infer a family from the profile id here.
+    for row in &mut inventory.harnesses {
+        if matches!(row.channel.as_str(), "launcher" | "missing")
+            || row.family.as_deref().is_some_and(|family| {
+                ![
+                    "claude", "codex", "opencode", "pi", "chief", "gemini", "amp", "copilot",
+                    "cursor",
+                ]
+                .contains(&family)
+            })
+        {
+            row.family = None;
+        }
     }
     // Reserialize the allowlisted DTO: future diagnostics and command fields
     // remain private even if the owner accidentally includes them.
@@ -179,6 +194,7 @@ enum View {
 #[serde(rename_all = "camelCase")]
 struct Harness {
     id: String,
+    family: Option<String>,
     channel: String,
     version: Option<String>,
     latest: Option<String>,

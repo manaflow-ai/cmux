@@ -8954,8 +8954,13 @@ request: an older acpmux can ignore `view` and run checks or updates. There is n
 legacy fallback, daemon start, handoff, PATH scan, registry lookup or refresh.
 
 The response's `data` is `{view:"inventory", cached:true, harnesses:[...]}`.
-Each row contains only `id`, `channel`, `version`, `latest`, `latestCheckedAt`,
-`outdated`, `auth` and `checkedAt`. Versions and latest-check times may be null;
+Each row contains only `id`, optional `family`, `channel`, `version`, `latest`,
+`latestCheckedAt`, `outdated`, `auth` and `checkedAt`. `family` is a recognized
+CLI family inferred from the executable and package saved by the same health
+check, never from the profile id or current configuration. Old owners omit it;
+missing executables, launchers, ACP adapters and conflicting evidence leave it
+null. Native forwarding also leaves unknown future families null. A family does
+not make this partial cache exhaustive. Versions and latest-check times may be null;
 times are milliseconds since the epoch. Channels are `npm`, `bun`, `brew`,
 `brewCask`, `native`, `launcher`, `standalone` or `missing`. Sign-in evidence is
 `signedIn`, `signedOut` or `unknown`, without account labels. No program paths,

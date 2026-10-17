@@ -25,6 +25,7 @@ pub(crate) fn view(rows: &[HarnessHealth], params: &Value) -> Result<Value, RpcE
             let latest = safe_version(row.latest.as_deref());
             json!({
                 "id": row.id,
+                "family": cli_family(row),
                 "channel": row.channel,
                 "version": version,
                 "latest": latest,
@@ -42,6 +43,58 @@ fn safe_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 128
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+}
+
+/// Uses only evidence saved together by the health check, never a profile
+/// name or today's configuration. An adapter's version is not its agent's.
+fn cli_family(row: &HarnessHealth) -> Option<&'static str> {
+    use super::channel::Channel;
+    if matches!(row.channel, Channel::Launcher | Channel::Missing)
+        || row.path.as_deref().is_none_or(str::is_empty)
+    {
+        return None;
+    }
+    let name = std::path::Path::new(&row.program).file_name()?.to_str()?;
+    let name = name.strip_suffix(".exe").unwrap_or(name);
+    if super::channel::is_launcher(name) || name.ends_with("-acp") {
+        return None;
+    }
+    let program = match name {
+        "claude" => Some("claude"),
+        "codex" => Some("codex"),
+        "opencode" | "opencode2" => Some("opencode"),
+        "pi" => Some("pi"),
+        "chief" => Some("chief"),
+        "gemini" => Some("gemini"),
+        "amp" => Some("amp"),
+        "copilot" => Some("copilot"),
+        "cursor-agent" => Some("cursor"),
+        _ => None,
+    };
+    let package = match (row.channel, row.package.as_deref()) {
+        (Channel::Npm | Channel::Bun | Channel::Native, Some(package)) => match package {
+            "@anthropic-ai/claude-code" => Some("claude"),
+            "@openai/codex" => Some("codex"),
+            "opencode-ai" => Some("opencode"),
+            "@earendil-works/pi-coding-agent" => Some("pi"),
+            "@google/gemini-cli" => Some("gemini"),
+            "@sourcegraph/amp" => Some("amp"),
+            "@github/copilot" => Some("copilot"),
+            _ => None,
+        },
+        (Channel::Brew | Channel::BrewCask, Some(package)) => match package {
+            "claude-code" => Some("claude"),
+            "codex" => Some("codex"),
+            "opencode" => Some("opencode"),
+            "gemini-cli" => Some("gemini"),
+            _ => None,
+        },
+        _ => None,
+    };
+    match (program, package) {
+        (Some(program), Some(package)) if program != package => None,
+        (program, package) => program.or(package),
+    }
 }
 
 /// A saved cache may predate version parsing. Only a complete version
@@ -104,6 +157,8 @@ mod tests {
     #[test]
     fn cmux_next_harness_inventory_family_leaves_wrappers_and_conflicts_unknown() {
         for (program, channel, package, path) in [
+            ("npx", "npm", json!("@openai/codex"), json!("/bin/npx")),
+            ("codex-acp", "npm", json!("@openai/codex"), json!("/bin/codex-acp")),
             ("npx", "launcher", json!("@openai/codex"), json!("/bin/npx")),
             ("codex-acp", "npm", json!("@zed-industries/codex-acp"), json!("/bin/codex-acp")),
             ("pi-acp", "standalone", Value::Null, json!("/bin/pi-acp")),

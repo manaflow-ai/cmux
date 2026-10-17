@@ -302,3 +302,25 @@ fn cmux_next_agent_inventory_owner_support_is_negotiated_separately() {
         );
     }
 }
+
+#[test]
+fn cmux_next_agent_inventory_family_projection_preserves_only_known_evidence() {
+    for (channel, family, expected) in [
+        ("standalone", json!("codex"), json!("codex")),
+        ("standalone", json!("private_future_family"), Value::Null),
+        ("standalone", Value::Null, Value::Null),
+        ("launcher", json!("codex"), Value::Null),
+        ("missing", json!("codex"), Value::Null),
+    ] {
+        let mut cached = snapshot();
+        cached["harnesses"][0]["channel"] = json!(channel);
+        cached["harnesses"][0]["family"] = family;
+        let owner = Owner::new(json!(["harnessInventory"]), cached);
+        let mux = owner.mux("inventory-family");
+        let mut client = Client::connect(&mux, "inventory-family");
+        let reply = client.request(json!({"cmd":"agent-inventory"}));
+        assert_eq!(reply["ok"], true, "{reply}");
+        assert_eq!(reply["data"]["harnesses"][0]["family"], expected);
+        assert!(reply["data"]["harnesses"][0].get("program").is_none());
+    }
+}

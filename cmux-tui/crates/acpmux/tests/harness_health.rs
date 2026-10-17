@@ -194,10 +194,10 @@ async fn cmux_next_harness_inventory_is_cached_and_omits_private_diagnostics() {
         assert_eq!(
             reply,
             json!({"view": "inventory", "cached": true, "harnesses": [{
-                "id": "codex", "channel": "npm", "version": "1.2.3", "latest": "1.2.4",
+                "id": "codex", "family": null, "channel": "npm", "version": "1.2.3", "latest": "1.2.4",
                 "latestCheckedAt": 1234, "outdated": true, "auth": "signedIn", "checkedAt": 1235
             }, {
-                "id": "broken", "channel": "npm", "version": null, "latest": null,
+                "id": "broken", "family": null, "channel": "npm", "version": null, "latest": null,
                 "latestCheckedAt": 1234, "outdated": false, "auth": "signedIn", "checkedAt": 1235
             }]})
         );

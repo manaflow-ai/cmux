@@ -28,9 +28,18 @@ struct AgentInventoryRequestTests {
         let result = try WireCoding.decodeResponse(AgentInventoryRequest.Response.self, from: data)
         let row = try #require(result.harnesses.first)
         #expect(row.id == "claude")
+        #expect(row.family == nil)
         #expect(row.channel == .launcher)
         #expect(row.auth == .unknown)
         #expect(row.version == nil)
         #expect(row.checkedAt == 123)
+    }
+
+    @Test func familyEvidenceIsDistinctFromTheProfileID() throws {
+        let data = Data(#"{"id":7,"ok":true,"data":{"view":"inventory","cached":true,"harnesses":[{"id":"codex","family":"claude","channel":"native","version":"1.2.3","latest":null,"latestCheckedAt":null,"outdated":false,"auth":"unknown","checkedAt":123}]}}"#.utf8)
+        let result = try WireCoding.decodeResponse(AgentInventoryRequest.Response.self, from: data)
+        let row = try #require(result.harnesses.first)
+        #expect(row.id == "codex")
+        #expect(row.family == "claude")
     }
 }
