@@ -55,6 +55,8 @@ nonisolated enum LayerColor: String, CaseIterable {
 @MainActor
 enum ThemeRepaint {
     private struct Request {
+        /// Kept until the batch ends, so its identifier names only it.
+        var owner: AnyObject
         var roots: () -> [NSView]
         var scope: ThemeScope?
         var animated: Bool
@@ -65,6 +67,7 @@ enum ThemeRepaint {
     private static var order: [ObjectIdentifier] = []
     private static var requests: [ObjectIdentifier: Request] = [:]
     private static var appearanceWork: [() -> Void] = []
+    private static var responderWork: [() -> Void] = []
 
     /// Runs `body` as one repaint: every request and appearance it makes applies at its end.
     static func batch<T>(_ body: () -> T) -> T {
@@ -88,7 +91,7 @@ enum ThemeRepaint {
             requests[key] = existing
         } else {
             order.append(key)
-            requests[key] = Request(roots: roots, scope: scope, animated: animated, layout: layout)
+            requests[key] = Request(owner: owner, roots: roots, scope: scope, animated: animated, layout: layout)
         }
         if depth == 0 { commit() }
     }
@@ -99,23 +102,43 @@ enum ThemeRepaint {
         if depth == 0 { work() } else { appearanceWork.append(work) }
     }
 
+    /// Runs `work` (a `ThemeResponsive` call) after the batch's hooks, before its blends: its
+    /// colors blend too, and it sees the new appearances. At once outside a batch.
+    static func afterHooks(_ work: @escaping () -> Void) {
+        if depth == 0 { work() } else { responderWork.append(work) }
+    }
+
+    private static var hasWork: Bool { !order.isEmpty || !appearanceWork.isEmpty || !responderWork.isEmpty }
+
     private static func commit() {
         // Requests made while this one runs (a hook that changes a scope) form the next round.
         var rounds = 0
-        while !order.isEmpty || !appearanceWork.isEmpty, rounds < 8 {
+        while hasWork {
             rounds += 1
-            let pending = order.compactMap { requests[$0] }
-            let work = appearanceWork
+            // A hook that keeps asking for repaints: the last round applies without a blend.
+            let last = rounds >= 8
+            // Animated regions first: a view in two regions is recorded for its blend.
+            var pending = order.compactMap { requests[$0] }.sorted { $0.animated && !$1.animated }
+            if last { pending = pending.map { var request = $0; request.animated = false; return request } }
+            let work = appearanceWork, responders = responderWork
             order = []
             requests = [:]
             appearanceWork = []
+            responderWork = []
             depth = 1
-            apply(pending, work: work)
+            apply(pending, work: work, responders: responders)
             depth = 0
+            if last {
+                order = []
+                requests = [:]
+                appearanceWork = []
+                responderWork = []
+                break
+            }
         }
     }
 
-    private static func apply(_ pending: [Request], work: [() -> Void]) {
+    private static func apply(_ pending: [Request], work: [() -> Void], responders: [() -> Void]) {
         let transition = ColorTransition.current
         var seen = Set<ObjectIdentifier>()
         var passes: [(views: [NSView], layout: Bool)] = []
@@ -139,9 +162,10 @@ enum ThemeRepaint {
                 if pass.layout { view.needsLayout = true }
             }
         }
+        for responder in responders { responder() }
         guard !shown.isEmpty else { return }
-        // The views display now (the work the next display cycle does), so colors set in
-        // `layout()` and `updateLayer()` blend too.
+        // The views lay out and display now (the work the next display cycle does), so colors
+        // set in `updateLayer()`, and in `layout()` by a view whose hook asks for layout, blend too.
         for root in blendRoots {
             root.layoutSubtreeIfNeeded()
             root.displayIfNeeded()

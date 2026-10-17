@@ -146,8 +146,11 @@ public final class ThemeScope {
         // Art Color: another work is another accent.
         if ThemeStore.shared.accentFollowsArt { update(animated: false, repaint: false) }
         repaint(animated: false, from: nil)
-        for responder in responders.allObjects {
-            (responder as? any ThemeResponsive)?.themeDidChange()
+        // After the batch's hooks: the responders see the new appearances, and their colors blend.
+        ThemeRepaint.afterHooks { [weak self] in
+            for responder in self?.responders.allObjects ?? [] {
+                (responder as? any ThemeResponsive)?.themeDidChange()
+            }
         }
         for child in children.allObjects { child.repaintBackdropArt(force: false) }
     }
@@ -266,7 +269,10 @@ public final class ThemeScope {
             parent?.children.remove(self)
             parent = newParent
             newParent.children.add(self)
-            for view in roots.allObjects { applyAppearance(to: view) }
+            ThemeRepaint.beforeHooks { [weak self] in
+                guard let self else { return }
+                for view in self.roots.allObjects { self.applyAppearance(to: view) }
+            }
             update(animated: animated, repaint: true)
         }
     }
@@ -318,8 +324,11 @@ public final class ThemeScope {
         displayed = now
         generation += 1
         if repaint { self.repaint(animated: animated, from: previous) }
-        for responder in responders.allObjects {
-            (responder as? any ThemeResponsive)?.themeDidChange()
+        // After the batch's hooks: the responders see the new appearances, and their colors blend.
+        ThemeRepaint.afterHooks { [weak self] in
+            for responder in self?.responders.allObjects ?? [] {
+                (responder as? any ThemeResponsive)?.themeDidChange()
+            }
         }
         for viewer in viewers.allObjects where viewer.shown === self {
             viewer.refreshDisplay(animated: animated, repaint: true)
