@@ -85,7 +85,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
 
     let openSettings: () -> Void
     let openDevices: () -> Void
-    let openChief: (() -> Void)? = nil
+    let openChief: (() -> Void)?
     let title: String
     let isLoading: Bool
     let selection: WorkspaceMacSelection
@@ -178,7 +178,7 @@ private struct WorkspaceRootToolbarLiveContent: ToolbarContent {
 
     let openSettings: () -> Void
     let openDevices: () -> Void
-    let openChief: (() -> Void)? = nil
+    let openChief: (() -> Void)?
     let pendingSelection: WorkspaceMacSelection?
     let select: (WorkspaceMacSelection) -> Void
     let showAddDevice: (() -> Void)?
