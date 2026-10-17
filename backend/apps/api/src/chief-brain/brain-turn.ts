@@ -18,7 +18,11 @@ import { type ChiefBrainDO, POST_RETRY_MS, MAX_POST_TRIES, HOST, SETTLE_MS, TURN
 
 /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
 export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; conversation: string; seq: number; reason: string }): Promise<{ queued: number } | { skipped: string }> {
-  await (b.lifecycle.start(), markPending(b.sql, "wake"))
+  markPending(b.sql, "wake")
+  // A cold object: when it was made (its constructor; wasm and memory load) and when its lifecycle was ready.
+  if (b.bootAt !== undefined) [markPending(b.sql, "boot", b.bootAt), (b.bootAt = undefined)]
+  await b.lifecycle.start()
+  markPending(b.sql, "life")
   const a = await b.admitted(w.agent, w.owner, false)
   if (!a.ok) return { skipped: a.reason }
   // While the wake reads the conversation and the turn is admitted: the owner's turns object, the route's auth and pi open warm up.

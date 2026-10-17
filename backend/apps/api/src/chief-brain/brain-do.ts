@@ -67,6 +67,8 @@ export class ChiefBrainDO extends DurableObject<Env> {
   /** The object's state and env for the split-out modules (brain-turn.ts, brain-sub.ts); DurableObject keeps them protected. */
   readonly doCtx = this.ctx
   readonly doEnv = this.env
+  /** When this object was made, until the first wake reports it (Run.timing boot_at: a cold start). */
+  bootAt: number | undefined = Date.now()
   readonly models = brainModels(this.env, this.ctx.id.toString(), { claude: { auth: () => claudeAuthFor(this.env, this.holder), refused: () => (forgetClaudeAuth(), this.holder().claudeInvalidate()) }, effort: () => this.config().effort, ...gatewayOptions(this.ctx, this.env, () => ({ run: this.turnId, conversation: this.turnConversation, config: this.config(), live: !this.childOf() })) })
   readonly registry = createRegistry()
   memory: Memory

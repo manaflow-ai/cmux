@@ -42,6 +42,7 @@ export const gatewayOptions = (ctx: DurableObjectState, env: Env, now: () => Bra
       usage: (run, u) => addUsage(ctx.storage.sql, run, u),
       // The newest model error of the run (Run.error names it when the run fails).
       failed: (run, message) => void ctx.storage.sql.exec(`INSERT INTO cb_run_error (turn, text) VALUES (?, ?) ON CONFLICT (turn) DO UPDATE SET text = excluded.text`, run, message),
+      mark: (run, name) => void ctx.storage.sql.exec(`INSERT INTO cb_marks (turn, mark, at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, run, name, Date.now()),
       region: (run, region) => void ctx.storage.sql.exec(`INSERT INTO cb_marks (turn, mark, at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, run, `region:${region}`, Date.now()),
       notice: async (conversation, text) => {
         const { agent, owner } = now().config
