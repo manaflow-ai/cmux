@@ -30,7 +30,9 @@ export function QuickSurface({
   if (floating && holding && floating.state.collapsed)
     return (
       <div className="acpmux-quick" data-floating="compact">
-        <FloatingCompactBar floating={floating} />
+        <div className="acpmux-quick-compact-bar">
+          <FloatingCompactBar floating={floating} />
+        </div>
         {chiefDock && <ChiefDock {...chiefDock} />}
       </div>
     );
