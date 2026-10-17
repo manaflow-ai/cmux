@@ -51,7 +51,8 @@ struct AgentFeedBubbleShape: Shape {
 
 /// The continuous corners and tucked tail used by CKBalloonShapeLayer on
 /// iOS 26. Coordinates are top-left-origin, matching SwiftUI's Path space.
-private enum AgentFeedBubbleGeometry {
+private extension AgentFeedBubbleShape {
+    struct AgentFeedBubbleGeometry {
     enum Side {
         case leading
         case trailing
@@ -154,6 +155,7 @@ private enum AgentFeedBubbleGeometry {
         addCorner({ $0 }, reversed: false)
         path.closeSubpath()
         return path
+    }
     }
 }
 #endif
