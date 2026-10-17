@@ -189,6 +189,7 @@ final class AgentChatModeModel {
                 session.agentKind.displayName,
                 session.workingDirectory,
                 session.workspaceID,
+                session.terminalID,
             ].compactMap { $0 }
             if fields.contains(where: { field in
                 field.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
