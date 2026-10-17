@@ -27,25 +27,40 @@ let policy: ReplyPolicy = { outsideRoots: "confirm", remoteImages: "click" };
 let queuedPaths: string[] = [];
 let queuedUrls: string[] = [];
 let scheduled = false;
+let inFlight = false;
 /// The policy is asked once, with the first chip or image (an empty inspect when there is none).
 let policyAsked = false;
 let version = 0;
+let notificationScheduled = false;
 const listeners = new Set<() => void>();
 
 function changed() {
   version += 1;
-  for (const listener of listeners) listener();
+  if (!listeners.size || notificationScheduled) return;
+  notificationScheduled = true;
+  queueMicrotask(() => {
+    notificationScheduled = false;
+    for (const listener of listeners) listener();
+  });
+}
+
+function scheduleFlush() {
+  if (scheduled) return;
+  scheduled = true;
+  queueMicrotask(flush);
 }
 
 function flush() {
   scheduled = false;
-  let first = !policyAsked;
+  if (inFlight) return;
+  const first = !policyAsked;
+  if (!first && !queuedPaths.length && !queuedUrls.length) return;
   policyAsked = true;
-  while (first || queuedPaths.length || queuedUrls.length) {
-    first = false;
-    const batchPaths = queuedPaths.splice(0, MAX_BATCH);
-    const batchUrls = queuedUrls.splice(0, MAX_BATCH);
-    void callChipHost("link.inspect", { paths: batchPaths, urls: batchUrls }).then((reply) => {
+  const batchPaths = queuedPaths.splice(0, MAX_BATCH);
+  const batchUrls = queuedUrls.splice(0, MAX_BATCH);
+  inFlight = true;
+  void callChipHost("link.inspect", { paths: batchPaths, urls: batchUrls })
+    .then((reply) => {
       const value = (reply ?? {}) as Inspect;
       for (const path of batchPaths) {
         paths.set(path, value.paths?.[path] ?? null);
@@ -53,9 +68,14 @@ function flush() {
       }
       for (const url of batchUrls) sites.set(url, value.sites?.[url] ?? null);
       if (value.policy) policy = { ...policy, ...value.policy };
+    })
+    .finally(() => {
+      inFlight = false;
       changed();
+      if (queuedPaths.length || queuedUrls.length) {
+        scheduleFlush();
+      }
     });
-  }
 }
 
 function ask(path?: string, url?: string) {
@@ -74,8 +94,7 @@ function ask(path?: string, url?: string) {
     queuedUrls.push(url);
   }
   if (!scheduled && (!policyAsked || queuedPaths.length || queuedUrls.length)) {
-    scheduled = true;
-    queueMicrotask(flush);
+    scheduleFlush();
   }
 }
 
@@ -115,6 +134,7 @@ export function resetLinkStore(): void {
   sites.clear();
   queuedPaths = [];
   queuedUrls = [];
+  scheduled = false;
   policy = { outsideRoots: "confirm", remoteImages: "click" };
   policyAsked = false;
   changed();
