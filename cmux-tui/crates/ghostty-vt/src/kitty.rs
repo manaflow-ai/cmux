@@ -55,8 +55,20 @@ impl Default for KittyInFlightTracker {
 }
 
 impl KittyInFlightTracker {
-    pub(crate) fn write(&mut self, data: &[u8]) {
+    pub(crate) fn is_ground(&self) -> bool {
+        matches!(self.scan, KittyStreamScan::Ground)
+    }
+
+    /// Original byte-at-a-time write, kept as the exactness reference.
+    pub(crate) fn write_reference(&mut self, data: &[u8]) {
         for &byte in data {
+            self.step(byte);
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn step(&mut self, byte: u8) {
+        {
             let state = std::mem::take(&mut self.scan);
             self.scan = match state {
                 KittyStreamScan::Ground => KittyStreamScan::from_ground(byte),
