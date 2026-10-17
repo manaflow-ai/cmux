@@ -141,10 +141,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    /// Reads what `showWorkspace` depends on, so the observation re-runs when
-    /// the request or a machine's workspace list changes. It builds no value:
-    /// O(machines) per change, nothing formatted per workspace (a switch
-    /// re-runs it).
+    /// Reads what `showWorkspace` depends on (the request, each machine's workspace list): O(machines), no id list.
     private static func readShowInputs(_ state: WindowState, cloud: CloudService, machines: MachineRegistry, windows: WindowManager) {
         _ = (state.workspaceID, state.page, state.machineID, cloud.hasLoadedMachines)
         _ = creationKey(state, cloud, machines)

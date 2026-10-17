@@ -8,13 +8,12 @@ import CmuxNextWakeups
 /// builds) and counted for `debug.surfaces`; nothing is repaired here, so a
 /// lifecycle bug stays visible instead of being papered over.
 ///
-/// Event-driven: one deadline `settleDelay` after the last presentation
-/// change (no display link, no per-frame step). A window's occlusion change
-/// is such a change: panes in an occluded window are not judged (they draw
-/// nothing by design), so the check after the window is visible again is the
-/// one that proves every surface drew. The check walks every pane, so it runs
-/// by itself only in debug builds (perf-speed-of-light.md: no release scan per
-/// switch); `debug.surfaces` reports blank panes on demand in any build.
+/// Event-driven: one deadline `settleDelay` after the last presentation change
+/// (no display link). A window's occlusion change is such a change: panes in an
+/// occluded window are not judged (they draw nothing by design), so the check
+/// after the window is visible again proves every surface drew. It walks every
+/// pane, so it runs by itself only in debug builds (no release scan per switch);
+/// `debug.surfaces` reports blank panes on demand in any build.
 @MainActor
 final class SurfaceInvariantMonitor {
     /// Time after the last change before the check (layout springs settle in ~250 ms).
