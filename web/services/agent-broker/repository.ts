@@ -222,6 +222,59 @@ export async function claimJob(input: {
   });
 }
 
+/**
+ * Claim one exact job id for a lifecycle worker.
+ *
+ * The general claim path intentionally takes the oldest ready job, but a
+ * request/response lifecycle executor already has an idempotently enqueued
+ * job and must never accidentally execute a different tenant's effect.
+ */
+export async function claimJobById(input: {
+  readonly jobId: string;
+  readonly workerId: string;
+  readonly hostClass: string;
+  readonly ttlMs?: number;
+  readonly now?: Date;
+}): Promise<AgentBrokerLease | null> {
+  if (!input.workerId.trim()) throw new Error("workerId is required");
+  if (!input.hostClass.trim()) throw new Error("hostClass is required");
+  const ttlMs = assertLeaseTtl(input.ttlMs, DEFAULT_AGENT_BROKER_LEASE_TTL_MS);
+  const nowAt = input.now ?? now();
+  const expiresAt = new Date(nowAt.getTime() + ttlMs);
+  const token = randomUUID();
+  const db = cloudDb();
+  return db.transaction(async (tx) => {
+    const ready = or(
+      eq(agentBrokerJobs.status, "queued"),
+      and(eq(agentBrokerJobs.status, "leased"), lte(agentBrokerJobs.leaseExpiresAt, nowAt)),
+    );
+    const candidate = (await tx.select().from(agentBrokerJobs)
+      .where(and(eq(agentBrokerJobs.id, input.jobId), eq(agentBrokerJobs.hostClass, input.hostClass), ready))
+      .limit(1)
+      .for("update"))[0];
+    if (!candidate) return null;
+    const updated = (await tx.update(agentBrokerJobs).set({
+      status: "leased",
+      attempt: sql`${agentBrokerJobs.attempt} + 1`,
+      leaseToken: token,
+      leaseGeneration: sql`${agentBrokerJobs.leaseGeneration} + 1`,
+      leaseOwner: input.workerId,
+      leaseExpiresAt: expiresAt,
+      receiptSequence: sql`${agentBrokerJobs.receiptSequence} + 1`,
+      updatedAt: nowAt,
+      error: null,
+    }).where(eq(agentBrokerJobs.id, candidate.id)).returning())[0];
+    if (!updated) throw new AgentBrokerJobNotFoundError("broker job disappeared during claim");
+    await appendReceipt(tx, updated, "leased", nowAt);
+    return {
+      job: updated,
+      leaseToken: token,
+      leaseGeneration: updated.leaseGeneration,
+      leaseExpiresAt: expiresAt,
+    };
+  });
+}
+
 /** Renew a live lease without changing the receipt cursor. */
 export async function renewJobLease(input: LeaseInput & { readonly ttlMs?: number; readonly now?: Date }): Promise<AgentBrokerLease> {
   const ttlMs = assertLeaseTtl(input.ttlMs, DEFAULT_AGENT_BROKER_LEASE_TTL_MS);

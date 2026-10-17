@@ -8,17 +8,20 @@ const enabled = process.env.CMUX_DB_TEST === "1";
 const dbTest = enabled ? test : test.skip;
 let sql: Sql | null = null;
 let broker: typeof BrokerRepository | null = null;
+let createLifecycleEffectBroker: typeof import("../services/vms/lifecycleEffectBroker").createAgentBrokerLifecycleEffectBroker | null = null;
 
 beforeAll(async () => {
   if (!enabled) return;
-  const [{ default: postgres }, loaded] = await Promise.all([
+  const [{ default: postgres }, loaded, lifecycle] = await Promise.all([
     import("postgres"),
     import("../services/agent-broker/repository"),
+    import("../services/vms/lifecycleEffectBroker"),
   ]);
   const databaseURL = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL;
   if (!databaseURL) throw new Error("DATABASE_URL is required when CMUX_DB_TEST=1");
   sql = postgres(databaseURL, { max: 1 });
   broker = loaded;
+  createLifecycleEffectBroker = lifecycle.createAgentBrokerLifecycleEffectBroker;
 });
 
 afterAll(async () => {
@@ -82,6 +85,56 @@ describe("durable agent broker repository", () => {
       const failed = await repo().failJob({ jobId: job.id, leaseToken: lease.leaseToken, leaseGeneration: lease.leaseGeneration, error: "provider unavailable" });
       expect(failed.status).toBe("failed");
       await expect(repo().completeJob({ jobId: job.id, leaseToken: lease.leaseToken, leaseGeneration: lease.leaseGeneration, result: { late: true } })).rejects.toBeInstanceOf(repo().AgentBrokerLeaseConflictError);
+    } finally {
+      await sql!`delete from agent_broker_jobs where tenant_id = ${tenantId}`;
+    }
+  });
+
+  dbTest("claims the exact lifecycle effect and replays its completed receipt", async () => {
+    const tenantId = `broker-lifecycle-${randomUUID()}`;
+    let executions = 0;
+    try {
+      const request = {
+        tenantId,
+        ownerId: "owner-1",
+        hostClass: "freestyle-vm",
+        effectKey: "runtime:one:resume:v1",
+        payload: { operation: "resume", runtimeId: "runtime-one" },
+        run: async () => {
+          executions += 1;
+          return { ok: true, execution: executions };
+        },
+      };
+      if (!createLifecycleEffectBroker) throw new Error("lifecycle effect broker was not loaded");
+      const lifecycle = createLifecycleEffectBroker({
+        workerId: "lifecycle-worker",
+        sourceSha: "runtime-lifecycle-test",
+        scopeRevision: "scope-1",
+        now: () => new Date("2026-10-17T10:01:00.000Z"),
+      });
+      const first = await lifecycle.execute(request);
+      const replay = await lifecycle.execute(request);
+      expect(first.result).toEqual({ ok: true, execution: 1 });
+      expect(replay.result).toEqual(first.result);
+      expect(replay.replayed).toBe(true);
+      expect(executions).toBe(1);
+      const receipts = await repo().listJobReceipts({ jobId: first.jobId, tenantId });
+      expect(receipts.receipts.map((receipt) => receipt.state)).toEqual(["queued", "leased", "completed"]);
+    } finally {
+      await sql!`delete from agent_broker_jobs where tenant_id = ${tenantId}`;
+    }
+  });
+
+  dbTest("claimJobById cannot execute a different queued effect", async () => {
+    const tenantId = `broker-exact-${randomUUID()}`;
+    try {
+      const first = await repo().enqueueJob(envelope(tenantId, "freestyle-vm", "exact-first"));
+      const second = await repo().enqueueJob(envelope(tenantId, "freestyle-vm", "exact-second"));
+      const lease = await repo().claimJobById({ jobId: second.id, workerId: "exact-worker", hostClass: "freestyle-vm" });
+      expect(lease?.job.id).toBe(second.id);
+      expect((await repo().getJob(first.id, tenantId)).status).toBe("queued");
+      if (!lease) throw new Error("exact claim did not return a lease");
+      await repo().completeJob({ jobId: second.id, leaseToken: lease.leaseToken, leaseGeneration: lease.leaseGeneration, result: { ok: true } });
     } finally {
       await sql!`delete from agent_broker_jobs where tenant_id = ${tenantId}`;
     }
