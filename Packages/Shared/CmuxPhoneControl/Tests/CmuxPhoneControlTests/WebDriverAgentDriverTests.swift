@@ -178,7 +178,7 @@ private final class WDARequestRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var storedRequests: [Capture] = []
     private var ready = true
-    private var oversizedScreenshot = false
+    private var oversizedScreenshotEnabled = false
 
     var isReady: Bool {
         lock.withLock { ready }
@@ -189,7 +189,7 @@ private final class WDARequestRecorder: @unchecked Sendable {
     }
 
     var oversizedScreenshot: Bool {
-        lock.withLock { oversizedScreenshot }
+        lock.withLock { oversizedScreenshotEnabled }
     }
 
     func record(_ request: URLRequest) {
@@ -201,7 +201,7 @@ private final class WDARequestRecorder: @unchecked Sendable {
         lock.withLock {
             storedRequests.removeAll()
             ready = true
-            oversizedScreenshot = false
+            oversizedScreenshotEnabled = false
         }
     }
 
@@ -210,7 +210,7 @@ private final class WDARequestRecorder: @unchecked Sendable {
     }
 
     func setOversizedScreenshot(_ value: Bool) {
-        lock.withLock { oversizedScreenshot = value }
+        lock.withLock { oversizedScreenshotEnabled = value }
     }
 
     private static func read(_ stream: InputStream) -> Data? {
