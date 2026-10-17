@@ -73,6 +73,16 @@ extension GhosttyNSView {
             submenu.addItem(statusItem)
             submenu.addItem(.separator())
 
+            let reviewItem = submenu.addItem(
+                withTitle: String(
+                    localized: "surfaceResumeApproval.review",
+                    defaultValue: "Review Approval…"
+                ),
+                action: #selector(reviewCurrentSurfaceResumeApproval(_:)),
+                keyEquivalent: ""
+            )
+            reviewItem.target = self
+
             let editItem = submenu.addItem(
                 withTitle: String(
                     localized: "settings.common.edit",
@@ -205,6 +215,29 @@ extension GhosttyNSView {
             .joined(separator: " ")
         guard singleLine.count > 72 else { return singleLine }
         return String(singleLine.prefix(71)) + "…"
+    }
+
+    @objc func reviewCurrentSurfaceResumeApproval(_ sender: Any?) {
+        guard case .ordinary = currentSurfaceResumeContextMenuState(),
+              let surfaceID = terminalSurface?.id else {
+            NSSound.beep()
+            return
+        }
+        let result = TerminalController.shared.reviewSurfaceResumeBindingFromUserInterface(
+            routing: currentSurfaceResumeRouting(surfaceID: surfaceID),
+            explicitTargetID: surfaceID
+        )
+        switch result {
+        case .result:
+            return
+        case .approvalPending(let message):
+            presentCurrentSurfaceResumeApprovalPending(message)
+        default:
+            presentCurrentSurfaceResumeApprovalPending(String(
+                localized: "surfaceResumeApproval.review.unavailable",
+                defaultValue: "The resume proposal changed or could not be approved. No replacement command was registered. Review the current proposal and try again."
+            ))
+        }
     }
 
     @objc func makeCurrentSurfaceRestorable(_ sender: Any?) {

@@ -10,6 +10,16 @@ enum SurfaceResumeProposalOrigin {
 }
 
 extension SurfaceResumeApprovalStore {
+    /// Eligibility is independent of an existing decision. An explicit UI review
+    /// may change Manual/Ask to Auto, but must never promote an imported or
+    /// otherwise non-reviewable binding.
+    static func proposalAllowsUserApproval(binding: SurfaceResumeBindingSnapshot) -> Bool {
+        binding.launchFlavor == .local &&
+            !binding.isCLIBinding && !binding.isUntrustedSessionImportBinding &&
+            !binding.isProcessDetected && !binding.isAgentHookBinding &&
+            SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(binding.command)
+    }
+
     /// Whether a proposed binding needs a person's approval before it can
     /// auto-resume. Pure trust policy: it does not say whether a prompt can be
     /// shown, which depends on who proposed the binding.
@@ -17,16 +27,7 @@ extension SurfaceResumeApprovalStore {
         binding: SurfaceResumeBindingSnapshot,
         existingRecord: SurfaceResumeApprovalRecord?
     ) -> Bool {
-        guard binding.launchFlavor == .local else {
-            return false
-        }
-        guard !binding.isCLIBinding, !binding.isUntrustedSessionImportBinding else {
-            return false
-        }
-        guard !binding.isProcessDetected, !binding.isAgentHookBinding else {
-            return false
-        }
-        guard SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(binding.command) else {
+        guard proposalAllowsUserApproval(binding: binding) else {
             return false
         }
         guard let existingRecord else { return true }
@@ -35,6 +36,45 @@ extension SurfaceResumeApprovalStore {
 }
 
 extension TerminalController {
+    /// Called only by the terminal's explicit Review Approval action, never by
+    /// the socket coordinator. Review the stored value rather than rebuilding
+    /// it from the command editor (which intentionally creates a manual binding).
+    /// The native modal runs a nested event loop: revalidate before signing.
+    func surfaceResumeBindingByReviewingApproval(
+        _ binding: SurfaceResumeBindingSnapshot,
+        proposalIsCurrent: () -> Bool
+    ) -> SurfaceResumeApprovalLookup<(binding: SurfaceResumeBindingSnapshot, approvalRequired: Bool)> {
+        guard SurfaceResumeApprovalStore.proposalAllowsUserApproval(binding: binding),
+              proposalIsCurrent() else {
+            return .resolved((binding, true))
+        }
+        switch SurfaceResumeApprovalStore.approvalProposalContext(for: binding) {
+        case .pendingSigningSecret:
+            return .pendingSigningSecret
+        case .resolved:
+            break
+        }
+        guard Thread.isMainThread,
+              ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
+              proposalIsCurrent() else {
+            return .resolved((binding, true))
+        }
+        let approval = surfacePromptForResumeApproval(binding: binding)
+        guard proposalIsCurrent(),
+              let record = SurfaceResumeApprovalStore.approve(
+                  binding: binding,
+                  policy: approval.policy,
+                  commandPrefix: approval.commandPrefix
+              ) else {
+            return .resolved((binding, true))
+        }
+        var reviewed = binding
+        reviewed.approvalPolicy = record.policy
+        reviewed.approvalRecordId = record.id
+        reviewed.autoResume = record.policy == .auto
+        return .resolved((reviewed, false))
+    }
+
     /// Applies stored approval to a proposed binding and, for a proposal made in
     /// the app, asks the user to approve it. A control-socket proposal that still
     /// needs approval is returned untrusted with `approvalRequired` set; it never
