@@ -58,6 +58,39 @@ import Testing
         #expect(model.visibleSessions.map(\.id) == ["codex-build"])
     }
 
+    @Test func sessionSearchMatchesLoadedTranscriptContent() async {
+        let source = FakeAgentChatSource(
+            sessions: [
+                descriptor(id: "session", agent: .codex, title: "Build task", activity: 10),
+                descriptor(id: "other", agent: .claude, title: "Unrelated", activity: 20),
+            ],
+            pages: [
+                "session": [page(message(id: "one", seq: 1, text: "Searchable deployment token"))],
+                "other": [page(message(id: "two", seq: 1, text: "Different content"))],
+            ]
+        )
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await settle()
+
+        model.sessionSearchQuery = "deployment token"
+        #expect(model.visibleSessions.map(\.id) == ["session"])
+    }
+
+    @Test func pinAndArchivePreferencesPersistAcrossModels() {
+        let suiteName = "AgentChatModeModelTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let first = AgentChatModeModel(defaults: defaults)
+        first.togglePinned("pinned")
+        first.toggleArchived("archived")
+
+        let second = AgentChatModeModel(defaults: defaults)
+        #expect(second.pinnedSessionIDs == Set(["pinned"]))
+        #expect(second.archivedSessionIDs == Set(["archived"]))
+    }
+
     @Test func editPromptLoadsLatestUserProseIntoComposer() async {
         let source = FakeAgentChatSource(
             sessions: [descriptor(id: "session", agent: .codex)],

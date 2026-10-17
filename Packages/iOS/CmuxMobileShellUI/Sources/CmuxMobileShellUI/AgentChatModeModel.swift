@@ -3,6 +3,7 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import Foundation
 import Observation
+import CmuxAgentChatUI
 
 /// State for the ChatGPT/Codex-style agent mode. The model deliberately owns
 /// only presentation state; transport remains behind ``ChatEventSource`` so
@@ -54,6 +55,8 @@ final class AgentChatModeModel {
     private(set) var sendingSessionIDs: Set<String> = []
     private(set) var interruptingSessionIDs: Set<String> = []
     private(set) var retryingSessionIDs: Set<String> = []
+    private(set) var pinnedSessionIDs: Set<String>
+    private(set) var archivedSessionIDs: Set<String>
     private(set) var connectionState: ConnectionState = .disconnected
     private(set) var errorMessage: String?
     private(set) var attachments: [PendingAttachment] = []
@@ -94,10 +97,17 @@ final class AgentChatModeModel {
     private var removedSessionVersions: [String: Int] = [:]
     private var sourceGeneration = 0
     private let reconnectDelay: @Sendable (_ attempt: Int) async -> Void
+    private nonisolated(unsafe) let defaults: UserDefaults
+    private static let pinnedSessionIDsKey = "cmux.mobile.agentChat.pinnedSessionIDs"
+    private static let archivedSessionIDsKey = "cmux.mobile.agentChat.archivedSessionIDs"
 
     init(
+        defaults: UserDefaults = .standard,
         reconnectDelay: @escaping @Sendable (_ attempt: Int) async -> Void = AgentChatModeModel.defaultReconnectDelay
     ) {
+        self.defaults = defaults
+        self.pinnedSessionIDs = Set(defaults.stringArray(forKey: Self.pinnedSessionIDsKey) ?? [])
+        self.archivedSessionIDs = Set(defaults.stringArray(forKey: Self.archivedSessionIDsKey) ?? [])
         self.reconnectDelay = reconnectDelay
     }
 
@@ -115,9 +125,58 @@ final class AgentChatModeModel {
     }
 
     var visibleSessions: [ChatSessionDescriptor] {
+        filteredSessions(includeArchived: false)
+    }
+
+    var visibleArchivedSessions: [ChatSessionDescriptor] {
+        filteredSessions(includeArchived: true).filter { archivedSessionIDs.contains($0.id) }
+    }
+
+    var pinnedSessions: [ChatSessionDescriptor] {
+        visibleSessions.filter { pinnedSessionIDs.contains($0.id) }
+    }
+
+    func togglePinned(_ sessionID: String) {
+        if pinnedSessionIDs.contains(sessionID) {
+            pinnedSessionIDs.remove(sessionID)
+        } else {
+            pinnedSessionIDs.insert(sessionID)
+        }
+        persistSessionCollections()
+    }
+
+    func toggleArchived(_ sessionID: String) {
+        if archivedSessionIDs.contains(sessionID) {
+            archivedSessionIDs.remove(sessionID)
+        } else {
+            archivedSessionIDs.insert(sessionID)
+            pinnedSessionIDs.remove(sessionID)
+            if selectedSessionID == sessionID {
+                let next = visibleSessions.first { $0.id != sessionID }
+                selectedSessionID = next?.id
+                if let next { select(next) }
+            }
+        }
+        persistSessionCollections()
+    }
+
+    /// Builds an artifact loader bound to the currently connected Mac and
+    /// session. The loader remains optional so offline fixtures and older
+    /// hosts still render the transcript without a preview affordance.
+    func artifactLoader(for sessionID: String) -> ChatArtifactLoader? {
+        guard let source else { return nil }
+        return ChatArtifactLoader(
+            source: source,
+            sessionID: sessionID,
+            sourceIdentity: "agent-chat-\(sourceGeneration)-\(sessionID)"
+        )
+    }
+
+    private func filteredSessions(includeArchived: Bool) -> [ChatSessionDescriptor] {
         let query = sessionSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
         return sessions.filter { session in
+            if !includeArchived && archivedSessionIDs.contains(session.id) { return false }
             guard selectedProvider == "all" || session.agentKind.sourceName == selectedProvider else {
                 return false
             }
@@ -129,11 +188,43 @@ final class AgentChatModeModel {
                 session.workingDirectory,
                 session.workspaceID,
             ].compactMap { $0 }
-            return fields.contains {
-                $0.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            if fields.contains(where: { field in
+                field.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
                     .contains(query)
+            }) { return true }
+            // History is loaded lazily, so this covers the transcript already
+            // hydrated for a session without turning the sidebar search into
+            // an unbounded network fan-out.
+            return (messagesBySession[session.id] ?? []).contains {
+                searchableText(for: $0).folding(
+                    options: [.caseInsensitive, .diacriticInsensitive],
+                    locale: .current
+                ).contains(query)
             }
         }
+    }
+
+    private func searchableText(for message: ChatMessage) -> String {
+        switch message.kind {
+        case .prose(let value): return value.text
+        case .thought(let value): return value.text
+        case .toolUse(let value):
+            return [value.summary, value.inputDetail, value.output, value.referencedPaths?.joined(separator: " ")]
+                .compactMap { $0 }.joined(separator: " ")
+        case .terminal(let value):
+            return [value.command, value.output].compactMap { $0 }.joined(separator: " ")
+        case .fileEdit(let value): return [value.filePath, value.unifiedDiff].compactMap { $0 }.joined(separator: " ")
+        case .permissionRequest(let value): return [value.title, value.subject].joined(separator: " ")
+        case .question(let value): return ([value.prompt] + value.options.map(\.label)).joined(separator: " ")
+        case .status(let value): return value.detail ?? value.event.rawValue
+        case .attachment(let value): return [value.displayName, value.hostPath].compactMap { $0 }.joined(separator: " ")
+        case .unsupported(let value): return value.rawType
+        }
+    }
+
+    private func persistSessionCollections() {
+        defaults.set(pinnedSessionIDs.sorted(), forKey: Self.pinnedSessionIDsKey)
+        defaults.set(archivedSessionIDs.sorted(), forKey: Self.archivedSessionIDsKey)
     }
 
     var selectedSession: ChatSessionDescriptor? {
@@ -611,12 +702,12 @@ final class AgentChatModeModel {
                     latestVersionBySession[descriptor.id] ?? Int.min
                 )
             }
-            if selectedSessionID == nil, let first = sessions.first {
+            if selectedSessionID == nil, let first = visibleSessions.first {
                 select(first)
             } else if let selectedSessionID,
                       !sessions.contains(where: { $0.id == selectedSessionID }) {
                 self.selectedSessionID = nil
-                if let first = sessions.first {
+                if let first = visibleSessions.first {
                     select(first)
                 }
             }

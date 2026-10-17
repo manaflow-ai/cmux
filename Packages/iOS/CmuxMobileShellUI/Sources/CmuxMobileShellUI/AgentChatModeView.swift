@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxAgentChatUI
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -137,27 +138,19 @@ private struct AgentChatSidebar: View {
     let refresh: () async -> Void
 
     private var filteredSessions: [ChatSessionDescriptor] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return model.visibleSessions }
-        return model.visibleSessions.filter { session in
-            [
-                session.title,
-                session.agentKind.displayName,
-                session.workingDirectory,
-                session.workspaceID,
-                session.terminalID
-            ]
-            .compactMap { $0 }
-            .contains { $0.localizedCaseInsensitiveContains(query) }
-        }
+        model.visibleSessions
+    }
+
+    private var pinned: [ChatSessionDescriptor] {
+        model.pinnedSessions
     }
 
     private var needsAttention: [ChatSessionDescriptor] {
-        filteredSessions.filter { $0.state.needsAttention }
+        filteredSessions.filter { !model.pinnedSessionIDs.contains($0.id) && $0.state.needsAttention }
     }
 
     private var recentSessions: [ChatSessionDescriptor] {
-        filteredSessions.filter { !$0.state.needsAttention }
+        filteredSessions.filter { !model.pinnedSessionIDs.contains($0.id) && !$0.state.needsAttention }
     }
 
     var body: some View {
@@ -182,7 +175,7 @@ private struct AgentChatSidebar: View {
                 if isLoading {
                     AgentSessionLoadingRows()
                         .listRowSeparator(.hidden)
-                } else if filteredSessions.isEmpty {
+                } else if filteredSessions.isEmpty && model.visibleArchivedSessions.isEmpty {
                     AgentSessionEmptyRow(
                         hasSearch: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                         isConnected: isConnected,
@@ -191,13 +184,32 @@ private struct AgentChatSidebar: View {
                     )
                     .listRowSeparator(.hidden)
                 } else {
+                    if !pinned.isEmpty {
+                        Section("Pinned") {
+                            ForEach(pinned) { session in
+                                AgentChatSessionRow(
+                                    session: session,
+                                    isSelected: session.id == model.selectedSessionID,
+                                    select: { selectSession(session) },
+                                    togglePinned: { model.togglePinned(session.id) },
+                                    toggleArchived: { model.toggleArchived(session.id) },
+                                    isPinned: true,
+                                    isArchived: false
+                                )
+                            }
+                        }
+                    }
                     if !needsAttention.isEmpty {
                         Section("Needs your attention") {
                             ForEach(needsAttention) { session in
                                 AgentChatSessionRow(
                                     session: session,
                                     isSelected: session.id == model.selectedSessionID,
-                                    select: { selectSession(session) }
+                                    select: { selectSession(session) },
+                                    togglePinned: { model.togglePinned(session.id) },
+                                    toggleArchived: { model.toggleArchived(session.id) },
+                                    isPinned: false,
+                                    isArchived: false
                                 )
                             }
                         }
@@ -207,11 +219,30 @@ private struct AgentChatSidebar: View {
                             AgentChatSessionRow(
                                 session: session,
                                 isSelected: session.id == model.selectedSessionID,
-                                select: { selectSession(session) }
+                                select: { selectSession(session) },
+                                togglePinned: { model.togglePinned(session.id) },
+                                toggleArchived: { model.toggleArchived(session.id) },
+                                isPinned: false,
+                                isArchived: false
                             )
                         }
                     }
+                    if !model.visibleArchivedSessions.isEmpty {
+                        Section("Archived") {
+                            ForEach(model.visibleArchivedSessions) { session in
+                                AgentChatSessionRow(
+                                    session: session,
+                                    isSelected: session.id == model.selectedSessionID,
+                                    select: { selectSession(session) },
+                                    togglePinned: { model.togglePinned(session.id) },
+                                    toggleArchived: { model.toggleArchived(session.id) },
+                                    isPinned: false,
+                                    isArchived: true
+                                )
+                            }
+                        }
                 }
+            }
             }
             .listStyle(.insetGrouped)
             .searchable(text: $searchText, placement: .sidebar, prompt: "Search sessions")
@@ -443,6 +474,10 @@ private struct AgentChatSessionRow: View {
     let session: ChatSessionDescriptor
     let isSelected: Bool
     let select: () -> Void
+    let togglePinned: () -> Void
+    let toggleArchived: () -> Void
+    let isPinned: Bool
+    let isArchived: Bool
 
     var body: some View {
         Button(action: select) {
@@ -490,6 +525,26 @@ private struct AgentChatSessionRow: View {
         }
         .buttonStyle(.plain)
         .listRowBackground(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+        .contextMenu {
+            Button(action: togglePinned) {
+                Label(
+                    isPinned ? "Unpin session" : "Pin session",
+                    systemImage: isPinned ? "pin.slash" : "pin"
+                )
+            }
+            Button(action: toggleArchived) {
+                Label(
+                    isArchived ? "Unarchive session" : "Archive session",
+                    systemImage: isArchived ? "tray.and.arrow.up" : "archivebox"
+                )
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(action: toggleArchived) {
+                Label(isArchived ? "Unarchive" : "Archive", systemImage: "archivebox")
+            }
+            .tint(.secondary)
+        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
             "\(session.agentKind.displayName), \(session.title ?? "Untitled session"), \(accessibilityStateLabel)"
@@ -570,6 +625,7 @@ private struct AgentChatTranscriptView: View {
                 }
             }
             ScrollViewReader { proxy in
+                let artifactLoader = model.selectedSessionID.flatMap { model.artifactLoader(for: $0) }
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
                         if model.selectedHasMoreHistory {
@@ -614,6 +670,7 @@ private struct AgentChatTranscriptView: View {
                             ForEach(model.selectedMessages) { message in
                                 AgentChatMessageView(
                                     message: message,
+                                    artifactLoader: artifactLoader,
                                     answer: { index, requestID in
                                         Task { await model.answer(optionIndex: index, requestID: requestID) }
                                     },
@@ -635,7 +692,11 @@ private struct AgentChatTranscriptView: View {
                                 .id("pending-\(index)-\(prompt)")
                             }
                             if let streaming = model.selectedStreamingMessage {
-                                AgentChatMessageView(message: streaming, isStreaming: true)
+                                AgentChatMessageView(
+                                    message: streaming,
+                                    artifactLoader: artifactLoader,
+                                    isStreaming: true
+                                )
                                     .id("streaming")
                             }
                         }
@@ -830,6 +891,7 @@ private struct AgentContextPill: View {
 
 private struct AgentChatMessageView: View {
     let message: ChatMessage
+    let artifactLoader: ChatArtifactLoader?
     var isStreaming = false
     var answer: ((Int, String) -> Void)?
     var isAnswering: ((String) -> Bool)?
@@ -847,7 +909,7 @@ private struct AgentChatMessageView: View {
             case .terminal(let terminal):
                 AgentTerminalCard(terminal: terminal)
             case .fileEdit(let edit):
-                AgentDiffCard(edit: edit)
+                AgentDiffCard(edit: edit, artifactLoader: artifactLoader)
             case .permissionRequest(let request):
                 AgentPermissionCard(
                     request: request,
@@ -866,10 +928,7 @@ private struct AgentChatMessageView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
             case .attachment(let attachment):
-                Label(attachment.displayName ?? "Attachment", systemImage: attachment.media == .image ? "photo" : "doc")
-                    .font(.subheadline)
-                    .padding(10)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                AgentAttachmentCard(attachment: attachment, artifactLoader: artifactLoader)
             case .unsupported(let payload):
                 Label("Unsupported agent event: \(payload.rawType)", systemImage: "questionmark.circle")
                     .font(.caption)
@@ -1133,6 +1192,7 @@ private struct AgentTerminalCard: View {
 
 private struct AgentDiffCard: View {
     let edit: ChatFileEdit
+    let artifactLoader: ChatArtifactLoader?
     @State private var isExpanded = false
 
     var body: some View {
@@ -1156,6 +1216,16 @@ private struct AgentDiffCard: View {
                         .lineLimit(isExpanded ? nil : 12)
                 }
                 .font(.caption.weight(.medium))
+            }
+            if isExpanded, let artifactLoader, artifactLoader.supportsArtifacts {
+                Divider()
+                Text("Current file")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                ChatArtifactInlineViewer(path: edit.filePath)
+                    .environment(\.chatArtifactLoader, artifactLoader)
+                    .frame(minHeight: 160, maxHeight: 420)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
             }
         }
         .font(.caption)
@@ -1182,6 +1252,46 @@ private struct AgentDiffCard: View {
 
     private var operationColor: Color {
         edit.operation == .delete ? .red : .secondary
+    }
+}
+
+private struct AgentAttachmentCard: View {
+    let attachment: ChatAttachment
+    let artifactLoader: ChatArtifactLoader?
+    @State private var isPreviewExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: attachment.media == .image ? "photo" : "doc")
+                    .foregroundStyle(Color.accentColor)
+                Text(attachment.displayName ?? "Attachment")
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(2)
+                Spacer(minLength: 4)
+                if attachment.hostPath != nil,
+                   let artifactLoader,
+                   artifactLoader.supportsArtifacts {
+                    Button(isPreviewExpanded ? "Hide preview" : "Preview") {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isPreviewExpanded.toggle()
+                        }
+                    }
+                    .font(.caption.weight(.semibold))
+                }
+            }
+            if isPreviewExpanded,
+               let path = attachment.hostPath,
+               let artifactLoader {
+                ChatArtifactInlineViewer(path: path)
+                    .environment(\.chatArtifactLoader, artifactLoader)
+                    .frame(minHeight: 160, maxHeight: 420)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
