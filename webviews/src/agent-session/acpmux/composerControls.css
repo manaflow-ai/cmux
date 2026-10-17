@@ -217,7 +217,11 @@
 .acpmux-chip-pending .acpmux-picker-button:hover { background: none; }
 
 /* Pointer cursors on the composer's controls (layout.json pointerCursor, header/headerStyle.ts): every
-   enabled button and chip in the card and the strips around it. */
-:root[data-pointer-cursor="on"] :is(.acpmux-composer, .nt-composer) :is(button, [role="button"], [role="combobox"]):not(:disabled):not([aria-disabled="true"]) {
+   enabled button and chip in the card and the strips around it, never the field. */
+:root[data-pointer-cursor="on"] :is(.acpmux-composer, .nt-composer) :is(button, [role="button"]):not(:disabled):not([aria-disabled="true"]) {
   cursor: pointer;
+}
+/* The prompt field is a combobox (its @ and / menus): where text goes, the text cursor, always. */
+:root[data-pointer-cursor="on"] :is(.acpmux-composer, .nt-composer) :is([contenteditable="true"], [contenteditable=""], textarea, input) {
+  cursor: text;
 }
