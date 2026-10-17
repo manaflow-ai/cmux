@@ -65,7 +65,7 @@ public actor MacIPhoneMirroringDriver: PhoneDriver {
     public func snapshot() async throws -> PhoneScreenFrame {
         let window = try await mirroredWindow()
         let filter = SCContentFilter(desktopIndependentWindow: window)
-        let configuration = SCScreenshotConfiguration()
+        let configuration = SCStreamConfiguration()
         configuration.width = max(Int(window.frame.width), 1)
         configuration.height = max(Int(window.frame.height), 1)
         configuration.showsCursor = false
