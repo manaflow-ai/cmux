@@ -270,7 +270,10 @@ public actor WebDriverAgentDriver: PhoneDriver {
             request.httpBody = try JSONEncoder().encode(body)
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        let (bytes, http) = try await urlSession.bytes(for: request)
+        let (bytes, response) = try await urlSession.bytes(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw PhoneDriverError.transport("WDA returned a non-HTTP response")
+        }
         let maxResponseBytes = PhoneProtocol.maxResponseLineBytes
         if http.expectedContentLength > Int64(maxResponseBytes) {
             throw PhoneDriverError.malformedResponse("WDA response exceeded the bounded response size")
