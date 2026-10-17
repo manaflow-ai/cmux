@@ -332,6 +332,7 @@ actor ClaudeConversation {
             case .rejectedCredential:
                 // Only a model endpoint's key: Claude Code's own sign-in keeps its retries.
                 guard let endpoint = configuration.endpoint, continuation != nil else { break }
+                approvals = [:]
                 stopProcess()
                 end(.failed(ChiefText.invalidCredential(endpoint.name)))
                 return

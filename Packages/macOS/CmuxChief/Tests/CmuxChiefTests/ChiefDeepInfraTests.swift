@@ -132,6 +132,8 @@ import Testing
         #expect(parser.consume(Data(retry.utf8)) == [.rejectedCredential])
         let rateLimited = #"{"type":"system","subtype":"api_retry","attempt":1,"max_retries":10,"retry_delay_ms":500,"error_status":429,"error":"rate_limit","session_id":"s"}"#
         #expect(parser.consume(Data(rateLimited.utf8)).isEmpty)
+        let forbidden = #"{"type":"system","subtype":"api_retry","attempt":1,"max_retries":10,"retry_delay_ms":500,"error_status":403,"error":"authentication_failed","session_id":"s"}"#
+        #expect(parser.consume(Data(forbidden.utf8)).isEmpty)
     }
 
     /// A rejected key ends the turn at the first retry with the Chief Settings pointer,
@@ -157,7 +159,9 @@ import Testing
                                                               endpoint: .deepInfra(keyFile: key, environmentKey: unsetKey)))
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: ChiefTurnEvent.self, throwing: (any Error).self)
         await session.start(request(), token: token, continuation: continuation, pending: pending)
-        #expect(try await collect(stream) == [.failed(ChiefText.invalidCredential("DeepInfra"))])
+        // The new session's id comes first; nothing else may precede the failure.
+        let events = try await collect(stream).filter { if case .session = $0 { return false } else { return true } }
+        #expect(events == [.failed(ChiefText.invalidCredential("DeepInfra"))])
     }
 
     @Test func theDeepInfraHarnessBuildsAClaudeCodeBrain() {

@@ -110,8 +110,8 @@ struct ClaudeStreamParser: Sendable {
         switch type {
         case "system":
             // A 401 that Claude Code retries (up to ten times, with growing delays) never succeeds.
-            if line["subtype"]?.string == "api_retry",
-               line["error_status"]?.number == 401 || line["error"]?.string == "authentication_failed" {
+            // A 403 is left alone: providers also use it for balance or model access.
+            if line["subtype"]?.string == "api_retry", line["error_status"]?.number == 401 {
                 return [.rejectedCredential]
             }
             guard line["subtype"]?.string == "init", let id = line["session_id"]?.string, id != sessionID else { return [] }
