@@ -11,10 +11,10 @@
       location = "container:Packages/Shared"
       name = "Packages (Shared)">
       <FileRef
-         location = "group:CmuxAgentChat">
+         location = "group:CmuxAPIClient">
       </FileRef>
       <FileRef
-         location = "group:CmuxAPIClient">
+         location = "group:CmuxArtifactCore">
       </FileRef>
       <FileRef
          location = "group:CMUXAuthCore">
@@ -24,6 +24,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxClientConfig">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxConversation">
       </FileRef>
       <FileRef
          location = "group:CmuxGhosttyKit">
@@ -69,7 +72,10 @@
          location = "container:ios/cmuxPackage">
       </FileRef>
       <FileRef
-         location = "group:CmuxAgentChatUI">
+         location = "group:CmuxArtifactUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxConversationUI">
       </FileRef>
       <FileRef
          location = "group:CmuxMobileAnalytics">
@@ -203,6 +209,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxControlSocket">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxConversationHost">
       </FileRef>
       <FileRef
          location = "group:CmuxCore">
