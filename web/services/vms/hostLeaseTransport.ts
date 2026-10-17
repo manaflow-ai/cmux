@@ -292,6 +292,7 @@ export class MemoryVmHostLeaseStore implements VmHostLeaseStore {
   private readonly current = new Map<string, VmHostLeaseRecord>();
   private readonly operations = new Map<string, VmHostLeaseRecord>();
   private readonly pending = new Set<string>();
+  private readonly pendingByLease = new Map<string, string>();
 
   async reserve(input: VmHostLeaseInput, provider: VmHostLeaseProvider): Promise<VmHostLeaseReservation> {
     const key = operationKey(input);
@@ -300,10 +301,13 @@ export class MemoryVmHostLeaseStore implements VmHostLeaseStore {
       assertSameOperation(replay, input, provider);
       return { kind: "replay", record: replay };
     }
-    if (this.pending.has(key)) return { kind: "pending", record: null };
+    const leaseKey = currentKey(input);
+    const pendingKey = this.pendingByLease.get(leaseKey);
+    if (pendingKey) return { kind: "pending", record: null };
     const current = this.current.get(currentKey(input));
     assertCanReserve(current, input, provider);
     this.pending.add(key);
+    this.pendingByLease.set(leaseKey, key);
     return { kind: "new", record: null };
   }
 
@@ -314,10 +318,12 @@ export class MemoryVmHostLeaseStore implements VmHostLeaseStore {
     if (existing) assertSameOperation(existing, input, provider);
     const completed = recordFrom(validateVmHostLeaseInput(input), provider, result);
     const current = this.current.get(currentKey(input));
-    if (current?.state === "released" && input.operation !== "release") {
+    if (current?.state === "released"
+      && (input.operation === "renew" || input.generation <= current.generation)) {
       throw new VmHostLeaseError("lease_expired", "a released host lease cannot be renewed");
     }
     this.pending.delete(key);
+    if (this.pendingByLease.get(currentKey(input)) === key) this.pendingByLease.delete(currentKey(input));
     this.operations.set(key, completed);
     this.current.set(currentKey(input), completed);
     return completed;

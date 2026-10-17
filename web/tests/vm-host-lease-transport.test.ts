@@ -110,6 +110,25 @@ describe("VM host lease transport", () => {
     expect(client.calls).toEqual(["acquire:same-effect"]);
   });
 
+  test("serializes different effects for one lease", async () => {
+    let release!: () => void;
+    const client = fakeClient();
+    const originalRenew = client.renew;
+    client.renew = async (input) => {
+      await new Promise<void>((resolve) => { release = resolve; });
+      return originalRenew(input);
+    };
+    const transport = transportFor("huge-blue", client);
+    const base = { provider: "huge-blue" as const, leaseId: "lease-serial", hostId: "huge-blue:host", ownerId: "worker", generation: 1, ttlMs: 1_000 };
+    await transport.acquire({ ...base, effectKey: "acquire", nowMs: 0 });
+    const first = transport.renew({ ...base, effectKey: "renew-old", nowMs: 100 });
+    await Promise.resolve();
+    await expect(transport.renew({ ...base, effectKey: "renew-new", nowMs: 500 })).rejects.toMatchObject({ code: "lease_conflict" });
+    release();
+    await first;
+    expect(client.calls).toEqual(["acquire:acquire", "renew:renew-old"]);
+  });
+
   test.each(PROVIDERS)("does not let a late renewal resurrect a released lease for %s", async (provider) => {
     const client = fakeClient();
     const transport = transportFor(provider, client);
@@ -117,6 +136,8 @@ describe("VM host lease transport", () => {
     await transport.acquire({ ...base, effectKey: "acquire", nowMs: 0 });
     await transport.release({ ...base, effectKey: "release", nowMs: 100 });
     await expect(transport.renew({ ...base, effectKey: "late-renew", nowMs: 200 })).rejects.toMatchObject({ code: "lease_expired" });
+    const reacquired = await transport.acquire({ ...base, generation: 2, effectKey: "reacquire", nowMs: 300 });
+    expect(reacquired).toMatchObject({ state: "active", generation: 2 });
   });
 
   test("uses the same semantics for a newly registered host class", async () => {

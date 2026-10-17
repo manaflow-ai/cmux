@@ -46,6 +46,12 @@ export class DrizzleVmHostLeaseStore implements VmHostLeaseStore {
         }
         await tx.delete(cloudVmHostLeaseOperations).where(eq(cloudVmHostLeaseOperations.id, operation.id));
       }
+      const pending = (await tx.select({ id: cloudVmHostLeaseOperations.id }).from(cloudVmHostLeaseOperations).where(and(
+        eq(cloudVmHostLeaseOperations.hostId, normalized.hostId),
+        eq(cloudVmHostLeaseOperations.leaseId, normalized.leaseId),
+        eq(cloudVmHostLeaseOperations.status, "pending"),
+      )).limit(1))[0];
+      if (pending) return { kind: "pending", record: null };
       const currentRow = (await tx.select().from(cloudVmHostLeases).where(and(
         eq(cloudVmHostLeases.hostId, normalized.hostId),
         eq(cloudVmHostLeases.leaseId, normalized.leaseId),
@@ -95,7 +101,8 @@ export class DrizzleVmHostLeaseStore implements VmHostLeaseStore {
       if (currentRow && currentRow.ownerId !== normalized.ownerId) {
         throw new VmHostLeaseError("owner_mismatch", "lease completion belongs to another coordinator");
       }
-      if (currentRow && currentRow.state === "released" && normalized.operation !== "release") {
+      if (currentRow && currentRow.state === "released"
+        && (normalized.operation === "renew" || normalized.generation <= currentRow.generation)) {
         throw new VmHostLeaseError("lease_expired", "a released host lease cannot be renewed");
       }
       if (currentRow) {
