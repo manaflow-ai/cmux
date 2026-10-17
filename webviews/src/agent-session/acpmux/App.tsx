@@ -987,6 +987,11 @@ const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
   atLatest: node.scrollTop >= totalHeight - node.clientHeight - 1,
 });
 
+/// The thread's top padding (`.acpmux-thread` in styles.css): every row draws this far below its
+/// layout top.
+const THREAD_INSET = 16;
+/// Room under the last row at the latest message, so it rests above the composer instead of on it.
+const THREAD_END = 16;
 /// Scroll steps of rows mounted ahead in the scroll direction, capped in viewports.
 /// A scroll commits from its event, a frame after the offset moved, so without the
 /// lead a fling shows a blank edge on every frame.
@@ -1462,7 +1467,14 @@ export function VirtualTranscript({
     };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
   }, [estimated, drawn, registry, rows, sessionId, width]);
-  const layout = measured.layout;
+  // The scroll range ends a little past where the last row draws: rows sit THREAD_INSET below their
+  // layout tops, so a followed view that stopped at the layout's own end hid the last row's bottom
+  // 16px and pinned the newest text against the composer (Lucas 2026-10-17); THREAD_END leaves room
+  // under it.
+  const layout = useMemo(
+    () => ({ ...measured.layout, totalHeight: measured.layout.totalHeight + THREAD_INSET + THREAD_END }),
+    [measured.layout],
+  );
   const reportedLayout = useRef<typeof measured | null>(null);
   const reportedEstimate = useRef<typeof estimated | null>(null);
   const sessionSwitched = previousSession.current !== sessionId;
