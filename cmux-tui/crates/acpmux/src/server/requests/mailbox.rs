@@ -25,14 +25,7 @@ pub(super) async fn handle(
                 .get("body")
                 .and_then(Value::as_str)
                 .ok_or_else(|| RpcError::invalid_params("body is required"))?;
-            let metadata = params
-                .get("metadata")
-                .cloned()
-                .unwrap_or_else(|| Value::Object(Default::default()));
-            let metadata: BTreeMap<String, Value> =
-                serde_json::from_value(metadata).map_err(|e| {
-                    RpcError::invalid_params(format!("metadata must be an object: {e}"))
-                })?;
+            let metadata = parse_metadata(params)?;
             let result = hub
                 .mailbox()
                 .send(SendInput { id, sender, recipient, body: body.to_owned(), metadata })
@@ -100,6 +93,15 @@ fn required_string(params: &Value, name: &str) -> Result<String, RpcError> {
         .ok_or_else(|| RpcError::invalid_params(format!("{name} is required")))
 }
 
+fn parse_metadata(params: &Value) -> Result<BTreeMap<String, Value>, RpcError> {
+    match params.get("metadata") {
+        None | Some(Value::Null) => Ok(BTreeMap::new()),
+        Some(metadata) => serde_json::from_value(metadata.clone()).map_err(|e| {
+            RpcError::invalid_params(format!("metadata must be an object: {e}"))
+        }),
+    }
+}
+
 fn map_error(error: MailboxError) -> RpcError {
     match error {
         MailboxError::Storage(error) => RpcError::internal(error.to_string()),
@@ -115,8 +117,9 @@ fn map_error(error: MailboxError) -> RpcError {
 
 #[cfg(test)]
 mod tests {
-    use super::{require_attached, require_local_origin};
+    use super::{parse_metadata, require_attached, require_local_origin};
     use crate::server::Origin;
+    use serde_json::json;
 
     #[test]
     fn remote_mailbox_rpc_is_rejected() {
@@ -154,5 +157,18 @@ mod tests {
         let error =
             require_attached(false, "wait", "session-b").expect_err("detached wait must fail");
         assert!(error.message.contains("mailbox wait"));
+    }
+
+    #[test]
+    fn null_metadata_is_normalized_to_empty_object() {
+        let metadata = parse_metadata(&json!({"metadata": null})).expect("null is valid");
+        assert!(metadata.is_empty());
+    }
+
+    #[test]
+    fn non_object_metadata_is_rejected() {
+        let error = parse_metadata(&json!({"metadata": "invalid"}))
+            .expect_err("metadata must be an object");
+        assert!(error.message.contains("metadata must be an object"));
     }
 }
