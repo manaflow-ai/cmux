@@ -67,4 +67,13 @@ struct CEFBrowserPageMediaTests {
         page.isMuted = false
         #expect(!page.browser.isAudioMuted)
     }
+
+    /// Chrome's sound content-setting observer unmutes a tab on every
+    /// main-frame navigation (dogfood: Mute Tab, navigate, the tone plays), so
+    /// the mute is set again as each document commits and finishes loading.
+    @Test func muteIsReassertedAsEachMainDocumentLoads() {
+        #expect(CEFBrowser.reassertsAudioMute(after: .loadStart(browser: 1, url: "https://a.test/", fromPost: false)))
+        #expect(CEFBrowser.reassertsAudioMute(after: .loadEnd(browser: 1, httpStatus: 200)))
+        #expect(!CEFBrowser.reassertsAudioMute(after: .title(browser: 1, title: "a")))
+    }
 }
