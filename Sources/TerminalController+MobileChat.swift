@@ -585,15 +585,40 @@ extension TerminalController {
         if let refreshed = await service.refreshSessionBindings(sessionID: sessionID) {
             record = refreshed
         }
-        guard let surfaceID = record.surfaceID,
-              UUID(uuidString: surfaceID) != nil,
-              let workspaceID = mobileChatCurrentWorkspaceID(surfaceID: surfaceID) ?? record.workspaceID,
-              let resolved = mobileResolveWorkspaceAndSurface(
-                  params: ["workspace_id": workspaceID, "surface_id": surfaceID],
-                  requireTerminal: true
-              ),
-              let resolvedSurfaceID = resolved.surfaceId,
-              let paneID = resolved.workspace.paneId(forPanelId: resolvedSurfaceID) else {
+        guard let workspaceID = mobileChatCurrentWorkspaceID(surfaceID: record.surfaceID)
+            ?? record.workspaceID else {
+            return .err(
+                code: "not_found",
+                message: Self.chatTerminalBindingErrorMessage,
+                data: ["session_id": sessionID]
+            )
+        }
+        let workspace: Workspace
+        let paneID: PaneID
+        if let surfaceID = record.surfaceID,
+           UUID(uuidString: surfaceID) != nil,
+           let resolved = mobileResolveWorkspaceAndSurface(
+               params: ["workspace_id": workspaceID, "surface_id": surfaceID],
+               requireTerminal: true
+           ),
+           let resolvedSurfaceID = resolved.surfaceId,
+           let sourcePaneID = resolved.workspace.paneId(forPanelId: resolvedSurfaceID) {
+            workspace = resolved.workspace
+            paneID = sourcePaneID
+        } else if action != .fork,
+                  let resolved = mobileResolveWorkspaceAndSurface(
+                      params: ["workspace_id": workspaceID],
+                      requireTerminal: false
+                  ),
+                  let anchorPanelID = resolved.workspace.focusedTerminalInputTarget()?.panel.id
+                      ?? mobileTerminalPanels(in: resolved.workspace).first?.id,
+                  let fallbackPaneID = resolved.workspace.paneId(forPanelId: anchorPanelID) {
+            // A durable ended session can outlive its original terminal. Use
+            // any surviving terminal in the recorded workspace as the anchor
+            // for Resume/Reopen; Fork still requires its source terminal.
+            workspace = resolved.workspace
+            paneID = fallbackPaneID
+        } else {
             return .err(
                 code: "not_found",
                 message: Self.chatTerminalBindingErrorMessage,
@@ -628,7 +653,7 @@ extension TerminalController {
             )
         }
 
-        let panel = resolved.workspace.newTerminalSurface(
+        let panel = workspace.newTerminalSurface(
             inPane: paneID,
             focus: false,
             workingDirectory: record.workingDirectory,
@@ -648,7 +673,7 @@ extension TerminalController {
             "parent_session_id": sessionID,
             "terminal_id": panel.id.uuidString,
         ]
-        payload["workspace_id"] = resolved.workspace.id.uuidString
+        payload["workspace_id"] = workspace.id.uuidString
         if let workingDirectory = record.workingDirectory {
             payload["cwd"] = workingDirectory
         }
