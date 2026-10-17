@@ -174,7 +174,34 @@ struct AgentHookNotificationPolicyTests {
                 agentName: "codex",
                 displayName: "Codex",
                 surfaceTitle: "Unrelated surface title"
-            ) == "Codex"
+        ) == "Codex"
+        )
+    }
+
+    @Test func claudeNotificationTitleIncludesWorkspaceTitle() {
+        #expect(
+            AgentHookNotificationPolicy.notificationTitle(
+                agentName: "claude",
+                displayName: "Claude Code",
+                surfaceTitle: nil,
+                workspaceTitle: "cmux Cloud"
+            ) == "cmux Cloud · Claude Code"
+        )
+        #expect(
+            AgentHookNotificationPolicy.notificationTitle(
+                agentName: "claude",
+                displayName: "Claude Code",
+                surfaceTitle: nil,
+                workspaceTitle: "Claude Code"
+            ) == "Claude Code"
+        )
+        #expect(
+            AgentHookNotificationPolicy.notificationTitle(
+                agentName: "claude",
+                displayName: "Claude Code",
+                surfaceTitle: nil,
+                workspaceTitle: ""
+            ) == "Claude Code"
         )
     }
 
