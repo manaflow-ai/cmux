@@ -25,6 +25,23 @@ public nonisolated enum AgentPaneTopStripStyle: String, Sendable, CaseIterable, 
     }
 }
 
+/// How the agent pane draws thoughts, for comparing designs: `agentPane.debug.thoughtStyle`
+/// (webviews conversation/thoughtStyle.ts).
+public nonisolated enum AgentPaneThoughtStyle: String, Sendable, CaseIterable, TunableChoice {
+    /// Today's: a muted "Thought" beside its text; notes between steps draw as replies.
+    case plain
+    /// A brain and the thought's first line, which opens to "Thoughts" over the whole text; notes
+    /// between steps in an open "Worked for" draw the same way (Lucas 2026-10-17).
+    case brain
+
+    public var tunableTitle: String {
+        switch self {
+        case .plain: "Plain (Thought beside its text)"
+        case .brain: "Brain (one line that opens to Thoughts)"
+        }
+    }
+}
+
 /// Debug Settings declarations of the agent pane (DEV and NIGHTLY).
 public nonisolated struct AgentPaneTunables {
     public nonisolated init() {}
@@ -89,6 +106,13 @@ public nonisolated struct AgentPaneTunables {
         help: "A finished thought taller than the transcript folds to one line that opens to its text. New agent tabs.",
         default: false, code: "AgentPaneTunables.foldLongThoughts")
 
+    /// The thoughts' look (webviews conversation/thoughtStyle.ts): `plain` sets nothing, so the
+    /// page draws as before; `brain` sets `data-thought-style` on `<html>`. New agent tabs read it.
+    public static let thoughtStyle = Tunable<AgentPaneThoughtStyle>.choice(
+        "agentPane.debug.thoughtStyle", PageTunables.section, "Thought style",
+        help: "Plain: a muted Thought beside its text. Brain: one line with a brain that opens to the whole thought; notes between steps in an open Worked for draw the same way. New agent tabs.",
+        default: .plain, code: "AgentPaneTunables.thoughtStyle")
+
     /// The top strip's look (webviews composerLocation.css): `default` sets nothing, so the page
     /// draws as before; the others set `data-top-strip` on `<html>`. New agent tabs read it.
     public static let topStripStyle = Tunable<AgentPaneTopStripStyle>.choice(
@@ -125,13 +149,18 @@ public nonisolated struct AgentPaneTunables {
 
     /// The page's `<html>` `data-*` attributes from these tunables.
     static var documentAttributes: [String: String] {
-        attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value)
+        attributes(
+            foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
+            thoughtStyle: thoughtStyle.value)
     }
 
-    static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle) -> [String: String] {
+    static func attributes(
+        foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle, thoughtStyle: AgentPaneThoughtStyle = .plain
+    ) -> [String: String] {
         var attributes: [String: String] = [:]
         if foldLongThoughts { attributes["fold-long-thoughts"] = "on" }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
+        if thoughtStyle != .plain { attributes["thought-style"] = thoughtStyle.rawValue }
         return attributes
     }
 
@@ -154,5 +183,5 @@ public nonisolated struct AgentPaneTunables {
         help: "The composer's reasoning menu shows a slider from Faster to Smarter instead of the list of levels.",
         default: false, code: "AgentPaneTunables.reasoningSlider")
 
-    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor] }
+    public static var all: [TunableDescriptor] { [pageHost.descriptor, chatWidth.descriptor, foldLongThoughts.descriptor, thoughtStyle.descriptor, topStripStyle.descriptor, codexToolRuns.descriptor, terminalButtonAdds.descriptor, suggestedTasks.descriptor, sideSessions.descriptor, reasoningSlider.descriptor] }
 }

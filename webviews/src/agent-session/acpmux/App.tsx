@@ -126,6 +126,8 @@ import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
 import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
+import { ThoughtFold } from "./conversation/ThoughtFold";
+import { isThoughtNote } from "./conversation/thoughtStyle";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
@@ -563,6 +565,13 @@ const MessageRow = memo(
         </div>
       );
     }
+    // A note between steps, under an open "Worked for", as a thought line (thoughtStyle.ts).
+    if (isThoughtNote(row))
+      return (
+        <div className="cv-tools">
+          <ThoughtFold id={row.id} text={row.text ?? ""} githubRepository={githubRepository} />
+        </div>
+      );
     return (
       <RevealedMarkdown text={row.text ?? ""} streaming={row.streaming === true} githubRepository={githubRepository} />
     );
@@ -952,7 +961,8 @@ const speaker = (kind: string, t: Translate) =>
 const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
 /// A row drawn as tool rows: tool calls and thoughts, or a background task's end.
 const isStepRow = (row: AcpmuxRow | undefined) =>
-  row !== undefined && (row.kind === "backgroundTask" || (row.kind === "activity" && !isEditRow(row)));
+  row !== undefined &&
+  (row.kind === "backgroundTask" || (row.kind === "activity" && !isEditRow(row)) || isThoughtNote(row));
 const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
 const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
   const ids: string[] = [];

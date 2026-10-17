@@ -3,6 +3,8 @@ import type { AcpmuxActivity } from "../model";
 import { useT } from "../i18n";
 import { useFindReveal } from "./chatFind";
 import { ChevronRight } from "./icons";
+import { ThoughtFold } from "./ThoughtFold";
+import { thoughtStyle } from "./thoughtStyle";
 
 /// A done thought folds once it is taller than the transcript's viewport, and never under this
 /// (20 of the tool rows' 20px lines), so a small pane does not fold every thought.
@@ -38,15 +40,14 @@ export function thoughtPreview(text: string): string {
 /// streams and folds to one line once done, as Codex folds work when its next output starts; the
 /// reader's toggle always wins over the fold (`choice ?? !folds`). The fold snaps; the reader's
 /// toggle animates the height, except under Reduce Motion.
-export function ThoughtRow({
-  item,
-  id,
-  streaming = false,
-}: {
-  item: AcpmuxActivity;
-  id?: string;
-  streaming?: boolean;
-}) {
+export function ThoughtRow(props: { item: AcpmuxActivity; id?: string; streaming?: boolean }) {
+  // The Debug choice agentPane.debug.thoughtStyle (thoughtStyle.ts): a brain line that opens.
+  if (thoughtStyle.current() === "brain")
+    return <ThoughtFold id={props.id} text={props.item.text.trim()} streaming={props.streaming} />;
+  return <PlainThoughtRow {...props} />;
+}
+
+function PlainThoughtRow({ item, id, streaming = false }: { item: AcpmuxActivity; id?: string; streaming?: boolean }) {
   const t = useT();
   const text = item.text.trim();
   const enabled = thoughtLayout.enabled();

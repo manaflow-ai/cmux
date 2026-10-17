@@ -1108,6 +1108,19 @@ pre.cv-math-source {
   line-height: 20px;
   overflow: hidden;
 }
+/* A thought as one quiet line (Debug thought style "brain", ThoughtFold.tsx): a brain and the
+   thought's first line on the tool rows' rhythm; opened, the line reads "Thoughts" and the whole
+   text sits under a left rule in the transcript's own color, so it reads a layer below the
+   answer without fading out. */
+.cv-thought-fold.is-streaming .cv-thought-fold__line {
+  color: var(--cv-text-muted);
+}
+.cv-thought-fold__body {
+  margin: 2px 0 8px 7.5px;
+  padding-left: 14.5px;
+  border-left: 1px solid var(--cv-rule);
+  color: var(--cv-text);
+}
 .cv-tool.is-toggle {
   cursor: pointer;
   user-select: none;

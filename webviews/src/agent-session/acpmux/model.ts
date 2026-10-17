@@ -9,6 +9,7 @@ import { safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
+import { isThoughtNote } from "./conversation/thoughtStyle";
 import type { ComposerAttachment } from "./attachments";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
@@ -590,6 +591,8 @@ function lexIncrementally(entry: PreparedRow, text: string): void {
 function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>): number {
   // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
   if (row.received) return 26 + 16;
+  // A note between steps drawn as a closed thought line, as a one-call tool row.
+  if (isThoughtNote(row)) return 36;
   if (!row.text) return fallbackRowHeight(row, width);
   let entry = cache.get(row.id);
   if (!entry) {

@@ -38,6 +38,9 @@ if (devHost) installDevHost(devHost);
 else if (params.has("mock") && !window.webkit?.messageHandlers?.agentSession)
   window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
 if (params.get("recents") === "demo") seedDevRecents();
+// `?data-<name>=<value>` sets what the app's Debug choices set on <html> before the page loads
+// (AgentPaneTunables.documentAttributes), e.g. `?mock&data-thought-style=brain`.
+for (const [name, value] of params) if (/^data-[a-z-]+$/.test(name)) document.documentElement.setAttribute(name, value);
 // The dev server has no locales/<code>.js: install the whole string table before the pane loads.
 globalThis.__cmuxPaneStrings ??= (await import("./generated/strings.json")).default;
 await import("./main");
