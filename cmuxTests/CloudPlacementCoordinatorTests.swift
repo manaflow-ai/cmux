@@ -189,30 +189,44 @@ struct CloudPlacementCoordinatorTests {
     }
 
     @Test func aCloudBrowserDroppedIntoItsMachinesWorkspaceOpensAsANewBrowserAtItsCurrentPage() {
-        let (catalog, _) = Self.harness(bound: UUID())
-        let browser = Self.browser("docs", view: SurfaceRemoteView(tabID: "tab_docs", workspace: Self.main))
+        let mirrored = UUID(), viewer = UUID()
+        let (catalog, _) = Self.harness(bound: mirrored)
+        let other = SurfaceRemoteWorkspace(id: "ws_other", name: "other", index: 2, focused: false)
+        var browser = Self.browser("docs", view: SurfaceRemoteView(tabID: "tab_docs", workspace: Self.main))
+        browser.remoteViews?.append(SurfaceRemoteView(tabID: "tab_other", workspace: other))
         let terminal = Self.terminal("term_1", views: [SurfaceRemoteView(tabID: "tab_1", workspace: Self.main)])
         catalog.replaceResources([browser, terminal], on: Self.machine)
-        let panel = UUID()
-        catalog.record(SurfaceProjection(
-            resource: browser.id, workspaceID: UUID(), panelID: panel,
-            remoteWorkspaceID: Self.main.id, remoteTabID: "tab_docs"
-        ))
+        let docsPanel = UUID(), otherPanel = UUID()
         let navigated = URL(string: "https://example.com/navigated")!
-        catalog.cloudBrowserDocuments[browser.id] = [panel: SurfaceCatalog.CloudBrowserDocument(
-            url: navigated, title: "Navigated", remoteTabID: "tab_docs", revision: 1
-        )]
-        let browserGroup = SurfaceResourceGroup(single: browser)
+        catalog.cloudBrowserDocuments[browser.id] = [
+            docsPanel: SurfaceCatalog.CloudBrowserDocument(
+                url: navigated, title: "Navigated", remoteTabID: "tab_docs", revision: 1
+            ),
+            otherPanel: SurfaceCatalog.CloudBrowserDocument(
+                url: URL(string: "https://example.com/other")!, title: "Other", remoteTabID: "tab_other", revision: 2
+            ),
+        ]
+        let dragged = SurfaceResourceGroup(
+            title: "docs",
+            placements: [SurfaceResourcePlacement(resource: browser.id, remoteView: browser.remoteViews?.first)]
+        )
 
-        // The machine cannot place one daemon tab twice, so a drop into a
-        // workspace mirrored to that machine is a new browser at the same page.
-        #expect(catalog.cloudBrowserCopyURL(for: browserGroup, intoWorkspaceOn: Self.machine) == navigated)
-        #expect(catalog.cloudBrowserCopyURL(for: browserGroup, intoWorkspaceOn: nil) == nil)
-        #expect(catalog.cloudBrowserCopyURL(for: browserGroup, intoWorkspaceOn: .cloud("other-machine")) == nil)
-        #expect(catalog.cloudBrowserCopyURL(for: SurfaceResourceGroup(single: terminal), intoWorkspaceOn: Self.machine) == nil)
+        // The machine cannot place one daemon tab twice, so a drop into a workspace
+        // mirrored to that machine is a new browser at the dragged view's page.
+        #expect(catalog.cloudBrowserCopyURL(for: dragged, intoWorkspace: mirrored) == navigated)
+        // A viewer workspace keeps showing the dragged tab itself.
+        #expect(catalog.cloudBrowserCopyURL(for: dragged, intoWorkspace: viewer) == nil)
+        #expect(catalog.cloudBrowserCopyURL(for: SurfaceResourceGroup(single: terminal), intoWorkspace: mirrored) == nil)
         #expect(catalog.cloudBrowserCopyURL(
             for: SurfaceResourceGroup(title: "both", resources: [browser.id, terminal.id]),
-            intoWorkspaceOn: Self.machine
+            intoWorkspace: mirrored
+        ) == nil)
+        #expect(catalog.cloudBrowserCopyURL(
+            for: SurfaceResourceGroup(
+                title: "main", placements: dragged.placements,
+                remoteWorkspaceID: Self.main.id, representsWorkspace: true
+            ),
+            intoWorkspace: mirrored
         ) == nil)
     }
 
