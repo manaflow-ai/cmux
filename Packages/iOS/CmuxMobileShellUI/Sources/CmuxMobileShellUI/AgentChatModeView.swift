@@ -6,6 +6,7 @@ import CmuxMobileSupport
 import PhotosUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// A dedicated ChatGPT/Codex-style mode for coding-agent sessions.
 ///
@@ -890,8 +891,8 @@ private struct AgentExecutionContextBar: View {
                     if let cwd = session.workingDirectory {
                         AgentContextPill(
                             title: cwd,
-                            subtitle: "Worktree",
-                            systemImage: "point.3.connected.trianglepath.dotted"
+                            subtitle: "Working directory",
+                            systemImage: "folder"
                         )
                     }
                 }
@@ -1501,6 +1502,7 @@ private struct AgentChatComposer: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var isPhotoPickerPresented = false
     @State private var photoSelection: [PhotosPickerItem] = []
+    @State private var isFileImporterPresented = false
     @State private var isStagingAttachments = false
     @State private var attachmentErrorMessage: String?
     @State private var dictation: ComposerDictationController
@@ -1605,6 +1607,11 @@ private struct AgentChatComposer: View {
                         Task { await model.stagePastedImages() }
                     } label: {
                         Label("Paste Image", systemImage: "doc.on.clipboard")
+                    }
+                    Button {
+                        isFileImporterPresented = true
+                    } label: {
+                        Label("Choose File", systemImage: "doc")
                     }
                 } label: {
                     Image(systemName: "plus")
@@ -1711,6 +1718,18 @@ private struct AgentChatComposer: View {
             maxSelectionCount: max(1, 10 - model.attachments.count),
             matching: .images
         )
+        .fileImporter(
+            isPresented: $isFileImporterPresented,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: true
+        ) { result in
+            switch result {
+            case .success(let urls):
+                Task { await stageFiles(urls) }
+            case .failure(let error):
+                attachmentErrorMessage = error.localizedDescription
+            }
+        }
         .onChange(of: photoSelection) { _, items in
             guard !items.isEmpty else { return }
             Task {
@@ -1788,6 +1807,48 @@ private struct AgentChatComposer: View {
         }
     }
 
+    private func stageFiles(_ urls: [URL]) async {
+        let remaining = max(0, 10 - model.attachments.count)
+        guard remaining > 0 else { return }
+        isStagingAttachments = true
+        defer { isStagingAttachments = false }
+        attachmentErrorMessage = nil
+        var failures = 0
+        for url in urls.prefix(remaining) {
+            guard !Task.isCancelled else { return }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer {
+                if scoped { url.stopAccessingSecurityScopedResource() }
+            }
+            do {
+                let values = try url.resourceValues(forKeys: [.fileSizeKey])
+                guard let fileSize = values.fileSize,
+                      fileSize <= 32 * 1024 * 1024 else {
+                    failures += 1
+                    continue
+                }
+                let data = try Data(contentsOf: url, options: .mappedIfSafe)
+                guard data.count <= 32 * 1024 * 1024 else {
+                    failures += 1
+                    continue
+                }
+                let name = url.lastPathComponent.isEmpty ? "attachment" : url.lastPathComponent
+                model.addAttachment(.init(
+                    displayName: name,
+                    data: data,
+                    format: .file
+                ))
+            } catch {
+                failures += 1
+            }
+        }
+        if failures > 0 {
+            attachmentErrorMessage = failures == 1
+                ? "That file could not be attached. Files must be 32 MB or smaller."
+                : "Some files could not be attached. Files must be 32 MB or smaller."
+        }
+    }
+
     private func toggleDictation() {
         dictation.toggle(existingText: model.draft) { merged in
             model.draft = merged
@@ -1828,7 +1889,7 @@ private struct AgentChatAttachmentChip: View {
                     .frame(width: 42, height: 42)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             } else {
-                Image(systemName: "photo")
+                Image(systemName: attachment.format == .file ? "doc" : "photo")
                     .frame(width: 42, height: 42)
                     .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             }
