@@ -361,8 +361,12 @@ final class AgentChatTranscriptService {
         switch event.hookEventName {
         case .permissionRequest:
             notePermissionRequest(event, sessionID: record.sessionID, agentKind: record.agentKind)
-        case .askUserQuestion where record.agentKind == .other("opencode"),
-             .exitPlanMode where record.agentKind == .other("opencode"):
+        // Claude and OpenCode both surface these hook-only interactions
+        // outside their JSONL transcript. Keep them in the same typed chat
+        // stream so a mobile answer wakes the exact blocking feed request;
+        // Codex generally carries request_user_input in its transcript and
+        // is handled by the parser, but accepting the hook form is harmless.
+        case .askUserQuestion, .exitPlanMode:
             noteQuestionRequest(event, sessionID: record.sessionID, agentKind: record.agentKind)
         case .stop:
             expirePermissionRequests(sessionID: record.sessionID)

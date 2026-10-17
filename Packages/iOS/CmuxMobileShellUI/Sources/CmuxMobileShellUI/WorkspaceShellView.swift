@@ -414,7 +414,11 @@ struct WorkspaceShellView: View {
                 notificationFeedProjection.update(items: items)
             }
         }
-        .sheet(isPresented: $showsAgentChatMode) {
+        // Agent Chat is a primary work mode. Present it full-screen so the
+        // transcript and composer get the same room as the first-party mobile
+        // coding-agent surfaces, rather than leaving a half-height sheet over
+        // the workspace list on iPhone.
+        .fullScreenCover(isPresented: $showsAgentChatMode) {
             AgentChatModeView(store: store)
         }
         #endif

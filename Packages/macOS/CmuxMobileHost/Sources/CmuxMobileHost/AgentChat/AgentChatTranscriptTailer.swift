@@ -640,18 +640,84 @@ public actor AgentChatTranscriptTailer {
         database: OpaquePointer,
         sessionID: String
     ) -> OpenCodeSessionMessageReadResult {
+        // OpenCode has shipped more than one `session_message` schema. In
+        // particular, early/current development databases can omit the
+        // ordering and timestamp columns while retaining the canonical
+        // id/type/data/session_id payload. Discover optional columns before
+        // preparing the read so a missing `seq` or `time_created` does not
+        // turn an otherwise readable transcript into a permanent failure.
+        let tableInfoQuery = "PRAGMA table_info('session_message')"
+        var tableInfoStatement: OpaquePointer?
+        let tableInfoPrepared = sqlite3_prepare_v2(
+            database,
+            tableInfoQuery,
+            -1,
+            &tableInfoStatement,
+            nil
+        )
+        guard tableInfoPrepared == SQLITE_OK, let tableInfoStatement else {
+            sqlite3_finalize(tableInfoStatement)
+            let error = String(cString: sqlite3_errmsg(database))
+            return error.contains("no such table") ? .missing : .failed
+        }
+        defer { sqlite3_finalize(tableInfoStatement) }
+
+        var columns = Set<String>()
+        var tableInfoStep = sqlite3_step(tableInfoStatement)
+        while tableInfoStep == SQLITE_ROW {
+            if let name = sqliteText(tableInfoStatement, 1)?.lowercased() {
+                columns.insert(name)
+            }
+            tableInfoStep = sqlite3_step(tableInfoStatement)
+        }
+        guard tableInfoStep == SQLITE_DONE else {
+            // A schema read can race a checkpoint/migration. Preserve the
+            // current transcript and let the next invalidation retry it.
+            return .failed
+        }
+        guard !columns.isEmpty else {
+            // `PRAGMA table_info` returns no rows for a missing table. Keep
+            // the old missing-schema behavior without treating it as a
+            // transient read failure.
+            return .missing
+        }
+        guard ["id", "type", "data", "session_id"].allSatisfy(columns.contains) else {
+            // The table exists but is not a transcript table we understand.
+            // Do not manufacture an empty transcript from it.
+            return .failed
+        }
+
+        let hasSequence = columns.contains("seq")
+        let hasTimestamp = columns.contains("time_created")
+        var selectedColumns = ["id", "type", "data"]
+        if hasTimestamp {
+            selectedColumns.append("time_created")
+        }
+        var orderColumns = [String]()
+        if hasSequence {
+            orderColumns.append("seq")
+        }
+        if hasTimestamp {
+            orderColumns.append("time_created")
+        }
+        // Stable id ordering is the safe fallback when neither sequence nor
+        // creation time exists in a schema variant.
+        orderColumns.append("id")
         let query = """
-            SELECT id, type, data, time_created
+            SELECT \(selectedColumns.joined(separator: ", "))
             FROM session_message
             WHERE session_id = ?
-            ORDER BY seq, time_created, id
+            ORDER BY \(orderColumns.joined(separator: ", "))
             """
         var statement: OpaquePointer?
         let prepared = sqlite3_prepare_v2(database, query, -1, &statement, nil)
         guard prepared == SQLITE_OK, let statement else {
             sqlite3_finalize(statement)
-            let error = String(cString: sqlite3_errmsg(database))
-            return error.contains("no such table") ? .missing : .failed
+            // `table_info` succeeded above, so a prepare failure here means
+            // the schema changed or the database is transiently unavailable.
+            // Treat it as a failed read; returning `.missing` would let the
+            // caller manufacture an empty transcript during a migration.
+            return .failed
         }
         defer { sqlite3_finalize(statement) }
         let transient = unsafeBitCast(
@@ -670,7 +736,7 @@ public actor AgentChatTranscriptTailer {
             let object = jsonObject(sqliteText(statement, 2)) ?? [:]
             let timestamp = openCodeTimestamp(
                 object: object,
-                sqliteMilliseconds: sqliteDateValue(statement, 3)
+                sqliteMilliseconds: hasTimestamp ? sqliteDateValue(statement, 3) : nil
             ) ?? Date(timeIntervalSince1970: 0)
             // V2 calls this array `content`; a few development builds used
             // `parts`, so accept both while keeping each element's stable

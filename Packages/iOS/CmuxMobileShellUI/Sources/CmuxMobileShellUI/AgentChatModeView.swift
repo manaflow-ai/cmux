@@ -72,6 +72,7 @@ struct AgentChatModeView: View {
             }
             .presentationDetents([.medium])
         }
+        .accessibilityIdentifier("MobileAgentChatMode")
     }
 
     private func updateSourceAndRefresh() async {
@@ -579,6 +580,7 @@ private struct AgentChatTranscriptView: View {
             AgentChatComposer(model: model, focused: $composerFocused)
         }
         .background(Color(.systemBackground))
+        .accessibilityIdentifier("MobileAgentConversation")
         .refreshable { await model.refresh() }
     }
 }
@@ -861,31 +863,56 @@ private struct AgentPermissionCard: View {
 private struct AgentQuestionCard: View {
     let question: ChatQuestion
     let answer: ((Int) -> Void)?
+
+    private var isPlanReview: Bool {
+        let labels = question.options.map { $0.label.lowercased() }
+        return labels.contains(where: { $0.contains("approve plan") })
+            && labels.contains(where: { $0.contains("reject plan") })
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(question.prompt).font(.headline)
+            if isPlanReview {
+                Label("Plan ready for review", systemImage: "checklist")
+                    .font(.headline)
+            }
+            Text(question.prompt).font(isPlanReview ? .body : .headline)
             if let selected = question.selectedOptionLabel {
                 Label("Answered: \(selected)", systemImage: "checkmark.circle.fill")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.green)
             }
             ForEach(Array(question.options.enumerated()), id: \.offset) { index, option in
-                Button {
-                    answer?(index)
-                } label: {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(option.label).font(.subheadline.weight(.semibold))
-                        if let detail = option.detail { Text(detail).font(.caption).foregroundStyle(.secondary) }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-                .disabled(question.selectedOptionLabel != nil)
+                optionButton(index: index, option: option)
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    @ViewBuilder
+    private func optionButton(index: Int, option: ChatQuestion.Option) -> some View {
+        let button = Button {
+            answer?(index)
+        } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(option.label).font(.subheadline.weight(.semibold))
+                if let detail = option.detail {
+                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        if index == 0 && isPlanReview {
+            button
+                .buttonStyle(.borderedProminent)
+                .disabled(question.selectedOptionLabel != nil)
+        } else {
+            button
+                .buttonStyle(.bordered)
+                .disabled(question.selectedOptionLabel != nil)
+        }
     }
 }
 
@@ -895,8 +922,23 @@ private struct AgentChatComposer: View {
     @State private var isPhotoPickerPresented = false
     @State private var photoSelection: [PhotosPickerItem] = []
 
+    private var isSessionEnded: Bool {
+        model.selectedSession?.state == .ended
+    }
+
     var body: some View {
         VStack(spacing: 6) {
+            if model.queuedSendCount > 0 {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock.arrow.circlepath")
+                    Text("\(model.queuedSendCount) message queued")
+                    Spacer()
+                }
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
+                .accessibilityElement(children: .combine)
+            }
             if !model.attachments.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -926,32 +968,33 @@ private struct AgentChatComposer: View {
                         .font(.body.weight(.semibold))
                 }
                 .accessibilityLabel("Add attachment")
-                .disabled(model.attachments.count >= 10)
-                TextField("Message your agent", text: $model.draft, axis: .vertical)
+                .disabled(isSessionEnded || model.attachments.count >= 10)
+                TextField(
+                    isSessionEnded ? "Session ended" : "Message your agent",
+                    text: $model.draft,
+                    axis: .vertical
+                )
                     .lineLimit(1...6)
                     .focused(focused)
                     .textFieldStyle(.plain)
                     .padding(.vertical, 10)
+                    .disabled(isSessionEnded)
                 if model.selectedSession?.isWorking == true {
                     Button { Task { await model.interrupt() } } label: {
                         Image(systemName: "stop.circle.fill")
                     }
                     .foregroundStyle(.red)
                     .accessibilityLabel("Stop agent")
-                } else {
-                    Button { Task { await model.sendDraft() } } label: {
-                        Image(systemName: "arrow.up.circle.fill")
-                    }
-                    .foregroundStyle(
-                        model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && model.attachments.isEmpty
-                            ? Color.secondary : Color.accentColor
-                    )
-                    .disabled(
-                        model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        && model.attachments.isEmpty
-                    )
-                    .accessibilityLabel("Send")
+                    .disabled(isSessionEnded)
                 }
+                Button { Task { await model.sendDraft() } } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                }
+                .foregroundStyle(
+                    canSend ? Color.accentColor : Color.secondary
+                )
+                .disabled(!canSend)
+                .accessibilityLabel(model.selectedSession?.isWorking == true ? "Queue message" : "Send")
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -959,6 +1002,9 @@ private struct AgentChatComposer: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileAgentComposer")
+        .accessibilityHint(isSessionEnded ? "This agent session has ended and is read only." : "")
         .photosPicker(
             isPresented: $isPhotoPickerPresented,
             selection: $photoSelection,
@@ -972,6 +1018,12 @@ private struct AgentChatComposer: View {
                 photoSelection = []
             }
         }
+    }
+
+    private var canSend: Bool {
+        !isSessionEnded
+            && (!model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !model.attachments.isEmpty)
     }
 
     private func stagePhotos(_ items: [PhotosPickerItem]) async {

@@ -108,4 +108,39 @@ struct AgentChatTranscriptTailerOpenCodeTests {
             Issue.record("expected v2 shell message to become terminal")
         }
     }
+
+    @Test func readsOpenCodeSessionMessageSchemaWithoutOrderingColumns() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-no-ordering-(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let databaseURL = directory.appendingPathComponent("opencode.db")
+        var database: OpaquePointer?
+        #expect(sqlite3_open(databaseURL.path, &database) == SQLITE_OK)
+        guard let database else { return }
+        defer { sqlite3_close(database) }
+        let schema = """
+            CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT, type TEXT, data TEXT);
+            INSERT INTO session_message VALUES ('message_b', 'ses_legacy', 'user', '{"text":"second"}');
+            INSERT INTO session_message VALUES ('message_a', 'ses_legacy', 'assistant', '{"text":"first"}');
+            """
+        var error: UnsafeMutablePointer<CChar>?
+        #expect(sqlite3_exec(database, schema, nil, nil, &error) == SQLITE_OK)
+        sqlite3_free(error)
+
+        let tailer = AgentChatTranscriptTailer(
+            sessionID: "ses_legacy",
+            agentKind: .other("opencode"),
+            path: databaseURL.path,
+            onBatch: { _ in }
+        )
+        await tailer.start()
+        let page = await tailer.history(beforeSeq: nil, limit: 20)
+        await tailer.stop()
+
+        #expect(page.messages.count == 2)
+        guard page.messages.count == 2 else { return }
+        #expect(page.messages[0].id == "opencode:message_a")
+        #expect(page.messages[1].id == "opencode:message_b")
+    }
 }
