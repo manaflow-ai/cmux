@@ -2,7 +2,6 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
-import CmuxNextLayout
 import Foundation
 
 /// The tab key a split's page got from the store, for its Open Tabs moves.
@@ -85,15 +84,12 @@ extension NewTabPage {
                 for await located in ObservationStream({ services.locateTab(key) != nil }) where located { break }
             }
             guard case let (tab, pane)? = services.locateTab(key) else { return nil }
-            let axis: SplitAxis = edge == .left || edge == .right ? .horizontal : .vertical
-            let sizing = source.workspace?.layoutModel.splitSizingChanges(splitting: source.layoutPaneID, axis: axis) ?? []
             TabMoves.toNewSplit(tab, pane: pane, edge: edge, services: services) { moved in
                 let input = services.keyRouter.newTabInputCoordinator
                 // A failed move leaves the page unselected in its pane: the held keys go on now.
                 guard let source else { return input.endIncoming(keys, pageMade: false) }
                 source.dockFinished(key)
                 guard moved, let content = source.workspace else { return input.endIncoming(keys, pageMade: false) }
-                content.layoutModel.applySplitSizing(sizing)
                 NewChatPlacement.focusWhenShown(key, in: content, leaving: source.layoutPaneID, services: services)
                 // The page shows in its new pane: a field that reported ready may take the keys now.
                 input.flushAll()
