@@ -38,6 +38,7 @@ struct ChatSessionReconcilerTests {
     }
 
     @Test("List replacement keeps a concurrent newer push and removes gone sessions") {
+    func listReplacement() {
         var reducer = ChatSessionReconciler()
         reducer.replace(with: [descriptor("gone", version: 1), descriptor("live", version: 4)])
         #expect(reducer.upsert(descriptor("live", version: 5, state: .working(since: .now))))
