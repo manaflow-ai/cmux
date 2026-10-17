@@ -460,8 +460,10 @@ import Testing
         await model.sendDraft()
         await source.setFailSends(false)
         await model.retryLastTurn()
+        model.draft = "third prompt"
+        await model.sendDraft()
 
-        #expect((await source.sent).map(\.0) == ["first prompt"])
+        #expect((await source.sent).map(\.0) == ["first prompt", "second prompt", "third prompt"])
     }
 
     @Test func failedSteeredTurnRetriesTheSteeredInstruction() async {

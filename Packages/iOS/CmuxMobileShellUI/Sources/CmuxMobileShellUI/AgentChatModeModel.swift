@@ -431,6 +431,17 @@ final class AgentChatModeModel {
               let queued = lastTurnBySession[selectedSessionID],
               retryingSessionIDs.insert(selectedSessionID).inserted else { return }
         defer { retryingSessionIDs.remove(selectedSessionID) }
+        // A failed queued send is reinserted at the head of the queue. Retry
+        // transmits that item directly, so consume the matching queue entry
+        // first; otherwise the next ordinary send would deliver the same
+        // prompt a second time after a successful retry.
+        if var pending = pendingSendsBySession[selectedSessionID],
+           let first = pending.first,
+           first.text == queued.text,
+           first.attachments == queued.attachments {
+            pending.removeFirst()
+            pendingSendsBySession[selectedSessionID] = pending.isEmpty ? nil : pending
+        }
         let generation = sourceGeneration
         guard generation == sourceGeneration, !Task.isCancelled else { return }
         do {
