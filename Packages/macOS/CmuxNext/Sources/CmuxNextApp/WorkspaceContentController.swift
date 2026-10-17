@@ -43,22 +43,16 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// through it.
     let focus: FocusCoordinator
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
-    /// Kept mounted off screen by its window (a recently shown workspace):
-    /// its panes are paused in the keep-alive band and it sends no focus
-    /// events, because the window's focus follows the shown workspace.
+    /// Kept mounted off screen by its window (a workspace it showed): its panes report hidden, so
+    /// their surfaces pause and only the warm set's LRU may destroy one; it sends no focus events,
+    /// because the window's focus follows the shown workspace.
     private(set) var isParked = false
 
     /// Parks this content before its window shows another workspace.
-    func park() {
-        isParked = true
-        layoutView.keepsPanesWhenDetached = true
-    }
+    func park() { isParked = true }
 
     /// Shows this parked content again: its observation kept the tree current, so no re-map or apply.
-    func unpark() {
-        isParked = false
-        layoutView.keepsPanesWhenDetached = false
-    }
+    func unpark() { isParked = false }
 
     /// Installed: one topology (the coordinator restores its pane), whose ring draws in this frame.
     func didShow() {

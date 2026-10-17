@@ -160,7 +160,7 @@ final class AppBrowserHost {
     static func window(ofWorkspace workspaceID: String, in services: AppServices) -> WindowController? {
         let controllers = services.windows.controllers
         if let shown = controllers.first(where: { $0.content?.workspace.id == workspaceID }) { return shown }
-        return controllers.first { controller in controller.parked.contains { $0.workspace.id == workspaceID } }
+        return controllers.first { controller in controller.parked[workspaceID] != nil }
     }
 
     /// One provider per install: a random id kept in the app's defaults.

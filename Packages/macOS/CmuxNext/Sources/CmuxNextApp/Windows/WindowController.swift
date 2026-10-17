@@ -25,11 +25,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// Built in init (lazy because it holds self; no IUO).
     private(set) lazy var focusApplier = FocusEffectApplier(controller: self)
     private(set) var content: WorkspaceContentController?
-    /// Recently shown workspaces kept mounted and paused, oldest first
-    /// (plans/cmux-next/tab-lifecycle.md): switching back to one swaps its
-    /// view in within the frame, with no surface re-attach or blank frame.
-    private(set) var parked: [WorkspaceContentController] = []
-    private var parkedBudget = WarmSetBudget.standard
+    /// Every workspace this window showed, by id, kept mounted and paused (plans/cmux-next/tab-lifecycle.md):
+    /// a switch back swaps its view in within the frame. Only its GPU surfaces leave, under the one memory
+    /// budget (`SurfaceLedger`'s LRU of hidden surfaces); the tree, panes and strips stay (perf I6).
+    private(set) var parked: [String: WorkspaceContentController] = [:]
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
@@ -107,7 +106,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         roomObservation?.cancel()
         content?.teardown()
         content = nil
-        parked.forEach { $0.teardown() }
+        parked.values.forEach { $0.teardown() }
         parked.removeAll()
         topPages.teardown()
         sidebar.teardown()
@@ -127,7 +126,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// The shown workspace and the parked ones, each with its theme scope.
-    var mountedContents: [WorkspaceContentController] { (content.map { [$0] } ?? []) + parked }
+    var mountedContents: [WorkspaceContentController] { (content.map { [$0] } ?? []) + parked.values }
 
     private func observeWorkspace() {
         let machines = services.machines
@@ -158,11 +157,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// (launch, a Cloud machine reconnecting) the connecting state shows.
     func showWorkspace(requested: String?) {
         let machines = services.machines
-        // A parked workspace that closed (or whose machine left) goes now.
-        parked.removeAll { controller in
-            guard machines.workspace(id: controller.workspace.id)?.0 !== controller.workspace else { return false }
+        // A parked workspace that closed, whose machine left, or that moved to another window goes now.
+        let listed = Set(services.windows.registry.members(of: state.id))
+        for (id, controller) in parked where !listed.contains(id) || machines.workspace(id: id)?.0 !== controller.workspace {
+            parked[id] = nil
             controller.teardown()
-            return true
         }
         if state.page.map(showTopPage) == true || showCreation() { return }
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
@@ -210,24 +209,24 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
         guard content?.workspace !== workspace else { return }
         if let current = content { park(current) }
-        let controller: WorkspaceContentController, index = parked.firstIndex { $0.workspace === workspace && $0.daemon === daemon }
-        if let index {
-            controller = parked.remove(at: index)
+        let controller: WorkspaceContentController, kept = parked.removeValue(forKey: workspace.id)
+        if let kept, kept.workspace === workspace, kept.daemon === daemon {
+            controller = kept
             controller.unpark()
         } else {
+            kept?.teardown()
             controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
         }
         content = controller
         // One synchronous swap: the old view leaves (its panes stay mounted, paused) and the new
         // one draws in the same frame, its sidebar row already listed (a parked one's is) and selected.
-        sidebar.sameTurn.syncNow(rows: index == nil)
+        sidebar.sameTurn.syncNow(rows: controller !== kept)
         root.show(controller.contentView)
         // The workspace's theme first, so the chrome repaints once: only the room's own views (sidebar,
         // titlebar, backdrop) run their theme hook, and their layer colors blend from the ones on
         // screen (appearance.colorTransition); the content swap itself never blends.
         services.themes.contentDidShow(controller)
         themeScope.show(controller.themeScope, animated: true)
-        trimParked()
         startupObservation?.cancel()
         startupObservation = nil
         if connectingView != nil { DebugTimings.markLaunch("connecting_view_left") }
@@ -258,24 +257,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     private func park(_ controller: WorkspaceContentController) {
         controller.park()
-        parked.removeAll { $0 === controller }
-        parked.append(controller)
-    }
-
-    /// Memory pressure or the budget changed.
-    func setParkedBudget(_ budget: WarmSetBudget) {
-        parkedBudget = budget
-        trimParked()
-    }
-
-    /// Drops the least recently shown parked workspaces until both the
-    /// workspace count and their total panes fit the budget.
-    private func trimParked() {
-        var panes = parked.reduce(0) { $0 + $1.panes.count }
-        while let oldest = parked.first, parked.count > parkedBudget.parkedWorkspaces || panes > parkedBudget.parkedPanes {
-            panes -= oldest.panes.count
-            parked.removeFirst().teardown()
-        }
+        parked[controller.workspace.id] = controller
     }
 
     // MARK: NSWindowDelegate
