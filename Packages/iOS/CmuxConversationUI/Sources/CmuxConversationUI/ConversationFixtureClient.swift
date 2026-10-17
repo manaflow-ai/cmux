@@ -73,7 +73,6 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
     }
 
     private var sessions: [ConversationID: SessionState]
-    private var streamedSessions: Set<ConversationID> = []
     private let scenario: Scenario
     private let capabilities: ConversationCapabilities
 
@@ -152,11 +151,7 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
     public func snapshot(sessionID: ConversationID) async throws -> ConversationSnapshot {
         seedIfNeeded()
         guard let state = sessions[sessionID] else { throw FixtureError.missingSession }
-        let snapshot = makeSnapshot(state)
-        if scenario == .streamingAssistant, streamedSessions.insert(sessionID).inserted {
-            Task { await self.emitStreamingAssistantDelta(sessionID: sessionID) }
-        }
-        return snapshot
+        return makeSnapshot(state)
     }
 
     public func replay(sessionID: ConversationID, after: ConversationCursor) async throws -> [ConversationEvent] {
@@ -200,6 +195,9 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
                 state = appendItem(state, kind: .message, role: "user", text: text)
                 state = appendItem(state, kind: .reasoning, text: "Working through the request…")
                 state = appendTool(state, name: "shell", input: .string("pwd"), output: nil, status: .running)
+                if scenario == .streamingAssistant {
+                    state = appendStreamingAssistantDelta(state)
+                }
                 receipt = makeReceipt(commandID: command.commandID, sessionID: command.sessionID, state: .applied, generation: state.session.generation)
                 state = appendEvent(state, kind: .run, state: "running")
             }
@@ -394,9 +392,9 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
         return state
     }
 
-    private func emitStreamingAssistantDelta(sessionID: ConversationID) {
-        guard var state = sessions[sessionID],
-              let index = state.items.lastIndex(where: { $0.kind == .message && $0.role?.lowercased() == "assistant" }) else { return }
+    private func appendStreamingAssistantDelta(_ input: SessionState) -> SessionState {
+        var state = input
+        guard let index = state.items.lastIndex(where: { $0.kind == .message && $0.role?.lowercased() == "assistant" }) else { return state }
         let previous = state.items[index]
         let delta = " assistant output"
         let sequence = state.cursor + 1
@@ -413,7 +411,7 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
         full.text = (previous.text ?? "") + delta
         state.items[index] = full
         state = appendEvent(state, kind: .item, item: update, itemUpdate: .appendText)
-        sessions[sessionID] = state
+        return state
     }
 
     private func removeContinuation(sessionID: ConversationID, token: UUID) {

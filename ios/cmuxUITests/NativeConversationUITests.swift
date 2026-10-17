@@ -280,6 +280,11 @@ final class NativeConversationUITests: XCTestCase {
             try openDetail(in: app)
             XCTAssertTrue(app.staticTexts["Streaming"].waitForExistence(timeout: 5))
             capture(app, name: "native-streaming-assistant-initial")
+            let composer = app.textViews["ConversationComposerTextEditor"]
+            XCTAssertTrue(composer.waitForExistence(timeout: 5))
+            composer.tap()
+            composer.typeText("start streaming")
+            app.buttons["ConversationSendButton"].tap()
             XCTAssertTrue(app.staticTexts["Streaming assistant output"].waitForExistence(timeout: 5))
             capture(app, name: "native-streaming-assistant-delta")
 
