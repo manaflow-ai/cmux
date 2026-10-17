@@ -18,6 +18,13 @@ export function machineName(m: Machine): string {
   return m.name || m.id
 }
 
+export function machinePlatform(m: Machine): string | null {
+  const platform = m.platform
+  if (!platform) return null
+  const parts = [platform.os, platform.arch].filter((value): value is string => !!value && value.length > 0)
+  return parts.length ? parts.join(" · ") : null
+}
+
 export function statusSymbol(s: Status): string {
   switch (s) {
     case "current":
