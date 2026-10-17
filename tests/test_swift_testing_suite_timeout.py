@@ -113,7 +113,7 @@ class SettingsExportCatalogTests(unittest.TestCase):
             "else:\n"
             "    assert suite == 'SettingsSchemaExportTests'\n"
             "    assert os.environ.get('CMUX_UPDATE_ACTION_SURFACES') == '1'\n"
-            "    files = ['schemas/settings/settings-schema.json', 'schemas/settings/settings-schema.sources.sha256']\n"
+            "    files = ['schemas/settings/settings-schema.json', 'schemas/settings-export/settings-schema.sources.sha256']\n"
             "for file in files:\n"
             "    target = pathlib.Path(file)\n"
             "    target.parent.mkdir(parents=True, exist_ok=True)\n"

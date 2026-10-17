@@ -18,8 +18,9 @@ the sources of truth with no hand list:
   python3 scripts/ci/defaults_guard.py check-fresh        # it matches the sources
 
 check-fresh also recomputes the source stamp: SettingsSchemaExportTests writes
-schemas/settings/settings-schema.sources.sha256 beside the schema, a SHA-256 of
-the CmuxNextSettings sources it exported from. The schema and docs/mdm come
+schemas/settings-export/settings-schema.sources.sha256 with the schema, a SHA-256 of
+the CmuxNextSettings sources it exported from (outside schemas/settings, which is
+a web bundle input). The schema and docs/mdm come
 from a Swift test, so committed files can agree with each other and still be
 stale against Swift (e190c402850c); a stamp that differs from the sources says so.
   python3 scripts/ci/defaults_guard.py check --base B --head H [--pr N --repo R]
@@ -57,7 +58,7 @@ SETTINGS_SCHEMA = "schemas/settings/settings-schema.json"
 SWIFT_SOURCES = "Packages/macOS/CmuxNext/Sources"
 # The settings exporter's inputs and its stamp. Keep in step with
 # SettingsSchemaExportTests.sourceDigest (Swift), which writes the stamp.
-SETTINGS_STAMP = "schemas/settings/settings-schema.sources.sha256"
+SETTINGS_STAMP = "schemas/settings-export/settings-schema.sources.sha256"
 SETTINGS_SOURCE_DIR = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings"
 SETTINGS_SOURCE_SUFFIXES = (".swift", ".xcstrings")
 SETTINGS_EXPORTER_FILES = (

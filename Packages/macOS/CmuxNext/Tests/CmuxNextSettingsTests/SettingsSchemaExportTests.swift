@@ -58,12 +58,13 @@ import Testing
     }
 
     /// `CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter SettingsSchemaExportTests` rewrites it,
-    /// and beside it `settings-schema.sources.sha256`, the digest of the sources it was exported
-    /// from: `defaults_guard.py check-fresh` recomputes the digest and fails when the sources moved
-    /// without a re-export (e190c402850c landed a schema exported before a merge).
+    /// and `schemas/settings-export/settings-schema.sources.sha256`, the digest of the sources it was
+    /// exported from: `defaults_guard.py check-fresh` recomputes the digest and fails when the sources
+    /// moved without a re-export (e190c402850c landed a schema exported before a merge). The stamp is
+    /// outside schemas/settings, a web bundle input, so a source-only edit does not rebuild the bundles.
     @Test func exportIsFresh() throws {
         let url = Self.repoRoot.appending(path: "schemas/settings/settings-schema.json")
-        let stampURL = Self.repoRoot.appending(path: "schemas/settings/settings-schema.sources.sha256")
+        let stampURL = Self.repoRoot.appending(path: "schemas/settings-export/settings-schema.sources.sha256")
         let current = try SettingsSchemaExport().json(catalog: Self.catalog())
         let currentStamp = try Self.sourceDigest() + "\n"
         if ProcessInfo.processInfo.environment["CMUX_UPDATE_ACTION_SURFACES"] == "1" {
