@@ -36,6 +36,32 @@ struct CloudSidebarRenameReconciliationTests {
         #expect(workspace.panelCustomTitleSources[fixture.panelID] == .remote)
     }
 
+    @Test("Removing the authoritative Cloud tab clears stale agent naming but preserves user naming")
+    func missingAuthoritativeTabClearsAgentNameOnly() throws {
+        let fixture = try makeFixture()
+        defer { fixture.close() }
+        #expect(fixture.agentName("Repair PR 16300 cloud layout"))
+        fixture.install(try fixture.state(revision: 2, name: "Repair PR 16300 cloud layout", nameSource: "auto"))
+        fixture.reconcile()
+        fixture.install(try fixture.state(revision: 3, includeMainTab: false))
+        fixture.reconcile()
+        #expect(fixture.workspace.panelCustomTitles[fixture.panelID] == nil)
+        #expect(fixture.workspace.panelTitle(panelId: fixture.panelID) == "terminal")
+        #expect(fixture.agentName("Pending task"))
+        let pending = CloudVMPendingMutation(kind: .tabRename, remoteTabID: "tab_main",
+            name: "Pending task", receipt: .init(generation: "fixture", revision: 3))
+        fixture.install(try fixture.state(revision: 3, includeMainTab: false),
+            observation: .init(freshness: .current, reason: nil, pendingWrites: [pending]))
+        fixture.reconcile()
+        #expect(fixture.workspace.panelTitle(panelId: fixture.panelID) == "Pending task")
+        #expect(fixture.workspace.setPanelCustomTitle(
+            panelId: fixture.panelID, title: "Keep this tab", source: .user, catalog: fixture.catalog
+        ))
+        fixture.install(try fixture.state(revision: 4, includeMainTab: false))
+        fixture.reconcile()
+        #expect(fixture.workspace.panelTitle(panelId: fixture.panelID) == "Keep this tab")
+    }
+
     @Test("The latest user name survives superseded failures and delayed graph callbacks")
     func supersededFailureCannotCompensateNewUserIntent() async throws {
         let fixture = try makeFixture()
