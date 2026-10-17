@@ -57,6 +57,8 @@ import Testing
     @Test func aMissingCommandIsNotReadAsSignedOut() {
         let prompt = ChiefSystemPrompt(context: context()).build()
         #expect(prompt.contains("`command not found`"))
+        #expect(prompt.contains("login-shell `PATH`"))
+        #expect(!prompt.contains("same `PATH` as the user's terminal"))
         #expect(prompt.contains("`command -v <tool>`"))
         #expect(prompt.contains("`gh auth status`"))
     }
