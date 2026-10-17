@@ -226,7 +226,10 @@ export function reducer(state: AppState, action: AppAction): AppState {
     case "hydrate-item":
       if (
         action.expectedFileDiff !== undefined &&
-        !canApplyDeferredHydration(state.items.find((item) => item.id === action.itemId), action.expectedFileDiff)
+        !canApplyDeferredHydration(
+          state.items.find((item) => item.id === action.itemId),
+          action.expectedFileDiff,
+        )
       )
         return state;
       return {
