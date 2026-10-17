@@ -37,14 +37,10 @@ enum SidebarStyle {
     /// As tall as the status glyph beside it (`Metrics.statusMarkSize`).
     static var badgeHeight: CGFloat { Metrics.statusMarkSize }
     static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
-    /// The profile control (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2): a
-    /// 16 pt avatar circle at the compact density (the icon box), a small
-    /// chevron after it, and the control as wide as a row-height square
-    /// plus the chevron, so the circle keeps a square item's center.
+    /// The profile control's circle at compact density (the icon box). The
+    /// avatar lives in the row-height square, so its click target scales with
+    /// the display density.
     static var avatarDiameter: CGFloat { iconBox }
-    static var avatarChevronSize: CGFloat { Metrics.smallIconSize - Metrics.space2 }
-    static var avatarChevronGap: CGFloat { Metrics.space1 }
-    static var avatarControlWidth: CGFloat { Metrics.sidebarRowHeight + avatarChevronGap + avatarChevronSize }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
     static var autoscrollZone: CGFloat { Metrics.sidebarRowHeight }
     static var dragThreshold: CGFloat { Metrics.space2 }

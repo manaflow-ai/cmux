@@ -96,7 +96,7 @@ final class SidebarFooterBand {
     // MARK: Profile menu
 
     // SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2: the sidebar's bottom-left is
-    // one control, the current profile's avatar with a chevron. A click (or
+    // one control, the current profile's avatar. A click (or
     // the `sidebar.profileMenu` action) opens the one profile menu the App
     // builds from registry actions (`profileMenuProvider`).
 
