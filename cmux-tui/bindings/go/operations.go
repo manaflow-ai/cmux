@@ -967,11 +967,18 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 
 	switch decoded := value.(type) {
 	case *MachineSnapshot:
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return err
+		}
+		if bytes.Equal(bytes.TrimSpace(fields["capabilities"]), []byte("null")) {
+			return fmt.Errorf("machine capabilities must be a string array")
+		}
 		if decoded.ID == "" {
 			return fmt.Errorf("machine snapshot id must be present")
 		}
 		switch decoded.Origin {
-		case "local":
+		case "local", "cloud", "ssh", "server":
 		default:
 			return fmt.Errorf("invalid machine origin %q", decoded.Origin)
 		}

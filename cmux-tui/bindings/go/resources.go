@@ -14,15 +14,22 @@ import (
 	"github.com/manaflow-ai/cmux/cmux-tui/bindings/go/internal/wirev2"
 )
 
+type MachinePlatform struct {
+	OS   *string `json:"os,omitempty"`
+	Arch *string `json:"arch,omitempty"`
+}
+
 type MachineSnapshot struct {
-	ID          MachineID            `json:"id"`
-	Name        string               `json:"name"`
-	Origin      string               `json:"origin"`
-	Status      string               `json:"status"`
-	Connectable bool                 `json:"connectable"`
-	Deleted     bool                 `json:"deleted"`
-	Recoverable bool                 `json:"recoverable"`
-	Extra       map[string]JSONValue `json:"extra,omitempty"`
+	ID           MachineID            `json:"id"`
+	Name         string               `json:"name"`
+	Origin       string               `json:"origin"`
+	Status       string               `json:"status"`
+	Connectable  bool                 `json:"connectable"`
+	Deleted      bool                 `json:"deleted"`
+	Recoverable  bool                 `json:"recoverable"`
+	Platform     *MachinePlatform     `json:"platform,omitempty"`
+	Capabilities []string             `json:"capabilities,omitempty"`
+	Extra        map[string]JSONValue `json:"extra,omitempty"`
 }
 
 type SessionSnapshot struct {
