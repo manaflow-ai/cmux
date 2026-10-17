@@ -25,7 +25,6 @@ struct ConversationTaskListView: View {
                 Section(ConversationL10n.value("conversation.pinned", "Pinned")) {
                     ForEach(pinned) { sessionRow($0) }
                 }
-                .accessibilityIdentifier("ConversationPinnedSection")
             }
             Section(pinned.isEmpty ? ConversationL10n.value("conversation.tasks", "Tasks") : ConversationL10n.value("conversation.recent", "Recent")) {
                 if recent.isEmpty && pinned.isEmpty {
