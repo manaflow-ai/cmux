@@ -37,12 +37,10 @@ enum FileExplorerRootSyncPolicy {
 }
 
 extension RightSidebarMode {
-    @MainActor
     static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
         modeShortcut(for: event, allowingAction: { _ in true })
     }
 
-    @MainActor
     static func modeShortcut(
         for event: NSEvent,
         allowingAction: (KeyboardShortcutSettings.Action) -> Bool
@@ -52,17 +50,8 @@ extension RightSidebarMode {
             guard let action = mode.shortcutAction,
                   allowingAction(action),
                   mode.isAvailable(),
-                  KeyboardShortcutSettings.shortcutBindings(for: action).contains(where: { binding in
-                      binding.shortcut.matches(event: event)
-                          && (AppDelegate.shared.map { app in
-                              binding.whenClause.evaluate(
-                                  app.shortcutWhenClauseContext(
-                                      for: action,
-                                      clause: binding.whenClause,
-                                      event: event
-                                  )
-                              )
-                          } ?? true)
+                  KeyboardShortcutSettings.shortcutBindings(for: action).contains(where: {
+                      $0.shortcut.matches(event: event)
                   }) else {
                 continue
             }
