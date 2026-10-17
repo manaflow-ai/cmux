@@ -225,7 +225,9 @@ public final class SidebarView: NSView {
 
     private func clipBoundsChanged() {
         list.realizeVisibleRows()
-        PointerHover.refresh(in: window)
+        // The list updates row hover as rows move. A window-wide refresh here
+        // rescans every chrome target on every scroll tick and adds no state
+        // change for the sidebar's fixed chrome.
     }
 
     private func scrollerStyleChanged() {
