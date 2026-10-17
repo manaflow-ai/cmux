@@ -419,7 +419,11 @@ final class NativeConversationUITests: XCTestCase {
         let app = makeFixtureApplication(scenario: "all")
         measure(metrics: [XCTApplicationLaunchMetric()]) {
             app.launch()
-            _ = app.otherElements["ConversationTaskList"].waitForExistence(timeout: 8)
+            // The iOS app's composition root performs its first-run runtime
+            // setup before SwiftUI presents the debug conversation fixture.
+            // Give that real launch path enough time on hosted simulators so
+            // this metric measures the screen rather than a launch race.
+            _ = app.otherElements["ConversationTaskList"].waitForExistence(timeout: 30)
             app.terminate()
         }
     }
@@ -436,14 +440,14 @@ final class NativeConversationUITests: XCTestCase {
         ]) {
             app.launch()
             let list = app.otherElements["ConversationTaskList"]
-            _ = list.waitForExistence(timeout: 8)
+            _ = list.waitForExistence(timeout: 30)
             let task = app.descendants(matching: .any)["ConversationTaskRow-fixture-codex"]
-            _ = task.waitForExistence(timeout: 8)
+            _ = task.waitForExistence(timeout: 15)
             task.tap()
             let detail = app.otherElements["ConversationDetail"]
-            _ = detail.waitForExistence(timeout: 8)
+            _ = detail.waitForExistence(timeout: 15)
             let composer = app.textViews["ConversationComposerTextEditor"]
-            _ = composer.waitForExistence(timeout: 5)
+            _ = composer.waitForExistence(timeout: 10)
             composer.tap()
             composer.typeText("performance queue")
             app.buttons["ConversationSendButton"].tap()
@@ -469,16 +473,20 @@ final class NativeConversationUITests: XCTestCase {
     @MainActor
     private func waitForTaskList(in app: XCUIApplication) throws {
         let list = app.otherElements["ConversationTaskList"]
-        XCTAssertTrue(list.waitForExistence(timeout: 12), "native conversation task list did not appear")
+        // The fixture is mounted after the shared iOS composition root has
+        // initialized auth, diagnostics, and transport state. Hosted Macs can
+        // take ~15 seconds on a clean simulator before the first frame, so a
+        // 30-second bound avoids reporting a launch race as a UI failure.
+        XCTAssertTrue(list.waitForExistence(timeout: 30), "native conversation task list did not appear")
     }
 
     @MainActor
     private func openDetail(in app: XCUIApplication) throws {
         try waitForTaskList(in: app)
         let task = app.descendants(matching: .any)["ConversationTaskRow-fixture-codex"]
-        XCTAssertTrue(task.waitForExistence(timeout: 8), "fixture task row did not appear")
+        XCTAssertTrue(task.waitForExistence(timeout: 15), "fixture task row did not appear")
         task.tap()
-        XCTAssertTrue(app.otherElements["ConversationDetail"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.otherElements["ConversationDetail"].waitForExistence(timeout: 15))
     }
 
     @MainActor
