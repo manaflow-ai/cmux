@@ -11,6 +11,8 @@ import type {
 } from "@apple/app-store-server-library";
 
 import { captureServerEvent, type ServerEventInput } from "../../analytics/serverEvents";
+import { IOS_PAYWALL_EXPERIMENT } from "../paywall/iosPaywallV1";
+import { servedPaywallVariant } from "../paywall/store";
 import { appleBillingPeriodForProduct, isSignedAppleEnvironment } from "./config";
 import { activeAppleEntitlementForUser, type AppleEntitlementRow } from "./entitlement";
 import { appleServerApi, type AppleServerApi } from "./serverApi";
@@ -31,6 +33,7 @@ import {
   type AppleSubscriptionRow,
   type AppleSubscriptionWrite,
 } from "./store";
+import { applyTrialLifecycle, defaultTrialLifecycleDependencies, type TrialLifecycleDependencies } from "./trial";
 import { appleSignedDataVerifier, AppleVerificationError, type AppleSignedDataVerifier } from "./verifier";
 
 const AUTO_RENEWABLE_TYPE = "Auto-Renewable Subscription";
@@ -48,6 +51,13 @@ export type AppleIapDependencies = {
    * `subscription_entitlement_granted`. Without it no grant event is sent.
    */
   readonly activeEntitlement?: (userId: string) => Promise<AppleEntitlementRow | null>;
+  /**
+   * The paywall experiment variant last served to the user, for
+   * `paywall_experiment` and `paywall_variant` on the grant event.
+   */
+  readonly paywallVariant?: (userId: string) => Promise<string | null>;
+  /** Trial start (claim + DeviceCheck bit), conversion and cancellation; absent: not tracked. */
+  readonly trialLifecycle?: TrialLifecycleDependencies;
   readonly now: () => Date;
 };
 
@@ -91,6 +101,8 @@ export function defaultAppleIapDependencies(): AppleIapDependencies {
     },
     captureEvent: (input) => captureServerEvent(input),
     activeEntitlement: (userId) => activeAppleEntitlementForUser(userId),
+    paywallVariant: (userId) => servedPaywallVariant(userId, IOS_PAYWALL_EXPERIMENT),
+    trialLifecycle: defaultTrialLifecycleDependencies(),
     now: () => new Date(),
   };
   return defaultDependencies;
@@ -209,9 +221,13 @@ export async function recordClientAppleTransaction(
     await deps.store.recordTransaction(appleTransactionRowFrom(fresh.transaction, input.userId));
   }
   await applyEntitlements(write, deps);
+  // A free-trial purchase settles its device check here, so the answer below reflects the grant.
+  const planId = deps.trialLifecycle ? await applyTrialLifecycle(write, null, deps.trialLifecycle) : written.planId;
   await captureEntitlementGranted(written, deps);
   return {
-    planId: written.planId,
+    // A free-trial period is the Pro subscription on trial limits; an
+    // unverified trial grants nothing.
+    planId: written.freeTrial ? (planId === "go" ? "pro" : "free") : planId,
     status: written.status,
     expiresAt: written.expiresAt?.toISOString() ?? null,
   };
@@ -311,6 +327,7 @@ type NotificationApplication =
     readonly userId: string;
     readonly state: AppleSubscriptionState;
     readonly written: AppleSubscriptionRow;
+    readonly write: AppleSubscriptionWrite;
   };
 
 async function applyNotification(
@@ -359,7 +376,7 @@ async function applyNotification(
     await deps.store.recordTransaction(appleTransactionRowFrom(current.transaction, userId));
   }
   await applyEntitlements(write, deps);
-  return { kind: "applied", userId, state, written: write.current };
+  return { kind: "applied", userId, state, written: write.current, write };
 }
 
 /**
@@ -411,6 +428,9 @@ export async function processAppleNotification(
   }
   await deps.store.markNotificationProcessed(row.notificationUuid, deps.now());
   await captureLifecycleEvent(row, application.userId, application.state, deps);
+  if (deps.trialLifecycle) {
+    await applyTrialLifecycle(application.write, { type: row.notificationType, subtype: row.subtype }, deps.trialLifecycle);
+  }
   await captureEntitlementGranted(application.written, deps);
   return "processed";
 }
@@ -427,9 +447,13 @@ async function captureEntitlementGranted(
   deps: AppleIapDependencies,
 ): Promise<void> {
   if (!deps.activeEntitlement) return;
+  // A free trial is not a paid entitlement: it reports trial_started, and the
+  // first paid renewal reports the grant.
+  if (written.freeTrial) return;
   try {
     const granting = await deps.activeEntitlement(written.userId);
     if (granting?.originalTransactionId !== written.originalTransactionId) return;
+    const paywallVariant = deps.paywallVariant ? await deps.paywallVariant(written.userId) : null;
     await deps.captureEvent({
       event: "subscription_entitlement_granted",
       distinctId: written.userId,
@@ -444,6 +468,8 @@ async function captureEntitlementGranted(
         transaction_id: written.lastTransactionId,
         status: written.status,
         expires_at: written.expiresAt?.toISOString() ?? null,
+        paywall_experiment: paywallVariant ? IOS_PAYWALL_EXPERIMENT : null,
+        paywall_variant: paywallVariant,
       },
     });
   } catch (error) {

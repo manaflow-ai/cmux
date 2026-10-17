@@ -96,6 +96,21 @@
       "message": "Maszyny z {memory} GiB wymagają cmux {plan}. Twój plan obsługuje do {max} GiB.",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "Okres próbny cmux Pro",
+      "message": "Maszyny {memory} GiB będą dostępne, gdy pełny Pro zacznie się {date}. Okres próbny Pro obsługuje do {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialUndated": {
+      "title": "Okres próbny cmux Pro",
+      "message": "Maszyny {memory} GiB będą dostępne, gdy zacznie się pełny Pro. Okres próbny Pro obsługuje do {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialMax": {
+      "title": "Okres próbny cmux Pro",
+      "message": "Ten rozmiar wymaga planu Max. Okres próbny Pro obsługuje do {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "Nie udało się sprawdzić rozmiaru RAM maszyny źródłowej.",
       "action": "cmux vm new --size 4g"
@@ -135,6 +150,16 @@
       "counted": "Obecnie liczone: {machines}. Wstrzymane maszyny nie są liczone.",
       "provisioning": "{name} (w trakcie przygotowania)",
       "separator": ", "
+    },
+    "trialLimit": {
+      "savedMessage": "Wersja próbna Pro obejmuje 1 zapisaną Cloud VM, wliczając uruchomioną VM.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "Wersja próbna Pro obejmuje 1 działającą Cloud VM naraz.",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "Wersja próbna Pro wykorzystała swoje 20 godzin VM. Pełny plan Pro zaczyna się po zakończeniu wersji próbnej i odnowieniu subskrypcji.",
+      "hoursAction": "Zapisana VM pozostaje dostępna. Po wersji próbnej obowiązują pełne limity Pro.",
+      "shapeMessage": "Wersja próbna Pro obsługuje 2 vCPU, 4 GB RAM i 16 GB dysku.",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "billingRecovery": {
@@ -5535,5 +5560,9 @@
     "unavailableTitle": "Nie udało się potwierdzić logowania",
     "unavailableBody": "Nasz dostawca logowania jest przeciążony. Odczekaj kilka sekund i ponownie otwórz zaproszenie. Nie musisz logować się ponownie.",
     "retry": "Spróbuj ponownie"
+  },
+  "billingTrial": {
+    "badge": "Wersja próbna Pro",
+    "limits": "Twoja wersja próbna Pro obejmuje 1 Cloud VM z 2 vCPU i 4 GB RAM oraz 20 godzin VM. Pełny plan Pro zaczyna się po zakończeniu wersji próbnej."
   }
 }

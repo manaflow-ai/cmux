@@ -6,6 +6,7 @@ import { isVaultEnabled } from "../vault/config";
 import { isGoPlanEnabled } from "./goPlanFlag";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
+  displayPersonalPlanId,
   PERSONAL_PLAN_IDS,
   isPaidPlanId,
   manualVmPlanOverride,
@@ -134,7 +135,8 @@ async function loadPersonalBilling(user: DashboardBillingUser): Promise<Personal
   return {
     planStatus: {
       isPro: status.isPro,
-      planId: status.planId,
+      // An iOS Pro free trial is named Pro, never Go.
+      planId: displayPersonalPlanId(status),
       billingManagement: status.billingManagement,
       billingSource: status.billingSource,
       manageUrl: status.manageUrl,

@@ -263,12 +263,12 @@ export async function vmDisplayNameCopy(
 }
 
 export async function vmMemoryErrorCopy(
-  kind: "memoryPlan" | "memoryUnknown" | "memoryUnavailable",
+  kind: "memoryPlan" | "memoryTrial" | "memoryTrialUndated" | "memoryTrialMax" | "memoryUnknown" | "memoryUnavailable",
   locale: Locale,
   values: Record<string, string | number> = {},
 ): Promise<VmRequiresProCopy> {
   const t = createTranslator({ locale, messages: await loadMessages(locale), namespace: `vmErrors.${kind}` }) as unknown as (key: string, values?: Record<string, string | number>) => string;
-  return { title: kind === "memoryPlan" ? t("title", values) : t("message", values),
+  return { title: kind === "memoryPlan" || kind.startsWith("memoryTrial") ? t("title", values) : t("message", values),
     message: t("message", values), action: t("action", values) };
 }
 
@@ -276,11 +276,13 @@ export async function vmMemoryErrorCopy(
 export async function vmGoLimitCopy(
   kind: "saved" | "active" | "hours" | "shape",
   locale: Locale,
+  /** An iOS Pro free trial runs on Go limits but is named "Pro trial", never Go. */
+  trial = false,
 ): Promise<{ readonly message: string; readonly action: string }> {
   const t = createTranslator({
     locale,
     messages: await loadMessages(locale),
-    namespace: "vmErrors.goLimit",
+    namespace: trial ? "vmErrors.trialLimit" : "vmErrors.goLimit",
   }) as unknown as (key: string) => string;
   return { message: t(`${kind}Message`), action: t(`${kind}Action`) };
 }

@@ -96,6 +96,21 @@
       "message": "{memory} GiB 머신에는 cmux {plan}이 필요합니다. 현재 요금제는 최대 {max} GiB를 지원합니다.",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "cmux Pro 체험",
+      "message": "{memory} GiB 머신은 정식 Pro가 시작되는 {date}부터 사용할 수 있습니다. Pro 체험은 최대 {max} GiB까지 지원합니다.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialUndated": {
+      "title": "cmux Pro 체험",
+      "message": "{memory} GiB 머신은 정식 Pro가 시작되면 사용할 수 있습니다. Pro 체험은 최대 {max} GiB까지 지원합니다.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialMax": {
+      "title": "cmux Pro 체험",
+      "message": "이 크기에는 Max 요금제가 필요합니다. Pro 체험은 최대 {max} GiB까지 지원합니다.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "원본 머신의 RAM 크기를 확인할 수 없습니다.",
       "action": "cmux vm new --size 4g"
@@ -135,6 +150,16 @@
       "counted": "현재 집계 중: {machines}. 일시 중지된 머신은 집계되지 않습니다.",
       "provisioning": "{name} (프로비저닝 중)",
       "separator": ", "
+    },
+    "trialLimit": {
+      "savedMessage": "Pro 체험에는 실행 중인 VM을 포함해 저장된 Cloud VM 1대가 포함됩니다.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "Pro 체험에서는 한 번에 Cloud VM 1대를 실행할 수 있습니다.",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "Pro 체험의 20 VM 시간을 모두 사용했습니다. 체험이 끝나고 구독이 갱신되면 전체 Pro가 시작됩니다.",
+      "hoursAction": "저장된 VM은 계속 사용할 수 있습니다. 체험 후에는 전체 Pro 한도가 적용됩니다.",
+      "shapeMessage": "Pro 체험은 vCPU 2개, RAM 4GB, 디스크 16GB를 지원합니다.",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "billingRecovery": {
@@ -5532,5 +5557,9 @@
     "unavailableTitle": "로그인을 확인할 수 없습니다",
     "unavailableBody": "로그인 서비스가 혼잡합니다. 몇 초 기다린 후 초대를 다시 여세요. 다시 로그인할 필요는 없습니다.",
     "retry": "다시 시도"
+  },
+  "billingTrial": {
+    "badge": "Pro 체험",
+    "limits": "Pro 체험에는 vCPU 2개와 RAM 4GB의 Cloud VM 1대, 그리고 20 VM 시간이 포함됩니다. 체험이 끝나면 전체 Pro가 시작됩니다."
   }
 }

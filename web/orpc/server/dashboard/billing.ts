@@ -5,7 +5,7 @@ import {
   PlanChangeError,
   previewPersonalPlanChange,
 } from "@/services/billing/planChange";
-import { resolveProPlanStatus } from "@/services/billing/pro";
+import { displayPersonalPlanId, resolveProPlanStatus } from "@/services/billing/pro";
 import { claimPendingProBilling, type ProBillingClaimUser } from "@/services/billing/purchase";
 import { isStripeBillingConfigured } from "@/services/billing/stripe";
 import { applySubscriptionAction, type SubscriptionAction } from "@/services/billing/subscriptionManagement";
@@ -26,7 +26,8 @@ const current = authed
   }))
   .handler(async ({ context }) => {
     const status = await resolveProPlanStatus(context.user);
-    return { planId: status.planId, isPro: status.isPro, billingManagement: status.billingManagement };
+    // A Pro trial runs on Go limits internally; users only ever see "Pro".
+    return { planId: displayPersonalPlanId(status), isPro: status.isPro, billingManagement: status.billingManagement };
   });
 
 const previewSchema = z.object({

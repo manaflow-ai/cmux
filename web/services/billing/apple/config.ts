@@ -165,12 +165,28 @@ export function appleProductId(bundleId: string, planId: PersonalPlanId, period:
   return `${bundleId}.${planId}.${period}`;
 }
 
+/**
+ * The Pro product that carries the 7-day free-trial introductory offer, in
+ * the same subscription group and at the same price as the monthly Pro
+ * product. Only accounts and devices the server verified are shown it
+ * (services/billing/apple/trial.ts); the plain Pro product has no
+ * introductory offer, so StoreKit cannot give a trial to anyone else.
+ */
+export function appleTrialProductId(bundleId: string): string {
+  return `${bundleId}.pro.trial.monthly`;
+}
+
+export function isAppleTrialProduct(productId: unknown, bundleId: unknown): boolean {
+  return typeof productId === "string" && typeof bundleId === "string" && productId === appleTrialProductId(bundleId);
+}
+
 /** The plan and period an Apple product sells, or null for a product this server does not know. */
 export function appleProductFor(
   productId: unknown,
   bundleId: unknown,
 ): { readonly planId: PersonalPlanId; readonly billingPeriod: AppleBillingPeriod } | null {
   if (typeof productId !== "string" || typeof bundleId !== "string") return null;
+  if (isAppleTrialProduct(productId, bundleId)) return { planId: "pro", billingPeriod: "monthly" };
   for (const planId of APPLE_PLAN_IDS) {
     for (const billingPeriod of APPLE_PLAN_BILLING_PERIODS[planId]) {
       if (appleProductId(bundleId, planId, billingPeriod) === productId) return { planId, billingPeriod };

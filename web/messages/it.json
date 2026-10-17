@@ -96,6 +96,21 @@
       "message": "Le macchine da {memory} GiB richiedono cmux {plan}. Il tuo piano supporta fino a {max} GiB.",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "Prova di cmux Pro",
+      "message": "Le macchine da {memory} GiB saranno disponibili quando inizierà Pro completo, il {date}. La prova di Pro supporta fino a {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialUndated": {
+      "title": "Prova di cmux Pro",
+      "message": "Le macchine da {memory} GiB saranno disponibili quando inizierà Pro completo. La prova di Pro supporta fino a {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialMax": {
+      "title": "Prova di cmux Pro",
+      "message": "Questa dimensione richiede il piano Max. La prova di Pro supporta fino a {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "Impossibile verificare la RAM della macchina di origine.",
       "action": "cmux vm new --size 4g"
@@ -135,6 +150,16 @@
       "counted": "Conteggiate ora: {machines}. Le macchine in pausa non vengono conteggiate.",
       "provisioning": "{name} (in provisioning)",
       "separator": ", "
+    },
+    "trialLimit": {
+      "savedMessage": "La prova Pro include 1 Cloud VM salvata, inclusa la VM in esecuzione.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "La prova Pro include 1 Cloud VM in esecuzione alla volta.",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "La prova Pro ha usato le sue 20 ore VM. Pro completo inizia alla fine della prova, quando l'abbonamento si rinnova.",
+      "hoursAction": "La tua VM salvata resta disponibile. Dopo la prova si applicano i limiti completi di Pro.",
+      "shapeMessage": "La prova Pro supporta 2 vCPU, 4 GB di RAM e 16 GB di disco.",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "billingRecovery": {
@@ -5535,5 +5560,9 @@
     "unavailableTitle": "Impossibile confermare l'accesso",
     "unavailableBody": "Il nostro servizio di accesso è occupato. Attendi qualche secondo, poi riapri l'invito. Non devi accedere di nuovo.",
     "retry": "Riprova"
+  },
+  "billingTrial": {
+    "badge": "Prova Pro",
+    "limits": "La tua prova Pro include 1 Cloud VM con 2 vCPU e 4 GB di RAM, e 20 ore VM. Pro completo inizia alla fine della prova."
   }
 }

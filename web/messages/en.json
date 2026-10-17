@@ -263,6 +263,21 @@
       "message": "{memory} GiB machines need cmux {plan}. Your plan supports up to {max} GiB.",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "cmux Pro trial",
+      "message": "{memory} GiB machines become available when full Pro starts on {date}. The Pro trial supports up to {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialUndated": {
+      "title": "cmux Pro trial",
+      "message": "{memory} GiB machines become available when full Pro starts. The Pro trial supports up to {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialMax": {
+      "title": "cmux Pro trial",
+      "message": "This size needs the Max plan. The Pro trial supports up to {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "The source machine’s RAM size could not be verified.",
       "action": "cmux vm new --size 4g"
@@ -302,6 +317,16 @@
       "counted": "Counted now: {machines}. Paused machines do not count.",
       "provisioning": "{name} (provisioning)",
       "separator": ", "
+    },
+    "trialLimit": {
+      "savedMessage": "The Pro trial includes 1 saved Cloud VM, including the running VM.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "The Pro trial includes 1 running Cloud VM at a time.",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "The Pro trial has used its 20 VM-hours. Full Pro starts when the trial ends and your subscription renews.",
+      "hoursAction": "Your saved VM stays available. Full Pro limits apply after the trial.",
+      "shapeMessage": "The Pro trial supports 2 vCPUs, 4 GB RAM, and 16 GB disk.",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "ios": {
@@ -7467,5 +7492,9 @@
     "dbUpdated": "Database: {time}",
     "noOwner": "No cmux owner",
     "none": "None."
+  },
+  "billingTrial": {
+    "badge": "Pro trial",
+    "limits": "Your Pro trial includes 1 Cloud VM with 2 vCPUs and 4 GB RAM, and 20 VM-hours. Full Pro starts when the trial ends."
   }
 }

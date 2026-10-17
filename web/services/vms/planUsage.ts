@@ -113,6 +113,8 @@ export function isBudgetPlanId(planId: string | null | undefined): planId is Bud
 export type PersonalBillingPeriod = {
   readonly planId: PersonalPlanId;
   readonly source: "stripe" | "apple";
+  /** The App Store period is the iOS Pro free trial (limited trial allowance). */
+  readonly trial?: boolean;
   /** Null when the source has no usable current period (a reconcile is pending). */
   readonly period: {
     readonly start: Date;
@@ -184,7 +186,12 @@ async function applePersonalPeriod(userId: string, now: Date): Promise<PersonalB
     ? row.gracePeriodExpiresAt
     : expires ?? row.gracePeriodExpiresAt;
   const start = row.purchaseDate ?? (expires ? new Date(expires.getTime() - APPLE_PERIOD_FALLBACK_MS) : null);
-  return { planId: row.planId as PersonalPlanId, source: "apple", period: usablePeriod(start, end, now, expires) };
+  return {
+    planId: row.planId as PersonalPlanId,
+    source: "apple",
+    ...(row.freeTrial ? { trial: true } : {}),
+    period: usablePeriod(start, end, now, expires),
+  };
 }
 
 /**

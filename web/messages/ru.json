@@ -96,6 +96,21 @@
       "message": "Для машин с {memory} ГиБ нужен cmux {plan}. Ваш тариф поддерживает до {max} ГиБ.",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "Пробный период cmux Pro",
+      "message": "Машины на {memory} ГиБ станут доступны, когда начнётся полный Pro, {date}. Пробный период Pro поддерживает до {max} ГиБ.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialUndated": {
+      "title": "Пробный период cmux Pro",
+      "message": "Машины на {memory} ГиБ станут доступны, когда начнётся полный Pro. Пробный период Pro поддерживает до {max} ГиБ.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialMax": {
+      "title": "Пробный период cmux Pro",
+      "message": "Для этого размера нужен тариф Max. Пробный период Pro поддерживает до {max} ГиБ.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "Не удалось проверить объём ОЗУ исходной машины.",
       "action": "cmux vm new --size 4g"
@@ -135,6 +150,16 @@
       "counted": "Сейчас учитываются: {machines}. Приостановленные машины не учитываются.",
       "provisioning": "{name} (подготавливается)",
       "separator": ", "
+    },
+    "trialLimit": {
+      "savedMessage": "Пробная версия Pro включает 1 сохранённую Cloud VM, включая работающую VM.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "Пробная версия Pro позволяет одновременно запускать 1 Cloud VM.",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "Пробная версия Pro израсходовала 20 VM-часов. Полный Pro начнётся, когда пробный период закончится и подписка продлится.",
+      "hoursAction": "Сохранённая VM остаётся доступной. После пробного периода действуют полные лимиты Pro.",
+      "shapeMessage": "Пробная версия Pro поддерживает 2 vCPU, 4 ГБ RAM и 16 ГБ диска.",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "billingRecovery": {
@@ -5535,5 +5560,9 @@
     "unavailableTitle": "Не удалось подтвердить вход",
     "unavailableBody": "Сервис входа перегружен. Подождите несколько секунд и снова откройте приглашение. Входить заново не нужно.",
     "retry": "Повторить"
+  },
+  "billingTrial": {
+    "badge": "Пробная версия Pro",
+    "limits": "Пробная версия Pro включает 1 Cloud VM с 2 vCPU и 4 ГБ RAM и 20 VM-часов. Полный Pro начнётся после окончания пробного периода."
   }
 }

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
-import { billingEmailClaims, stripeSubscriptions } from "../db/schema";
+import { appleSubscriptions, billingEmailClaims, stripeSubscriptions } from "../db/schema";
 import { withAccountMutationLeaseSupport } from
   "./helpers/account-mutation-db-mock";
 
@@ -13,6 +13,7 @@ let stackConfigured = true;
 let currentUser: ReturnType<typeof planUser> | null = null;
 let stripeSubscriptionRows: Array<Record<string, unknown>> = [];
 let stripeSubscriptionResults: Array<Array<Record<string, unknown>>> = [];
+let appleSubscriptionRows: Array<Record<string, unknown>> = [];
 let claimLookupCount = 0;
 let dbMissing = false;
 let stackAuthUnavailable = false;
@@ -39,7 +40,8 @@ mock.module("../db/client", () => ({
         from: (table: unknown) => ({
           where: () => {
             if (table === billingEmailClaims) claimLookupCount += 1;
-            const rows = table !== stripeSubscriptions ? []
+            const rows = table === appleSubscriptions ? appleSubscriptionRows
+              : table !== stripeSubscriptions ? []
               : stripeSubscriptionResults.length > 0 ? stripeSubscriptionResults.shift()! : stripeSubscriptionRows;
             return Object.assign(Promise.resolve(rows), { limit: async () => rows });
           },
@@ -57,6 +59,7 @@ describe("billing plan route", () => {
     currentUser = planUser();
     stripeSubscriptionRows = [];
     stripeSubscriptionResults = [];
+    appleSubscriptionRows = [];
     claimLookupCount = 0;
     dbMissing = false;
     stackAuthUnavailable = false;
@@ -118,6 +121,26 @@ describe("billing plan route", () => {
     expect(response.subscriptionPlanId).toBe("max");
     expect(response.isPro).toBe(true);
     expect(response.billingManagement).toBe("stripe");
+  });
+
+  test("names an iOS Pro free trial Pro, never Go, with the trial limits", async () => {
+    const endsAt = new Date(Date.now() + 5 * 86_400_000);
+    appleSubscriptionRows = [{
+      originalTransactionId: "otid-trial", planId: "go", status: "active", environment: "Production",
+      bundleId: "com.cmux.app", expiresAt: endsAt, gracePeriodExpiresAt: null, autoRenewEnabled: true,
+      purchaseDate: new Date(), freeTrial: true,
+    }];
+
+    const response = await planResponse();
+
+    expect(response.planId).toBe("pro");
+    expect(response.subscriptionPlanId).toBe("pro");
+    expect(response.trial).toEqual({
+      endsAt: endsAt.toISOString(),
+      limits: { machines: 1, vcpus: 2, memoryGb: 4, vmHours: 20 },
+    });
+    expect(response.billingSource).toBe("apple");
+    expect(JSON.stringify(response)).not.toContain("\"go\"");
   });
 
   test("reports Stripe management for an active Team subscription row", async () => {

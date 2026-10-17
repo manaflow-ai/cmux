@@ -8,7 +8,7 @@ import type {
 
 import type { AppleSubscriptionStatus } from "../../../db/schema";
 import type { PersonalPlanId } from "../pro";
-import { appleBillingPeriodForProduct, appleUsdListPrice, planIdForAppleProduct } from "./config";
+import { appleBillingPeriodForProduct, appleUsdListPrice, isAppleTrialProduct, planIdForAppleProduct } from "./config";
 
 export type AppleSubscriptionState = {
   readonly originalTransactionId: string;
@@ -32,6 +32,16 @@ export type AppleSubscriptionState = {
   readonly revocationReason: number | null;
   /** Apple `signedDate` of the newest data this state was built from. */
   readonly stateSignedAt: Date;
+  /** The current transaction's offer: 1 introductory, 2 promotional, 3 offer code, 4 win-back. */
+  readonly offerType?: number | null;
+  /** `FREE_TRIAL`, `PAY_AS_YOU_GO` or `PAY_UP_FRONT` for an offer transaction. */
+  readonly offerDiscountType?: string | null;
+  /**
+   * The current period is the free trial of the trial product. The store
+   * grants it the limited trial entitlement only for an account with a
+   * verified trial claim (services/billing/apple/trial.ts).
+   */
+  readonly freeTrial?: boolean;
 };
 
 export type AppleStateInput = {
@@ -157,7 +167,17 @@ export function appleSubscriptionStateFrom(input: AppleStateInput): AppleSubscri
     revokedAt: date(transaction.revocationDate),
     revocationReason: typeof transaction.revocationReason === "number" ? transaction.revocationReason : null,
     stateSignedAt: stateSignedAt(input, now),
+    offerType: typeof transaction.offerType === "number" ? transaction.offerType : null,
+    offerDiscountType: text(transaction.offerDiscountType),
+    freeTrial: isAppleFreeTrialTransaction(transaction),
   };
+}
+
+/** A free-trial transaction of the trial product: an introductory offer with a FREE_TRIAL discount. */
+export function isAppleFreeTrialTransaction(transaction: JWSTransactionDecodedPayload): boolean {
+  return isAppleTrialProduct(transaction.productId, transaction.bundleId)
+    && transaction.offerType === 1
+    && transaction.offerDiscountType === "FREE_TRIAL";
 }
 
 export type AppleTransactionRow = {
@@ -255,7 +275,8 @@ const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 export function appleRevenueEstimate(state: Pick<
   AppleSubscriptionState,
   "planId" | "currency" | "priceMilliunits" | "purchaseDate" | "originalPurchaseDate"
-> & Partial<Pick<AppleSubscriptionState, "productId" | "bundleId">>): { price: number | null; priceUsd: number; netUsd: number; commission: number } {
+> & Partial<Pick<AppleSubscriptionState, "productId" | "bundleId" | "freeTrial">>): { price: number | null; priceUsd: number; netUsd: number; commission: number } {
+  if (state.freeTrial) return { price: 0, priceUsd: 0, netUsd: 0, commission: 0 };
   const price = state.priceMilliunits === null ? null : state.priceMilliunits / 1000;
   const period = state.productId && state.bundleId ? appleBillingPeriodForProduct(state.productId, state.bundleId) : "monthly";
   const priceUsd = state.currency === "USD" && price !== null ? price : appleUsdListPrice(state.planId, period);

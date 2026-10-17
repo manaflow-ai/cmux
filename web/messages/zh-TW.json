@@ -96,6 +96,21 @@
       "message": "{memory} GiB 的機器需要 cmux {plan}。目前方案最多支援 {max} GiB。",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "cmux Pro 試用",
+      "message": "{memory} GiB 的機器將在完整 Pro 於 {date} 開始後可用。Pro 試用最多支援 {max} GiB。",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialUndated": {
+      "title": "cmux Pro 試用",
+      "message": "{memory} GiB 的機器將在完整 Pro 開始後可用。Pro 試用最多支援 {max} GiB。",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialMax": {
+      "title": "cmux Pro 試用",
+      "message": "此大小需要 Max 方案。Pro 試用最多支援 {max} GiB。",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "無法驗證來源機器的記憶體大小。",
       "action": "cmux vm new --size 4g"
@@ -135,6 +150,16 @@
       "counted": "目前計入：{machines}。已暫停的機器不計入。",
       "provisioning": "{name}（正在佈建）",
       "separator": "、"
+    },
+    "trialLimit": {
+      "savedMessage": "Pro 試用包含 1 台已儲存的 Cloud VM（包括正在執行的 VM）。",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "Pro 試用同一時間只能執行 1 台 Cloud VM。",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "Pro 試用的 20 個 VM 小時已用完。試用結束且訂閱續訂後開始完整的 Pro。",
+      "hoursAction": "已儲存的 VM 仍可使用。試用結束後適用完整的 Pro 限額。",
+      "shapeMessage": "Pro 試用支援 2 個 vCPU、4 GB 記憶體與 16 GB 磁碟。",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "billingRecovery": {
@@ -5534,5 +5559,9 @@
     "unavailableTitle": "無法確認你的登入",
     "unavailableBody": "我們的登入服務忙碌中。請稍候幾秒鐘後再次開啟邀請。你不需要重新登入。",
     "retry": "重試"
+  },
+  "billingTrial": {
+    "badge": "Pro 試用",
+    "limits": "Pro 試用包含 1 台配備 2 個 vCPU 與 4 GB 記憶體的 Cloud VM，以及 20 個 VM 小時。試用結束後開始完整的 Pro。"
   }
 }

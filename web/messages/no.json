@@ -96,6 +96,21 @@
       "message": "Maskiner med {memory} GiB krever cmux {plan}. Abonnementet ditt støtter opptil {max} GiB.",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "cmux Pro-prøveperiode",
+      "message": "Maskiner på {memory} GiB blir tilgjengelige når full Pro starter {date}. Pro-prøveperioden støtter opptil {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialUndated": {
+      "title": "cmux Pro-prøveperiode",
+      "message": "Maskiner på {memory} GiB blir tilgjengelige når full Pro starter. Pro-prøveperioden støtter opptil {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialMax": {
+      "title": "cmux Pro-prøveperiode",
+      "message": "Denne størrelsen krever Max-planen. Pro-prøveperioden støtter opptil {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "RAM-størrelsen på kildemaskinen kunne ikke bekreftes.",
       "action": "cmux vm new --size 4g"
@@ -135,6 +150,16 @@
       "counted": "Telles nå: {machines}. Maskiner på pause telles ikke.",
       "provisioning": "{name} (klargjøres)",
       "separator": ", "
+    },
+    "trialLimit": {
+      "savedMessage": "Pro-prøveperioden inkluderer 1 lagret Cloud VM, inkludert VM-en som kjører.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "Pro-prøveperioden inkluderer 1 kjørende Cloud VM om gangen.",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "Pro-prøveperioden har brukt sine 20 VM-timer. Full Pro starter når prøveperioden slutter og abonnementet fornyes.",
+      "hoursAction": "Den lagrede VM-en er fortsatt tilgjengelig. Fulle Pro-grenser gjelder etter prøveperioden.",
+      "shapeMessage": "Pro-prøveperioden støtter 2 vCPU-er, 4 GB RAM og 16 GB disk.",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "billingRecovery": {
@@ -5532,5 +5557,9 @@
     "unavailableTitle": "Vi kunne ikke bekrefte innloggingen din",
     "unavailableBody": "Innloggingstjenesten vår er opptatt. Vent noen sekunder, og åpne invitasjonen igjen. Du trenger ikke å logge inn på nytt.",
     "retry": "Prøv igjen"
+  },
+  "billingTrial": {
+    "badge": "Pro-prøveperiode",
+    "limits": "Pro-prøveperioden din inkluderer 1 Cloud VM med 2 vCPU-er og 4 GB RAM, og 20 VM-timer. Full Pro starter når prøveperioden slutter."
   }
 }

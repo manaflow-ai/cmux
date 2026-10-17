@@ -263,6 +263,21 @@
       "message": "{memory} GiB のマシンには cmux {plan} が必要です。現在のプランの上限は {max} GiB です。",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "cmux Pro トライアル",
+      "message": "{memory} GiB のマシンは、正式な Pro が始まる {date} から使えます。Pro トライアルは最大 {max} GiB までです。",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialUndated": {
+      "title": "cmux Pro トライアル",
+      "message": "{memory} GiB のマシンは、正式な Pro が始まると使えます。Pro トライアルは最大 {max} GiB までです。",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialMax": {
+      "title": "cmux Pro トライアル",
+      "message": "このサイズには Max プランが必要です。Pro トライアルは最大 {max} GiB までです。",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "元のマシンの RAM 容量を確認できませんでした。",
       "action": "cmux vm new --size 4g"
@@ -302,6 +317,16 @@
       "counted": "現在カウント中: {machines}。一時停止中のマシンはカウントされません。",
       "provisioning": "{name}（プロビジョニング中）",
       "separator": "、"
+    },
+    "trialLimit": {
+      "savedMessage": "Pro トライアルで保存できる Cloud VM は、実行中の VM を含めて 1 台です。",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "Pro トライアルでは同時に 1 台の Cloud VM を実行できます。",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "Pro トライアルの 20 VM 時間を使い切りました。トライアルが終了してサブスクリプションが更新されると、Pro のすべてが使えるようになります。",
+      "hoursAction": "保存した VM は引き続き利用できます。トライアル後は Pro の上限が適用されます。",
+      "shapeMessage": "Pro トライアルでは 2 vCPU、4 GB RAM、16 GB ディスクを利用できます。",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "ios": {
@@ -7377,5 +7402,9 @@
     "dbUpdated": "データベース: {time}",
     "noOwner": "cmux の所有者なし",
     "none": "なし。"
+  },
+  "billingTrial": {
+    "badge": "Pro トライアル",
+    "limits": "Pro トライアルには、2 vCPU と 4 GB RAM の Cloud VM 1 台と 20 VM 時間が含まれます。トライアル終了後に Pro のすべてが使えるようになります。"
   }
 }

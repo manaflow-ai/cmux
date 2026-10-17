@@ -96,6 +96,21 @@
       "message": "تتطلب الأجهزة بسعة {memory} GiB اشتراك cmux {plan}. تدعم خطتك حتى {max} GiB.",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "الفترة التجريبية لـ cmux Pro",
+      "message": "تصبح الأجهزة بسعة {memory} GiB متاحة عند بدء Pro الكامل في {date}. تدعم الفترة التجريبية لـ Pro حتى {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialUndated": {
+      "title": "الفترة التجريبية لـ cmux Pro",
+      "message": "تصبح الأجهزة بسعة {memory} GiB متاحة عند بدء Pro الكامل. تدعم الفترة التجريبية لـ Pro حتى {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialMax": {
+      "title": "الفترة التجريبية لـ cmux Pro",
+      "message": "يتطلب هذا الحجم خطة Max. تدعم الفترة التجريبية لـ Pro حتى {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "تعذر التحقق من حجم RAM للجهاز المصدر.",
       "action": "cmux vm new --size 4g"
@@ -135,6 +150,16 @@
       "counted": "المحتسبة الآن: {machines}. لا تُحتسب الأجهزة المتوقفة مؤقتًا.",
       "provisioning": "{name} (قيد التجهيز)",
       "separator": "، "
+    },
+    "trialLimit": {
+      "savedMessage": "تتضمن تجربة Pro جهاز Cloud VM محفوظًا واحدًا، بما في ذلك الجهاز قيد التشغيل.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "تتضمن تجربة Pro تشغيل جهاز Cloud VM واحد في كل مرة.",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "استخدمت تجربة Pro ساعات VM العشرين. يبدأ Pro الكامل عند انتهاء التجربة وتجديد اشتراكك.",
+      "hoursAction": "يظل جهاز VM المحفوظ متاحًا. تنطبق حدود Pro الكاملة بعد التجربة.",
+      "shapeMessage": "تدعم تجربة Pro معالجين افتراضيين و4 GB من الذاكرة و16 GB من التخزين.",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "billingRecovery": {
@@ -5532,5 +5557,9 @@
     "unavailableTitle": "تعذّر تأكيد تسجيل دخولك",
     "unavailableBody": "موفر تسجيل الدخول مشغول. انتظر بضع ثوانٍ ثم افتح الدعوة مرة أخرى. لا تحتاج إلى تسجيل الدخول مرة أخرى.",
     "retry": "إعادة المحاولة"
+  },
+  "billingTrial": {
+    "badge": "تجربة Pro",
+    "limits": "تتضمن تجربة Pro جهاز Cloud VM واحدًا بمعالجين افتراضيين و4 GB من الذاكرة، و20 ساعة VM. يبدأ Pro الكامل عند انتهاء التجربة."
   }
 }

@@ -25,6 +25,8 @@ export type AppleEntitlementRow = {
   readonly autoRenewEnabled?: boolean | null;
   /** Purchase date of the newest transaction: the start of the current period. */
   readonly purchaseDate?: Date | null;
+  /** The current period is the trial product's free trial (plan_id `go` when verified). */
+  readonly freeTrial?: boolean;
 };
 
 
@@ -85,6 +87,7 @@ export async function appleSubscriptionRowsForUser(userId: string): Promise<Appl
       gracePeriodExpiresAt: appleSubscriptions.gracePeriodExpiresAt,
       autoRenewEnabled: appleSubscriptions.autoRenewEnabled,
       purchaseDate: appleSubscriptions.purchaseDate,
+      freeTrial: appleSubscriptions.freeTrial,
     })
     .from(appleSubscriptions)
     .where(eq(appleSubscriptions.userId, userId));

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { resolveProPlanStatus } from "../../../services/billing/pro";
+import { displayPersonalPlanId, resolveProPlanStatus } from "../../../services/billing/pro";
 import { os, requireAuth } from "../base";
 
 export const accountMeOutputSchema = z.object({
@@ -46,7 +46,8 @@ export const accountMeProcedure = os
       userId: user.id ?? "",
       email: user.primaryEmail ?? "",
       planId: status.isPro ? "pro" : "free",
-      subscriptionPlanId: status.planId,
+      // An iOS Pro free trial is named Pro, never Go.
+      subscriptionPlanId: displayPersonalPlanId(status),
       isPro: status.isPro,
       billingManagement: status.billingManagement,
     };

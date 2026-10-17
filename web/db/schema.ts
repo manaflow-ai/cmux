@@ -2750,6 +2750,15 @@ export const appleSubscriptions = pgTable("apple_subscriptions", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
   revocationReason: integer("revocation_reason"),
   stateSignedAt: timestamp("state_signed_at", { withTimezone: true }).notNull(),
+  /** The current transaction's offer type (1 introductory) and discount type (FREE_TRIAL). */
+  offerType: integer("offer_type"),
+  offerDiscountType: text("offer_discount_type"),
+  /**
+   * The current period is the trial product's free trial. `plan_id` is then
+   * `go` (the limited trial entitlement) for an account with a verified
+   * trial claim, else `trial_unverified`, which grants nothing.
+   */
+  freeTrial: boolean("free_trial").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -2809,4 +2818,108 @@ export const appleNotifications = pgTable("apple_notifications", {
   index("apple_notifications_pending_idx")
     .on(table.receivedAt)
     .where(sql`${table.processedAt} is null`),
+]);
+
+/**
+ * The paywall experiment variant last served to each user (one row per user
+ * and experiment). Assignment is sticky: once a user is exposed to a variant
+ * they keep it even when the optimizer moves traffic, so allocation changes
+ * never move an exposed user to another arm. `payload` is the validated copy
+ * served, kept so the sticky variant can be served when the flag now
+ * evaluates to another variant. Grant analytics read the row to tag
+ * `subscription_entitlement_granted` with the variant.
+ */
+export const paywallAssignments = pgTable("paywall_assignments", {
+  userId: text("user_id").notNull(),
+  experiment: text("experiment").notNull(),
+  variant: text("variant").notNull(),
+  payload: jsonb("payload").notNull(),
+  assignedAt: timestamp("assigned_at", { withTimezone: true }).notNull().defaultNow(),
+  servedAt: timestamp("served_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.userId, table.experiment] }),
+]);
+
+/**
+ * Every change to a paywall or pricing experiment, written by the optimizer
+ * (and by humans through its scripts): variant created or retired, copy
+ * changed, traffic split changed, sample-ratio-mismatch halt. Append only;
+ * the staff variants page reads it.
+ */
+export const paywallExperimentChanges = pgTable("paywall_experiment_changes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  experiment: text("experiment").notNull(),
+  changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+  kind: text("kind").notNull(),
+  variant: text("variant"),
+  reason: text("reason").notNull(),
+  details: jsonb("details"),
+  actor: text("actor").notNull(),
+}, (table) => [
+  index("paywall_experiment_changes_experiment_idx").on(table.experiment, table.changedAt.desc()),
+]);
+
+/** One optimizer run per experiment: the per-variant snapshot and the daily report. */
+export const paywallExperimentRuns = pgTable("paywall_experiment_runs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  experiment: text("experiment").notNull(),
+  ranAt: timestamp("ran_at", { withTimezone: true }).notNull().defaultNow(),
+  halted: boolean("halted").notNull().default(false),
+  snapshot: jsonb("snapshot").notNull(),
+  reportMarkdown: text("report_markdown").notNull(),
+}, (table) => [
+  index("paywall_experiment_runs_experiment_idx").on(table.experiment, table.ranAt.desc()),
+]);
+
+/**
+ * Single-use App Attest challenges for the iOS trial check, bound to the
+ * account that asked. Consumed (deleted) by the first verify that uses one;
+ * expired rows are useless and are purged by the next issue for that user.
+ */
+export const appleTrialChallenges = pgTable("apple_trial_challenges", {
+  challenge: text("challenge").primaryKey(),
+  userId: text("user_id").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("apple_trial_challenges_user_idx").on(table.userId),
+]);
+
+/**
+ * App Attest keys that passed attestation: one per app install. A key is
+ * bound to the first cmux account that attested it and never serves another.
+ * `sign_count` only grows, so a replayed assertion is refused.
+ */
+export const appleAppAttestKeys = pgTable("apple_app_attest_keys", {
+  keyId: text("key_id").primaryKey(),
+  userId: text("user_id").notNull(),
+  publicKeySpki: text("public_key_spki").notNull(),
+  signCount: bigint("sign_count", { mode: "number" }).notNull().default(0),
+  environment: text("environment").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("apple_app_attest_keys_user_idx").on(table.userId),
+]);
+
+/**
+ * One free trial per cmux account. `verified` after the device proof passed
+ * (the account may buy the trial product); `started` once the App Store
+ * reported the trial purchase, when the device's DeviceCheck bit is set so
+ * the same iPhone cannot start another trial under any account.
+ */
+export const appleTrialClaims = pgTable("apple_trial_claims", {
+  userId: text("user_id").primaryKey(),
+  keyId: text("key_id").notNull(),
+  deviceCheckToken: text("device_check_token"),
+  status: text("status").notNull(),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }).notNull().defaultNow(),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  originalTransactionId: text("original_transaction_id"),
+  deviceMarkAttemptedAt: timestamp("device_mark_attempted_at", { withTimezone: true }),
+  deviceMarkedAt: timestamp("device_marked_at", { withTimezone: true }),
+  grantedAt: timestamp("granted_at", { withTimezone: true }),
+}, (table) => [
+  index("apple_trial_claims_key_idx").on(table.keyId),
+  check("apple_trial_claims_status_check", sql`${table.status} in ('verified', 'started', 'device_reused')`),
 ]);

@@ -13,8 +13,10 @@ import {
   appleNotifications,
   appleSubscriptions,
   appleTransactions,
+  appleTrialClaims,
 } from "../../../db/schema";
 import type { AppleSubscriptionState, AppleTransactionRow } from "./state";
+import { TRIAL_CLAIM_TTL_MS } from "./trialConfig";
 
 type Db = ReturnType<typeof cloudDb>;
 
@@ -247,8 +249,52 @@ function subscriptionValues(state: AppleSubscriptionState, userId: string, now: 
     revokedAt: state.revokedAt,
     revocationReason: state.revocationReason,
     stateSignedAt: state.stateSignedAt,
+    offerType: state.offerType ?? null,
+    offerDiscountType: state.offerDiscountType ?? null,
+    freeTrial: state.freeTrial === true,
     updatedAt: now,
   };
+}
+
+/**
+ * The plan a free-trial period grants, decided inside the write transaction
+ * after the owner is known:
+ * - an account whose verified claim is fresh (TRIAL_CLAIM_TTL_MS) starts its
+ *   trial here (claim -> `started`, bound to this subscription) and gets
+ *   `trial_pending`, which grants nothing until the device check settles it
+ *   (trial.ts `settleTrialDevice`) to `go` or `trial_unverified`;
+ * - the subscription that started the claim keeps `go` once the device was
+ *   marked, else stays `trial_pending`;
+ * - anything else (no claim, an expired claim, another subscription, a reused
+ *   device) is `trial_unverified`, which no reader treats as a plan.
+ */
+async function trialPlanId(
+  tx: Pick<Db, "select" | "update">,
+  userId: string,
+  originalTransactionId: string,
+  now: Date,
+): Promise<string> {
+  const [claim] = await tx
+    .select({
+      status: appleTrialClaims.status,
+      originalTransactionId: appleTrialClaims.originalTransactionId,
+      verifiedAt: appleTrialClaims.verifiedAt,
+      deviceMarkedAt: appleTrialClaims.deviceMarkedAt,
+    })
+    .from(appleTrialClaims)
+    .where(eq(appleTrialClaims.userId, userId))
+    .for("update")
+    .limit(1);
+  if (claim?.status === "started" && claim.originalTransactionId === originalTransactionId) {
+    return claim.deviceMarkedAt ? "go" : "trial_pending";
+  }
+  if (claim?.status === "verified" && now.getTime() - claim.verifiedAt.getTime() <= TRIAL_CLAIM_TTL_MS) {
+    await tx.update(appleTrialClaims)
+      .set({ status: "started", startedAt: now, originalTransactionId })
+      .where(and(eq(appleTrialClaims.userId, userId), eq(appleTrialClaims.status, "verified")));
+    return "trial_pending";
+  }
+  return "trial_unverified";
 }
 
 async function writeSubscriptionState(
@@ -268,7 +314,10 @@ async function writeSubscriptionState(
       .limit(1);
     const plan = planAppleSubscriptionWrite(previous ?? null, state, claim);
     if (plan.kind === "stale") return { applied: false, previous: previous!, current: previous!, transferredFrom: null };
-    const values = subscriptionValues(state, plan.userId, new Date());
+    const values = {
+      ...subscriptionValues(state, plan.userId, new Date()),
+      ...(state.freeTrial ? { planId: await trialPlanId(tx, plan.userId, state.originalTransactionId, new Date()) } : {}),
+    };
     const [current] = previous
       ? await tx.update(appleSubscriptions)
         .set(values)

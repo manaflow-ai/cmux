@@ -24,6 +24,7 @@ import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
 import {
   MAX_PLAN_ID,
   GO_PLAN_ID,
+  displayPersonalPlanId,
   resolveProPlanStatus,
   type BillingManagementKind,
   type PersonalBillingSource,
@@ -127,8 +128,12 @@ export default async function PricingPage({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "pricing" });
+  // Trial wording lives outside the pricing catalog, which never advertises a trial.
+  const trialT = await getTranslations({ locale, namespace: "billingTrial" });
+  const trialLabels = { badge: trialT("badge"), limits: trialT("limits") };
   const fallback = {
     t,
+    trialLabels,
     query: {},
     snapshot: unknownPlan,
     goPlanEnabled: false,
@@ -138,6 +143,7 @@ export default async function PricingPage({
     <Suspense fallback={<PricingContent {...fallback} section={section} />}>
       <PersonalizedPricing
         t={t}
+        trialLabels={trialLabels}
         searchParams={searchParams}
         section={section}
       />
@@ -168,18 +174,23 @@ const pricingState = cache(async (searchParams?: Promise<PricingQuery>) => {
   return { snapshot, query, goPlanEnabled };
 });
 
+type TrialLabels = { readonly badge: string; readonly limits: string };
+
 async function PersonalizedPricing({
   t,
+  trialLabels,
   searchParams,
   section,
 }: {
   t: PricingTranslations;
+  trialLabels: TrialLabels;
   searchParams?: Promise<PricingQuery>;
   section: "individual" | "team" | "comparison";
 }) {
   return (
     <PricingContent
       t={t}
+      trialLabels={trialLabels}
       {...await pricingState(searchParams)}
       section={section}
     />
@@ -189,6 +200,7 @@ async function PersonalizedPricing({
 // oxlint-disable-next-line complexity -- All plan actions share the same billing snapshot.
 function PricingContent({
   t,
+  trialLabels,
   query,
   snapshot,
   goPlanEnabled,
@@ -197,6 +209,7 @@ function PricingContent({
   personalization,
 }: {
   t: PricingTranslations;
+  trialLabels: TrialLabels;
   query: PricingQuery;
   snapshot: PlanSnapshot;
   goPlanEnabled: boolean;
@@ -376,7 +389,7 @@ function PricingContent({
         ctaLabel={t("pro.cta")}
         badge={
           isProCurrent ? (
-            <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
+            <CurrentPlanBadge>{snapshot.trial ? trialLabels.badge : t("currentPlan")}</CurrentPlanBadge>
           ) : null
         }
         action={appStoreAction ? appStoreAction() : isProCurrent ? (
@@ -387,6 +400,7 @@ function PricingContent({
           </SecondaryLink>
         ) : undefined}
       >
+        {isProCurrent && snapshot.trial ? <p className="mt-5 text-sm">{trialLabels.limits}</p> : null}
         <p className="mt-5 text-sm font-medium">{t("pro.featuresLead")}</p>
         <FeatureList items={proFeatures} />
       </ProPlanCard>
@@ -641,6 +655,8 @@ type PlanSnapshot = {
   billingSource?: PersonalBillingSource;
   /** The Stripe subscription ends at period end; pricing offers Resume. */
   cancelScheduled?: boolean;
+  /** The plan is an iOS Pro free trial; it shows as Pro with the trial limits. */
+  trial?: boolean;
 };
 
 /**
@@ -684,10 +700,12 @@ async function readPlanSnapshot(): Promise<PlanSnapshot> {
   return {
     userId: user.id,
     authenticated: !user.isAnonymous,
-    planId: status.planId,
+    // An iOS Pro free trial is named Pro, never Go.
+    planId: displayPersonalPlanId(status),
     isPro: status.isPro,
     billingManagement: status.billingManagement,
     billingSource: status.billingSource,
     cancelScheduled: status.cancelScheduled ?? false,
+    trial: Boolean(status.trial),
   };
 }

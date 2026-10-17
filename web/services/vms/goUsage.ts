@@ -1,5 +1,6 @@
 import { and, count, eq, gt, inArray, isNull, lt, or } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
+import { activeAppleEntitlementForUser } from "../billing/apple/entitlement";
 import { cloudVms, cloudVmRuntimeIntervals } from "../../db/schema";
 import { personalBillingPeriod, runtimeSecondsWithinPeriod, subscriptionPeriodStart } from "./planUsage";
 
@@ -9,6 +10,14 @@ export const GO_INCLUDED_VM_HOURS = 40;
 export const GO_INCLUDED_VM_SECONDS = GO_INCLUDED_VM_HOURS * 3600;
 /** Two retained machines in total, at most one of them running. */
 export const GO_SAVED_VM_LIMIT = 2;
+/**
+ * The iOS Pro free trial runs on Go limits with a smaller allowance: one
+ * retained machine and 20 VM-hours for the whole trial (the trial is one
+ * billing period). Same constants as the database guard.
+ */
+export const TRIAL_INCLUDED_VM_HOURS = 20;
+export const TRIAL_INCLUDED_VM_SECONDS = TRIAL_INCLUDED_VM_HOURS * 3600;
+export const TRIAL_SAVED_VM_LIMIT = 1;
 
 export type GoVmUsage = {
   readonly periodStart: Date;
@@ -16,6 +25,11 @@ export type GoVmUsage = {
   readonly usedSeconds: number;
   readonly remainingSeconds: number;
   readonly savedVms: number;
+  /** The allowance of this period: Go's, or the trial's. */
+  readonly includedSeconds: number;
+  readonly savedVmLimit: number;
+  /** The period is the iOS Pro free trial. */
+  readonly trial: boolean;
 };
 
 /**
@@ -26,7 +40,12 @@ export type GoVmUsage = {
 export async function getGoVmUsage(userId: string, now = new Date()): Promise<GoVmUsage | null> {
   const db = cloudDb();
   const subscription = await personalBillingPeriod(userId, { now, stripeStatuses: ["active", "trialing"] });
-  if (!subscription) return { periodStart: now, periodEnd: now, usedSeconds: GO_INCLUDED_VM_SECONDS, remainingSeconds: 0, savedVms: 0 };
+  if (!subscription) {
+    return {
+      periodStart: now, periodEnd: now, usedSeconds: GO_INCLUDED_VM_SECONDS, remainingSeconds: 0, savedVms: 0,
+      includedSeconds: GO_INCLUDED_VM_SECONDS, savedVmLimit: GO_SAVED_VM_LIMIT, trial: false,
+    };
+  }
   if (subscription.planId !== "go") return null;
   if (!subscription.period) {
     throw new Error("Go billing period is unavailable; reconcile the subscription before granting runtime");
@@ -44,9 +63,45 @@ export async function getGoVmUsage(userId: string, now = new Date()): Promise<Go
     )),
   ]);
   const usedSeconds = runtimeSecondsWithinPeriod(intervals, periodStart, periodEnd, now);
+  const trial = subscription.trial === true;
+  const includedSeconds = trial ? TRIAL_INCLUDED_VM_SECONDS : GO_INCLUDED_VM_SECONDS;
   return { periodStart, periodEnd, usedSeconds,
-    remainingSeconds: Math.max(0, GO_INCLUDED_VM_SECONDS - usedSeconds),
-    savedVms: Number(retained[0]?.total ?? 0) };
+    remainingSeconds: Math.max(0, includedSeconds - usedSeconds),
+    savedVms: Number(retained[0]?.total ?? 0),
+    includedSeconds,
+    savedVmLimit: trial ? TRIAL_SAVED_VM_LIMIT : GO_SAVED_VM_LIMIT,
+    trial };
+}
+
+/**
+ * Whether the person's Go entitlement is the iOS Pro free trial, so limit
+ * messages name "Pro trial" and never Go. Same rule as getGoVmUsage and the
+ * database guard. Read only when a Go limit answers a request; a failed read
+ * is not a trial.
+ */
+export async function isGoTrialUser(userId: string, now = new Date()): Promise<boolean> {
+  try {
+    const subscription = await personalBillingPeriod(userId, { now, stripeStatuses: ["active", "trialing"] });
+    return subscription?.planId === "go" && subscription.trial === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * When the caller's iOS Pro free trial ends (full Pro starts then), or null
+ * when the caller is not on the trial. Fails closed to null.
+ */
+export async function goTrialEndsAt(userId: string, now = new Date()): Promise<Date | null> {
+  try {
+    const subscription = await personalBillingPeriod(userId, { now, stripeStatuses: ["active", "trialing"] });
+    if (subscription?.planId !== "go" || subscription.trial !== true) return null;
+    // The trial's own expiry, not a grace period after it. With no usable
+    // period yet (a reconcile is pending), read the expiry from the entitlement.
+    return subscription.period?.billedEnd ?? (await activeAppleEntitlementForUser(userId, { now }))?.expiresAt ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /** Drizzle wraps PostgreSQL constraints; inspect only the known public limits. */

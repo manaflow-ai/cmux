@@ -47,7 +47,7 @@ import {
 import { recordSpanTiming } from "./timings";
 import { planIncludes } from "../billing/planTier";
 import { authProviderErrorResponse } from "./authErrors";
-import { goCapacityConstraint } from "./goUsage";
+import { goCapacityConstraint, goTrialEndsAt, isGoTrialUser } from "./goUsage";
 import { isSyntheticAccountEmail, rememberSyntheticUser } from "../analytics/syntheticAccounts";
 import {
   captureVmRequestOutcome,
@@ -57,6 +57,7 @@ import {
 } from "./observability";
 import {
   annotateVmRequestBilling,
+  currentVmRequestContext,
   runWithVmRequestContext,
   vmClientIdentityFromRequest,
   vmIdFromRequestPath,
@@ -603,12 +604,59 @@ export async function vmMemoryUnavailableResponse(maxMemoryMb: number, locale: L
   return vmErrorResponse({ error: "vm_memory_unavailable", status: 409, message: copy.message, action: copy.action, displayTitle: copy.title, phase: "billing" });
 }
 
+/**
+ * A Pro trial account asked for a size beyond the trial: it becomes available
+ * when full Pro starts (the trial's end date, shown in the caller's locale).
+ */
+export async function vmMemoryTrialResponse(input: {
+  readonly memoryMb: number;
+  readonly maxMemoryMb: number;
+  /** Null when the trial is known but its end date is not (a reconcile is pending). */
+  readonly trialEndsAt: Date | null;
+  /** The size needs Max, which full Pro does not include either. */
+  readonly needsMax?: boolean;
+}, locale: Locale = "en"): Promise<Response> {
+  const memoryGb = Math.round(input.memoryMb / 1024);
+  const maxGb = Math.round(input.maxMemoryMb / 1024);
+  const date = input.trialEndsAt ? new Intl.DateTimeFormat(locale, { dateStyle: "long", timeZone: "UTC" }).format(input.trialEndsAt) : "";
+  const kind = input.needsMax ? "memoryTrialMax" : input.trialEndsAt ? "memoryTrial" : "memoryTrialUndated";
+  const copy = await vmMemoryErrorCopy(kind, locale, { memory: memoryGb, max: maxGb, date });
+  return vmErrorResponse({
+    error: "vm_memory_requires_plan",
+    status: 402,
+    message: copy.message,
+    action: copy.action,
+    displayTitle: copy.title,
+    phase: "billing",
+    retryable: false,
+    details: { requestedMemoryMb: input.memoryMb, maxMemoryMb: input.maxMemoryMb, trialEndsAt: input.trialEndsAt?.toISOString() ?? null },
+    extra: {
+      upgradeRequired: false,
+      trial: true,
+      trialEndsAt: input.trialEndsAt?.toISOString() ?? null,
+      memoryMb: input.memoryMb,
+      maxMemoryMb: input.maxMemoryMb,
+    },
+  });
+}
+
 export async function vmMemoryRequiresPlanResponse(input: {
   readonly memoryMb: number;
   readonly maxMemoryMb: number;
   readonly planId: string;
   readonly upgradePlanId: string;
 }, locale: Locale = "en"): Promise<Response> {
+  // A Pro trial is already the Pro subscription and gets no upgrade offer
+  // (the apps hide them too): a Pro size comes when full Pro starts; a Max
+  // size is only named.
+  // The trial check does not depend on the date: without a known end date
+  // the trial still gets no offer, only undated copy.
+  const trialEndsAt = input.planId === "go" ? await vmCallerTrialEndsAt() : null;
+  if (trialEndsAt || (input.planId === "go" && await vmCallerOnGoTrial())) {
+    return vmMemoryTrialResponse({
+      memoryMb: input.memoryMb, maxMemoryMb: input.maxMemoryMb, trialEndsAt, needsMax: input.upgradePlanId !== "pro",
+    }, locale);
+  }
   const memoryGb = Math.round(input.memoryMb / 1024);
   const maxGb = Math.round(input.maxMemoryMb / 1024);
   const upgradeName = input.upgradePlanId.charAt(0).toUpperCase() + input.upgradePlanId.slice(1);
@@ -916,11 +964,43 @@ export function vmModelPlaneErrorResponse(
  * overrides win over these. Entries returning `null` have no shared contract:
  * the create-family errors need plan and operation copy only the route knows.
  */
+/**
+ * When the signed-in caller's iOS Pro free trial ends (full Pro starts), or
+ * null when the caller is not on the trial. Read lazily, only when a size
+ * limit answers the request.
+ */
+async function vmCallerTrialEndsAt(): Promise<Date | null> {
+  const userId = currentVmRequestContext()?.userId;
+  return userId ? await goTrialEndsAt(userId) : null;
+}
+
+/**
+ * Whether the signed-in caller of this VM request is on the iOS Pro free
+ * trial (internally the Go entitlement). Read lazily, only when a Go limit
+ * answers the request.
+ */
+async function vmCallerOnGoTrial(): Promise<boolean> {
+  const userId = currentVmRequestContext()?.userId;
+  return userId ? await isGoTrialUser(userId) : false;
+}
+
+/**
+ * The upgrade a Go limit offers. A Pro free trial is already Pro on the App
+ * Store; full Pro starts when the trial ends, and a web checkout would bill
+ * the person twice, so the trial gets no upgrade prompt.
+ */
+function goLimitUpgrade(trial: boolean): Record<string, unknown> {
+  return trial
+    ? { upgradeRequired: false, trial: true }
+    : { upgradeRequired: true, upgradePlanId: "pro", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=pro" };
+}
+
 export async function goLimitResponse(
   kind: "saved" | "active" | "hours",
   locale: Locale,
 ): Promise<Response> {
-  const copy = await vmGoLimitCopy(kind, locale);
+  const trial = await vmCallerOnGoTrial();
+  const copy = await vmGoLimitCopy(kind, locale, trial);
   return vmErrorResponse({
     error: kind === "hours" ? "vm_hours_limit_reached" : kind === "saved" ? "vm_saved_limit_reached" : "vm_active_limit_exceeded",
     status: 402,
@@ -928,7 +1008,7 @@ export async function goLimitResponse(
     action: copy.action,
     phase: "billing",
     retryable: false,
-    extra: { upgradeRequired: true, upgradePlanId: "pro", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=pro" },
+    extra: goLimitUpgrade(trial),
   });
 }
 
@@ -1213,12 +1293,13 @@ export const vmWorkflowErrorResponders = {
     });
   },
   VmGoShapeError: async (_error, context) => {
-    const copy = await vmGoLimitCopy("shape", context.locale);
+    const trial = await vmCallerOnGoTrial();
+    const copy = await vmGoLimitCopy("shape", context.locale, trial);
     return vmErrorResponse({
       error: "vm_resources_require_pro", status: 402, phase: "billing",
       message: copy.message,
       action: copy.action,
-      extra: { upgradeRequired: true, upgradePlanId: "pro", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=pro" },
+      extra: goLimitUpgrade(trial),
     });
   },
   VmCreateCreditsInsufficientError: () => null,

@@ -96,6 +96,21 @@
       "message": "Maschinen mit {memory} GiB benötigen cmux {plan}. Ihr Tarif unterstützt bis zu {max} GiB.",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "cmux Pro-Testphase",
+      "message": "Maschinen mit {memory} GiB sind verfügbar, sobald das volle Pro am {date} beginnt. Die Pro-Testphase unterstützt bis zu {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialUndated": {
+      "title": "cmux Pro-Testphase",
+      "message": "Maschinen mit {memory} GiB sind verfügbar, sobald das volle Pro beginnt. Die Pro-Testphase unterstützt bis zu {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialMax": {
+      "title": "cmux Pro-Testphase",
+      "message": "Diese Größe erfordert den Max-Tarif. Die Pro-Testphase unterstützt bis zu {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "Die RAM-Größe der Quellmaschine konnte nicht überprüft werden.",
       "action": "cmux vm new --size 4g"
@@ -135,6 +150,16 @@
       "counted": "Derzeit gezählt: {machines}. Pausierte Maschinen zählen nicht.",
       "provisioning": "{name} (wird bereitgestellt)",
       "separator": ", "
+    },
+    "trialLimit": {
+      "savedMessage": "Die Pro-Testversion umfasst 1 gespeicherte Cloud VM, einschließlich der laufenden VM.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "Die Pro-Testversion umfasst eine gleichzeitig laufende Cloud VM.",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "Die Pro-Testversion hat ihre 20 VM-Stunden verbraucht. Das volle Pro beginnt, wenn die Testversion endet und dein Abo verlängert wird.",
+      "hoursAction": "Deine gespeicherte VM bleibt verfügbar. Nach der Testversion gelten die vollen Pro-Limits.",
+      "shapeMessage": "Die Pro-Testversion unterstützt 2 vCPUs, 4 GB RAM und 16 GB Speicher.",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "billingRecovery": {
@@ -5535,5 +5560,9 @@
     "unavailableTitle": "Anmeldung konnte nicht bestätigt werden",
     "unavailableBody": "Unser Anmeldedienst ist ausgelastet. Warte ein paar Sekunden und öffne die Einladung erneut. Du musst dich nicht erneut anmelden.",
     "retry": "Erneut versuchen"
+  },
+  "billingTrial": {
+    "badge": "Pro-Testversion",
+    "limits": "Deine Pro-Testversion umfasst 1 Cloud VM mit 2 vCPUs und 4 GB RAM sowie 20 VM-Stunden. Das volle Pro beginnt, wenn die Testversion endet."
   }
 }

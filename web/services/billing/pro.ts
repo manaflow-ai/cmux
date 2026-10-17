@@ -25,9 +25,10 @@ import {
   withFreshAccountMetadataUser,
 } from
   "../account/metadataMutation";
-import { activeApplePlanForUser } from "./apple/entitlement";
+import { activeAppleEntitlementForUser, activeApplePlanForUser } from "./apple/entitlement";
 import { planTierRank } from "./planTier";
 import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "./apple/config";
+import { TRIAL_LIMITS } from "./apple/trialConfig";
 
 export const PRO_PLAN_ID = "pro";
 export const GO_PLAN_ID = "go";
@@ -231,6 +232,26 @@ export type PersonalBillingSource = "stripe" | "apple" | "none";
 /** Seam for the user's granting Apple plan; defaults to the database. */
 export type ActiveApplePlanQuery = (stackUserId: string) => Promise<PersonalPlanId | null>;
 
+/** The App Store free trial that grants the plan, or null when the plan is not a trial. */
+export type ActiveAppleTrialQuery = (stackUserId: string) => Promise<{ readonly endsAt: Date | null } | null>;
+
+const defaultActiveAppleTrial: ActiveAppleTrialQuery = async (stackUserId) => {
+  const row = await activeAppleEntitlementForUser(stackUserId);
+  return row?.freeTrial && row.planId === GO_PLAN_ID ? { endsAt: row.expiresAt } : null;
+};
+
+/** What a Pro free trial includes; shown wherever the plan is named. */
+export const PRO_TRIAL_LIMITS = TRIAL_LIMITS;
+
+/**
+ * The plan to name to a person. An iOS Pro free trial runs on the Go
+ * entitlement internally, but it is sold and shown as "Pro trial", so every
+ * label shows Pro (with `trial` set) and never Go.
+ */
+export function displayPersonalPlanId(status: Pick<ProPlanStatus, "planId" | "trial">): ProPlanStatus["planId"] {
+  return status.trial ? PRO_PLAN_ID : status.planId;
+}
+
 export type ProPlanStatus = {
   /** The personal plan in force: free, pro, or max (max satisfies isPro). */
   readonly planId: typeof FREE_PLAN_ID | PersonalPlanId;
@@ -247,6 +268,12 @@ export type ProPlanStatus = {
    * end, so pricing offers Resume instead of a new purchase.
    */
   readonly cancelScheduled?: boolean;
+  /**
+   * The plan is an iOS Pro free trial (`planId` is the internal "go"
+   * entitlement). Renderers name it "Pro trial" with PRO_TRIAL_LIMITS; use
+   * displayPersonalPlanId for any label.
+   */
+  readonly trial?: { readonly endsAt: Date | null };
 };
 
 /**
@@ -315,6 +342,8 @@ export async function resolveProPlanStatus(
     /** Optional state snapshot used by checkout and deterministic callers. */
     stripeBillingStatus?: StripeBillingStatus | StripeBillingStatusQuery;
     activeApplePlan?: ActiveApplePlanQuery;
+    /** Read only when the App Store grants the Go entitlement. */
+    activeAppleTrial?: ActiveAppleTrialQuery;
     withFreshMetadataUser?: FreshProMetadataUserMutation;
     /** Runtime environment override used by deterministic callers and tests. */
     environment?: Record<string, string | undefined>;
@@ -369,12 +398,15 @@ export async function resolveProPlanStatus(
     );
   }
 
+  const trial = await appleTrialForStatus(user.id, planId, billingSource, options.activeAppleTrial);
+
   return {
     planId,
     isPro,
     billingManagement,
     billingSource,
     manageUrl: billingSource === "apple" ? APPLE_MANAGE_SUBSCRIPTIONS_URL : null,
+    ...(trial ? { trial } : {}),
     metadataPlanId,
     hasManualVmPlanOverride,
     metadataChanged,
@@ -382,6 +414,21 @@ export async function resolveProPlanStatus(
       ? { cancelScheduled: true }
       : {}),
   };
+}
+
+/**
+ * A free trial is only ever the App Store's Go entitlement; a web Go
+ * subscription for the same person outranks it (like the capacity guard).
+ * A failed read is not a trial.
+ */
+async function appleTrialForStatus(
+  userId: string | undefined,
+  planId: ProPlanStatus["planId"],
+  billingSource: PersonalBillingSource,
+  query: ActiveAppleTrialQuery = defaultActiveAppleTrial,
+): Promise<{ readonly endsAt: Date | null } | null> {
+  if (planId !== GO_PLAN_ID || billingSource !== "apple" || !userId) return null;
+  return await query(userId).catch(() => null);
 }
 
 type StripeStateForStatus = {

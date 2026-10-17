@@ -96,6 +96,21 @@
       "message": "เครื่องขนาด {memory} GiB ต้องใช้ cmux {plan} แผนของคุณรองรับสูงสุด {max} GiB",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "ช่วงทดลองใช้ cmux Pro",
+      "message": "เครื่องขนาด {memory} GiB จะใช้ได้เมื่อ Pro แบบเต็มเริ่มในวันที่ {date} ช่วงทดลองใช้ Pro รองรับสูงสุด {max} GiB",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialUndated": {
+      "title": "ช่วงทดลองใช้ cmux Pro",
+      "message": "เครื่องขนาด {memory} GiB จะใช้ได้เมื่อ Pro แบบเต็มเริ่มต้น ช่วงทดลองใช้ Pro รองรับสูงสุด {max} GiB",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialMax": {
+      "title": "ช่วงทดลองใช้ cmux Pro",
+      "message": "ขนาดนี้ต้องใช้แพ็กเกจ Max ช่วงทดลองใช้ Pro รองรับสูงสุด {max} GiB",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "ไม่สามารถตรวจสอบขนาด RAM ของเครื่องต้นทางได้",
       "action": "cmux vm new --size 4g"
@@ -135,6 +150,16 @@
       "counted": "ที่นับอยู่ตอนนี้: {machines} เครื่องที่หยุดชั่วคราวจะไม่ถูกนับ",
       "provisioning": "{name} (กำลังจัดเตรียม)",
       "separator": ", "
+    },
+    "trialLimit": {
+      "savedMessage": "การทดลองใช้ Pro มี Cloud VM ที่บันทึกไว้ 1 เครื่อง รวม VM ที่กำลังทำงาน",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "การทดลองใช้ Pro เรียกใช้ Cloud VM ได้ครั้งละ 1 เครื่อง",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "การทดลองใช้ Pro ใช้ 20 ชั่วโมง VM หมดแล้ว Pro แบบเต็มจะเริ่มเมื่อการทดลองใช้สิ้นสุดและการสมัครสมาชิกต่ออายุ",
+      "hoursAction": "VM ที่บันทึกไว้ยังใช้งานได้ ขีดจำกัด Pro แบบเต็มจะใช้หลังการทดลองใช้",
+      "shapeMessage": "การทดลองใช้ Pro รองรับ 2 vCPU, RAM 4 GB และดิสก์ 16 GB",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "billingRecovery": {
@@ -5540,5 +5565,9 @@
     "unavailableTitle": "ไม่สามารถยืนยันการลงชื่อเข้าใช้ของคุณได้",
     "unavailableBody": "ผู้ให้บริการลงชื่อเข้าใช้ของเรามีผู้ใช้จำนวนมาก โปรดรอสักครู่แล้วเปิดคำเชิญอีกครั้ง คุณไม่ต้องลงชื่อเข้าใช้ใหม่",
     "retry": "ลองอีกครั้ง"
+  },
+  "billingTrial": {
+    "badge": "ทดลองใช้ Pro",
+    "limits": "การทดลองใช้ Pro ของคุณมี Cloud VM 1 เครื่องที่มี 2 vCPU และ RAM 4 GB และ 20 ชั่วโมง VM Pro แบบเต็มจะเริ่มเมื่อการทดลองใช้สิ้นสุด"
   }
 }

@@ -96,6 +96,21 @@
       "message": "Máquinas com {memory} GiB exigem cmux {plan}. Seu plano permite até {max} GiB.",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "Teste do cmux Pro",
+      "message": "Máquinas de {memory} GiB ficam disponíveis quando o Pro completo começar, em {date}. O teste do Pro suporta até {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialUndated": {
+      "title": "Teste do cmux Pro",
+      "message": "Máquinas de {memory} GiB ficam disponíveis quando o Pro completo começar. O teste do Pro suporta até {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialMax": {
+      "title": "Teste do cmux Pro",
+      "message": "Este tamanho exige o plano Max. O teste do Pro suporta até {max} GiB.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "Não foi possível verificar a RAM da máquina de origem.",
       "action": "cmux vm new --size 4g"
@@ -135,6 +150,16 @@
       "counted": "Contadas agora: {machines}. Máquinas pausadas não contam.",
       "provisioning": "{name} (provisionando)",
       "separator": ", "
+    },
+    "trialLimit": {
+      "savedMessage": "O teste do Pro inclui 1 Cloud VM salva, incluindo a VM em execução.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "O teste do Pro inclui 1 Cloud VM em execução por vez.",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "O teste do Pro usou suas 20 horas de VM. O Pro completo começa quando o teste termina e sua assinatura é renovada.",
+      "hoursAction": "Sua VM salva continua disponível. Os limites completos do Pro valem depois do teste.",
+      "shapeMessage": "O teste do Pro oferece 2 vCPUs, 4 GB de RAM e 16 GB de disco.",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "billingRecovery": {
@@ -5535,5 +5560,9 @@
     "unavailableTitle": "Não foi possível confirmar seu login",
     "unavailableBody": "Nosso provedor de login está ocupado. Aguarde alguns segundos e abra o convite novamente. Você não precisa entrar novamente.",
     "retry": "Tentar novamente"
+  },
+  "billingTrial": {
+    "badge": "Teste do Pro",
+    "limits": "Seu teste do Pro inclui 1 Cloud VM com 2 vCPUs e 4 GB de RAM, e 20 horas de VM. O Pro completo começa quando o teste termina."
   }
 }

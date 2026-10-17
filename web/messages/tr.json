@@ -96,6 +96,21 @@
       "message": "{memory} GiB makineler cmux {plan} gerektirir. Planınız en fazla {max} GiB destekler.",
       "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
     },
+    "memoryTrial": {
+      "title": "cmux Pro deneme sürümü",
+      "message": "{memory} GiB makineler, tam Pro {date} tarihinde başladığında kullanılabilir olur. Pro deneme sürümü en fazla {max} GiB destekler.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialUndated": {
+      "title": "cmux Pro deneme sürümü",
+      "message": "{memory} GiB makineler, tam Pro başladığında kullanılabilir olur. Pro deneme sürümü en fazla {max} GiB destekler.",
+      "action": "cmux vm new --size {max}g"
+    },
+    "memoryTrialMax": {
+      "title": "cmux Pro deneme sürümü",
+      "message": "Bu boyut için Max planı gerekir. Pro deneme sürümü en fazla {max} GiB destekler.",
+      "action": "cmux vm new --size {max}g"
+    },
     "memoryUnknown": {
       "message": "Kaynak makinenin RAM boyutu doğrulanamadı.",
       "action": "cmux vm new --size 4g"
@@ -135,6 +150,16 @@
       "counted": "Şu anda sayılanlar: {machines}. Duraklatılmış makineler sayılmaz.",
       "provisioning": "{name} (hazırlanıyor)",
       "separator": ", "
+    },
+    "trialLimit": {
+      "savedMessage": "Pro denemesi, çalışan VM dahil 1 kayıtlı Cloud VM içerir.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>",
+      "activeMessage": "Pro denemesi aynı anda 1 çalışan Cloud VM içerir.",
+      "activeAction": "cmux vm pause <id>",
+      "hoursMessage": "Pro denemesi 20 VM saatini kullandı. Tam Pro, deneme bitip aboneliğiniz yenilendiğinde başlar.",
+      "hoursAction": "Kayıtlı VM'niz kullanılabilir kalır. Denemeden sonra tam Pro sınırları geçerlidir.",
+      "shapeMessage": "Pro denemesi 2 vCPU, 4 GB RAM ve 16 GB diski destekler.",
+      "shapeAction": "cmux vm new --size 4g"
     }
   },
   "billingRecovery": {
@@ -5533,5 +5558,9 @@
     "unavailableTitle": "Oturum açmanız doğrulanamadı",
     "unavailableBody": "Oturum açma sağlayıcımız yoğun. Birkaç saniye bekleyin, ardından daveti yeniden açın. Yeniden oturum açmanız gerekmez.",
     "retry": "Tekrar dene"
+  },
+  "billingTrial": {
+    "badge": "Pro denemesi",
+    "limits": "Pro denemeniz 2 vCPU ve 4 GB RAM'li 1 Cloud VM ile 20 VM saati içerir. Tam Pro, deneme bittiğinde başlar."
   }
 }
