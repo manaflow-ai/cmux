@@ -157,6 +157,11 @@ public final class CEFBrowserPage: BrowserPage {
     public func goBack() { browser.goBack() }
     /// Goes forward.
     public func goForward() { browser.goForward() }
+    /// Chromium's back/forward list for Back and Forward history menus.
+    public func navigationList() -> CEFNavigationList? { browser.navigationList() }
+    /// Goes `offset` entries back (negative) or forward in the history.
+    @discardableResult
+    public func goToEntry(offset: Int) -> Bool { browser.goToEntry(offset: offset) }
     /// Reloads.
     public func reload() { browser.reload() }
 
