@@ -10,10 +10,14 @@ pub(super) fn parse(
         return Err(crate::cli::not_in_cmux("session"));
     }
     match strs(words).as_slice() {
-        ["list"] => request(ResourceOperation::MachineList, selectors, flags, Map::new()),
+        ["list"] => {
+            let params = catalog_params(flags);
+            request(ResourceOperation::MachineList, selectors, flags, params)
+        }
         [selector, "show"] => {
             selectors.insert("machine", "machine", selector)?;
-            request(ResourceOperation::MachineGet, selectors, flags, Map::new())
+            let params = catalog_params(flags);
+            request(ResourceOperation::MachineGet, selectors, flags, params)
         }
         [machine, "session", "list"] => {
             selectors.insert("machine", "machine", machine)?;
@@ -26,4 +30,8 @@ pub(super) fn parse(
         }
         _ => usage("machine action"),
     }
+}
+
+fn catalog_params(flags: &mut Flags) -> Map<String, Value> {
+    if flags.boolean("catalog") { map_with("catalog", Value::Bool(true)) } else { Map::new() }
 }

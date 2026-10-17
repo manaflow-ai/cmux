@@ -8942,6 +8942,16 @@ registration; callers continue to discover machines through the existing
 `machine.list` and `machine.get` catalog operations, CLI and SDK surfaces.
 It is not another machine-list operation or an enrollment command.
 
+Readers explicitly request `catalog:true` on `machine.list/get` to receive owner
+metadata and projected remote origins. `identify` advertises
+`machine-catalog-read-v1` for this option. Without it, or with `catalog:false`,
+these reads retain the original local-only shape so strict older machine
+decoders remain usable even while a publisher is active. Session snapshots retain that original
+shape too. The CLI exposes the option as `--catalog`; MCP exposes the typed
+boolean `catalog`. A machine-prefix lookup forwards the same opt-in on its
+existing connection. This parameter changes the response format and catalog
+visibility, never execution authority.
+
 The required owner ID must match this daemon's persisted public ID. Each remote
 record has a canonical `id`, bounded display `name`, `origin` (`cloud`, `ssh`,
 `server`), `status` (`running`, `connecting`, `unavailable`, `sleeping`, `stopped`),

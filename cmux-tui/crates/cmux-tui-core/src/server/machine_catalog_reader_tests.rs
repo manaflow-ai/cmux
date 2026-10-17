@@ -95,6 +95,10 @@ fn cmux_next_machine_reader_does_not_return_a_remote_shape_without_opt_in() {
 #[test]
 fn cmux_next_machine_reader_explicit_catalog_opt_in_retains_owner_metadata() {
     let mux = mux();
+    let identity = super::super::run(&mux, json!({"cmd":"identify"})).unwrap();
+    assert!(
+        identity["capabilities"].as_array().unwrap().contains(&json!("machine-catalog-read-v1"))
+    );
     let publisher = Publisher::new(&mux, ClientTransport::Unix, true);
     let remote = remote();
     assert_eq!(publisher.send(&mux, 1, json!([remote]))["ok"], true);
@@ -108,4 +112,34 @@ fn cmux_next_machine_reader_explicit_catalog_opt_in_retains_owner_metadata() {
         read(&reader, &mux, "machine.get", json!({"machine":remote["id"],"catalog":true}));
     assert_eq!(selected["ok"], true, "{selected}");
     assert_eq!(selected["result"], reply["result"][1]);
+    let legacy = read(&reader, &mux, "machine.list", json!({}));
+    assert_eq!(legacy["result"].as_array().unwrap().len(), 1, "opt-in is per request");
+    assert_legacy(&legacy["result"][0], &mux);
+}
+
+#[test]
+fn cmux_next_machine_reader_false_opt_in_and_session_snapshots_keep_the_legacy_shape() {
+    let mux = mux();
+    let reader = Publisher::new(&mux, ClientTransport::Unix, false);
+    let local = read(&reader, &mux, "machine.get", json!({"machine":"current","catalog":false}));
+    assert_eq!(local["ok"], true, "{local}");
+    assert_legacy(&local["result"], &mux);
+    let snapshot =
+        read(&reader, &mux, "session.snapshot", json!({"machine":"current","session":"current"}));
+    assert_eq!(snapshot["ok"], true, "{snapshot}");
+    assert_legacy(&snapshot["result"]["machine"], &mux);
+}
+
+#[test]
+fn cmux_next_machine_reader_opt_in_is_typed_and_cannot_extend_session_routes() {
+    let mux = mux();
+    let reader = Publisher::new(&mux, ClientTransport::Unix, false);
+    for catalog in [Value::Null, json!("true"), json!(1)] {
+        let reply = read(&reader, &mux, "machine.list", json!({"catalog":catalog}));
+        assert_eq!(reply["ok"], false, "{reply}");
+        assert_eq!(reply["error"]["code"], "validation.invalid");
+    }
+    let session = read(&reader, &mux, "session.list", json!({"machine":"current","catalog":true}));
+    assert_eq!(session["ok"], false, "{session}");
+    assert_eq!(session["error"]["code"], "validation.invalid");
 }

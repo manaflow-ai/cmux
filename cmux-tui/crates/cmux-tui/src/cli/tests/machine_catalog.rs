@@ -55,3 +55,24 @@ fn cmux_next_machine_catalog_agent_surface_cli_routes_session_without_metadata_f
     }
     assert!(!MACHINE_CATALOG_HELP.contains("session"));
 }
+
+#[test]
+fn cmux_next_machine_catalog_agent_surface_cli_requires_explicit_catalog_opt_in() {
+    for args in
+        [vec!["machine", "list", "--catalog"], vec!["machine", "current", "show", "--catalog"]]
+    {
+        let ParsedCommand::Command { plan: CommandPlan::Protocol(plan), .. } =
+            parse(&strings(&args), Surface::Cmux).unwrap()
+        else {
+            panic!("catalog request")
+        };
+        assert_eq!(plan.params["catalog"], true);
+        assert!(plan.params.get("session").is_none());
+    }
+    for args in [
+        vec!["workspace", "list", "--catalog"],
+        vec!["machine", "current", "session", "list", "--catalog"],
+    ] {
+        assert!(parse(&strings(&args), Surface::CmuxTui).is_err(), "{args:?}");
+    }
+}

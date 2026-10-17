@@ -20715,7 +20715,13 @@
         "selectors": {
           "machine": "required"
         },
-        "fields": {},
+        "fields": {
+          "catalog": {
+            "required": false,
+            "type": {"kind": "primitive", "name": "boolean"},
+            "description": "Opt in to owner metadata and admitted remote records. Omitted or false preserves the original local-only shape; this grants no execution authority."
+          }
+        },
         "extra": false
       },
       "result": {
@@ -20738,7 +20744,13 @@
       "ancestors": [],
       "params": {
         "selectors": {},
-        "fields": {},
+        "fields": {
+          "catalog": {
+            "required": false,
+            "type": {"kind": "primitive", "name": "boolean"},
+            "description": "Opt in to owner metadata and admitted remote records. Omitted or false preserves the original local-only shape; this grants no execution authority."
+          }
+        },
         "extra": false
       },
       "result": {

@@ -72,7 +72,14 @@ fn dispatch(
     mux.resource_machine_service().dispatch(&ResourceMachineRequest {
         operation,
         selectors: ResourceSelectors { machine: machine.map(str::to_owned), ..Default::default() },
-        fields: Default::default(),
+        fields: if matches!(
+            operation,
+            ResourceOperation::MachineList | ResourceOperation::MachineGet
+        ) {
+            serde_json::from_value(json!({"catalog":true})).unwrap()
+        } else {
+            Default::default()
+        },
         idempotency_key: None,
         actor: Actor::local_user(),
     })

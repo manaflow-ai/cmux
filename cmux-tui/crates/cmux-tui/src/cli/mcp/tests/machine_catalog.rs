@@ -95,7 +95,7 @@ fn cmux_next_machine_catalog_agent_surface_prefix_lookup_uses_one_connection_and
         seen
     });
     let tool = v2_tools::find("machine_get").unwrap();
-    let plan = tool.plan(&object(json!({"machine":"machine_aaaa"}))).unwrap();
+    let plan = tool.plan(&object(json!({"machine":"machine_aaaa","catalog":true}))).unwrap();
     let global = GlobalArgs {
         socket: Some(path.clone()),
         session: Some("catalog-owner".into()),
@@ -109,7 +109,26 @@ fn cmux_next_machine_catalog_agent_surface_prefix_lookup_uses_one_connection_and
     assert_eq!(result["platform"]["os"], "linux");
     assert_eq!(seen.len(), 2, "one lookup and one read on the accepted connection");
     assert_eq!(seen[0]["operation"], "machine.list");
-    assert_eq!(seen[0]["params"], json!({}));
+    assert_eq!(seen[0]["params"], json!({"catalog":true}));
     assert_eq!(seen[1]["operation"], "machine.get");
-    assert_eq!(seen[1]["params"], json!({"machine":MACHINE}));
+    assert_eq!(seen[1]["params"], json!({"machine":MACHINE,"catalog":true}));
+}
+
+#[test]
+fn cmux_next_machine_catalog_agent_surface_mcp_exposes_the_typed_reader_opt_in() {
+    for (tool, args) in [
+        ("machine_list", json!({"catalog":true})),
+        ("machine_get", json!({"machine":MACHINE,"catalog":true})),
+    ] {
+        let tool = v2_tools::find(tool).unwrap();
+        assert_eq!(tool.input_schema()["properties"]["catalog"]["type"], "boolean");
+        let plan = tool.plan(&object(args)).unwrap();
+        assert_eq!(plan.plan.params["catalog"], true);
+        assert!(plan.plan.params.get("session").is_none());
+        let mut bad = object(json!({"catalog":"true","machine":MACHINE}));
+        if tool.operation == ResourceOperation::MachineList {
+            bad.remove("machine");
+        }
+        assert!(tool.plan(&bad).is_err());
+    }
 }

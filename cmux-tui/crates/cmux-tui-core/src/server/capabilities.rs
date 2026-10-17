@@ -126,6 +126,7 @@ pub(super) fn advertised_capabilities(
     bounded_clear_history_fallback_writes: bool,
 ) -> Vec<&'static str> {
     let mut capabilities = vec![
+        crate::resource_api::MACHINE_CATALOG_READ_CAPABILITY,
         ATTACH_INITIAL_SIZE_CAPABILITY,
         "attach-identity-v1",
         crate::terminal_activity::CAPABILITY,

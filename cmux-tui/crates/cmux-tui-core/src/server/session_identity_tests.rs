@@ -42,7 +42,7 @@ fn listed_machine(mux: &Arc<Mux>) -> Value {
         .dispatch(&crate::resource_api::ResourceMachineRequest {
             operation: ResourceOperation::MachineList,
             selectors: crate::ResourceSelectors::default(),
-            fields: serde_json::Map::new(),
+            fields: serde_json::from_value(json!({"catalog":true})).unwrap(),
             idempotency_key: None,
             actor: crate::Actor::local_user(),
         })

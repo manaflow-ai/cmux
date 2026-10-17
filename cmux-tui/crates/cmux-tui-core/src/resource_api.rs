@@ -12,6 +12,8 @@ use std::sync::Weak;
 
 mod machines;
 
+pub(crate) const MACHINE_CATALOG_READ_CAPABILITY: &str = "machine-catalog-read-v1";
+
 use anyhow::Context;
 use serde_json::{Map, Value, json};
 
@@ -122,18 +124,22 @@ impl LocalResourceMachineService {
 impl ResourceMachineService for LocalResourceMachineService {
     fn dispatch(&self, request: &ResourceMachineRequest) -> Result<Value, ResourceError> {
         let context = self.context()?;
+        let catalog = request.fields.get("catalog") == Some(&Value::Bool(true));
         match request.operation {
             ResourceOperation::MachineList => {
                 require_no_selectors(&request.selectors)?;
-                let mut machines = vec![machine_snapshot(&context)];
-                machines.extend(self.remote_machine_snapshots());
+                let mut machines = vec![machine_snapshot(&context, catalog)];
+                if catalog {
+                    machines.extend(self.remote_machine_snapshots());
+                }
                 Ok(json!(machines))
             }
             ResourceOperation::MachineGet => {
-                if resolve_local_machine(&request.selectors, &context).is_ok() {
-                    return Ok(machine_snapshot(&context));
+                if catalog && resolve_local_machine(&request.selectors, &context).is_err() {
+                    return self.remote_machine_snapshot(&request.selectors);
                 }
-                self.remote_machine_snapshot(&request.selectors)
+                resolve_local_machine(&request.selectors, &context)?;
+                Ok(machine_snapshot(&context, catalog))
             }
             ResourceOperation::SessionList => {
                 resolve_local_machine(&request.selectors, &context)?;
@@ -283,8 +289,8 @@ fn local_indeterminate_error(key: &str, operation: &str) -> ResourceError {
     )
 }
 
-fn machine_snapshot(context: &LocalResourceContext) -> Value {
-    json!({
+fn machine_snapshot(context: &LocalResourceContext, catalog: bool) -> Value {
+    let mut machine = json!({
         "id": context.machine_id,
         "name": "local",
         "origin": "local",
@@ -292,12 +298,14 @@ fn machine_snapshot(context: &LocalResourceContext) -> Value {
         "connectable": true,
         "deleted": false,
         "recoverable": false,
-        // Keep this inventory deliberately small and non-sensitive. Provider
-        // logins, paths and credentials belong to the session host's
-        // agent_cli.list response instead.
-        "platform": machine_platform(),
-        "capabilities": machine_capabilities(),
-    })
+    });
+    if catalog {
+        // Strict older SDKs reject these fields, even on a local record.
+        // The reader opts in; this metadata grants no execution authority.
+        machine["platform"] = machine_platform();
+        machine["capabilities"] = machine_capabilities();
+    }
+    machine
 }
 
 pub(crate) fn machine_platform() -> Value {
@@ -797,7 +805,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
         let _terminal_defaults = public_projections.terminal_defaults;
 
         let mut snapshot = json!({
-            "machine": machine_snapshot(&context),
+            "machine": machine_snapshot(&context, false),
             "session": session_snapshot(&context),
             "workspaces": workspaces,
             "screens": screens,

@@ -397,7 +397,7 @@ impl V2Tool {
         );
         if matches!(self.operation, ResourceOperation::MachineList | ResourceOperation::MachineGet)
         {
-            text.push_str(" The catalog contains this owner and currently published admitted routes. Platform and capabilities describe the owner; they grant no execution rights. Reading metadata opens no machine connection.");
+            text.push_str(" By default reads the original local-only machine shape. catalog:true explicitly includes owner metadata and currently published admitted routes. Metadata grants no execution rights and opens no machine connection.");
         }
         if let Some(constraints) = schema::joined(&self.descriptor["params"]["constraints"]) {
             text.push(' ');

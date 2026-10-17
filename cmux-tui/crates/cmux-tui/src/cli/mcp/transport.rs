@@ -120,7 +120,11 @@ pub(super) fn resource(
                 &mut reader,
                 prefix.list,
                 if prefix.list == ResourceOperation::MachineList {
-                    Map::new()
+                    params
+                        .get("catalog")
+                        .map(|value| ("catalog".into(), value.clone()))
+                        .into_iter()
+                        .collect()
                 } else {
                     route.clone()
                 },

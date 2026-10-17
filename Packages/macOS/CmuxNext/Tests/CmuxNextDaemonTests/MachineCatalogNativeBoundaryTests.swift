@@ -29,7 +29,7 @@ struct MachineCatalogNativeBoundaryTests {
                 #expect(await local.connection.userOriginAllowed)
                 #expect(local.identity.supports("machine-catalog-publish-v1"))
                 let relay = ResourceRelayClient(connection: local.connection)
-                let before = try await relay.send(operation: "machine.list", params: [:], idempotencyKey: nil)
+                let before = try await relay.send(operation: "machine.list", params: ["catalog": .bool(true)], idempotencyKey: nil)
                 let record = try #require(MachineCatalogRecord(
                     id: other, name: "isolated server", origin: .server, status: .running,
                     platform: remote.identity.machinePlatform, capabilities: remote.identity.machineCapabilities))
@@ -41,11 +41,11 @@ struct MachineCatalogNativeBoundaryTests {
                     #expect(code == "machine_catalog.owner_mismatch")
                 }
                 _ = try await local.connection.request(MachineCatalogPublishRequest(expectedMachineID: owner, sequence: 1, machines: [record]))
-                let listed = try await relay.send(operation: "machine.list", params: [:], idempotencyKey: nil)
+                let listed = try await relay.send(operation: "machine.list", params: ["catalog": .bool(true)], idempotencyKey: nil)
                 let machines = try #require(listed.arrayValue)
                 #expect(machines.count == 2)
                 #expect(machines.first == before.arrayValue?.first)
-                let selected = try await relay.send(operation: "machine.get", params: ["machine": .string(other.rawValue)], idempotencyKey: nil)
+                let selected = try await relay.send(operation: "machine.get", params: ["machine": .string(other.rawValue), "catalog": .bool(true)], idempotencyKey: nil)
                 #expect(selected == machines.last)
                 #expect(selected["id"] == .string(other.rawValue))
                 #expect(selected["origin"] == .string("server"))
@@ -63,7 +63,7 @@ struct MachineCatalogNativeBoundaryTests {
                     #expect(code == "selector.not_found")
                 }
                 _ = try await local.connection.request(MachineCatalogPublishRequest(expectedMachineID: owner, sequence: 2, machines: []))
-                let withdrawn = try await relay.send(operation: "machine.list", params: [:], idempotencyKey: nil)
+                let withdrawn = try await relay.send(operation: "machine.list", params: ["catalog": .bool(true)], idempotencyKey: nil)
                 #expect(withdrawn == before)
             }
         }

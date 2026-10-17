@@ -31,10 +31,12 @@ without closing the terminal. `terminal.project` adds another view, and only
 single-view tab content. Sidebar extensions are session-scoped auxiliary
 resources and cannot become tabs.
 
-One `cmux.protocol/2` endpoint describes exactly one local mux session. Its
-machine and session resources provide stable routing handles for that local
-session. Cross-machine discovery, aggregation, and provider lifecycle are
-reserved for a later broker protocol.
+One `cmux.protocol/2` endpoint executes session operations on exactly one local
+mux session. Its machine and session resources provide stable routing handles
+for that owner. Explicit catalog reads may also expose a bounded metadata
+projection of admitted remote owners; they provide no remote carrier or session
+authority. Cross-machine execution, aggregation of session state, and provider
+lifecycle remain reserved for a later broker protocol.
 
 All public IDs are JSON strings with one registered prefix and 128 bits of
 lowercase hexadecimal entropy:
@@ -1112,12 +1114,22 @@ its platform default shell and `-lc`; SDKs never inspect or expand `$SHELL`.
 To choose a specific executable, callers send
 `argv: [executable, "-lc", script]`.
 
-`machine.list` returns the endpoint's authoritative local machine first, followed
-by any remote metadata published by its verified local app. The local origin is
+By default, `machine.list/get` preserve the original local-only machine shape,
+without top-level platform or capability fields. `identify` advertises
+`machine-catalog-read-v1` when the endpoint accepts the optional boolean
+`catalog` parameter on these two operations. Only `catalog:true` opts this
+request into the extended shape. Omitted or false stays legacy-compatible,
+including after a prior opt-in on the same connection. `session.snapshot` always
+embeds the original machine shape. Unsupported endpoints may reject the new
+parameter; callers can check the advertised capability before opting in.
+
+With `catalog:true`, `machine.list` returns the authoritative local machine first,
+followed by remote metadata published by its verified local app. The local origin is
 `local`; projected origins are `cloud`, `ssh`, or `server`. `machine.get` resolves
 the local machine or one unambiguous published record. Use canonical machine IDs
 to distinguish owners; a display name is not an identity. Without a live, admitted
-publisher, discovery retains its local-only behavior. See
+publisher, discovery still returns only the local owner. An unopted `machine.get`
+cannot resolve a projected remote record. See
 [machine catalog publication](commands.md#machine-catalog-publication) for the
 negotiation, owner fence, bounds and connection-owned lease.
 
@@ -1487,4 +1499,5 @@ the workspace tree. Split IDs appear only in raw layout documents.
 Terminal-host, machine-agent, and machine-provider transports keep separate
 version numbers. The machine-provider protocol remains an internal transport.
 A future cross-machine broker must define a later public protocol instead of
-extending this one-session endpoint implicitly.
+extending this endpoint's session execution authority implicitly. The explicit
+catalog metadata opt-in does not supply that authority.

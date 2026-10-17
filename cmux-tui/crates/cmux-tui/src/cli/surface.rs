@@ -82,6 +82,6 @@ impl std::fmt::Display for ProgramName {
 
 pub(super) const MACHINE_CATALOG_HELP: &str = "\
 USAGE
-  cmux machine list
-  cmux machine <selector> show
+  cmux machine list [--catalog]
+  cmux machine <selector> show [--catalog]
 ";

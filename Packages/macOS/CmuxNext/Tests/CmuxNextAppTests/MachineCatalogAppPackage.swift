@@ -24,7 +24,7 @@ struct MachineCatalogAppPackage {
             .write(to: root.appendingPathComponent("catalog.json"))
         let script = """
         var __cmuxAppExports = {
-          discover: async function () { return await cmux.call("machine.list", {}); },
+          discover: async function () { return await cmux.call("machine.list", {catalog: true}); },
           inventory: async function (args) { return await cmux.call("agent_cli.list", args); }
         };
         """
