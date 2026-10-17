@@ -71,6 +71,21 @@ public protocol ChatEventSource: Sendable {
     /// previews and older sources remain source-compatible.
     func answer(optionIndex: Int, requestID: String?, sessionID: String) async throws
 
+    /// Applies, reverts, or comments on an agent-proposed file edit.
+    ///
+    /// `lineNumber` and `comment` are used for `.comment`; `unifiedDiff` is
+    /// required for `.apply` and `.revert`. Hosts validate the path against
+    /// the session working directory before performing a mutation.
+    func review(
+        action: ChatReviewAction,
+        sessionID: String,
+        messageID: String,
+        filePath: String,
+        unifiedDiff: String?,
+        lineNumber: Int?,
+        comment: String?
+    ) async throws
+
     /// Fetches metadata for a referenced artifact path.
     ///
     /// - Parameters:
@@ -128,9 +143,22 @@ public protocol ChatEventSource: Sendable {
     ///   - path: Absolute Mac host directory path.
     /// - Returns: A capped directory listing.
     func artifactList(sessionID: String, path: String) async throws -> ChatArtifactDirectoryListing
+
+    /// Reads provider-neutral controls and their host-advertised options.
+    func controls(sessionID: String) async throws -> ChatSessionControls
+
+    /// Applies one or more provider-neutral controls to a live session.
+    func updateControls(_ controls: ChatSessionControls, sessionID: String) async throws -> ChatSessionControls
 }
 
 public extension ChatEventSource {
+    func controls(sessionID: String) async throws -> ChatSessionControls {
+        throw AgentChatSessionActionError.unsupported
+    }
+
+    func updateControls(_ controls: ChatSessionControls, sessionID: String) async throws -> ChatSessionControls {
+        throw AgentChatSessionActionError.unsupported
+    }
     func steer(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {
         try await interrupt(sessionID: sessionID, hard: false)
         try await send(text: text, attachments: attachments, sessionID: sessionID)
@@ -138,6 +166,20 @@ public extension ChatEventSource {
 
     func answer(optionIndex: Int, requestID: String?, sessionID: String) async throws {
         try await answer(optionIndex: optionIndex, sessionID: sessionID)
+    }
+
+    /// Fixtures and older hosts can still render a diff without exposing
+    /// review mutations.
+    func review(
+        action: ChatReviewAction,
+        sessionID: String,
+        messageID: String,
+        filePath: String,
+        unifiedDiff: String?,
+        lineNumber: Int?,
+        comment: String?
+    ) async throws {
+        throw ChatArtifactError.unsupported
     }
 
     /// Unsupported-by-default artifact capability for fixtures and previews.

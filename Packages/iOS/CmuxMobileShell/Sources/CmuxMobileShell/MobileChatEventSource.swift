@@ -31,6 +31,7 @@ public actor MobileChatEventSource: AgentChatSessionSource {
     private let client: MobileCoreRPCClient
     let diagnosticLog: DiagnosticLog?
     private let coding = ChatWireCoding()
+    private var controlsBySession: [String: ChatSessionControls] = [:]
     public nonisolated let supportsArtifacts: Bool
     /// Whether the connected Mac supports recursive chat folder browsing.
     public nonisolated let supportsArtifactFolders: Bool
@@ -104,6 +105,37 @@ public actor MobileChatEventSource: AgentChatSessionSource {
         )
         let result = try await client.sendRequest(request)
         return try coding.decode(MobileChatSessionResponse.self, from: result).session
+    }
+
+    public func rename(sessionID: String, title: String) async throws {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw AgentChatSessionActionError.invalidResponse }
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.chat.rename",
+            params: ["session_id": sessionID, "title": trimmed]
+        )
+        _ = try await client.sendRequest(request)
+    }
+
+    public func delete(sessionID: String) async throws {
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.chat.delete",
+            params: ["session_id": sessionID]
+        )
+        _ = try await client.sendRequest(request)
+    }
+
+    public func exportTranscript(sessionID: String) async throws -> String {
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.chat.export",
+            params: ["session_id": sessionID]
+        )
+        let result = try await client.sendRequest(request)
+        guard let object = try JSONSerialization.jsonObject(with: result) as? [String: Any],
+              let text = object["text"] as? String else {
+            throw AgentChatSessionActionError.invalidResponse
+        }
+        return text
     }
 
     /// Opens the live stream of session-list events for every session the
@@ -256,8 +288,51 @@ public actor MobileChatEventSource: AgentChatSessionSource {
             }
             params["attachments"] = wireAttachments
         }
+        if let controls = controlsBySession[sessionID] {
+            params["controls"] = Self.controlsPayload(controls)
+        }
         let request = try MobileCoreRPCClient.requestData(method: "mobile.chat.send", params: params)
         _ = try await client.sendRequest(request)
+    }
+
+    public func controls(sessionID: String) async throws -> ChatSessionControls {
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.chat.controls",
+            params: ["session_id": sessionID]
+        )
+        let result = try await client.sendRequest(request)
+        let controls = try coding.decode(ChatSessionControlsResponse.self, from: result).controls
+        controlsBySession[sessionID] = controls
+        return controls
+    }
+
+    public func updateControls(
+        _ controls: ChatSessionControls,
+        sessionID: String
+    ) async throws -> ChatSessionControls {
+        var params: [String: Any] = ["session_id": sessionID]
+        if let value = controls.modelID { params["model_id"] = value }
+        if let value = controls.reasoningEffortID { params["reasoning_effort_id"] = value }
+        if let value = controls.permissionMode { params["permission_mode"] = value }
+        if let value = controls.sandboxMode { params["sandbox_mode"] = value }
+        params["plan_mode"] = controls.planMode
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.chat.controls.update",
+            params: params
+        )
+        let result = try await client.sendRequest(request)
+        let acknowledged = try coding.decode(ChatSessionControlsResponse.self, from: result).controls
+        controlsBySession[sessionID] = acknowledged
+        return acknowledged
+    }
+
+    private static func controlsPayload(_ controls: ChatSessionControls) -> [String: Any] {
+        var payload: [String: Any] = ["plan_mode": controls.planMode]
+        if let value = controls.modelID { payload["model_id"] = value }
+        if let value = controls.reasoningEffortID { payload["reasoning_effort_id"] = value }
+        if let value = controls.permissionMode { payload["permission_mode"] = value }
+        if let value = controls.sandboxMode { payload["sandbox_mode"] = value }
+        return payload
     }
 
     /// Uploads a general file through the same resumable host store used by
@@ -321,6 +396,28 @@ public actor MobileChatEventSource: AgentChatSessionSource {
             method: "mobile.chat.answer",
             params: params
         )
+        _ = try await client.sendRequest(request)
+    }
+
+    public func review(
+        action: ChatReviewAction,
+        sessionID: String,
+        messageID: String,
+        filePath: String,
+        unifiedDiff: String?,
+        lineNumber: Int?,
+        comment: String?
+    ) async throws {
+        var params: [String: Any] = [
+            "action": action.rawValue,
+            "session_id": sessionID,
+            "message_id": messageID,
+            "file_path": filePath,
+        ]
+        if let unifiedDiff { params["unified_diff"] = unifiedDiff }
+        if let lineNumber { params["line_number"] = lineNumber }
+        if let comment { params["comment"] = comment }
+        let request = try MobileCoreRPCClient.requestData(method: "mobile.chat.review", params: params)
         _ = try await client.sendRequest(request)
     }
 

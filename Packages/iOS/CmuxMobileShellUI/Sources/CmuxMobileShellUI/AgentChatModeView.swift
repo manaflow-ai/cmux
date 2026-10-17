@@ -364,6 +364,10 @@ private struct AgentChatDetail: View {
     let isConnected: Bool
     let showSidebar: () -> Void
     let refresh: () async -> Void
+    @State private var isRenaming = false
+    @State private var renameText = ""
+    @State private var isConfirmingDelete = false
+    @State private var exportedTranscript: ExportedTranscript?
 
     var body: some View {
         Group {
@@ -400,6 +404,34 @@ private struct AgentChatDetail: View {
                     Button { Task { await refresh() } } label: {
                         Label("Refresh", systemImage: "arrow.clockwise")
                     }
+                    if model.selectedSession != nil {
+                        Divider()
+                        Button {
+                            renameText = model.selectedSession?.title ?? ""
+                            isRenaming = true
+                        } label: {
+                            Label("Rename session", systemImage: "pencil")
+                        }
+                        Button {
+                            Task {
+                                if let text = await model.exportSelectedTranscript() {
+                                    exportedTranscript = ExportedTranscript(text: text)
+                                }
+                            }
+                        } label: {
+                            Label(
+                                model.exportingSessionIDs.contains(model.selectedSessionID ?? "")
+                                    ? "Exporting…" : "Export transcript",
+                                systemImage: "square.and.arrow.up"
+                            )
+                        }
+                        .disabled(model.exportingSessionIDs.contains(model.selectedSessionID ?? ""))
+                        Button(role: .destructive) {
+                            isConfirmingDelete = true
+                        } label: {
+                            Label("Delete session", systemImage: "trash")
+                        }
+                    }
                     Button { dismiss() } label: {
                         Label("Close", systemImage: "xmark")
                     }
@@ -409,7 +441,60 @@ private struct AgentChatDetail: View {
                 .accessibilityLabel("Agent mode options")
             }
         }
+        .alert("Rename session", isPresented: $isRenaming) {
+            TextField("Session name", text: $renameText)
+            Button("Cancel", role: .cancel) {}
+            Button("Rename") {
+                Task { await model.renameSelectedSession(title: renameText) }
+            }
+        } message: {
+            Text("Choose a name you will recognize in Agent history.")
+        }
+        .confirmationDialog(
+            "Delete this session?",
+            isPresented: $isConfirmingDelete,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                Task { await model.deleteSelectedSession() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The session will be removed from Agent history. Its provider transcript remains on your Mac.")
+        }
+        .sheet(item: $exportedTranscript) { exported in
+            NavigationStack {
+                VStack(spacing: 16) {
+                    Image(systemName: "doc.richtext")
+                        .font(.system(size: 34))
+                        .foregroundStyle(.tint)
+                    Text("Transcript ready to share")
+                        .font(.headline)
+                    Text("Send the Markdown transcript to Files, Messages, or another app.")
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.secondary)
+                    ShareLink(
+                        item: exported.text,
+                        subject: Text("Agent transcript"),
+                        preview: SharePreview("Agent transcript", image: Image(systemName: "doc.richtext"))
+                    ) {
+                        Label("Share transcript", systemImage: "square.and.arrow.up")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding(24)
+                .navigationTitle("Export transcript")
+                .navigationBarTitleDisplayMode(.inline)
+            }
+            .presentationDetents([.medium])
+        }
     }
+}
+
+private struct ExportedTranscript: Identifiable {
+    let id = UUID()
+    let text: String
 }
 
 private struct AgentLoadingState: View {
@@ -680,7 +765,7 @@ private struct AgentChatTranscriptView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let session = model.selectedSession {
-                AgentExecutionContextBar(session: session)
+                AgentExecutionContextBar(session: session, model: model)
                 if case .needsInput = session.state {
                     AgentNeedsInputNotice(actionableCount: model.selectedPendingActionableCount)
                 }
@@ -748,6 +833,20 @@ private struct AgentChatTranscriptView: View {
                                         Task { await model.answer(optionIndex: index, requestID: requestID) }
                                     },
                                     isAnswering: { model.isAnswering(requestID: $0) },
+                                    review: { action, lineNumber, comment in
+                                        guard case .fileEdit(let edit) = message.kind else { return }
+                                        Task {
+                                            await model.review(
+                                                messageID: message.id,
+                                                action: action,
+                                                filePath: edit.filePath,
+                                                unifiedDiff: edit.unifiedDiff,
+                                                lineNumber: lineNumber,
+                                                comment: comment
+                                            )
+                                        }
+                                    },
+                                    isReviewing: { model.isReviewing(messageID: message.id) },
                                     edit: message.id == latestEditablePromptID
                                         ? {
                                             model.editPrompt(message)
@@ -919,6 +1018,7 @@ private struct AgentFailedTurnNotice: View {
 
 private struct AgentExecutionContextBar: View {
     let session: ChatSessionDescriptor
+    @Bindable var model: AgentChatModeModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -972,6 +1072,7 @@ private struct AgentExecutionContextBar: View {
                     }
                 }
             }
+            AgentSessionControlsMenu(model: model)
         }
         .foregroundStyle(.secondary)
         .padding(.horizontal, 16)
@@ -998,6 +1099,88 @@ private struct AgentExecutionContextBar: View {
         case .idle: return "pause.circle"
         case .ended: return "checkmark.circle"
         }
+    }
+}
+
+private struct AgentSessionControlsMenu: View {
+    @Bindable var model: AgentChatModeModel
+
+    var body: some View {
+        Menu {
+            let controls = model.selectedControls
+            if !controls.modelOptions.isEmpty {
+                Menu("Model") {
+                    ForEach(controls.modelOptions) { option in
+                        Button {
+                            var next = model.selectedControls
+                            next.modelID = option.id
+                            next.reasoningEffortID = nil
+                            Task { await model.updateSelectedControls(next) }
+                        } label: {
+                            Label(option.displayName, systemImage: controls.modelID == option.id ? "checkmark" : "")
+                        }
+                    }
+                }
+            }
+            if !controls.reasoningEffortOptions.isEmpty {
+                Menu("Reasoning effort") {
+                    ForEach(controls.reasoningEffortOptions) { option in
+                        Button {
+                            var next = model.selectedControls
+                            next.reasoningEffortID = option.id
+                            Task { await model.updateSelectedControls(next) }
+                        } label: {
+                            Label(option.displayName, systemImage: controls.reasoningEffortID == option.id ? "checkmark" : "")
+                        }
+                    }
+                }
+            }
+            if !controls.permissionOptions.isEmpty {
+                Menu("Permission mode") {
+                    ForEach(controls.permissionOptions) { option in
+                        Button {
+                            var next = model.selectedControls
+                            next.permissionMode = option.id
+                            Task { await model.updateSelectedControls(next) }
+                        } label: {
+                            Label(option.displayName, systemImage: controls.permissionMode == option.id ? "checkmark" : "")
+                        }
+                    }
+                }
+            }
+            if !controls.sandboxOptions.isEmpty {
+                Menu("Sandbox") {
+                    ForEach(controls.sandboxOptions) { option in
+                        Button {
+                            var next = model.selectedControls
+                            next.sandboxMode = option.id
+                            Task { await model.updateSelectedControls(next) }
+                        } label: {
+                            Label(option.displayName, systemImage: controls.sandboxMode == option.id ? "checkmark" : "")
+                        }
+                    }
+                }
+            }
+            if controls.supportsPlanMode {
+                Toggle(isOn: Binding(
+                    get: { model.selectedControls.planMode },
+                    set: { value in
+                        var next = model.selectedControls
+                        next.planMode = value
+                        Task { await model.updateSelectedControls(next) }
+                    }
+                )) {
+                    Label("Plan mode", systemImage: "list.bullet.clipboard")
+                }
+            }
+        } label: {
+            Label("Controls", systemImage: "slider.horizontal.3")
+                .font(.caption.weight(.semibold))
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(model.selectedSession == nil || model.updatingControlsSessionIDs.contains(model.selectedSessionID ?? ""))
+        .accessibilityIdentifier("MobileAgentSessionControls")
     }
 }
 
@@ -1034,6 +1217,8 @@ private struct AgentChatMessageView: View {
     var isStreaming = false
     var answer: ((Int, String) -> Void)?
     var isAnswering: ((String) -> Bool)?
+    var review: ((ChatReviewAction, Int?, String?) -> Void)?
+    var isReviewing: (() -> Bool)?
     var edit: (() -> Void)?
     var regenerate: (() -> Void)? = nil
     var isRegenerating = false
@@ -1053,7 +1238,12 @@ private struct AgentChatMessageView: View {
             case .terminal(let terminal):
                 AgentTerminalCard(terminal: terminal)
             case .fileEdit(let edit):
-                AgentDiffCard(edit: edit, artifactLoader: artifactLoader)
+                AgentDiffCard(
+                    edit: edit,
+                    artifactLoader: artifactLoader,
+                    review: review,
+                    isReviewing: isReviewing?() == true
+                )
             case .permissionRequest(let request):
                 AgentPermissionCard(
                     request: request,
@@ -1469,7 +1659,12 @@ private struct AgentTerminalCard: View {
 private struct AgentDiffCard: View {
     let edit: ChatFileEdit
     let artifactLoader: ChatArtifactLoader?
+    let review: ((ChatReviewAction, Int?, String?) -> Void)?
+    let isReviewing: Bool
     @State private var isExpanded = false
+    @State private var isCommentExpanded = false
+    @State private var lineNumber = ""
+    @State private var comment = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -1492,6 +1687,53 @@ private struct AgentDiffCard: View {
                         .lineLimit(isExpanded ? nil : 12)
                 }
                 .font(.caption.weight(.medium))
+
+                if let review {
+                    HStack(spacing: 8) {
+                        Button {
+                            review(.apply, nil, nil)
+                        } label: {
+                            Label("Apply", systemImage: "checkmark.circle")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("MobileAgentDiffApply")
+
+                        Button {
+                            review(.revert, nil, nil)
+                        } label: {
+                            Label("Revert", systemImage: "arrow.uturn.backward")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("MobileAgentDiffRevert")
+                        Spacer(minLength: 0)
+                    }
+                    .disabled(isReviewing)
+
+                    DisclosureGroup("Comment on a line", isExpanded: $isCommentExpanded) {
+                        HStack(spacing: 8) {
+                            TextField("Line", text: $lineNumber)
+                                .keyboardType(.numberPad)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 72)
+                            TextField("Review comment", text: $comment, axis: .vertical)
+                                .textFieldStyle(.roundedBorder)
+                                .lineLimit(2...4)
+                            Button("Send") {
+                                guard let line = Int(lineNumber), line > 0,
+                                      !comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                                review(.comment, line, comment.trimmingCharacters(in: .whitespacesAndNewlines))
+                                comment = ""
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .accessibilityIdentifier("MobileAgentDiffCommentSend")
+                        }
+                    }
+                    .font(.caption.weight(.medium))
+                    .disabled(isReviewing)
+                }
             }
             if isExpanded, let artifactLoader, artifactLoader.supportsArtifacts {
                 Divider()
@@ -1508,6 +1750,8 @@ private struct AgentDiffCard: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("MobileAgentDiffCard")
     }
 
     private var operationLabel: String {

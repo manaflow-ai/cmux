@@ -25,6 +25,7 @@ struct MobileRPCControlFrameResendPolicy {
         "caffeine.status",
         "mobile.browser.list",
         "mobile.chat.history",
+        "mobile.chat.export",
         "mobile.chat.sessions",
         "mobile.directory.list",
         "mobile.directory.search",

@@ -38,6 +38,15 @@ struct MobileChatEventSourceIntegrationTests {
             #expect(page.messages.map(\.id) == ["\(expected.id)-message"])
             #expect(page.messages.first?.kind == .prose(ChatProse(text: "History for \(expected.agentKind.displayName)")))
 
+            let controls = try await source.controls(sessionID: expected.id)
+            #expect(controls.modelOptions.map(\.id) == ["model-a", "model-b"])
+            var nextControls = controls
+            nextControls.modelID = "model-b"
+            nextControls.planMode = true
+            let acknowledged = try await source.updateControls(nextControls, sessionID: expected.id)
+            #expect(acknowledged.modelID == "model-b")
+            #expect(acknowledged.planMode)
+
             try await source.send(
                 text: "Continue \(expected.agentKind.displayName)",
                 attachments: [],
@@ -49,6 +58,15 @@ struct MobileChatEventSourceIntegrationTests {
                 requestID: "request-\(expected.id)",
                 sessionID: expected.id
             )
+            try await source.review(
+                action: .comment,
+                sessionID: expected.id,
+                messageID: "edit-\(expected.id)",
+                filePath: "Sources/Review.swift",
+                unifiedDiff: nil,
+                lineNumber: 12,
+                comment: "Please keep this branch covered."
+            )
         }
 
         let requests = await transport.requests()
@@ -59,6 +77,29 @@ struct MobileChatEventSourceIntegrationTests {
         #expect(requests.filter { $0.method == "mobile.chat.interrupt" }.allSatisfy { $0.hard == true })
         #expect(requests.filter { $0.method == "mobile.chat.answer" }.map(\.sessionID) == sessions.map(\.id))
         #expect(requests.filter { $0.method == "mobile.chat.answer" }.allSatisfy { $0.optionIndex == 1 })
+        #expect(requests.filter { $0.method == "mobile.chat.controls" }.count == sessions.count)
+        #expect(requests.filter { $0.method == "mobile.chat.controls.update" }.count == sessions.count)
+        #expect(requests.filter { $0.method == "mobile.chat.review" }.map(\.sessionID) == sessions.map(\.id))
+        #expect(requests.filter { $0.method == "mobile.chat.review" }.allSatisfy { $0.action == "comment" })
+        #expect(requests.filter { $0.method == "mobile.chat.review" }.allSatisfy { $0.lineNumber == 12 })
+    }
+
+    @Test
+    func sessionActionsUseTypedRenameDeleteAndExportRPCs() async throws {
+        let transport = MobileChatRPCTransport(sessions: Self.sessions)
+        let client = try Self.client(transport: transport)
+        defer { Task { await client.disconnect() } }
+        let source = MobileChatEventSource(client: client)
+
+        try await source.rename(sessionID: "codex-session", title: "Network review")
+        try await source.delete(sessionID: "claude-session")
+        let export = try await source.exportTranscript(sessionID: "opencode-session")
+
+        #expect(export.contains("History for OpenCode"))
+        let requests = await transport.requests()
+        #expect(requests.filter { $0.method == "mobile.chat.rename" }.map { $0.sessionID } == ["codex-session"])
+        #expect(requests.filter { $0.method == "mobile.chat.delete" }.map { $0.sessionID } == ["claude-session"])
+        #expect(requests.filter { $0.method == "mobile.chat.export" }.map { $0.sessionID } == ["opencode-session"])
     }
 
     @Test
@@ -217,6 +258,8 @@ private struct CapturedChatRequest: Sendable, Equatable {
     let text: String?
     let optionIndex: Int?
     let hard: Bool?
+    let action: String?
+    let lineNumber: Int?
 }
 
 private actor MobileChatRPCTransport: CmxByteTransport {
@@ -281,7 +324,9 @@ private actor MobileChatRPCTransport: CmxByteTransport {
             sessionID: params["session_id"] as? String,
             text: params["text"] as? String,
             optionIndex: params["option_index"] as? Int,
-            hard: params["hard"] as? Bool
+            hard: params["hard"] as? Bool,
+            action: params["action"] as? String,
+            lineNumber: params["line_number"] as? Int
         ))
 
         let result: Any
@@ -305,6 +350,29 @@ private actor MobileChatRPCTransport: CmxByteTransport {
                 )
             ], hasMore: false)
             result = try jsonObject(page)
+        case "mobile.chat.controls", "mobile.chat.controls.update":
+            let controls = ChatSessionControls(
+                modelID: "model-a",
+                modelOptions: [
+                    ChatSessionControlOption(id: "model-a", displayName: "Model A"),
+                    ChatSessionControlOption(id: "model-b", displayName: "Model B"),
+                ],
+                supportsPlanMode: true
+            )
+            if method.hasSuffix("update"), params["model_id"] as? String == "model-b" {
+                var updated = controls
+                updated.modelID = "model-b"
+                updated.planMode = (params["plan_mode"] as? Bool) ?? false
+                result = try jsonObject(ChatSessionControlsResponse(controls: updated))
+            } else {
+                result = try jsonObject(ChatSessionControlsResponse(controls: controls))
+            }
+        case "mobile.chat.export":
+            let sessionID = try #require(params["session_id"] as? String)
+            let session = try #require(sessions.first { $0.id == sessionID })
+            result = ["text": "# \(session.agentKind.displayName)\n\nHistory for \(session.agentKind.displayName)"]
+        case "mobile.chat.rename", "mobile.chat.delete":
+            result = [:]
         default:
             result = [:]
         }

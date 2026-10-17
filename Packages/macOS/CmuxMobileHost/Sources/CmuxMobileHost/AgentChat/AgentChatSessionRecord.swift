@@ -56,6 +56,9 @@ public struct AgentChatSessionRecord: Sendable {
     /// the registry; mutators do not set it directly.
     public var version: Int = 0
 
+    /// Last host-acknowledged provider-neutral execution controls.
+    public var controls: ChatSessionControls = ChatSessionControls()
+
     public init(
         sessionID: String,
         agentKind: ChatAgentKind,
@@ -71,7 +74,8 @@ public struct AgentChatSessionRecord: Sendable {
         title: String? = nil,
         pid: Int? = nil,
         hookStoreSessionID: String? = nil,
-        version: Int = 0
+        version: Int = 0,
+        controls: ChatSessionControls = ChatSessionControls()
     ) {
         self.sessionID = sessionID
         self.agentKind = agentKind
@@ -88,6 +92,7 @@ public struct AgentChatSessionRecord: Sendable {
         self.pid = pid
         self.hookStoreSessionID = hookStoreSessionID
         self.version = version
+        self.controls = controls
     }
 
     public var hookStoreLookupSessionID: String { hookStoreSessionID ?? sessionID }
@@ -161,7 +166,8 @@ public struct AgentChatSessionRecord: Sendable {
             workingDirectory: workingDirectory,
             state: state,
             lastActivityAt: lastActivityAt,
-            version: version
+            version: version,
+            controls: controls
         )
     }
 }

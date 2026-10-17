@@ -53,14 +53,26 @@ extension TerminalController {
             return await v2MobileChatSessions(params: params)
         case "mobile.chat.session":
             return v2MobileChatSession(params: params)
+        case "mobile.chat.rename":
+            return v2MobileChatRename(params: params)
+        case "mobile.chat.delete":
+            return v2MobileChatDelete(params: params)
+        case "mobile.chat.export":
+            return await v2MobileChatExport(params: params)
         case "mobile.chat.history":
             return await v2MobileChatHistory(params: params)
+        case "mobile.chat.controls":
+            return await v2MobileChatControls(params: params)
+        case "mobile.chat.controls.update":
+            return await v2MobileChatControlsUpdate(params: params)
         case "mobile.chat.send":
             return await v2MobileChatSend(params: params)
         case "mobile.chat.interrupt":
             return await v2MobileChatInterrupt(params: params)
         case "mobile.chat.answer":
             return await v2MobileChatAnswer(params: params)
+        case "mobile.chat.review":
+            return await v2MobileChatReview(params: params)
         case "mobile.chat.artifact.stat":
             return await v2MobileChatArtifactStat(params: params)
         case "mobile.chat.artifact.fetch":
@@ -79,6 +91,122 @@ extension TerminalController {
                 "method": method
             ])
         }
+    }
+
+    /// Returns the provider-neutral controls and host-advertised choices for a
+    /// live session. Provider model discovery is intentionally reused from the
+    /// task composer, while permission/sandbox/plan choices stay generic.
+    func v2MobileChatControls(params: [String: Any]) async -> V2CallResult {
+        guard let sessionID = v2RawString(params, "session_id"), !sessionID.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing session_id", data: nil)
+        }
+        guard let service = agentChatTranscriptService,
+              let record = service.sessionRecord(sessionID: sessionID) else {
+            return .err(code: "not_found", message: "Unknown agent session", data: ["session_id": sessionID])
+        }
+        let provider = MobileTaskModelProvider(rawValue: record.agentKind.sourceName)
+        let discovered: MobileTaskModelListResult?
+        if let provider {
+            discovered = await mobileTaskModelDiscovery.models(for: provider)
+        } else {
+            discovered = nil
+        }
+        let current = service.sessionControls(sessionID: sessionID) ?? ChatSessionControls()
+        var controls = current
+        if let discovered {
+            controls.modelOptions = discovered.models.map {
+                ChatSessionControlOption(id: $0.id, displayName: $0.displayName)
+            }
+            let selectedModel = discovered.models.first { $0.id == current.modelID }
+                ?? discovered.defaultModel
+                ?? discovered.models.first
+            controls.reasoningEffortOptions = selectedModel?.efforts.map {
+                ChatSessionControlOption(id: $0.id, displayName: $0.displayName, description: $0.description)
+            } ?? []
+            if controls.modelID == nil { controls.modelID = selectedModel?.id }
+            if controls.reasoningEffortID == nil { controls.reasoningEffortID = selectedModel?.defaultEffortID }
+        }
+        controls.permissionOptions = Self.mobileChatPermissionOptions(for: record.agentKind.sourceName)
+        controls.sandboxOptions = Self.mobileChatSandboxOptions(for: record.agentKind.sourceName)
+        controls.supportsPlanMode = true
+        return .ok(Self.mobileChatControlsPayload(controls))
+    }
+
+    /// Applies a partial controls update. The host stores the acknowledged
+    /// values on the session record and emits the normal descriptor revision;
+    /// provider-specific translation remains a host concern and is applied by
+    /// the next provider turn where supported.
+    func v2MobileChatControlsUpdate(params: [String: Any]) async -> V2CallResult {
+        guard let sessionID = v2RawString(params, "session_id"), !sessionID.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing session_id", data: nil)
+        }
+        guard let service = agentChatTranscriptService,
+              let record = service.sessionRecord(sessionID: sessionID) else {
+            return .err(code: "not_found", message: "Unknown agent session", data: ["session_id": sessionID])
+        }
+        guard record.state != .ended else {
+            return .err(code: "session_ended", message: "This agent session has ended and is read-only.", data: nil)
+        }
+        let allowedKeys = Set(["model_id", "reasoning_effort_id", "permission_mode", "sandbox_mode", "plan_mode"])
+        guard params.keys.contains(where: allowedKeys.contains) else {
+            return .err(code: "invalid_params", message: "No controls supplied", data: nil)
+        }
+        let updated = service.updateSessionControls(sessionID: sessionID) { controls in
+            if let value = params["model_id"] as? String { controls.modelID = value.isEmpty ? nil : value }
+            if let value = params["reasoning_effort_id"] as? String { controls.reasoningEffortID = value.isEmpty ? nil : value }
+            if let value = params["permission_mode"] as? String { controls.permissionMode = value.isEmpty ? nil : value }
+            if let value = params["sandbox_mode"] as? String { controls.sandboxMode = value.isEmpty ? nil : value }
+            if let value = params["plan_mode"] as? Bool { controls.planMode = value }
+        }
+        guard updated != nil else { return .err(code: "not_found", message: "Unknown agent session", data: nil) }
+        // Re-run discovery so changing the model refreshes its effort choices
+        // in the same acknowledgement returned to the phone.
+        return await v2MobileChatControls(params: ["session_id": sessionID])
+    }
+
+    private static func mobileChatControlOptions(_ values: [(String, String)]) -> [ChatSessionControlOption] {
+        values.map { ChatSessionControlOption(id: $0.0, displayName: $0.1) }
+    }
+
+    private static func mobileChatPermissionOptions(for provider: String) -> [ChatSessionControlOption] {
+        switch provider {
+        case "codex":
+            return mobileChatControlOptions([("on-request", "On request"), ("never", "Never ask"), ("plan", "Plan only")])
+        default:
+            return mobileChatControlOptions([("default", "Default"), ("accept-edits", "Accept edits"), ("bypass", "Always allow"), ("plan", "Plan only")])
+        }
+    }
+
+    private static func mobileChatSandboxOptions(for provider: String) -> [ChatSessionControlOption] {
+        switch provider {
+        case "codex":
+            return mobileChatControlOptions([("read-only", "Read only"), ("workspace-write", "Workspace write"), ("danger-full-access", "Full access")])
+        default:
+            return mobileChatControlOptions([("restricted", "Restricted"), ("workspace-write", "Workspace write"), ("full-access", "Full access")])
+        }
+    }
+
+    private static func mobileChatControlsPayload(_ controls: ChatSessionControls) -> [String: Any] {
+        func options(_ values: [ChatSessionControlOption]) -> [[String: Any]] {
+            values.map { value in
+                var payload: [String: Any] = ["id": value.id, "display_name": value.displayName]
+                if let description = value.description { payload["description"] = description }
+                return payload
+            }
+        }
+        var payload: [String: Any] = [
+            "plan_mode": controls.planMode,
+            "supports_plan_mode": controls.supportsPlanMode,
+            "model_options": options(controls.modelOptions),
+            "reasoning_effort_options": options(controls.reasoningEffortOptions),
+            "permission_options": options(controls.permissionOptions),
+            "sandbox_options": options(controls.sandboxOptions),
+        ]
+        if let value = controls.modelID { payload["model_id"] = value }
+        if let value = controls.reasoningEffortID { payload["reasoning_effort_id"] = value }
+        if let value = controls.permissionMode { payload["permission_mode"] = value }
+        if let value = controls.sandboxMode { payload["sandbox_mode"] = value }
+        return ["controls": payload]
     }
 
     /// `chat.sessions.dump` (local debug socket, main-actor lane): the
@@ -240,6 +368,50 @@ extension TerminalController {
         return .ok(["session": encoded])
     }
 
+    /// `mobile.chat.rename`: update the host-owned conversation title.
+    func v2MobileChatRename(params: [String: Any]) -> V2CallResult {
+        guard let sessionID = v2RawString(params, "session_id"), !sessionID.isEmpty,
+              let title = v2RawString(params, "title") else {
+            return .err(code: "invalid_params", message: "session_id and title required", data: nil)
+        }
+        guard let service = agentChatTranscriptService else {
+            return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
+        }
+        guard service.renameSession(sessionID: sessionID, title: title) else {
+            return .err(code: "not_found", message: "That agent session is no longer available.", data: ["session_id": sessionID])
+        }
+        return .ok(["session_id": sessionID, "title": title.trimmingCharacters(in: .whitespacesAndNewlines)])
+    }
+
+    /// `mobile.chat.delete`: hide a conversation from the mobile history.
+    func v2MobileChatDelete(params: [String: Any]) -> V2CallResult {
+        guard let sessionID = v2RawString(params, "session_id"), !sessionID.isEmpty else {
+            return .err(code: "invalid_params", message: "session_id required", data: nil)
+        }
+        guard let service = agentChatTranscriptService else {
+            return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
+        }
+        guard service.deleteSession(sessionID: sessionID) else {
+            return .err(code: "not_found", message: "That agent session is no longer available.", data: ["session_id": sessionID])
+        }
+        return .ok(["session_id": sessionID, "deleted": true])
+    }
+
+    /// `mobile.chat.export`: return a Markdown document assembled from the
+    /// authoritative transcript pages.
+    func v2MobileChatExport(params: [String: Any]) async -> V2CallResult {
+        guard let sessionID = v2RawString(params, "session_id"), !sessionID.isEmpty else {
+            return .err(code: "invalid_params", message: "session_id required", data: nil)
+        }
+        guard let service = agentChatTranscriptService else {
+            return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
+        }
+        guard let text = await service.exportTranscript(sessionID: sessionID) else {
+            return .err(code: "not_found", message: "That agent transcript is no longer available.", data: ["session_id": sessionID])
+        }
+        return .ok(["session_id": sessionID, "text": text, "format": "markdown"])
+    }
+
     /// `mobile.chat.history`: one transcript page for a session.
     func v2MobileChatHistory(params: [String: Any]) async -> V2CallResult {
         guard let sessionID = v2RawString(params, "session_id") else {
@@ -289,10 +461,24 @@ extension TerminalController {
         guard let sessionID = v2RawString(params, "session_id") else {
             return .err(code: "invalid_params", message: "Missing session_id", data: nil)
         }
+        if let controls = params["controls"] as? [String: Any] {
+            applyMobileChatControls(controls, sessionID: sessionID)
+        }
         if let mutationError = mobileChatMutationError(sessionID: sessionID) {
             return mutationError
         }
         return await v2MobileChatSendValidated(params: params, sessionID: sessionID)
+    }
+
+    private func applyMobileChatControls(_ params: [String: Any], sessionID: String) {
+        guard let service = agentChatTranscriptService else { return }
+        _ = service.updateSessionControls(sessionID: sessionID) { controls in
+            if let value = params["model_id"] as? String { controls.modelID = value.isEmpty ? nil : value }
+            if let value = params["reasoning_effort_id"] as? String { controls.reasoningEffortID = value.isEmpty ? nil : value }
+            if let value = params["permission_mode"] as? String { controls.permissionMode = value.isEmpty ? nil : value }
+            if let value = params["sandbox_mode"] as? String { controls.sandboxMode = value.isEmpty ? nil : value }
+            if let value = params["plan_mode"] as? Bool { controls.planMode = value }
+        }
     }
 
     private func v2MobileChatSendValidated(params: [String: Any], sessionID: String) async -> V2CallResult {
@@ -512,6 +698,105 @@ extension TerminalController {
                 localized: "mobile.chat.error.answerNotAccepted",
                 defaultValue: "Answer key was not accepted"
             ), data: nil)
+        }
+    }
+
+    /// `mobile.chat.review`: apply or reverse a unified file edit, or send a
+    /// line-scoped review comment back through the bound agent session.
+    ///
+    /// Apply/revert run in the session working directory and are deliberately
+    /// host-owned rather than shell-injected. This keeps patch text out of a
+    /// provider TUI and lets git reject malformed or out-of-tree paths.
+    func v2MobileChatReview(params: [String: Any]) async -> V2CallResult {
+        guard let sessionID = v2RawString(params, "session_id"),
+              let action = v2RawString(params, "action"),
+              let filePath = v2RawString(params, "file_path"),
+              let messageID = v2RawString(params, "message_id") else {
+            return .err(code: "invalid_params", message: "Missing review parameters", data: nil)
+        }
+        guard ["apply", "revert", "comment"].contains(action) else {
+            return .err(code: "invalid_params", message: "Unknown review action", data: nil)
+        }
+        if let mutationError = mobileChatMutationError(sessionID: sessionID) {
+            return mutationError
+        }
+        guard let record = agentChatTranscriptService?.sessionRecord(sessionID: sessionID),
+              let workingDirectory = record.workingDirectory,
+              let resolvedPath = Self.chatReviewPath(filePath, workingDirectory: workingDirectory) else {
+            return .err(code: "invalid_params", message: "Review path is outside the session workspace", data: nil)
+        }
+
+        switch action {
+        case "comment":
+            guard let lineNumber = v2Int(params, "line_number"), lineNumber > 0,
+                  let comment = v2RawString(params, "comment"),
+                  !comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return .err(code: "invalid_params", message: "Line comments require a positive line and comment", data: nil)
+            }
+            let prompt = "Review comment on \(resolvedPath.path):\(lineNumber)\n\(comment)"
+            return await v2MobileChatSend(params: ["session_id": sessionID, "text": prompt])
+        case "apply", "revert":
+            guard let unifiedDiff = v2RawString(params, "unified_diff"),
+                  !unifiedDiff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return .err(code: "invalid_params", message: "Applying a review requires the unified diff", data: nil)
+            }
+            let result = Self.runChatReviewGit(
+                action: action,
+                workingDirectory: workingDirectory,
+                unifiedDiff: unifiedDiff
+            )
+            guard result.status == 0 else {
+                return .err(code: "review_rejected", message: result.output.isEmpty ? "The patch could not be applied" : result.output, data: [
+                    "session_id": sessionID,
+                    "message_id": messageID,
+                    "file_path": resolvedPath.path
+                ])
+            }
+            return .ok([
+                "reviewed": true,
+                "action": action,
+                "session_id": sessionID,
+                "message_id": messageID,
+                "file_path": resolvedPath.path
+            ])
+        default:
+            return .err(code: "invalid_params", message: "Unknown review action", data: nil)
+        }
+    }
+
+    private static func chatReviewPath(_ path: String, workingDirectory: String) -> URL? {
+        guard !path.isEmpty, !path.contains("\0") else { return nil }
+        let root = URL(fileURLWithPath: workingDirectory).standardizedFileURL
+        let candidate = (path.hasPrefix("/") ? URL(fileURLWithPath: path) : root.appendingPathComponent(path))
+            .standardizedFileURL
+        guard candidate.path == root.path || candidate.path.hasPrefix(root.path + "/") else { return nil }
+        return candidate
+    }
+
+    private static func runChatReviewGit(
+        action: String,
+        workingDirectory: String,
+        unifiedDiff: String
+    ) -> (status: Int32, output: String) {
+        let patchURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-review-\(UUID().uuidString).patch")
+        do {
+            try Data(unifiedDiff.utf8).write(to: patchURL, options: .atomic)
+            defer { try? FileManager.default.removeItem(at: patchURL) }
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            process.arguments = ["-C", workingDirectory, "apply", "--whitespace=nowarn"]
+                + (action == "revert" ? ["--reverse"] : [])
+                + [patchURL.path]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
+            try process.run()
+            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            process.waitUntilExit()
+            return (process.terminationStatus, output.trimmingCharacters(in: .whitespacesAndNewlines))
+        } catch {
+            return (1, error.localizedDescription)
         }
     }
 

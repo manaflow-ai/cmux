@@ -45,6 +45,9 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
     /// snapshot pull. A missed or duplicated push self-heals on the next pull.
     public var version: Int = 0
 
+    /// Current provider-neutral execution controls for this session.
+    public var controls: ChatSessionControls = ChatSessionControls()
+
     /// Creates a session descriptor.
     ///
     /// - Parameters:
@@ -95,7 +98,8 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
         workingDirectory: String? = nil,
         state: ChatAgentState = .idle,
         lastActivityAt: Date? = nil,
-        version: Int = 0
+        version: Int = 0,
+        controls: ChatSessionControls = ChatSessionControls()
     ) {
         self.id = id
         self.agentKind = agentKind
@@ -107,6 +111,7 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
         self.state = state
         self.lastActivityAt = lastActivityAt
         self.version = version
+        self.controls = controls
     }
 
     /// A copy with a new live state, leaving identity and bindings intact.
@@ -126,7 +131,8 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
             workingDirectory: workingDirectory,
             state: newState,
             lastActivityAt: lastActivityAt,
-            version: version ?? self.version
+            version: version ?? self.version,
+            controls: controls
         )
     }
 
@@ -141,6 +147,7 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
         case state
         case lastActivityAt = "last_activity_at"
         case version
+        case controls
     }
 
     // Custom Codable so `kind` decodes with a `.agent` default when absent
@@ -158,6 +165,7 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
         state = try container.decode(ChatAgentState.self, forKey: .state)
         lastActivityAt = try container.decodeIfPresent(Date.self, forKey: .lastActivityAt)
         version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 0
+        controls = try container.decodeIfPresent(ChatSessionControls.self, forKey: .controls) ?? ChatSessionControls()
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -172,5 +180,6 @@ public struct ChatSessionDescriptor: Identifiable, Sendable, Equatable, Codable 
         try container.encode(state, forKey: .state)
         try container.encodeIfPresent(lastActivityAt, forKey: .lastActivityAt)
         try container.encode(version, forKey: .version)
+        try container.encode(controls, forKey: .controls)
     }
 }

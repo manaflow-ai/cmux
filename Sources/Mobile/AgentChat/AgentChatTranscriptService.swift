@@ -124,6 +124,11 @@ final class AgentChatTranscriptService {
     /// authoritative bindings arrive or an explicit history request retries.
     /// Hook delivery never runs Codex's recursive fallback scan.
     private var failedResolutions: Set<String> = []
+    /// Conversations explicitly removed from the mobile history surface.
+    /// The underlying transcript remains intact so a destructive UI action
+    /// cannot erase provider-owned data; the tombstone also prevents a live
+    /// observation sweep from immediately re-adding the row.
+    private var deletedSessionIDs: Set<String> = []
     private let fallbackResolutionCoordinator: AgentChatFallbackTranscriptResolutionCoordinator
     private var endedListability = AgentChatEndedTranscriptListabilityCache()
 
@@ -453,7 +458,9 @@ final class AgentChatTranscriptService {
     /// - Parameter workspaceID: Workspace UUID string filter, or `nil`.
     /// - Returns: Wire descriptors, most recent first.
     func sessionDescriptors(workspaceID: String?) -> [ChatSessionDescriptor] {
-        registry.sessions(workspaceID: workspaceID).map(\.descriptor)
+        registry.sessions(workspaceID: workspaceID)
+            .filter { !deletedSessionIDs.contains($0.sessionID) }
+            .map(\.descriptor)
     }
 
     /// Lists raw session records for callers that must validate live
@@ -463,6 +470,7 @@ final class AgentChatTranscriptService {
     /// - Returns: Matching records, most recent first.
     func sessionRecords(workspaceID: String?) -> [AgentChatSessionRecord] {
         registry.sessions(workspaceID: workspaceID)
+            .filter { !deletedSessionIDs.contains($0.sessionID) }
     }
 
     /// Observe-floor detection: discover live codex/claude sessions from the
@@ -486,7 +494,85 @@ final class AgentChatTranscriptService {
     /// - Parameter sessionID: Raw session id.
     /// - Returns: The record, or `nil` when unknown.
     func sessionRecord(sessionID: String) -> AgentChatSessionRecord? {
-        registry.record(sessionID: sessionID)
+        guard !deletedSessionIDs.contains(sessionID) else { return nil }
+        return registry.record(sessionID: sessionID)
+    }
+
+    /// Renames a conversation in the host's authoritative descriptor. The
+    /// registry emits the descriptor revision so every connected client
+    /// converges without a refresh.
+    @discardableResult
+    func renameSession(sessionID: String, title: String) -> Bool {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !deletedSessionIDs.contains(sessionID), registry.record(sessionID: sessionID) != nil else {
+            return false
+        }
+        registry.update(sessionID: sessionID) { $0.title = String(trimmed.prefix(200)) }
+        return true
+    }
+
+    /// Removes a conversation from the mobile history surface while retaining
+    /// its provider transcript on disk. This keeps deletion reversible by the
+    /// host's own transcript tools and avoids deleting files owned by agents.
+    @discardableResult
+    func deleteSession(sessionID: String) -> Bool {
+        guard !deletedSessionIDs.contains(sessionID),
+              let record = registry.record(sessionID: sessionID) else { return false }
+        deletedSessionIDs.insert(sessionID)
+        handleRecordRemoval(record)
+        return true
+    }
+
+    /// Exports all readable transcript rows as a portable Markdown document.
+    /// Paging uses the same bounded history API as the mobile client, so this
+    /// path works for live tailers and provider-specific transcript formats.
+    func exportTranscript(sessionID: String) async -> String? {
+        guard !deletedSessionIDs.contains(sessionID),
+              let record = registry.record(sessionID: sessionID) else { return nil }
+        var pages: [[ChatMessage]] = []
+        var beforeSeq: Int?
+        var lastCursor: Int?
+        while true {
+            guard let page = await history(sessionID: sessionID, beforeSeq: beforeSeq, limit: 200) else {
+                return nil
+            }
+            if !page.messages.isEmpty {
+                pages.insert(page.messages, at: 0)
+            }
+            guard page.hasMore, let firstSeq = page.messages.first?.seq, firstSeq > 0,
+                  firstSeq != lastCursor else { break }
+            lastCursor = firstSeq
+            beforeSeq = firstSeq
+        }
+        let formatter = ISO8601DateFormatter()
+        var output = "# \(record.title ?? record.agentKind.displayName)\n\n"
+        output += "_\(record.agentKind.displayName) session \(record.sessionID)_\n\n"
+        for message in pages.flatMap({ $0 }) {
+            let role = message.role == .user ? "User" : "Agent"
+            output += "## \(role) · \(formatter.string(from: message.timestamp))\n\n"
+            output += exportText(for: message.kind)
+            output += "\n\n"
+        }
+        return output
+    }
+
+    /// Returns the last host-acknowledged provider-neutral controls.
+    func sessionControls(sessionID: String) -> ChatSessionControls? {
+        registry.record(sessionID: sessionID)?.controls
+    }
+
+    /// Stores controls on the authoritative record and republishes its
+    /// descriptor so connected mobile clients converge without polling.
+    @discardableResult
+    func updateSessionControls(
+        sessionID: String,
+        mutate: (inout ChatSessionControls) -> Void
+    ) -> ChatSessionControls? {
+        guard registry.record(sessionID: sessionID) != nil else { return nil }
+        registry.update(sessionID: sessionID) { record in
+            mutate(&record.controls)
+        }
+        return registry.record(sessionID: sessionID)?.controls
     }
 
     /// Whether an ended session can still serve history without expensive
@@ -769,6 +855,12 @@ final class AgentChatTranscriptService {
     }
 
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
+        if deletedSessionIDs.contains(record.sessionID) {
+            // A process observation can rediscover a row after a mobile
+            // delete. Keep the tombstone authoritative until a new host
+            // session is created with a different id.
+            return
+        }
         let endedRecordIsListable: Bool
         if record.state == .ended {
             endedRecordIsListable = record.agentKind == .codex
@@ -883,6 +975,52 @@ final class AgentChatTranscriptService {
 
     func emitChatFrame(_ frame: ChatSessionEventFrame) {
         emit(frame: frame)
+    }
+
+    private func exportText(for kind: ChatMessageKind) -> String {
+        switch kind {
+        case .prose(let value):
+            return value.text
+        case .thought(let value):
+            return "> **Thought**\n> " + value.text.replacingOccurrences(of: "\n", with: "\n> ")
+        case .toolUse(let value):
+            var text = "**Tool: \(value.toolName)**\n\n\(value.summary)"
+            if let input = value.inputDetail, !input.isEmpty {
+                text += "\n\n```\n\(input)\n```"
+            }
+            if let output = value.output, !output.isEmpty {
+                text += "\n\nOutput:\n```\n\(output)\n```"
+            }
+            return text
+        case .webSearch(let value):
+            var text = "**Web search**"
+            if let query = value.query, !query.isEmpty { text += ": \(query)" }
+            for source in value.sources {
+                text += "\n- [\(source.title ?? source.url)](\(source.url))"
+                if let snippet = source.snippet, !snippet.isEmpty { text += " — \(snippet)" }
+            }
+            return text
+        case .terminal(let value):
+            var text = "```sh\n\(value.command)\n```"
+            if let output = value.output, !output.isEmpty { text += "\n\n```\n\(output)\n```" }
+            if let code = value.exitCode { text += "\n\nExit code: \(code)" }
+            return text
+        case .fileEdit(let value):
+            var text = "**\(value.operation.rawValue.capitalized): \(value.filePath)**"
+            if let diff = value.unifiedDiff, !diff.isEmpty { text += "\n\n```diff\n\(diff)\n```" }
+            return text
+        case .permissionRequest(let value):
+            return "**Permission request:** \(value.title)\n\n\(value.subject)\n\nResolution: \(value.resolution?.rawValue ?? "pending")"
+        case .question(let value):
+            return "**Question:** \(value.prompt)\n\nAnswer: \(value.selectedOptionLabel ?? "pending")"
+        case .status(let value):
+            let event = value.event.rawValue.replacingOccurrences(of: "_", with: " ")
+            return "**Status:** \(event)\(value.detail.map { " — \($0)" } ?? "")"
+        case .attachment(let value):
+            return "**Attachment:** \(value.displayName ?? value.hostPath ?? value.media.rawValue)"
+        case .unsupported(let value):
+            return "**Unsupported message:** \(value.rawType)"
+        }
     }
 
     private func settleProseTurn(sessionID: String, turnState: ProseTurnState) {

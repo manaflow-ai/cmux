@@ -150,6 +150,14 @@ public protocol ControlMobileHostContext: AnyObject, Sendable {
         params: [String: JSONValue]
     ) async -> ControlCallResult
 
+    nonisolated func controlMobileChatControls(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult
+
+    nonisolated func controlMobileChatControlsUpdate(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult
+
     /// `chat.sessions.dump` (local debug socket) — the full chat-session registry
     /// dump, for diagnosing inconsistent phone-side chat state.
     ///
@@ -181,5 +189,17 @@ public extension ControlMobileHostContext {
         params: [String: JSONValue]
     ) async -> ControlCallResult {
         .err(code: "method_not_found", message: "Agent chat is unavailable", data: nil)
+    }
+
+    nonisolated func controlMobileChatControls(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        .err(code: "method_not_found", message: "Agent chat controls are unavailable", data: nil)
+    }
+
+    nonisolated func controlMobileChatControlsUpdate(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        .err(code: "method_not_found", message: "Agent chat controls are unavailable", data: nil)
     }
 }

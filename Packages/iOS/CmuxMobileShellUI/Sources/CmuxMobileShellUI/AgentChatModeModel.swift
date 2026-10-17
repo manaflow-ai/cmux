@@ -48,6 +48,8 @@ final class AgentChatModeModel {
     }
 
     private(set) var sessions: [ChatSessionDescriptor] = []
+    private(set) var controlsBySession: [String: ChatSessionControls] = [:]
+    private(set) var updatingControlsSessionIDs: Set<String> = []
     private(set) var messagesBySession: [String: [ChatMessage]] = [:]
     private(set) var terminalBlocksBySession: [String: [TerminalCommandBlock]] = [:]
     private(set) var streamingBySession: [String: ChatMessage?] = [:]
@@ -55,10 +57,16 @@ final class AgentChatModeModel {
     private(set) var sendingSessionIDs: Set<String> = []
     private(set) var interruptingSessionIDs: Set<String> = []
     private(set) var retryingSessionIDs: Set<String> = []
+    private(set) var renamingSessionIDs: Set<String> = []
+    private(set) var deletingSessionIDs: Set<String> = []
+    private(set) var exportingSessionIDs: Set<String> = []
     /// Agent responses can be regenerated while an otherwise healthy turn is
     /// idle. Keep this separate from failed-turn retry state so the response
     /// action has its own in-flight guard and presentation state.
     private(set) var regeneratingSessionIDs: Set<String> = []
+    /// Review mutations are keyed by session and transcript message so one
+    /// slow host operation cannot disable every diff card in the transcript.
+    private(set) var reviewingMessageKeys: Set<String> = []
     private(set) var pinnedSessionIDs: Set<String>
     private(set) var archivedSessionIDs: Set<String>
     private(set) var connectionState: ConnectionState = .disconnected
@@ -174,6 +182,66 @@ final class AgentChatModeModel {
         persistSessionCollections()
     }
 
+    /// Renames the selected conversation through the host's authoritative
+    /// session source. The descriptor push is the source of truth; refreshing
+    /// on success also covers older hosts that do not publish descriptor
+    /// changes for metadata-only actions.
+    func renameSelectedSession(title: String) async {
+        guard let sessionID = selectedSessionID,
+              let source,
+              renamingSessionIDs.insert(sessionID).inserted else { return }
+        defer { renamingSessionIDs.remove(sessionID) }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            errorMessage = "Enter a name for this session."
+            return
+        }
+        do {
+            try await source.rename(sessionID: sessionID, title: trimmed)
+            if let descriptor = try? await source.session(sessionID: sessionID) {
+                upsert(descriptor)
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Removes the selected conversation from the host's history surface.
+    /// The source may publish a `sessionRemoved` frame; local removal keeps
+    /// the UI deterministic when that push is unavailable.
+    func deleteSelectedSession() async {
+        guard let sessionID = selectedSessionID,
+              let source,
+              deletingSessionIDs.insert(sessionID).inserted else { return }
+        defer { deletingSessionIDs.remove(sessionID) }
+        do {
+            try await source.delete(sessionID: sessionID)
+            removeSessionLocally(sessionID)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Loads a Markdown export for the selected conversation. The view owns
+    /// presentation through `ShareLink`, while this model keeps transport and
+    /// duplicate-request guards testable.
+    func exportSelectedTranscript() async -> String? {
+        guard let sessionID = selectedSessionID,
+              let source,
+              exportingSessionIDs.insert(sessionID).inserted else { return nil }
+        defer { exportingSessionIDs.remove(sessionID) }
+        do {
+            return try await source.exportTranscript(sessionID: sessionID)
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    private func removeSessionLocally(_ sessionID: String) {
+        apply(.sessionRemoved(version: Int.max), to: sessionID)
+    }
+
     /// Builds an artifact loader bound to the currently connected Mac and
     /// session. The loader remains optional so offline fixtures and older
     /// hosts still render the transcript without a preview affordance.
@@ -248,6 +316,11 @@ final class AgentChatModeModel {
     var selectedSession: ChatSessionDescriptor? {
         guard let selectedSessionID else { return nil }
         return sessions.first(where: { $0.id == selectedSessionID })
+    }
+
+    var selectedControls: ChatSessionControls {
+        guard let session = selectedSession else { return ChatSessionControls() }
+        return controlsBySession[session.id] ?? session.controls
     }
 
     var selectedMessages: [ChatMessage] {
@@ -368,6 +441,7 @@ final class AgentChatModeModel {
         source = next
         connectionState = next == nil ? .disconnected : .connecting
         sessions = []
+        controlsBySession = [:]
         messagesBySession = [:]
         terminalBlocksBySession = [:]
         streamingBySession = [:]
@@ -390,6 +464,8 @@ final class AgentChatModeModel {
         interruptingSessionIDs = []
         retryingSessionIDs = []
         regeneratingSessionIDs = []
+        updatingControlsSessionIDs = []
+        reviewingMessageKeys = []
         guard let next else { return }
         sourceTask = Task { [weak self] in
             await self?.loadAndObserve(source: next, generation: generation)
@@ -502,6 +578,35 @@ final class AgentChatModeModel {
                 reset: true,
                 generation: generation
             )
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            if let controls = try? await source.controls(sessionID: session.id),
+               self.selectedSessionID == session.id {
+                self.controlsBySession[session.id] = controls
+                var descriptor = session
+                descriptor.controls = controls
+                self.upsert(descriptor)
+            }
+        }
+    }
+
+    /// Applies controls atomically and leaves the host's acknowledged values
+    /// visible while the next descriptor push catches up.
+    func updateSelectedControls(_ controls: ChatSessionControls) async {
+        guard let sessionID = selectedSessionID, let source,
+              selectedSession?.state != .ended,
+              updatingControlsSessionIDs.insert(sessionID).inserted else { return }
+        defer { updatingControlsSessionIDs.remove(sessionID) }
+        do {
+            let acknowledged = try await source.updateControls(controls, sessionID: sessionID)
+            controlsBySession[sessionID] = acknowledged
+            if var descriptor = sessions.first(where: { $0.id == sessionID }) {
+                descriptor.controls = acknowledged
+                upsert(descriptor)
+            }
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -788,6 +893,52 @@ final class AgentChatModeModel {
         }
     }
 
+    func isReviewing(messageID: String) -> Bool {
+        guard let selectedSessionID else { return false }
+        return reviewingMessageKeys.contains("\(selectedSessionID):\(messageID)")
+    }
+
+    /// Sends a provider-neutral review action to the host. The transcript is
+    /// intentionally left immutable; a successful host mutation is reflected
+    /// by the next authoritative file event or refresh.
+    func review(
+        messageID: String,
+        action: ChatReviewAction,
+        filePath: String,
+        unifiedDiff: String?,
+        lineNumber: Int? = nil,
+        comment: String? = nil
+    ) async {
+        guard let selectedSessionID, let source, selectedSession?.state != .ended else { return }
+        let key = "\(selectedSessionID):\(messageID)"
+        guard reviewingMessageKeys.insert(key).inserted else { return }
+        let generation = sourceGeneration
+        defer {
+            if generation == sourceGeneration { reviewingMessageKeys.remove(key) }
+        }
+        do {
+            try await source.review(
+                action: action,
+                sessionID: selectedSessionID,
+                messageID: messageID,
+                filePath: filePath,
+                unifiedDiff: unifiedDiff,
+                lineNumber: lineNumber,
+                comment: comment
+            )
+            guard generation == sourceGeneration else { return }
+            await loadHistory(
+                sessionID: selectedSessionID,
+                source: source,
+                reset: true,
+                generation: generation
+            )
+        } catch {
+            guard generation == sourceGeneration else { return }
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func clearError() { errorMessage = nil }
 
     private func loadAndObserve(source: any AgentChatSessionSource, generation: Int) async {
@@ -1034,6 +1185,7 @@ final class AgentChatModeModel {
             historyReloadTasks[sessionID]?.cancel()
             historyReloadTasks[sessionID] = nil
             sessions.removeAll { $0.id == sessionID }
+            controlsBySession[sessionID] = nil
             messagesBySession[sessionID] = nil
             terminalBlocksBySession[sessionID] = nil
             streamingBySession[sessionID] = nil
@@ -1050,6 +1202,7 @@ final class AgentChatModeModel {
             lastTurnBySession[sessionID] = nil
             answeredRequestKeysBySession[sessionID] = nil
             answeringRequestKeys = answeringRequestKeys.filter { !$0.hasPrefix("\(sessionID):") }
+            reviewingMessageKeys = reviewingMessageKeys.filter { !$0.hasPrefix("\(sessionID):") }
             sendingSessionIDs.remove(sessionID)
             interruptingSessionIDs.remove(sessionID)
             clearRegeneration(for: sessionID)
@@ -1186,6 +1339,7 @@ final class AgentChatModeModel {
     }
 
     private func upsert(_ descriptor: ChatSessionDescriptor) {
+        controlsBySession[descriptor.id] = descriptor.controls
         latestVersionBySession[descriptor.id] = max(
             descriptor.version,
             latestVersionBySession[descriptor.id] ?? Int.min

@@ -62,6 +62,12 @@ extension TerminalController {
             "mobile.task.models.list",
             "mobile.chat.send",
             "mobile.chat.interrupt",
+            "mobile.chat.controls",
+            "mobile.chat.controls.update",
+            "mobile.chat.review",
+            "mobile.chat.rename",
+            "mobile.chat.delete",
+            "mobile.chat.export",
             // Socket-reachable panel artifact reads (worker lane); fetch stays
             // behind the authenticated mobile execution context.
             "mobile.panel.artifact.stat",

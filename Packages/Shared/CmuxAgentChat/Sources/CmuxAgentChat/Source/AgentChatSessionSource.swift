@@ -1,5 +1,11 @@
 import Foundation
 
+/// Errors returned by optional conversation-level actions.
+public enum AgentChatSessionActionError: Error, Sendable, Equatable {
+    case unsupported
+    case invalidResponse
+}
+
 /// A chat event source that can discover and reconcile the host's sessions.
 ///
 /// ``ChatEventSource`` is intentionally scoped to one conversation so it can
@@ -20,4 +26,27 @@ public protocol AgentChatSessionSource: ChatEventSource, Sendable {
     /// The stream finishes when the underlying connection closes. Consumers
     /// should re-list or pull snapshots when reconnecting or repairing gaps.
     func sessionEvents() async -> AsyncStream<ChatSessionEventFrame>
+
+    /// Changes the user-visible title for one conversation.
+    func rename(sessionID: String, title: String) async throws
+
+    /// Hides one conversation from the host's session list.
+    func delete(sessionID: String) async throws
+
+    /// Produces a portable Markdown transcript for one conversation.
+    func exportTranscript(sessionID: String) async throws -> String
+}
+
+public extension AgentChatSessionSource {
+    func rename(sessionID: String, title: String) async throws {
+        throw AgentChatSessionActionError.unsupported
+    }
+
+    func delete(sessionID: String) async throws {
+        throw AgentChatSessionActionError.unsupported
+    }
+
+    func exportTranscript(sessionID: String) async throws -> String {
+        throw AgentChatSessionActionError.unsupported
+    }
 }
