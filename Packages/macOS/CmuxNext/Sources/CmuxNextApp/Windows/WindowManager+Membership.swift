@@ -118,16 +118,21 @@ extension WindowManager {
     /// Shows `workspaceID`: in the window that lists it (brought forward),
     /// else in `state`'s window, which takes it.
     /// An action run without view-change permission shows nothing.
+    /// The window swaps its content in this turn, after the membership change
+    /// is complete (perf-speed-of-light.md I6): the switch does not wait for
+    /// the window's observation hop, which then finds the workspace shown.
     func show(workspaceID: String, in state: WindowState) {
         guard ActionRunScope.viewChangeAllowed() else { return }
         let value = registry.value
         if let owner = value.owner(of: workspaceID), owner != state.id, value.window(owner)?.isOpen == true,
            let target = controller(for: owner) {
             select(workspaceID, in: target.state)
+            target.showWorkspace(requested: target.state.workspaceID)
             bringToFront(target)
             return
         }
         claim(workspaceID: workspaceID, in: state)
+        controller(for: state.id)?.showWorkspace(requested: state.workspaceID)
     }
 
     /// Shows `workspaceID` where it lives: its window when open, else the

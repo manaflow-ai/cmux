@@ -135,15 +135,21 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let windows = services.windows
         let state = state
         workspaceObservation = Task { [weak self] in
-            for await _ in ObservationStream({ () -> [String] in
-                // Re-run when the request or any machine's workspace list changes.
-                [state.workspaceID ?? "", state.page?.rawValue ?? "", state.machineID, String(cloud.hasLoadedMachines), Self.creationKey(state, cloud, machines)]
-                    + windows.registry.members(of: state.id)
-                    + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.workspaces.map(\.id))" }
-            }) {
+            for await _ in ObservationStream({ Self.readShowInputs(state, cloud: cloud, machines: machines, windows: windows) }) {
                 self?.showWorkspace(requested: state.workspaceID)
             }
         }
+    }
+
+    /// Reads what `showWorkspace` depends on, so the observation re-runs when
+    /// the request or a machine's workspace list changes. It builds no value:
+    /// O(machines) per change, nothing formatted per workspace (a switch
+    /// re-runs it).
+    private static func readShowInputs(_ state: WindowState, cloud: CloudService, machines: MachineRegistry, windows: WindowManager) {
+        _ = (state.workspaceID, state.page, state.machineID, cloud.hasLoadedMachines)
+        _ = creationKey(state, cloud, machines)
+        _ = windows.registry.members(of: state.id)
+        for daemon in machines.daemons { _ = (daemon.store.isLoaded, daemon.store.workspaces.count) }
     }
 
     /// Shows the requested workspace on whichever machine holds it. While
@@ -237,7 +243,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             for await title in ObservationStream({ workspace.displayName }) { self?.root.titlebar.title = title }
         }
         // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
-        controller.sendTopology()
+        controller.didShow()
         if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
