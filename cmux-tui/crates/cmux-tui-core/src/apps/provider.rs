@@ -49,6 +49,9 @@ pub const FAMILIES: &[&str] = &[
     "team",
     "app",
     "coderouter",
+    // Session-host-owned agent environment operations. A host must still
+    // register this family through the verified app/provider boundary.
+    "agent_cli",
     "credential",
 ];
 
@@ -456,6 +459,7 @@ mod tests {
     fn families_and_methods() {
         assert_eq!(family_of("app.settings.set"), "app.settings");
         assert_eq!(family_of("fs.pick"), "fs");
+        assert!(FAMILIES.contains(&family_of("agent_cli.list")));
         let mut params = json!({ "provider": "github" });
         normalize_method(&mut params);
         assert_eq!(params["method"], "GET");

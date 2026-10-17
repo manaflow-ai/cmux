@@ -84,6 +84,7 @@ from .models import (
     LayoutSplit,
     LayoutStack,
     LayoutViewport,
+    MachinePlatform,
     MachineSnapshot,
     MutationReceipt,
     MutationResult,
@@ -730,13 +731,24 @@ def _machine_snapshot(value: Any) -> MachineSnapshot:
         "connectable",
         "deleted",
         "recoverable",
+        "platform",
+        "capabilities",
     )
-    origin = _required_enum(payload, "origin", ("local",))
+    origin = _required_enum(payload, "origin", ("local", "cloud", "ssh", "server"))
     status = _required_enum(
         payload,
         "status",
         ("running", "connecting", "sleeping", "stopped", "unavailable"),
     )
+    platform = payload.get("platform")
+    if platform is not None:
+        if not isinstance(platform, Mapping):
+            raise ProtocolError("machine platform must be an object or null")
+        _strict_object(platform, ("os", "arch"), "machine platform")
+        platform = MachinePlatform(_optional_string(platform, "os"), _optional_string(platform, "arch"))
+    capabilities = payload.get("capabilities", [])
+    if not isinstance(capabilities, list) or any(not isinstance(item, str) for item in capabilities):
+        raise ProtocolError("machine capabilities must be a string array")
     return MachineSnapshot(
         **_snapshot_fields(payload, MachineId, fields),
         name=_required_string(payload, "name"),
@@ -745,6 +757,8 @@ def _machine_snapshot(value: Any) -> MachineSnapshot:
         connectable=_required_bool(payload, "connectable"),
         deleted=_required_bool(payload, "deleted"),
         recoverable=_required_bool(payload, "recoverable"),
+        platform=platform,
+        capabilities=tuple(capabilities),
     )
 
 
@@ -2760,7 +2774,7 @@ class Client:
         }
         return Session(self, _selector(selector, SessionId), scope)
 
-    def list_machines(self) -> List["Machine"]:
+    def list_machines(self, *, catalog: bool = False) -> List["Machine"]:
         values = _list_payload(
             self._read(Operations.MACHINE_LIST, {}),
             "machines",
@@ -2774,7 +2788,7 @@ class Client:
             for snapshot in map(_machine_snapshot, values)
         ]
 
-    def find_machines_by_name(self, name: str) -> List["Machine"]:
+    def find_machines_by_name(self, name: str, *, catalog: bool = False) -> List["Machine"]:
         return [
             item
             for item in self.list_machines()
@@ -3192,6 +3206,9 @@ class Machine(_Handle[MachineId, MachineSnapshot]):
     _selector_key = "machine"
     _get_operation = Operations.MACHINE_GET
     _decode_snapshot = staticmethod(_machine_snapshot)
+
+    def refresh(self, *, catalog: bool = False) -> MachineSnapshot:
+        return super().refresh()
 
     def session(self, selector: SelectorInput[SessionId]) -> "Session":
         return Session(
