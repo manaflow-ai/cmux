@@ -25,6 +25,24 @@ struct AgentInventoryWatchLifecycleTests {
     private let machine: ResourceID = "machine_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     private let watchID = "inventory_watch_0123456789abcdef0123456789abcdef"
 
+    @Test(arguments: ["unavailable", "busy"])
+    func explicitNoLeaseRefusalAllowsFreshAdmissionOnSameTransport(code: String) async throws {
+        try await withConnection(mode: "refused-first-\(code)") { connection in
+            let watch = try await connection.agentInventoryWatch(expectedMachineID: machine)
+            do { _ = try await watch.enable(); Issue.record("first admission did not refuse") }
+            catch let DaemonError.command(_, _, actual, _, _) { #expect(actual == "agent_inventory.\(code)") }
+            // A new demand cycle must not remain poisoned by a proven absent lease.
+            do { try await watch.disable() }
+            catch { Issue.record("no-lease refusal poisoned retirement: \(error)") }
+            do {
+                let receipt = try await watch.enable()
+                #expect(receipt.machine == machine)
+                try await watch.disable()
+            } catch { Issue.record("new explicit admission retained old refusal: \(error)") }
+            #expect(try await connection.request(Inspect()).arrayValue?.map { $0["enabled"] } == [.bool(true), .bool(true), .bool(false)])
+        }
+    }
+
     @Test(arguments: ["legacy", "anonymous"])
     func unsupportedOrUnidentifiedOwnerNeverReceivesWatch(mode: String) async throws {
         try await withConnection(mode: mode) { connection in
@@ -157,10 +175,14 @@ struct AgentInventoryWatchLifecycleTests {
         if cmd == 'identify':
             reply(frame, {'app':'cmux-tui','protocol':12,'generation':boot,
                 'machine_id':'' if mode == 'anonymous' else machine,
-                'capabilities':['agent-inventory-watch-v1'] if mode == 'legacy' else ['agent-inventory-watch-fence-v1']})
+                'capabilities':['agent-inventory-watch-v1'] if mode == 'legacy' else ['agent-inventory-watch-fence-v1'] + (['agent-inventory-watch-admission-v1'] if mode.startswith('refused-first-') else [])})
         elif cmd == 'agent-inventory-watch':
             calls.append(frame)
-            if frame['enabled'] and mode == 'hold':
+            if frame['enabled'] and mode.startswith('refused-first-') and len(calls) == 1:
+                code = 'agent_inventory.' + mode.removeprefix('refused-first-')
+                print(json.dumps({'id':frame['id'],'ok':False,'error':code,'error_code':code,
+                    'data':{'machine':machine,'admission':'not_admitted'}}), flush=True)
+            elif frame['enabled'] and mode == 'hold':
                 pending = frame
                 if waiting is not None: reply(waiting); waiting = None
             elif frame['enabled']: reply(frame, receipt())
