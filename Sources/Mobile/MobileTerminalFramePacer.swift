@@ -90,15 +90,31 @@ struct MobileTerminalFramePacer {
         return .coalesceAndSchedule(deadline: (lastEmitAt ?? now) + period)
     }
 
-    /// The scheduled flush fired. Returns whether the owner should capture
-    /// and emit now (false when a bypassed emit already serviced the surface).
-    mutating func flushFired(now: ContinuousClock.Instant) -> Bool {
+    /// What the owner must do when a scheduled flush fires.
+    enum FlushOutcome: Equatable {
+        /// Capture and emit the held frame now.
+        case emit
+        /// Nothing is held: an emit since scheduling already serviced it.
+        case idle
+        /// An emit since scheduling restarted the period; flush again then.
+        case wait(until: ContinuousClock.Instant)
+    }
+
+    /// The scheduled flush fired. A flush can go stale: a flood update that
+    /// lands after the period boundary emits at once while this flush is
+    /// still pending, and a later update is held again. Emitting that held
+    /// frame now would put two frames a millisecond apart.
+    mutating func flushFired(now: ContinuousClock.Instant) -> FlushOutcome {
         flushScheduled = false
-        guard heldFramePending else { return false }
+        guard heldFramePending else { return .idle }
+        if let lastEmitAt, now - lastEmitAt < period {
+            flushScheduled = true
+            return .wait(until: lastEmitAt + period)
+        }
         heldFramePending = false
         lastEmitAt = now
         emittedSinceSample += 1
-        return true
+        return .emit
     }
 
     /// An emission outside the pacer's control happened (theme delivery,
