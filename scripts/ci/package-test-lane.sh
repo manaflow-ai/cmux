@@ -124,6 +124,9 @@ select_packages() {
     CmuxCloudMachines
     CmuxCloudTui
     CmuxComputerUse
+    CmuxConversation
+    CmuxConversationHost
+    CmuxConversationUI
     CmuxCore
     CmuxRemoteDaemon
     CmuxRemoteWorkspace
