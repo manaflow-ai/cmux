@@ -63,6 +63,45 @@ struct FeedWaiterRegistryTests {
         registry.cleanupStored(requestID: reply.requestID, groupID: reply.groupID)
     }
 
+    @Test func sessionInvalidationClearsEveryMatchingRequestOnly() throws {
+        let registry = FeedWaiterRegistry()
+        let firstEvent = event()
+        let matchingEvent = WorkstreamEvent(sessionId: "session", hookEventName: .permissionRequest,
+            source: "claude", toolName: "Tool", toolInputJSON: "{}", requestId: "matching-request")
+        let secondEvent = WorkstreamEvent(sessionId: "other", hookEventName: .permissionRequest,
+            source: "claude", toolName: "Tool", toolInputJSON: "{}", requestId: "other-request")
+        let foreignEvent = WorkstreamEvent(sessionId: "session", hookEventName: .permissionRequest,
+            source: "codex", toolName: "Tool", toolInputJSON: "{}", requestId: "codex-request")
+        let first = try #require(registry.register(requestID: "request", event: firstEvent))
+        let matching = try #require(registry.register(requestID: "matching-request", event: matchingEvent))
+        let second = try #require(registry.register(requestID: "other-request", event: secondEvent))
+        let foreign = try #require(registry.register(requestID: "codex-request", event: foreignEvent))
+        registry.accepted(first, event: firstEvent, item: item())
+        registry.accepted(matching, event: matchingEvent, item: item())
+        registry.accepted(second, event: secondEvent, item: item())
+        registry.accepted(foreign, event: foreignEvent, item: item())
+
+        let invalidated = registry.invalidate(source: "claude", sessionID: "session")
+        #expect(Set(invalidated.map { $0.0.requestID }) == ["request", "matching-request"])
+        #expect(first.semaphore.wait(timeout: .now()) == .success)
+        #expect(matching.semaphore.wait(timeout: .now()) == .success)
+        #expect(registry.isAwaiting("other-request"))
+        #expect(registry.isAwaiting("codex-request"))
+        guard case .unavailable = registry.finish(first).outcome.result else {
+            Issue.record("Session teardown must invalidate the matching request")
+            return
+        }
+        guard case .unavailable = registry.finish(matching).outcome.result else {
+            Issue.record("Session teardown must invalidate every matching request")
+            return
+        }
+        for reply in invalidated {
+            registry.cleanupStored(requestID: reply.0.requestID, groupID: reply.0.groupID)
+        }
+        _ = registry.finish(second)
+        _ = registry.finish(foreign)
+    }
+
     @Test func onlyALaterHookFromTheSameAgentSupersedesARequest() throws {
         func stamped(_ hook: WorkstreamEvent.HookEventName, sentAt: Int?, agentID: String? = nil,
                      source: String = "claude", session: String = "session") -> WorkstreamEvent {
@@ -122,5 +161,44 @@ struct FeedWaiterRegistryTests {
             return
         }
         registry.replyStored(reply)
+    }
+
+    @Test func lateFailureCannotReplaceSessionInvalidation() throws {
+        let registry = FeedWaiterRegistry()
+        let registration = try #require(registry.register(requestID: "request", event: event()))
+        let reply = try #require(registry.invalidate(
+            requestID: "request", source: "claude", sessionID: "session"
+        ))
+
+        // The delivery lane can finish after the surface teardown has already
+        // made the request unavailable. That terminal outcome must win.
+        registry.fail(registration, result: .notFound)
+        #expect(registration.semaphore.wait(timeout: .now()) == .success)
+        guard case .unavailable = registry.finish(registration).outcome.result else {
+            Issue.record("A late failure replaced the invalidated request")
+            return
+        }
+        registry.cleanupStored(requestID: reply.0.requestID, groupID: reply.0.groupID)
+    }
+
+    @Test func lateAcceptedItemsCannotReplaceSessionInvalidation() throws {
+        for (requestID, status) in [("resolved", WorkstreamStatus.resolved),
+                                    ("expired", WorkstreamStatus.expired)] {
+            let registry = FeedWaiterRegistry()
+            let registration = try #require(registry.register(requestID: requestID, event: event()))
+            let reply = try #require(registry.invalidate(
+                requestID: requestID, source: "claude", sessionID: "session"
+            ))
+
+            // A late store acknowledgement or expiry is also a completion from
+            // the old delivery lane and must not replace teardown's outcome.
+            registry.accepted(registration, event: event(), item: item(status: status))
+            #expect(registration.semaphore.wait(timeout: .now()) == .success)
+            guard case .unavailable = registry.finish(registration).outcome.result else {
+                Issue.record("A late accepted item replaced the invalidated request")
+                return
+            }
+            registry.cleanupStored(requestID: reply.0.requestID, groupID: reply.0.groupID)
+        }
     }
 }
