@@ -15,6 +15,11 @@ import SwiftUI
 /// asks for panel focus as a click into a WebKit page does; a page window
 /// that became key without a click while cmux wants the keyboard elsewhere
 /// (the address bar, another pane) gives it back to this window.
+///
+/// Docked DevTools are another Chromium window over the pane. A click into
+/// them chooses the tools, not the page (`ChromiumKeyWindowFacts.Decision.devTools`),
+/// so the pane's focus keeps the keyboard there instead of handing it back to
+/// the page on the next SwiftUI update.
 struct BrowserEnginePageHost: NSViewRepresentable {
     let page: any BrowserPage
     let isVisible: Bool
@@ -26,6 +31,14 @@ struct BrowserEnginePageHost: NSViewRepresentable {
     var onLayout: (NSView) -> Void = { _ in }
     /// A click into the page chose it.
     var onPageClicked: () -> Void = {}
+    /// Whether a window shows this page's DevTools.
+    var isDevToolsWindow: (NSWindow) -> Bool = { _ in false }
+    /// A click into the page's docked DevTools chose them, or they took the
+    /// keyboard while the pane has it.
+    var onDevToolsChosen: () -> Void = {}
+    /// Gives the keyboard to whichever of page and DevTools the user chose;
+    /// `nil` focuses the page.
+    var focusContent: (() -> Void)?
     /// The page went on or off screen (crash recovery restores a page that
     /// crashed while hidden once it shows).
     var onVisibilityChange: (Bool) -> Void = { _ in }
@@ -43,6 +56,8 @@ struct BrowserEnginePageHost: NSViewRepresentable {
         }
         container.wantsPageFocus = shouldFocus && isVisible
         container.onPageClicked = onPageClicked
+        container.isDevToolsWindow = isDevToolsWindow
+        container.onDevToolsChosen = onDevToolsChosen
         container.onLayout = onLayout
         // The first attach runs before the container is in a window; attach
         // again once it is, so overlays sync with the placed page.
@@ -53,13 +68,19 @@ struct BrowserEnginePageHost: NSViewRepresentable {
             onVisibilityChange(isVisible)
         }
         if shouldFocus, isVisible {
-            page.setFocused(true)
+            if let focusContent {
+                focusContent()
+            } else {
+                page.setFocused(true)
+            }
         }
         onLayout(page.contentView)
     }
 
     static func dismantleNSView(_ container: BrowserEnginePageContainerView, coordinator: ()) {
         container.onPageClicked = nil
+        container.isDevToolsWindow = nil
+        container.onDevToolsChosen = nil
         container.onLayout = nil
         container.onMovedToWindow = nil
         for subview in container.subviews {
@@ -94,6 +115,8 @@ final class BrowserEnginePageContainerView: NSView {
         }
     }
     var onPageClicked: (() -> Void)?
+    var isDevToolsWindow: ((NSWindow) -> Bool)?
+    var onDevToolsChosen: (() -> Void)?
     var onLayout: ((NSView) -> Void)?
     /// The visibility last reported through `onVisibilityChange`.
     var reportedVisible: Bool?
@@ -145,7 +168,12 @@ final class BrowserEnginePageContainerView: NSView {
         // A local monitor runs before the child window's normal mouse dispatch,
         // so the pane focus model sees the click even when Chromium is already
         // key and AppKit emits no second didBecomeKey notification.
-        onPageClicked?()
+        // Docked DevTools sit in the pane rect too; a click there chooses them.
+        if isDevToolsWindow?(eventWindow) == true {
+            onDevToolsChosen?()
+        } else {
+            onPageClicked?()
+        }
     }
 
     private func pageWindowBecameKey(_ keyWindow: NSWindow?) {
@@ -165,6 +193,7 @@ final class BrowserEnginePageContainerView: NSView {
         let facts = ChromiumKeyWindowFacts(
             parent: parent,
             isChromiumPage: true,
+            isDevTools: isDevToolsWindow?(keyWindow) == true,
             clicked: Self.isMouseDown(event) && event?.window === keyWindow,
             overPane: paneRect.contains(center),
             thisWindowIsActive: NSApp.mainWindow === window
@@ -177,6 +206,14 @@ final class BrowserEnginePageContainerView: NSView {
             // while a gated focus change runs: that change made this page
             // window key, and taking the key back would focus the page again
             // through cmux's becomeKey handler, recursing until the stack ends.
+            ChromiumFocusReentrancyGate.shared.run { window.makeKey() }
+        case .devTools where facts.clicked || wantsPageFocus:
+            // A click into docked DevTools, or the tools of the focused pane
+            // took the keys (they opened): they keep the keyboard.
+            onDevToolsChosen?()
+        case .devTools where facts.overPane:
+            // Tools of a pane cmux is not typing in took the keys on their
+            // own (automation opened them): the keys go back.
             ChromiumFocusReentrancyGate.shared.run { window.makeKey() }
         case .chosenPage, .unchosenPage, .devTools, .reapply, .ignore:
             break

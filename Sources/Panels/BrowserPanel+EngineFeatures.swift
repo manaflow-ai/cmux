@@ -39,6 +39,38 @@ extension BrowserPanel {
         return true
     }
 
+    /// Docked DevTools took the keyboard (a click into them, or they opened
+    /// and Chromium made them key): panel focus keeps giving it to them.
+    /// cmux Next: `FocusEffectApplier.childWindowDidBecomeKey`, `.devTools`.
+    func noteEngineDevToolsTookKeyboard() {
+        guard let devTools = engineDevTools, devTools.devToolsState.isOpen else { return }
+        engineDevToolsHasKeyboard = true
+    }
+
+    /// A click into the Chromium page chose it over its DevTools.
+    func noteEnginePageChosen() {
+        engineDevToolsHasKeyboard = false
+    }
+
+    /// Gives the keyboard to the Chromium page, or to its docked DevTools
+    /// when the user chose them last.
+    /// - Returns: Whether the focus change took effect.
+    @discardableResult
+    func focusEnginePageContent() -> Bool {
+        guard let enginePage else { return false }
+        if engineDevToolsHasKeyboard, let devTools = engineDevTools, devTools.devToolsState.isOpen {
+            devTools.setDevToolsFocused(true)
+            return true
+        }
+        engineDevToolsHasKeyboard = false
+        return enginePage.setFocused(true)
+    }
+
+    /// Whether `window` shows this panel's Chromium DevTools.
+    func engineDevToolsContains(window: NSWindow) -> Bool {
+        engineDevTools?.devToolsContains(window: window) ?? false
+    }
+
     /// Whether a Chromium page's DevTools are open; `nil` for WebKit pages.
     var engineDevToolsVisible: Bool? {
         guard enginePage != nil else { return nil }

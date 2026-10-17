@@ -1985,11 +1985,23 @@ struct BrowserPanelView: View {
                     onPageClicked: {
                         // As a click into a WebKit page: the pane takes focus
                         // and the address bar lets go.
+                        panel.noteEnginePageChosen()
                         onRequestPanelFocus()
                         if addressBarFocused {
                             setAddressBarFocused(false, reason: "chromiumPage.click")
                         }
                     },
+                    isDevToolsWindow: { window in panel.engineDevToolsContains(window: window) },
+                    onDevToolsChosen: {
+                        // As a click into WebKit's attached inspector: the pane
+                        // takes focus and the tools keep the keyboard.
+                        panel.noteEngineDevToolsTookKeyboard()
+                        onRequestPanelFocus()
+                        if addressBarFocused {
+                            setAddressBarFocused(false, reason: "chromiumDevTools.click")
+                        }
+                    },
+                    focusContent: { panel.focusEnginePageContent() },
                     onVisibilityChange: { visible in panel.noteEnginePageVisibility(visible) }
                 )
                 .overlay(engineFindOverlayView)

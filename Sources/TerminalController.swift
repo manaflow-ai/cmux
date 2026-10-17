@@ -10216,8 +10216,10 @@ class TerminalController {
 
             // A non-WebKit engine focuses its own page view (this command has
             // explicit focus intent).
-            if let enginePage = browserPanel.automationEnginePage {
-                result = enginePage.setFocused(true)
+            if browserPanel.automationEnginePage != nil {
+                // The page itself, not its DevTools.
+                browserPanel.noteEnginePageChosen()
+                result = browserPanel.focusEnginePageContent()
                     ? .ok(["focused": true])
                     : .err(code: "internal_error", message: "Focus did not move into web view", data: nil)
                 return
