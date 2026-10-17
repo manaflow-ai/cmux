@@ -36,6 +36,7 @@ export type Machine = {
 }
 
 const CAPABILITY_NAME = /^[a-z][a-z0-9_.-]{0,63}$/
+const MACHINE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 
 /** A bounded, non-secret capability summary suitable for a machine header. */
 export function capabilitySummary(machine: Pick<Machine, "capabilities">): string | null {
@@ -43,6 +44,17 @@ export function capabilitySummary(machine: Pick<Machine, "capabilities">): strin
     .filter((name): name is string => CAPABILITY_NAME.test(name))
     .slice(0, 8)
   return names.length ? names.map((name) => name.replaceAll("_", " ")).join(" · ") : null
+}
+
+/** Normalize owner-provided machine metadata before it enters app state. */
+export function sanitizeMachine(machine: Machine): Machine {
+  const rawPlatform = machine.platform && typeof machine.platform === "object" ? machine.platform : null
+  const os = typeof rawPlatform?.os === "string" && MACHINE_TOKEN.test(rawPlatform.os) ? rawPlatform.os : null
+  const arch = typeof rawPlatform?.arch === "string" && MACHINE_TOKEN.test(rawPlatform.arch) ? rawPlatform.arch : null
+  const capabilities = [...new Set(machine.capabilities ?? [])]
+    .filter((name): name is string => CAPABILITY_NAME.test(name))
+    .slice(0, 16)
+  return { ...machine, platform: os || arch ? { os, arch } : null, capabilities }
 }
 
 export type Status = "missing" | "current" | "update" | "ahead" | "unknown"
