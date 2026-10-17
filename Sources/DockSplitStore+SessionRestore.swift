@@ -317,7 +317,16 @@ extension DockSplitStore {
             : nil
         let claudeBackgroundAttach = claudeBackgroundRestore?.attach
         let suppressesResumeForBackgroundSession = claudeBackgroundRestore != nil
-        let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunning &&
+        let shouldAutoResumeNormallyEndedClaude =
+            terminalSnapshot.isRemoteTerminal != true &&
+            SessionRestorableAgentSnapshot.shouldAutoResumeNormallyEndedClaude(
+                restorableAgent: restorableAgent,
+                resumeBinding: resumeBinding,
+                wasAgentRunning: terminalSnapshot.wasAgentRunning
+            )
+        // Match workspace restore: keep the cmux restore execution boundary.
+        let shouldAutoResumeAgent = autoResumeAgentSessions &&
+            (agentWasRunning || shouldAutoResumeNormallyEndedClaude) &&
             !suppressesResumeForBackgroundSession
         let usesExecutionAdmission = terminalSnapshot.isRemoteTerminal != true &&
             (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
@@ -519,6 +528,9 @@ extension DockSplitStore {
             tmuxStartCommand: restoredTmuxStartCommand,
             initialInput: initialInput,
             additionalEnvironment: replayEnvironment,
+            stableSurfaceId: snapshot.stableSurfaceId.flatMap {
+                excludingStableIdentities.contains($0) ? nil : $0
+            },
             focusPlacement: .rightSidebarDock,
             isRemoteTerminal: terminalSnapshot.isRemoteTerminal == true,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
@@ -538,6 +550,7 @@ extension DockSplitStore {
             panelId: terminal.id,
             internallySeededInput: initialInput
         )
+        terminal.restoreRecovery.restore(from: terminalSnapshot.restoreRecovery)
         if willRunAgentInput {
             // Keep the typed resume selector so the shell-state handler can
             // replay it if the login shell drops the typeahead.
@@ -599,7 +612,7 @@ extension DockSplitStore {
             )
         }
         if deferredAgentResumeAdmission {
-            terminal.restoreRecovery.state = .checking
+            terminal.restoreRecovery.markCheckingPreservingFailure()
             deferAgentResumeRestore(
                 panelId: terminal.id,
                 restore: DeferredAgentResumeRestore(

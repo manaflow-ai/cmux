@@ -243,10 +243,18 @@ struct TerminalPastePreparationWorkerClient: Sendable {
         workingDirectory: URL
     ) async throws -> Int32 {
         try Task.checkCancellation()
+        // Only the full worker re-executes the app binary, whose startup alone
+        // can outlast the paste deadline. The small text helper stays fully
+        // inside the deadline.
+        let startup = modeArgument == Self.workerModeArgument
+            ? TerminalImageTransferPreparationService.WorkerStartup.current
+            : nil
+        await startup?.launching()
         let process = TerminalPastePreparationProcess(
             executableURL: executable,
             arguments: [modeArgument, Self.workingDirectoryArgument, workingDirectory.path],
-            environment: ProcessInfo.processInfo.environment
+            environment: ProcessInfo.processInfo.environment,
+            readinessSignal: startup?.ready
         )
         let status = try await process.run()
         try Task.checkCancellation()

@@ -148,6 +148,9 @@ class Choice:
     blocked: bool = False
     # For an owned pick: the Blacksmith pool rescue attempt 3 moves its jobs to.
     retry_label: str = ""
+    # For a run that overflows to the 6vcpu macOS 26 pool: a free 12vcpu slot
+    # for its compile admission, the job every other one waits on.
+    admission_label: str = ""
 
 
 def pick(state: State | Mapping[str, Any]) -> Choice:
@@ -180,7 +183,24 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
                 retry = _retry_label(state, pool)
                 return Choice(pool.label, "owned label has enough free runners now, its queue counted",
                               pool.xcode_app, True, retry_label=retry)
-    return blacksmith
+    return _borrow_large_for_admission(state, blacksmith)
+
+
+def _borrow_large_for_admission(state: State, choice: Choice) -> Choice:
+    """Compile an overflow run on 12vcpu when one slot is free there.
+
+    12vcpu takes a whole run only when every job of it fits, so most runs
+    overflow to 6vcpu, compile included (about 18 min, against about 10). The
+    compile is one job and its product runs anywhere on the same image, so it
+    alone takes a free 12vcpu slot; the other jobs stay on the chosen pool.
+    """
+    large, small = BLACKSMITH[0], BLACKSMITH[1]
+    if state.fork or choice.blocked or choice.label != small:
+        return choice
+    pool = next((pool for pool in state.blacksmith if pool.label == large), None)
+    if pool is None or pool.xcode_app or pool.unreserved_available < 1:
+        return choice
+    return dataclasses.replace(choice, admission_label=large)
 
 
 def _owned_namespace(label: str) -> str:
@@ -434,7 +454,9 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
                   placed=str(jobs if choice.owned else 0),
                   owned_jobs=f" {' '.join(owned_jobs)} " if owned_jobs else "",
                   root_runner=root, side_runner=side or choice.label, gui_runner=gui,
-                  admission_runner=json.dumps([root]) if root and "admission" in owned_jobs else "")
+                  admission_runner=json.dumps([root]) if root and "admission" in owned_jobs
+                  else json.dumps([choice.admission_label])
+                  if choice.admission_label and not choice.owned and env.get("RUN_MACOS") == "true" else "")
     if path:
         with open(path, "a", encoding="utf-8") as handle:
             for key, value in values.items():

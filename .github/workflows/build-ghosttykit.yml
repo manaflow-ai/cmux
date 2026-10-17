@@ -107,6 +107,17 @@ jobs:
             -Dsentry=false \
             -Dtest-filter="open stderr reader exits"
 
+      - name: Test Ghostty link filter
+        run: |
+          set -euo pipefail
+          cd ghostty
+          zig build test \
+            -Dapp-runtime=none \
+            -Demit-macos-app=false \
+            -Dsentry=false \
+            -Dtest-filter="resolveAtFiltered" \
+            --summary all
+
       - name: Test OSC 7501 program status
         run: |
           set -euo pipefail

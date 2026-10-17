@@ -13,6 +13,14 @@ fn temp_root(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!("cmux-registry-{label}-{}", new_uuid_v4()))
 }
 
+struct TempRoot(PathBuf);
+
+impl Drop for TempRoot {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 fn workspace(id: u64, key: &str, name: &str) -> RegistryWorkspace {
     RegistryWorkspace {
         id,
@@ -92,6 +100,44 @@ fn journal_lists_are_bounded_by_the_resource_catalog() {
     let segments = registry.journal_segments().unwrap();
     assert_eq!(segments.len(), JOURNAL_LIST_MAX_ITEMS);
     assert_eq!(segments[0].start_sequence, 1);
+}
+
+#[test]
+fn existing_registry_migrates_to_incremental_journal_vacuum_once() {
+    let root = temp_root("journal-auto-vacuum-migration");
+    let database = {
+        let registry = WorkspaceRegistry::open(&root, "journal-auto-vacuum").unwrap();
+        let database = registry.session_journal_database_path().unwrap();
+        registry
+            .connection
+            .execute("DELETE FROM meta WHERE key = ?1", [JOURNAL_AUTO_VACUUM_META_KEY])
+            .unwrap();
+        database
+    };
+
+    // Model a registry written before journal maintenance opted into
+    // incremental auto-vacuum.
+    let legacy = Connection::open(&database).unwrap();
+    legacy.execute_batch("PRAGMA auto_vacuum=NONE; VACUUM;").unwrap();
+    drop(legacy);
+
+    let reopened = WorkspaceRegistry::open(&root, "journal-auto-vacuum").unwrap();
+    let mode = reopened
+        .connection
+        .query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    assert_eq!(mode, 0, "legacy migration must not rewrite the registry during open");
+    assert!(meta_value(&reopened.connection, JOURNAL_AUTO_VACUUM_META_KEY).unwrap().is_none());
+    assert!(reopened.migrate_journal_auto_vacuum().unwrap());
+    let mode = reopened
+        .connection
+        .query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    assert_eq!(mode, 2);
+    assert_eq!(required_meta(&reopened.connection, JOURNAL_AUTO_VACUUM_META_KEY).unwrap(), "1");
+    assert!(!reopened.migrate_journal_auto_vacuum().unwrap());
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[cfg(windows)]
@@ -5305,6 +5351,70 @@ fn terminal_journal_persists_exact_output_and_geometry_in_order() {
             );
         }
     }
+}
+
+/// Pages the fresh connection had to read from disk (or the WAL) while the
+/// registry opened: a size-independent measure of how much startup touched.
+fn registry_open_cache_misses(registry: &WorkspaceRegistry) -> i32 {
+    let (mut current, mut highwater) = (0, 0);
+    // SAFETY: the handle is the live connection owned by `registry`, and
+    // sqlite3_db_status only reads counters into the two locals.
+    let status = unsafe {
+        rusqlite::ffi::sqlite3_db_status(
+            registry.connection.handle(),
+            rusqlite::ffi::SQLITE_DBSTATUS_CACHE_MISS,
+            &mut current,
+            &mut highwater,
+            0,
+        )
+    };
+    assert_eq!(status, rusqlite::ffi::SQLITE_OK);
+    current
+}
+
+fn reopen_cost_after_terminal_output(label: &str, records: usize) -> i32 {
+    const BATCH_SIZE: usize = 1_024;
+    let root = TempRoot(temp_root(label));
+    {
+        let mut registry = WorkspaceRegistry::open(&root.0, label).unwrap();
+        commit_terminal_topology(&mut registry, &format!("{label}-seed"));
+        let terminal_id = Arc::new(terminal_resource(TERMINAL_ONE));
+        let chunk = vec![b'x'; 256];
+        let mut written = 0;
+        while written < records {
+            let events = (written..records.min(written + BATCH_SIZE))
+                .map(|index| crate::journal_ingress::JournalIngressEvent::TerminalOutput {
+                    terminal_id: terminal_id.clone(),
+                    generation: "startup-scale".into(),
+                    occurred_at_ms: u64::try_from(index).unwrap(),
+                    bytes: chunk.clone(),
+                })
+                .collect::<Vec<_>>();
+            let references = events.iter().collect::<Vec<_>>();
+            written += registry.append_journal_ingress_events(&references).unwrap().len();
+        }
+    }
+    let registry = WorkspaceRegistry::open(&root.0, label).unwrap();
+    let misses = registry_open_cache_misses(&registry);
+    drop(registry);
+    misses
+}
+
+#[test]
+fn registry_reopen_cost_does_not_scale_with_terminal_output_history() {
+    // Terminal output is most of every long-lived journal (3.6M of 3.6M
+    // records on one production machine). Reopening must read the registry
+    // and the journal's recent edge, never the whole output history.
+    let small = reopen_cost_after_terminal_output("startup-scale-small", 16);
+    let large = reopen_cost_after_terminal_output("startup-scale-large", 16 * 1_024);
+    // The two cases use separate databases, so the small run is the control
+    // for SQLite/schema startup variation. A history-sized increase indicates
+    // that open touched the output archive rather than only the bounded state
+    // tables. Keep this margin below one 4 KiB SQLite page per 16 records.
+    assert!(
+        large <= small + 16,
+        "reopen read {large} pages after 16Ki output records but {small} after 16"
+    );
 }
 
 #[test]

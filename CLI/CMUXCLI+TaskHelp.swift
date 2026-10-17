@@ -330,6 +330,7 @@ extension CMUXCLI {
         mark-notification-read (--id <uuid> | --workspace <id|ref|index> [--surface <id|ref|index>] [--window <id|ref|index>] | --all)
         open-notification --id <uuid>
         jump-to-unread
+        jump-to-last-prompt
         clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
         \(String(localized: "cli.help.command.pr", defaultValue: "pr <url|number> [flags] | pr clear [flags]"))
         set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
@@ -397,7 +398,7 @@ extension CMUXCLI {
         return """
         auth <status|login|logout|team>
         login | logout                                      (aliases for auth login/logout)
-        vm <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud)
+        vm <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|restart|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud)
         remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
         \(simulatorCommandUsageLine)
         \(iosCommandUsageLine)

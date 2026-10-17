@@ -22,11 +22,12 @@ def run_case(
     root: Path,
     *,
     args: tuple[str, ...] = ("--print", "hello"),
+    bin_name: str = "bin",
     disabled: bool = False,
     managed_global: bool = False,
     stale_cached_extension: bool = False,
 ) -> dict[str, object]:
-    bin_dir = root / "bin"
+    bin_dir = root / bin_name
     bin_dir.mkdir(exist_ok=True)
     log = root / "pi-argv.json"
     fake_pi = bin_dir / "pi"
@@ -75,11 +76,19 @@ def run_case(
 
 
 def main() -> int:
+    with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-glob-") as directory:
+        root = Path(directory)
+        (root / "bin1").mkdir()
+        literal_path = run_case(root, bin_name="bin[1]")
+        if "-e" not in literal_path["args"]:
+            raise AssertionError(f"Pi in a literal PATH entry was not launched: {literal_path}")
+
     passthrough_args = (
         ("install", "npm:@termdraw/pi", "--local"),
         ("remove", "npm:@termdraw/pi", "--local"),
         ("uninstall", "npm:@termdraw/pi", "--local"),
         ("update", "--extensions"),
+        ("update", "--extension", "npm:@termdraw/pi"),
         ("list", "--help"),
         ("config", "--local"),
         ("auth", "check", "--help"),
@@ -100,6 +109,7 @@ def main() -> int:
         ("hello",),
         ("--print", "update"),
         ("--model", "provider/model", "hello"),
+        ("--", "--no-extensions"),
     )
     for args in interactive_args:
         with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-prompt-") as directory:
@@ -134,6 +144,12 @@ def main() -> int:
         if "-e" in disabled["args"] or disabled["extension_exists"]:
             raise AssertionError(f"Pi hooks disabled still injected extension: {disabled}")
 
+    with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-no-extensions-") as directory:
+        root = Path(directory)
+        opted_out = run_case(root, args=("--print", "hello", "--no-extensions"))
+        if opted_out["args"] != ["--print", "hello", "--no-extensions"] or opted_out["extension_exists"]:
+            raise AssertionError(f"Pi --no-extensions was overridden by cmux injection: {opted_out}")
+
     with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-missing-") as directory:
         root = Path(directory)
         shim_dir = root / "shim-bin"
@@ -158,7 +174,7 @@ def main() -> int:
                 f"status={result.returncode} stderr={result.stderr!r}"
             )
 
-    print("PASS: Pi wrapper injects one bundled extension and honors global/disabled cases")
+    print("PASS: Pi wrapper injects one bundled extension and honors global/disabled/opt-out cases")
     return 0
 
 

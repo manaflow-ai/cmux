@@ -24,23 +24,30 @@ public struct UpdateManualDownloadRecovery: Sendable {
     /// Creates a recovery resolver.
     ///
     /// - Parameters:
-    ///   - stableDownloadURLString: Direct DMG URL for the stable channel.
+    ///   - stableDownloadURLString: Direct DMG URL for the stable channel. Defaults to the stable
+    ///     DMG for `hostArchitecture`, since stable ships one DMG per architecture.
     ///   - nightlyDownloadURLString: Direct DMG URL for the nightly channel. Defaults to the
     ///     nightly DMG for `hostArchitecture`, since nightly ships one DMG per architecture.
     ///   - rcDownloadURLString: Direct DMG URL for the RC channel. Defaults to the RC DMG for
     ///     `hostArchitecture`, since RC ships one DMG per architecture like nightly.
-    ///   - hostArchitecture: The architecture whose nightly and RC DMGs are offered by default.
+    ///   - hostArchitecture: The architecture whose DMGs are offered by default.
     public init(
-        stableDownloadURLString: String = "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg",
+        stableDownloadURLString: String? = nil,
         nightlyDownloadURLString: String? = nil,
         rcDownloadURLString: String? = nil,
         hostArchitecture: UpdateHostArchitecture = .current
     ) {
         self.stableDownloadURLString = stableDownloadURLString
+            ?? Self.stableDownloadURLString(for: hostArchitecture)
         self.nightlyDownloadURLString = nightlyDownloadURLString
             ?? Self.nightlyDownloadURLString(for: hostArchitecture)
         self.rcDownloadURLString = rcDownloadURLString
             ?? Self.rcDownloadURLString(for: hostArchitecture)
+    }
+
+    /// The direct stable DMG URL for `architecture` in the latest release.
+    public static func stableDownloadURLString(for architecture: UpdateHostArchitecture) -> String {
+        "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos-\(architecture.rawValue).dmg"
     }
 
     /// The direct nightly DMG URL for `architecture`.
