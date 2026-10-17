@@ -78,4 +78,18 @@ struct WorkspaceRowHoverMotionTests {
         #expect(Self.keyPaths(under: row.layer).contains("backgroundColor"), "the hover fill cleared at once")
         #expect(row.frame == rest.row && row.title.frame == rest.title, "hover moved or resized the row")
     }
+
+    @Test func realizationSuppressesHoverLayoutAndFadeState() {
+        let model = SidebarModel(sections: [])
+        let list = SidebarListView(model: model)
+        let row = WorkspaceRowView(key: .workspace(WorkspaceID("realization")))
+        row.sidebarList = list
+        list.hoverFollowsScroll = true
+
+        row.isHovered = true
+
+        #expect(!row.needsLayout, "scroll realization must not schedule hover layout")
+        #expect(!row.fadesNextFill, "scroll realization must not leave a fill fade queued")
+        #expect(!row.fadesNextHover, "scroll realization must not leave a hover fade queued")
+    }
 }
