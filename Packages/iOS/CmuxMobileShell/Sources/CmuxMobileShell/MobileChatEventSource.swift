@@ -5,38 +5,6 @@ public import Foundation
 
 private let mobileChatStreamCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000
 
-private func shouldScheduleMobileChatStreamUnsubscribe(after error: Error) -> Bool {
-    if Task.isCancelled { return true }
-    // A closed transport has already discarded its server-side registrations;
-    // sending cleanup would needlessly reopen a dead route. Timeouts and
-    // protocol failures can leave a live registration behind, so clean those
-    // up even when the handshake task itself was not canceled.
-    if let connectionError = error as? MobileShellConnectionError,
-       case .connectionClosed = connectionError {
-        return false
-    }
-    return true
-}
-
-private func scheduleMobileChatStreamUnsubscribe(
-    client: MobileCoreRPCClient,
-    streamID: String
-) {
-    // A stream handshake can be canceled while its task is suspended in
-    // `sendRequest`. The canceled task cannot issue cleanup itself, so use a
-    // detached bounded request to remove the server-side registration.
-    Task.detached(priority: .utility) {
-        guard let unsubscribe = try? MobileCoreRPCClient.requestData(
-            method: "mobile.events.unsubscribe",
-            params: ["stream_id": streamID]
-        ) else { return }
-        _ = try? await client.sendRequest(
-            unsubscribe,
-            timeoutNanoseconds: mobileChatStreamCleanupTimeoutNanoseconds
-        )
-    }
-}
-
 private actor MobileArtifactDownloadByteCounter {
     private var storedValue = 0
 
@@ -71,6 +39,38 @@ public actor MobileChatEventSource: ChatEventSource {
     public nonisolated let supportsArtifactGallery: Bool
     /// Whether raw artifact bytes may use a peer-bound Iroh application lane.
     public nonisolated let supportsArtifactLane: Bool
+
+    private nonisolated static func shouldScheduleMobileChatStreamUnsubscribe(after error: Error) -> Bool {
+        if Task.isCancelled { return true }
+        // A closed transport has already discarded its server-side registrations;
+        // sending cleanup would needlessly reopen a dead route. Timeouts and
+        // protocol failures can leave a live registration behind, so clean those
+        // up even when the handshake task itself was not canceled.
+        if let connectionError = error as? MobileShellConnectionError,
+           case .connectionClosed = connectionError {
+            return false
+        }
+        return true
+    }
+
+    private nonisolated static func scheduleMobileChatStreamUnsubscribe(
+        client: MobileCoreRPCClient,
+        streamID: String
+    ) {
+        // A stream handshake can be canceled while its task is suspended in
+        // `sendRequest`. The canceled task cannot issue cleanup itself, so use a
+        // detached bounded request to remove the server-side registration.
+        Task.detached(priority: .utility) {
+            guard let unsubscribe = try? MobileCoreRPCClient.requestData(
+                method: "mobile.events.unsubscribe",
+                params: ["stream_id": streamID]
+            ) else { return }
+            _ = try? await client.sendRequest(
+                unsubscribe,
+                timeoutNanoseconds: mobileChatStreamCleanupTimeoutNanoseconds
+            )
+        }
+    }
 
     /// Creates the adapter.
     ///
@@ -173,7 +173,7 @@ public actor MobileChatEventSource: ChatEventSource {
             // `.finished` means the connection died and an unsubscribe would
             // reopen a torn-down transport (see `events`).
             guard case .cancelled = reason else { return }
-            scheduleMobileChatStreamUnsubscribe(client: client, streamID: streamID)
+            Self.scheduleMobileChatStreamUnsubscribe(client: client, streamID: streamID)
         }
 
         // Register after the local listener exists and before returning the
@@ -191,8 +191,8 @@ public actor MobileChatEventSource: ChatEventSource {
         } catch {
             continuation.finish()
             pump.cancel()
-            if shouldScheduleMobileChatStreamUnsubscribe(after: error) {
-                scheduleMobileChatStreamUnsubscribe(client: client, streamID: streamID)
+            if Self.shouldScheduleMobileChatStreamUnsubscribe(after: error) {
+                Self.scheduleMobileChatStreamUnsubscribe(client: client, streamID: streamID)
             }
             return stream
         }
@@ -241,7 +241,7 @@ public actor MobileChatEventSource: ChatEventSource {
             // termination means the connection itself died or the handshake
             // failed, so an unsubscribe would reopen a torn-down transport.
             guard case .cancelled = reason else { return }
-            scheduleMobileChatStreamUnsubscribe(client: client, streamID: streamID)
+            Self.scheduleMobileChatStreamUnsubscribe(client: client, streamID: streamID)
         }
 
         // Complete the server-side registration before returning. The local
@@ -259,8 +259,8 @@ public actor MobileChatEventSource: ChatEventSource {
         } catch {
             continuation.finish()
             pump.cancel()
-            if shouldScheduleMobileChatStreamUnsubscribe(after: error) {
-                scheduleMobileChatStreamUnsubscribe(client: client, streamID: streamID)
+            if Self.shouldScheduleMobileChatStreamUnsubscribe(after: error) {
+                Self.scheduleMobileChatStreamUnsubscribe(client: client, streamID: streamID)
             }
             return stream
         }
