@@ -38,6 +38,12 @@ public enum BrowserPageEvent: Equatable, Sendable {
     /// Keyboard focus left the page: Tab (`forward`) or Shift+Tab passed
     /// its last or first control.
     case focusLeftPage(forward: Bool)
+    /// The page left a plain Escape unhandled (Chromium reports it after the
+    /// page): a popup window closes on it.
+    case unhandledEscape
+    /// The page left a letter unhandled while no editable field had focus
+    /// (Chromium reports it after the page), for single-key page shortcuts.
+    case unhandledKey(BrowserPageKey)
     /// The page navigated to a link another app opens (mailto:, tel:, an
     /// app's own scheme), which the engine cancelled instead of loading;
     /// `userGesture` is whether the user's click started it.

@@ -29,6 +29,18 @@ extension BrowserPanel {
         return access.blockers(store.extensions, url: enginePage?.state.url ?? currentURL)
     }
 
+    /// Runs the Chrome extension shortcut (`chrome.commands`) `event` is, with
+    /// this panel's page as the active tab. The shortcut monitor calls it for
+    /// a key no cmux shortcut took while this panel is focused (its page, the
+    /// address bar or the find bar), as cmux Next's key router does.
+    ///
+    /// - Returns: False for a WebKit panel, in browser focus mode (every key
+    ///   is the page's), and for a key no extension bound.
+    func runExtensionShortcut(for event: NSEvent) -> Bool {
+        guard let host = extensionHost else { return false }
+        return host.extensionStore.runShortcut(for: event, in: host.extensionTab, pageOwnsAllKeys: isBrowserFocusModeActive)
+    }
+
     /// The window of the panel's engine page, if it is on screen.
     var extensionPageWindow: NSWindow? { enginePage?.contentView.window }
 

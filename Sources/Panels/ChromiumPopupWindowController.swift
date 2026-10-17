@@ -102,7 +102,9 @@ final class ChromiumPopupWindowController: NSObject, NSWindowDelegate {
                 switch event {
                 case .stateChanged(let state):
                     self.apply(state)
-                case .closeRequested:
+                // An Escape the page left unhandled closes the popup, as
+                // in cmux Next (`BrowserPopupPanels`).
+                case .closeRequested, .unhandledEscape:
                     self.panel.close()
                 default:
                     break

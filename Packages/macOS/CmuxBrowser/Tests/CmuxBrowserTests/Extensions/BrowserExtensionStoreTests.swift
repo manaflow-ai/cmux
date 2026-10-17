@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import CmuxBrowser
@@ -131,5 +132,43 @@ struct BrowserExtensionStoreTests {
         #expect(store.run(custom, in: tab))
         #expect(tab.requested == ["aaa"])
         #expect(backend.ranCommands == ["toggle"])
+    }
+
+    private func keyDown(_ characters: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0, windowNumber: 0,
+            context: nil, characters: characters, charactersIgnoringModifiers: characters,
+            isARepeat: false, keyCode: keyCode
+        ))
+    }
+
+    /// A `chrome.commands` key reaches its extension: cmux routes it because
+    /// Chromium dispatches these from the toolbar cmux hides (cmux Next
+    /// `KeyRouter.runExtensionShortcut`).
+    @Test
+    func shortcutKeyRunsItsExtensionCommandUnlessThePageOwnsAllKeys() throws {
+        let (store, backend) = makeStore()
+        // Cmd-Shift-Y opens the action (ui::EF_COMMAND_DOWN | EF_SHIFT_DOWN), Ctrl-Shift-K a custom command.
+        backend.commands = [
+            BrowserExtensionCommand(extensionID: "aaa", name: "_execute_action", keyCode: 0x59, modifiers: 16 | 2),
+            BrowserExtensionCommand(extensionID: "aaa", name: "toggle-feature", keyCode: 0x4B, modifiers: 4 | 2),
+        ]
+        store.refresh()
+        let tab = MockExtensionTab()
+        let commandShiftY = try keyDown("y", keyCode: 16, modifiers: [.command, .shift])
+        let controlShiftK = try keyDown("k", keyCode: 40, modifiers: [.control, .shift])
+
+        #expect(store.runShortcut(for: commandShiftY, in: tab))
+        #expect(tab.requested == ["aaa"])
+        #expect(store.runShortcut(for: controlShiftK, in: tab))
+        #expect(backend.ranCommands == ["toggle-feature"])
+
+        // Browser focus mode: every key is the page's.
+        #expect(!store.runShortcut(for: commandShiftY, in: tab, pageOwnsAllKeys: true))
+        // A plain letter is typing, and a chord without the bound modifiers is not the shortcut.
+        #expect(!store.runShortcut(for: try keyDown("y", keyCode: 16, modifiers: []), in: tab))
+        #expect(!store.runShortcut(for: try keyDown("y", keyCode: 16, modifiers: [.command]), in: tab))
+        #expect(tab.requested == ["aaa"])
+        #expect(backend.ranCommands == ["toggle-feature"])
     }
 }

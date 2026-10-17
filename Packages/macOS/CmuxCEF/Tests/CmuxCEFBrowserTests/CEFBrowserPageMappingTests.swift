@@ -34,6 +34,19 @@ struct CEFBrowserPageMappingTests {
         #expect(CEFBrowserPage.pageEvent(forShimEvent: .takeFocus(browser: 1, forward: false)) == .focusLeftPage(forward: false))
     }
 
+    /// Chromium's report of a key the page left unhandled (shim
+    /// CMUX_SHIM_KEY_UNHANDLED) reaches the app, as in cmux Next
+    /// (`CEFTab+Events`): a plain Escape, or a letter outside text fields.
+    @Test func keysThePageLeftUnhandledBecomePageEvents() {
+        #expect(CEFBrowserPage.pageEvent(forShimEvent: .keyUnhandled(browser: 1, keyCode: 0x1B, shift: false))
+            == .unhandledEscape)
+        #expect(CEFBrowserPage.pageEvent(forShimEvent: .keyUnhandled(browser: 1, keyCode: 0x46, shift: true))
+            == .unhandledKey(BrowserPageKey(character: "f", shift: true)))
+        #expect(CEFBrowserPage.pageEvent(forShimEvent: .keyUnhandled(browser: 1, keyCode: 0x41, shift: false))
+            == .unhandledKey(BrowserPageKey(character: "a", shift: false)))
+        #expect(CEFBrowserPage.pageEvent(forShimEvent: .keyUnhandled(browser: 1, keyCode: 0x30, shift: false)) == nil)
+    }
+
     @Test func passThroughShimEventsMap() {
         #expect(CEFBrowserPage.pageEvent(forShimEvent: .devToolsOpened(browser: 1, devTools: 2, docked: true))
             == .devToolsVisibilityChanged(true))

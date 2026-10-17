@@ -100,6 +100,26 @@ public final class BrowserExtensionStore {
         commands.first { $0.matches(event) }
     }
 
+    /// Runs the shortcut `event` is, with `tab` as the active tab.
+    ///
+    /// Chromium dispatches extension shortcuts from its toolbar, which cmux
+    /// hides, and never sees keys while the address or find bar has the
+    /// keyboard, so cmux routes them for the focused Chromium page. Call it
+    /// for a key down no cmux shortcut took, as cmux Next does
+    /// (`KeyRouter.runExtensionShortcut`).
+    ///
+    /// - Parameters:
+    ///   - event: The key down.
+    ///   - tab: The focused Chromium page.
+    ///   - pageOwnsAllKeys: Browser focus mode is on, so every key is the page's.
+    /// - Returns: Whether a shortcut ran.
+    public func runShortcut(for event: NSEvent, in tab: any BrowserExtensionTab, pageOwnsAllKeys: Bool = false) -> Bool {
+        guard !pageOwnsAllKeys, event.type == .keyDown,
+              !event.modifierFlags.isDisjoint(with: [.command, .control, .option]),
+              let command = command(matching: event) else { return false }
+        return run(command, in: tab)
+    }
+
     private func perform(_ call: (any BrowserExtensionBackend) -> Bool) -> Bool {
         guard supportsManagement else { return false }
         let accepted = call(backend)

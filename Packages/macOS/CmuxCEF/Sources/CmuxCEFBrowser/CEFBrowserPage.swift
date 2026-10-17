@@ -533,6 +533,13 @@ public final class CEFBrowserPage: BrowserPage {
 
     private func handle(_ event: CEFShimEvent) {
         features.handle(event)
+        // Esc (Windows key code 0x1B) the page did not handle while its content is fullscreen:
+        // leave fullscreen, as Chrome's Esc does. It is not also an unhandled Escape (a popup
+        // window would close on it).
+        if case .keyUnhandled(_, 0x1B, _) = event, browser.state.isFullscreen {
+            exitContentFullscreen()
+            return
+        }
         if let pageEvent = Self.pageEvent(forShimEvent: event) {
             if case .devToolsVisibilityChanged(let open) = pageEvent { devToolsVisible = open }
             emit(pageEvent)
@@ -549,10 +556,6 @@ public final class CEFBrowserPage: BrowserPage {
             pendingDialogs.removeValue(forKey: token)?.cancel()
         case .tab(.sidePanelChanged, _, _, _):
             sidePanel.scheduleRefresh()
-        case .keyUnhandled(_, 0x1B, _) where browser.state.isFullscreen:
-            // Esc (Windows key code 0x1B) the page did not handle while its content is fullscreen:
-            // leave fullscreen, as Chrome's Esc does.
-            exitContentFullscreen()
         case .passwordPrompt(_, let promptID, let json):
             handlePasswordPrompt(promptID: promptID, json: json)
         default:
@@ -573,6 +576,11 @@ public final class CEFBrowserPage: BrowserPage {
         case .renderResponsive: .unresponsiveChanged(false)
         // Tab or Shift+Tab past the page's last or first control.
         case .takeFocus(_, let forward): .focusLeftPage(forward: forward)
+        // A key the page left unhandled (cmux Next CEFTab+Events).
+        case .keyUnhandled(_, let keyCode, let shift):
+            keyCode == 0x1B
+                ? BrowserPageEvent.unhandledEscape
+                : BrowserPageKey(windowsKeyCode: keyCode, shift: shift).map(BrowserPageEvent.unhandledKey)
         // A link to another app; the shim cancelled it (external_url.h).
         case .externalURL(_, let url, let userGesture):
             URL(string: url).map { .externalAppRequested($0, userGesture: userGesture) }

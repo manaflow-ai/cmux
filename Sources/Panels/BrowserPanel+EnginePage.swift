@@ -247,6 +247,27 @@ extension BrowserPanel {
         }
     }
 
+    /// Escape left the address bar of a non-WebKit panel: its page takes the
+    /// keyboard back and the field it had focused before Cmd-L is restored,
+    /// as WebKit panels do (`BrowserPanelView.applyOmnibarEffects`).
+    ///
+    /// - Parameter completion: Runs after the restore attempt.
+    /// - Returns: False for a WebKit panel, which leaves through its web view.
+    func returnFocusToEnginePageAfterAddressBar(completion: @escaping @MainActor @Sendable () -> Void) -> Bool {
+        guard let enginePage else { return false }
+        let pageView = enginePage.contentView
+        guard pageView.window != nil, !pageView.isHiddenOrHasHiddenAncestor else {
+            completion()
+            return true
+        }
+        clearWebViewFocusSuppression()
+        if enginePage.setFocused(true) {
+            noteWebViewFocused()
+        }
+        restoreAddressBarPageFocusIfNeeded { _ in completion() }
+        return true
+    }
+
     /// Page content entered or left fullscreen (an HTML5 video's fullscreen
     /// button). Chromium sizes the element to the page's view, so the pane's
     /// chrome steps aside and the page fills the pane until the page leaves
