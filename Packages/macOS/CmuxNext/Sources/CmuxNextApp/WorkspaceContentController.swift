@@ -35,6 +35,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// True while `apply` mounts panes: it sends the topology once at its end,
     /// so a mount inside it does not rebuild the O(N) topology per pane (O(N^2)).
     private var isApplying = false
+    /// What `apply` last laid out: the mapped tree and the daemon's layout
+    /// capabilities. An equal one applies nothing (I3).
+    private struct Applied: Equatable {
+        var result: LayoutMapping.Result
+        var edgeDocks: Bool
+        var rows: Bool
+    }
+    private var lastApplied: Applied?
     /// Daemon `transaction` for each layout gesture (undo coalescing).
     var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
     /// The window's focus state machine (`WindowState.focus`,
@@ -140,12 +148,21 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 
     /// Re-applies the current store state (after a command response that
-    /// may trail its own delta).
+    /// may trail its own delta, an unpark, an expected focus), even when
+    /// the tree did not change: it sends the topology again.
     func applyCurrent() {
-        apply(LayoutMapping.shared.map(workspace))
+        apply(LayoutMapping.shared.map(workspace), force: true)
     }
 
-    private func apply(_ result: LayoutMapping.Result) {
+    private func apply(_ result: LayoutMapping.Result, force: Bool = false) {
+        // The same tree (a store change outside this workspace's layout, an
+        // echo of this window's own gesture) changes nothing here.
+        let edgeDocks = daemon.supports(DaemonCapabilities.shared.edgeDocks)
+        // No row op is sent to a daemon without rows-v1 (rows.md step 4).
+        let rows = daemon.supports(DaemonCapabilities.shared.rows)
+        let applied = Applied(result: result, edgeDocks: edgeDocks, rows: rows)
+        if !force, applied == lastApplied { return }
+        lastApplied = applied
         #if DEBUG
         DebugLayoutCounters.workspaceApplies &+= 1
         #endif
@@ -153,13 +170,13 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         isApplying = true
         defer { isApplying = wasApplying }
         handles = result.handles
-        // A key the daemon's pane took over from a provisional one keeps its controller (cx-ry0y).
+        // A key the daemon's pane took over from a provisional one keeps its
+        // controller (cx-ry0y). Runs only when the tree changed (above); a
+        // controller whose model is still the store's does nothing.
         for (id, controller) in panes {
             if let handle = handles.panes[id], let model = daemon.store.pane(handle) { controller.adopt(model) }
         }
-        layoutModel.acceptsEdgeDockDrops = daemon.supports(DaemonCapabilities.shared.edgeDocks)
-        // No row op is sent to a daemon without rows-v1 (rows.md step 4).
-        let rows = daemon.supports(DaemonCapabilities.shared.rows)
+        if layoutModel.acceptsEdgeDockDrops != edgeDocks { layoutModel.acceptsEdgeDockDrops = edgeDocks }
         if layoutModel.acceptsRowOps != rows { layoutModel.acceptsRowOps = rows }
         layoutModel.apply(screens: result.screens)
         #if DEBUG
@@ -170,8 +187,10 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.syncWithModel()
         updateEmptyState()
         repairIfEmpty()
+        let focused = (layoutModel.focusedPane, layoutModel.activeScreenID)
         sendTopology()
-        layoutView.syncWithModel() // focus the topology landed (a split's pane) rings in this frame
+        // The focus the topology landed (a split's pane) rings in this frame.
+        if (layoutModel.focusedPane, layoutModel.activeScreenID) != focused { layoutView.syncWithModel() }
     }
 
     /// A workspace with no pane shows its title; Return creates the first

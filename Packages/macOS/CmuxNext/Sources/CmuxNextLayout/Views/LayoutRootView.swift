@@ -53,6 +53,10 @@ public final class LayoutRootView: NSView {
     /// Overlay sync observers by id (`observeOverlaySync`).
     var overlaySyncObservers: [Int: () -> Void] = [:]
     var nextOverlaySyncObserver = 0
+    /// The overlay is stale (a host or the plane moved); `flushOverlaySync`
+    /// syncs it once, before this turn's frame (`setNeedsOverlaySync`).
+    var overlayIsStale = false
+    var overlayFlushScheduled = false
 
     /// Everything the view reads from the model, observed as one value.
     private struct Snapshot: Equatable, Sendable {
@@ -67,6 +71,7 @@ public final class LayoutRootView: NSView {
         var centerMode: CenterFocusedColumn
         var attention: [PaneID: AttentionMark]
         var scrollbar: StripScrollbarMode
+        var rowOps: Bool
     }
 
     /// `contentProvider` is held weakly; the App keeps it alive.
@@ -81,7 +86,7 @@ public final class LayoutRootView: NSView {
         layer?.masksToBounds = true
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
-        context.overlayNeedsSync = { [weak self] in self?.syncOverlay() }
+        context.overlayNeedsSync = { [weak self] in self?.setNeedsOverlaySync() }
         context.stripClipsDidChange = { [weak self] in
             guard let self else { return }
             planeHost?.paneShapesDidChange(overlayPlane)
@@ -162,7 +167,8 @@ public final class LayoutRootView: NSView {
             revealRequest: model.revealRequest,
             centerMode: model.centerFocusedColumn,
             attention: model.attention,
-            scrollbar: model.stripScrollbar
+            scrollbar: model.stripScrollbar,
+            rowOps: model.acceptsRowOps
         )
     }
 
@@ -181,7 +187,8 @@ public final class LayoutRootView: NSView {
                     revealRequest: model.revealRequest,
                     centerMode: model.centerFocusedColumn,
                     attention: model.attention,
-                    scrollbar: model.stripScrollbar
+                    scrollbar: model.stripScrollbar,
+                    rowOps: model.acceptsRowOps
                 )
             }) {
                 guard let self else { return }
@@ -210,7 +217,21 @@ public final class LayoutRootView: NSView {
         let animated = chromeAnimated && context.animatesPaneLayout
         var needsFrames = false
 
-        context.livePanes = Set(snapshot.screens.flatMap(\.layout.panes))
+        if previous?.screens != snapshot.screens { context.livePanes = Set(snapshot.screens.flatMap(\.layout.panes)) }
+        // Only a screen whose inputs changed reconciles (I7): a divider drag
+        // frame rewrites one screen, and the others (shown or hidden) keep
+        // their frames, chrome and scroll.
+        let before = Dictionary((previous?.screens ?? []).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let sharedChanged = previous.map {
+            $0.style != snapshot.style || $0.scrollbar != snapshot.scrollbar || $0.rowOps != snapshot.rowOps
+        } ?? true
+        let chromeChanged = sharedChanged || previous.map {
+            $0.focused != snapshot.focused || $0.dimsInactive != snapshot.dimsInactive || $0.attention != snapshot.attention
+        } ?? true
+        let scrollChanged = previous.map {
+            $0.focused != snapshot.focused || $0.centerMode != snapshot.centerMode || $0.gestureActive != snapshot.gestureActive
+                || $0.activeScreen != snapshot.activeScreen
+        } ?? true
 
         // Screens.
         let ids = Set(snapshot.screens.map(\.id))
@@ -223,9 +244,11 @@ public final class LayoutRootView: NSView {
         for screen in snapshot.screens {
             let isActive = screen.id == snapshot.activeScreen
             let view: ScreenContentView
+            var isNew = false
             if let existing = screenViews[screen.id] {
                 view = existing
             } else {
+                isNew = true
                 view = ScreenContentView(screenID: screen.id, layout: screen.layout, context: context)
                 view.frame = bounds
                 view.isHidden = !isActive
@@ -237,24 +260,35 @@ public final class LayoutRootView: NSView {
                 screenViews[screen.id] = view
                 screenFrames[screen.id] = AnimatedFrame(bounds, alpha: isActive ? 1 : 0)
             }
-            let structureChanged = previous?.screens.first(where: { $0.id == screen.id }).map { !$0.layout.hasSameStructure(as: screen.layout) } ?? true
-            // An explicit equalize (same structure, new ratios) springs whenever motion is allowed (Lawrence
-            // 2026-10-16); the sizing after a split or close, and released drags, follow `ui.paneAnimations`.
-            let reflows = chromeAnimated && !structureChanged && !snapshot.gestureActive && model.animatesReflow
-            if view.update(layout: screen.layout, zoomed: screen.zoomed, animated: animated || reflows) { needsFrames = true }
-            // The focus ring of a split's new pane appears with the pane.
-            view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
-                              animated: chromeAnimated && !structureChanged)
-            // Every snapshot reaches the scroll reducer: it anchors the camera
-            // on layout changes, reveals focus, and springs back after a close.
-            let focused = snapshot.focused.flatMap { screen.layout.contains($0) ? $0 : nil }
-            let source: ColumnFocusSource = previous?.focused != snapshot.focused ? model.lastFocusSource : .programmatic
-            // Only a snap that stands in for Reduce Motion's spring shows the
-            // scrollbar, not one at launch or while out of the window.
-            if view.syncScroll(focused: focused, source: source, mode: snapshot.centerMode,
-                               animated: previous != nil && canAnimate && context.animatesPaneLayout, reveals: !snapshot.gestureActive,
-                               showsScrollbarOnSnap: previous != nil && window != nil && driver.isAttached) {
-                needsFrames = true
+            let old = before[screen.id]
+            let layoutChanged = isNew || old?.layout != screen.layout || old?.zoomed != screen.zoomed || sharedChanged
+                || view.holdsRowDragPreview
+            if layoutChanged {
+                let structureChanged = old.map { !$0.layout.hasSameStructure(as: screen.layout) } ?? true
+                // An explicit equalize (same structure, new ratios) springs whenever motion is allowed (Lawrence
+                // 2026-10-16); the sizing after a split or close, and released drags, follow `ui.paneAnimations`.
+                let reflows = chromeAnimated && !structureChanged && !snapshot.gestureActive && model.animatesReflow
+                if view.update(layout: screen.layout, zoomed: screen.zoomed, animated: animated || reflows) { needsFrames = true }
+                // The focus ring of a split's new pane appears with the pane.
+                view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
+                                  animated: chromeAnimated && !structureChanged)
+            } else if chromeChanged {
+                view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
+                                  animated: chromeAnimated)
+            }
+            // A changed layout or focus reaches the scroll reducer: it anchors
+            // the camera on layout changes, reveals focus, and springs back
+            // after a close.
+            if layoutChanged || scrollChanged {
+                let focused = snapshot.focused.flatMap { screen.layout.contains($0) ? $0 : nil }
+                let source: ColumnFocusSource = previous?.focused != snapshot.focused ? model.lastFocusSource : .programmatic
+                // Only a snap that stands in for Reduce Motion's spring shows the
+                // scrollbar, not one at launch or while out of the window.
+                if view.syncScroll(focused: focused, source: source, mode: snapshot.centerMode,
+                                   animated: previous != nil && canAnimate && context.animatesPaneLayout, reveals: !snapshot.gestureActive,
+                                   showsScrollbarOnSnap: previous != nil && window != nil && driver.isAttached) {
+                    needsFrames = true
+                }
             }
             if let request = snapshot.centerRequest, request != previous?.centerRequest, screen.layout.contains(request.pane),
                view.center(request.pane, animated: animated) {
@@ -274,7 +308,8 @@ public final class LayoutRootView: NSView {
         }
 
         updateVisibility()
-        syncOverlay()
+        overlayIsStale = true
+        flushOverlaySync()
         // Pane padding or corners changed: pages drawn as child windows
         // re-read their clip shape (their frames may not have moved).
         if let previous, previous.style != snapshot.style { planeHost?.paneShapesDidChange(overlayPlane) }
@@ -285,17 +320,20 @@ public final class LayoutRootView: NSView {
 
     func advanceFrame(_ dt: Double) -> Bool {
         model.flushPendingGestureIntents()
+        // One motion policy per frame (it reads the animation settings), not one per spring.
+        let policy = Motion.policy
         var moving = false
         for view in screenViews.values where !view.isHidden {
-            if view.step(dt) { moving = true }
+            if view.step(dt, policy: policy) { moving = true }
         }
+        let screenSpring = policy.spring(.screen)
         for id in Array(screenFrames.keys) {
-            if screenFrames[id]?.advance(dt, parameters: Motion.spring(.screen)) == true { moving = true }
+            if screenFrames[id]?.advance(dt, parameters: screenSpring) == true { moving = true }
         }
         applyScreenFrames()
         if highlight.step(dt) { moving = true }
         updateVisibility()
-        syncOverlay()
+        flushOverlaySync()
         // A gesture requests frames on each pointer change (pending intents);
         // an active gesture with a still pointer needs none.
         return moving || model.hasPendingGestureIntents
@@ -350,15 +388,14 @@ public final class LayoutRootView: NSView {
         }
         applyScreenFrames()
         updateVisibility()
-        overlayPlane.syncFrame()
-        syncOverlay()
+        if overlayPlane.syncFrame() { overlayIsStale = true }
+        flushOverlaySync()
         planeHost?.planeDidLayout(overlayPlane)
     }
 
     override public func setFrameOrigin(_ newOrigin: NSPoint) {
         super.setFrameOrigin(newOrigin)
-        overlayPlane.syncFrame()
-        syncOverlay()
+        if overlayPlane.syncFrame() { setNeedsOverlaySync() }
     }
 
     override public func viewWillMove(toWindow newWindow: NSWindow?) {
