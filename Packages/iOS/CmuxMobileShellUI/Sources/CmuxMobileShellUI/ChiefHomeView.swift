@@ -456,11 +456,13 @@ private struct ChiefQuestionSheet: View {
 
     /// Mirrors `ChiefQuestionAnswer`: `chief.answer` carries one Other value,
     /// assigned to the first eligible unselected item, or the first eligible
-    /// multi-select item as a fallback.
+    /// item as a fallback. The fallback keeps the field visible when a
+    /// single-select item still carries Chief's default recommendation; typing
+    /// clears that choice before submission, which is the server's Other path.
     private var otherTargetItem: MobileChiefQuestion.Item? {
         question.items.first(where: { item in
             item.allowsOther && (selections[item.id] ?? []).isEmpty
-        }) ?? question.items.first(where: { $0.allowsOther && $0.multiSelect })
+        }) ?? question.items.first(where: { $0.allowsOther })
     }
 
     private var selectedOtherText: String? {
