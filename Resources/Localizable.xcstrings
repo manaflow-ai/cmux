@@ -177189,6 +177189,131 @@
         }
       }
     },
+    "dialog.close.dontAskAgainEvenWhenRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تسأل مرة أخرى، حتى عند تشغيل عملية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne pitaj ponovo, čak ni kada proces radi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spørg ikke igen, heller ikke når en proces kører"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht mehr fragen, auch wenn ein Prozess läuft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don’t ask again, even when a process is running"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No volver a preguntar, aunque haya un proceso en ejecución"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne plus demander, même si un processus est en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non chiedere più, anche se un processo è in esecuzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今後確認しない（プロセス実行中も含む）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 묻지 않기(프로세스가 실행 중일 때도)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke spør igjen, heller ikke når en prosess kjører"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie pytaj ponownie, nawet gdy działa proces"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não perguntar novamente, mesmo com um processo em execução"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Больше не спрашивать, даже если процесс запущен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ต้องถามอีก แม้มีโปรเซสกำลังทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir daha sorma, bir işlem çalışırken bile"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Більше не запитувати, навіть коли процес запущено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不再询问（即使有进程正在运行）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不再詢問（即使有程序正在執行）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កុំសួរម្តងទៀត ទោះបីមានដំណើរការកំពុងដំណើរការក៏ដោយ"
+          }
+        }
+      }
+    },
     "dialog.closeAnchor.message.lone": {
       "extractionState": "manual",
       "localizations": {

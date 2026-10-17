@@ -3013,7 +3013,7 @@ class TabManager: ObservableObject {
             if hasActiveProcess { dontAskAgain.insert(.safety) }
         } else {
             showsBatchConfirmation = shouldConfirmWorkspaceClose(requiresConfirmation: true, source: .tabClose)
-                || hasActiveProcess
+                || (hasActiveProcess && CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingWorkspace)
             dontAskAgain = .workspace
             if hasActiveProcess { dontAskAgain.insert(.safety) }
         }
@@ -3305,7 +3305,11 @@ class TabManager: ObservableObject {
             && AppDelegate.shared?.existingWindowDock(for: self)?.needsConfirmClose() == true
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
             || windowDockNeedsConfirmation
+        // warnBeforeClosingWorkspace (and its "Don't ask again") also covers
+        // the running-process prompt; pinned workspaces keep their own gate.
+        let warnsBeforeClosingWorkspace = CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingWorkspace
         let showsCloseConfirmation = requiresConfirmation
+            && warnsBeforeClosingWorkspace
             && (needsCloseConfirmation
                 || shouldConfirmWorkspaceClose(
                     requiresConfirmation: needsCloseConfirmation,
@@ -7483,7 +7487,19 @@ enum CloseDontAskAgainCheckbox {
     static func add(to alert: NSAlert, offering kinds: CloseWarningKinds) {
         guard !kinds.subtracting(.safety).isEmpty else { return }
         alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = String(
+        alert.suppressionButton?.title = title(offering: kinds)
+    }
+
+    /// Turning off the workspace warning also skips its running-process
+    /// prompt, so that checkbox says so before the user ticks it.
+    static func title(offering kinds: CloseWarningKinds) -> String {
+        if kinds.isSuperset(of: [.workspace, .safety]) {
+            return String(
+                localized: "dialog.close.dontAskAgainEvenWhenRunning",
+                defaultValue: "Don’t ask again, even when a process is running"
+            )
+        }
+        return String(
             localized: "dialog.close.dontAskAgain",
             defaultValue: "Don’t ask again"
         )

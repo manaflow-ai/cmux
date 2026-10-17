@@ -1716,7 +1716,7 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
         XCTAssertTrue(manager.tabs.contains(where: { $0.id == workspace.id }))
     }
 
-    func testRunningProcessWorkspaceCloseStillWarnsWhenSettingDisabled() {
+    func testRunningProcessWorkspaceCloseSkipsPromptWhenSettingDisabled() {
         let manager = makeManager(warnBeforeClosingWorkspace: false)
         let workspace = manager.tabs[1]
         markRunningProcess(workspace)
@@ -1727,9 +1727,29 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
             return false
         }
 
-        XCTAssertFalse(manager.closeWorkspaceWithConfirmation(workspace))
-        XCTAssertEqual(prompts, [closeWorkspaceTitle])
-        XCTAssertTrue(manager.tabs.contains(where: { $0.id == workspace.id }))
+        // Turning the setting off (or ticking "Don't ask again") must stop the
+        // running-process prompt too, or the checkbox does nothing (#20517).
+        XCTAssertTrue(manager.closeWorkspaceWithConfirmation(workspace))
+        XCTAssertEqual(prompts, [])
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == workspace.id }))
+    }
+
+    func testRunningProcessMultiWorkspaceCloseSkipsPromptWhenSettingDisabled() {
+        let manager = makeManager(warnBeforeClosingWorkspace: false)
+        markRunningProcess(manager.tabs[0])
+        let targets = [manager.tabs[0].id, manager.tabs[1].id]
+        let survivor = manager.tabs[2].id
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+
+        manager.closeWorkspacesWithConfirmation(targets, allowPinned: true)
+
+        XCTAssertEqual(promptCount, 0)
+        XCTAssertEqual(manager.tabs.map(\.id), [survivor])
     }
 
     func testMultiWorkspaceCloseSkipsPromptWhenSettingDisabled() {
@@ -1892,7 +1912,16 @@ final class TabManagerCloseDontAskAgainTests: XCTestCase {
 
         drainMainQueue()
         XCTAssertTrue(manager.closeWorkspaceWithConfirmation(second))
-        XCTAssertEqual(promptCount, 2, "The safety warning cannot be disabled")
+        XCTAssertEqual(promptCount, 1, "Don't ask again also stops the running-process prompt (#20517)")
+    }
+
+    func testRunningProcessWorkspaceCheckboxWarnsItAlsoSkipsThatPrompt() {
+        XCTAssertEqual(
+            CloseDontAskAgainCheckbox.title(offering: [.workspace, .safety]),
+            "Don’t ask again, even when a process is running"
+        )
+        XCTAssertEqual(CloseDontAskAgainCheckbox.title(offering: .workspace), "Don’t ask again")
+        XCTAssertEqual(CloseDontAskAgainCheckbox.title(offering: [.tab, .safety]), "Don’t ask again")
     }
 
     func testUntickedDontAskAgainKeepsWarningOn() {
