@@ -105,6 +105,25 @@ struct SurfaceResumeSocketApprovalTests {
     }
 
     @Test
+    func menuOmitsReviewForBindingThatCannotBeApproved() async throws {
+        await Self.waitForSigningSecret()
+        try withRegisteredWindow { _, workspace, panelID in
+            let proposal = SurfaceResumeBindingSnapshot(
+                command: "pi --session synthetic",
+                source: "process-detected"
+            )
+            #expect(workspace.setSurfaceResumeBinding(proposal, panelId: panelID))
+            let view = try #require(workspace.focusedTerminalPanel).hostedView.surfaceView
+            let menu = NSMenu()
+            #expect(view.appendCurrentSurfaceResumeMenuItems(to: menu))
+            let submenu = try #require(menu.items.first?.submenu)
+            #expect(!submenu.items.contains {
+                $0.action == NSSelectorFromString("reviewCurrentSurfaceResumeApproval:")
+            })
+        }
+    }
+
+    @Test
     func explicitReviewDoesNotRewriteProposalWhenTestHostCannotPrompt() async throws {
         await Self.waitForSigningSecret()
         try withRegisteredWindow { _, workspace, panelID in
