@@ -412,6 +412,32 @@ private struct AgentChatDetail: View {
                     }
                     if model.selectedSession != nil {
                         Divider()
+                        if model.selectedSession?.kind == .agent {
+                            Button {
+                                Task { await model.forkSelectedSession() }
+                            } label: {
+                                Label(
+                                    model.isLaunchingSelectedSession ? "Opening side chat…" : "Fork side chat",
+                                    systemImage: "arrow.triangle.branch"
+                                )
+                            }
+                            .disabled(model.isLaunchingSelectedSession)
+                            if model.selectedSession?.state == .ended {
+                                Button {
+                                    Task { await model.resumeSelectedSession() }
+                                } label: {
+                                    Label("Resume session", systemImage: "play.circle")
+                                }
+                                .disabled(model.isLaunchingSelectedSession)
+                            } else {
+                                Button {
+                                    Task { await model.reopenSelectedSession() }
+                                } label: {
+                                    Label("Reopen in terminal", systemImage: "rectangle.portrait.and.arrow.right")
+                                }
+                                .disabled(model.isLaunchingSelectedSession)
+                            }
+                        }
                         Button {
                             renameText = model.selectedSession?.title ?? ""
                             isRenaming = true

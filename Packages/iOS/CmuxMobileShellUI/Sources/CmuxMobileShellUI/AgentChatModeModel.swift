@@ -108,6 +108,10 @@ final class AgentChatModeModel {
     private(set) var renamingSessionIDs: Set<String> = []
     private(set) var deletingSessionIDs: Set<String> = []
     private(set) var exportingSessionIDs: Set<String> = []
+    /// Fork/resume/reopen each create a terminal asynchronously. Keep one
+    /// launch in flight per source session so a double tap cannot open two
+    /// provider sessions before the first descriptor is published.
+    private(set) var launchingSessionIDs: Set<String> = []
     /// Agent responses can be regenerated while an otherwise healthy turn is
     /// idle. Keep this separate from failed-turn retry state so the response
     /// action has its own in-flight guard and presentation state.
@@ -162,6 +166,9 @@ final class AgentChatModeModel {
     /// a working/failed/needs-input state) proves that the host accepted the
     /// replacement turn.
     private var regenerationBaselineSeqBySession: [String: Int] = [:]
+    /// Launch acknowledgements can arrive before provider hook discovery. Keep
+    /// the target around so a later descriptor push selects the new terminal.
+    private var pendingLaunchSelections: [String: ChatSessionLaunchResult] = [:]
     private var removedSessionVersions: [String: Int] = [:]
     private var sourceGeneration = 0
     private var attachmentStagingGeneration = 0
@@ -302,6 +309,53 @@ final class AgentChatModeModel {
         } catch {
             errorMessage = error.localizedDescription
             return nil
+        }
+    }
+
+    var isLaunchingSelectedSession: Bool {
+        guard let selectedSessionID else { return false }
+        return launchingSessionIDs.contains(selectedSessionID)
+    }
+
+    /// Starts a provider-native side chat in a new sibling terminal.
+    func forkSelectedSession() async {
+        await launchSelectedSession(action: .fork)
+    }
+
+    /// Opens the durable provider session in a new terminal. This is useful
+    /// for ended history as well as live sessions whose terminal moved.
+    func resumeSelectedSession() async {
+        await launchSelectedSession(action: .resume)
+    }
+
+    /// Explicit wording for the same durable-session launch used by a detail
+    /// menu's “Reopen in terminal” action.
+    func reopenSelectedSession() async {
+        await launchSelectedSession(action: .reopen)
+    }
+
+    private func launchSelectedSession(action: ChatSessionLaunchResult.Action) async {
+        guard let sessionID = selectedSessionID,
+              let source,
+              launchingSessionIDs.insert(sessionID).inserted else { return }
+        defer { launchingSessionIDs.remove(sessionID) }
+        do {
+            let result: ChatSessionLaunchResult
+            switch action {
+            case .fork:
+                result = try await source.fork(sessionID: sessionID)
+            case .resume:
+                result = try await source.resume(sessionID: sessionID)
+            case .reopen:
+                result = try await source.reopen(sessionID: sessionID)
+            }
+            pendingLaunchSelections[sessionID] = result
+            await refresh()
+            guard !Task.isCancelled else { return }
+            selectPendingLaunchIfAvailable()
+        } catch {
+            guard !Task.isCancelled else { return }
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -533,6 +587,8 @@ final class AgentChatModeModel {
         interruptingSessionIDs = []
         retryingSessionIDs = []
         regeneratingSessionIDs = []
+        launchingSessionIDs = []
+        pendingLaunchSelections = [:]
         updatingControlsSessionIDs = []
         reviewingMessageKeys = []
         guard let next else { return }
@@ -1210,6 +1266,7 @@ final class AgentChatModeModel {
                 }
             }
             sessions = reconciled.sorted(by: Self.sortSessions)
+            selectPendingLaunchIfAvailable()
             for descriptor in sessions {
                 latestVersionBySession[descriptor.id] = max(
                     descriptor.version,
@@ -1545,6 +1602,23 @@ final class AgentChatModeModel {
             sessions.append(descriptor)
         }
         sessions.sort(by: Self.sortSessions)
+        selectPendingLaunchIfAvailable()
+    }
+
+    private func selectPendingLaunchIfAvailable() {
+        for (parentSessionID, result) in Array(pendingLaunchSelections) {
+            guard let candidate = sessions.first(where: { descriptor in
+                if let childSessionID = result.sessionID, descriptor.id == childSessionID {
+                    return true
+                }
+                guard let terminalID = result.terminalID else { return false }
+                return descriptor.terminalID == terminalID
+                    && (result.workspaceID == nil || descriptor.workspaceID == result.workspaceID)
+            }) else { continue }
+            pendingLaunchSelections.removeValue(forKey: parentSessionID)
+            select(candidate)
+            break
+        }
     }
 
     /// Reconciles a best-effort push when its revision skips one or more
