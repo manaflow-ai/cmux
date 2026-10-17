@@ -2,6 +2,56 @@ import CmuxTerminalCore
 import Testing
 
 @Suite struct TerminalPointerGestureStateTests {
+    @Test func plainClickDoesNotAuthorizeTerminalLink() throws {
+        var state = TerminalPointerGestureState()
+        state.begin(
+            windowNumber: 7,
+            timestamp: 10,
+            modifierFlagsRawValue: 0,
+            permitsLinkActivation: false,
+            pressPointX: 10,
+            pressPointY: 20
+        )
+
+        let completion = try #require(state.complete(windowNumber: 7, timestamp: 11))
+        #expect(!completion.permitsLinkActivation)
+    }
+
+    @Test func commandClickAuthorizationIsLatchedAtPress() throws {
+        var state = TerminalPointerGestureState()
+        state.begin(
+            windowNumber: 7,
+            timestamp: 10,
+            modifierFlagsRawValue: 0x0010_0000,
+            permitsLinkActivation: true,
+            pressPointX: 10,
+            pressPointY: 20
+        )
+
+        // The release can arrive after Command is released. The press-time
+        // authorization still owns the complete click lifecycle.
+        let completion = try #require(state.complete(windowNumber: 7, timestamp: 11))
+        #expect(completion.permitsLinkActivation)
+    }
+
+    @Test func draggedCommandClickCannotActivateTerminalLink() throws {
+        var state = TerminalPointerGestureState()
+        state.begin(
+            windowNumber: 7,
+            timestamp: 10,
+            modifierFlagsRawValue: 0x0010_0000,
+            permitsLinkActivation: true,
+            pressPointX: 10,
+            pressPointY: 20
+        )
+        state.markDragged(atX: 14, y: 20)
+        state.invalidateLinkActivation()
+
+        let completion = try #require(state.complete(windowNumber: 7, timestamp: 11))
+        #expect(!completion.permitsLinkActivation)
+        #expect(completion.isDrag)
+    }
+
     @Test func completionUsesPressModifiers() throws {
         var state = TerminalPointerGestureState()
         state.begin(windowNumber: 7, timestamp: 10, modifierFlagsRawValue: 0x0010_0000, permitsLinkActivation: true, pressPointX: 10, pressPointY: 20)

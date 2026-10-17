@@ -263,7 +263,7 @@ public struct BrowserSection: View {
             SettingsCardRow(
                 configurationReview: .json("browser.openTerminalLinksInCmuxBrowser"),
                 String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"),
-                subtitle: String(localized: "settings.browser.openTerminalLinks.subtitle", defaultValue: "When off, links clicked in terminal output open in your default browser.")
+                subtitle: String(localized: "settings.browser.openTerminalLinks.subtitle", defaultValue: "When on, Command-click links in terminal output open in cmux Browser. When off, they open in your default browser.")
             ) {
                 Toggle("", isOn: Binding(get: { openTermLinks.current }, set: { openTermLinks.set($0) }))
                     .labelsHidden()
