@@ -1,0 +1,394 @@
+import { randomUUID, createHash } from "node:crypto";
+import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { cloudDb } from "../../db/client";
+import { runArtifacts, runAttempts, runEvents, runs } from "../../db/schema";
+import {
+  DEFAULT_LEASE_TTL_MS,
+  MAX_ARTIFACT_BYTES,
+  MAX_EVENT_PAYLOAD_BYTES,
+  assertArtifactDigest,
+  jsonByteLength,
+  type AttemptStatus,
+  type RunEventKind,
+  type RunStatus,
+} from "./model";
+
+export class RunIdempotencyConflictError extends Error {}
+export class RunNotFoundError extends Error {}
+export class RunAttemptNotFoundError extends Error {}
+export class RunLeaseConflictError extends Error {}
+export class RunPayloadTooLargeError extends Error {}
+export class RunArtifactConflictError extends Error {}
+export class RunEventConflictError extends Error {}
+
+export type RunSource = { readonly repository?: string; readonly ref?: string; readonly commit?: string; readonly archiveDigest?: string };
+export type RunSnapshot = {
+  readonly run: typeof runs.$inferSelect;
+  readonly attempts: (typeof runAttempts.$inferSelect)[];
+  readonly artifacts: (typeof runArtifacts.$inferSelect)[];
+};
+
+export type CreateRunInput = {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly idempotencyKey?: string | null;
+  readonly requestDigest: string;
+  readonly source: RunSource;
+  readonly recipe: string;
+  readonly provider?: string;
+  readonly desiredAttempts: number;
+};
+
+type RunQueryDb = Pick<ReturnType<typeof cloudDb>, "select" | "execute">;
+
+function now(): Date {
+  return new Date();
+}
+
+export function requestDigest(value: unknown): string {
+  return `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
+}
+
+export async function createRun(input: CreateRunInput): Promise<RunSnapshot> {
+  if (!Number.isSafeInteger(input.desiredAttempts) || input.desiredAttempts < 1 || input.desiredAttempts > 32) {
+    throw new Error("desiredAttempts must be between 1 and 32");
+  }
+  const db = cloudDb();
+  return db.transaction(async (tx) => {
+    const values = {
+      userId: input.userId,
+      billingTeamId: input.billingTeamId ?? null,
+      idempotencyKey: input.idempotencyKey ?? null,
+      requestDigest: input.requestDigest,
+      source: input.source,
+      recipe: input.recipe,
+      provider: input.provider ?? "cloud-vm",
+      desiredAttempts: input.desiredAttempts,
+    };
+    let run: typeof runs.$inferSelect | undefined;
+    let inserted = false;
+    if (input.idempotencyKey) {
+      run = (await tx.insert(runs).values(values).onConflictDoNothing().returning())[0];
+      inserted = !!run;
+      if (!run) {
+        run = (await tx.select().from(runs).where(and(eq(runs.userId, input.userId), eq(runs.idempotencyKey, input.idempotencyKey))).limit(1))[0];
+        if (run && run.requestDigest !== input.requestDigest) throw new RunIdempotencyConflictError("idempotency key was already used with a different request");
+      }
+    } else {
+      run = (await tx.insert(runs).values(values).returning())[0];
+      inserted = true;
+    }
+    if (!run) throw new Error("run insert returned no row");
+    if (inserted) {
+      await tx.insert(runAttempts).values(Array.from({ length: input.desiredAttempts }, (_, ordinal) => ({
+        runId: run.id,
+        ordinal,
+      })));
+      await tx.insert(runEvents).values({
+        runId: run.id,
+        sequence: 1,
+        externalId: "run-created",
+        kind: "run.created",
+        payload: { recipe: run.recipe, desiredAttempts: run.desiredAttempts },
+      });
+    }
+    return readSnapshot(tx, run.id, input.userId);
+  });
+}
+
+async function readSnapshot(db: RunQueryDb, runId: string, userId: string): Promise<RunSnapshot> {
+  const run = (await db.select().from(runs).where(and(eq(runs.id, runId), eq(runs.userId, userId))).limit(1))[0];
+  if (!run) throw new RunNotFoundError("run not found");
+  const attempts = await db.select().from(runAttempts).where(eq(runAttempts.runId, runId)).orderBy(asc(runAttempts.ordinal));
+  const artifacts = await db.select().from(runArtifacts).where(eq(runArtifacts.runId, runId)).orderBy(desc(runArtifacts.createdAt));
+  return { run, attempts, artifacts };
+}
+
+export async function getRun(runId: string, userId: string): Promise<RunSnapshot> {
+  return readSnapshot(cloudDb(), runId, userId);
+}
+
+export async function listRunEvents(input: {
+  readonly runId: string;
+  readonly userId: string;
+  readonly afterSequence?: number;
+  readonly limit?: number;
+}): Promise<{ readonly events: (typeof runEvents.$inferSelect)[]; readonly nextSequence: number | null }> {
+  const db = cloudDb();
+  const run = (await db.select({ id: runs.id }).from(runs).where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId))).limit(1))[0];
+  if (!run) throw new RunNotFoundError("run not found");
+  const limit = Math.max(1, Math.min(input.limit ?? 100, 500));
+  const rows = await db.select().from(runEvents).where(and(
+    eq(runEvents.runId, input.runId),
+    gt(runEvents.sequence, input.afterSequence ?? 0),
+  )).orderBy(asc(runEvents.sequence)).limit(limit + 1);
+  const events = rows.slice(0, limit);
+  return { events, nextSequence: rows.length > limit ? events.at(-1)?.sequence ?? null : null };
+}
+
+export type AttemptLease = {
+  readonly attempt: typeof runAttempts.$inferSelect;
+  readonly leaseToken: string;
+  readonly leaseGeneration: number;
+  readonly leaseExpiresAt: Date;
+};
+
+export async function claimAttemptLease(input: {
+  readonly runId: string;
+  readonly attemptId: string;
+  readonly workerId: string;
+  readonly ttlMs?: number;
+}): Promise<AttemptLease> {
+  const ttlMs = Math.max(5_000, Math.min(input.ttlMs ?? DEFAULT_LEASE_TTL_MS, 15 * 60_000));
+  const nowAt = now();
+  const expiresAt = new Date(nowAt.getTime() + ttlMs);
+  const token = randomUUID();
+  return cloudDb().transaction(async (tx) => {
+    const run = (await tx.select({ status: runs.status }).from(runs).where(eq(runs.id, input.runId)).for("update").limit(1))[0];
+    if (!run || run.status === "cancelling" || run.status === "cancelled" || run.status === "succeeded" || run.status === "failed") {
+      throw new RunLeaseConflictError("run is not accepting new attempt leases");
+    }
+    const rows = await tx.update(runAttempts).set({
+    status: "leased",
+    leaseToken: token,
+    leaseGeneration: sql`${runAttempts.leaseGeneration} + 1`,
+    leaseExpiresAt: expiresAt,
+    updatedAt: nowAt,
+    }).where(and(
+    eq(runAttempts.id, input.attemptId),
+    eq(runAttempts.runId, input.runId),
+    or(
+      eq(runAttempts.status, "queued"),
+      and(
+        inArray(runAttempts.status, ["leased", "running"]),
+        or(isNull(runAttempts.leaseExpiresAt), lt(runAttempts.leaseExpiresAt, nowAt)),
+      ),
+    ),
+    )).returning();
+    const attempt = rows[0];
+    if (!attempt) throw new RunLeaseConflictError("attempt is already leased or does not exist");
+    await tx.update(runs).set({ status: "running", updatedAt: nowAt }).where(and(eq(runs.id, input.runId), eq(runs.status, "queued")));
+    return { attempt, leaseToken: token, leaseGeneration: attempt.leaseGeneration, leaseExpiresAt: expiresAt };
+  });
+}
+
+export async function renewAttemptLease(input: {
+  readonly runId: string;
+  readonly attemptId: string;
+  readonly leaseToken: string;
+  readonly leaseGeneration: number;
+  readonly ttlMs?: number;
+}): Promise<AttemptLease> {
+  const nowAt = now();
+  const expiresAt = new Date(nowAt.getTime() + Math.max(5_000, Math.min(input.ttlMs ?? DEFAULT_LEASE_TTL_MS, 15 * 60_000)));
+  const attempt = (await cloudDb().update(runAttempts).set({
+    leaseExpiresAt: expiresAt,
+    updatedAt: nowAt,
+  }).where(and(
+    eq(runAttempts.id, input.attemptId),
+    eq(runAttempts.runId, input.runId),
+    eq(runAttempts.leaseToken, input.leaseToken),
+    eq(runAttempts.leaseGeneration, input.leaseGeneration),
+    inArray(runAttempts.status, ["leased", "running"]),
+    gt(runAttempts.leaseExpiresAt, nowAt),
+  )).returning())[0];
+  if (!attempt) throw new RunLeaseConflictError("stale or expired attempt lease");
+  return { attempt, leaseToken: input.leaseToken, leaseGeneration: input.leaseGeneration, leaseExpiresAt: expiresAt };
+}
+
+async function checkLease(db: RunQueryDb, input: { runId: string; attemptId: string; leaseToken: string; leaseGeneration: number }): Promise<typeof runAttempts.$inferSelect> {
+  const attempt = (await db.select().from(runAttempts).where(and(
+    eq(runAttempts.id, input.attemptId),
+    eq(runAttempts.runId, input.runId),
+    eq(runAttempts.leaseToken, input.leaseToken),
+    eq(runAttempts.leaseGeneration, input.leaseGeneration),
+    inArray(runAttempts.status, ["leased", "running"]),
+    gt(runAttempts.leaseExpiresAt, now()),
+  )).limit(1))[0];
+  if (!attempt) throw new RunLeaseConflictError("stale or expired attempt lease");
+  return attempt;
+}
+
+async function lockAttempt(db: RunQueryDb, runId: string, attemptId: string): Promise<void> {
+  await db.execute(sql`select id from run_attempts where id = ${attemptId} and run_id = ${runId} for update`);
+}
+
+async function lockRun(db: RunQueryDb, runId: string): Promise<void> {
+  await db.execute(sql`select id from runs where id = ${runId} for update`);
+}
+
+async function nextSequence(db: RunQueryDb, runId: string): Promise<number> {
+  const result = (await db.select({ max: sql<number>`coalesce(max(${runEvents.sequence}), 0)` }).from(runEvents).where(eq(runEvents.runId, runId)))[0];
+  return Number(result?.max ?? 0) + 1;
+}
+
+export async function ingestRunEvent(input: {
+  readonly runId: string;
+  readonly attemptId: string;
+  readonly leaseToken: string;
+  readonly leaseGeneration: number;
+  readonly externalId: string;
+  readonly attemptSequence?: number;
+  readonly kind: RunEventKind;
+  readonly payload?: Record<string, unknown>;
+}): Promise<typeof runEvents.$inferSelect> {
+  const payload = input.payload ?? {};
+  if (!input.externalId || input.externalId.length > 160) throw new RunPayloadTooLargeError("eventId is required and must be 160 characters or fewer");
+  if (input.attemptSequence !== undefined && (!Number.isSafeInteger(input.attemptSequence) || input.attemptSequence < 0)) throw new RunPayloadTooLargeError("attempt sequence must be a non-negative integer");
+  if (jsonByteLength(payload) > MAX_EVENT_PAYLOAD_BYTES) throw new RunPayloadTooLargeError("event payload exceeds 256 KiB");
+  const db = cloudDb();
+  // oxlint-disable-next-line complexity -- Run event ingestion keeps lease fencing, replay dedupe, journal sequencing, and terminal aggregation atomic.
+  return db.transaction(async (tx) => {
+    // Serialize journal allocation per Run so concurrent workers cannot both
+    // observe the same max(sequence) and collide on the unique cursor index.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.runId}, 0))`);
+    await lockRun(tx, input.runId);
+    await lockAttempt(tx, input.runId, input.attemptId);
+    {
+      const duplicate = (await tx.select().from(runEvents).where(and(
+        eq(runEvents.runId, input.runId),
+        eq(runEvents.attemptId, input.attemptId),
+        eq(runEvents.externalId, input.externalId),
+      )).limit(1))[0];
+      if (duplicate) return duplicate;
+    }
+    await checkLease(tx, input);
+    if (input.attemptSequence !== undefined) {
+      const last = (await tx.select({ max: sql<number>`coalesce(max(${runEvents.attemptSequence}), -1)` }).from(runEvents).where(and(
+        eq(runEvents.attemptId, input.attemptId),
+      )))[0];
+      if (input.attemptSequence <= Number(last?.max ?? -1)) throw new RunEventConflictError("event sequence is stale or reordered");
+    }
+    const sequence = await nextSequence(tx, input.runId);
+    const event = (await tx.insert(runEvents).values({
+      runId: input.runId,
+      attemptId: input.attemptId,
+      sequence,
+      externalId: input.externalId,
+      attemptSequence: input.attemptSequence ?? null,
+      kind: input.kind,
+      payload,
+    }).returning())[0];
+    if (!event) throw new Error("event insert returned no row");
+    const status: AttemptStatus | undefined = input.kind === "attempt.started" ? "running"
+      : input.kind === "attempt.succeeded" ? "succeeded"
+        : input.kind === "attempt.failed" ? "failed" : undefined;
+    const terminal = status === "succeeded" || status === "failed";
+    if (status) await tx.update(runAttempts).set({
+      status,
+      ...(typeof payload.providerVmId === "string" ? { providerVmId: payload.providerVmId } : {}),
+      ...(terminal ? { finishedAt: now() } : { startedAt: status === "running" ? now() : undefined }),
+      ...(terminal ? { leaseExpiresAt: null, leaseToken: null } : {}),
+      updatedAt: now(),
+    }).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.leaseToken, input.leaseToken), eq(runAttempts.leaseGeneration, input.leaseGeneration)));
+    if (terminal) {
+      const active = await tx.select({ id: runAttempts.id }).from(runAttempts).where(and(
+        eq(runAttempts.runId, input.runId),
+        inArray(runAttempts.status, ["queued", "leased", "running"]),
+      )).limit(1);
+      if (active.length === 0) {
+        const failed = await tx.select({ id: runAttempts.id }).from(runAttempts).where(and(eq(runAttempts.runId, input.runId), eq(runAttempts.status, "failed"))).limit(1);
+        const currentRun = (await tx.select({ status: runs.status }).from(runs).where(eq(runs.id, input.runId)).limit(1))[0];
+        const finalStatus: RunStatus = currentRun?.status === "cancelling" ? "cancelled" : failed.length > 0 ? "failed" : "succeeded";
+        await tx.update(runs).set({ status: finalStatus, completedAt: now(), updatedAt: now() }).where(eq(runs.id, input.runId));
+        await tx.insert(runEvents).values({
+          runId: input.runId,
+          sequence: await nextSequence(tx, input.runId),
+          externalId: "run-completed",
+          kind: "run.completed",
+          payload: { status: finalStatus },
+        });
+      }
+    }
+    return event;
+  });
+}
+
+export async function recordRunArtifact(input: {
+  readonly runId: string;
+  readonly attemptId: string;
+  readonly leaseToken: string;
+  readonly leaseGeneration: number;
+  readonly name: string;
+  readonly mediaType?: string;
+  readonly sizeBytes: number;
+  readonly digest: string;
+  readonly uri: string;
+  readonly metadata?: Record<string, unknown>;
+  readonly bytes?: Uint8Array;
+}): Promise<typeof runArtifacts.$inferSelect> {
+  if (!/^[A-Za-z0-9._/-]{1,128}$/.test(input.name)) throw new RunArtifactConflictError("artifact name is invalid");
+  if (!/^(artifact|run|s3|gs):\/\/[^\s]{1,512}$/.test(input.uri)) throw new RunArtifactConflictError("artifact uri is invalid");
+  if (input.mediaType && !/^[\x20-\x7e]{1,128}$/.test(input.mediaType)) throw new RunArtifactConflictError("artifact media type is invalid");
+  if (!Number.isSafeInteger(input.sizeBytes) || input.sizeBytes < 0 || input.sizeBytes > MAX_ARTIFACT_BYTES) throw new RunPayloadTooLargeError("artifact exceeds 512 MiB");
+  if (input.bytes) {
+    if (input.bytes.byteLength !== input.sizeBytes) throw new RunArtifactConflictError("artifact size does not match bytes");
+    assertArtifactDigest(input.bytes, input.digest);
+  }
+  const db = cloudDb();
+  return db.transaction(async (tx) => {
+    await lockRun(tx, input.runId);
+    await lockAttempt(tx, input.runId, input.attemptId);
+    const duplicate = (await tx.select().from(runArtifacts).where(and(eq(runArtifacts.attemptId, input.attemptId), eq(runArtifacts.name, input.name))).limit(1))[0];
+    if (duplicate) {
+      if (duplicate.digest !== input.digest || duplicate.sizeBytes !== input.sizeBytes || duplicate.uri !== input.uri) throw new RunArtifactConflictError("artifact name already exists with different manifest");
+      return duplicate;
+    }
+    await checkLease(tx, input);
+    const artifact = (await tx.insert(runArtifacts).values({
+      runId: input.runId,
+      attemptId: input.attemptId,
+      name: input.name,
+      mediaType: input.mediaType ?? "application/octet-stream",
+      sizeBytes: input.sizeBytes,
+      digest: input.digest,
+      uri: input.uri,
+      metadata: input.metadata ?? {},
+    }).returning())[0];
+    if (!artifact) throw new Error("artifact insert returned no row");
+    await tx.insert(runEvents).values({
+      runId: input.runId,
+      attemptId: input.attemptId,
+      sequence: await nextSequence(tx, input.runId),
+      externalId: `artifact-${artifact.id}`,
+      attemptSequence: null,
+      kind: "attempt.artifact",
+      payload: { artifactId: artifact.id, name: artifact.name, digest: artifact.digest, sizeBytes: artifact.sizeBytes },
+    });
+    return artifact;
+  });
+}
+
+export async function cancelRun(runId: string, userId: string): Promise<RunSnapshot> {
+  const db = cloudDb();
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${runId}, 0))`);
+    const run = (await tx.update(runs).set({ status: "cancelling", cancelRequestedAt: now(), updatedAt: now() }).where(and(
+      eq(runs.id, runId), eq(runs.userId, userId), inArray(runs.status, ["queued", "running"]),
+    )).returning())[0];
+    if (!run) {
+      const existing = (await tx.select().from(runs).where(and(eq(runs.id, runId), eq(runs.userId, userId))).limit(1))[0];
+      if (!existing) throw new RunNotFoundError("run not found");
+      return readSnapshot(tx, runId, userId);
+    }
+    await tx.update(runAttempts).set({ status: "cancelled", leaseToken: null, leaseExpiresAt: null, updatedAt: now() }).where(and(eq(runAttempts.runId, runId), eq(runAttempts.status, "queued")));
+    const sequence = await nextSequence(tx, runId);
+    await tx.insert(runEvents).values({ runId, sequence, externalId: `cancel-${runId}`, kind: "run.cancel_requested", payload: {} });
+    const active = await tx.select({ id: runAttempts.id }).from(runAttempts).where(and(eq(runAttempts.runId, runId), inArray(runAttempts.status, ["leased", "running"]))).limit(1);
+    if (active.length === 0) {
+      await tx.update(runs).set({ status: "cancelled", completedAt: now(), updatedAt: now() }).where(eq(runs.id, runId));
+      await tx.insert(runEvents).values({ runId, sequence: await nextSequence(tx, runId), externalId: `run-completed-${runId}`, kind: "run.completed", payload: { status: "cancelled" } });
+    }
+    return readSnapshot(tx, runId, userId);
+  });
+}
+
+export async function waitForRun(runId: string, userId: string, waitMs = 0): Promise<RunSnapshot> {
+  const deadline = Date.now() + Math.max(0, Math.min(waitMs, 10_000));
+  for (;;) {
+    const snapshot = await getRun(runId, userId);
+    if (["succeeded", "failed", "cancelled"].includes(snapshot.run.status) || Date.now() >= deadline) return snapshot;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(250, Math.max(1, deadline - Date.now()))));
+  }
+}
+

@@ -80,6 +80,39 @@ export const cloudVmNotificationDeliveryStatus = pgEnum("cloud_vm_notification_d
   "dismissed",
 ]);
 
+/** Durable fan-out run state. A run is the user-visible unit of work above a VM. */
+export const runStatus = pgEnum("run_status", [
+  "queued",
+  "running",
+  "cancelling",
+  "succeeded",
+  "failed",
+  "cancelled",
+]);
+
+export const runAttemptStatus = pgEnum("run_attempt_status", [
+  "queued",
+  "leased",
+  "running",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "expired",
+]);
+
+export const runEventKind = pgEnum("run_event_kind", [
+  "run.created",
+  "attempt.queued",
+  "attempt.started",
+  "attempt.heartbeat",
+  "attempt.output",
+  "attempt.artifact",
+  "attempt.succeeded",
+  "attempt.failed",
+  "run.cancel_requested",
+  "run.completed",
+]);
+
 /** Teams own pools; a VM is assigned one pool from its own team. */
 export const coderouterPools = pgTable("coderouter_pools", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -165,6 +198,115 @@ export const cloudVms = pgTable(
     uniqueIndex("cloud_vms_billing_team_slug_live_unique")
       .on(table.billingTeamId, table.slug)
       .where(sql`${table.billingTeamId} is not null and ${table.slug} is not null and ${table.status} in ('provisioning', 'running', 'paused')`),
+  ],
+);
+
+/** A durable fan-out run. Source and recipe are immutable after creation. */
+export const runs = pgTable(
+  "runs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    billingTeamId: text("billing_team_id"),
+    idempotencyKey: text("idempotency_key"),
+    requestDigest: text("request_digest").notNull(),
+    source: jsonb("source").$type<{ repository?: string; ref?: string; commit?: string; archiveDigest?: string }>().notNull(),
+    recipe: text("recipe").notNull(),
+    provider: text("provider").notNull().default("cloud-vm"),
+    desiredAttempts: integer("desired_attempts").notNull().default(1),
+    status: runStatus("status").notNull().default("queued"),
+    cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("runs_user_idempotency_key_unique")
+      .on(table.userId, table.idempotencyKey)
+      .where(sql`${table.idempotencyKey} is not null`),
+    index("runs_user_created_idx").on(table.userId, table.createdAt, table.id),
+    index("runs_status_updated_idx").on(table.status, table.updatedAt),
+    check("runs_desired_attempts_check", sql`${table.desiredAttempts} between 1 and 32`),
+    check("runs_provider_check", sql`${table.provider} in ('cloud-vm')`),
+  ],
+);
+
+/** One independently leased execution slot in a run. Lease tokens fence stale workers. */
+export const runAttempts = pgTable(
+  "run_attempts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+    ordinal: integer("ordinal").notNull(),
+    status: runAttemptStatus("status").notNull().default("queued"),
+    providerVmId: text("provider_vm_id"),
+    leaseToken: text("lease_token"),
+    leaseGeneration: integer("lease_generation").notNull().default(0),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    sourceDigest: text("source_digest"),
+    result: jsonb("result").$type<Record<string, unknown> | null>(),
+    exitCode: integer("exit_code"),
+    error: text("error"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("run_attempts_run_ordinal_unique").on(table.runId, table.ordinal),
+    index("run_attempts_lease_idx").on(table.status, table.leaseExpiresAt),
+    index("run_attempts_run_status_idx").on(table.runId, table.status),
+    check("run_attempts_lease_generation_check", sql`${table.leaseGeneration} >= 0`),
+  ],
+);
+
+/** Append-only, cursorable run journal. externalId makes worker retries idempotent. */
+export const runEvents = pgTable(
+  "run_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+    attemptId: uuid("attempt_id").references(() => runAttempts.id, { onDelete: "cascade" }),
+    sequence: integer("sequence").notNull(),
+    attemptSequence: integer("attempt_sequence"),
+    externalId: text("external_id"),
+    kind: runEventKind("kind").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("run_events_run_sequence_unique").on(table.runId, table.sequence),
+    uniqueIndex("run_events_attempt_external_unique")
+      .on(table.attemptId, table.externalId)
+      .where(sql`${table.attemptId} is not null and ${table.externalId} is not null`),
+    uniqueIndex("run_events_attempt_sequence_unique")
+      .on(table.attemptId, table.attemptSequence)
+      .where(sql`${table.attemptId} is not null and ${table.attemptSequence} is not null`),
+    index("run_events_run_cursor_idx").on(table.runId, table.sequence, table.id),
+  ],
+);
+
+/** Immutable artifact manifest entries. Bytes are uploaded to a provider-owned URI. */
+export const runArtifacts = pgTable(
+  "run_artifacts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+    attemptId: uuid("attempt_id").notNull().references(() => runAttempts.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    mediaType: text("media_type").notNull().default("application/octet-stream"),
+    sizeBytes: integer("size_bytes").notNull(),
+    digest: text("digest").notNull(),
+    uri: text("uri").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("run_artifacts_attempt_name_unique").on(table.attemptId, table.name),
+    index("run_artifacts_run_idx").on(table.runId, table.createdAt, table.id),
+    check("run_artifacts_size_check", sql`${table.sizeBytes} >= 0 and ${table.sizeBytes} <= 536870912`),
+    check("run_artifacts_digest_check", sql`${table.digest} ~ '^sha256:[0-9a-fA-F]{64}$'`),
   ],
 );
 
