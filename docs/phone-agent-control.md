@@ -65,10 +65,11 @@ tree is the remote phone's tree.
 ## Safety and reliability
 
 Every input action has an `action_id`. Drivers return the original receipt for
-duplicates, so a retried request cannot tap twice. Clients may include the
-`screen_seq` from the frame they used; stale coordinates are rejected and the
-client can refresh before retrying. The session emits `ui.changed` after an
-accepted action and includes the resulting sequence in the receipt.
+duplicates while the session's bounded replay cache retains the id, so a retry
+within that cache window cannot tap twice. Clients may include the `screen_seq`
+from the frame they used; stale coordinates are rejected and the client can
+refresh before retrying. The session emits `ui.changed` after an accepted
+action and includes the resulting sequence in the receipt.
 
 Logs should contain request ids and capability errors, never screenshot bytes,
 password fields, or typed secrets. The production daemon should add authenticated
