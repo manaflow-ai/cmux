@@ -579,7 +579,12 @@ private final class AgentChatConversationStore {
         guard !questionRepliesInFlight.contains(requestID) else { return }
 
         let orderedSelections = questions.compactMap { candidateMessage, candidateQuestion in
-            selections[questionSelectionKey(message: candidateMessage, question: candidateQuestion)]
+            guard let selectedID = selections[questionSelectionKey(message: candidateMessage, question: candidateQuestion)] else {
+                return nil
+            }
+            // Feed's reply contract carries the human-readable answer string;
+            // option ids remain local UI identities and may be provider-only.
+            return candidateQuestion.options.first(where: { $0.id == selectedID })?.label
         }
         guard orderedSelections.count == questions.count else { return }
 
