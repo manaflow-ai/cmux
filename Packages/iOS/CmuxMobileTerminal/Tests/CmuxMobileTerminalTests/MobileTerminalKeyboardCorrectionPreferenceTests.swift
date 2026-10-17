@@ -70,19 +70,53 @@ struct MobileTerminalKeyboardCorrectionPreferenceTests {
         #expect(committed == ["git stauts"])
     }
 
-    @Test("raw replacement cannot duplicate committed terminal input")
-    func replacementDoesNotDuplicateCommittedInput() throws {
+    @Test("enabled corrections ignore replacing the placeholder document range")
+    func enabledCorrectionsIgnorePlaceholderReplacement() throws {
         let defaults = try freshDefaults("replacement")
         let preference = MobileTerminalKeyboardCorrectionPreference(defaults: defaults)
         let view = TerminalInputTextView(keyboardCorrectionPreference: preference)
         var committed: [String] = []
         view.onText = { committed.append($0) }
 
+        preference.isEnabled = true
         view.insertText("git stauts")
-        let range = try #require(view.textRange(from: view.beginningOfDocument, to: view.endOfDocument))
-        view.replace(range, withText: "git status")
+        let placeholder = try #require(view.textRange(from: view.beginningOfDocument, to: view.endOfDocument))
+        #expect(view.offset(from: placeholder.start, to: placeholder.end) > 0)
+        view.replace(placeholder, withText: "git status")
 
         #expect(committed == ["git stauts"])
+    }
+
+    @Test("disabled corrections keep forwarding non-empty replacements")
+    func disabledCorrectionsForwardPlaceholderReplacement() throws {
+        let defaults = try freshDefaults("replacement-disabled")
+        let preference = MobileTerminalKeyboardCorrectionPreference(defaults: defaults)
+        let view = TerminalInputTextView(keyboardCorrectionPreference: preference)
+        var committed: [String] = []
+        view.onText = { committed.append($0) }
+
+        let placeholder = try #require(view.textRange(from: view.beginningOfDocument, to: view.endOfDocument))
+        #expect(view.offset(from: placeholder.start, to: placeholder.end) > 0)
+        view.replace(placeholder, withText: "dictated")
+
+        #expect(committed == ["dictated"])
+    }
+
+    @Test("replacing marked text commits the composition once")
+    func markedReplacementCommitsOnce() throws {
+        let defaults = try freshDefaults("replacement-marked")
+        let preference = MobileTerminalKeyboardCorrectionPreference(defaults: defaults)
+        let view = TerminalInputTextView(keyboardCorrectionPreference: preference)
+        var committed: [String] = []
+        view.onText = { committed.append($0) }
+
+        preference.isEnabled = true
+        view.setMarkedText("にほ", selectedRange: NSRange(location: 2, length: 0))
+        let marked = try #require(view.markedTextRange)
+        view.replace(marked, withText: "日本")
+
+        #expect(committed == ["日本"])
+        #expect(view.markedTextRange == nil)
     }
 
     @Test("raw replacement accepts a new zero-length commit")
