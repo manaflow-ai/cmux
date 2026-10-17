@@ -232,7 +232,7 @@ fn cmux_next_agent_inventory_refuses_legacy_or_non_cached_answers() {
 fn cmux_next_agent_inventory_owner_matches_before_reading_the_cache() {
     let owner = Owner::new(json!(["harnessInventory"]), snapshot());
     let mux = owner.mux("inventory-fenced");
-    let identity = run(&mux, json!({"cmd":"identify"}));
+    let identity = run(&mux, json!({"cmd":"identify","machine_metadata":true}));
     let mut client = Client::connect(&mux, "inventory-fenced");
     let reply = client.request(json!({
         "cmd":"agent-inventory", "expected_machine_id":identity["machine_id"]
@@ -245,7 +245,8 @@ fn cmux_next_agent_inventory_owner_matches_before_reading_the_cache() {
 #[test]
 fn cmux_next_agent_inventory_owner_change_is_refused_before_any_owner_call() {
     let previous = Mux::new_for_test("previous-owner", crate::SurfaceOptions::default());
-    let selected = run(&previous, json!({"cmd":"identify"}))["machine_id"].clone();
+    let selected =
+        run(&previous, json!({"cmd":"identify","machine_metadata":true}))["machine_id"].clone();
     let owner = Owner::new(json!(["harnessInventory"]), snapshot());
     let mux = owner.mux("replacement-owner");
     let mut client = Client::connect(&mux, "replacement-owner");

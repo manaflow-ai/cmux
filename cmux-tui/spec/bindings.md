@@ -96,7 +96,8 @@ from the resource API's `catalog` option.
 
 All seven generated raw request models expose this optional field. Existing
 no-argument identification helpers keep the legacy request. Go exposes
-`raw.Client.IdentifyWith(ctx, raw.IdentifyRequest{MachineMetadata: raw.Value(true)})`;
+`raw.Client.IdentifyWith(ctx, raw.IdentifyRequest{MachineMetadata: &enabled})`
+with `enabled := true`;
 Java also accepts an `IdentifyRequest` built with `machineMetadata(true)`;
 TypeScript accepts `rawClient.identify({ machine_metadata: true })`.
 

@@ -49,10 +49,11 @@ func TestIdentityMetadataKeepsTheZeroArgumentRequest(t *testing.T) {
 	if _, err := client.Identify(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.IdentifyWith(ctx, cmux.IdentifyRequest{MachineMetadata: cmux.Value(true)}); err != nil {
+	enabled, disabled := true, false
+	if _, err := client.IdentifyWith(ctx, cmux.IdentifyRequest{MachineMetadata: &enabled}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.IdentifyWith(ctx, cmux.IdentifyRequest{MachineMetadata: cmux.Value(false)}); err != nil {
+	if _, err := client.IdentifyWith(ctx, cmux.IdentifyRequest{MachineMetadata: &disabled}); err != nil {
 		t.Fatal(err)
 	}
 	select {
