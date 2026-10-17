@@ -87,11 +87,17 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                 serverMessageID: nil
             )
         }
+        let sendResult: MobileChiefSendResult
         do {
-            let sendResult = try await client.send(draft.text, conversation: conversationID)
-            withState { state in
-                state.pendingSends[draft.clientMessageID]?.serverMessageID = sendResult.messageID
-            }
+            sendResult = try await client.send(draft.text, conversation: conversationID)
+        } catch {
+            withState { $0.pendingSends.removeValue(forKey: draft.clientMessageID) }
+            throw error
+        }
+        withState { state in
+            state.pendingSends[draft.clientMessageID]?.serverMessageID = sendResult.messageID
+        }
+        do {
             let result = try await client.read(conversation: conversationID, limit: 200)
             let sent = sendResult.messageID.flatMap { messageID in
                 result.messages.first { $0.id == messageID }
@@ -110,8 +116,9 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                 return message
             }
         } catch {
-            withState { $0.pendingSends.removeValue(forKey: draft.clientMessageID) }
-            throw error
+            // Chief accepted the send, but its follow-up read may transiently
+            // fail. Keep the pending correlation so the poll can merge the
+            // committed echo into the optimistic row instead of duplicating it.
         }
         // Some Chief owners acknowledge before the committed message is
         // visible to `chief.read`; preserve the optimistic row identity so a
