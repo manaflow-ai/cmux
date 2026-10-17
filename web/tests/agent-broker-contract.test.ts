@@ -4,6 +4,7 @@ import {
   AGENT_BROKER_PROTOCOL_VERSION,
   AgentBrokerInputError,
   assertAgentBrokerEnvelope,
+  assertAgentBrokerEnvelope,
   requestDigest,
   type AgentBrokerEnvelope,
   type AgentBrokerJobState,
@@ -157,5 +158,9 @@ describe("agent broker lifecycle contract", () => {
       const malformed = { ...envelope("huge-blue"), protocolVersion: 2 as 1 };
       if (malformed.protocolVersion !== AGENT_BROKER_PROTOCOL_VERSION) throw new AgentBrokerInputError("unsupported version");
     }).toThrow("unsupported version");
+    expect(() => {
+      const mismatched = { ...envelope("huge-blue", "digest-mismatch"), requestDigest: requestDigest({ command: "different" }) };
+      assertAgentBrokerEnvelope(mismatched);
+    }).toThrow("requestDigest does not match payload");
   });
 });
