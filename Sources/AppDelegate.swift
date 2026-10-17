@@ -20588,7 +20588,13 @@ private extension NSWindow {
         // browser panel in the event window.
         if let firstResponderGhosttyView,
            AppDelegate.shared?.shortcutEventBrowserPanel(event) == nil,
-           AppDelegate.shared?.shouldForwardBrowserSurfaceShortcutToTerminal(event) == true {
+           KeyboardShortcutSettings.Action.allCases.contains(where: { action in
+               action.shortcutContext.forwardsMenuEquivalentToFocusedTerminal &&
+                   !action.isBrowserContentShortcut &&
+                   KeyboardShortcutSettings.shortcutBindings(for: action).contains {
+                       $0.shortcut.matches(event: event)
+                   }
+           }) {
             if firstResponderGhosttyView.performKeyEquivalentAfterMenuMiss(with: event) {
                 return true
             }
