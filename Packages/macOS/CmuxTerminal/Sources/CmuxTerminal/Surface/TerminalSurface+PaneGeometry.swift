@@ -92,12 +92,26 @@ extension TerminalSurface {
               committedPaneGeometry != nil,
               let view = attachedView else { return }
         pendingRuntimeSurfaceCreationSource = nil
+        // Geometry commits run inside the portal's bulk synchronization pass.
+        // Leave that pass before entering Ghostty: surface creation can touch
+        // AppKit and synchronously request more geometry, which otherwise
+        // deadlocks the main thread in ghostty_surface_new/openat.
+        guard !pendingRuntimeSurfaceCreationStartScheduled else { return }
+        pendingRuntimeSurfaceCreationStartScheduled = true
+        DispatchQueue.main.async { [weak self, weak view] in
+            guard let self else { return }
+            self.pendingRuntimeSurfaceCreationStartScheduled = false
+            guard self.surface == nil,
+                  let view,
+                  view.window != nil,
+                  self.attachedView === view else { return }
 #if DEBUG
-        logDebugEvent(
-            "surface.create.resume surface=\(id.uuidString.prefix(5)) reason=paneGeometryCommitted"
-        )
+            logDebugEvent(
+                "surface.create.resume surface=\(self.id.uuidString.prefix(5)) reason=paneGeometryCommitted"
+            )
 #endif
-        createSurface(for: view, source: source)
+            self.createSurface(for: view, source: source)
+        }
     }
 
     /// Parks a runtime creation whose portal-owned, visible view has no

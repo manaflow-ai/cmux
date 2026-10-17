@@ -768,6 +768,11 @@ export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CODEX"
 export CMUX_AGENT_LAUNCH_CWD="$PWD"
 unset CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND
 if codex_launch_has_subrouter_provider "$@"; then
+    # Codex validates the configured provider's env_key before it starts. The
+    # value is only a local sentinel: Subrouter owns the real authentication
+    # and routes the request through its loopback endpoint.
+    : "${SUBROUTER_CODEX_DUMMY_API_KEY:=cmux-subrouter-local}"
+    export SUBROUTER_CODEX_DUMMY_API_KEY
     case "${SUBROUTER_CODEX_RESUME_COMMAND:-}" in
         "sr codex resume"|"subrouter codex resume"|"cx codex resume")
             export CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND="$SUBROUTER_CODEX_RESUME_COMMAND"

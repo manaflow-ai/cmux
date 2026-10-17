@@ -440,6 +440,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// A runtime creation that waits for the first committed pane geometry so
     /// the PTY's initial window size is the pane's real size.
     var pendingRuntimeSurfaceCreationSource: RuntimeSurfaceCreationSource?
+    var pendingRuntimeSurfaceCreationStartScheduled = false
     /// Temporary runtime font-size ownership while a mobile viewport is fitted.
     var mobileViewportFontFitState: MobileViewportFontFitState?
     // Debug metadata is read from debug/CLI paths off the main thread; the
@@ -465,6 +466,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     weak var configurationReloadDeferredRuntimeSurfaceView:
         (any TerminalSurfaceNativeViewing)?
     var requiresRestoreSpawnPacing = false
+    /// Prevents geometry/AppKit callbacks from entering a second native
+    /// creation while Ghostty is synchronously constructing this surface.
+    var runtimeSurfaceCreationInProgress = false
     var startupRestoreAdmissionPhase = TerminalSurfaceStartupRestoreAdmissionPhase.unrestricted
     var cancelsStartupRestoreAdmissionOnExplicitInput = false
     var runtimeSurfaceSuspendedForAgentHibernation = false

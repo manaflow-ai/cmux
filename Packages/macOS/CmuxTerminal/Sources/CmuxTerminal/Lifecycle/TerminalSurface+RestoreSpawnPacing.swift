@@ -2,6 +2,10 @@ extension TerminalSurface {
     @MainActor
     func shouldPaceRuntimeSurfaceCreation(source: RuntimeSurfaceCreationSource) -> Bool {
         guard requiresRestoreSpawnPacing else { return false }
+        // Explicit input and scheduler-admitted restores retain their
+        // existing immediate paths. A normal restore callback is queued; if
+        // geometry re-enters while the admitted call is in Ghostty, the
+        // in-progress guard drops the duplicate native attempt.
         guard source == .normal else { return false }
         guard surface == nil else { return false }
         return true
