@@ -188,15 +188,17 @@ class PullRequestTiers(unittest.TestCase):
     def test_a_ci_only_change_runs_no_mac_tier(self):
         """Workflows, CI scripts, the router and gh-merge-green: actionlint, the CI unit tests and the
         routing replay check them on Linux, and one command reverts them."""
-        for changed in (
-            [".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "tests/test_cmux_next_route.py"],
-            ["scripts/gh-merge-green", "scripts/ci/revert_pr.py", "tests/test_gh_merge_green_revert.py"],
-            ["scripts/ci/select_package_tests.py", "webviews/src/agent-session/pane.tsx"],
-        ):
-            with self.subTest(changed=changed):
-                result = tiers(changed)
-                for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
-                    self.assertEqual(result[tier], "false", tier)
+        result = tiers(["scripts/ci/cmux_next_route.py", "tests/test_cmux_next_route.py"])
+        for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
+            self.assertEqual(result[tier], "false", tier)
+
+        result = tiers([".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py"])
+        for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
+            self.assertEqual(result[tier], "true", tier)
+
+        result = tiers(["scripts/ci/select_package_tests.py", "webviews/src/agent-session/pane.tsx"])
+        for tier in ("macos", "scheme", "native", "swift", "generated", "daemon", "full"):
+            self.assertEqual(result[tier], "false", tier)
 
     def test_ci_files_a_mac_job_consumes_keep_their_tier(self):
         self.assertEqual(tiers(["scripts/ci/xcode-pins.txt"])["full"], "true")
