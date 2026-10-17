@@ -109,6 +109,7 @@ describe("team plan change", () => {
     expect(result).toEqual({
       plan: "team_max",
       direction: "upgrade",
+      interval: "month",
       currency: "usd",
       amountDueToday: 31_000,
       credit: 0,

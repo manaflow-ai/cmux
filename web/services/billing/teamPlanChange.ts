@@ -133,6 +133,8 @@ export async function previewTeamPlanChange(
   return {
     plan: input.target,
     direction: change.direction,
+    // Team and Team Max are monthly-only.
+    interval: "month",
     currency: invoice.currency,
     amountDueToday: upgrade ? invoice.amount_due : 0,
     credit: upgrade ? 0 : prorationCredit(invoice),

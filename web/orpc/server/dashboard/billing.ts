@@ -39,6 +39,8 @@ const previewFields = {
   credit: z.number().int(),
   nextRenewalAt: z.string().nullable(),
   nextInvoiceAmount: z.number().int(),
+  /** How often the renewal charges `nextInvoiceAmount`; the switch keeps it. */
+  interval: z.enum(["month", "year"]),
   prorationDate: z.number().int(),
 };
 
