@@ -247,7 +247,7 @@ function wiredWorkspaceProvider(
           runtimeId: input.runtimeId,
           vmId: input.vmId,
           workspaceId: `${provider}-fixture-workspace`,
-          workspaceKey: input.workspaceKey,
+          workspaceKey: input.workspaceKey ?? `cmux-runtime:${input.runtimeId}:workspace`,
           replayed: false,
         };
       },
