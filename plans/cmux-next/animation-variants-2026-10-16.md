@@ -7,7 +7,7 @@ This pass adds opt-in Debug Settings variants. Production defaults remain unchan
 | Pane close and expand | `motion.pane.variant` | `standard`, `crisp`, `softLanding` | `standard` | Reuses the existing pane geometry and fixed-size host behavior; `crisp` shortens the structural response and `softLanding` adds a small settle treatment. |
 | Sidebar collapse | `sidebar.collapseMotion` | `slide`, `slideFade` | `slide` | `slideFade` fades the sidebar panel while the width follows the same transition. Geometry is unchanged. |
 | Tab loading indicator | `tabs.loadingAnimation` | `instant`, `fade`, `fadeScale`, `fadeSlide` | `instant` | Loading indicators enter/leave without changing tab measurements. The fade variants retain the layer until the exit animation completes. |
-| Workspace / agent title arrival | `sidebar.workspaceTitleMotion` | `instant`, `crossfade`, `lift` | `instant` | Keeps the existing title slot and transitions only the glyphs when a new workspace or chat receives its generated display title. |
+| Workspace / agent title arrival | `sidebar.workspaceTitleMotion` | `instant`, `crossfade`, `lift` | `crossfade` | Keeps the existing title slot and transitions only the glyphs when a new workspace or chat receives its generated display title. |
 
 ## Naming reference and design decision
 
@@ -18,6 +18,8 @@ prototype keeps the row geometry stable and uses the existing Motion fade tokens
 title layer transition. A blank placeholder remains static while generation is pending; when
 the live row receives its first title, the title layer and placeholder bar share the same
 post-layout crossfade or lift so the loading state does not vanish before the name appears.
+The daemon allocation name (`workspace-N`) is treated as empty display content, so it stays
+behind that loading state instead of flashing into the sidebar.
 
 The reference behavior is consistent across the public product surfaces: Claude documents
 conversation names as a user-visible title that can be renamed from the conversation header,
@@ -60,5 +62,6 @@ Fleet job `ce8602e70ddc5f56f205da3c` built PR #21242 as tag `cmux-anim-20261016`
 - Sidebar `slideFade` initially stretched the reveal to about 345 ms and kept two display links alive. That was visibly slower than `slide` (~189 ms), so the fade leg was separated onto the fast fade tokens.
 - Fleet job `c7582966fac0653ca613b195` rebuilt the repair as tag `cmux-anim-20261016b`. The repaired `slideFade` recorded `timed.fadeOut` 133.8 ms, `timed.fadeIn` 133.2 ms, with width legs 166.5/167.7 ms and one display link. The corrected reel is `artifacts/animation-recordings-20261016b/sidebar-side-by-side.mp4`.
 - Tab loading recordings for `instant`, `fade`, `fadeScale`, and `fadeSlide` were captured in `artifacts/animation-recordings-20261016/tab-*`; the tab loading test passed after fixing exit-state ownership.
+- Naming variants were rebuilt at fleet job `95001aa9c1e6727bbfc0d9dd` as tag `cmux-anim-naming-20261017`. The extended reel is `artifacts/animation-recordings-20261017/naming-variants-side-by-side-extended.mp4`; the reviewed default is `crossfade`.
 
 The captures are local review evidence and are intentionally not committed as source artifacts. The PR description and follow-up comment carry the fleet job IDs and reviewed conclusions.
