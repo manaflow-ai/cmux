@@ -164,7 +164,7 @@ extension TerminalController {
                             workspaceID: currentWorkspaceID
                         )
                     }
-                    guard mobileChatRecordMatchesAgent(record) else { return nil }
+                    guard mobileChatRecordMatchesAgent(record: record) else { return nil }
                     return service.sessionRecord(sessionID: record.sessionID)?.descriptor ?? record.descriptor
                 }
             let encoded = descriptors.compactMap { service.wirePayload($0) }
@@ -481,7 +481,7 @@ extension TerminalController {
                 record = service.sessionRecord(sessionID: sessionID) ?? record
             }
             if mobileChatBindingResolves(workspaceID: workspaceID, surfaceID: surfaceID),
-               mobileChatRecordMatchesAgent(record) {
+               mobileChatRecordMatchesAgent(record: record) {
                 return ["workspace_id": workspaceID, "surface_id": surfaceID]
             }
         }
