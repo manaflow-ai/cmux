@@ -16,7 +16,7 @@ extension TerminalController {
               )?.binding else {
             return false
         }
-        return SurfaceResumeApprovalStore.proposalAllowsUserApproval(binding: binding)
+        return SurfaceResumeApprovalStore.proposalAllowsExplicitReview(binding: binding)
     }
 
     /// User-interface-only entry point. Re-resolve the target after modal event
@@ -34,7 +34,7 @@ extension TerminalController {
         ), let proposal = target.binding else {
             return .surfaceNotFound
         }
-        guard SurfaceResumeApprovalStore.proposalAllowsUserApproval(binding: proposal) else {
+        guard SurfaceResumeApprovalStore.proposalAllowsExplicitReview(binding: proposal) else {
             return .setFailed
         }
         let owner = target.tabManager

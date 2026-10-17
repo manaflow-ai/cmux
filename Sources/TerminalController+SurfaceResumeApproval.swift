@@ -20,6 +20,27 @@ extension SurfaceResumeApprovalStore {
             SurfaceResumeCommandCanonicalizer.isShellExpansionSafeCommand(binding.command)
     }
 
+    /// The explicit review signs every stored field, so it is limited to what
+    /// the prompt can show. A captured launch command is not displayed.
+    static func proposalAllowsExplicitReview(binding: SurfaceResumeBindingSnapshot) -> Bool {
+        proposalAllowsUserApproval(binding: binding) && binding.launchCommand == nil
+    }
+
+    /// The command plus any environment the approval record signs, so a
+    /// proposal cannot hide a variable such as `ZDOTDIR` behind its command.
+    static func approvalPromptDetails(
+        binding: SurfaceResumeBindingSnapshot,
+        environmentLabel: String
+    ) -> String {
+        guard let environment = binding.environment, !environment.isEmpty else {
+            return binding.command
+        }
+        let assignments = environment.keys.sorted().map { key in
+            "\(key)=\(SurfaceResumeCommandCanonicalizer.shellQuoted(environment[key] ?? ""))"
+        }
+        return ([binding.command, "", environmentLabel] + assignments).joined(separator: "\n")
+    }
+
     /// Whether a proposed binding needs a person's approval before it can
     /// auto-resume. Pure trust policy: it does not say whether a prompt can be
     /// shown, which depends on who proposed the binding.
@@ -44,7 +65,7 @@ extension TerminalController {
         _ binding: SurfaceResumeBindingSnapshot,
         proposalIsCurrent: () -> Bool
     ) -> SurfaceResumeApprovalLookup<(binding: SurfaceResumeBindingSnapshot, approvalRequired: Bool)> {
-        guard SurfaceResumeApprovalStore.proposalAllowsUserApproval(binding: binding),
+        guard SurfaceResumeApprovalStore.proposalAllowsExplicitReview(binding: binding),
               proposalIsCurrent() else {
             return .resolved((binding, true))
         }
@@ -146,13 +167,20 @@ extension TerminalController {
             defaultValue: "Allow Resume Command?"
         )
         let cwd = binding.cwd ?? String(localized: "surfaceResumeApproval.cwd.none", defaultValue: "None")
+        let details = SurfaceResumeApprovalStore.approvalPromptDetails(
+            binding: binding,
+            environmentLabel: String(
+                localized: "surfaceResumeApproval.environment.label",
+                defaultValue: "Environment:"
+            )
+        )
         let informativeText = String(
             format: String(
                 localized: "surfaceResumeApproval.proposal.message",
                 defaultValue: "A process wants cmux to keep this resume command for the current terminal:\n\nWorking directory: %@\n\n%@"
             ),
             cwd,
-            binding.command
+            details
         )
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.proposal.auto", defaultValue: "Auto-Restore"))
         alert.addButton(withTitle: String(localized: "surfaceResumeApproval.proposal.ask", defaultValue: "Ask Each Time"))
@@ -179,7 +207,7 @@ extension TerminalController {
         }
         let content = CmuxAlertContent(
             flattenedText: informativeText,
-            separatingScrollableDetails: binding.command
+            separatingScrollableDetails: details
         )
         content.apply(to: alert, presentingWindow: nil)
 

@@ -655730,6 +655730,20 @@
         }
       }
     },
+    "surfaceResumeApproval.environment.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Environment:" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Umgebung:" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Environnement :" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "البيئة:" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Entorno:" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "環境：" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "环境：" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "환경:" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "環境:" } }
+      }
+    },
     "surfaceResumeApproval.review": {
       "extractionState": "manual",
       "localizations": {
