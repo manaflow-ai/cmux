@@ -596,6 +596,195 @@ import Testing
         #expect(model.draft == "Do more work")
     }
 
+    @Test func actionableCardsExposePendingCountUntilHostResolvesThem() async {
+        let permission = permissionMessage(
+            id: "permission",
+            seq: 1,
+            request: ChatPermissionRequest(
+                title: "Codex wants to run",
+                subject: "swift test",
+                scope: "project"
+            )
+        )
+        let question = questionMessage(
+            id: "question",
+            seq: 2,
+            question: ChatQuestion(
+                prompt: "Which target should I use?",
+                options: [
+                    ChatQuestion.Option(label: "iPhone"),
+                    ChatQuestion.Option(label: "iPad")
+                ],
+                questionID: "target"
+            )
+        )
+        let source = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)],
+            pages: ["session": [ChatHistoryPage(messages: [permission, question], hasMore: false)]]
+        )
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await settle()
+
+        #expect(model.selectedPendingActionableCount == 2)
+
+        await source.emitHost(
+            sessionID: "session",
+            event: .updated([
+                permissionMessage(
+                    id: "permission",
+                    seq: 1,
+                    request: ChatPermissionRequest(
+                        title: "Codex wants to run",
+                        subject: "swift test",
+                        resolution: .approved,
+                        scope: "project"
+                    )
+                )
+            ])
+        )
+        await settle()
+        #expect(model.selectedPendingActionableCount == 1)
+
+        await source.emitHost(
+            sessionID: "session",
+            event: .updated([
+                questionMessage(
+                    id: "question",
+                    seq: 2,
+                    question: ChatQuestion(
+                        prompt: "Which target should I use?",
+                        options: [
+                            ChatQuestion.Option(label: "iPhone"),
+                            ChatQuestion.Option(label: "iPad")
+                        ],
+                        selectedOptionLabel: "iPad",
+                        questionID: "target"
+                    )
+                )
+            ])
+        )
+        await settle()
+        #expect(model.selectedPendingActionableCount == 0)
+    }
+
+    @Test func answerCardsDisableDuplicateSubmissionUntilResolutionArrives() async {
+        let source = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)],
+            pages: [
+                "session": [page(questionMessage(
+                    id: "permission",
+                    seq: 1,
+                    question: ChatQuestion(
+                        prompt: "Allow this command?",
+                        options: [ChatQuestion.Option(label: "Allow once"), ChatQuestion.Option(label: "Deny")],
+                        questionID: "permission-1"
+                    )
+                ))]
+            ]
+        )
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await settle()
+
+        let answerGate = await source.holdAnswers()
+        let answerTask = Task { await model.answer(optionIndex: 0, requestID: "permission-1") }
+        await source.waitForAnswerStart()
+        #expect(model.isAnswering(requestID: "permission-1"))
+
+        // A second tap while the RPC is in flight must not submit another
+        // answer or change the request identity used by the first tap.
+        await model.answer(optionIndex: 1, requestID: "permission-1")
+        #expect((await source.answers).map(\.0) == [0])
+        #expect((await source.answers).map(\.1) == ["session"])
+
+        await answerGate.open()
+        await answerTask.value
+        #expect(!model.isAnswering(requestID: "permission-1"))
+
+        await source.emitHost(
+            sessionID: "session",
+            event: .updated([
+                questionMessage(
+                    id: "permission",
+                    seq: 1,
+                    question: ChatQuestion(
+                        prompt: "Allow this command?",
+                        options: [ChatQuestion.Option(label: "Allow once"), ChatQuestion.Option(label: "Deny")],
+                        selectedOptionLabel: "Allow once",
+                        questionID: "permission-1"
+                    )
+                )
+            ])
+        )
+        await settle()
+        await model.answer(optionIndex: 0, requestID: "permission-1")
+        #expect((await source.answers).map(\.0) == [0])
+    }
+
+    @Test func pendingPromptsStayVisibleWhileQueuedAndDrainInOrder() async {
+        let source = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)],
+            pages: [:]
+        )
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await settle()
+
+        let sendGate = await source.holdSends()
+        model.draft = "first instruction"
+        let firstSend = Task { await model.sendDraft() }
+        await source.waitForSendStart()
+        #expect(model.selectedPendingPrompts == ["first instruction"])
+
+        model.draft = "second instruction"
+        await model.sendDraft()
+        #expect(model.queuedSendCount == 1)
+        #expect(model.selectedPendingPrompts == ["first instruction", "second instruction"])
+
+        await sendGate.open()
+        await firstSend.value
+        #expect(model.selectedPendingPrompts.isEmpty)
+        #expect((await source.sent).map(\.0) == ["first instruction", "second instruction"])
+    }
+
+    @Test func attachmentsAreDeduplicatedAndForwardedWithThePrompt() async {
+        let source = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)],
+            pages: [:]
+        )
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await settle()
+
+        let payload = Data([0x89, 0x50, 0x4e, 0x47])
+        let first = AgentChatModeModel.PendingAttachment(
+            displayName: "screen.png",
+            data: payload,
+            format: .png,
+            thumbnailData: payload
+        )
+        let duplicate = AgentChatModeModel.PendingAttachment(
+            displayName: "copy.png",
+            data: payload,
+            format: .png
+        )
+        model.addAttachment(first)
+        model.addAttachment(duplicate)
+        #expect(model.attachments == [first])
+
+        let sendGate = await source.holdSends()
+        model.draft = "Review this screenshot"
+        let sendTask = Task { await model.sendDraft() }
+        await source.waitForSendStart()
+        #expect(model.attachments.isEmpty)
+        #expect(await source.sentAttachments == [[ChatOutboundAttachment(data: payload, format: .png)]])
+
+        await sendGate.open()
+        await sendTask.value
+        #expect(model.selectedPendingPrompts.isEmpty)
+    }
+
     @Test func steerDraftInterruptsCurrentTurnThenSendsImmediately() async {
         let working = ChatSessionDescriptor(
             id: "working",
@@ -759,6 +948,34 @@ import Testing
         return prose.text
     }
 
+    private static func permissionMessage(
+        id: String,
+        seq: Int,
+        request: ChatPermissionRequest
+    ) -> ChatMessage {
+        ChatMessage(
+            id: id,
+            seq: seq,
+            role: .agent,
+            timestamp: Date(timeIntervalSince1970: TimeInterval(seq)),
+            kind: .permissionRequest(request)
+        )
+    }
+
+    private static func questionMessage(
+        id: String,
+        seq: Int,
+        question: ChatQuestion
+    ) -> ChatMessage {
+        ChatMessage(
+            id: id,
+            seq: seq,
+            role: .agent,
+            timestamp: Date(timeIntervalSince1970: TimeInterval(seq)),
+            kind: .question(question)
+        )
+    }
+
     private func descriptor(
         id: String,
         agent: ChatAgentKind,
@@ -783,6 +1000,22 @@ import Testing
     private func proseText(_ message: ChatMessage) -> String? {
         Self.proseText(message)
     }
+
+    private func permissionMessage(
+        id: String,
+        seq: Int,
+        request: ChatPermissionRequest
+    ) -> ChatMessage {
+        Self.permissionMessage(id: id, seq: seq, request: request)
+    }
+
+    private func questionMessage(
+        id: String,
+        seq: Int,
+        question: ChatQuestion
+    ) -> ChatMessage {
+        Self.questionMessage(id: id, seq: seq, question: question)
+    }
 }
 
 private actor FakeAgentChatSource: AgentChatSessionSource {
@@ -799,8 +1032,15 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
     private(set) var sessionRequests: [String] = []
     private var failSends = false
     private(set) var sent: [(String, String)] = []
+    private(set) var sentAttachments: [[ChatOutboundAttachment]] = []
     private(set) var answers: [(Int, String)] = []
     private(set) var interrupts: [(Bool, String)] = []
+    private var sendReleaseGate: TestAsyncGate?
+    private var sendStarted = 0
+    private var sendStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var answerReleaseGate: TestAsyncGate?
+    private var answerStarted = 0
+    private var answerStartWaiters: [CheckedContinuation<Void, Never>] = []
     private var hostContinuation: AsyncStream<ChatSessionEventFrame>.Continuation?
     private(set) var hostSubscriptionCount = 0
     private var pendingHostEvents: [ChatSessionEventFrame] = []
@@ -855,6 +1095,28 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
     func send(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {
         if failSends { throw FakeError.sendFailed }
         sent.append((text, sessionID))
+        sentAttachments.append(attachments)
+        sendStarted += 1
+        let waiters = sendStartWaiters
+        sendStartWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        if let sendReleaseGate {
+            await sendReleaseGate.wait()
+            self.sendReleaseGate = nil
+        }
+    }
+
+    func holdSends() -> TestAsyncGate {
+        let gate = TestAsyncGate()
+        sendReleaseGate = gate
+        return gate
+    }
+
+    func waitForSendStart() async {
+        guard sendStarted == 0 else { return }
+        await withCheckedContinuation { continuation in
+            sendStartWaiters.append(continuation)
+        }
     }
 
     func setFailSends(_ value: Bool) {
@@ -867,6 +1129,27 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
 
     func answer(optionIndex: Int, sessionID: String) async throws {
         answers.append((optionIndex, sessionID))
+        answerStarted += 1
+        let waiters = answerStartWaiters
+        answerStartWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        if let answerReleaseGate {
+            await answerReleaseGate.wait()
+            self.answerReleaseGate = nil
+        }
+    }
+
+    func holdAnswers() -> TestAsyncGate {
+        let gate = TestAsyncGate()
+        answerReleaseGate = gate
+        return gate
+    }
+
+    func waitForAnswerStart() async {
+        guard answerStarted == 0 else { return }
+        await withCheckedContinuation { continuation in
+            answerStartWaiters.append(continuation)
+        }
     }
 
     func emit(sessionID: String, event: ChatSessionEvent) {
