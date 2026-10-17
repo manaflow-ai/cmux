@@ -155,11 +155,7 @@ private struct MobileChatProviderPicker: View {
                     selection = provider
                 } label: {
                     HStack(spacing: 13) {
-                        Image(systemName: provider.symbolName)
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(provider.tint)
-                            .frame(width: 38, height: 38)
-                            .background(provider.tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                        MobileChatProviderBadge(provider: provider, size: 42)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(provider.title)
                                 .font(.body.weight(.semibold))
@@ -197,12 +193,25 @@ private struct MobileChatPromptEditor: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Prompt")
                 .font(.subheadline.weight(.semibold))
-            TextField("Describe the task…", text: $text, axis: .vertical)
-                .lineLimit(4...8)
-                .focused(isFocused)
-                .padding(13)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .accessibilityIdentifier("MobileChatPrompt")
+            HStack(alignment: .bottom, spacing: 8) {
+                Button(action: {}) {
+                    Image(systemName: "plus")
+                        .foregroundStyle(.secondary)
+                }
+                .disabled(true)
+                .accessibilityLabel("Add attachment")
+                TextField("Describe the task…", text: $text, axis: .vertical)
+                    .lineLimit(4...8)
+                    .focused(isFocused)
+                    .accessibilityIdentifier("MobileChatPrompt")
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .tertiary : Color.accentColor)
+            }
+            .padding(.horizontal, 13)
+            .padding(.vertical, 11)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(.separator.opacity(0.65), lineWidth: 0.7))
         }
     }
 }
@@ -228,6 +237,9 @@ private struct MobileChatComputerSummary: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Circle()
+                    .fill(isConnected ? .green : .secondary)
+                    .frame(width: 7, height: 7)
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.tertiary)

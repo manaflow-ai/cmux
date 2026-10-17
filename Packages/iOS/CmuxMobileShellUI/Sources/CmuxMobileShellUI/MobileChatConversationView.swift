@@ -6,6 +6,7 @@ struct MobileChatConversationView: View {
     let sessionID: String
     let model: MobileChatHomeModel
     let onBack: () -> Void
+    let onMenu: () -> Void
 
     @State private var composerText = ""
     @FocusState private var composerFocused: Bool
@@ -14,6 +15,13 @@ struct MobileChatConversationView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
+                    if let session {
+                        MobileChatConversationContext(
+                            provider: provider,
+                            workingDirectory: session.workingDirectory,
+                            state: sessionState
+                        )
+                    }
                     if model.loadingSessionIDs.contains(sessionID) && model.messages(for: sessionID).isEmpty {
                         ProgressView("Loading conversation…")
                             .frame(maxWidth: .infinity)
@@ -50,6 +58,7 @@ struct MobileChatConversationView: View {
                 text: $composerText,
                 isFocused: $composerFocused,
                 isWorking: isWorking,
+                providerTitle: provider?.title ?? "your agent",
                 onSend: send,
                 onStop: {
                     Task { await model.interrupt(sessionID: sessionID) }
@@ -69,15 +78,23 @@ struct MobileChatConversationView: View {
                 .accessibilityIdentifier("MobileChatBackToChats")
             }
             ToolbarItem(placement: .topBarTrailing) {
-                if let provider {
-                    HStack(spacing: 6) {
-                        MobileChatStateDot(state: sessionState)
+                HStack(spacing: 8) {
+                    if let provider {
+                        MobileChatProviderBadge(provider: provider, size: 26)
                         Text(provider.title)
                             .font(.subheadline.weight(.semibold))
                     }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("\(provider.title), \(sessionState.displayName)")
+                    Menu {
+                        Button("Copy conversation", systemImage: "doc.on.doc") { }
+                        Button("Choose computer", systemImage: "desktopcomputer") { onMenu() }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.body.weight(.semibold))
+                            .frame(width: 28, height: 28)
+                    }
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(provider.map { "\($0.title), \(sessionState.displayName)" } ?? "Chat")
             }
         }
         .task(id: sessionID) {
@@ -122,19 +139,44 @@ private struct MobileChatComposer: View {
     @Binding var text: String
     var isFocused: FocusState<Bool>.Binding
     let isWorking: Bool
+    let providerTitle: String
     let onSend: () -> Void
     let onStop: () -> Void
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 10) {
-            TextField("Message your agent", text: $text, axis: .vertical)
+        HStack(alignment: .bottom, spacing: 9) {
+            Menu {
+                Button("Attach a file", systemImage: "paperclip") { }
+                    .disabled(true)
+                Button("Open computer", systemImage: "desktopcomputer") { }
+                    .disabled(true)
+            } label: {
+                Image(systemName: "plus")
+                    .font(.body.weight(.medium))
+                    .frame(width: 30, height: 30)
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityLabel("Add attachment")
+            .accessibilityIdentifier("MobileChatAdd")
+            TextField("Message \(providerTitle)", text: $text, axis: .vertical)
                 .textFieldStyle(.plain)
                 .lineLimit(1...5)
                 .focused(isFocused)
                 .submitLabel(.send)
                 .onSubmit(onSend)
+                .frame(minHeight: 30)
+                .accessibilityLabel("Message \(providerTitle)")
                 .accessibilityIdentifier("MobileChatComposer")
-            if isWorking {
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isWorking {
+                Button(action: {}) {
+                    Image(systemName: "mic.fill")
+                        .font(.caption.weight(.semibold))
+                        .frame(width: 30, height: 30)
+                        .foregroundStyle(.secondary)
+                }
+                .disabled(true)
+                .accessibilityLabel("Voice input unavailable")
+            } else if isWorking {
                 Button(action: onStop) {
                     Image(systemName: "stop.fill")
                         .font(.caption.weight(.bold))
@@ -150,7 +192,7 @@ private struct MobileChatComposer: View {
                         .font(.caption.weight(.bold))
                         .frame(width: 34, height: 34)
                         .foregroundStyle(.white)
-                        .background(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.secondary : Color.accentColor, in: Circle())
+                        .background(Color.accentColor, in: Circle())
                 }
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .accessibilityLabel("Send message")
@@ -158,12 +200,44 @@ private struct MobileChatComposer: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(.regularMaterial)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(.separator)
-                .frame(height: 0.5)
+        .padding(.vertical, 8)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().stroke(.separator.opacity(0.65), lineWidth: 0.7))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.bar)
+    }
+}
+
+private struct MobileChatConversationContext: View {
+    let provider: MobileChatProvider?
+    let workingDirectory: String?
+    let state: ChatAgentState
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let provider {
+                MobileChatProviderBadge(provider: provider, size: 24)
+            }
+            if let workingDirectory, !workingDirectory.isEmpty {
+                Text(workingDirectory)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            } else {
+                Text("Remote coding session")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 4)
+            MobileChatStateDot(state: state)
+            Text(state.displayName)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.thinMaterial, in: Capsule())
+        .accessibilityIdentifier("MobileChatConversationContext")
     }
 }

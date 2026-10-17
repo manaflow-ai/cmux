@@ -4,6 +4,7 @@ import SwiftUI
 /// A compact activity view for users who want a cross-agent status glance.
 struct MobileChatActivityView: View {
     let sessions: [ChatSessionDescriptor]
+    let onSelect: (String) -> Void
     let onNewChat: () -> Void
 
     var body: some View {
@@ -11,18 +12,23 @@ struct MobileChatActivityView: View {
             Section {
                 ForEach(sessions) { session in
                     if let provider = MobileChatProvider.resolve(session.agentKind) {
-                        HStack(spacing: 12) {
-                            MobileChatProviderBadge(provider: provider)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(session.title?.isEmpty == false ? session.title! : "Untitled chat")
-                                    .font(.body.weight(.medium))
-                                Text(session.state.displayName)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
+                        Button(action: { onSelect(session.id) }) {
+                            HStack(spacing: 12) {
+                                MobileChatProviderBadge(provider: provider)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(session.title?.isEmpty == false ? session.title! : "Untitled chat")
+                                        .font(.body.weight(.medium))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                    Text(session.state.displayName)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                MobileChatStateDot(state: session.state)
                             }
-                            Spacer()
-                            MobileChatStateDot(state: session.state)
                         }
+                        .buttonStyle(.plain)
                         .padding(.vertical, 5)
                         .listRowSeparator(.hidden)
                     }
@@ -53,5 +59,6 @@ struct MobileChatActivityView: View {
                 .accessibilityLabel("New chat")
             }
         }
+        .accessibilityIdentifier("MobileChatActivity")
     }
 }

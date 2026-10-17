@@ -1,5 +1,6 @@
 import CmuxAgentChat
 import SwiftUI
+import UIKit
 
 /// Renders one typed transcript item as a native message, tool, or action card.
 struct MobileChatMessageRow: View {
@@ -37,24 +38,70 @@ private struct MobileChatProseRow: View {
     let text: String
 
     var body: some View {
-        HStack {
-            if role == .user { Spacer(minLength: 38) }
-            Text(text)
-                .font(.body)
-                .foregroundStyle(role == .user ? .white : .primary)
-                .textSelection(.enabled)
-                .padding(.horizontal, role == .user ? 14 : 0)
-                .padding(.vertical, role == .user ? 11 : 2)
-                .background {
-                    if role == .user {
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(Color.accentColor)
+        VStack(alignment: role == .user ? .trailing : .leading, spacing: 7) {
+            HStack {
+                if role == .user { Spacer(minLength: 38) }
+                MobileChatMarkdownText(text: text)
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, role == .user ? 14 : 0)
+                    .padding(.vertical, role == .user ? 11 : 2)
+                    .background {
+                        if role == .user {
+                            RoundedRectangle(cornerRadius: 19, style: .continuous)
+                                .fill(Color.accentColor.opacity(0.14))
+                        }
+                    }
+                if role != .user { Spacer(minLength: 38) }
+            }
+            if role != .user {
+                HStack(spacing: 14) {
+                    MobileChatCopyButton(text: text)
+                    Button(action: {}) {
+                        Image(systemName: "hand.thumbsup")
+                    }
+                    Button(action: {}) {
+                        Image(systemName: "hand.thumbsdown")
                     }
                 }
-            if role != .user { Spacer(minLength: 38) }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            }
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(role == .user ? "MobileChatUserMessage" : "MobileChatAgentMessage")
+    }
+}
+
+private struct MobileChatMarkdownText: View {
+    let text: String
+
+    var body: some View {
+        if let attributed = try? AttributedString(
+            markdown: text,
+            options: .init(interpretedSyntax: .full)
+        ) {
+            Text(attributed)
+                .font(.body)
+                .textSelection(.enabled)
+        } else {
+            Text(text)
+                .font(.body)
+                .textSelection(.enabled)
+        }
+    }
+}
+
+private struct MobileChatCopyButton: View {
+    let text: String
+
+    var body: some View {
+        Button {
+            UIPasteboard.general.string = text
+        } label: {
+            Image(systemName: "doc.on.doc")
+        }
+        .accessibilityLabel("Copy response")
     }
 }
 
@@ -83,30 +130,44 @@ private struct MobileChatThoughtRow: View {
 
 private struct MobileChatToolRow: View {
     let tool: ChatToolUse
+    @State private var isExpanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            if let output = tool.output, !output.isEmpty {
+                Text(output)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 8)
+            } else {
+                Text(tool.toolName)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 8)
+            }
+        } label: {
             HStack(spacing: 8) {
                 Image(systemName: icon)
-                    .foregroundStyle(.secondary)
-                Text(tool.summary)
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(2)
+                    .foregroundStyle(statusColor)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(tool.summary)
+                        .font(.subheadline.weight(.medium))
+                        .lineLimit(2)
+                    Text(tool.toolName)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 Spacer()
                 Text(statusTitle)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(statusColor)
             }
-            if let output = tool.output, !output.isEmpty {
-                Text(output)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(5)
-                    .textSelection(.enabled)
-            }
         }
         .padding(12)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityIdentifier("MobileChatToolCard")
     }
 
@@ -137,18 +198,22 @@ private struct MobileChatToolRow: View {
 
 private struct MobileChatTerminalRow: View {
     let terminal: ChatTerminalCapture
+    @State private var isExpanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label(terminal.command, systemImage: terminal.isRunning ? "play.fill" : "terminal")
-                .font(.subheadline.weight(.medium))
-                .lineLimit(2)
+        DisclosureGroup(isExpanded: $isExpanded) {
             if let output = terminal.output, !output.isEmpty {
                 Text(output)
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 8)
             }
+        } label: {
+            Label(terminal.command, systemImage: terminal.isRunning ? "play.fill" : "terminal")
+                .font(.subheadline.weight(.medium))
+                .lineLimit(2)
         }
         .padding(12)
         .background(Color.black.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))

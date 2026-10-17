@@ -36,6 +36,7 @@ struct WorkspaceShellHost: View {
         MobileChatHomeView(
             store: store,
             isRestoringStoredMac: isRestoringStoredMac && !loadingTimedOut,
+            signOut: signOut,
             showSettings: showSettings,
             showComputers: showComputers,
             showAddDevice: showAddDevice

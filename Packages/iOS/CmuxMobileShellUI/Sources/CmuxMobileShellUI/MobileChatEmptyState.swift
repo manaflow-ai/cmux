@@ -4,6 +4,7 @@ import SwiftUI
 struct MobileChatEmptyState: View {
     let onNewChat: () -> Void
     let onAddDevice: (() -> Void)?
+    let onRetry: () -> Void
 
     var body: some View {
         ContentUnavailableView {
@@ -21,12 +22,17 @@ struct MobileChatEmptyState: View {
                     .controlSize(.large)
                     .accessibilityIdentifier("MobileChatEmptyConnectComputer")
             }
+            Button("Refresh chats", action: onRetry)
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("MobileChatEmptyRefresh")
         }
         .padding(.horizontal, 24)
     }
 }
 
 struct MobileChatConnectionPlaceholder: View {
+    let onRetry: () -> Void
+
     var body: some View {
         VStack(spacing: 14) {
             ProgressView()
@@ -38,6 +44,9 @@ struct MobileChatConnectionPlaceholder: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 38)
+            Button("Try again", action: onRetry)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

@@ -18,6 +18,7 @@ final class MobileChatHomeModel {
     private var sessionEventsTask: Task<Void, Never>?
     private var conversationTasks: [String: Task<Void, Never>] = [:]
     private var openSessionIDs: Set<String> = []
+    private var pendingLocalMessages: [String: [ChatMessage]] = [:]
 
     isolated deinit {
         sessionEventsTask?.cancel()
@@ -71,7 +72,13 @@ final class MobileChatHomeModel {
                     limit: 200
                 )
                 guard !Task.isCancelled else { return }
-                self?.messagesBySessionID[sessionID] = page.messages
+                if let self {
+                    let local = self.pendingLocalMessages[sessionID, default: []]
+                    self.messagesBySessionID[sessionID] = Self.mergedMessages(
+                        serverMessages: page.messages,
+                        localMessages: local
+                    )
+                }
                 self?.loadingSessionIDs.remove(sessionID)
                 let events = await source.events(sessionID: sessionID)
                 for await event in events {
@@ -114,6 +121,7 @@ final class MobileChatHomeModel {
             kind: .prose(ChatProse(text: trimmed))
         ))
         messagesBySessionID[sessionID] = transcript
+        pendingLocalMessages[sessionID, default: []].append(transcript.last!)
         do {
             try await source.send(text: trimmed, attachments: [], sessionID: sessionID)
             errorMessage = nil
@@ -155,19 +163,12 @@ final class MobileChatHomeModel {
         return result
     }
 
-    /// Inserts a locally-created session so the list has immediate feedback.
-    func insertPlaceholder(for provider: MobileChatProvider, title: String?) {
-        let id = "pending-\(UUID().uuidString)"
-        sessions.insert(
-            ChatSessionDescriptor(
-                id: id,
-                agentKind: provider.chatAgentKind,
-                title: title,
-                state: .working(since: Date()),
-                lastActivityAt: Date()
-            ),
-            at: 0
-        )
+    /// The last user-facing prose line shown under a recent chat title.
+    func previewText(for sessionID: String) -> String? {
+        messages(for: sessionID).reversed().compactMap { message in
+            guard case .prose(let prose) = message.kind else { return nil }
+            return prose.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.first
     }
 
     /// Seeds the deterministic UI preview without touching a transport.
@@ -196,7 +197,8 @@ final class MobileChatHomeModel {
                 lastActivityAt: now.addingTimeInterval(-90)
             ),
         ]
-        messagesBySessionID["preview-codex"] = Self.previewMessages(now: now)
+        messagesBySessionID = ["preview-codex": Self.previewMessages(now: now)]
+        streamingMessageBySessionID = [:]
         errorMessage = nil
         isLoadingSessions = false
     }
@@ -216,10 +218,18 @@ final class MobileChatHomeModel {
         case .appended(let messages), .updated(let messages):
             var transcript = messagesBySessionID[sessionID, default: []]
             for message in messages {
+                if let localIndex = transcript.firstIndex(where: {
+                    Self.isOptimisticMatch($0, serverMessage: message)
+                }) {
+                    transcript.remove(at: localIndex)
+                }
                 if let index = transcript.firstIndex(where: { $0.id == message.id }) {
                     transcript[index] = message
                 } else {
                     transcript.append(message)
+                }
+                pendingLocalMessages[sessionID]?.removeAll {
+                    Self.isOptimisticMatch($0, serverMessage: message)
                 }
             }
             messagesBySessionID[sessionID] = transcript.sorted { $0.seq < $1.seq }
@@ -228,7 +238,9 @@ final class MobileChatHomeModel {
             if let message { streamingMessageBySessionID[sessionID] = message }
             else { streamingMessageBySessionID[sessionID] = nil }
         case .stateChanged(let state):
-            updateSession(id: sessionID) { $0.withState(state) }
+            updateSession(id: sessionID) { descriptor in
+                descriptor.withState(state, lastActivityAt: Date())
+            }
         case .descriptorChanged(let descriptor):
             upsertSession(descriptor)
         case .sessionRemoved:
@@ -238,6 +250,7 @@ final class MobileChatHomeModel {
         case .reset:
             messagesBySessionID[sessionID] = []
             streamingMessageBySessionID[sessionID] = nil
+            pendingLocalMessages[sessionID] = []
         case .terminalBlocks, .unknown:
             break
         }
@@ -268,6 +281,37 @@ final class MobileChatHomeModel {
         sessions.sorted {
             ($0.lastActivityAt ?? .distantPast) > ($1.lastActivityAt ?? .distantPast)
         }
+    }
+
+    private static func mergedMessages(
+        serverMessages: [ChatMessage],
+        localMessages: [ChatMessage]
+    ) -> [ChatMessage] {
+        var merged = localMessages
+        for message in serverMessages {
+            if let localIndex = merged.firstIndex(where: {
+                isOptimisticMatch($0, serverMessage: message)
+            }) {
+                merged.remove(at: localIndex)
+            }
+            if let index = merged.firstIndex(where: { $0.id == message.id }) {
+                merged[index] = message
+            } else {
+                merged.append(message)
+            }
+        }
+        return merged.sorted { $0.seq < $1.seq }
+    }
+
+    private static func isOptimisticMatch(
+        _ localMessage: ChatMessage,
+        serverMessage: ChatMessage
+    ) -> Bool {
+        guard localMessage.id.hasPrefix("local-"),
+              localMessage.role == serverMessage.role else { return false }
+        guard case .prose(let localProse) = localMessage.kind,
+              case .prose(let serverProse) = serverMessage.kind else { return false }
+        return localProse.text == serverProse.text
     }
 
     private static func isSupported(_ session: ChatSessionDescriptor) -> Bool {

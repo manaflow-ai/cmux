@@ -8,6 +8,7 @@ public struct MobileChatHomeView: View {
     @Bindable var store: CMUXMobileShellStore
 
     let isRestoringStoredMac: Bool
+    let signOut: @MainActor @Sendable () -> Void
     let showSettings: () -> Void
     let showComputers: () -> Void
     let showAddDevice: (() -> Void)?
@@ -15,8 +16,9 @@ public struct MobileChatHomeView: View {
 
     @State private var model: MobileChatHomeModel
     @State private var navigationPath: [MobileChatRoute] = []
-    @State private var selectedTab: MobileChatTab = .chat
     @State private var isShowingNewChat = false
+    @State private var isShowingSidebar = false
+    @State private var pendingLaunch: MobileChatLaunchRequest?
 
     /// Creates the chat shell.
     /// - Parameters:
@@ -29,6 +31,7 @@ public struct MobileChatHomeView: View {
     public init(
         store: CMUXMobileShellStore,
         isRestoringStoredMac: Bool = false,
+        signOut: @escaping @MainActor @Sendable () -> Void = {},
         showSettings: @escaping () -> Void = {},
         showComputers: @escaping () -> Void = {},
         showAddDevice: (() -> Void)? = nil,
@@ -36,6 +39,7 @@ public struct MobileChatHomeView: View {
     ) {
         self.store = store
         self.isRestoringStoredMac = isRestoringStoredMac
+        self.signOut = signOut
         self.showSettings = showSettings
         self.showComputers = showComputers
         self.showAddDevice = showAddDevice
@@ -44,53 +48,74 @@ public struct MobileChatHomeView: View {
     }
 
     public var body: some View {
-        TabView(selection: $selectedTab) {
-            NavigationStack(path: $navigationPath) {
-                MobileChatsListView(
-                    sessions: model.sessions,
-                    isLoading: model.isLoadingSessions,
-                    errorMessage: model.errorMessage,
-                    isRestoringStoredMac: isRestoringStoredMac,
-                    computerName: store.connectedHostName,
-                    onSelect: { sessionID in
-                        model.open(sessionID: sessionID)
-                        navigationPath.append(.conversation(sessionID))
-                    },
-                    onNewChat: { isShowingNewChat = true },
-                    onSettings: showSettings,
-                    onComputers: showComputers,
-                    onAddDevice: showAddDevice
-                )
-                .navigationDestination(for: MobileChatRoute.self) { route in
-                    switch route {
-                    case .conversation(let sessionID):
-                        MobileChatConversationView(
-                            sessionID: sessionID,
-                            model: model,
-                            onBack: { navigationPath.removeLast() }
-                        )
-                    }
+        NavigationStack(path: $navigationPath) {
+            MobileChatsListView(
+                sessions: model.sessions,
+                previewText: model.previewText(for:),
+                isLoading: model.isLoadingSessions,
+                errorMessage: model.errorMessage,
+                isRestoringStoredMac: isRestoringStoredMac,
+                computerName: store.connectedHostName,
+                pendingLaunch: pendingLaunch,
+                onSelect: openSession,
+                onNewChat: { isShowingNewChat = true },
+                onMenu: { isShowingSidebar = true },
+                onComputers: showComputers,
+                onAddDevice: showAddDevice,
+                onRetry: { Task { await model.refresh(using: store) } }
+            )
+            .navigationDestination(for: MobileChatRoute.self) { route in
+                switch route {
+                case .conversation(let sessionID):
+                    MobileChatConversationView(
+                        sessionID: sessionID,
+                        model: model,
+                        onBack: { navigationPath.removeLast() },
+                        onMenu: { isShowingSidebar = true }
+                    )
+                case .activity:
+                    MobileChatActivityView(
+                        sessions: model.sessions,
+                        onSelect: openSession,
+                        onNewChat: { isShowingNewChat = true }
+                    )
                 }
             }
-            .tabItem {
-                Label("Chat", systemImage: "bubble.left.and.bubble.right.fill")
-            }
-            .tag(MobileChatTab.chat)
-            .accessibilityIdentifier("MobilePrimaryTabChat")
-
-            NavigationStack {
-                MobileChatActivityView(
-                    sessions: model.sessions,
-                    onNewChat: { isShowingNewChat = true }
-                )
-            }
-            .tabItem {
-                Label("Activity", systemImage: "clock.arrow.circlepath")
-            }
-            .tag(MobileChatTab.activity)
-            .accessibilityIdentifier("MobilePrimaryTabActivity")
         }
-        .accessibilityIdentifier("MobileChatTabs")
+        .accessibilityIdentifier("MobileChatShell")
+        .sheet(isPresented: $isShowingSidebar) {
+            MobileChatSidebarView(
+                sessions: model.sessions,
+                previewText: model.previewText(for:),
+                computerName: store.connectedHostName,
+                onSelect: { sessionID in
+                    isShowingSidebar = false
+                    openSession(sessionID)
+                },
+                onNewChat: {
+                    isShowingSidebar = false
+                    isShowingNewChat = true
+                },
+                onActivity: {
+                    isShowingSidebar = false
+                    navigationPath.append(.activity)
+                },
+                onSettings: {
+                    isShowingSidebar = false
+                    showSettings()
+                },
+                onSignOut: {
+                    isShowingSidebar = false
+                    signOut()
+                },
+                onComputers: {
+                    isShowingSidebar = false
+                    showComputers()
+                }
+            )
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $isShowingNewChat) {
             MobileChatNewChatSheet(
                 store: store,
@@ -99,7 +124,11 @@ public struct MobileChatHomeView: View {
                     showComputers()
                 }
             ) { provider, prompt in
-                model.insertPlaceholder(for: provider, title: prompt)
+                pendingLaunch = MobileChatLaunchRequest(
+                    provider: provider,
+                    prompt: prompt,
+                    existingSessionIDs: Set(model.sessions.map(\.id))
+                )
                 Task { await model.refresh(using: store) }
             }
         }
@@ -113,14 +142,44 @@ public struct MobileChatHomeView: View {
         .onChange(of: store.connectedMacDeviceID) { _, _ in
             Task { await model.refresh(using: store) }
         }
+        .onChange(of: model.sessions) { _, _ in
+            resolvePendingLaunch()
+        }
+    }
+
+    private func openSession(_ sessionID: String) {
+        pendingLaunch = nil
+        model.open(sessionID: sessionID)
+        navigationPath.removeAll()
+        navigationPath.append(.conversation(sessionID))
+    }
+
+    private func resolvePendingLaunch() {
+        guard let pendingLaunch else { return }
+        guard let session = model.sessions
+            .filter({ !pendingLaunch.existingSessionIDs.contains($0.id) })
+            .filter({ MobileChatProvider.resolve($0.agentKind) == pendingLaunch.provider })
+            .sorted(by: { ($0.lastActivityAt ?? .distantPast) > ($1.lastActivityAt ?? .distantPast) })
+            .first(where: { candidate in
+                guard let title = candidate.title?.lowercased() else { return true }
+                let promptPrefix = pendingLaunch.prompt
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+                    .prefix(24)
+                return promptPrefix.isEmpty || title.contains(promptPrefix)
+            }) else { return }
+        self.pendingLaunch = nil
+        openSession(session.id)
     }
 }
 
-private enum MobileChatTab: Hashable {
-    case chat
-    case activity
+struct MobileChatLaunchRequest: Equatable {
+    let provider: MobileChatProvider
+    let prompt: String
+    let existingSessionIDs: Set<String>
 }
 
 private enum MobileChatRoute: Hashable {
     case conversation(String)
+    case activity
 }

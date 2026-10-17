@@ -20,6 +20,7 @@ final class MobileChatHomeUITests: XCTestCase {
         XCTAssertTrue(app.buttons["MobileChatSession-preview-codex"].exists)
         XCTAssertTrue(app.buttons["MobileChatSession-preview-claude"].exists)
         XCTAssertTrue(app.buttons["MobileChatSession-preview-opencode"].exists)
+        XCTAssertFalse(app.buttons["MobilePrimaryTabChat"].exists)
 
         let chats = XCTAttachment(screenshot: app.screenshot())
         chats.name = "chat-home"
@@ -42,7 +43,10 @@ final class MobileChatHomeUITests: XCTestCase {
 
         back.tap()
         XCTAssertTrue(newChat.waitForExistence(timeout: 5))
-        newChat.tap()
+        app.buttons["MobileChatMenu"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["MobileChatSidebar"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["MobileSidebarActivity"].exists)
+        app.buttons["MobileSidebarNewChat"].tap()
 
         XCTAssertTrue(app.staticTexts["What are you working on?"].waitForExistence(timeout: 5))
         for provider in ["Codex", "Claude", "OpenCode"] {
