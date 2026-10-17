@@ -449,6 +449,9 @@ public struct CodexTranscriptParser: Sendable {
         into assembler: inout TranscriptBatchAssembler
     ) {
         let query = payload["action"]?["query"]?.string ?? payload["query"]?.string
+        let status = webSearchStatus(
+            payload["status"]?.string ?? payload["action"]?["status"]?.string
+        )
         let sources = deduplicatedSources(
             sourceValues(in: payload["action"]?["sources"])
                 + sourceValues(in: payload["action"]?["results"])
@@ -465,12 +468,20 @@ public struct CodexTranscriptParser: Sendable {
                 kind: .webSearch(
                     ChatWebSearch(
                         query: query,
-                        status: .succeeded,
+                        status: status,
                         sources: sources
                     )
                 )
             )
         )
+    }
+
+    private func webSearchStatus(_ rawValue: String?) -> ChatToolUse.Status {
+        switch rawValue?.lowercased() {
+        case "running", "in_progress", "in-progress", "searching": return .running
+        case "failed", "error", "cancelled", "canceled": return .failed
+        default: return .succeeded
+        }
     }
 
     /// Extracts source-like records from the loose shapes used by Codex

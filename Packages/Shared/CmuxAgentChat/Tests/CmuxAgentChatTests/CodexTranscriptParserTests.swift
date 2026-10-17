@@ -152,6 +152,7 @@ struct CodexTranscriptParserTests {
             return
         }
         #expect(search.query == "Swift retry policy")
+        #expect(search.status == .succeeded)
         #expect(search.sources.count == 1)
         #expect(search.sources[0].title == "Apple docs")
     }
