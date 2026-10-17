@@ -56,7 +56,7 @@ export default componentEntry({
   area: "Agent pane",
   pane: true,
   height: 760,
-  widths: { narrow: 360, normal: 520, wide: 720 },
+  widths: { narrow: 520, normal: 720, wide: 900 },
   anchors: [{ selector: ".acpmux-chief-dock" }],
   checks: {
     anchorMovePx: { value: 0, reason: "The dock keeps its rail and card stack anchored while session status changes." },
