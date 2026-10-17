@@ -72,3 +72,4 @@ webviews/test/effort-slider-keys.test.ts	sleep-then-assert	pre-existing nightly-
 webviews/test/harnesses-page.test.tsx	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
 webviews/test/model-picker-live-refresh.test.tsx	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
 webviews/test/new-tab-style-switch.test.tsx	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
+webviews/test/url-chip-hover.test.tsx	sleep-then-assert	pre-existing nightly-next baseline debt; determinize in the owning test
