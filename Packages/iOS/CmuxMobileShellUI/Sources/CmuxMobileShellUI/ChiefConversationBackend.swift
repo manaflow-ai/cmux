@@ -297,6 +297,14 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                 let mappedInfo = info(from: result.messages)
                 if first {
                     first = false
+                    // A send may commit before this initial poll observes the
+                    // transcript. Correlate that echo before seeding the
+                    // baseline so a failed send follow-up can still take the
+                    // server row instead of returning a duplicate optimistic
+                    // message.
+                    for message in result.messages {
+                        _ = clientMessageID(for: message)
+                    }
                     withState { state in
                         state.previousMessagesByID = Dictionary(
                             uniqueKeysWithValues: result.messages.map { ($0.id, $0) }
