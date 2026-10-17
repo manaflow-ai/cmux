@@ -170,6 +170,44 @@ import Testing
         #expect(model.selectedSession?.version == 3)
     }
 
+    @Test func versionGapPullsSnapshotAndReloadsHistoryBeforeApplyingPush() async {
+        let source = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)],
+            pages: [
+                "session": [
+                    page(message(id: "before-gap", seq: 1, text: "before gap")),
+                    page(message(id: "after-gap", seq: 2, text: "after gap")),
+                ],
+            ]
+        )
+        let model = AgentChatModeModel()
+
+        model.updateSource(source)
+        await settle()
+        #expect(model.selectedSession?.version == 1)
+        #expect(await source.sessionRequests.isEmpty)
+
+        let latest = ChatSessionDescriptor(
+            id: "session",
+            agentKind: .codex,
+            title: "Latest",
+            state: .working(since: Date(timeIntervalSince1970: 30)),
+            lastActivityAt: Date(timeIntervalSince1970: 30),
+            version: 4
+        )
+        await source.emitHost(
+            sessionID: "session",
+            event: .descriptorChanged(latest),
+            version: 4
+        )
+        await settle()
+
+        #expect(await source.sessionRequests == ["session"])
+        #expect((await source.historyRequests).map(\.beforeSeq) == [nil, nil])
+        #expect(model.selectedSession == latest)
+        #expect(model.selectedMessages.map(\.id) == ["after-gap"])
+    }
+
     @Test func sessionStreamEOFReloadsHistoryBeforeResubscribing() async {
         let source = FakeAgentChatSource(
             sessions: [descriptor(id: "session", agent: .codex)],
@@ -401,6 +439,63 @@ import Testing
         #expect(model.draft.isEmpty)
     }
 
+    @Test func retryKeepsTheFailedPromptWhenAnotherPromptIsQueuedBehindIt() async {
+        let failed = ChatSessionDescriptor(
+            id: "failed",
+            agentKind: .codex,
+            title: "Failed task",
+            state: .failed(since: Date(timeIntervalSince1970: 10), reason: "send failed"),
+            lastActivityAt: Date(timeIntervalSince1970: 10),
+            version: 1
+        )
+        let source = FakeAgentChatSource(sessions: [failed], pages: [:])
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await settle()
+
+        await source.setFailSends(true)
+        model.draft = "first prompt"
+        await model.sendDraft()
+        model.draft = "second prompt"
+        await model.sendDraft()
+        await source.setFailSends(false)
+        await model.retryLastTurn()
+
+        #expect((await source.sent).map(\.0) == ["first prompt"])
+    }
+
+    @Test func failedSteeredTurnRetriesTheSteeredInstruction() async {
+        let working = ChatSessionDescriptor(
+            id: "working",
+            agentKind: .codex,
+            title: "Active task",
+            state: .working(since: Date(timeIntervalSince1970: 10)),
+            lastActivityAt: Date(timeIntervalSince1970: 10),
+            version: 2
+        )
+        let source = FakeAgentChatSource(
+            sessions: [working],
+            pages: ["working": [page(userMessage(id: "old", seq: 1, text: "superseded prompt"))]]
+        )
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await settle()
+
+        model.draft = "Use the smaller fixture"
+        await model.steerDraft()
+        await source.emit(
+            sessionID: "working",
+            event: .stateChanged(.failed(
+                since: Date(timeIntervalSince1970: 20),
+                reason: "steered turn failed"
+            ))
+        )
+        await settle()
+        await model.retryLastTurn()
+
+        #expect((await source.sent).map(\.0) == ["Use the smaller fixture", "Use the smaller fixture"])
+    }
+
     @Test func sessionRemovalSelectsTheNextSession() async {
         let source = FakeAgentChatSource(
             sessions: [
@@ -520,6 +615,8 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
     let historyPages: [String: [ChatHistoryPage]]
     private var pageIndices: [String: Int] = [:]
     private(set) var historyRequests: [HistoryRequest] = []
+    private(set) var sessionRequests: [String] = []
+    private var failSends = false
     private(set) var sent: [(String, String)] = []
     private(set) var answers: [(Int, String)] = []
     private(set) var interrupts: [(Bool, String)] = []
@@ -542,6 +639,7 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
     }
 
     func session(sessionID: String) async throws -> ChatSessionDescriptor {
+        sessionRequests.append(sessionID)
         guard let descriptor = sessionDescriptors.first(where: { $0.id == sessionID }) else {
             throw FakeError.missingSession
         }
@@ -572,7 +670,12 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
     }
 
     func send(text: String, attachments: [ChatOutboundAttachment], sessionID: String) async throws {
+        if failSends { throw FakeError.sendFailed }
         sent.append((text, sessionID))
+    }
+
+    func setFailSends(_ value: Bool) {
+        failSends = value
     }
 
     func interrupt(sessionID: String, hard: Bool) async throws {
@@ -625,4 +728,5 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
 
 private enum FakeError: Error {
     case missingSession
+    case sendFailed
 }

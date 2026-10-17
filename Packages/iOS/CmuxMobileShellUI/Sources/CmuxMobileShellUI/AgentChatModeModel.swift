@@ -73,6 +73,10 @@ final class AgentChatModeModel {
     private var historyHasMore: [String: Bool] = [:]
     private var transcriptRevisions: [String: Int] = [:]
     private var historyResetTokens: [String: Int] = [:]
+    /// Highest host session revision observed for each id. Transcript and
+    /// lifecycle pushes can share a revision, so this is intentionally
+    /// separate from transcript sequence cursors.
+    private var latestVersionBySession: [String: Int] = [:]
     private var pendingSendsBySession: [String: [QueuedSend]] = [:]
     /// Last prompt that began a turn. The host does not need a provider-
     /// specific retry RPC: retrying resends this exact prompt through the
@@ -194,6 +198,7 @@ final class AgentChatModeModel {
         historyHasMore = [:]
         transcriptRevisions = [:]
         historyResetTokens = [:]
+        latestVersionBySession = [:]
         pendingSendsBySession = [:]
         lastTurnBySession = [:]
         answeringRequestKeys = []
@@ -285,7 +290,6 @@ final class AgentChatModeModel {
         pendingSendsBySession[selectedSessionID, default: []].append(
             QueuedSend(text: text, attachments: pendingAttachments)
         )
-        lastTurnBySession[selectedSessionID] = QueuedSend(text: text, attachments: pendingAttachments)
         await drainSendQueue(
             sessionID: selectedSessionID,
             source: source,
@@ -307,6 +311,14 @@ final class AgentChatModeModel {
         let pendingAttachments = attachments
         draft = ""
         attachments = []
+        // Steer starts a new effective turn after interrupting the current
+        // one. Keep the exact instruction as the retry source just like the
+        // ordinary send queue does; otherwise a failure after steering would
+        // replay the prompt from the superseded turn.
+        lastTurnBySession[selectedSessionID] = QueuedSend(
+            text: text,
+            attachments: pendingAttachments
+        )
         let generation = sourceGeneration
         guard generation == sourceGeneration, !Task.isCancelled else { return }
         do {
@@ -479,8 +491,19 @@ final class AgentChatModeModel {
             guard !Task.isCancelled, generation == sourceGeneration else { return }
             for await frame in stream {
                 guard !Task.isCancelled, generation == sourceGeneration else { return }
+                // Pushes are delivery hints. A version jump means one or more
+                // frames were lost (or arrived on the other event lane), so
+                // pull the authoritative descriptor and transcript before
+                // folding this frame. Equal revisions are valid for multiple
+                // transcript cards and state/descriptor duplicates.
+                let didReconcileVersionGap = await reconcileVersionGapIfNeeded(
+                    frame,
+                    source: source,
+                    generation: generation
+                )
+                guard !Task.isCancelled, generation == sourceGeneration else { return }
                 apply(frame.event, to: frame.sessionID, version: frame.version)
-                if frame.event.eventIsDescriptorChange {
+                if frame.event.eventIsDescriptorChange, !didReconcileVersionGap {
                     if let descriptor = try? await source.session(sessionID: frame.sessionID) {
                         guard !Task.isCancelled, generation == sourceGeneration else { return }
                         upsert(descriptor)
@@ -533,6 +556,12 @@ final class AgentChatModeModel {
                 }
             }
             sessions = reconciled.sorted(by: Self.sortSessions)
+            for descriptor in sessions {
+                latestVersionBySession[descriptor.id] = max(
+                    descriptor.version,
+                    latestVersionBySession[descriptor.id] ?? Int.min
+                )
+            }
             if selectedSessionID == nil, let first = sessions.first {
                 select(first)
             } else if let selectedSessionID,
@@ -670,6 +699,12 @@ final class AgentChatModeModel {
     }
 
     private func apply(_ event: ChatSessionEvent, to sessionID: String, version: Int? = nil) {
+        if let version {
+            latestVersionBySession[sessionID] = max(
+                version,
+                latestVersionBySession[sessionID] ?? Int.min
+            )
+        }
         switch event {
         case .appended(let messages): upsertMessages(messages, sessionID: sessionID)
         case .updated(let messages): upsertMessages(messages, sessionID: sessionID)
@@ -718,6 +753,10 @@ final class AgentChatModeModel {
             transcriptRevisions[sessionID] = nil
             historyResetTokens[sessionID] = nil
             latestVersionedStateBySession[sessionID] = nil
+            latestVersionBySession[sessionID] = max(
+                version,
+                latestVersionBySession[sessionID] ?? Int.min
+            )
             pendingSendsBySession[sessionID] = nil
             lastTurnBySession[sessionID] = nil
             answeredRequestKeysBySession[sessionID] = nil
@@ -800,6 +839,10 @@ final class AgentChatModeModel {
     }
 
     private func upsert(_ descriptor: ChatSessionDescriptor) {
+        latestVersionBySession[descriptor.id] = max(
+            descriptor.version,
+            latestVersionBySession[descriptor.id] ?? Int.min
+        )
         if let index = sessions.firstIndex(where: { $0.id == descriptor.id }) {
             guard descriptor.version >= sessions[index].version else { return }
             sessions[index] = descriptor
@@ -810,6 +853,59 @@ final class AgentChatModeModel {
             sessions.append(descriptor)
         }
         sessions.sort(by: Self.sortSessions)
+    }
+
+    /// Reconciles a best-effort push when its revision skips one or more
+    /// revisions known to this client. Old hosts may omit the wrapper revision
+    /// but descriptor/sessionRemoved carry their own revision, so those remain
+    /// gap-detectable for compatibility. A first-ever event for a session is
+    /// accepted without a pull because there is no local baseline to compare.
+    private func reconcileVersionGapIfNeeded(
+        _ frame: ChatSessionEventFrame,
+        source: any AgentChatSessionSource,
+        generation: Int
+    ) async -> Bool {
+        guard let incomingVersion = frameRevision(frame),
+              incomingVersion < Int.max,
+              incomingVersion >= 0 else { return false }
+        let sessionID = frame.sessionID
+        guard sessions.contains(where: { $0.id == sessionID })
+            || removedSessionVersions[sessionID] != nil else { return false }
+        let baseline = max(
+            latestVersionBySession[sessionID] ?? Int.min,
+            removedSessionVersions[sessionID] ?? Int.min
+        )
+        guard baseline != Int.min, incomingVersion > baseline + 1 else { return false }
+        do {
+            let descriptor = try await source.session(sessionID: sessionID)
+            guard !Task.isCancelled, generation == sourceGeneration else { return false }
+            upsert(descriptor)
+            if selectedSessionID == sessionID {
+                await loadHistory(
+                    sessionID: sessionID,
+                    source: source,
+                    reset: true,
+                    generation: generation
+                )
+            }
+            return true
+        } catch is CancellationError {
+            return false
+        } catch {
+            // The frame may be a final removal raced with the pull. Fold it
+            // below; the next reconnect/refresh will retry the authoritative
+            // pull if the session remains present.
+            return false
+        }
+    }
+
+    private func frameRevision(_ frame: ChatSessionEventFrame) -> Int? {
+        if let version = frame.version { return version }
+        switch frame.event {
+        case .descriptorChanged(let descriptor): return descriptor.version
+        case .sessionRemoved(let version): return version
+        default: return nil
+        }
     }
 
     private func drainSendQueue(
@@ -823,6 +919,11 @@ final class AgentChatModeModel {
         while let queued = pendingSendsBySession[sessionID]?.first {
             guard !Task.isCancelled, generation == sourceGeneration else { return }
             pendingSendsBySession[sessionID]?.removeFirst()
+            // A queued prompt is not a turn until it reaches the transport.
+            // Record the prompt at this boundary so a failure in the first
+            // item of a Queue/Steer burst retries that failed item rather than
+            // a later prompt that was still waiting behind it.
+            lastTurnBySession[sessionID] = queued
             do {
                 try await source.send(
                     text: queued.text,

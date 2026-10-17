@@ -672,6 +672,13 @@ final class AgentChatTranscriptService {
 
     private func publishBatch(_ batch: AgentChatTranscriptTailer.Batch, sessionID: String) {
         guard !didShutdown else { return }
+        // The registry revision is the authoritative session revision. Attach
+        // it to every transcript push as well as lifecycle pushes so the
+        // phone can detect a dropped burst and pull a fresh snapshot/history
+        // instead of waiting for another hook to happen. Transcript batches
+        // do not mutate the descriptor themselves, so several frames can
+        // legitimately share one revision; the client treats equal versions
+        // as duplicates rather than requiring a per-message counter.
         #if DEBUG
         cmuxDebugLog(
             "agentChat.transcript.batch session=\(sessionID.prefix(8)) "
@@ -684,7 +691,10 @@ final class AgentChatTranscriptService {
             permissionRecordsBySessionID[sessionID] = nil
             questionRecordsBySessionID[sessionID] = nil
             nextPermissionOrdinalBySessionID[sessionID] = nil
-            emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .reset))
+            emit(frame: ChatSessionEventFrame(
+                sessionID: sessionID,
+                event: .reset,
+            ))
         }
         if let title = batch.discoveredTitle {
             registry.update(sessionID: sessionID) { $0.title = title }
@@ -697,10 +707,16 @@ final class AgentChatTranscriptService {
                Self.batchContainsAgentProse(batch.appended, matching: turnState) {
                 settleProseTurn(sessionID: sessionID, turnState: turnState)
             }
-            emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .appended(batch.appended)))
+            emit(frame: ChatSessionEventFrame(
+                sessionID: sessionID,
+                event: .appended(batch.appended),
+            ))
         }
         if !batch.updated.isEmpty {
-            emit(frame: ChatSessionEventFrame(sessionID: sessionID, event: .updated(batch.updated)))
+            emit(frame: ChatSessionEventFrame(
+                sessionID: sessionID,
+                event: .updated(batch.updated),
+            ))
         }
         updateLatestTranscriptSeq(sessionID: sessionID, messages: batch.appended + batch.updated)
         if let completedAt = Self.completedAssistantTurnTimestamp(in: batch.appended) {
@@ -792,7 +808,11 @@ final class AgentChatTranscriptService {
             }
         }
         if record.state == .ended, !endedRecordIsListable {
-            emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .sessionRemoved(version: record.version)))
+            emit(frame: ChatSessionEventFrame(
+                sessionID: record.sessionID,
+                event: .sessionRemoved(version: record.version),
+                version: record.version
+            ))
             return
         }
         if stateChanged {
@@ -806,7 +826,11 @@ final class AgentChatTranscriptService {
         // don't merit a descriptor push to every phone; emit only when the
         // descriptor changed beyond the activity timestamp.
         if Self.descriptorChangedMeaningfully(previous: previous, current: record) {
-            emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .descriptorChanged(record.descriptor)))
+            emit(frame: ChatSessionEventFrame(
+                sessionID: record.sessionID,
+                event: .descriptorChanged(record.descriptor),
+                version: record.version
+            ))
         }
     }
 
@@ -824,11 +848,32 @@ final class AgentChatTranscriptService {
         failedResolutions.remove(record.sessionID)
         endedListability.remove(sessionID: record.sessionID)
         guard hasEventSubscribers() else { return }
-        emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .sessionRemoved(version: record.version)))
+        emit(frame: ChatSessionEventFrame(
+            sessionID: record.sessionID,
+            event: .sessionRemoved(version: record.version),
+            version: record.version
+        ))
     }
 
     private func emit(frame: ChatSessionEventFrame) {
-        guard !didShutdown, let payload = wirePayload(frame) else { return }
+        guard !didShutdown else { return }
+        // Older producers (the prose streamer and permission extension) build
+        // frames directly. Fill their revision here so every chat push has
+        // the same gap-detection semantics without duplicating registry reads
+        // at each call site. Preserve an explicitly supplied value for
+        // compatibility with replay/test frames.
+        let versionedFrame: ChatSessionEventFrame
+        if frame.version == nil,
+           let version = registry.record(sessionID: frame.sessionID)?.version {
+            versionedFrame = ChatSessionEventFrame(
+                sessionID: frame.sessionID,
+                event: frame.event,
+                version: version
+            )
+        } else {
+            versionedFrame = frame
+        }
+        guard let payload = wirePayload(versionedFrame) else { return }
         emitEventPayload(payload)
     }
 

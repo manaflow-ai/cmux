@@ -917,6 +917,14 @@ private struct AgentTerminalBlockView: View {
         .background(Color.black.opacity(0.92), in: RoundedRectangle(cornerRadius: 14))
         .foregroundStyle(.white)
         .accessibilityElement(children: .combine)
+        .agentMessageActions(copying: copyText)
+    }
+
+    private var copyText: String {
+        var lines = [block.command]
+        if !block.output.isEmpty { lines.append(block.output) }
+        if let exitCode = block.exitCode { lines.append("Exit \(exitCode)") }
+        return lines.joined(separator: "\n")
     }
 }
 
@@ -1101,9 +1109,10 @@ private struct AgentQuestionCard: View {
                 Label("Answered: \(selected)", systemImage: "checkmark.circle.fill")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.green)
-            }
-            ForEach(Array(question.options.enumerated()), id: \.offset) { index, option in
-                optionButton(index: index, option: option)
+            } else {
+                ForEach(Array(question.options.enumerated()), id: \.offset) { index, option in
+                    optionButton(index: index, option: option)
+                }
             }
         }
         .padding(14)
