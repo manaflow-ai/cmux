@@ -1580,6 +1580,10 @@ jobs:
         with:
           persist-credentials: false
           submodules: false
+          # A reused mini keeps ignored SwiftPM/Cargo/Zig outputs warm. The
+          # default clean=true walks and deletes those trees before checkout;
+          # clean untracked source explicitly below while preserving caches.
+          clean: false
           fetch-depth: 2
 
       # As in swift test: a partial clone left in this reused workspace fetches
@@ -1594,10 +1598,14 @@ jobs:
         with:
           persist-credentials: false
           submodules: false
+          clean: false
           fetch-depth: 2
 
-      - name: Drop stale submodule checkouts (self-hosted reused workspace)
-        run: scripts/ci/reset-stale-submodules.sh
+      - name: Reuse the ghostty-next checkout (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh --reuse ghostty-next
+
+      - name: Remove stale untracked source (keep ignored build caches)
+        run: git clean -ffd
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh

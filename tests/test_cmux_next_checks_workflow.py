@@ -866,6 +866,26 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         zig = next(i for i, run in enumerate(runs) if "scripts/install-zig-ci.sh" in run)
         self.assertLess(max(init, zig), tier)
 
+    def test_fast_tier_reuses_ghostty_next_instead_of_deinitializing_every_submodule(self):
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
+        checkouts = [step for step in job["steps"] if str(step.get("uses", "")).startswith("actions/checkout@")]
+        self.assertEqual(len(checkouts), 2)
+        for checkout in checkouts:
+            with self.subTest(checkout=checkout):
+                self.assertIs(checkout["with"]["clean"], False)
+        cleanup = [
+            step for step in job["steps"]
+            if "git clean -ffd" in step.get("run", "")
+        ]
+        self.assertEqual(len(cleanup), 1)
+        reuse = [
+            step for step in job["steps"]
+            if "reset-stale-submodules.sh" in step.get("run", "")
+        ]
+        self.assertEqual(len(reuse), 1)
+        self.assertIn("--reuse ghostty-next", reuse[0]["run"])
+        self.assertNotIn("--all", reuse[0]["run"])
+
 
 class FastTierTriggers(unittest.TestCase):
     def test_a_fast_tier_registry_change_runs_the_workflow(self):
