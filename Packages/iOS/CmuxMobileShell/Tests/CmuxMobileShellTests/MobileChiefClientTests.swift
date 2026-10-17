@@ -130,17 +130,24 @@ struct MobileChiefClientTests {
     }
 
     @Test
-    func chiefCapabilityGatesReadPaths() {
+    func chiefCapabilityRequiresInteractiveActions() {
         #expect(!MobileChiefCapability.isAvailable(in: [MobileChiefCapability.status]))
         #expect(!MobileChiefCapability.isAvailable(in: [MobileChiefCapability.conversations]))
-        #expect(!MobileChiefCapability.isAvailable(in: [
+        let readAndSend = [
             MobileChiefCapability.conversations,
             MobileChiefCapability.read,
-        ]))
+            MobileChiefCapability.send,
+        ]
+        #expect(!MobileChiefCapability.isAvailable(in: readAndSend))
+        #expect(!MobileChiefCapability.isAvailable(in: readAndSend + [MobileChiefCapability.stop]))
+        #expect(!MobileChiefCapability.isAvailable(in: readAndSend + [MobileChiefCapability.stop, MobileChiefCapability.approve]))
         #expect(MobileChiefCapability.isAvailable(in: [
             MobileChiefCapability.conversations,
             MobileChiefCapability.read,
             MobileChiefCapability.send,
+            MobileChiefCapability.stop,
+            MobileChiefCapability.approve,
+            MobileChiefCapability.answer,
         ]))
         #expect(!MobileChiefCapability.isAvailable(in: ["mobile.chat.sessions"]))
     }
