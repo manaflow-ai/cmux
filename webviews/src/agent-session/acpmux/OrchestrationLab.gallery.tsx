@@ -1,13 +1,29 @@
-// l10n-allow-file: orchestration fixture labels are a read-only gallery surface.
+// l10n-allow-file: gallery fixture labels are a read-only visual work surface.
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 
 const selectHugeBlue: Play = async (ctx) => {
-  await ctx.click({ role: "radio", name: /Huge Blue lease/ });
-  await ctx.waitFor(() => ctx.find({ role: "heading", name: "Huge Blue lease receipt" }));
+  await ctx.click({
+    role: "button",
+    name: /Verify Linux cleanup/,
+  });
+  await ctx.waitFor(() => ctx.find({ role: "heading", name: "Verify Linux cleanup" }));
 };
 
-export default componentEntry<{ initialStrategy?: string }>({
+const selectDecision: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /Run gallery checks/ });
+  await ctx.waitFor(() => ctx.find({ role: "heading", name: "Needs your decision" }));
+};
+
+const openInspector: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Inspect technical receipt" });
+  await ctx.waitFor(() => ctx.find({ role: "dialog", name: /technical receipt/ }));
+};
+
+export default componentEntry<{
+  initialStrategy?: string;
+  initialInspectorOpen?: boolean;
+}>({
   id: "agent-pane.orchestration-lab",
   title: "Orchestration lab",
   area: "Agent pane",
@@ -24,17 +40,23 @@ export default componentEntry<{ initialStrategy?: string }>({
   },
   variants: {
     "local-queue": {
-      note: "Fixture-only local route with an explicit trust boundary.",
+      note: "Sample work view with running, blocked, and decision-needed sessions.",
       props: { initialStrategy: "local-queue" },
     },
     "huge-blue": {
-      note: "Held route with cleanup evidence as the blocker.",
+      note: "Blocked work keeps the evidence gap and no-action explanation visible.",
       props: { initialStrategy: "huge-blue" },
       play: selectHugeBlue,
     },
     "cloud-fair-share": {
-      note: "Queued route with capacity unavailable.",
+      note: "Decision-needed work exposes preview-only Use cloud and Keep local choices.",
       props: { initialStrategy: "cloud-fair-share" },
+      play: selectDecision,
+    },
+    inspector: {
+      note: "Technical receipt is behind the per-work inspector and closed by default on the main view.",
+      props: { initialStrategy: "local-queue" },
+      play: openInspector,
     },
   },
 });

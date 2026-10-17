@@ -1,18 +1,28 @@
-// l10n-allow-file: orchestration fixture labels are a read-only gallery surface.
-import { useRef, useState, type KeyboardEvent } from "react";
+// l10n-allow-file: deterministic sample labels for the read-only orchestration gallery.
+import { useRef, useState } from "react";
+import { Disclosure } from "../../ui/Disclosure";
+import { Popover } from "../../ui/Popover";
+import { StatusGlyph } from "../../ui/StatusGlyph";
+import type { StatusGlyphName } from "../../ui/statusGlyphs.generated";
+import { usePopoverTrigger } from "../../ui/popoverTrigger";
 
-type Strategy = {
+type WorkStatus = "working" | "blocked" | "waiting" | "done";
+type Decision = "none" | "needs-approval";
+type PreviewChoice = "keep-local" | "use-cloud";
+
+type WorkItem = {
   id: string;
-  label: string;
-  description: string;
-  decision: "admit" | "hold" | "wait";
+  title: string;
+  agent: string;
+  machine: string;
+  status: WorkStatus;
   blocker: string;
-  next: string;
-  nextLabel: string;
+  outcome: string;
+  decision: Decision;
+  decisionQuestion?: string;
   route: string;
   transport: "loopback" | "ssh" | "lease";
   task: string;
-  health: string;
   lease: string;
   head: string;
   receiptStatus: "running" | "blocked" | "reviewed";
@@ -21,19 +31,19 @@ type Strategy = {
   proposalKind: "dispatch" | "reconcile" | "wait";
 };
 
-const strategies: Strategy[] = [
+const workItems: WorkItem[] = [
   {
     id: "local-queue",
-    label: "Local queue",
-    description: "Fast feedback for short, interactive work.",
-    decision: "admit",
-    blocker: "none",
-    next: "Run the next bounded task and record its receipt.",
-    nextLabel: "Record receipt",
+    title: "Review GalleryApp layout",
+    agent: "Avery",
+    machine: "Mac mini · local",
+    status: "working",
+    blocker: "No blocker",
+    outcome: "Running a bounded visual pass",
+    decision: "none",
     route: "loopback · local-supervisor",
     transport: "loopback",
     task: "orch-local-01",
-    health: "healthy",
     lease: "09:42 remaining",
     head: "4ce7c9c1…",
     receiptStatus: "running",
@@ -43,16 +53,16 @@ const strategies: Strategy[] = [
   },
   {
     id: "huge-blue",
-    label: "Huge Blue lease",
-    description: "Reserved Linux capacity for heavier verification.",
-    decision: "hold",
-    blocker: "revised controller cleanup receipt",
-    next: "Reconcile cleanup evidence before requesting admission.",
-    nextLabel: "Reconcile cleanup",
+    title: "Verify Linux cleanup",
+    agent: "Mina",
+    machine: "Huge Blue · Linux",
+    status: "blocked",
+    blocker: "Waiting on build capacity evidence",
+    outcome: "Hold admission until the cleanup receipt is reviewed",
+    decision: "none",
     route: "ssh · enrolled host",
     transport: "ssh",
     task: "orch-huge-blue-07",
-    health: "degraded",
     lease: "17:30 remaining",
     head: "ce704bfb…",
     receiptStatus: "blocked",
@@ -62,17 +72,18 @@ const strategies: Strategy[] = [
   },
   {
     id: "cloud-fair-share",
-    label: "Cloud fair-share",
-    description: "Shared capacity with fairness and retry budgets.",
-    decision: "wait",
-    blocker: "capacity unavailable",
-    next: "Keep the proposal queued and re-evaluate when a slot opens.",
-    nextLabel: "Wait for capacity",
+    title: "Run gallery checks",
+    agent: "Noah",
+    machine: "Cloud worker · proposed",
+    status: "waiting",
+    blocker: "Waiting for your approval",
+    outcome: "Wait for approval before moving the checks to cloud capacity",
+    decision: "needs-approval",
+    decisionQuestion: "Move gallery checks to cloud capacity?",
     route: "durable lease · cloud-router",
     transport: "lease",
     task: "orch-cloud-12",
-    health: "unknown",
-    lease: "starts on admission",
+    lease: "Starts on admission",
     head: "a81f6de2…",
     receiptStatus: "reviewed",
     state: "submitted",
@@ -81,191 +92,267 @@ const strategies: Strategy[] = [
   },
 ];
 
-export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialStrategy?: string }) {
-  const [selectedId, setSelectedId] = useState(initialStrategy);
-  const routeRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const selected = strategies.find((strategy) => strategy.id === selectedId) ?? strategies[0];
-  const handleRouteKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
-    const direction =
-      event.key === "ArrowRight" || event.key === "ArrowDown"
-        ? 1
-        : event.key === "ArrowLeft" || event.key === "ArrowUp"
-          ? -1
-          : 0;
-    const targetIndex =
-      event.key === "Home"
-        ? 0
-        : event.key === "End"
-          ? strategies.length - 1
-          : direction
-            ? (index + direction + strategies.length) % strategies.length
-            : -1;
-    if (targetIndex < 0 && event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    if (targetIndex >= 0) {
-      const target = strategies[targetIndex];
-      setSelectedId(target.id);
-      routeRefs.current[target.id]?.focus();
-    } else {
-      setSelectedId(event.currentTarget.dataset.routeId ?? selected.id);
-    }
+const statusLabels: Record<WorkStatus, string> = {
+  working: "Working",
+  blocked: "Blocked",
+  waiting: "Needs your decision",
+  done: "Done",
+};
+
+const statusGlyphs: Record<WorkStatus, StatusGlyphName> = {
+  working: "working",
+  blocked: "error",
+  waiting: "waiting",
+  done: "done",
+};
+
+function ReceiptInspector({ work, onClose }: { work: WorkItem; onClose: () => void }) {
+  const receipt = {
+    schema_version: 1,
+    message_id: "redacted",
+    task_id: work.task,
+    in_reply_to: "redacted",
+    sender: "cmux-chat",
+    recipient: "fixture-supervisor",
+    transport: work.transport,
+    host_id: "fixture-host",
+    session_id: "redacted",
+    root_id: "gallery-fixture",
+    owner: "gallery-fixture",
+    kind: "progress",
+    authority_ref: "user-request:orchestration-lab-gallery-prototype",
+    stage: "working",
+    state: work.state,
+    status: work.receiptStatus,
+    acceptance: work.acceptance,
+    repository: "cmux",
+    worktree: "agent-chat",
+    branch: "fixture",
+    base_sha: "1".repeat(64),
+    head_sha: "2".repeat(64),
+    artifact_sha: "3".repeat(64),
+    command: `gallery.fixture --work ${work.id}`,
+    assertion_count: 0,
+    artifacts: { preview: "fixture-only" },
+    evidence: [],
+    gap: work.blocker,
+    next_action: work.outcome,
   };
+  return (
+    <div className="orchestration-inspector-content">
+      <div className="orchestration-inspector-header">
+        <strong>Technical receipt</strong>
+        <button type="button" className="orchestration-text-button" onClick={onClose}>
+          Close
+        </button>
+      </div>
+      <dl className="orchestration-inspector-facts">
+        <div>
+          <dt>Task</dt>
+          <dd>{work.task}</dd>
+        </div>
+        <div>
+          <dt>Transport</dt>
+          <dd>{work.transport}</dd>
+        </div>
+        <div>
+          <dt>Receipt</dt>
+          <dd>{work.receiptStatus}</dd>
+        </div>
+        <div>
+          <dt>Acceptance</dt>
+          <dd>{work.acceptance}</dd>
+        </div>
+      </dl>
+      <Disclosure label="Show sample receipt JSON">
+        <pre aria-label="Sample receipt JSON">{JSON.stringify(receipt, null, 2)}</pre>
+      </Disclosure>
+      <p className="orchestration-inspector-note">Deterministic fixture data. No command or task ran.</p>
+    </div>
+  );
+}
+
+export function OrchestrationLab({
+  initialStrategy = "local-queue",
+  initialInspectorOpen = false,
+}: {
+  /** Kept for the existing local-queue, huge-blue and cloud-fair-share gallery links. */
+  initialStrategy?: string;
+  initialInspectorOpen?: boolean;
+}) {
+  const [selectedId, setSelectedId] = useState(
+    workItems.some((item) => item.id === initialStrategy) ? initialStrategy : workItems[0].id,
+  );
+  const [decision, setDecision] = useState<Record<string, PreviewChoice>>({});
+  const [inspectorOpen, setInspectorOpen] = useState(initialInspectorOpen);
+  const inspectorButton = useRef<HTMLButtonElement | null>(null);
+  const selected = workItems.find((item) => item.id === selectedId) ?? workItems[0];
+  const trigger = usePopoverTrigger(inspectorOpen, setInspectorOpen);
+
+  const selectWork = (id: string) => {
+    setSelectedId(id);
+    setInspectorOpen(false);
+  };
+  const chooseDecision = (value: PreviewChoice) => setDecision((current) => ({ ...current, [selected.id]: value }));
+  const chosenDecision = decision[selected.id];
+  const decisionText = (value: PreviewChoice) => (value === "keep-local" ? "keep local" : "use cloud");
+  const visibleStatus = (item: WorkItem) =>
+    item.decision !== "none" && decision[item.id] ? "Preview selected" : statusLabels[item.status];
+  const visibleBlocker = (item: WorkItem) =>
+    item.decision !== "none" && decision[item.id]
+      ? `Preview choice recorded: ${decisionText(decision[item.id])}; no dispatch`
+      : item.blocker;
+  const visibleOutcome = (item: WorkItem) =>
+    item.decision !== "none" && decision[item.id] ? "Preview choice recorded; no work was dispatched." : item.outcome;
+
   return (
     <main className="orchestration-gallery" data-orchestration-lab>
       <header className="orchestration-gallery-header">
-        <h1>Orchestration lab</h1>
-        <div className="orchestration-gallery-trust" role="note" aria-label="Orchestration trust state">
-          <strong>Preview only · no dispatch</strong>
-          <span>Trust override: preview only · authorization disabled</span>
-        </div>
+        <h1>Work</h1>
+        <span className="orchestration-sample-marker">Sample data · preview only</span>
       </header>
+      <p className="orchestration-attention" aria-live="polite">
+        <StatusGlyph name="working" size={12} label="Work status" />
+        {workItems.filter((item) => item.status === "working").length} running ·{" "}
+        {workItems.filter((item) => item.status === "blocked").length} blocked ·{" "}
+        {workItems.filter((item) => item.status === "waiting" && !decision[item.id]).length} needs your decision
+      </p>
 
-      <section className="orchestration-gallery-compare" aria-label="Route comparison">
-        <div className="orchestration-gallery-section-heading">
-          <h2>Routes</h2>
-          <span className="orchestration-gallery-hint">Arrow keys · Enter</span>
-        </div>
-        {/* ui-allow: gallery route cards use explicit radio semantics for the fixture. */}
-        <div className="orchestration-gallery-routes" role="radiogroup" aria-label="Select a route">
-          {strategies.map((strategy, index) => {
-            const selectedRoute = strategy.id === selected.id;
-            return (
-              <button
-                key={strategy.id}
-                className={`orchestration-gallery-route${selectedRoute ? " is-selected" : ""}`}
-                type="button"
-                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- rich route cards need button semantics and roving focus. ui-allow: gallery route cards use explicit radio semantics for the fixture.
-                role="radio"
-                aria-checked={selectedRoute}
-                aria-controls="orchestration-gallery-receipt"
-                // ui-allow: gallery route cards use roving focus for the fixture.
-                tabIndex={selectedRoute ? 0 : -1}
-                data-route-id={strategy.id}
-                ref={(element) => {
-                  routeRefs.current[strategy.id] = element;
-                }}
-                onClick={() => setSelectedId(strategy.id)}
-                // ui-allow: gallery route cards use roving keyboard focus for the fixture.
-                onKeyDown={(event) => handleRouteKeyDown(event, index)}
-              >
-                <span>
-                  <strong>{strategy.label}</strong>
-                  <b data-decision={strategy.decision}>{strategy.decision}</b>
-                </span>
-                <small>{strategy.blocker === "none" ? "No blocker" : strategy.blocker}</small>
-                <small>{strategy.nextLabel}</small>
-              </button>
-            );
-          })}
-        </div>
-      </section>
+      <div className="orchestration-work-view">
+        <section className="orchestration-work-list" aria-label="Work by agent and machine">
+          <div className="orchestration-section-heading">
+            <h2>Sessions</h2>
+            <span>{workItems.length} sample items</span>
+          </div>
+          <div className="orchestration-work-rows" aria-label="Select work">
+            {workItems.map((item) => {
+              const isSelected = item.id === selected.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-pressed={isSelected}
+                  className={`orchestration-work-row${isSelected ? " is-selected" : ""}`}
+                  onClick={() => selectWork(item.id)}
+                >
+                  <span className="orchestration-work-row-top">
+                    <StatusGlyph name={statusGlyphs[item.status]} size={12} label={visibleStatus(item)} />
+                    <strong>{item.title}</strong>
+                    <span className={`orchestration-state orchestration-state-${item.status}`}>
+                      {visibleStatus(item)}
+                    </span>
+                  </span>
+                  <span className="orchestration-work-row-meta">
+                    {item.agent} · {item.machine}
+                  </span>
+                  <span className={`orchestration-work-row-blocker${item.status === "blocked" ? " is-blocked" : ""}`}>
+                    {visibleBlocker(item)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
 
-      <section
-        id="orchestration-gallery-receipt"
-        className="orchestration-gallery-inspector"
-        aria-live="polite"
-        aria-label={`${selected.label} receipt preview`}
-      >
-        <div className="orchestration-gallery-section-heading">
-          <h2>{selected.label} receipt</h2>
-          <span className="orchestration-gallery-status">{selected.receiptStatus}</span>
-        </div>
-        <dl className="orchestration-gallery-summary">
-          <div>
-            <dt>Task</dt>
-            <dd>{selected.task}</dd>
+        <section
+          className="orchestration-work-detail"
+          aria-label={`Selected work: ${selected.title}`}
+          aria-live="polite"
+        >
+          <div className="orchestration-detail-heading">
+            <div>
+              <div className="orchestration-detail-title-row">
+                <StatusGlyph name={statusGlyphs[selected.status]} size={14} label={visibleStatus(selected)} />
+                <h2>{selected.title}</h2>
+              </div>
+              <p>
+                {selected.agent} · {selected.machine}
+              </p>
+            </div>
+            <span className={`orchestration-state orchestration-state-${selected.status}`}>
+              {visibleStatus(selected)}
+            </span>
           </div>
-          <div>
-            <dt>Route</dt>
-            <dd>{selected.route}</dd>
+
+          <dl className="orchestration-work-facts">
+            <div>
+              <dt>Blocker</dt>
+              <dd>{visibleBlocker(selected)}</dd>
+            </div>
+            <div>
+              <dt>Latest update</dt>
+              <dd>{visibleOutcome(selected)}</dd>
+            </div>
+          </dl>
+
+          {selected.decision !== "none" ? (
+            <section className="orchestration-decision" aria-label="Decision needed">
+              <div className="orchestration-decision-heading">
+                <div>
+                  <h3>{chosenDecision ? "Choice recorded" : "Needs your decision"}</h3>
+                  <p>{selected.decisionQuestion}</p>
+                </div>
+                <span>Preview</span>
+              </div>
+              <div className="orchestration-decision-actions">
+                <button
+                  type="button"
+                  className={chosenDecision === "keep-local" ? "is-chosen" : ""}
+                  onClick={() => chooseDecision("keep-local")}
+                >
+                  Keep local
+                </button>
+                <button
+                  type="button"
+                  className={chosenDecision === "use-cloud" ? "is-chosen" : ""}
+                  onClick={() => chooseDecision("use-cloud")}
+                >
+                  Use cloud
+                </button>
+              </div>
+              <p className="orchestration-local-note">
+                {chosenDecision
+                  ? `Preview choice: ${decisionText(chosenDecision)}; no work was dispatched.`
+                  : "Choices only change this gallery preview."}
+              </p>
+            </section>
+          ) : selected.status === "blocked" ? (
+            <section className="orchestration-blocked" aria-label="Blocked work">
+              <h3>Blocked</h3>
+              <p>
+                No action is needed from you. The next step is to review the cleanup evidence before capacity is
+                admitted.
+              </p>
+            </section>
+          ) : null}
+
+          <div className="orchestration-detail-footer">
+            <button
+              ref={inspectorButton}
+              type="button"
+              className="orchestration-inspector-trigger"
+              aria-haspopup="dialog"
+              aria-expanded={inspectorOpen}
+              {...trigger}
+            >
+              Inspect technical receipt
+            </button>
           </div>
-          <div>
-            <dt>Health</dt>
-            <dd>{selected.health}</dd>
-          </div>
-          <div>
-            <dt>Lease</dt>
-            <dd>{selected.lease}</dd>
-          </div>
-          <div>
-            <dt>Source head</dt>
-            <dd>{selected.head}</dd>
-          </div>
-          <div>
-            <dt>Acceptance</dt>
-            <dd>{selected.acceptance}</dd>
-          </div>
-        </dl>
-        <div className="orchestration-gallery-action-path" aria-label="Action path">
-          <span>
-            <strong>Decision</strong>
-            {selected.decision}
-          </span>
-          <span>
-            <strong>Blocker</strong>
-            {selected.blocker}
-          </span>
-          <span className="is-next">
-            <strong>Next action</strong>
-            {selected.next}
-          </span>
-        </div>
-        <details className="orchestration-gallery-json">
-          <summary>Sample JSON · advisory only</summary>
-          <pre aria-label="Non-contract display sample">
-            {JSON.stringify(
-              {
-                receipt: {
-                  schema_version: 1,
-                  message_id: "redacted",
-                  task_id: selected.task,
-                  in_reply_to: "redacted",
-                  sender: "cmux-chat",
-                  recipient: "fixture-supervisor",
-                  transport: selected.transport,
-                  host_id: "fixture-host",
-                  session_id: "redacted",
-                  root_id: "gallery-fixture",
-                  owner: "gallery-fixture",
-                  kind: "progress",
-                  authority_ref: "user-request:orchestration-lab-gallery-prototype",
-                  stage: "working",
-                  state: selected.state,
-                  status: selected.receiptStatus,
-                  acceptance: selected.acceptance,
-                  repository: "cmux",
-                  worktree: "agent-chat",
-                  branch: "fixture",
-                  base_sha: "1".repeat(64),
-                  head_sha: "2".repeat(64),
-                  artifact_sha: "3".repeat(64),
-                  command: `gallery.fixture --strategy ${selected.id}`,
-                  assertion_count: 0,
-                  artifacts: { preview: "fixture-only" },
-                  evidence: [],
-                  gap: selected.blocker,
-                  next_action: selected.next,
-                },
-                fixture_context: {
-                  display_only: true,
-                  no_dispatch: true,
-                  redaction: "Deterministic synthetic values; no command or task ran.",
-                  route: { id: selected.id, label: selected.route, health: selected.health, lease: selected.lease },
-                  guidance: { manifest: "sha256:fixture", resolution: "fixture-only; no worker guidance loaded" },
-                  proposal: { kind: selected.proposalKind, detail: selected.next },
-                  next_work: null,
-                  authorization: {
-                    state: "pending",
-                    detail: "Fixture scope permits preview only; dispatch remains disabled.",
-                  },
-                },
-              },
-              null,
-              2,
-            )}
-          </pre>
-        </details>
-      </section>
+          <Popover
+            open={inspectorOpen}
+            onOpenChange={(next) => {
+              if (!next) setInspectorOpen(false);
+            }}
+            anchor={inspectorButton.current}
+            label={`${selected.title} technical receipt`}
+            className="orchestration-inspector"
+            side="top"
+            finalFocus={inspectorButton}
+          >
+            <ReceiptInspector work={selected} onClose={() => setInspectorOpen(false)} />
+          </Popover>
+        </section>
+      </div>
     </main>
   );
 }
