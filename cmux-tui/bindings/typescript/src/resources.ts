@@ -472,12 +472,30 @@ function snapshotFields<Id extends string>(
 
 function machineSnapshot(value: unknown): MachineSnapshot {
   const payload = unwrap(value, ["machine"]);
+  const rawPlatform = payload.platform;
+  let platform: MachineSnapshot["platform"];
+  if (rawPlatform === undefined || rawPlatform === null) {
+    platform = rawPlatform;
+  } else {
+    const fields = document(rawPlatform, "machine platform");
+    strictObject(fields, ["os", "arch"], "machine platform");
+    for (const key of ["os", "arch"]) {
+      if (fields[key] !== undefined && fields[key] !== null && typeof fields[key] !== "string") {
+        throw new CmuxProtocolError(`machine platform ${key} must be a string or null`);
+      }
+    }
+    platform = Object.freeze({ ...fields }) as MachineSnapshot["platform"];
+  }
+  const capabilities = payload.capabilities === undefined ? [] : payload.capabilities;
+  if (!Array.isArray(capabilities) || capabilities.some((item) => typeof item !== "string")) {
+    throw new CmuxProtocolError("machine capabilities must be a string array");
+  }
   return Object.freeze({
     ...snapshotFields(payload, machineId, [
-      "name", "origin", "status", "connectable", "deleted", "recoverable",
+      "name", "origin", "status", "connectable", "deleted", "recoverable", "platform", "capabilities",
     ]),
     name: requiredString(payload, "name"),
-    origin: requiredEnum(payload, "origin", ["local"] as const),
+    origin: requiredEnum(payload, "origin", ["local", "cloud", "ssh", "server"] as const),
     status: requiredEnum(
       payload,
       "status",
@@ -486,6 +504,8 @@ function machineSnapshot(value: unknown): MachineSnapshot {
     connectable: requiredBoolean(payload, "connectable"),
     deleted: requiredBoolean(payload, "deleted"),
     recoverable: requiredBoolean(payload, "recoverable"),
+    ...optionalProperty("platform", platform),
+    capabilities: Object.freeze([...capabilities]),
   });
 }
 
