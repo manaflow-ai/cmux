@@ -36,7 +36,7 @@ export default componentEntry<{
   pane: true,
   height: 780,
   widths: { narrow: 520, normal: 860, wide: 1160 },
-  anchors: [{ selector: "[data-orchestration-lab]" }, { selector: ".orchestration-work-list" }],
+  anchors: [{ selector: ".orchestration-gallery-header" }, { selector: ".orchestration-work-list" }],
   covers: ["agent-session/acpmux/OrchestrationLab.tsx#OrchestrationLab"],
   styles: () => import("./OrchestrationLab.gallery.css"),
   load: async () => {
@@ -65,7 +65,7 @@ export default componentEntry<{
         layoutShiftMax: {
           value: 0.05,
           reason:
-            "Selecting work inserts its in-flow decision panel; the gallery frame and work list remain anchored while the detail reflows.",
+            "Selecting work inserts its in-flow decision panel; the overview and work list remain anchored while the detail reflows.",
         },
       },
       play: jumpToDecision,
