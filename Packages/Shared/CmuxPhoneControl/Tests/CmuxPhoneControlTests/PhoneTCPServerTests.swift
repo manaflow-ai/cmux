@@ -50,11 +50,18 @@ struct PhoneTCPServerTests {
             .request(id: "first-open", method: "session.open"),
             on: first
         )
+        #expect(firstResponse.type == .response)
+        let firstSessionID = try #require(firstResponse.sessionID)
+        let firstClose = try await roundTrip(
+            .request(id: "first-close", method: "session.close", sessionID: firstSessionID),
+            on: first
+        )
+        #expect(firstClose.type == .response)
+
         let secondResponse = try await roundTrip(
             .request(id: "second-open", method: "session.open"),
             on: second
         )
-        #expect(firstResponse.type == .response)
         #expect(secondResponse.type == .response)
         #expect(firstResponse.sessionID != secondResponse.sessionID)
     }
