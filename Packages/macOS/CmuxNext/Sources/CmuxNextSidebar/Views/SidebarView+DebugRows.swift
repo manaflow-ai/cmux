@@ -22,6 +22,8 @@ public struct SidebarDebugRow: Sendable {
     /// The workspace row's merged status (`StatusIndicatorState`), e.g.
     /// `success` for an unseen done, nil for other rows.
     public var activity: String? = nil
+    /// The dynamic priority bucket used by the attention projection.
+    public var priority: String? = nil
     /// The icon the row's view draws (`symbol`, `swatch`, `emoji`, `favicon`; workspace and
     /// tab rows), nil when it draws none or has no live view, e.g. scrolled off (`SidebarRowView.debugIcon`).
     public var icon: String? = nil
@@ -171,10 +173,12 @@ extension SidebarView {
             var title: String?
             var muted = false
             var activity: String?
+            var priority: String?
             if case let .workspace(id) = row.key, let workspace = byID[id] {
                 title = workspace.title
                 muted = workspace.muted
                 activity = String(describing: workspace.activity)
+                priority = String(describing: SidebarPriorityItem(workspace: workspace).bucket)
             }
             let inWindow = list.convert(list.frame(for: row), to: nil)
             let height = window?.contentView?.bounds.height ?? 0
@@ -182,7 +186,7 @@ extension SidebarView {
             let debugRow = SidebarDebugRow(key: String(describing: row.key), title: title, frame: list.frame(for: row), windowFrame: windowFrame,
                                    viewFrame: view?.frame, viewAlpha: view?.alphaValue, inList: view?.superview === list,
                                    suppressed: list.suppressed.contains(row.key), selected: view?.isSelected == true, muted: muted,
-                                   activity: activity, icon: view?.debugIcon, shownFrame: view?.shownFrame, clips: view?.clipsToBounds == true, group: row.group?.rawValue,
+                                   activity: activity, priority: priority, icon: view?.debugIcon, shownFrame: view?.shownFrame, clips: view?.clipsToBounds == true, group: row.group?.rawValue,
                                    detail: row.content?.detail)
             var drawn = debugRow.drawn(by: view)
             drawn.iconAddress = view?.debugIconAddress
