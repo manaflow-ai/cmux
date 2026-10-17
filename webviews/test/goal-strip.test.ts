@@ -30,6 +30,7 @@ test("projects a quiet running run as stalled", () => {
 
   const stalled = projectGoal([entry(run({ title: "Recover the owner", updatedAt: 1 }))], 30 * 60_000 + 2);
   expect(stalled?.state).toBe("stalled");
+  expect(stalled?.detail).toBeUndefined();
 });
 
 test("keeps failed work visible and completed work folded away", () => {
