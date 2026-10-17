@@ -1942,6 +1942,15 @@
      "nullable": false,
      "since": 12
     },
+    "machine_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
+    },
     "machine_name": {
      "type": {
       "kind": "scalar",
@@ -2035,6 +2044,28 @@
      "nullable": true,
      "since": 12,
      "capability": "daemon-build-v1"
+    },
+    "machine_platform": {
+     "type": {
+      "kind": "ref",
+      "name": "MachinePlatform"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
+    },
+    "machine_capabilities": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "default": [],
+     "since": 12
     }
    },
    "additional_properties": false
@@ -8970,6 +9001,28 @@
     }
    },
    "additional_properties": false
+  },
+  "MachinePlatform": {
+   "kind": "object",
+   "fields": {
+    "os": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "arch": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -9016,7 +9069,18 @@
    "capability": null,
    "request": {
     "kind": "object",
-    "fields": {},
+    "fields": {
+     "machine_metadata": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "machine-identity-v1"
+     }
+    },
     "additional_properties": false
    },
    "result": {
