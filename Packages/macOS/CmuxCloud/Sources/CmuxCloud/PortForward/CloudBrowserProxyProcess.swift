@@ -23,7 +23,7 @@ public actor CloudBrowserProxyProcess {
     public nonisolated let addresses: [String]
     private let quitRegistry: CloudBrowserProxyQuitRegistry
 
-    public init(addresses: [String], quitRegistry: CloudBrowserProxyQuitRegistry = .shared) {
+    public init(addresses: [String], quitRegistry: CloudBrowserProxyQuitRegistry) {
         self.addresses = addresses
         self.quitRegistry = quitRegistry
     }

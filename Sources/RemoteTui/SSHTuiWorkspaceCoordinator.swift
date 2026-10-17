@@ -19,6 +19,8 @@ final class SSHTuiWorkspaceCoordinator {
     private let agentStatus: SSHTuiAgentStatusProjector
     private let retryPolicy: SSHTuiAttachRetryPolicy
     private let clock: any Clock<Duration>
+    /// Shared with the Cloud links so app termination ends SSH browser carriers too.
+    private let browserProxyQuitRegistry: CloudBrowserProxyQuitRegistry
     /// Restored attaches that failed and are waiting to try again, either in
     /// a backoff wait or parked after reporting their error.
     private var recoveries: [UUID: Recovery] = [:]
@@ -40,8 +42,10 @@ final class SSHTuiWorkspaceCoordinator {
         paths: CloudTuiClientPaths,
         sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil,
         retryPolicy: SSHTuiAttachRetryPolicy = .standard,
-        clock: any Clock<Duration> = ContinuousClock()
+        clock: any Clock<Duration> = ContinuousClock(),
+        browserProxyQuitRegistry: CloudBrowserProxyQuitRegistry = CloudBrowserProxyQuitRegistry()
     ) {
+        self.browserProxyQuitRegistry = browserProxyQuitRegistry
         self.catalog = catalog
         self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore ?? SSHClipboardWriteTrustStore(defaults: .standard)
         self.clientURL = clientURL
@@ -224,7 +228,8 @@ final class SSHTuiWorkspaceCoordinator {
         guard let clientURL = clientURL() else { throw CloudMachineLink.LinkError.clientMissing }
         let links = SSHTuiLinkManager(connection: connection, clientURL: clientURL, paths: paths,
                                      isEnabled: { ManagedRemoteConnectionsPolicy.isEnabled },
-                                     agentHookProviders: { SSHTuiConnection.agentHookProviders(defaults: .standard) })
+                                     agentHookProviders: { SSHTuiConnection.agentHookProviders(defaults: .standard) },
+                                     browserProxyQuitRegistry: browserProxyQuitRegistry)
         let provider = CmuxTuiSurfaceProvider(
             summary: .ssh(connection), links: links, catalog: catalog,
             sshClipboardWriteTrustStore: sshClipboardWriteTrustStore

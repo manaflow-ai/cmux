@@ -7,9 +7,10 @@ import Foundation
 /// link whose WireGuard hub the app has just killed, so it never exits and is
 /// reparented to launchd. A quitting app cannot await, so it sends SIGKILL; the
 /// remote side drops the proxy workspace when the carrier disconnects.
+///
+/// The app owns one and passes it to its Cloud and SSH link managers; app
+/// termination ends every carrier registered in it.
 public final class CloudBrowserProxyQuitRegistry: @unchecked Sendable {
-    public static let shared = CloudBrowserProxyQuitRegistry()
-
     private let lock = NSLock()
     private var processes: [UUID: pid_t] = [:]
     private let sendSignal: @Sendable (pid_t, Int32) -> Void
