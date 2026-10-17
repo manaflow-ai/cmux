@@ -1204,7 +1204,13 @@ final class AgentChatModeModel {
             answeringRequestKeys = answeringRequestKeys.filter { !$0.hasPrefix("\(sessionID):") }
             reviewingMessageKeys = reviewingMessageKeys.filter { !$0.hasPrefix("\(sessionID):") }
             sendingSessionIDs.remove(sessionID)
+            loadingSessionIDs.remove(sessionID)
+            updatingControlsSessionIDs.remove(sessionID)
             interruptingSessionIDs.remove(sessionID)
+            retryingSessionIDs.remove(sessionID)
+            renamingSessionIDs.remove(sessionID)
+            deletingSessionIDs.remove(sessionID)
+            exportingSessionIDs.remove(sessionID)
             clearRegeneration(for: sessionID)
             if selectedSessionID == sessionID {
                 if let next = visibleSessions.first {

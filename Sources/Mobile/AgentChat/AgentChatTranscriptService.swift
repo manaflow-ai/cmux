@@ -539,7 +539,7 @@ final class AgentChatTranscriptService {
             if !page.messages.isEmpty {
                 pages.insert(page.messages, at: 0)
             }
-            guard page.hasMore, let firstSeq = page.messages.first?.seq, firstSeq > 0,
+            guard page.hasMore, let firstSeq = page.messages.first?.seq, firstSeq >= 0,
                   firstSeq != lastCursor else { break }
             lastCursor = firstSeq
             beforeSeq = firstSeq
