@@ -13,7 +13,6 @@ import CmuxNextSidebar
 /// folder's titles by the folder's title.
 enum DebugSidebarRows {
     static func report(_ params: [String: JSONValue] = [:], services: AppServices) -> JSONValue {
-        if params["refuse_next_close"] == .bool(true) { ClosingWorkspaces.shared.refusesNext = true; return .object(["refuse_next_close": .bool(true)]) }
         if let motion = params["motion"]?.stringValue {
             return services.windows.controllers.first.map { json($0.sidebar.container.sidebarView.debugMotionReport(start: motion == "start")) } ?? .null
         }

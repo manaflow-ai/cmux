@@ -290,7 +290,7 @@ def _is_ghostty_init(words: list[str]) -> bool:
     if (
         len(script_words) == 2
         and script_words[0] in INIT_SUBMODULE_PATHS
-        and script_words[1] == "ghostty"
+        and script_words[1] in GHOSTTY_SUBMODULES
     ):
         return True
     return (
@@ -488,13 +488,33 @@ def _job_events(path: Path, job: Job,) -> tuple[list[tuple[int, RunEvent]], list
             continue
         run_events, parse_error = _run_events(step.run, step.run_line or step.line,)
         if parse_error is not None:
-            failures.append(
-                f"{path.name}:{step.run_line or step.line}: "
-                f"{job.name} cannot parse relevant run "
-                f"step {step.name!r}: {parse_error}"
+            # A workflow may contain unrelated bash syntax (for example a
+            # case pattern) that bashlex cannot parse. Only surface parse
+            # failures when the step can hide a Ghostty Zig consumer or its
+            # resolver; unrelated steps must not block this guard.
+            run_text = step.run or ""
+            relevant = step.identifier == "ghostty-zig-version" or any(
+                consumer in run_text for consumer in CONSUMER_NAMES
             )
+            if relevant:
+                failures.append(
+                    f"{path.name}:{step.run_line or step.line}: "
+                    f"{job.name} cannot parse relevant run "
+                    f"step {step.name!r}: {parse_error}"
+                )
             continue
-        events.extend((step_index, event) for event in run_events)
+        # A single shell step may initialize both Ghostty submodules. Treat
+        # that as one initialization step for the resolver ordering guard;
+        # separate init steps remain visible and still fail the duplicate
+        # wiring check. Preserve the original event order so a consumer that
+        # runs before initialization is still rejected.
+        seen_init = False
+        for event in run_events:
+            if event.kind == "init":
+                if seen_init:
+                    continue
+                seen_init = True
+            events.append((step_index, event))
     return events, failures
 
 
