@@ -111,6 +111,21 @@ private final class FakeNativeFindDriver: BrowserNativeFindDriving {
         #expect(driver.calls.map(\.findNext) == [false, true, false])
     }
 
+    @Test func stepsAfterANewDocumentStartAFreshSearchForTheSameNeedle() async {
+        let driver = FakeNativeFindDriver()
+        let session = BrowserNativeFindSession(driver: driver)
+        driver.onFind = { [weak session] _ in session?.receiveResult(count: 1, activeOrdinal: 1, isFinal: true) }
+        _ = await session.search(needle: "x")
+        session.resetForNewDocument()
+        #expect(session.currentNeedle == "x")
+        #expect(await session.next() == BrowserFindMatchCount(total: 1, selected: 0))
+        _ = await session.next()
+        session.resetForNewDocument()
+        _ = await session.previous()
+        #expect(driver.calls.map(\.text) == ["x", "x", "x", "x"])
+        #expect(driver.calls.map(\.findNext) == [false, false, true, false])
+    }
+
     @Test func cancelPendingAnswersWithNil() async {
         let driver = FakeNativeFindDriver()
         let session = BrowserNativeFindSession(driver: driver)
