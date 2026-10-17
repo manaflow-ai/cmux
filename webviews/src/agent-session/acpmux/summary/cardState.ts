@@ -98,6 +98,7 @@ export function useSummaryCard(column: boolean, hasContent: boolean) {
   const [explicit, setExplicit] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const shown = column ? !hidden && (hasContent || explicit) : popover;
+  const reserve = column && !hidden && !hasContent && !explicit;
   const show = useCallback(() => {
     setCollapsed(false);
     if (column) {
@@ -113,7 +114,7 @@ export function useSummaryCard(column: boolean, hasContent: boolean) {
   }, [column]);
   const toggle = useCallback(() => (shown ? close() : show()), [shown, close, show]);
   const fold = useCallback((next: boolean) => setCollapsed(next), []);
-  return { shown, column, collapsed, toggle, show, close, fold };
+  return { shown, column, reserve, collapsed, toggle, show, close, fold };
 }
 
 export type SummaryCardControl = ReturnType<typeof useSummaryCard>;
