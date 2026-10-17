@@ -138,8 +138,8 @@ actor ClaudeConnection: ConversationProviderConnection {
             for id in echoes {
                 if let waiter = pendingSends.removeValue(forKey: id) {
                     sendDeadlines.removeValue(forKey: id)?.cancel()
-                    try emit(.init(kind: .turn, turnID: .init(rawValue: id), state: "running", rawPayload: raw))
                     waiter.resume(returning: raw)
+                    try emit(.init(kind: .turn, turnID: .init(rawValue: id), state: "running", rawPayload: raw))
                 }
             }
         }
