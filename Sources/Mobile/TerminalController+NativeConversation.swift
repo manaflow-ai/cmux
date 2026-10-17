@@ -30,8 +30,8 @@ extension TerminalController {
                       (requested.title?.utf8.count ?? 0) <= 512 else { throw NativeConversationError.invalidPayload }
                 // Directory and destination come exclusively from the current
                 // host workspace, never from the phone's serialized request.
-                let directory = workspace.presentedCurrentDirectory
-                guard directory.hasPrefix("/"), !directory.contains("\0") else {
+                guard let directory = workspace.presentedCurrentDirectory,
+                      directory.hasPrefix("/"), !directory.contains("\0") else {
                     throw NativeConversationError.unsupportedTarget
                 }
                 let target = try conversationTarget(workspace: workspace, directory: directory)
