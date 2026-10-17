@@ -14369,41 +14369,48 @@ fn stamped_build_commit() -> Option<&'static str> {
 /// from `start`, and returns the first frame that could not be merged.
 ///
 /// `recv` waits for the next frame until the given deadline. Output that ends
-/// in a line erase is the first write of a redraw, so it waits out the longer
-/// window rather than paint a blank line on its own.
+/// with its line erased is the first write of a redraw, so it waits up to the
+/// longer window for the rest rather than paint a blank line on its own, and
+/// is sent as soon as more output arrives.
 fn coalesce_attach_output(
     frame: &mut AttachFrame,
     start: Instant,
     mut recv: impl FnMut(Instant) -> Result<AttachFrame, std::sync::mpsc::RecvTimeoutError>,
 ) -> Option<AttachFrame> {
     let mut deadline = start + ATTACH_OUTPUT_COALESCE_WINDOW;
+    let erased_line_deadline = start + ATTACH_OUTPUT_ERASED_LINE_WINDOW;
     loop {
         match recv(deadline) {
             Ok(next) => {
                 if let Err(next) = try_merge_attach_output(frame, next) {
                     return Some(next);
                 }
+                if deadline == erased_line_deadline && !attach_output_ends_with_blank_line(frame) {
+                    return None;
+                }
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout)
-                if deadline < start + ATTACH_OUTPUT_ERASED_LINE_WINDOW
-                    && attach_output_ends_after_line_erase(frame) =>
+                if deadline < erased_line_deadline && attach_output_ends_with_blank_line(frame) =>
             {
-                deadline = start + ATTACH_OUTPUT_ERASED_LINE_WINDOW;
+                deadline = erased_line_deadline;
             }
             Err(_) => return None,
         }
     }
 }
 
-/// Whether output stops right after erasing to the end of the line. Bash's
-/// `bind -x` writes `\r\e[K\r` before running the command and redraws the
-/// prompt only afterwards, so a frame that ends there shows a blank line.
-fn attach_output_ends_after_line_erase(frame: &AttachFrame) -> bool {
+/// Whether output stops right after erasing its whole line. Bash's `bind -x`
+/// writes `\r\e[K\r` before running the command and redraws the prompt only
+/// afterwards, so a frame that ends there shows a blank line. An erase after
+/// text on the line (a mid-line edit) leaves the line drawn and does not count.
+fn attach_output_ends_with_blank_line(frame: &AttachFrame) -> bool {
     let AttachFrame::Output(bytes) = frame else {
         return false;
     };
     let end = bytes.iter().rposition(|&byte| byte != b'\r').map_or(0, |index| index + 1);
-    [b"\x1b[K".as_slice(), b"\x1b[0K", b"\x1b[2K"].iter().any(|erase| bytes[..end].ends_with(erase))
+    let bytes = &bytes[..end];
+    bytes.ends_with(b"\x1b[2K")
+        || [b"\r\x1b[K".as_slice(), b"\r\x1b[0K"].iter().any(|erase| bytes.ends_with(erase))
 }
 
 /// Merges a following PTY output chunk without crossing a state transition.
@@ -14683,17 +14690,38 @@ mod tests {
         // redraw starts; a scheduler stall can put that clear alone past the
         // normal window. The blank line must not be sent as its own frame.
         let redraw = b"\x1b[?2026h\r$ git status\x1b[?2026l".to_vec();
-        let (frame, pending, _) = coalesce_with_arrivals(
+        let (frame, pending, deadlines) = coalesce_with_arrivals(
             b"\r\x1b[K\r",
             vec![(Duration::from_millis(2), AttachFrame::Output(redraw.clone()))],
         );
         assert_eq!(frame, AttachFrame::Output([b"\r\x1b[K\r".as_slice(), &redraw].concat()));
         assert_eq!(pending, None);
+        // The redraw ends the hold; the frame does not wait out the long window.
+        assert_eq!(
+            deadlines,
+            vec![ATTACH_OUTPUT_COALESCE_WINDOW, ATTACH_OUTPUT_ERASED_LINE_WINDOW]
+        );
+    }
+
+    #[test]
+    fn attach_output_coalescer_does_not_hold_a_mid_line_erase() {
+        // Readline ends a mid-line delete with an erase after the redrawn
+        // text; that line is drawn, so it keeps the short window.
+        let (frame, pending, deadlines) = coalesce_with_arrivals(
+            b"\x08ommit\x1b[K\x1b[6D",
+            vec![(Duration::from_millis(2), AttachFrame::Output(b"x".to_vec()))],
+        );
+        assert_eq!(frame, AttachFrame::Output(b"\x08ommit\x1b[K\x1b[6D".to_vec()));
+        assert_eq!(pending, None);
+        assert_eq!(deadlines, vec![ATTACH_OUTPUT_COALESCE_WINDOW]);
+
+        let (_, _, deadlines) = coalesce_with_arrivals(b"git\x1b[K", Vec::new());
+        assert_eq!(deadlines, vec![ATTACH_OUTPUT_COALESCE_WINDOW]);
     }
 
     #[test]
     fn attach_output_coalescer_does_not_hold_ordinary_output() {
-        // Echoed text gets only the short window, so typing latency is unchanged.
+        // Echoed text gets only the short window (at most 750 us added).
         let (frame, pending, deadlines) = coalesce_with_arrivals(
             b"g",
             vec![(Duration::from_millis(2), AttachFrame::Output(b"it".to_vec()))],
