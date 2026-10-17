@@ -23,6 +23,11 @@ public actor AgentChatTranscriptTailer {
         /// The transcript was truncated/replaced and the seq space
         /// restarted; clients must re-anchor.
         public var didReset = false
+
+        /// Updated token/context/allowance state, when a transcript line
+        /// changed it. This is independent of message batches because a
+        /// provider can publish a usage-only line.
+        public let usage: ChatUsageTotals?
     }
 
     private let sessionID: String
@@ -35,6 +40,8 @@ public actor AgentChatTranscriptTailer {
 
     private var cache: [ChatMessage] = []
     private var parseState = ChatTranscriptParseState()
+    private var usageAccumulator = ChatUsageAccumulator()
+    private var usageSnapshot: ChatUsageTotals?
     private var byteOffset: UInt64 = 0
     private var lineCount = 0
     /// Identity (inode) of the file last read, so an atomic replace /
@@ -152,7 +159,8 @@ public actor AgentChatTranscriptTailer {
         // history is on your Mac" cell instead of looping.
         return ChatHistoryPage(
             messages: page,
-            hasMore: start > eligible.startIndex || headTruncated
+            hasMore: start > eligible.startIndex || headTruncated,
+            usage: currentUsageSnapshot
         )
     }
 
@@ -202,6 +210,8 @@ public actor AgentChatTranscriptTailer {
             lines.append(String(decoding: data[range], as: UTF8.self))
         }
         let outcome = parse(lines: lines, startingSeq: parseStartLine)
+        ingestUsage(lines)
+        usageSnapshot = currentUsageSnapshot
         cache = outcome.messages
         parseState = outcome.state
         trimCacheIfNeeded()
@@ -228,13 +238,21 @@ public actor AgentChatTranscriptTailer {
             pendingFragment = Data()
             cache = []
             parseState = ChatTranscriptParseState()
+            usageAccumulator = ChatUsageAccumulator()
+            usageSnapshot = nil
             headTruncated = false
             // A rotated/replaced transcript (e.g. `claude --resume` rewriting
             // the file) carries a new first prompt; allow it to be rediscovered
             // and re-emitted as the title instead of keeping the stale one.
             reportedTitle = false
             loadInitialTail()
-            await onBatch(Batch(appended: [], updated: [], discoveredTitle: nil, didReset: true))
+            await onBatch(Batch(
+                appended: [],
+                updated: [],
+                discoveredTitle: nil,
+                didReset: true,
+                usage: nil
+            ))
             return
         }
         guard size > byteOffset else { return }
@@ -255,6 +273,10 @@ public actor AgentChatTranscriptTailer {
 
         let startingSeq = lineCount
         lineCount += lines.count
+        let previousUsage = usageSnapshot
+        ingestUsage(lines)
+        let nextUsage = currentUsageSnapshot
+        usageSnapshot = nextUsage
         let outcome = parse(lines: lines, startingSeq: startingSeq)
         parseState = outcome.state
         var updated = outcome.updatedMessages
@@ -267,7 +289,7 @@ public actor AgentChatTranscriptTailer {
         trimCacheIfNeeded()
         // Updates for messages that already fell out of the cache are still
         // pushed: a live client may hold them in its window.
-        guard !outcome.messages.isEmpty || !updated.isEmpty else { return }
+        guard !outcome.messages.isEmpty || !updated.isEmpty || previousUsage != nextUsage else { return }
         var discoveredTitle: String?
         if !reportedTitle, let title {
             reportedTitle = true
@@ -278,7 +300,8 @@ public actor AgentChatTranscriptTailer {
             Batch(
                 appended: outcome.messages,
                 updated: updated,
-                discoveredTitle: discoveredTitle
+                discoveredTitle: discoveredTitle,
+                usage: previousUsage == nextUsage ? nil : nextUsage
             )
         )
     }
@@ -372,7 +395,8 @@ public actor AgentChatTranscriptTailer {
             appended: didReset ? cache : appended,
             updated: didReset ? [] : updated,
             discoveredTitle: discoveredTitle,
-            didReset: didReset
+            didReset: didReset,
+            usage: nil
         ))
     }
 
@@ -1059,6 +1083,28 @@ public actor AgentChatTranscriptTailer {
         case .claude, .other:
             return ClaudeTranscriptParser().parse(lines: lines, startingSeq: startingSeq, state: parseState)
         }
+    }
+
+    /// Folds raw transcript lines into the provider-neutral usage model. The
+    /// parser is deliberately independent from message extraction, so a usage
+    /// line that carries no visible card still reaches the mobile surface.
+    private func ingestUsage(_ lines: some Sequence<String>) {
+        switch agentKind {
+        case .codex:
+            usageAccumulator.ingest(codexLines: lines)
+        case .claude, .other:
+            usageAccumulator.ingest(claudeLines: lines)
+        }
+    }
+
+    private var currentUsageSnapshot: ChatUsageTotals? {
+        let totals = usageAccumulator.totals
+        guard !totals.usage.isEmpty
+            || totals.contextTokens != nil
+            || totals.contextWindowTokens != nil
+            || totals.rateLimit != nil
+        else { return nil }
+        return totals
     }
 
     /// The inode of a path, or nil when it can't be stat'd. Used to spot

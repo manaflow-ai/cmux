@@ -131,6 +131,7 @@ public struct ChatUsageAccumulator: Sendable {
     private var codexSessionID: String?
     private var codexThreadID: String?
     private var codexTranscriptInheritsHistory = false
+    private var contextTokens: Int?
     private var contextWindowTokens: Int?
     private var rateLimit: ChatUsageRateLimit?
 
@@ -182,6 +183,7 @@ public struct ChatUsageAccumulator: Sendable {
             duplicateReports: duplicateReports,
             unidentifiedReports: unidentifiedReports,
             cumulativeUsageIsAmbiguous: cumulativeUsageIsAmbiguous,
+            contextTokens: contextTokens,
             contextWindowTokens: contextWindowTokens,
             rateLimit: rateLimit
         )
@@ -273,6 +275,7 @@ public struct ChatUsageAccumulator: Sendable {
             )
             Self.incrementSaturating(&claudeResponseCount)
             claudeUsage += usage
+            contextTokens = usage.inputTokens
             return
         }
 
@@ -283,6 +286,7 @@ public struct ChatUsageAccumulator: Sendable {
         Self.incrementSaturating(&duplicateReports)
         guard Self.isLargerClaudeReport(usage, than: counted.usage) else { return }
         claudeUsage += Self.difference(usage, counted.usage)
+        contextTokens = usage.inputTokens
         let modelBucket: String?
         if counted.model == model {
             addToClaudeModelBucket(counted.modelBucket, Self.difference(usage, counted.usage))
@@ -506,6 +510,16 @@ public struct ChatUsageAccumulator: Sendable {
         }
         if let window = info["model_context_window"]?.int, window > 0 {
             contextWindowTokens = window
+        }
+        if let last = info["last_token_usage"], last.object != nil {
+            let total = last["total_tokens"]?.int ?? 0
+            let input = last["input_tokens"]?.int ?? 0
+            let output = last["output_tokens"]?.int ?? 0
+            let reasoning = last["reasoning_output_tokens"]?.int ?? 0
+            let reported = total > 0 ? total : input + output
+            if reported > 0 {
+                contextTokens = max(0, reported - reasoning)
+            }
         }
         readCodexCumulative(info)
         readRateLimit(payload["rate_limits"])

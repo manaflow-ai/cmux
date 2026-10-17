@@ -21,7 +21,14 @@ import Foundation
 /// session is nearly the whole thing. This type stores the three input
 /// kinds separately instead, and each extractor is responsible for
 /// converting into them.
-public struct ChatTokenUsage: Sendable, Equatable {
+public struct ChatTokenUsage: Sendable, Equatable, Codable {
+    private enum CodingKeys: String, CodingKey {
+        case freshInputTokens = "fresh_input_tokens"
+        case cacheReadTokens = "cache_read_tokens"
+        case cacheWriteTokens = "cache_write_tokens"
+        case outputTokens = "output_tokens"
+        case reasoningOutputTokens = "reasoning_output_tokens"
+    }
     /// Input tokens that were neither served from nor written to the cache.
     public var freshInputTokens: Int
 

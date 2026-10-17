@@ -7,7 +7,18 @@ import Foundation
 /// apply, and a decision about how stale a bundled table may get. Those
 /// are product decisions, so this type stops at counts and leaves them to
 /// the caller.
-public struct ChatUsageTotals: Sendable, Equatable {
+public struct ChatUsageTotals: Sendable, Equatable, Codable {
+    private enum CodingKeys: String, CodingKey {
+        case usage
+        case usageByModel = "usage_by_model"
+        case responses
+        case duplicateReports = "duplicate_reports"
+        case unidentifiedReports = "unidentified_reports"
+        case cumulativeUsageIsAmbiguous = "cumulative_usage_is_ambiguous"
+        case contextTokens = "context_tokens"
+        case contextWindowTokens = "context_window_tokens"
+        case rateLimit = "rate_limit"
+    }
     /// Usage summed over every distinct API response in the transcript.
     public var usage: ChatTokenUsage
 

@@ -6,7 +6,12 @@ import Foundation
 /// does not put limit state in its transcript at all, so this stays `nil`
 /// for Claude sessions; the absence is the honest answer rather than a
 /// zero. Fields inside a Codex snapshot are independently optional too.
-public struct ChatUsageRateLimit: Sendable, Equatable {
+public struct ChatUsageRateLimit: Sendable, Equatable, Codable {
+    private enum CodingKeys: String, CodingKey {
+        case primary
+        case secondary
+        case spendControlReached = "spend_control_reached"
+    }
     /// The short window, when the provider reports it.
     public var primary: Window?
 

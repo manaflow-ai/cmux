@@ -27,6 +27,10 @@ public enum ChatSessionEvent: Sendable, Equatable {
     /// prose lands via ``appended``, so it never duplicates a real message.
     case streamingProse(ChatMessage?)
 
+    /// Provider-reported token, context, and allowance state changed.
+    /// Optional and additive so older hosts and clients can ignore it.
+    case usageChanged(ChatUsageTotals)
+
     /// The producing transcript was truncated or replaced; the session's
     /// seq space restarted and clients must re-anchor from history.
     case reset
@@ -45,6 +49,7 @@ extension ChatSessionEvent: Codable {
         case descriptor
         case blocks
         case version
+        case usage
     }
 
     private enum EventName: String {
@@ -55,6 +60,7 @@ extension ChatSessionEvent: Codable {
         case sessionRemoved = "session_removed"
         case terminalBlocks = "terminal_blocks"
         case streamingProse = "streaming_prose"
+        case usageChanged = "usage_changed"
         case reset
     }
 
@@ -76,6 +82,8 @@ extension ChatSessionEvent: Codable {
             self = .terminalBlocks(try container.decode([TerminalCommandBlock].self, forKey: .blocks))
         case .streamingProse:
             self = .streamingProse(try container.decodeIfPresent(ChatMessage.self, forKey: .message))
+        case .usageChanged:
+            self = .usageChanged(try container.decode(ChatUsageTotals.self, forKey: .usage))
         case .reset:
             self = .reset
         case .none:
@@ -110,6 +118,9 @@ extension ChatSessionEvent: Codable {
         case .streamingProse(let message):
             try container.encode(EventName.streamingProse.rawValue, forKey: .event)
             try container.encodeIfPresent(message, forKey: .message)
+        case .usageChanged(let usage):
+            try container.encode(EventName.usageChanged.rawValue, forKey: .event)
+            try container.encode(usage, forKey: .usage)
         case .reset:
             try container.encode(EventName.reset.rawValue, forKey: .event)
         case .unknown(let raw):

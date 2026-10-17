@@ -836,7 +836,8 @@ final class AgentChatTranscriptService {
         cmuxDebugLog(
             "agentChat.transcript.batch session=\(sessionID.prefix(8)) "
             + "appended=\(batch.appended.count) updated=\(batch.updated.count) "
-            + "reset=\(batch.didReset ? 1 : 0) title=\(batch.discoveredTitle != nil ? 1 : 0)"
+            + "reset=\(batch.didReset ? 1 : 0) title=\(batch.discoveredTitle != nil ? 1 : 0) "
+            + "usage=\(batch.usage != nil ? 1 : 0)"
         )
         #endif
         if batch.didReset {
@@ -869,6 +870,12 @@ final class AgentChatTranscriptService {
             emit(frame: ChatSessionEventFrame(
                 sessionID: sessionID,
                 event: .updated(batch.updated),
+            ))
+        }
+        if let usage = batch.usage {
+            emit(frame: ChatSessionEventFrame(
+                sessionID: sessionID,
+                event: .usageChanged(usage),
             ))
         }
         updateLatestTranscriptSeq(sessionID: sessionID, messages: batch.appended + batch.updated)
