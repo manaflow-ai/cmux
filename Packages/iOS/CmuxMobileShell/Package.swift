@@ -20,6 +20,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
+        .package(path: "../../Shared/CmuxConversation"),
         .package(path: "../../Shared/CmuxTerminalSizing"),
         .package(path: "../../Shared/CmuxWorkspacePresence"),
         .package(path: "../../Shared/CmuxAgentChat"),
@@ -40,6 +41,7 @@ let package = Package(
             name: "CmuxMobileShell",
             dependencies: [
                 "CMUXMobileCore",
+                "CmuxConversation",
                 "CmuxTerminalSizing",
                 "CmuxWorkspacePresence",
                 "CmuxAgentChat",

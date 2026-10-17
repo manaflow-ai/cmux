@@ -165,6 +165,7 @@ class TerminalController {
     /// through `v2MainSync`; it never exposes Stack credentials to the socket.
     @MainActor private(set) var codeRouterHandoffService: (any CodeRouterHandoffMinting)?
     @MainActor private(set) var caffeineController: CaffeineController?
+    @MainActor var nativeConversationService: NativeConversationService?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     /// App-lifetime automation engine, attached by the composition root after
     /// the initial TabManager and notification store are ready.
@@ -15563,6 +15564,8 @@ class TerminalController {
 #endif
         case "mobile.attach_ticket.create":
             result = await v2MobileAttachTicketCreate(params: request.params)
+        case let method where method.hasPrefix("mobile.conversation."):
+            result = await v2MobileConversationDispatch(method: method, params: request.params)
         case "mobile.workspace.list":
             // The v2 method carries the authenticated host identity with the
             // workspace snapshot so a cold reconnect does not need a second

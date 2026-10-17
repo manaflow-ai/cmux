@@ -1310,6 +1310,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
+    @ObservationIgnored var conversationStorage: [String: MobileConversationStorage] = [:]
     /// Whether legacy connected-but-clientless shells use local iOS workspace creation.
     public var usesLocalWorkspaceCreationFallback: Bool {
         remoteClient == nil && connectionState == .connected

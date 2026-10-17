@@ -3,7 +3,7 @@ public import Foundation
 
 /// The native conversation client for one authenticated Mac and its workspaces.
 /// Outbox files must be scoped by account and host identity by the composition root.
-public actor MobileConversationClient: ConversationClient {
+public actor MobileConversationClient: ConversationArtifactClient {
     private let rpc: MobileConversationRPC
     private let workspaceIDs: Set<String>
     private let outbox: MobileConversationOutbox
@@ -201,6 +201,19 @@ public actor MobileConversationClient: ConversationClient {
 
     public func receipt(sessionID: ConversationID, commandID: ConversationCommandID) async throws -> ConversationReceipt? {
         try await receipt(ConversationReceiptQuery(sessionID: sessionID, commandID: commandID))
+    }
+
+    public func artifactChunk(_ query: ConversationArtifactQuery) async throws -> ConversationArtifactChunk {
+        let workspaceID = try await workspace(for: query.sessionID)
+        let value: ConversationArtifactChunk = try await rpc.call("artifact", workspaceID: workspaceID, payload: query)
+        guard value.artifactID == query.artifactID, value.offset == query.offset,
+              value.totalBytes <= 16_777_216, value.data.count <= 65_536,
+              value.offset <= value.totalBytes, UInt64(value.data.count) <= value.totalBytes - value.offset,
+              value.offset == 0 || value.sha256 == query.expectedSHA256,
+              !value.data.isEmpty || value.offset == value.totalBytes else {
+            throw MobileConversationTransportError.invalidResponse
+        }
+        return value
     }
 
     private func workspace(for sessionID: ConversationID) async throws -> String {

@@ -44,6 +44,13 @@ extension MobileHostService {
         "mobile.chat.send",
         "mobile.chat.session",
         "mobile.chat.sessions",
+        "mobile.conversation.list",
+        "mobile.conversation.create",
+        "mobile.conversation.snapshot",
+        "mobile.conversation.replay",
+        "mobile.conversation.command",
+        "mobile.conversation.receipt",
+        "mobile.conversation.artifact",
         "mobile.directory.list",
         "mobile.directory.search",
         "mobile.events.probe",
@@ -122,6 +129,7 @@ extension MobileHostService {
     nonisolated static func methodTransfersFiles(_ method: String) -> Bool {
         switch method {
         case "mobile.task.attachment.upload",
+             "mobile.conversation.artifact",
              "mobile.workspace.changes.file_fetch",
              "mobile.terminal.paste_image",
              "terminal.paste_image":
@@ -217,6 +225,7 @@ extension MobileHostService {
             MobileSimulatorStreamCapability.current.devicesIdentifier,
             MobileSimulatorStreamCapability.current.recoverIdentifier,
             "events.v1",
+            "conversation.v1",
             // The agent workstream feed: `feed.list` + the three reply verbs,
             // with `feed.changed` revision invalidations. iOS shows the Feed
             // tab's live content only against hosts that advertise this.

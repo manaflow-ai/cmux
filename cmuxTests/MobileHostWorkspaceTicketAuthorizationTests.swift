@@ -488,6 +488,25 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         }
     }
 
+    @Test func conversationRequestsCannotWidenATicketsWorkspaceScope() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace")
+        for operation in ["list", "create", "snapshot", "replay", "command", "receipt", "artifact"] {
+            for workspace in ["workspace", "other-workspace", ""] {
+                let request = MobileHostRPCRequest(
+                    id: operation,
+                    method: "mobile.conversation.\(operation)",
+                    params: [
+                        "workspace_id": workspace,
+                        "payload": ["sessionID": "session", "workspaceID": "workspace"],
+                    ],
+                    auth: MobileHostRPCAuth(attachToken: ticket.authToken, stackAccessToken: nil)
+                )
+                let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
+                #expect(error?.code == (workspace == "workspace" ? nil : "forbidden"))
+            }
+        }
+    }
+
     @Test func notificationFeedUsesAuthenticatedConnectionInsteadOfWorkspaceTicketScope() throws {
         let scopedTicket = try scopedAttachTicket(workspaceID: "workspace")
         let macWideTicket = try scopedAttachTicket(workspaceID: "")

@@ -659,6 +659,8 @@ final class MobileHostService {
             return payload["panel_id"] as? String
         case DeviceWorkspaceLayoutHost.eventTopic:
             return payload["workspace_id"] as? String
+        case "mobile.conversation.changed":
+            return payload["session_id"] as? String
         default:
             return nil
         }

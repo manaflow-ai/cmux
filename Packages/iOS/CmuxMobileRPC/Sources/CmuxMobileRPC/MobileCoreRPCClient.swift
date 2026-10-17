@@ -751,6 +751,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         case "mobile.conversation.list", "mobile.conversation.create",
              "mobile.conversation.snapshot", "mobile.conversation.replay",
              "mobile.conversation.command", "mobile.conversation.receipt",
+             "mobile.conversation.artifact",
              "workspace.action", "workspace.close", "mobile.surface.focus",
              "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
              "mobile.panel.artifact.thumbnail":

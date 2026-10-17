@@ -94,7 +94,7 @@ private actor ConversationConnectionProbe: MobileSyncing {
         let method = try #require(request["method"] as? String)
         let session = ConversationSession(
             id: "session", provider: .codex, title: "Task", workspaceID: "workspace", directory: "/tmp",
-            generation: "generation", state: .idle
+            generation: "generation", state: .ready
         )
         switch method {
         case "mobile.events.subscribe":

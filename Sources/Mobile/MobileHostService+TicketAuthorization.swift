@@ -62,6 +62,15 @@ extension MobileHostService {
                 authorization: authorization,
                 workspaceSelection: workspaceSelection.value
             )
+        case "mobile.conversation.list", "mobile.conversation.create",
+             "mobile.conversation.snapshot", "mobile.conversation.replay",
+             "mobile.conversation.command", "mobile.conversation.receipt", "mobile.conversation.artifact":
+            // Conversation handlers also verify the stored session belongs to
+            // this workspace; a matching client-supplied ID alone is not authority.
+            return ticketWorkspaceAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value
+            )
         case "mobile.workspace.changes.files",
              "mobile.workspace.changes.file_diff",
              "mobile.workspace.changes.file_stat",

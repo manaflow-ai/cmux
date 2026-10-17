@@ -228,6 +228,7 @@ struct ManagedCapabilityPolicyGateTests {
 
     @Test(arguments: [
         ("mobile.task.attachment.upload", true),
+        ("mobile.conversation.artifact", true),
         ("mobile.workspace.changes.file_fetch", true),
         ("mobile.terminal.paste_image", true),
         ("terminal.paste_image", true),

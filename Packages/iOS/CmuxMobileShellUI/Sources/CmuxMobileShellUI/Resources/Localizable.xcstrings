@@ -23392,6 +23392,65 @@
           }
         }
       }
+    },
+    "conversation.error.storage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved command status could not be read. Tasks are paused to protect unsent work."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der gespeicherte Befehlsstatus konnte nicht gelesen werden. Aufgaben wurden pausiert, um ungesendete Arbeit zu schützen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’état enregistré des commandes n’a pas pu être lu. Les tâches sont suspendues pour protéger le travail non envoyé."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّرت قراءة حالة الأوامر المحفوظة. أُوقفت المهام مؤقتًا لحماية العمل غير المرسل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer el estado guardado de los comandos. Las tareas están en pausa para proteger el trabajo sin enviar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取已儲存的指令狀態。工作已暫停，以保護尚未傳送的內容。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取已保存的命令状态。任务已暂停，以保护尚未发送的内容。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장된 명령 상태를 읽을 수 없습니다. 전송하지 않은 작업을 보호하기 위해 작업을 일시 정지했습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存されたコマンドの状態を読み取れませんでした。未送信の内容を保護するためタスクを一時停止しています。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
