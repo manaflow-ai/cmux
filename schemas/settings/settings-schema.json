@@ -10400,7 +10400,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.densityMotion",
@@ -24998,7 +24998,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "c1ce3b0c50566737ac5a0162976f137cfeb0c83b8446d2e6bbcba49a0aa7c824",
+  "schema_hash" : "138b04109ebc092b88f8ae012bcce9abaf1d8f4dd7ac31297eb818a9251d2d1d",
   "sections" : [
     {
       "id" : "general",
