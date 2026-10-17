@@ -247,6 +247,8 @@ jobs:
           final_cycle_reserve_minutes=10
           evidence_reserve_minutes=15
           poll_interval_minutes=5
+          reserve_minutes=$((setup_reserve_minutes + final_cycle_reserve_minutes + evidence_reserve_minutes))
+          echo "Configured recovery reserve: ${reserve_minutes} minutes"
           # Keep these reserves synchronized with timeout-minutes above. The
           # deadline starts after setup, while the job timeout also covers
           # setup and the always-run evidence upload.
@@ -654,6 +656,8 @@ jobs:
           final_cycle_reserve_minutes=10
           evidence_reserve_minutes=15
           poll_interval_minutes=5
+          reserve_minutes=$((setup_reserve_minutes + final_cycle_reserve_minutes + evidence_reserve_minutes))
+          echo "Configured recovery reserve: ${reserve_minutes} minutes"
           # Keep these reserves synchronized with timeout-minutes above. The
           # deadline starts after setup, while the job timeout also covers
           # setup and the always-run evidence upload.
