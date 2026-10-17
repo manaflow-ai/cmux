@@ -1,5 +1,5 @@
 // l10n-allow-file: DEV gallery Run board design prototype, not shipped UI.
-import { useReducer, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { sessionSummary } from "../summary/sessionSummary";
 import {
   canApprove,
@@ -10,8 +10,25 @@ import {
   type RunAttempt,
   type RunBoardSnapshot,
 } from "./model";
+import {
+  RunBoardApiSession,
+  type AttachTicket,
+  type AttachTicketIntent,
+  type RunApiClient,
+} from "./runApi";
 
-export type RunBoardProps = { snapshot: RunBoardSnapshot; recovered: RunBoardSnapshot; disconnected?: boolean };
+export type RunBoardProps = {
+  snapshot: RunBoardSnapshot;
+  recovered: RunBoardSnapshot;
+  disconnected?: boolean;
+  /** When supplied, the board loads and replays the durable Run control-plane API. */
+  client?: RunApiClient;
+  /** Host bridge that turns an attempt selection into a short-lived terminal attach ticket. */
+  onAttach?: (intent: AttachTicketIntent) => Promise<AttachTicket | void>;
+  /** Human approval is intentionally a callback; the board never integrates by itself. */
+  onApprove?: (intent: NonNullable<ReturnType<typeof reduceBoard>["approval"]>) => Promise<void>;
+  pollMs?: number;
+};
 
 function AttemptCard({
   attempt,
@@ -119,15 +136,109 @@ function WorkspacePreview({ attempt }: { attempt: RunAttempt }) {
   );
 }
 
-export function RunBoard({ snapshot, recovered, disconnected = false }: RunBoardProps) {
+export function RunBoard({ snapshot, recovered, disconnected = false, client, onAttach, onApprove, pollMs = 4_000 }: RunBoardProps) {
   const [state, dispatch] = useReducer(reduceBoard, undefined, () => initialBoard(snapshot, disconnected));
   const [tab, setTab] = useState<"preview" | "activity">("preview");
+  const [apiError, setApiError] = useState<string>();
+  const [actionPending, setActionPending] = useState<"attach" | "approve">();
+  const stateRef = useRef<ReturnType<typeof initialBoard> | undefined>(undefined);
+  stateRef.current = state;
+  const apiSession = useRef<RunBoardApiSession | undefined>(undefined);
+  const apiClient = useRef<RunApiClient | undefined>(undefined);
+  const apiRunId = useRef<string | undefined>(undefined);
+  const reconnect = useCallback(async () => {
+    if (!client) {
+      dispatch({ type: "receive", snapshot: recovered });
+      return;
+    }
+    const session = apiSession.current;
+    if (!session) return;
+    try {
+      setApiError(undefined);
+      const next = await session.snapshotAndReplay();
+      dispatch({ type: "receive", snapshot: next });
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : String(error));
+    }
+  }, [client, recovered]);
+
+  useEffect(() => {
+    if (!client || (apiClient.current === client && apiRunId.current === snapshot.id)) return;
+    apiClient.current = client;
+    apiRunId.current = snapshot.id;
+    apiSession.current = new RunBoardApiSession(snapshot.id, client);
+  }, [client, snapshot.id]);
+
+  useEffect(() => {
+    if (!client || disconnected || !apiSession.current) return;
+    let active = true;
+    const refresh = async () => {
+      const session = apiSession.current;
+      if (!session || !active) return;
+      try {
+        const next = await session.replay(stateRef.current?.snapshot ?? snapshot);
+        if (active) dispatch({ type: "receive", snapshot: next });
+      } catch (error) {
+        if (active) setApiError(error instanceof Error ? error.message : String(error));
+      }
+    };
+    void (async () => {
+      const session = apiSession.current;
+      if (!session) return;
+      try {
+        const next = await session.snapshotAndReplay();
+        if (active) dispatch({ type: "receive", snapshot: next });
+      } catch (error) {
+        if (active) setApiError(error instanceof Error ? error.message : String(error));
+      }
+    })();
+    const timer = pollMs > 0 ? setInterval(() => void refresh(), pollMs) : undefined;
+    return () => {
+      active = false;
+      if (timer) clearInterval(timer);
+    };
+  }, [client, disconnected, pollMs]);
+
   const attempt = selectedAttempt(state);
   const approved = state.snapshot.attempts.find((item) => item.id === state.approval?.attemptId);
   const done = state.snapshot.attempts.filter((item) => evidenceReady(item)).length;
   const reviewed = Boolean(state.reviewed);
+  const attach = async () => {
+    if (!attempt || state.connection !== "live" || actionPending) return;
+    const intent: AttachTicketIntent = {
+      runId: state.snapshot.id,
+      attemptId: attempt.id,
+      sessionId: attempt.sessionId,
+      cursor: state.snapshot.cursor,
+    };
+    try {
+      setApiError(undefined);
+      setActionPending("attach");
+      const ticket = await onAttach?.(intent);
+      dispatch({ type: "attach", ...(ticket ? { ticket } : {}) });
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setActionPending(undefined);
+    }
+  };
+  const approve = async () => {
+    if (!canApprove(state) || actionPending) return;
+    const candidate = reduceBoard(state, { type: "approve" }).approval;
+    if (!candidate) return;
+    try {
+      setApiError(undefined);
+      setActionPending("approve");
+      await onApprove?.(candidate);
+      dispatch({ type: "approve" });
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setActionPending(undefined);
+    }
+  };
   return (
-    <main className="run-board" data-connection={state.connection} data-approved={state.approval?.attemptId ?? ""}>
+    <main className="run-board" data-connection={state.connection} data-approved={state.approval?.attemptId ?? ""} data-api-error={apiError ?? ""}>
       <header className="run-board-header">
         <div>
           <div className="run-board-eyebrow">
@@ -157,11 +268,12 @@ export function RunBoard({ snapshot, recovered, disconnected = false }: RunBoard
             <strong>Your workers are still running.</strong>
             <span>Showing the last saved events. Reconnect to recover every attempt.</span>
           </div>
-          <button type="button" onClick={() => dispatch({ type: "receive", snapshot: recovered })}>
+          <button type="button" onClick={() => void reconnect()}>
             Reconnect and replay
           </button>
         </div>
       )}
+      {apiError && <p className="run-board-api-error" role="alert">{apiError}</p>}
       <section className="run-board-attempts" aria-label="Independent attempts">
         {state.snapshot.attempts.map((item) => (
           <AttemptCard
@@ -192,10 +304,10 @@ export function RunBoard({ snapshot, recovered, disconnected = false }: RunBoard
             <button
               className="run-board-attach"
               type="button"
-              disabled={state.connection !== "live"}
-              onClick={() => dispatch({ type: "attach" })}
+              disabled={state.connection !== "live" || actionPending === "attach"}
+              onClick={() => void attach()}
             >
-              {state.attached === attempt.id ? "Attached to agent" : "Attach to agent"}
+              {actionPending === "attach" ? "Attaching…" : state.attached === attempt.id ? "Attached to agent" : "Attach to agent"}
               <span aria-hidden="true">↗</span>
             </button>
           </div>
@@ -268,8 +380,8 @@ export function RunBoard({ snapshot, recovered, disconnected = false }: RunBoard
               />
               I reviewed this attempt
             </label>
-            <button type="button" disabled={!canApprove(state)} onClick={() => dispatch({ type: "approve" })}>
-              {state.approval ? "Approval recorded" : "Approve for integration"}
+            <button type="button" disabled={!canApprove(state) || actionPending === "approve"} onClick={() => void approve()}>
+              {actionPending === "approve" ? "Recording approval…" : state.approval ? "Approval recorded" : "Approve for integration"}
             </button>
           </footer>
         </section>

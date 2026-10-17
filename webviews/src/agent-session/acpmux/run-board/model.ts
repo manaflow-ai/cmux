@@ -34,18 +34,28 @@ export type RunBoardSnapshot = {
 
 export type ApprovalIntent = { runId: string; attemptId: string; cursor: string; digests: string[] };
 
+export type AttachTicket = {
+  runId: string;
+  attemptId: string;
+  sessionId: string;
+  cursor: string;
+  ticket?: string;
+  expiresAt?: string;
+};
+
 export type RunBoardState = {
   snapshot: RunBoardSnapshot;
   connection: "live" | "disconnected";
   selected: string;
   attached?: string;
+  attachTicket?: AttachTicket;
   reviewed?: string;
   approval?: ApprovalIntent;
 };
 
 export type RunBoardAction =
   | { type: "select"; attemptId: string }
-  | { type: "attach" }
+  | { type: "attach"; ticket?: AttachTicket }
   | { type: "review"; checked: boolean }
   | { type: "approve" }
   | { type: "disconnect" }
@@ -95,7 +105,9 @@ export function reduceBoard(state: RunBoardState, action: RunBoardAction): RunBo
         ? { ...state, selected: action.attemptId, reviewed: undefined }
         : state;
     case "attach":
-      return attempt && state.connection === "live" ? { ...state, attached: attempt.id } : state;
+      return attempt && state.connection === "live"
+        ? { ...state, attached: attempt.id, attachTicket: action.ticket }
+        : state;
     case "review":
       return {
         ...state,
