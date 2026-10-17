@@ -44,6 +44,21 @@ SKIP_NOTARIZATION="${CMUX_SKIP_NOTARIZATION:-false}"
 # replaces the first DMG only after Apple accepts it and it is stapled.
 # false keeps one DMG submission (notary tests that publish nothing).
 STAPLE_APP_IN_DMG="${CMUX_STAPLE_APP_IN_DMG:-true}"
+# Fallback (chief 2026-10-16): when Apple has not accepted the stapled-app DMG
+# within CMUX_STAPLED_APP_FALLBACK_SECONDS (6 h) of its first submission, a
+# continuation publishes the FIRST DMG (notarized and stapled; the app inside
+# has no ticket of its own) with a ::warning:: that names the pending
+# submission. The clock is Apple's own record: the earliest submission named
+# <immutable name>-stapled-app.dmg (or the submit time in the state), so the
+# handed-off and the recovery paths count from the same time. An unstapled DMG
+# is never published. The first DMG travels beside a handed-off stapled-app
+# DMG as <release name>.first.dmg.
+STAPLED_APP_FALLBACK_SECONDS="${CMUX_STAPLED_APP_FALLBACK_SECONDS:-21600}"
+case "$STAPLED_APP_FALLBACK_SECONDS" in
+  ''|*[!0-9]*) echo "CMUX_STAPLED_APP_FALLBACK_SECONDS must be a number of seconds" >&2; exit 2 ;;
+esac
+STAPLED_APP_FALLBACK=false
+STAPLED_APP_FALLBACK_ID=""
 case "$STAPLE_APP_IN_DMG" in
   true|false) ;;
   *) echo "CMUX_STAPLE_APP_IN_DMG must be true or false, got: $STAPLE_APP_IN_DMG" >&2; exit 2 ;;
@@ -67,6 +82,8 @@ case "$CHANNEL" in
     ;;
 esac
 APP_ENTITLEMENTS="${CMUX_APP_ENTITLEMENTS:-$ROOT_DIR/$ENTITLEMENTS_NAME}"
+FIRST_DMG="${DMG_RELEASE%.dmg}.first.dmg"
+STAPLED_DMG_NAME="$(basename "${DMG_IMMUTABLE%.dmg}")-stapled-app.dmg"
 # A later nightly-next run continues an earlier run's submission: the state file
 # it saved names the Apple submission and the exact signed DMG. The DMG is not
 # rebuilt or resubmitted; Apple is asked for the status, an Accepted one is
@@ -292,6 +309,51 @@ if values:
 PY
 }
 
+# stapled_app_deadline_passed [recorded epoch]: true when the earliest
+# stapled-app submission of this build (Apple's history, or the recorded
+# epoch) is CMUX_STAPLED_APP_FALLBACK_SECONDS old. Sets STAPLED_APP_FALLBACK_ID
+# to the newest such submission. Unknown (history unreadable, nothing
+# recorded) is not passed: the build keeps waiting.
+stapled_app_deadline_passed() {
+  local recorded="${1:-}" history="$NOTARY_DIR/history.json" verdict
+  "$XCRUN_TOOL" notarytool history "${NOTARY_AUTH_ARGS[@]}" --output-format json >"$history" 2>/dev/null || : >"$history"
+  verdict="$(python3 - "$history" "$STAPLED_DMG_NAME" "$recorded" "$STAPLED_APP_FALLBACK_SECONDS" <<'PY'
+import datetime, json, sys, time
+path, name, recorded, limit = sys.argv[1:]
+try:
+    entries = json.load(open(path, encoding="utf-8")).get("history") or []
+except (OSError, ValueError, AttributeError):
+    entries = []
+times, newest = [], ("", 0.0)
+for entry in entries:
+    if not isinstance(entry, dict) or entry.get("name") != name:
+        continue
+    try:
+        created = datetime.datetime.fromisoformat(str(entry.get("createdDate", "")).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        continue
+    times.append(created)
+    if created >= newest[1]:
+        newest = (str(entry.get("id") or ""), created)
+if recorded.isdigit():
+    times.append(float(recorded))
+if not times:
+    print("unknown -")
+else:
+    age = time.time() - min(times)
+    print(("passed" if age >= int(limit) else "waiting"), newest[0] or "-", int(age))
+PY
+)"
+  echo "Stapled-app DMG clock for $STAPLED_DMG_NAME: $verdict (limit ${STAPLED_APP_FALLBACK_SECONDS}s)"
+  case "$verdict" in
+    passed\ *)
+      STAPLED_APP_FALLBACK_ID="$(awk '{print $2}' <<<"$verdict")"
+      [ "$STAPLED_APP_FALLBACK_ID" != - ] || STAPLED_APP_FALLBACK_ID="unknown"
+      return 0 ;;
+  esac
+  return 1
+}
+
 DMG_SUBMIT_ID="$(extract_notary_value "$NOTARY_SUBMIT_OUTPUT" id || true)"
 DMG_STATUS="$(extract_notary_value "$NOTARY_SUBMIT_OUTPUT" status || true)"
 if [ -z "$DMG_STATUS" ]; then
@@ -318,6 +380,9 @@ write_notary_state() {
     printf 'output_file=%s\n' "$NOTARY_OUTPUT_FILE"
     if [ "${STATE_STAPLED_APP:-false}" = true ]; then
       printf 'stapled_app=true\n'
+      printf 'first_submission_id=%s\n' "${STATE_FIRST_SUBMISSION_ID:-}"
+      printf 'first_dmg_sha256=%s\n' "${STATE_FIRST_DMG_SHA256:-}"
+      printf 'stapled_submitted_at=%s\n' "${STATE_STAPLED_SUBMITTED_AT:-}"
     fi
     if [ "$NOTARY_WAIT_TIMED_OUT" = true ]; then
       printf 'wait_timed_out=true\n'
@@ -346,7 +411,28 @@ if [ -n "$CONTINUE_STATE" ]; then
     echo "Could not read the status of Apple submission $CONTINUE_SUBMISSION_ID" >&2
     exit 1
   fi
-  if [ "$DMG_STATUS" = "In Progress" ]; then
+  if [ "$DMG_STATUS" = "In Progress" ] && [ "$STAPLE_APP_IN_DMG" = true ] && [ "${CONTINUE_STAPLED_APP:-}" = true ] \
+    && stapled_app_deadline_passed "$(state_value stapled_submitted_at)"; then
+    # The stapled-app DMG is past its deadline: publish the accepted first DMG.
+    STAPLED_APP_FALLBACK_ID="$CONTINUE_SUBMISSION_ID"
+    first_id="$(state_value first_submission_id)"
+    first_sha="$(state_value first_dmg_sha256)"
+    if ! [[ "$first_id" =~ ^[A-Za-z0-9._-]+$ ]] || [ ! -f "$FIRST_DMG" ] \
+      || [ "$(shasum -a 256 "$FIRST_DMG" | awk '{print $1}')" != "$first_sha" ]; then
+      echo "The stapled-app DMG passed its deadline, but the first DMG ($FIRST_DMG) or its record is missing or altered; nothing is published" >&2
+      exit 1
+    fi
+    first_info="$NOTARY_DIR/first-info"
+    "$XCRUN_TOOL" notarytool info "$first_id" "${NOTARY_AUTH_ARGS[@]}" --output-format json >"$first_info" 2>&1 || true
+    if [ "$(extract_notary_value "$first_info" status || true)" != Accepted ]; then
+      cat "$first_info" >&2
+      echo "The first DMG's submission $first_id is not Accepted; nothing is published" >&2
+      exit 1
+    fi
+    STAPLED_APP_FALLBACK=true
+    DMG_SUBMIT_ID="$first_id"
+    DMG_STATUS=Accepted
+  elif [ "$DMG_STATUS" = "In Progress" ]; then
     save_notary_output
     echo "Apple submission $CONTINUE_SUBMISSION_ID is still in progress; publication awaits Accepted" >&2
     if [ -n "${GITHUB_OUTPUT:-}" ]; then
@@ -443,8 +529,15 @@ fi
 # The DMG that ships carries the stapled app (CMUX_STAPLE_APP_IN_DMG, above).
 FINAL_DMG="$DMG_RELEASE"
 WROTE_ACCEPTED_STATE=false
-if [ "$STAPLE_APP_IN_DMG" = true ] && [ "${CONTINUE_STAPLED_APP:-}" = true ]; then
+if [ "$STAPLE_APP_IN_DMG" = true ] && [ "$STAPLED_APP_FALLBACK" = true ]; then
+  # Stage-2 fallback (above): the first DMG ships.
+  FINAL_DMG="$FIRST_DMG"
+elif [ "$STAPLE_APP_IN_DMG" = true ] && [ "${CONTINUE_STAPLED_APP:-}" = true ]; then
   echo "Continued submission $DMG_SUBMIT_ID is the DMG around the stapled app"
+elif [ "$STAPLE_APP_IN_DMG" = true ] && [ -n "$CONTINUE_STATE" ] && stapled_app_deadline_passed; then
+  # A continuation of the accepted first DMG whose stapled-app DMG has been
+  # submitted for 6 h without an Accepted answer: the first DMG ships.
+  STAPLED_APP_FALLBACK=true
 elif [ "$STAPLE_APP_IN_DMG" = true ]; then
   if [ -z "$CONTINUE_STATE" ]; then
     # Record the accepted first submission: when the second one fails, a
@@ -470,11 +563,13 @@ elif [ "$STAPLE_APP_IN_DMG" = true ]; then
   }
   restaple_dir="$DMG_TMP_DIR/stapled-app"
   mkdir -p "$restaple_dir/work"
-  FINAL_DMG="$restaple_dir/$(basename "$DMG_RELEASE")"
+  # Named for this build: Apple's history of this name is the fallback clock.
+  FINAL_DMG="$restaple_dir/$STAPLED_DMG_NAME"
   package_signed_dmg "$APP_PATH" "$FINAL_DMG" "$restaple_dir/work" create-keychain
   "$SIGNING_KEYCHAIN_TOOL" delete
   RESTAPLE_KEYCHAIN_OPEN=false
   restaple_output="$NOTARY_DIR/stapled-app-dmg-submit-output"
+  restaple_submitted_at="$(date +%s)"
   set +e
   "$XCRUN_TOOL" notarytool submit "$FINAL_DMG" "${NOTARY_AUTH_ARGS[@]}" \
     --output-format json --wait --timeout "$STAPLED_DMG_WAIT_TIMEOUT" >"$restaple_output" 2>&1
@@ -491,8 +586,13 @@ elif [ "$STAPLE_APP_IN_DMG" = true ]; then
         # Hand off the second submission itself: the DMG around the stapled
         # app takes the release path, and the state names its submission, so
         # a later run asks Apple about it instead of submitting a new one.
-        # The accepted first DMG is dropped: if Apple later refuses this one,
-        # the build is not published.
+        # If Apple refuses this one, the build is not published; if it is not
+        # accepted within 6 h, the first DMG is (see the fallback above).
+        # The accepted first DMG travels beside it for the 6 h fallback.
+        STATE_FIRST_SUBMISSION_ID="$DMG_SUBMIT_ID"
+        STATE_FIRST_DMG_SHA256="$(shasum -a 256 "$DMG_RELEASE" | awk '{print $1}')"
+        STATE_STAPLED_SUBMITTED_AT="$restaple_submitted_at"
+        /bin/cp "$DMG_RELEASE" "$FIRST_DMG"
         /bin/mv -f "$FINAL_DMG" "$DMG_RELEASE"
         DMG_SUBMIT_ID="$restaple_id"
         DMG_STATUS="In Progress"
@@ -541,7 +641,7 @@ if [ -z "$MOUNTED_APP" ]; then
   echo "No app found in mounted $CHANNEL DMG" >&2
   exit 1
 fi
-if [ "$STAPLE_APP_IN_DMG" = true ]; then
+if [ "$STAPLE_APP_IN_DMG" = true ] && [ "$STAPLED_APP_FALLBACK" != true ]; then
   # The shipped app has its own ticket, not only the DMG's.
   "$XCRUN_TOOL" stapler validate "$MOUNTED_APP"
 fi
@@ -558,4 +658,12 @@ if [ "$WROTE_ACCEPTED_STATE" = true ]; then
   # Nothing is pending: drop the handoff record of the first submission.
   rm -f "$NOTARY_SUBMISSION_FILE" "$NOTARY_OUTPUT_FILE"
 fi
+rm -f "$FIRST_DMG"
 cp "$DMG_RELEASE" "$DMG_IMMUTABLE"
+if [ "$STAPLED_APP_FALLBACK" = true ]; then
+  echo "::warning title=App shipped without its own ticket::Apple has not accepted the stapled-app DMG (submission $STAPLED_APP_FALLBACK_ID) within ${STAPLED_APP_FALLBACK_SECONDS}s of its first submission; the first DMG (notarized and stapled) ships, and the app inside it needs Apple's online ticket lookup."
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    echo "stapled_app_fallback=true" >> "$GITHUB_OUTPUT"
+    echo "stapled_app_pending_id=$STAPLED_APP_FALLBACK_ID" >> "$GITHUB_OUTPUT"
+  fi
+fi
