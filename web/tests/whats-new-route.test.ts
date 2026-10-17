@@ -140,8 +140,25 @@ describe("whats-new route channel targeting", () => {
         expect.objectContaining({
           detail: expect.stringContaining("0.64.25-nightly.3522337919701"),
         }),
+        expect.objectContaining({ title: "More reliable Mac connections" }),
+        expect.objectContaining({ title: "Browse from your iPhone" }),
       ]),
     });
+  });
+
+  test("keeps every 1.0.6 required action and current iOS change visible", async () => {
+    const response = await GET(new Request("https://cmux.test/api/whats-new"));
+    const payload = await response.json() as WhatsNewList;
+    const notice = payload.announcements.find(
+      (entry) => entry.id === "ios-1.0.6-connections",
+    );
+    expect(notice).toBeDefined();
+    const copy = JSON.stringify(notice);
+    expect(copy).toContain("0.64.25");
+    expect(copy).toContain("0.64.25-nightly.3522337919701");
+    expect(copy).toContain("Settings > Mobile");
+    expect(copy).toContain("update hint");
+    expect(copy).toContain("Browse from your iPhone");
   });
 
   test("serves translated release instructions with exact compatibility values", async () => {
