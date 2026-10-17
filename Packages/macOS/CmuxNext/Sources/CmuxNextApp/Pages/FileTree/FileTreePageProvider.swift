@@ -60,7 +60,7 @@ final class FileTreePageProvider: PageProvider {
         guard !trimmed.isEmpty, trimmed.count <= 256, !trimmed.contains("\u{0}") else { return ["results": .array([])] }
         do {
             let reply = try await CmuxNextSettings.JSONValue.parse(link.read("git.files.search", params: [
-                "path": .string(folder.path), "query": .string(trimmed), "limit": CmuxNextSettings.JSONValue(100),
+                "path": .string(folder.path), "query": .string(trimmed), "limit": .number(100),
             ]))
             let root = URL(fileURLWithPath: reply["root"]?.stringValue ?? folder.path, isDirectory: true).standardizedFileURL.path
             let base = folder.standardizedFileURL.path
