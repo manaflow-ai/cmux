@@ -26,6 +26,14 @@ path = "src/bin/mux2-verify.rs"
 name = "mux2-parsebench"
 path = "src/bin/mux2-parsebench.rs"
 
+[[bin]]
+name = "mux2-spawnbench"
+path = "src/bin/mux2-spawnbench.rs"
+
+[[bin]]
+name = "mux2-ctty-probe"
+path = "src/bin/mux2-ctty-probe.rs"
+
 [dependencies]
 ghostty-vt.workspace = true
 libc.workspace = true

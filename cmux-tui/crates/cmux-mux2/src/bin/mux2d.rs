@@ -570,12 +570,186 @@ impl Server {
                 );
                 self.send(id, proto::OK, text.as_bytes());
             }
+            proto::UPGRADE => {
+                // Returns only on failure: on success the process is the new binary.
+                if let Err(e) = self.upgrade(id, payload) {
+                    self.err(id, &format!("upgrade failed: {e}"));
+                }
+            }
             proto::SHUTDOWN => {
                 self.send(id, proto::OK, &[]);
                 self.shutdown = true;
             }
             _ => self.err(id, "unknown request"),
         }
+    }
+
+    /// Upgrade in place: write every terminal's state to a file, keep the
+    /// PTY and listening descriptors open across exec, and exec the new
+    /// binary with `--resume`. The pid stays the same, so programs remain
+    /// our children and their exit codes are still ours to collect.
+    fn upgrade(&mut self, requester: u32, payload: &[u8]) -> io::Result<()> {
+        let exe = if payload.is_empty() {
+            std::env::current_exe()?
+        } else {
+            std::path::PathBuf::from(OsStr::from_bytes(payload))
+        };
+        let mut state = b"MUX2S1".to_vec();
+        state.extend_from_slice(&self.next_term.to_le_bytes());
+        state.extend_from_slice(&self.listen.to_le_bytes());
+        state.extend_from_slice(&u32::try_from(self.terms.len()).expect("fits").to_le_bytes());
+        let ids: Vec<u32> = self.terms.keys().copied().collect();
+        for &t in &ids {
+            let term = self.terms.get_mut(&t).expect("listed");
+            flush_parse(term);
+            // A replay cut inside a long control string would not resume the
+            // stream exactly; refuse rather than lose state.
+            if !term.vt.vt_replay_resumes_stream() {
+                return Err(io::Error::other(format!(
+                    "terminal {t} is inside a long control sequence; retry"
+                )));
+            }
+            let replay = term
+                .vt
+                .vt_replay_bytes()
+                .map_err(|e| io::Error::other(format!("terminal {t}: {e}")))?;
+            self.flush_replies(t);
+            let term = &self.terms[&t];
+            state.extend_from_slice(&t.to_le_bytes());
+            state.extend_from_slice(&term.pid.to_le_bytes());
+            state.extend_from_slice(&term.master.to_le_bytes());
+            state.extend_from_slice(&term.cols.to_le_bytes());
+            state.extend_from_slice(&term.rows.to_le_bytes());
+            state.push(u8::from(term.exit.is_some()));
+            state.extend_from_slice(&term.exit.unwrap_or(0).to_le_bytes());
+            state.push(u8::from(term.pty_open));
+            state.extend_from_slice(&term.bytes_in.to_le_bytes());
+            let input: Vec<u8> = term.input.iter().copied().collect();
+            proto::put_bytes(&mut state, &input);
+            proto::put_bytes(&mut state, &replay);
+        }
+        let path = proto::socket_path().with_file_name(format!("state-{}", std::process::id()));
+        {
+            use std::io::Write as _;
+            use std::os::unix::fs::OpenOptionsExt as _;
+            let _ = std::fs::remove_file(&path);
+            let mut f =
+                std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path)?;
+            f.write_all(&state)?;
+            f.sync_all()?;
+        }
+        let keep: Vec<RawFd> =
+            std::iter::once(self.listen).chain(self.terms.values().map(|t| t.master)).collect();
+        for &fd in &keep {
+            // SAFETY: clearing close-on-exec on descriptors we own.
+            unsafe { libc::fcntl(fd, libc::F_SETFD, 0) };
+        }
+        // Tell the requester before the exec closes its connection.
+        self.send(requester, proto::OK, &[]);
+        if let Some(conn) = self.conns.get(&requester) {
+            for frame in &conn.out {
+                write_all_blocking(conn.fd, &frame[conn.front_sent.min(frame.len())..]);
+            }
+        }
+        let cexe = CString::new(exe.as_os_str().as_bytes()).map_err(io::Error::other)?;
+        let cflag = CString::new("--resume").expect("static");
+        let cpath = CString::new(path.as_os_str().as_bytes()).map_err(io::Error::other)?;
+        let argv = [cexe.as_ptr(), cflag.as_ptr(), cpath.as_ptr(), std::ptr::null()];
+        // SAFETY: execv with a null-terminated argv of live CStrings. Client
+        // sockets and the kqueue are close-on-exec.
+        unsafe { libc::execv(cexe.as_ptr(), argv.as_ptr()) };
+        let err = io::Error::last_os_error();
+        for &fd in &keep {
+            // SAFETY: restoring close-on-exec after the failed exec.
+            unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) };
+        }
+        let _ = std::fs::remove_file(&path);
+        Err(err)
+    }
+
+    /// Rebuilds the server from an upgrade state file.
+    fn resume(&mut self, state: &[u8]) -> io::Result<()> {
+        let bad = || io::Error::new(io::ErrorKind::InvalidData, "bad upgrade state");
+        let rest = state.strip_prefix(b"MUX2S1").ok_or_else(bad)?;
+        let mut r = Reader(rest);
+        self.next_term = r.u32().ok_or_else(bad)?;
+        let _listen = r.u32().ok_or_else(bad)?; // already adopted by main
+        let count = r.u32().ok_or_else(bad)?;
+        for _ in 0..count {
+            let t = r.u32().ok_or_else(bad)?;
+            let pid = r.u32().ok_or_else(bad)? as libc::pid_t;
+            let master = r.u32().ok_or_else(bad)? as RawFd;
+            let cols = r.u16().ok_or_else(bad)?;
+            let rows = r.u16().ok_or_else(bad)?;
+            let (exited, rest) = r.0.split_first().ok_or_else(bad)?;
+            r.0 = rest;
+            let code = r.u32().ok_or_else(bad)? as i32;
+            let (open, rest) = r.0.split_first().ok_or_else(bad)?;
+            r.0 = rest;
+            let lo = u64::from(r.u32().ok_or_else(bad)?);
+            let hi = u64::from(r.u32().ok_or_else(bad)?);
+            let input = r.bytes().ok_or_else(bad)?.to_vec();
+            let replay = r.bytes().ok_or_else(bad)?.to_vec();
+            let replies = Arc::new(Mutex::new(Vec::new()));
+            let sink = replies.clone();
+            let callbacks = Callbacks {
+                on_pty_write: Some(Box::new(move |bytes: &[u8]| {
+                    sink.lock().expect("reply sink").extend_from_slice(bytes);
+                })),
+                ..Callbacks::default()
+            };
+            let mut vt = Terminal::new(cols, rows, SCROLLBACK_BYTES, callbacks)
+                .map_err(|e| io::Error::other(format!("terminal: {e}")))?;
+            vt.vt_write(&replay);
+            // Restoring state is not program output: drop any reply it made.
+            replies.lock().expect("reply sink").clear();
+            set_nonblock_cloexec(master)?;
+            self.terms.insert(
+                t,
+                Term {
+                    pid,
+                    master,
+                    vt,
+                    cols,
+                    rows,
+                    pending: Vec::new(),
+                    replies,
+                    input: input.into(),
+                    input_armed: false,
+                    attached: Vec::new(),
+                    waiters: Vec::new(),
+                    exit: (*exited != 0).then_some(code),
+                    pty_open: *open != 0,
+                    bytes_in: lo | (hi << 32),
+                },
+            );
+            if *open != 0 {
+                self.kev(
+                    master as usize,
+                    libc::EVFILT_READ,
+                    libc::EV_ADD,
+                    0,
+                    KIND_PTY | u64::from(t),
+                )?;
+            }
+            if *exited == 0 {
+                if let Err(e) = self.kev(
+                    pid as usize,
+                    libc::EVFILT_PROC,
+                    libc::EV_ADD | libc::EV_ONESHOT,
+                    libc::NOTE_EXIT,
+                    KIND_PROC | u64::from(t),
+                ) {
+                    if e.raw_os_error() == Some(libc::ESRCH) {
+                        self.child_exited(t, pid);
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+            self.flush_input(t);
+        }
+        Ok(())
     }
 
     fn create(&mut self, payload: &[u8]) -> io::Result<u32> {
@@ -795,80 +969,117 @@ fn flush_parse(term: &mut Term) {
     }
 }
 
+/// Writes all of `data` to a socket, waiting for room. Only used right
+/// before exec, when nothing else needs the loop.
+fn write_all_blocking(fd: RawFd, mut data: &[u8]) {
+    while !data.is_empty() {
+        // SAFETY: data is a valid slice.
+        let n = unsafe { libc::write(fd, data.as_ptr().cast(), data.len()) };
+        if n > 0 {
+            data = &data[n as usize..];
+        } else if n < 0 && io::Error::last_os_error().kind() == io::ErrorKind::WouldBlock {
+            let mut pfd = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+            // SAFETY: one valid pollfd.
+            unsafe { libc::poll(&mut pfd, 1, 1000) };
+        } else {
+            return;
+        }
+    }
+}
+
 fn set_winsize(fd: RawFd, cols: u16, rows: u16) {
     let ws = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
     // SAFETY: TIOCSWINSZ with a valid winsize.
     unsafe { libc::ioctl(fd, libc::TIOCSWINSZ, &ws) };
 }
 
+// From <spawn.h> (macOS 10.15+); not bound by the pinned libc.
+const POSIX_SPAWN_SETSID: libc::c_short = 0x0400;
+unsafe extern "C" {
+    fn posix_spawn_file_actions_addchdir_np(
+        actions: *mut libc::posix_spawn_file_actions_t,
+        path: *const libc::c_char,
+    ) -> libc::c_int;
+}
+
 /// Opens a PTY and starts `argv` on it as a session leader with the PTY as
-/// its controlling terminal. The server is single-threaded, so fork is safe;
-/// the child only calls async-signal-safe functions before exec.
+/// its controlling terminal.
+///
+/// posix_spawn, not fork: its cost does not grow with the server's memory.
+/// POSIX_SPAWN_SETSID makes the child a session leader, and on macOS a
+/// session leader without a controlling terminal acquires the tty it opens
+/// first, so opening the slave by path as fd 0 sets the controlling terminal
+/// (checked by `mux2-ctty-probe`: tty, foreground process group and job
+/// control all hold). The child starts with default signal dispositions, an
+/// empty signal mask, and only fds 0-2 (POSIX_SPAWN_CLOEXEC_DEFAULT).
 fn spawn_pty(
     argv: &[CString],
     cwd: Option<&std::ffi::CStr>,
     cols: u16,
     rows: u16,
 ) -> io::Result<(RawFd, libc::pid_t)> {
-    let mut master = -1;
-    let mut slave = -1;
-    let mut ws = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
-    // SAFETY: openpty writes two descriptors; null name/termios are allowed.
-    cvt(unsafe {
-        libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null_mut(), &mut ws)
-    })?;
-    if let Err(e) = set_nonblock_cloexec(master) {
-        // SAFETY: closing descriptors we own.
-        unsafe {
-            libc::close(master);
-            libc::close(slave)
-        };
-        return Err(e);
+    // SAFETY: standard PTY allocation on a fresh master descriptor.
+    let master = cvt(unsafe { libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY) })?;
+    let close_master = |e: io::Error| {
+        // SAFETY: closing the master we own.
+        unsafe { libc::close(master) };
+        e
+    };
+    let mut name = [0 as libc::c_char; 128];
+    // SAFETY: grantpt/unlockpt on our master; TIOCPTYGNAME fills 128 bytes.
+    unsafe {
+        cvt(libc::grantpt(master)).map_err(close_master)?;
+        cvt(libc::unlockpt(master)).map_err(close_master)?;
+        cvt(libc::ioctl(master, libc::TIOCPTYGNAME as _, name.as_mut_ptr()))
+            .map_err(close_master)?;
     }
-    let mut ptrs: Vec<*const libc::c_char> = argv.iter().map(|a| a.as_ptr()).collect();
-    ptrs.push(std::ptr::null());
-    // SAFETY: fork in a single-threaded process; the child below only makes
-    // async-signal-safe calls and then execs or exits.
-    let pid = unsafe { libc::fork() };
-    if pid < 0 {
-        let err = io::Error::last_os_error();
-        // SAFETY: closing descriptors we own.
-        unsafe {
-            libc::close(master);
-            libc::close(slave)
-        };
-        return Err(err);
-    }
-    if pid == 0 {
-        // SAFETY: child process; all calls are async-signal-safe.
-        unsafe {
-            libc::setsid();
-            libc::ioctl(slave, libc::TIOCSCTTY as _, 0);
-            libc::dup2(slave, 0);
-            libc::dup2(slave, 1);
-            libc::dup2(slave, 2);
-            if slave > 2 {
-                libc::close(slave);
-            }
-            // Programs start with default dispositions and no blocked
-            // signals, whatever the server inherited.
-            for sig in 1..32 {
-                if sig != libc::SIGKILL && sig != libc::SIGSTOP {
-                    libc::signal(sig, libc::SIG_DFL);
-                }
-            }
-            let empty: libc::sigset_t = 0;
-            libc::sigprocmask(libc::SIG_SETMASK, &empty, std::ptr::null_mut());
-            if let Some(dir) = cwd {
-                libc::chdir(dir.as_ptr());
-            }
-            libc::execvp(ptrs[0], ptrs.as_ptr());
-            libc::_exit(127);
+    set_nonblock_cloexec(master).map_err(close_master)?;
+    set_winsize(master, cols, rows);
+    let mut ptrs: Vec<*mut libc::c_char> = argv.iter().map(|a| a.as_ptr().cast_mut()).collect();
+    ptrs.push(std::ptr::null_mut());
+    let mut pid: libc::pid_t = 0;
+    // SAFETY: attribute and file-action objects are initialized before use
+    // and destroyed after; every pointer passed outlives the call.
+    let rc = unsafe {
+        let mut attr: libc::posix_spawnattr_t = std::ptr::null_mut();
+        let mut fa: libc::posix_spawn_file_actions_t = std::ptr::null_mut();
+        libc::posix_spawnattr_init(&mut attr);
+        libc::posix_spawn_file_actions_init(&mut fa);
+        let mut all: libc::sigset_t = 0;
+        libc::sigfillset(&mut all);
+        let mut none: libc::sigset_t = 0;
+        libc::sigemptyset(&mut none);
+        libc::posix_spawnattr_setsigdefault(&mut attr, &all);
+        libc::posix_spawnattr_setsigmask(&mut attr, &none);
+        let flags = POSIX_SPAWN_SETSID
+            | libc::POSIX_SPAWN_SETSIGDEF as libc::c_short
+            | libc::POSIX_SPAWN_SETSIGMASK as libc::c_short
+            | libc::POSIX_SPAWN_CLOEXEC_DEFAULT as libc::c_short;
+        libc::posix_spawnattr_setflags(&mut attr, flags);
+        libc::posix_spawn_file_actions_addopen(&mut fa, 0, name.as_ptr(), libc::O_RDWR, 0);
+        libc::posix_spawn_file_actions_adddup2(&mut fa, 0, 1);
+        libc::posix_spawn_file_actions_adddup2(&mut fa, 0, 2);
+        if let Some(dir) = cwd {
+            posix_spawn_file_actions_addchdir_np(&mut fa, dir.as_ptr());
         }
+        let rc = libc::posix_spawnp(&mut pid, ptrs[0], &fa, &attr, ptrs.as_ptr(), environ_ptr());
+        libc::posix_spawn_file_actions_destroy(&mut fa);
+        libc::posix_spawnattr_destroy(&mut attr);
+        rc
+    };
+    if rc != 0 {
+        return Err(close_master(io::Error::from_raw_os_error(rc)));
     }
-    // SAFETY: the parent no longer needs the slave side.
-    unsafe { libc::close(slave) };
     Ok((master, pid))
+}
+
+/// The current environment, for posix_spawn.
+fn environ_ptr() -> *const *mut libc::c_char {
+    unsafe extern "C" {
+        fn _NSGetEnviron() -> *mut *const *mut libc::c_char;
+    }
+    // SAFETY: _NSGetEnviron returns the process environment pointer.
+    unsafe { *_NSGetEnviron() }
 }
 
 fn listen_socket(path: &std::path::Path) -> io::Result<RawFd> {
@@ -935,15 +1146,44 @@ fn main() {
             std::env::set_var("TERM", "xterm-256color");
         }
     }
-    let listen = match listen_socket(&path) {
-        Ok(fd) => fd,
-        Err(e) => {
-            eprintln!("mux2d: cannot listen on {}: {e}", path.display());
+    let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    let resume = (args.get(1).map(|a| a.as_bytes()) == Some(b"--resume"))
+        .then(|| args.get(2).cloned())
+        .flatten();
+    let resume_state = resume.map(|p| {
+        let state = std::fs::read(&p).unwrap_or_else(|e| {
+            eprintln!("mux2d: cannot read upgrade state: {e}");
+            std::process::exit(1);
+        });
+        let _ = std::fs::remove_file(&p);
+        state
+    });
+    let listen = match &resume_state {
+        // The listening socket survived the exec; its number is in the state.
+        Some(state) if state.len() >= 14 && state.starts_with(b"MUX2S1") => {
+            let fd = RawFd::from_le_bytes(state[10..14].try_into().expect("4 bytes"));
+            set_nonblock_cloexec(fd).unwrap_or_else(|e| {
+                eprintln!("mux2d: inherited listener: {e}");
+                std::process::exit(1);
+            });
+            fd
+        }
+        Some(_) => {
+            eprintln!("mux2d: bad upgrade state");
             std::process::exit(1);
         }
+        None => match listen_socket(&path) {
+            Ok(fd) => fd,
+            Err(e) => {
+                eprintln!("mux2d: cannot listen on {}: {e}", path.display());
+                std::process::exit(1);
+            }
+        },
     };
     // SAFETY: kqueue has no preconditions.
     let kq = unsafe { libc::kqueue() };
+    // SAFETY: marking our kqueue close-on-exec, so an upgrade starts clean.
+    unsafe { libc::fcntl(kq, libc::F_SETFD, libc::FD_CLOEXEC) };
     let mut server = Server {
         kq,
         listen,
@@ -957,6 +1197,12 @@ fn main() {
     server
         .kev(listen as usize, libc::EVFILT_READ, libc::EV_ADD, 0, TOKEN_LISTEN)
         .expect("register listener");
+    if let Some(state) = &resume_state {
+        if let Err(e) = server.resume(state) {
+            eprintln!("mux2d: resume failed: {e}");
+            std::process::exit(1);
+        }
+    }
     // Readiness: the client that started us waits on this descriptor.
     if let Some(fd) = ready_fd {
         // SAFETY: writing one byte to the inherited pipe, then closing it.

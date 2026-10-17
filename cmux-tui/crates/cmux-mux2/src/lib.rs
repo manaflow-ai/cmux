@@ -20,6 +20,8 @@ pub const RESIZE: u8 = 8;
 pub const STATS: u8 = 9;
 pub const SHUTDOWN: u8 = 10;
 pub const REPLAY: u8 = 11;
+/// Replace the running server with a new binary, keeping every terminal.
+pub const UPGRADE: u8 = 12;
 
 // Server to client.
 pub const OK: u8 = 100;

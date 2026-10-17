@@ -2,7 +2,7 @@
 //!
 //!   mux2 new [--cwd DIR] [--size COLSxROWS] [-- ARGV...]   print the new terminal id
 //!   mux2 run [--cwd DIR] [-- ARGV...]                      create, wait, exit with its status
-//!   mux2 ls | stats | stop
+//!   mux2 ls | stats | stop | upgrade [NEW-MUX2D]
 //!   mux2 screen ID | replay ID | wait ID | kill ID
 //!   mux2 write ID TEXT          (TEXT is sent as is; use $'..' for control bytes)
 //!   mux2 resize ID COLSxROWS
@@ -325,6 +325,12 @@ fn main() {
         }
         "stop" => {
             call(&mut s, proto::SHUTDOWN, &[]);
+        }
+        "upgrade" => {
+            // Optional path of the new server binary; default: the server's
+            // own path, so a replaced file on disk takes over.
+            let path = args.get(1).map(|p| p.as_bytes().to_vec()).unwrap_or_default();
+            call(&mut s, proto::UPGRADE, &path);
         }
         "screen" | "replay" => {
             let kind = if cmd == "screen" { proto::SCREEN } else { proto::REPLAY };
