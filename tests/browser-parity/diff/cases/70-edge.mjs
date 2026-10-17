@@ -822,10 +822,13 @@ return { committed: await $P.locator("#value").innerText(), strict: await $P.loc
   {
     id: "edge.trusted-paste",
     edge: "trusted-paste",
-    appOnly: true,
+    // The dev driver runs the same dispatched clipboard events as the app.
     path: "/diff/editor.html",
-    // Meta+V fires a trusted paste event whose clipboardData holds the tab's
-    // clipboard (every type), the way Google Sheets reads a paste.
+    // Meta+V fires a paste event whose clipboardData holds the tab's
+    // clipboard. The tab's clipboard is virtual (no pasteboard), so the event
+    // is a dispatched one, not trusted: this Sheets-style editor cancels it
+    // and drops it, and nothing is committed. Meta+C still fills the tab's
+    // clipboard from the page's copy.
     code: `await page.clipboard.write([{ type: "text/plain", data: "beta" }, { type: "text/html", data: "<b>beta</b>" }]);
 await $P.locator("#grid").click();
 await $P.keyboard.press("ControlOrMeta+v");
@@ -840,6 +843,6 @@ const copied = await page.clipboard.readText();
 const p = paste === "untrusted" || !paste ? paste : JSON.parse(paste);
 return { paste: p && typeof p === "object" ? { text: p.text, bold: /<b[ >]/.test(p.html) && p.html.includes(">beta</b>"), types: p.types } : p, committed: await $P.locator("#value").innerText(), copied };`,
     scope: { "reference-a": "Reference A's paste reads the system clipboard, which these tests do not touch", "reference-b": "Reference B's real paste reads the system clipboard, which these tests do not touch" },
-    expect: { paste: { text: "beta", bold: true, types: ["text/html", "text/plain"] }, committed: "beta", copied: "ab" },
+    expect: { paste: "untrusted", committed: "", copied: "ab" },
   },
 ];

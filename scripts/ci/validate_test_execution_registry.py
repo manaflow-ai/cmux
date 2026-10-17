@@ -66,7 +66,7 @@ RECIPE_RUN_RE = re.compile(r"\bpython3?\s+scripts/verify-local\.py\b(?P<args>[^\
 RECIPE_TEST_RE = re.compile(r"tests/test_[A-Za-z0-9_.-]+\.py")
 RECIPE_STEP_NAME_RE = re.compile(r"\s*(-\s+)?name:")
 # Options that keep the default selection or narrow it only through `--only`.
-RECIPE_VALUE_OPTIONS = {"--only", "--timeout", "--receipt"}
+RECIPE_VALUE_OPTIONS = {"--only", "--timeout", "--receipt", "--jobs"}
 
 
 def runner_lanes_from_workflow_text(text: str) -> set[str]:

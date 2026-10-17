@@ -191,7 +191,8 @@ extension CMUXCLI {
         client: SocketClient,
         socketPassword: String? = nil,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
-        resolvesProcessRoute: Bool = true
+        resolvesProcessRoute: Bool = true,
+        runsInHookProcess: Bool = true
     ) -> [String: String] {
         var environment = AgentLaunchEnvironmentPolicy().selectedEnvironment(
             from: processEnvironment,
@@ -209,7 +210,22 @@ extension CMUXCLI {
             return environment
         }
         let pidEnvironmentKey = Self.agentHookPIDEnvironmentVariable(agentName: agent)
-        if environment[pidEnvironmentKey].flatMap(Int.init).map({ $0 > 0 }) != true,
+        // A spool record names the process that ran its hook; a CLI hook is
+        // that process's descendant.
+        let recordedInvokerPID = environment.removeValue(
+            forKey: AgentHookDeliveryPolicy.invokerPIDEnvironmentKey
+        ).flatMap(Int.init)
+        if !client.isRelayBacked, runsInHookProcess || recordedInvokerPID != nil {
+            // The exported PID can be inherited from an agent in another pane
+            // (#20186); the agent that ran this hook names the hook's pane.
+            if let agentPID = AgentHookDeliveryPolicy().hookAgentPID(
+                environmentPID: environment[pidEnvironmentKey].flatMap(Int.init),
+                invocationAgentPID: runsInHookProcess ? inferredAgentPID() : recordedInvokerPID,
+                controllingTerminal: controllingTerminalDevice(of:)
+            ) {
+                environment[pidEnvironmentKey] = String(agentPID)
+            }
+        } else if environment[pidEnvironmentKey].flatMap(Int.init).map({ $0 > 0 }) != true,
            let inferredPID = inferredAgentPID() {
             environment[pidEnvironmentKey] = String(inferredPID)
         }
@@ -448,7 +464,9 @@ extension CMUXCLI {
     /// `processEnvironment` is the hook process's environment: this process's
     /// own for a CLI hook, or the values a spool record captured. Pass
     /// `resolvesProcessRoute: false` once the agent has exited, so its PID is
-    /// not resolved to whatever process now holds it.
+    /// not resolved to whatever process now holds it. Pass
+    /// `runsInHookProcess: false` when this process is not the hook's child,
+    /// so its own ancestry is not taken as the hook's agent.
     func admitQueuedAgentHook(
         agent: String,
         subcommand: String,
@@ -456,14 +474,16 @@ extension CMUXCLI {
         processEnvironment: [String: String],
         client: SocketClient,
         socketPassword: String? = nil,
-        resolvesProcessRoute: Bool = true
+        resolvesProcessRoute: Bool = true,
+        runsInHookProcess: Bool = true
     ) throws {
         let environment = agentHookOrderingEnvironment(
             agent: agent,
             client: client,
             socketPassword: socketPassword,
             processEnvironment: processEnvironment,
-            resolvesProcessRoute: resolvesProcessRoute
+            resolvesProcessRoute: resolvesProcessRoute,
+            runsInHookProcess: runsInHookProcess
         )
         let admittedPayload = client.isRelayBacked
             ? relayEnrichedAgentHookPayload(
@@ -938,6 +958,7 @@ extension CMUXCLI {
             "CMUX_AGENT_MANAGED_SUBAGENT", "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",
             "CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", agentHookRouteSnapshotEnvironmentKey,
             agentHookPIDEnvironmentVariable(agentName: agent),
+            AgentHookDeliveryPolicy.invokerPIDEnvironmentKey,
         ] + routedLaunchKeys
     }
 

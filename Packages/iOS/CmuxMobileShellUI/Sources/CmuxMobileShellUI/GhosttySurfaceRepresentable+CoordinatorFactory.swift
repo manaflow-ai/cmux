@@ -9,6 +9,7 @@ extension GhosttySurfaceRepresentable {
             store: store,
             keyboardCorrectionPreference: keyboardCorrectionPreference,
             terminalPresentationIsActive: terminalPresentationIsActive,
+            handoffTerminalSizingWhenInactive: handoffTerminalSizingWhenInactive,
             artifactFilesEnabled: artifactFilesEnabled,
             terminalFolderTapEnabled: terminalFolderTapEnabled,
             terminalFilesChipEnabled: terminalFilesChipEnabled,

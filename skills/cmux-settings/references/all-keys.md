@@ -16,6 +16,7 @@ General app preferences from Settings > App.
 | `app.appIcon` | `"automatic"` or `"light"` or `"dark"` | `"automatic"` | Dock and app switcher icon style. |
 | `app.menuBarOnly` | boolean | `false` | Hide the Dock icon and app switcher entry while keeping cmux available from the menu bar. |
 | `app.newWorkspacePlacement` | `"top"` or `"afterCurrent"` or `"end"` | `"afterCurrent"` | Where new workspaces are inserted in the sidebar. |
+| `app.goToWorkspaceOrder` | `"sidebar"` or `"recent"` | `"sidebar"` | Order used by Go to Workspace (Cmd-P): sidebar order, or most recently focused workspaces. |
 | `app.workspaceInheritWorkingDirectory` | boolean | `true` | When true, new workspaces inherit the current workspace working directory. When false, new workspaces use Ghostty's working-directory setting instead. |
 | `app.minimalMode` | boolean | `false` | Hide the workspace title bar and move controls into the sidebar. |
 | `app.keepWorkspaceOpenWhenClosingLastSurface` | boolean | `false` | When true, closing the last surface keeps the workspace open. |
@@ -77,7 +78,7 @@ Terminal presentation settings from Settings > Terminal.
 | `terminal.textEditingGesturesInFullScreenApps` | boolean | `false` | Keep textEditingGestures active while a full-screen application has the terminal on the alternate screen. tmux, screen, and zellij keep the outer terminal on the alternate screen even at their shell prompt, so turn this on to use gestures inside a multiplexer. Applications that bind the gesture chords themselves then receive the translated keys. |
 | `terminal.showPasswordInputIndicator` | boolean | `true` | Show a lock badge in the terminal corner while the foreground program has turned echo off for a password prompt (sudo, ssh, passwd, gpg). cmux draws the badge itself and never changes terminal text. Only prompts on the local terminal are detected: an ssh password prompt counts, but sudo run inside an ssh session does not. Changes apply to an open prompt at once. |
 | `terminal.showPasswordInputDots` | boolean | `false` | When the password input badge is shown, also draw one dot per typed character. cmux keeps only a count, never the typed characters. Backspace removes a dot; Enter or echo turning back on clears them. Pasted text is not counted. |
-| `terminal.showJumpToBottomButton` | boolean | `true` | Show a Jump to Bottom button at the bottom center of a terminal while its viewport is scrolled up into scrollback. Clicking it scrolls to the bottom and focuses the terminal. A dot marks output that arrived below the viewport. Programs on the alternate screen (vim, less, full-screen agent modes) never get the button because they draw their own scrolling. |
+| `terminal.showJumpToBottomButton` | boolean | — | Removed. cmux no longer shows a Jump to Bottom button in terminal panes, and ignores this key. It stays in the schema so existing configs still validate. |
 | `terminal.predictiveLocalEcho` | boolean | `true` | Draw typed characters immediately in a terminal whose shell runs on another machine (cmux ssh, Cloud, remote tmux) when the link is slow, underlined until the remote echo confirms them, and withdraw them if the remote disagrees. Local terminals, password prompts and full-screen apps are excluded. |
 | `terminal.showTextBoxOnNewTerminals` | boolean | `false` | Show the TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. |
 | `terminal.focusTextBoxOnNewTerminals` | boolean | `false` | Focus the TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox. |
@@ -131,6 +132,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.pathLastSegmentOnly` | boolean | `false` | Truncate sidebar paths from the start, showing as much of the trailing path as fits with a leading …/. When false, full paths are abbreviated with ~/. |
 | `sidebar.showNotificationMessage` | boolean | `true` | Show the latest notification text in the sidebar. |
 | `sidebar.showBranchDirectory` | boolean | `true` | Show the workspace working directory. |
+| `sidebar.showCloudDeviceIcons` | boolean | `true` | Show Cloud machine and device icons beside remote workspace titles independently of Git branch and directory details. |
 | `sidebar.showPullRequests` | boolean | `true` | Show pull request metadata in the sidebar. |
 | `sidebar.makePullRequestsClickable` | boolean | `true` | Allow sidebar pull request metadata to open links when clicked. |
 | `sidebar.openPullRequestLinksInCmuxBrowser` | boolean | `true` | Open sidebar pull request links in the embedded cmux browser. |

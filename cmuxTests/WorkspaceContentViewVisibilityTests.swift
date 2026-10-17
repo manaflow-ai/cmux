@@ -347,11 +347,12 @@ final class WorkspaceContentViewVisibilityTests {
         // re-evaluates VerticalTabsSidebar for a reason unrelated to unread
         // state, so the count below depended on how fast the runner was.
         let tabManager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
-        let workspaceId = tabManager.addWorkspace(
+        let selectedWorkspace = tabManager.addWorkspace(
             initialSurface: .cloudVMLoading,
             select: true,
             autoWelcomeIfNeeded: false
-        ).id
+        )
+        let workspaceId = selectedWorkspace.id
         let unaffectedWorkspace = tabManager.addWorkspace(
             initialSurface: .cloudVMLoading,
             select: false,
@@ -428,6 +429,14 @@ final class WorkspaceContentViewVisibilityTests {
             unaffectedApplyCount += 1
         }
         counts.reset()
+        // SidebarUnreadModel cannot publish a Workspace, so a Workspace publish
+        // in this window is unrelated settling (main run 38492427482 logged
+        // "WorkspaceContentView: _workspace changed." here).
+        var unrelatedWorkspacePublishes = 0
+        let workspacePublishes = selectedWorkspace.objectWillChange.sink { _ in
+            unrelatedWorkspacePublishes += 1
+        }
+        defer { workspacePublishes.cancel() }
         counts.isMeasuringInvalidations = true
         defer { counts.isMeasuringInvalidations = false }
 
@@ -453,7 +462,7 @@ final class WorkspaceContentViewVisibilityTests {
             "Unread changes must update their leaf consumers without rebuilding ContentView."
         )
         #expect(
-            counts.workspaceContentBody == 0,
+            counts.workspaceContentBody <= unrelatedWorkspacePublishes,
             "Unread changes must not rebuild terminal or browser content."
         )
         #expect(
@@ -679,6 +688,51 @@ final class WorkspaceContentViewVisibilityTests {
                 isSelectedInPane: false,
                 isFocused: true
             )
+        )
+    }
+
+    @Test
+    func testPanelVisibleInUIReturnsTrueForBonsplitFallbackDuringTransientSelectionGap() {
+        #expect(
+            WorkspaceContentView.panelVisibleInUI(
+                isWorkspaceVisible: true,
+                paneHasSelectedTab: false,
+                isSelectedInPane: false,
+                isFocused: false,
+                isFallbackInPane: true
+            )
+        )
+    }
+
+    @Test
+    func testPanelVisibleInUIKeepsNonFallbackPanelHiddenDuringTransientSelectionGap() {
+        #expect(
+            !WorkspaceContentView.panelVisibleInUI(
+                isWorkspaceVisible: true,
+                paneHasSelectedTab: false,
+                isSelectedInPane: false,
+                isFocused: false,
+                isFallbackInPane: false
+            )
+        )
+    }
+
+    @Test
+    func testFallbackTabIdKeepsFirstOfTwoAgentTabsDuringReparentingGap() {
+        let firstTabId = UUID()
+        let secondTabId = UUID()
+
+        #expect(
+            WorkspacePanelVisibilityPolicy.fallbackTabId(
+                selectedTabId: nil,
+                tabIds: [firstTabId, secondTabId]
+            ) == firstTabId
+        )
+        #expect(
+            WorkspacePanelVisibilityPolicy.fallbackTabId(
+                selectedTabId: secondTabId,
+                tabIds: [firstTabId, secondTabId]
+            ) == nil
         )
     }
 

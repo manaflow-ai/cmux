@@ -65,11 +65,34 @@ struct VMTunnelManagerTests {
     }
 
     @Test
-    func cloudAccessRevokeSendsTheDeviceIDInTheBody() throws {
-        let request = VMClient.cloudAccessRevocationRequest(deviceID: "mac physical/device")
+    func tunnelRevokeNamesOneTunnelAndNeverTheMac() throws {
+        let role = CloudTunnelRole(deviceFingerprint: "mac-build/terminal", purpose: .terminal)
+        let request = VMClient.tunnelRoleRevocationRequest(role)
 
         #expect(request.path == "/api/vm/tunnel")
-        #expect(request.body["deviceId"] as? String == "mac physical/device")
+        #expect(request.body["deviceFingerprint"] as? String == "mac-build/terminal")
+        #expect(request.body["tunnelPurpose"] as? String == "terminal")
+        // A device id revokes every build's access on this Mac.
+        #expect(request.body["deviceId"] == nil)
+        #expect(request.queryItems.map(\.name) == ["deviceFingerprint", "tunnelPurpose"])
+    }
+
+    @Test
+    func storedRolesListOnlyThisBuildsEnrolledTunnels() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-tunnel-roles-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        #expect(VMTunnelManager.storedRoles(home: home).isEmpty)
+
+        let terminal = try VMTunnelManager(home: home, purpose: .terminal).deviceFingerprint()
+        #expect(VMTunnelManager.storedRoles(home: home) == [
+            CloudTunnelRole(deviceFingerprint: terminal, purpose: .terminal),
+        ])
+        let browser = try VMTunnelManager(home: home, purpose: .browser).deviceFingerprint()
+        #expect(VMTunnelManager.storedRoles(home: home) == [
+            CloudTunnelRole(deviceFingerprint: terminal, purpose: .terminal),
+            CloudTunnelRole(deviceFingerprint: browser, purpose: .browser),
+        ])
     }
 
     @Test

@@ -9,7 +9,7 @@ import Testing
 @testable import cmux
 #endif
 
-/// The account-scoped cache that lets Cmd+Y present a populated New Machine
+/// The account-scoped cache that lets Cmd+Shift+Y present a populated New Machine
 /// sheet without waiting on the network.
 @MainActor
 @Suite("New Machine sheet data cache")
