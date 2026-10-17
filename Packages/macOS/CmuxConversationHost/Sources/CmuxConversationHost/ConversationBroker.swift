@@ -1,11 +1,28 @@
 public import Foundation
 public import CmuxConversation
+import CryptoKit
 
 /// Durable, provider-neutral broker for managed Codex, Claude Code, and OpenCode conversations.
 public actor ConversationBroker: ConversationClient {
     private struct SessionRecord: Codable, Sendable {
         var session: ConversationSession
         var target: ConversationLaunchTarget
+        var commandFingerprints: [String: String]
+
+        init(session: ConversationSession, target: ConversationLaunchTarget, commandFingerprints: [String: String] = [:]) {
+            self.session = session
+            self.target = target
+            self.commandFingerprints = commandFingerprints
+        }
+
+        private enum CodingKeys: String, CodingKey { case session, target, commandFingerprints }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            session = try container.decode(ConversationSession.self, forKey: .session)
+            target = try container.decode(ConversationLaunchTarget.self, forKey: .target)
+            commandFingerprints = try container.decodeIfPresent([String: String].self, forKey: .commandFingerprints) ?? [:]
+        }
     }
 
     private struct SessionState: Sendable {
@@ -22,6 +39,26 @@ public actor ConversationBroker: ConversationClient {
         var dispatchingTurn: Bool
         var connection: (any ConversationProviderConnection)?
         var eventTask: Task<Void, Never>?
+        var connectionToken: UUID?
+        var appendTail: Task<Void, any Error>?
+        var appendRevision: UInt64
+        var appendFailure: String?
+        var commandFingerprints: [ConversationCommandID: String]
+        var inFlightCommands: [ConversationCommandID: Task<ConversationReceipt, Never>]
+    }
+
+    private struct CreationReservation: Codable, Hashable, Sendable {
+        let sessionID: ConversationID
+        let fingerprint: String
+    }
+
+    /// Only stable client semantics participate in create idempotency. Launch targets and resolved
+    /// directories are host derived and may legitimately differ when a retry is routed through a new
+    /// workspace context; the first reservation still pins the actual target/session.
+    private struct CreateFingerprint: Codable, Hashable, Sendable {
+        let provider: ConversationProvider
+        let workspaceID: String
+        let title: String?
     }
 
     private let directory: URL
@@ -29,7 +66,7 @@ public actor ConversationBroker: ConversationClient {
     private let onChange: (@Sendable (ConversationID, ConversationCursor) -> Void)?
     private let adapters: [ConversationProvider: any ConversationProviderAdapter]
     private var sessions: [ConversationID: SessionState] = [:]
-    private var creationReservations: [ConversationCommandID: ConversationID] = [:]
+    private var creationReservations: [ConversationCommandID: CreationReservation] = [:]
     private var subscribers: [ConversationID: [UUID: AsyncThrowingStream<ConversationEvent, any Error>.Continuation]] = [:]
     private let encoder = JSONEncoder()
 
@@ -47,8 +84,9 @@ public actor ConversationBroker: ConversationClient {
         self.adapters = Dictionary(uniqueKeysWithValues: selected.map { ($0.provider, $0) })
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: Int(0o700)])
         try? FileManager.default.setAttributes([.posixPermissions: Int(0o700)], ofItemAtPath: directory.path)
-        try loadCreationReservations()
-        try loadPersistedSessions()
+        let adapterMap = self.adapters
+        self.creationReservations = try Self.readCreationReservations(directory: directory)
+        self.sessions = try Self.readPersistedSessions(directory: directory, adapters: adapterMap)
     }
 
     /// Builds native process adapters without global state.
@@ -62,7 +100,11 @@ public actor ConversationBroker: ConversationClient {
         for id in sessions.keys {
             guard let state = sessions[id], state.connection == nil, let adapter = adapters[state.session.provider] else { continue }
             do { try await attach(id: id, adapter: adapter) }
-            catch { await markProviderRestarted(id: id, reason: error.localizedDescription) }
+            catch {
+                sessions[id]?.session.state = .stopped
+                sessions[id]?.session.updatedAt = Date()
+                if let state = sessions[id] { try? persist(state) }
+            }
         }
     }
 
@@ -71,14 +113,28 @@ public actor ConversationBroker: ConversationClient {
 
     /// Creates and starts a provider session, idempotently when `requestID` repeats.
     public func createSession(_ request: ConversationCreateRequest) async throws -> ConversationSession {
-        if let requestID = request.requestID, let reserved = creationReservations[requestID], let existing = sessions[reserved] { return existing.session }
+        let requestFingerprint = try Self.fingerprint(CreateFingerprint(provider: request.provider, workspaceID: request.workspaceID, title: request.title))
+        if let requestID = request.requestID, let reservation = creationReservations[requestID] {
+            guard reservation.fingerprint == requestFingerprint else {
+                throw ConversationBrokerError.idempotencyConflict("create request ID was reused with a different payload")
+            }
+            guard let existing = sessions[reservation.sessionID] else {
+                throw ConversationBrokerError.creationUncertain(requestID)
+            }
+            return existing.session
+        }
         guard let adapter = adapters[request.provider] else { throw ConversationProviderError.unsupported("No adapter for \(request.provider.rawValue)") }
         let id = ConversationID(rawValue: UUID().uuidString)
-        if let requestID = request.requestID { creationReservations[requestID] = id; try persistCreationReservations() }
+        if let requestID = request.requestID {
+            creationReservations[requestID] = CreationReservation(sessionID: id, fingerprint: requestFingerprint)
+            try persistCreationReservations()
+        }
         let title = request.title?.isEmpty == false ? request.title! : request.provider.rawValue.capitalized
         var session = ConversationSession(id: id, provider: request.provider, title: title, workspaceID: request.workspaceID, directory: request.directory)
         let journal = try ConversationJournal(directory: directory.appendingPathComponent(id.rawValue, isDirectory: true))
-        let state = SessionState(session: session, target: request.launchTarget, journal: journal, capabilities: adapter.capabilities, items: [], pendingRequests: [], queued: [], receipts: [], cursor: 0, currentTurnID: nil, dispatchingTurn: false, connection: nil, eventTask: nil)
+        var capabilities = adapter.capabilities
+        capabilities.features.insert("queue")
+        let state = SessionState(session: session, target: request.launchTarget, journal: journal, capabilities: capabilities, items: [], pendingRequests: [], queued: [], receipts: [], cursor: 0, currentTurnID: nil, dispatchingTurn: false, connection: nil, eventTask: nil, connectionToken: nil, appendTail: nil, appendRevision: 0, appendFailure: nil, commandFingerprints: [:], inFlightCommands: [:])
         sessions[id] = state
         try persist(state)
         do {
@@ -95,12 +151,16 @@ public actor ConversationBroker: ConversationClient {
 
     /// Reads the complete in-memory projection at its current cursor.
     public func snapshot(sessionID: ConversationID) async throws -> ConversationSnapshot {
+        guard sessions[sessionID] != nil else { throw ConversationBrokerError.sessionNotFound(sessionID) }
+        try await awaitDurable(sessionID: sessionID)
         guard let state = sessions[sessionID] else { throw ConversationBrokerError.sessionNotFound(sessionID) }
         return ConversationSnapshot(session: state.session, cursor: state.cursor, generation: state.session.generation, items: state.items, pendingRequests: state.pendingRequests, queued: state.queued, receipts: Array(state.receipts.suffix(64)), activeTurnID: state.currentTurnID, isTurnRunning: state.currentTurnID != nil || state.dispatchingTurn, capabilities: state.capabilities)
     }
 
     /// Replays at most 256 events and approximately 1 MiB after a cursor.
     public func replay(sessionID: ConversationID, after: ConversationCursor) async throws -> [ConversationEvent] {
+        guard sessions[sessionID] != nil else { throw ConversationBrokerError.sessionNotFound(sessionID) }
+        try await awaitDurable(sessionID: sessionID)
         guard let state = sessions[sessionID] else { throw ConversationBrokerError.sessionNotFound(sessionID) }
         let events = try await state.journal.events(after: after, limit: 256)
         var result: [ConversationEvent] = []
@@ -128,26 +188,74 @@ public actor ConversationBroker: ConversationClient {
     /// Executes one command with generation and turn preconditions.
     public func execute(_ envelope: ConversationCommandEnvelope) async throws -> ConversationReceipt {
         guard sessions[envelope.sessionID] != nil else { throw ConversationBrokerError.sessionNotFound(envelope.sessionID) }
-        if let existing = sessions[envelope.sessionID]!.receipts.first(where: { $0.id == envelope.commandID }) { return existing }
         let id = envelope.sessionID
-        guard let state = sessions[id] else { throw ConversationBrokerError.sessionNotFound(id) }
-        if let expected = envelope.expectedGeneration, expected != state.session.generation { return try await reject(envelope, reason: "stale provider generation") }
-        if let expectedTurn = envelope.expectedTurnID, expectedTurn != state.currentTurnID { return try await reject(envelope, reason: "stale active turn") }
-        let accepted = ConversationReceipt(id: envelope.commandID, sessionID: id, state: .accepted, generation: state.session.generation)
-        try await recordReceipt(accepted, id: id)
-        do {
-            let final = try await apply(envelope.command, commandID: envelope.commandID, id: id)
-            return final
-        } catch let error as ConversationProviderError {
-            let state: ConversationReceiptState = if case .rejected = error { .rejected } else { .uncertain }
-            let receipt = ConversationReceipt(id: envelope.commandID, sessionID: id, state: state, reason: error.description, generation: sessions[id]!.session.generation)
-            try await recordReceipt(receipt, id: id)
-            return receipt
-        } catch {
-            let receipt = ConversationReceipt(id: envelope.commandID, sessionID: id, state: .uncertain, reason: error.localizedDescription, generation: sessions[id]!.session.generation)
-            try await recordReceipt(receipt, id: id)
-            return receipt
+        let fingerprint = try Self.fingerprint(envelope.command)
+        if let known = sessions[id]!.commandFingerprints[envelope.commandID] {
+            guard known == fingerprint else {
+                return ConversationReceipt(id: envelope.commandID, sessionID: id, state: .rejected, reason: "command ID was reused with a different payload", generation: sessions[id]!.session.generation)
+            }
+            if let existing = sessions[id]!.receipts.first(where: { $0.id == envelope.commandID }) { return existing }
+            if let inFlight = sessions[id]!.inFlightCommands[envelope.commandID] { return await inFlight.value }
+            // A reservation with no receipt survived a process crash. It is unsafe to retry because the
+            // provider may have accepted the command before the host stopped.
+            let uncertain = ConversationReceipt(id: envelope.commandID, sessionID: id, state: .uncertain, reason: "previous command attempt has no durable outcome", generation: sessions[id]!.session.generation)
+            try? await recordReceipt(uncertain, id: id)
+            return uncertain
         }
+
+        // Reserve the command and persist its fingerprint before the first await. Retries can therefore
+        // distinguish an identical in-flight command from a payload conflict or a crash-uncertain retry.
+        sessions[id]!.commandFingerprints[envelope.commandID] = fingerprint
+        do { try persist(sessions[id]!) }
+        catch {
+            sessions[id]!.commandFingerprints.removeValue(forKey: envelope.commandID)
+            throw error
+        }
+        let task = Task { [weak self] in
+            guard let self else {
+                return ConversationReceipt(id: envelope.commandID, sessionID: id, state: .uncertain, reason: "conversation broker deallocated", generation: "unknown")
+            }
+            return await self.runReserved(envelope)
+        }
+        sessions[id]!.inFlightCommands[envelope.commandID] = task
+        return await task.value
+    }
+
+    private func runReserved(_ envelope: ConversationCommandEnvelope) async -> ConversationReceipt {
+        let id = envelope.sessionID
+        defer { sessions[id]?.inFlightCommands.removeValue(forKey: envelope.commandID) }
+        guard let state = sessions[id] else {
+            return ConversationReceipt(id: envelope.commandID, sessionID: id, state: .uncertain, reason: "conversation session disappeared", generation: "unknown")
+        }
+        do {
+            if let expected = envelope.expectedGeneration, expected != state.session.generation {
+                return try await reject(envelope, reason: "stale provider generation")
+            }
+            if let expectedTurn = envelope.expectedTurnID, expectedTurn != state.currentTurnID {
+                return try await reject(envelope, reason: "stale active turn")
+            }
+            let accepted = ConversationReceipt(id: envelope.commandID, sessionID: id, state: .accepted, generation: state.session.generation)
+            try await recordReceipt(accepted, id: id)
+            return try await apply(envelope.command, commandID: envelope.commandID, id: id, expectedGeneration: envelope.expectedGeneration, expectedTurnID: envelope.expectedTurnID)
+        } catch let error as ConversationProviderError {
+            return await finishFailedCommand(envelope, error: error, state: Self.receiptState(for: error))
+        } catch {
+            return await finishFailedCommand(envelope, errorDescription: error.localizedDescription, state: .uncertain)
+        }
+    }
+
+    private static func receiptState(for error: ConversationProviderError) -> ConversationReceiptState {
+        switch error {
+        case .unsupported, .rejected, .staleGeneration: .rejected
+        case .unavailable, .malformed: .uncertain
+        }
+    }
+
+    private func finishFailedCommand(_ envelope: ConversationCommandEnvelope, error: ConversationProviderError? = nil, errorDescription: String? = nil, state: ConversationReceiptState) async -> ConversationReceipt {
+        let description = error?.description ?? errorDescription ?? "command failed"
+        let receipt = ConversationReceipt(id: envelope.commandID, sessionID: envelope.sessionID, state: state, reason: description, generation: sessions[envelope.sessionID]?.session.generation ?? "unknown")
+        do { try await recordReceipt(receipt, id: envelope.sessionID) } catch { return receipt }
+        return receipt
     }
 
     /// Reads a durable command receipt without dispatching it.
@@ -163,7 +271,7 @@ public actor ConversationBroker: ConversationClient {
         subscribers.removeAll()
     }
 
-    private func apply(_ command: ConversationCommand, commandID: ConversationCommandID, id: ConversationID) async throws -> ConversationReceipt {
+    private func apply(_ command: ConversationCommand, commandID: ConversationCommandID, id: ConversationID, expectedGeneration: ConversationGeneration? = nil, expectedTurnID: ConversationTurnID? = nil) async throws -> ConversationReceipt {
         switch command {
         case .rename(let title): sessions[id]!.session.title = title; sessions[id]!.session.updatedAt = Date(); try persist(sessions[id]!); return try await applied(commandID, id: id)
         case .setPinned(let value): sessions[id]!.session.isPinned = value; sessions[id]!.session.updatedAt = Date(); try persist(sessions[id]!); return try await applied(commandID, id: id)
@@ -173,32 +281,40 @@ public actor ConversationBroker: ConversationClient {
             if let model, !capabilities.models.isEmpty, !capabilities.models.contains(model) { throw ConversationProviderError.rejected("model is not supported by provider") }
             if let effort, !capabilities.efforts.isEmpty, !capabilities.efforts.contains(effort) { throw ConversationProviderError.rejected("effort is not supported by provider") }
             if let speed, !capabilities.speeds.isEmpty, !capabilities.speeds.contains(speed) { throw ConversationProviderError.rejected("speed is not supported by provider") }
+            guard let connection = sessions[id]!.connection else { throw ConversationProviderError.unavailable("provider connection is not ready") }
+            try await connection.send(.configure(model: model, effort: effort, speed: speed))
             sessions[id]!.session.model = model; sessions[id]!.session.effort = effort; sessions[id]!.session.speed = speed; sessions[id]!.session.updatedAt = Date(); try persist(sessions[id]!); return try await applied(commandID, id: id)
         case .queue(let text):
             let item = ConversationQueueItem(id: ConversationItemID(rawValue: UUID().uuidString), commandID: commandID, text: text, position: sessions[id]!.queued.count)
             sessions[id]!.queued.append(item)
-            if sessions[id]!.currentTurnID == nil { return try await drainQueue(id: id, commandID: commandID) }
+            if sessions[id]!.currentTurnID == nil && !sessions[id]!.dispatchingTurn { return try await drainQueue(id: id, commandID: commandID) }
             try await emitQueue(id: id); return try await applied(commandID, id: id)
         case .editQueued(let itemID, let text):
             guard let index = sessions[id]!.queued.firstIndex(where: { $0.id == itemID }) else { throw ConversationProviderError.rejected("queued item not found") }
+            guard !sessions[id]!.queued[index].isDelivering else { throw ConversationProviderError.rejected("queued item is already being delivered") }
             sessions[id]!.queued[index].text = text; try await emitQueue(id: id); return try await applied(commandID, id: id)
         case .cancelQueued(let itemID):
             guard let index = sessions[id]!.queued.firstIndex(where: { $0.id == itemID }) else { throw ConversationProviderError.rejected("queued item not found") }
-            sessions[id]!.queued.remove(at: index); try await emitQueue(id: id); return try await applied(commandID, id: id)
+            guard !sessions[id]!.queued[index].isDelivering else { throw ConversationProviderError.rejected("queued item is already being delivered") }
+            let draftText = sessions[id]!.queued[index].text
+            sessions[id]!.queued.remove(at: index); reindexQueue(id: id); try await emitQueue(id: id); return try await applied(commandID, id: id, draftText: draftText)
         case .startTurn(let text, let model, let effort):
+            guard sessions[id]!.currentTurnID == nil && !sessions[id]!.dispatchingTurn else { throw ConversationProviderError.rejected("a turn is already active or being dispatched") }
             if sessions[id]!.connection == nil {
                 guard sessions[id]!.session.providerSessionID != nil else { throw ConversationProviderError.unavailable("Provider session cannot be resumed safely") }
                 guard let adapter = adapters[sessions[id]!.session.provider] else { throw ConversationProviderError.unsupported("No adapter for provider") }
                 try await attach(id: id, adapter: adapter)
             }
-            return try await sendProvider(.startTurn(text: text, model: model ?? sessions[id]!.session.model, effort: effort ?? sessions[id]!.session.effort), commandID: commandID, id: id)
-        case .steer(let text): return try await sendProvider(.steer(text: text), commandID: commandID, id: id)
-        case .interrupt: return try await sendProvider(.interrupt, commandID: commandID, id: id)
-        case .answerQuestion, .resolveApproval: return try await sendProvider(command, commandID: commandID, id: id)
+            return try await sendProvider(.startTurn(text: text, model: model ?? sessions[id]!.session.model, effort: effort ?? sessions[id]!.session.effort), commandID: commandID, id: id, expectedGeneration: expectedGeneration, expectedTurnID: expectedTurnID)
+        case .steer(let text): return try await sendProvider(.steer(text: text), commandID: commandID, id: id, expectedGeneration: expectedGeneration, expectedTurnID: expectedTurnID)
+        case .interrupt: return try await sendProvider(.interrupt, commandID: commandID, id: id, expectedGeneration: expectedGeneration, expectedTurnID: expectedTurnID)
+        case .answerQuestion, .resolveApproval: return try await sendProvider(command, commandID: commandID, id: id, expectedGeneration: expectedGeneration, expectedTurnID: expectedTurnID)
         }
     }
 
-    private func sendProvider(_ command: ConversationCommand, commandID: ConversationCommandID, id: ConversationID) async throws -> ConversationReceipt {
+    private func sendProvider(_ command: ConversationCommand, commandID: ConversationCommandID, id: ConversationID, expectedGeneration: ConversationGeneration? = nil, expectedTurnID: ConversationTurnID? = nil) async throws -> ConversationReceipt {
+        if let expectedGeneration, expectedGeneration != sessions[id]?.session.generation { throw ConversationProviderError.staleGeneration }
+        if let expectedTurnID, expectedTurnID != sessions[id]?.currentTurnID { throw ConversationProviderError.rejected("stale active turn") }
         guard let connection = sessions[id]?.connection else { throw ConversationProviderError.unavailable("provider connection is not ready") }
         if case .startTurn = command { sessions[id]!.dispatchingTurn = true; sessions[id]!.session.updatedAt = Date(); try persist(sessions[id]!) }
         try await connection.send(command)
@@ -206,6 +322,9 @@ public actor ConversationBroker: ConversationClient {
     }
 
     private func drainQueue(id: ConversationID, commandID: ConversationCommandID) async throws -> ConversationReceipt {
+        guard sessions[id]!.currentTurnID == nil && !sessions[id]!.dispatchingTurn else {
+            return try await applied(commandID, id: id)
+        }
         guard !sessions[id]!.queued.isEmpty else { return try await applied(commandID, id: id) }
         var item = sessions[id]!.queued[0]; item.isDelivering = true; sessions[id]!.queued[0] = item
         sessions[id]!.dispatchingTurn = true
@@ -214,14 +333,21 @@ public actor ConversationBroker: ConversationClient {
         guard let connection = sessions[id]!.connection else { throw ConversationProviderError.unavailable("provider connection is not ready") }
         try await connection.send(.startTurn(text: item.text, model: sessions[id]!.session.model, effort: sessions[id]!.session.effort))
         sessions[id]!.queued.removeFirst()
+        reindexQueue(id: id)
         try persist(sessions[id]!)
         try await emitQueue(id: id)
         return try await applied(commandID, id: id)
     }
 
-    private func applied(_ commandID: ConversationCommandID, id: ConversationID) async throws -> ConversationReceipt {
+    private func reindexQueue(id: ConversationID) {
+        guard var queue = sessions[id]?.queued else { return }
+        for index in queue.indices { queue[index].position = index }
+        sessions[id]!.queued = queue
+    }
+
+    private func applied(_ commandID: ConversationCommandID, id: ConversationID, draftText: String? = nil) async throws -> ConversationReceipt {
         let state = sessions[id]!.session
-        let receipt = ConversationReceipt(id: commandID, sessionID: id, state: .applied, eventSequence: sessions[id]!.cursor, generation: state.generation)
+        let receipt = ConversationReceipt(id: commandID, sessionID: id, state: .applied, eventSequence: sessions[id]!.cursor, generation: state.generation, draftText: draftText)
         try await recordReceipt(receipt, id: id)
         return receipt
     }
@@ -240,21 +366,58 @@ public actor ConversationBroker: ConversationClient {
         try persist(sessions[id]!)
     }
 
-    private func emitQueue(id: ConversationID) async throws { _ = try await appendEvent(id: id, kind: .queue, queue: sessions[id]!.queued) }
+    private func emitQueue(id: ConversationID) async throws {
+        reindexQueue(id: id)
+        _ = try await appendEvent(id: id, kind: .queue, queue: sessions[id]!.queued)
+    }
 
-    private func appendEvent(id: ConversationID, kind: ConversationEventKind, turnID: ConversationTurnID? = nil, item: ConversationItem? = nil, request: ConversationRequest? = nil, queue: [ConversationQueueItem]? = nil, receipt: ConversationReceipt? = nil, state: String? = nil, rawPayload: ConversationJSONValue? = nil) async throws -> ConversationEvent {
-        guard var current = sessions[id] else { throw ConversationBrokerError.sessionNotFound(id) }
-        current.cursor += 1
-        let event = ConversationEvent(sessionID: id, sequence: current.cursor, generation: current.session.generation, kind: kind, turnID: turnID, item: item, request: request, queue: queue, receipt: receipt, state: state, rawPayload: rawPayload)
-        try await current.journal.append(event)
-        sessions[id] = current
+    /// Waits until the append chain observed at entry has completed. A revision check handles
+    /// actor reentrancy when a second event is reserved while the first write is awaiting I/O.
+    private func awaitDurable(sessionID: ConversationID) async throws {
+        while true {
+            guard let state = sessions[sessionID] else { throw ConversationBrokerError.sessionNotFound(sessionID) }
+            if let failure = state.appendFailure { throw ConversationBrokerError.durabilityFailed(failure) }
+            let revision = state.appendRevision
+            guard let tail = state.appendTail else { return }
+            do { try await tail.value }
+            catch {
+                sessions[sessionID]?.appendFailure = error.localizedDescription
+                throw ConversationBrokerError.durabilityFailed(error.localizedDescription)
+            }
+            guard sessions[sessionID]?.appendRevision == revision else { continue }
+            return
+        }
+    }
+
+    private func appendEvent(id: ConversationID, kind: ConversationEventKind, turnID: ConversationTurnID? = nil, item: ConversationItem? = nil, itemUpdate: ConversationItemUpdateMode? = nil, request: ConversationRequest? = nil, queue: [ConversationQueueItem]? = nil, receipt: ConversationReceipt? = nil, state: String? = nil, rawPayload: ConversationJSONValue? = nil) async throws -> ConversationEvent {
+        guard sessions[id] != nil else { throw ConversationBrokerError.sessionNotFound(id) }
+        if let failure = sessions[id]!.appendFailure { throw ConversationBrokerError.durabilityFailed(failure) }
+        // Reserve the cursor and chain the write synchronously. Every subsequent task awaits its
+        // predecessor inside the task, so concurrent actor callers cannot reorder journal records.
+        let sequence = sessions[id]!.cursor + 1
+        sessions[id]!.cursor = sequence
+        let journal = sessions[id]!.journal
+        let prior = sessions[id]!.appendTail
+        let event = ConversationEvent(sessionID: id, sequence: sequence, generation: sessions[id]!.session.generation, kind: kind, turnID: turnID, item: item, itemUpdate: itemUpdate, request: request, queue: queue, receipt: receipt, state: state, rawPayload: rawPayload)
+        let appendTask = Task {
+            if let prior { try await prior.value }
+            try await journal.append(event)
+        }
+        sessions[id]!.appendTail = appendTask
+        sessions[id]!.appendRevision &+= 1
+        do { try await appendTask.value }
+        catch {
+            sessions[id]!.appendFailure = error.localizedDescription
+            throw ConversationBrokerError.durabilityFailed(error.localizedDescription)
+        }
         broadcast(event)
         onChange?(id, event.sequence)
-        if current.cursor % ConversationCursor(snapshotInterval) == 0 { try await writeSnapshot(id: id) }
+        if sequence % ConversationCursor(snapshotInterval) == 0 { try await writeSnapshot(id: id) }
         return event
     }
 
     private func writeSnapshot(id: ConversationID) async throws {
+        try await awaitDurable(sessionID: id)
         guard let state = sessions[id] else { return }
         let snapshot = ConversationSnapshot(session: state.session, cursor: state.cursor, generation: state.session.generation, items: state.items, pendingRequests: state.pendingRequests, queued: state.queued, receipts: Array(state.receipts.suffix(64)), activeTurnID: state.currentTurnID, isTurnRunning: state.currentTurnID != nil || state.dispatchingTurn, capabilities: state.capabilities)
         try await state.journal.write(snapshot: snapshot)
@@ -263,33 +426,41 @@ public actor ConversationBroker: ConversationClient {
     private func attach(id: ConversationID, adapter: any ConversationProviderAdapter) async throws {
         guard let state = sessions[id] else { throw ConversationBrokerError.sessionNotFound(id) }
         let connection = try await adapter.open(session: state.session, target: state.target)
+        let token = UUID()
         sessions[id]!.connection = connection
+        sessions[id]!.connectionToken = token
         if let nativeID = await connection.providerSessionID() { sessions[id]!.session.providerSessionID = nativeID }
-        if let capabilities = await connection.capabilities() { sessions[id]!.capabilities = capabilities }
+        if var capabilities = await connection.capabilities() { capabilities.features.insert("queue"); sessions[id]!.capabilities = capabilities }
         sessions[id]!.session.state = .ready
         try persist(sessions[id]!)
         let task = Task { [weak self] in
             do {
-                for try await event in connection.events { await self?.ingest(event, id: id) }
-                await self?.markProviderRestarted(id: id, reason: "provider stream ended")
-            } catch { await self?.markProviderRestarted(id: id, reason: error.localizedDescription) }
+                for try await event in connection.events { await self?.ingest(event, id: id, token: token) }
+                await self?.markProviderRestarted(id: id, token: token, reason: "provider stream ended")
+            } catch { await self?.markProviderRestarted(id: id, token: token, reason: error.localizedDescription) }
         }
         sessions[id]!.eventTask = task
     }
 
-    private func ingest(_ providerEvent: ConversationProviderEvent, id: ConversationID) async {
+    private func ingest(_ providerEvent: ConversationProviderEvent, id: ConversationID, token: UUID) async {
+        guard sessions[id]?.connectionToken == token else { return }
         guard var state = sessions[id] else { return }
         var item: ConversationItem?
+        var compactItem: ConversationItem?
         var normalizedRequest: ConversationRequest?
         var didFinishTurn = false
         if providerEvent.kind == .item {
             let itemID = providerEvent.itemID ?? ConversationItemID(rawValue: UUID().uuidString)
-            item = ConversationItem(id: itemID, sequence: state.cursor + 1, turnID: providerEvent.turnID, kind: providerEvent.itemKind ?? .unknown("provider"), role: providerEvent.role, text: providerEvent.text, tool: providerEvent.tool, plan: providerEvent.plan, diff: providerEvent.diff, artifact: providerEvent.artifact, usage: providerEvent.usage, rawPayload: providerEvent.rawPayload)
+            let incoming = ConversationItem(id: itemID, sequence: state.cursor + 1, turnID: providerEvent.turnID, kind: providerEvent.itemKind ?? .unknown("provider"), role: providerEvent.role, text: providerEvent.text, tool: providerEvent.tool, plan: providerEvent.plan, diff: providerEvent.diff, artifact: providerEvent.artifact, usage: providerEvent.usage, rawPayload: providerEvent.rawPayload)
+            compactItem = incoming
+            item = incoming.applying(to: state.items.first(where: { $0.id == itemID }), mode: providerEvent.itemUpdate)
             if let index = state.items.firstIndex(where: { $0.id == itemID }) { state.items[index] = item! } else { state.items.append(item!) }
         } else if case .unknown(let unknownKind) = providerEvent.kind, providerEvent.rawPayload != nil {
             let itemID = providerEvent.itemID ?? ConversationItemID(rawValue: "unknown:\(state.cursor + 1)")
-            item = ConversationItem(id: itemID, sequence: state.cursor + 1, turnID: providerEvent.turnID, kind: .unknown(unknownKind), role: providerEvent.role, text: providerEvent.text, rawPayload: providerEvent.rawPayload)
-            state.items.append(item!)
+            let incoming = ConversationItem(id: itemID, sequence: state.cursor + 1, turnID: providerEvent.turnID, kind: .unknown(unknownKind), role: providerEvent.role, text: providerEvent.text, rawPayload: providerEvent.rawPayload)
+            compactItem = incoming
+            item = incoming.applying(to: state.items.first(where: { $0.id == itemID }), mode: providerEvent.itemUpdate)
+            if let index = state.items.firstIndex(where: { $0.id == itemID }) { state.items[index] = item! } else { state.items.append(item!) }
         }
         if let request = providerEvent.request {
             normalizedRequest = ConversationRequest(id: request.id, turnID: request.turnID, generation: state.session.generation, kind: request.kind, state: request.state, approval: request.approval, question: request.question, rawPayload: request.rawPayload)
@@ -299,26 +470,32 @@ public actor ConversationBroker: ConversationClient {
             if let stateLabel = providerEvent.state, ["completed", "succeeded", "failed", "stopped", "cancelled", "idle"].contains(stateLabel) { state.currentTurnID = nil; state.dispatchingTurn = false; didFinishTurn = true }
             else if providerEvent.turnID != nil { state.currentTurnID = providerEvent.turnID; state.dispatchingTurn = false }
         }
+        state.session.updatedAt = Date()
         sessions[id] = state
-        do { _ = try await appendEvent(id: id, kind: providerEvent.kind, turnID: providerEvent.turnID, item: item, request: normalizedRequest, state: providerEvent.state, rawPayload: providerEvent.rawPayload) }
-        catch { await markProviderRestarted(id: id, reason: error.localizedDescription); return }
-        if didFinishTurn, sessions[id]!.currentTurnID == nil, !sessions[id]!.queued.isEmpty, !sessions[id]!.queued[0].isDelivering { let command = sessions[id]!.queued[0].commandID; _ = try? await drainQueue(id: id, commandID: command) }
+        do { _ = try await appendEvent(id: id, kind: providerEvent.kind, turnID: providerEvent.turnID, item: compactItem, itemUpdate: providerEvent.itemUpdate, request: normalizedRequest, state: providerEvent.state, rawPayload: providerEvent.rawPayload) }
+        catch { await markProviderRestarted(id: id, token: token, reason: error.localizedDescription); return }
+        if didFinishTurn, sessions[id]!.currentTurnID == nil, !sessions[id]!.dispatchingTurn, !sessions[id]!.queued.isEmpty, !sessions[id]!.queued[0].isDelivering { let command = sessions[id]!.queued[0].commandID; _ = try? await drainQueue(id: id, commandID: command) }
     }
 
-    private func markProviderRestarted(id: ConversationID, reason: String) async {
-        guard sessions[id] != nil else { return }
+    private func markProviderRestarted(id: ConversationID, token: UUID, reason: String) async {
+        guard sessions[id]?.connectionToken == token else { return }
         sessions[id]!.connection = nil
+        sessions[id]!.connectionToken = nil
         sessions[id]!.eventTask = nil
         sessions[id]!.session.generation = UUID().uuidString
         sessions[id]!.session.state = .stopped
         sessions[id]!.session.updatedAt = Date()
-        sessions[id]!.pendingRequests = sessions[id]!.pendingRequests.map { ConversationRequest(id: $0.id, turnID: $0.turnID, generation: $0.generation, kind: $0.kind, state: .stale, approval: $0.approval, question: $0.question, rawPayload: $0.rawPayload) }
+        sessions[id]!.currentTurnID = nil
+        sessions[id]!.dispatchingTurn = false
+        let generation = sessions[id]!.session.generation
+        sessions[id]!.pendingRequests = sessions[id]!.pendingRequests.map { ConversationRequest(id: $0.id, turnID: $0.turnID, generation: generation, kind: $0.kind, state: .stale, approval: $0.approval, question: $0.question, rawPayload: $0.rawPayload) }
         try? persist(sessions[id]!)
         _ = try? await appendEvent(id: id, kind: .restarted, state: reason)
     }
 
     private func close(id: ConversationID) async {
-        guard let connection = sessions[id]?.connection else { return }
+        guard let connection = sessions[id]?.connection else { sessions[id]?.connectionToken = nil; return }
+        sessions[id]!.connectionToken = nil
         await connection.close()
         sessions[id]!.connection = nil
         sessions[id]!.eventTask?.cancel()
@@ -336,8 +513,16 @@ public actor ConversationBroker: ConversationClient {
 
     private func removeSubscriber(sessionID: ConversationID, id: UUID) { subscribers[sessionID]?.removeValue(forKey: id) }
 
+    private static func fingerprint<T: Encodable>(_ value: T) throws -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let digest = SHA256.hash(data: try encoder.encode(value))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
     private func persist(_ state: SessionState) throws {
-        let record = SessionRecord(session: state.session, target: state.target)
+        let fingerprints = state.commandFingerprints.reduce(into: [String: String]()) { $0[$1.key.rawValue] = $1.value }
+        let record = SessionRecord(session: state.session, target: state.target, commandFingerprints: fingerprints)
         let data = try encoder.encode(record)
         let url = directory.appendingPathComponent(state.session.id.rawValue, isDirectory: true).appendingPathComponent("session.json")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: Int(0o700)])
@@ -347,53 +532,112 @@ public actor ConversationBroker: ConversationClient {
 
     private func persistCreationReservations() throws {
         let url = directory.appendingPathComponent("creation-reservations.json")
-        let data = try encoder.encode(creationReservations.mapValues(\.rawValue))
+        let raw = creationReservations.reduce(into: [String: CreationReservation]()) { $0[$1.key.rawValue] = $1.value }
+        let data = try encoder.encode(raw)
         try data.write(to: url, options: [.atomic])
         try? FileManager.default.setAttributes([.posixPermissions: Int(0o600)], ofItemAtPath: url.path)
     }
 
-    private func loadCreationReservations() throws {
+    private static func readCreationReservations(directory: URL) throws -> [ConversationCommandID: CreationReservation] {
         let url = directory.appendingPathComponent("creation-reservations.json")
-        guard let data = try? Data(contentsOf: url) else { return }
-        let raw = try JSONDecoder().decode([String: String].self, from: data)
-        creationReservations = raw.reduce(into: [:]) { result, pair in result[ConversationCommandID(rawValue: pair.key)] = ConversationID(rawValue: pair.value) }
+        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
+        let data: Data
+        do { data = try Data(contentsOf: url) }
+        catch { throw ConversationJournalError.corruptSession(url.path) }
+        guard !data.isEmpty else { throw ConversationJournalError.corruptSession(url.path) }
+        let decoder = JSONDecoder()
+        if let raw = try? decoder.decode([String: CreationReservation].self, from: data) {
+            return raw.reduce(into: [:]) { $0[ConversationCommandID(rawValue: $1.key)] = $1.value }
+        }
+        // Read the previous command-ID -> session-ID shape only when it is unambiguous. New writes
+        // always include the payload fingerprint, so a legacy reservation remains safely bound to its
+        // original command but cannot silently accept a different payload.
+        if let legacy = try? decoder.decode([String: String].self, from: data) {
+            return legacy.reduce(into: [:]) { $0[ConversationCommandID(rawValue: $1.key)] = CreationReservation(sessionID: ConversationID(rawValue: $1.value), fingerprint: "legacy:($1.value)") }
+        }
+        throw ConversationJournalError.corruptSession(url.path)
     }
 
-    private func loadPersistedSessions() throws {
-        guard let directories = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isDirectoryKey]) else { return }
+    private static func readPersistedSessions(directory: URL, adapters: [ConversationProvider: any ConversationProviderAdapter]) throws -> [ConversationID: SessionState] {
+        guard let directories = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isDirectoryKey]) else { return [:] }
         let decoder = JSONDecoder()
+        var loaded: [ConversationID: SessionState] = [:]
         for child in directories {
+            let values = try? child.resourceValues(forKeys: [.isDirectoryKey])
+            guard values?.isDirectory == true else { continue }
             let url = child.appendingPathComponent("session.json")
-            guard let data = try? Data(contentsOf: url) else { continue }
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            let data: Data
+            do { data = try Data(contentsOf: url) } catch { throw ConversationJournalError.corruptSession(url.path) }
             let record: SessionRecord
             do { record = try decoder.decode(SessionRecord.self, from: data) } catch { throw ConversationJournalError.corruptSession(url.path) }
             let journal = try ConversationJournal(directory: child)
             let snapshotURL = child.appendingPathComponent("snapshot.json")
-            let snapshot = (try? Data(contentsOf: snapshotURL)).flatMap { try? decoder.decode(ConversationSnapshot.self, from: $0) }
-            let capabilities = adapters[record.session.provider]?.capabilities ?? ConversationCapabilities(protocolVersion: "unknown", supportsResume: false)
-            var state = SessionState(session: record.session, target: record.target, journal: journal, capabilities: capabilities, items: snapshot?.items ?? [], pendingRequests: snapshot?.pendingRequests ?? [], queued: snapshot?.queued ?? [], receipts: snapshot?.receipts ?? [], cursor: snapshot?.cursor ?? 0, currentTurnID: snapshot?.activeTurnID, dispatchingTurn: snapshot?.isTurnRunning ?? false, connection: nil, eventTask: nil)
+            let snapshot: ConversationSnapshot?
+            if FileManager.default.fileExists(atPath: snapshotURL.path) {
+                do { snapshot = try decoder.decode(ConversationSnapshot.self, from: Data(contentsOf: snapshotURL)) }
+                catch { throw ConversationJournalError.corruptSession(snapshotURL.path) }
+            } else { snapshot = nil }
+            var capabilities = adapters[record.session.provider]?.capabilities ?? ConversationCapabilities(protocolVersion: "unknown", supportsResume: false)
+            capabilities.features.insert("queue")
+            var fingerprints: [ConversationCommandID: String] = [:]
+            for (key, value) in record.commandFingerprints { fingerprints[ConversationCommandID(rawValue: key)] = value }
+            var state = SessionState(session: record.session, target: record.target, journal: journal, capabilities: snapshot?.capabilities ?? capabilities, items: snapshot?.items ?? [], pendingRequests: snapshot?.pendingRequests ?? [], queued: snapshot?.queued ?? [], receipts: snapshot?.receipts ?? [], cursor: snapshot?.cursor ?? 0, currentTurnID: snapshot?.activeTurnID, dispatchingTurn: snapshot?.isTurnRunning ?? false, connection: nil, eventTask: nil, connectionToken: nil, appendTail: nil, appendRevision: 0, appendFailure: nil, commandFingerprints: fingerprints, inFlightCommands: [:])
             let after = snapshot?.cursor ?? 0
-            let events = try decodeDurableEvents(at: child.appendingPathComponent("events.jsonl"))
-            for event in events where event.sequence > after { apply(event, to: &state) }
-            if let last = events.last { state.cursor = last.sequence }
-            sessions[record.session.id] = state
+            let events = try Self.decodeDurableEvents(at: child.appendingPathComponent("events.jsonl"))
+            if let first = events.first, first.sequence > 1 { throw ConversationJournalError.sequenceMismatch(expected: 1, actual: first.sequence) }
+            for event in events where event.sequence > after { Self.apply(event, to: &state) }
+            if let last = events.last {
+                guard last.sequence >= after else { throw ConversationJournalError.snapshotAhead(after, last.sequence) }
+                state.cursor = last.sequence
+            }
+            // A process restart invalidates any in-flight native turn/request. Keep queued items
+            // marked `isDelivering` so an uncertain provider dispatch is never replayed automatically.
+            if record.session.state == .ready || record.session.state == .starting || state.currentTurnID != nil || state.dispatchingTurn {
+                state.session.state = state.session.isArchived ? .archived : .stopped
+                state.session.generation = UUID().uuidString
+                state.currentTurnID = nil
+                state.dispatchingTurn = false
+                let generation = state.session.generation
+                state.pendingRequests = state.pendingRequests.map { request in
+                    ConversationRequest(id: request.id, turnID: request.turnID, generation: generation, kind: request.kind, state: .stale, approval: request.approval, question: request.question, rawPayload: request.rawPayload)
+                }
+            }
+            loaded[record.session.id] = state
         }
+        return loaded
     }
 
-    private func decodeDurableEvents(at url: URL) throws -> [ConversationEvent] {
-        guard let data = try? Data(contentsOf: url) else { return [] }
+    private static func decodeDurableEvents(at url: URL) throws -> [ConversationEvent] {
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        let data: Data
+        do { data = try Data(contentsOf: url) }
+        catch { throw ConversationJournalError.corruptJournal(url.path) }
+        guard !data.isEmpty else { return [] }
         let decoder = JSONDecoder()
-        return try data.split(separator: 10, omittingEmptySubsequences: true).compactMap { try decoder.decode(ConversationEvent.self, from: Data($0)) }
+        var result: [ConversationEvent] = []
+        for line in data.split(separator: 10, omittingEmptySubsequences: true) {
+            do { result.append(try decoder.decode(ConversationEvent.self, from: Data(line))) }
+            catch { throw ConversationJournalError.corruptJournal(url.path) }
+        }
+        for (index, event) in result.enumerated() where event.sequence != ConversationCursor(index + 1) {
+            throw ConversationJournalError.sequenceMismatch(expected: ConversationCursor(index + 1), actual: event.sequence)
+        }
+        return result
     }
 
-    private func apply(_ event: ConversationEvent, to state: inout SessionState) {
+    private static func apply(_ event: ConversationEvent, to state: inout SessionState) {
         switch event.kind {
         case .item:
-            if let item = event.item { if let index = state.items.firstIndex(where: { $0.id == item.id }) { state.items[index] = item } else { state.items.append(item) } }
+            if let item = event.item {
+                let projected = item.applying(to: state.items.first(where: { $0.id == item.id }), mode: event.itemUpdate)
+                if let index = state.items.firstIndex(where: { $0.id == item.id }) { state.items[index] = projected } else { state.items.append(projected) }
+            }
         case .request:
             if let request = event.request { if let index = state.pendingRequests.firstIndex(where: { $0.id == request.id }) { state.pendingRequests[index] = request } else if request.state == .pending { state.pendingRequests.append(request) } }
         case .queue:
             state.queued = event.queue ?? []
+            for index in state.queued.indices { state.queued[index].position = index }
         case .receipt:
             if let receipt = event.receipt { if let index = state.receipts.firstIndex(where: { $0.id == receipt.id }) { state.receipts[index] = receipt } else { state.receipts.append(receipt) } }
         case .turn, .run:
@@ -401,9 +645,13 @@ public actor ConversationBroker: ConversationClient {
             if ["completed", "succeeded", "failed", "stopped", "cancelled", "idle"].contains(event.state ?? "") { state.currentTurnID = nil; state.dispatchingTurn = false }
         case .restarted:
             state.session.generation = event.generation; state.session.state = .stopped; state.currentTurnID = nil; state.dispatchingTurn = false
-            state.pendingRequests = state.pendingRequests.map { request in var copy = request; copy.state = .stale; return copy }
+            let generation = state.session.generation
+            state.pendingRequests = state.pendingRequests.map { request in ConversationRequest(id: request.id, turnID: request.turnID, generation: generation, kind: request.kind, state: .stale, approval: request.approval, question: request.question, rawPayload: request.rawPayload) }
         case .unknown:
-            break
+            if let item = event.item {
+                let projected = item.applying(to: state.items.first(where: { $0.id == item.id }), mode: event.itemUpdate)
+                if let index = state.items.firstIndex(where: { $0.id == item.id }) { state.items[index] = projected } else { state.items.append(projected) }
+            }
         }
         state.cursor = max(state.cursor, event.sequence)
     }
@@ -420,6 +668,22 @@ public enum ConversationBrokerError: Error, Codable, Hashable, Sendable, CustomS
     case eventStreamOverflow
     /// Provider stream ended and pending requests became stale.
     case providerRestarted(String)
+    /// A retry reused an idempotency key with a different request body.
+    case idempotencyConflict(String)
+    /// A create reservation exists but its session record is missing.
+    case creationUncertain(ConversationCommandID)
+    /// Durable journal writes failed; later events must stop until recovery.
+    case durabilityFailed(String)
 
-    public var description: String { switch self { case .sessionNotFound(let id): "session not found: \(id.rawValue)"; case .eventTooLarge(let cursor): "event too large at cursor \(cursor)"; case .eventStreamOverflow: "event stream overflow; snapshot and replay required"; case .providerRestarted(let value): "provider restarted: \(value)" } }
+    public var description: String {
+        switch self {
+        case .sessionNotFound(let id): "session not found: \(id.rawValue)"
+        case .eventTooLarge(let cursor): "event too large at cursor \(cursor)"
+        case .eventStreamOverflow: "event stream overflow; snapshot and replay required"
+        case .providerRestarted(let value): "provider restarted: \(value)"
+        case .idempotencyConflict(let value): "idempotency conflict: \(value)"
+        case .creationUncertain(let id): "creation request has no durable session: \(id.rawValue)"
+        case .durabilityFailed(let value): "durability failed: \(value)"
+        }
+    }
 }

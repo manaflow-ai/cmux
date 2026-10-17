@@ -17,9 +17,11 @@ public struct ConversationReceipt: Codable, Hashable, Sendable, Identifiable {
     public var eventSequence: ConversationCursor?
     /// Generation in which the command was evaluated.
     public var generation: ConversationGeneration
+    /// Draft text restored to the composer when a queued command is cancelled.
+    public var draftText: String?
     /// Time at which the receipt was written.
     public let createdAt: Date
 
     /// Creates a receipt.
-    public init(id: ConversationCommandID, sessionID: ConversationID, state: ConversationReceiptState, reason: String? = nil, eventSequence: ConversationCursor? = nil, generation: ConversationGeneration, createdAt: Date = Date()) { self.id = id; self.sessionID = sessionID; self.state = state; self.reason = reason; self.eventSequence = eventSequence; self.generation = generation; self.createdAt = createdAt }
+    public init(id: ConversationCommandID, sessionID: ConversationID, state: ConversationReceiptState, reason: String? = nil, eventSequence: ConversationCursor? = nil, generation: ConversationGeneration, draftText: String? = nil, createdAt: Date = Date()) { self.id = id; self.sessionID = sessionID; self.state = state; self.reason = reason; self.eventSequence = eventSequence; self.generation = generation; self.draftText = draftText; self.createdAt = createdAt }
 }

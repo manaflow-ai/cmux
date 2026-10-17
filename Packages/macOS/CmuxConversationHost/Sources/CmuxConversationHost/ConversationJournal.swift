@@ -23,24 +23,77 @@ public actor ConversationJournal {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: Int(0o700)])
         try? FileManager.default.setAttributes([.posixPermissions: Int(0o700)], ofItemAtPath: directory.path)
         var last: ConversationCursor = 0
-        if let data = try? Data(contentsOf: journalURL), !data.isEmpty {
+        if FileManager.default.fileExists(atPath: journalURL.path) {
+            let data: Data
+            do { data = try Data(contentsOf: journalURL) }
+            catch { throw ConversationJournalError.corruptJournal(journalURL.path) }
+            guard !data.isEmpty else {
+                try? FileManager.default.setAttributes([.posixPermissions: Int(0o600)], ofItemAtPath: journalURL.path)
+                self.lastSequenceValue = 0
+                return
+            }
             guard data.count <= maximumJournalBytes else { throw ConversationJournalError.fileTooLarge(journalURL.path) }
-            let lines = data.split(separator: 10, omittingEmptySubsequences: true)
-            for (index, line) in lines.enumerated() {
-                do {
-                    let event = try decoder.decode(ConversationEvent.self, from: Data(line))
-                    guard event.sequence == last + 1 else { throw ConversationJournalError.sequenceMismatch(expected: last + 1, actual: event.sequence) }
-                    last = event.sequence
-                } catch {
-                    // A crash can leave only the final JSON line incomplete. Earlier corruption is fatal.
-                    if index == lines.count - 1 { break }
-                    if let journalError = error as? ConversationJournalError { throw journalError }
-                    throw ConversationJournalError.corruptJournal(journalURL.path)
+            let validation = try Self.validate(data: data, decoder: decoder, path: journalURL.path)
+            last = validation.lastSequence
+            if validation.truncateOffset != nil || validation.appendTerminator {
+                let handle = try FileHandle(forWritingTo: journalURL)
+                defer { try? handle.close() }
+                try handle.truncate(atOffset: UInt64(validation.truncateOffset ?? data.count))
+                if validation.appendTerminator {
+                    try handle.seekToEnd()
+                    try handle.write(contentsOf: Data([10]))
                 }
+                try handle.synchronize()
             }
             try? FileManager.default.setAttributes([.posixPermissions: Int(0o600)], ofItemAtPath: journalURL.path)
         }
         self.lastSequenceValue = last
+    }
+
+    private struct Validation {
+        let lastSequence: ConversationCursor
+        let truncateOffset: Int?
+        let appendTerminator: Bool
+    }
+
+    /// Validates every complete line and recovers only a malformed, unterminated final tail.
+    /// A complete JSON record without a newline is accepted and terminated before the next append.
+    private static func validate(data: Data, decoder: JSONDecoder, path: String) throws -> Validation {
+        let bytes = Array(data)
+        var start = 0
+        var lastSequence: ConversationCursor = 0
+        var lastGoodOffset = 0
+        var appendTerminator = false
+        while start < bytes.count {
+            let newline = bytes[start...].firstIndex(of: 10)
+            let end = newline ?? bytes.count
+            let line = Data(bytes[start..<end])
+            guard !line.isEmpty else { throw ConversationJournalError.corruptJournal(path) }
+            do {
+                let event = try decoder.decode(ConversationEvent.self, from: line)
+                guard event.sequence == lastSequence + 1 else {
+                    throw ConversationJournalError.sequenceMismatch(expected: lastSequence + 1, actual: event.sequence)
+                }
+                lastSequence = event.sequence
+            } catch {
+                // Only a final line with no newline may be a crash-truncated write.
+                if let journalError = error as? ConversationJournalError { throw journalError }
+                if newline == nil && end == bytes.count {
+                    return Validation(lastSequence: lastSequence, truncateOffset: lastGoodOffset, appendTerminator: false)
+                }
+                throw ConversationJournalError.corruptJournal(path)
+            }
+            if let newline {
+                start = newline + 1
+                lastGoodOffset = start
+            } else {
+                // Keep the complete record, but add the delimiter so future appends remain parseable.
+                start = end
+                lastGoodOffset = end
+                appendTerminator = true
+            }
+        }
+        return Validation(lastSequence: lastSequence, truncateOffset: nil, appendTerminator: appendTerminator)
     }
 
     /// The highest durable event sequence.
@@ -69,18 +122,17 @@ public actor ConversationJournal {
     /// Returns events strictly after a cursor, bounded by `limit`.
     public func events(after cursor: ConversationCursor, limit: Int = 256) throws -> [ConversationEvent] {
         guard limit > 0 else { return [] }
-        guard let data = try? Data(contentsOf: journalURL) else { return [] }
+        guard FileManager.default.fileExists(atPath: journalURL.path) else { return [] }
+        let data: Data
+        do { data = try Data(contentsOf: journalURL) }
+        catch { throw ConversationJournalError.corruptJournal(journalURL.path) }
+        guard !data.isEmpty else { return [] }
         guard data.count <= maximumJournalBytes else { throw ConversationJournalError.fileTooLarge(journalURL.path) }
+        _ = try Self.validate(data: data, decoder: decoder, path: journalURL.path)
         var result: [ConversationEvent] = []
-        let lines = data.split(separator: 10, omittingEmptySubsequences: true)
-        for (index, line) in lines.enumerated() {
-            do {
-                let event = try decoder.decode(ConversationEvent.self, from: Data(line))
-                if event.sequence > cursor { result.append(event); if result.count == limit { break } }
-            } catch {
-                if index == lines.count - 1 { break }
-                throw ConversationJournalError.corruptJournal(journalURL.path)
-            }
+        for line in data.split(separator: 10, omittingEmptySubsequences: true) {
+            let event = try decoder.decode(ConversationEvent.self, from: Data(line))
+            if event.sequence > cursor { result.append(event); if result.count == limit { break } }
         }
         return result
     }
@@ -95,6 +147,7 @@ public actor ConversationJournal {
         try? FileManager.default.setAttributes([.posixPermissions: Int(0o600)], ofItemAtPath: tempURL.path)
         if FileManager.default.fileExists(atPath: snapshotURL.path) { _ = try FileManager.default.replaceItemAt(snapshotURL, withItemAt: tempURL) }
         else { try FileManager.default.moveItem(at: tempURL, to: snapshotURL) }
+        try? FileManager.default.setAttributes([.posixPermissions: Int(0o600)], ofItemAtPath: snapshotURL.path)
     }
 
     /// Loads the latest complete snapshot, when one has been written.
