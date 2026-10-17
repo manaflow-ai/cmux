@@ -48,7 +48,7 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
     }
     let controller = TerminalController.shared
 
-    SidebarActionDispatch(run: { action in
+    return SidebarActionDispatch(run: { action in
         // Capture the controller on the main actor, then run the whole command
         // sequence on the serial worker queue so the commands keep their authored
         // order. handleSocketLine runs worker-lane methods (browser JS, waits) on
