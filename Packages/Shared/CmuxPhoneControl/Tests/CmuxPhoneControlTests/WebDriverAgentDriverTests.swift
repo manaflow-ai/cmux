@@ -81,6 +81,28 @@ struct WebDriverAgentDriverTests {
     }
 
     @Test
+    func oversizedWDAResponsesAreRejectedWhileStreaming() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubWDAURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        StubWDAURLProtocol.recorder.reset()
+        StubWDAURLProtocol.recorder.setOversizedScreenshot(true)
+        defer { StubWDAURLProtocol.recorder.setOversizedScreenshot(false) }
+
+        let driver = WebDriverAgentDriver(
+            configuration: .init(baseURL: URL(string: "http://127.0.0.1:8100")!),
+            urlSession: session
+        )
+        _ = try await driver.device()
+
+        await #expect(throws: PhoneDriverError.malformedResponse(
+            "WDA response exceeded the bounded response size"
+        )) {
+            _ = try await driver.snapshot()
+        }
+    }
+
+    @Test
     func nonLoopbackEndpointsAreRejectedBeforeNetworkAccess() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubWDAURLProtocol.self]
@@ -123,7 +145,9 @@ private final class StubWDAURLProtocol: URLProtocol, @unchecked Sendable {
         case "/session/session-1/window/size":
             body = Data(#"{"value":{"width":428,"height":926}}"#.utf8)
         case "/session/session-1/screenshot":
-            body = Data(#"{"value":"ZmFrZS1wbmc="}"#.utf8)
+            body = Self.recorder.oversizedScreenshot
+                ? Data(repeating: 0x20, count: PhoneProtocol.maxResponseLineBytes + 1)
+                : Data(#"{"value":"ZmFrZS1wbmc="}"#.utf8)
         case "/session/session-1/source":
             body = Data(
                 #"{"value":{"type":"XCUIElementTypeApplication","label":"Demo","frame":{"x":0,"y":0,"width":428,"height":926},"children":[{"type":"XCUIElementTypeButton","label":"Continue","frame":{"x":42,"y":100,"width":200,"height":48}}]}}"#.utf8
@@ -154,6 +178,7 @@ private final class WDARequestRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var storedRequests: [Capture] = []
     private var ready = true
+    private var oversizedScreenshot = false
 
     var isReady: Bool {
         lock.withLock { ready }
@@ -161,6 +186,10 @@ private final class WDARequestRecorder: @unchecked Sendable {
 
     var requests: [Capture] {
         lock.withLock { storedRequests }
+    }
+
+    var oversizedScreenshot: Bool {
+        lock.withLock { oversizedScreenshot }
     }
 
     func record(_ request: URLRequest) {
@@ -172,11 +201,16 @@ private final class WDARequestRecorder: @unchecked Sendable {
         lock.withLock {
             storedRequests.removeAll()
             ready = true
+            oversizedScreenshot = false
         }
     }
 
     func setReady(_ value: Bool) {
         lock.withLock { ready = value }
+    }
+
+    func setOversizedScreenshot(_ value: Bool) {
+        lock.withLock { oversizedScreenshot = value }
     }
 
     private static func read(_ stream: InputStream) -> Data? {
