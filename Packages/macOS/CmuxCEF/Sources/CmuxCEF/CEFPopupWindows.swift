@@ -1,4 +1,4 @@
-import CoreGraphics
+public import CoreGraphics
 import Foundation
 
 /// When cmux turns on the fork's popup windows (`chrome.windows.create({type:
