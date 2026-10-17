@@ -524,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Reanuda tu plan para cambiarlo.",
           "granted": "Otorgado por cmux. No hay nada que cambiar.",
+          "grantedNoCancel": "Otorgado por cmux, así que no hay nada que cancelar.",
+          "paymentFailed": "Actualiza tu método de pago antes de cambiar de plan.",
+          "foundersLifetime": "Founder's Edition incluye Pro de por vida.",
           "adminOnly": "Solo los administradores del equipo pueden cambiar el plan."
         },
         "names": {
@@ -566,6 +569,7 @@
       "change": {
         "title": "¿Cambiar a {plan}?",
         "upgradeBody": "{plan} empieza ahora. Hoy pagas {amount} por el resto de este período de facturación. Desde el {date}, pagas {price} al mes.",
+        "upgradeBodyYearly": "{plan} empieza ahora. Hoy pagas {amount} por el resto de este período de facturación. Desde el {date}, pagas {price} al año.",
         "downgradeBody": "{plan} empieza ahora. La parte no usada de tu plan actual, {credit}, se abona a tus próximas facturas. Tu próxima factura, el {date}, es de {amount}.",
         "confirm": "Cambiar a {plan}",
         "keep": "Mantener el plan actual",
@@ -578,6 +582,8 @@
         "title": "¿Cancelar {plan}?",
         "body": "Conservas {plan} hasta el {date}. Después, pierdes:",
         "bodyNoDate": "Conservas {plan} hasta el final de este período de facturación. Después, pierdes:",
+        "foundersBody": "Tu suscripción {plan} termina el {date}. Después tendrás Pro, que Founder's Edition incluye de por vida.",
+        "foundersBodyNoDate": "Tu suscripción {plan} termina al final de este período de facturación. Después tendrás Pro, que Founder's Edition incluye de por vida.",
         "reasonLabel": "¿Por qué cancelas? (opcional)",
         "otherPlaceholder": "Cuéntanos más (opcional)",
         "confirm": "Cancelar plan",

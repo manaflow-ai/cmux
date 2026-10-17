@@ -624250,114 +624250,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "An agent asked cmux to fill this sign-in form. The agent does not receive what you type, but scripts on the page, and code the agent runs in the page, can read the filled fields."
+            "value": "An agent asked cmux to fill this sign-in form. cmux hides the exact text you type where it appears in what the agent reads back, but not altered copies of it (such as encoded or split text), and scripts on the page can read the filled fields."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "طلب وكيل من cmux تعبئة نموذج تسجيل الدخول هذا. لا يتلقى الوكيل ما تكتبه، لكن البرامج النصية في الصفحة، والتعليمات البرمجية التي يشغلها الوكيل في الصفحة، يمكنها قراءة الحقول المعبأة."
+            "value": "طلب وكيل من cmux تعبئة نموذج تسجيل الدخول هذا. يُخفي cmux النص المطابق لما تكتبه حيثما يظهر فيما يقرؤه الوكيل، لكنه لا يُخفي النسخ المعدَّلة منه (مثل النص المرمَّز أو المقسَّم)، ويمكن لنصوص الصفحة البرمجية قراءة الحقول المعبأة."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Agent hat cmux gebeten, dieses Anmeldeformular auszufüllen. Der Agent erhält nicht, was du eingibst, aber Skripte der Seite und Code, den der Agent in der Seite ausführt, können die ausgefüllten Felder lesen."
+            "value": "Ein Agent hat cmux gebeten, dieses Anmeldeformular auszufüllen. cmux verbirgt den genauen Text, den du eingibst, wo er in dem erscheint, was der Agent zurückliest, aber keine veränderten Kopien davon (etwa codierten oder aufgeteilten Text), und Skripte der Seite können die ausgefüllten Felder lesen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un agente pidió a cmux que rellene este formulario de inicio de sesión. El agente no recibe lo que escribes, pero los scripts de la página y el código que el agente ejecuta en la página pueden leer los campos rellenados."
+            "value": "Un agente pidió a cmux que rellene este formulario de inicio de sesión. cmux oculta el texto exacto que escribes donde aparece en lo que el agente lee, pero no las copias alteradas (como texto codificado o dividido), y los scripts de la página pueden leer los campos rellenados."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un agent a demandé à cmux de remplir ce formulaire de connexion. L’agent ne reçoit pas ce que vous saisissez, mais les scripts de la page, et le code que l’agent exécute dans la page, peuvent lire les champs remplis."
+            "value": "Un agent a demandé à cmux de remplir ce formulaire de connexion. cmux masque le texte exact que vous saisissez là où il apparaît dans ce que l’agent relit, mais pas ses copies modifiées (texte encodé ou découpé, par exemple), et les scripts de la page peuvent lire les champs remplis."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントが cmux にこのサインインフォームへの入力を依頼しました。入力した内容はエージェントには送られませんが、ページのスクリプトや、エージェントがページ内で実行するコードは入力済みのフィールドを読み取れます。"
+            "value": "エージェントが cmux にこのサインインフォームへの入力を依頼しました。cmux は、入力した内容とまったく同じテキストがエージェントの読み取る内容に現れた場合にマスクしますが、変換されたコピー（エンコードや分割されたテキストなど）はマスクしません。また、ページのスクリプトは入力済みのフィールドを読み取れます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "에이전트가 cmux에 이 로그인 양식을 채우도록 요청했습니다. 에이전트는 입력한 내용을 받지 않지만, 페이지의 스크립트와 에이전트가 페이지에서 실행하는 코드는 채워진 필드를 읽을 수 있습니다."
+            "value": "에이전트가 cmux에 이 로그인 양식을 채우도록 요청했습니다. cmux는 입력한 내용과 정확히 같은 텍스트가 에이전트가 읽어 가는 내용에 나타나면 가리지만, 변형된 사본(인코딩되거나 나뉜 텍스트 등)은 가리지 않으며, 페이지의 스크립트는 채워진 필드를 읽을 수 있습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "有智能体请求 cmux 填写此登录表单。智能体不会收到你输入的内容，但网页上的脚本以及智能体在网页中运行的代码可以读取已填写的字段。"
+            "value": "一个代理请求 cmux 填写此登录表单。当你输入的原文出现在代理读取的内容中时，cmux 会将其遮盖，但不会遮盖经过改动的副本（例如编码或拆分后的文本），并且页面上的脚本可以读取已填写的字段。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "有代理程式要求 cmux 填寫此登入表單。代理程式不會收到你輸入的內容，但網頁上的指令碼，以及代理程式在網頁中執行的程式碼，可以讀取已填寫的欄位。"
-          }
-        }
-      }
-    },
-    "browser.repl.auth.requester": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Asked by an agent working in the tab “%1$@” of the workspace “%2$@”."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "طلبه وكيل يعمل في علامة التبويب ”%1$@“ في مساحة العمل ”%2$@“."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Angefragt von einem Agenten im Tab „%1$@“ des Arbeitsbereichs „%2$@“."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lo pide un agente que trabaja en la pestaña «%1$@» del espacio de trabajo «%2$@»."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Demandé par un agent qui travaille dans l’onglet « %1$@ » de l’espace de travail « %2$@ »."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペース「%2$@」のタブ「%1$@」で作業中のエージェントからの要求です。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "작업 공간 “%2$@”의 탭 “%1$@”에서 작업 중인 에이전트가 요청했습니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "由在工作区“%2$@”的标签页“%1$@”中工作的代理请求。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "由在工作區「%2$@」的分頁「%1$@」中工作的代理請求。"
+            "value": "一個代理請求 cmux 填寫此登入表單。當你輸入的原文出現在代理讀取的內容中時，cmux 會將其遮蓋，但不會遮蓋經過改動的副本（例如編碼或拆分後的文字），而且頁面上的指令碼可以讀取已填寫的欄位。"
           }
         }
       }
@@ -668802,6 +668743,1377 @@
           "stringUnit": {
             "state": "translated",
             "value": "컴퓨터 사용 실패"
+          }
+        }
+      }
+    },
+    "cli.browser.error.shortcutOutcomeUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This version of macOS cannot report whether the page handled this Edit shortcut, so the key was not sent and the command did not run."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このバージョンのmacOSでは、ページがこの編集ショートカットを処理したかどうかを報告できないため、キーは送信されず、コマンドも実行されませんでした。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本的 macOS 无法报告页面是否处理了此编辑快捷键，因此未发送该按键，也未执行命令。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese macOS-Version kann nicht melden, ob die Seite diesen Bearbeiten-Kurzbefehl verarbeitet hat. Die Taste wurde daher nicht gesendet und der Befehl nicht ausgeführt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette version de macOS ne peut pas indiquer si la page a traité ce raccourci d’édition : la touche n’a donc pas été envoyée et la commande n’a pas été exécutée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لهذا الإصدار من macOS الإبلاغ عمّا إذا كانت الصفحة قد عالجت اختصار التحرير هذا، لذلك لم يُرسَل المفتاح ولم يُنفَّذ الأمر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta versión de macOS no puede indicar si la página gestionó este atajo de edición, así que no se envió la tecla ni se ejecutó el comando."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本的 macOS 無法回報頁面是否處理了此編輯快速鍵，因此未傳送該按鍵，也未執行指令。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 버전의 macOS는 페이지가 이 편집 단축키를 처리했는지 알려 줄 수 없으므로 키를 보내지 않았고 명령도 실행하지 않았습니다."
+          }
+        }
+      }
+    },
+    "cli.browser.error.replSecretTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A browser REPL session typed a secret into this tab, so other clients cannot read or drive it until it closes. Use `cmux browser repl` to drive it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ REPL セッションがこのタブにシークレットを入力したため、タブを閉じるまで他のクライアントは読み取りや操作ができません。操作するには `cmux browser repl` を使用してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器 REPL 会话已向此标签页输入了机密信息，因此在其关闭之前，其他客户端无法读取或操作它。请使用 `cmux browser repl` 操作它。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Browser-REPL-Sitzung hat ein Geheimnis in diesen Tab eingegeben, daher können andere Clients ihn bis zum Schließen weder lesen noch steuern. Verwende `cmux browser repl`, um ihn zu steuern."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une session REPL du navigateur a saisi un secret dans cet onglet : les autres clients ne peuvent pas le lire ni le piloter tant qu’il n’est pas fermé. Utilisez `cmux browser repl` pour le piloter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدخلت جلسة REPL للمتصفح سرًا في علامة التبويب هذه، لذا لا يمكن للعملاء الآخرين قراءتها أو التحكم بها حتى تُغلق. استخدم `cmux browser repl` للتحكم بها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una sesión REPL del navegador escribió un secreto en esta pestaña, así que otros clientes no pueden leerla ni controlarla hasta que se cierre. Usa `cmux browser repl` para controlarla."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器 REPL 工作階段已在此分頁輸入機密資訊，因此在其關閉之前，其他用戶端無法讀取或操作它。請使用 `cmux browser repl` 操作它。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 REPL 세션이 이 탭에 비밀 값을 입력했으므로, 탭이 닫힐 때까지 다른 클라이언트는 읽거나 조작할 수 없습니다. 조작하려면 `cmux browser repl`을 사용하세요."
+          }
+        }
+      }
+    },
+    "cli.browser.error.replSessionTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This tab belongs to a browser REPL session, which is driving it, so other clients cannot read or drive it. Use `cmux browser repl` to drive it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブはブラウザ REPL セッションが操作中のため、他のクライアントは読み取りや操作ができません。操作するには `cmux browser repl` を使用してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此标签页属于正在操作它的浏览器 REPL 会话，因此其他客户端无法读取或操作它。请使用 `cmux browser repl` 操作它。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Tab gehört zu einer Browser-REPL-Sitzung, die ihn gerade steuert, daher können andere Clients ihn weder lesen noch steuern. Verwende `cmux browser repl`, um ihn zu steuern."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet onglet appartient à une session REPL du navigateur qui le pilote : les autres clients ne peuvent pas le lire ni le piloter. Utilisez `cmux browser repl` pour le piloter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنتمي علامة التبويب هذه إلى جلسة REPL للمتصفح تتحكم بها، لذا لا يمكن للعملاء الآخرين قراءتها أو التحكم بها. استخدم `cmux browser repl` للتحكم بها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta pestaña pertenece a una sesión REPL del navegador que la está controlando, así que otros clientes no pueden leerla ni controlarla. Usa `cmux browser repl` para controlarla."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此分頁屬於正在操作它的瀏覽器 REPL 工作階段，因此其他用戶端無法讀取或操作它。請使用 `cmux browser repl` 操作它。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 탭은 이를 조작 중인 브라우저 REPL 세션에 속하므로, 다른 클라이언트는 읽거나 조작할 수 없습니다. 조작하려면 `cmux browser repl`을 사용하세요."
+          }
+        }
+      }
+    },
+    "cli.browser.repl.error.callerUnresolved": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux تتبّع هذه العملية إلى طرفية cmux أو إلى خارج cmux (سلسلة العمليات الأم عميقة جدًا أو تحتوي على حلقة)؛ شغّل استدعاء REPL من عملية أقل عمقًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte diesen Prozess weder einem cmux-Terminal noch einem Aufruf außerhalb von cmux zuordnen (die Kette der Elternprozesse ist zu tief oder enthält eine Schleife); starte den REPL-Aufruf aus einem weniger tief verschachtelten Prozess"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not trace this process to a cmux terminal or to outside cmux (its parent process chain is too deep or loops); run the REPL call from a shallower process"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo rastrear este proceso hasta una terminal de cmux ni hasta fuera de cmux (la cadena de procesos padre es demasiado profunda o tiene un bucle); ejecuta la llamada al REPL desde un proceso menos anidado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n'a pas pu rattacher ce processus à un terminal cmux ni à l'extérieur de cmux (la chaîne des processus parents est trop profonde ou contient une boucle) ; lancez l'appel REPL depuis un processus moins imbriqué"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこのプロセスを cmux ターミナルにも cmux の外にも辿れませんでした（親プロセスの連鎖が深すぎるか、ループしています）。より浅いプロセスから REPL を呼び出してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 프로세스를 cmux 터미널이나 cmux 외부로 추적할 수 없습니다(부모 프로세스 체인이 너무 깊거나 순환합니다). 더 얕은 프로세스에서 REPL을 호출하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法将此进程追溯到 cmux 终端或 cmux 外部（父进程链过深或存在循环）；请从层级更浅的进程调用 REPL"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法將此程序追溯到 cmux 終端機或 cmux 外部（父程序鏈過深或存在迴圈）；請從層級較淺的程序呼叫 REPL"
+          }
+        }
+      }
+    },
+    "cli.browser.repl.error.allWorkspacesDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--all-workspaces is refused in a cmux terminal: a REPL call from a cmux terminal acts only on its own workspace's sessions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُرفض --all-workspaces في طرفية cmux: يعمل استدعاء REPL من طرفية cmux على جلسات مساحة العمل الخاصة به فقط"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--all-workspaces wird in einem cmux-Terminal abgelehnt: Ein REPL-Aufruf aus einem cmux-Terminal wirkt nur auf die Sitzungen seines eigenen Arbeitsbereichs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--all-workspaces se rechaza en un terminal de cmux: una llamada REPL desde un terminal de cmux solo actúa sobre las sesiones de su propio espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--all-workspaces est refusé dans un terminal cmux : un appel REPL depuis un terminal cmux n’agit que sur les sessions de son propre espace de travail"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ターミナルでは --all-workspaces は拒否されます。cmux ターミナルからの REPL 呼び出しは、そのターミナル自身のワークスペースのセッションにのみ作用します"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 터미널에서는 --all-workspaces가 거부됩니다. cmux 터미널에서 보낸 REPL 호출은 해당 터미널의 워크스페이스 세션에만 적용됩니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 终端中会拒绝 --all-workspaces：来自 cmux 终端的 REPL 调用只作用于该终端所在工作区的会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 終端機中會拒絕 --all-workspaces：來自 cmux 終端機的 REPL 呼叫只會作用於該終端機所屬工作區的工作階段"
+          }
+        }
+      }
+    },
+    "cli.browser.repl.error.otherWorkspaceDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A REPL call from a cmux terminal acts only on its own workspace's sessions; run it from a terminal of that workspace"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل استدعاء REPL من طرفية cmux على جلسات مساحة العمل الخاصة به فقط؛ شغّله من طرفية في مساحة العمل تلك"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein REPL-Aufruf aus einem cmux-Terminal wirkt nur auf die Sitzungen seines eigenen Arbeitsbereichs; führen Sie ihn in einem Terminal dieses Arbeitsbereichs aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una llamada REPL desde un terminal de cmux solo actúa sobre las sesiones de su propio espacio de trabajo; ejecútala desde un terminal de ese espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un appel REPL depuis un terminal cmux n’agit que sur les sessions de son propre espace de travail ; lancez-le depuis un terminal de cet espace de travail"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ターミナルからの REPL 呼び出しは、そのターミナル自身のワークスペースのセッションにのみ作用します。対象のワークスペースのターミナルから実行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 터미널에서 보낸 REPL 호출은 해당 터미널의 워크스페이스 세션에만 적용됩니다. 그 워크스페이스의 터미널에서 실행하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自 cmux 终端的 REPL 调用只作用于该终端所在工作区的会话；请在该工作区的终端中运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來自 cmux 終端機的 REPL 呼叫只會作用於該終端機所屬工作區的工作階段；請在該工作區的終端機中執行"
+          }
+        }
+      }
+    },
+    "cli.browser.repl.error.workspaceInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not a workspace in this cmux instance"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليست مساحة عمل في مثيل cmux هذا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Arbeitsbereich in dieser cmux-Instanz"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No es un espacio de trabajo de esta instancia de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas un espace de travail de cette instance de cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux インスタンスのワークスペースではありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 cmux 인스턴스의 워크스페이스가 아닙니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是此 cmux 实例中的工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是此 cmux 執行個體中的工作區"
+          }
+        }
+      }
+    },
+    "browser.repl.auth.field.oneTimeCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One-time code"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رمز لمرة واحدة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einmalcode"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Código de un solo uso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code à usage unique"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワンタイムコード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일회용 코드"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一次性验证码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一次性驗證碼"
+          }
+        }
+      }
+    },
+    "browser.repl.auth.field.password": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Password"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كلمة المرور"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passwort"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contraseña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mot de passe"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비밀번호"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密碼"
+          }
+        }
+      }
+    },
+    "browser.repl.auth.field.username": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Username or email"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسم المستخدم أو البريد الإلكتروني"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benutzername oder E-Mail"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usuario o correo electrónico"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nom d’utilisateur ou e-mail"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザー名またはメールアドレス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 이름 또는 이메일"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用户名或电子邮件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用者名稱或電子郵件"
+          }
+        }
+      }
+    },
+    "cli.browser.repl.error.sessionOwner": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A REPL session owner token is 1 to 128 bytes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتكون رمز مالك جلسة REPL من 1 إلى 128 بايت"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Besitzer-Token einer REPL-Sitzung hat 1 bis 128 Bytes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un token de propietario de sesión de REPL tiene de 1 a 128 bytes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un jeton de propriétaire de session REPL fait de 1 à 128 octets"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REPL セッションのオーナートークンは 1〜128 バイトです"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REPL 세션 소유자 토큰은 1~128바이트입니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REPL 会话所有者令牌为 1 到 128 字节"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REPL 工作階段擁有者權杖為 1 到 128 位元組"
+          }
+        }
+      }
+    },
+    "cli.browser.repl.error.cwdTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The working directory path is longer than 1024 bytes; cd to a shorter path and run the command again"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسار دليل العمل أطول من 1024 بايت؛ انتقل إلى مسار أقصر بالأمر cd وأعد تشغيل الأمر"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Pfad des Arbeitsverzeichnisses ist länger als 1024 Bytes; wechsle mit cd zu einem kürzeren Pfad und führe den Befehl erneut aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ruta del directorio de trabajo supera los 1024 bytes; usa cd para ir a una ruta más corta y vuelve a ejecutar el comando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chemin du répertoire de travail dépasse 1024 octets ; placez-vous avec cd dans un chemin plus court et relancez la commande"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業ディレクトリのパスが 1024 バイトを超えています。cd で短いパスに移動してからコマンドを再実行してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 디렉터리 경로가 1024바이트보다 깁니다. cd로 더 짧은 경로로 이동한 뒤 명령을 다시 실행하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作目录路径超过 1024 字节；请用 cd 切换到更短的路径后重新运行命令"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作目錄路徑超過 1024 位元組；請用 cd 切換到較短的路徑後重新執行指令"
+          }
+        }
+      }
+    },
+    "cli.browser.repl.error.timeoutRange": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout must be 1 to 600000 milliseconds (10 minutes)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون قيمة --timeout من 1 إلى 600000 جزء من الثانية (10 دقائق)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout muss 1 bis 600000 Millisekunden (10 Minuten) betragen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout debe estar entre 1 y 600000 milisegundos (10 minutos)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout doit être compris entre 1 et 600000 millisecondes (10 minutes)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout には 1〜600000 ミリ秒（10 分）を指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout은 1~600000밀리초(10분)여야 합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout 必须为 1 到 600000 毫秒（10 分钟）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--timeout 必須為 1 到 600000 毫秒（10 分鐘）"
+          }
+        }
+      }
+    },
+    "cli.browser.repl.error.timeoutTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A REPL call's timeout is at most 600000 milliseconds (10 minutes)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مهلة استدعاء REPL هي 600000 جزء من الثانية (10 دقائق) على الأكثر"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Zeitlimit eines REPL-Aufrufs beträgt höchstens 600000 Millisekunden (10 Minuten)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El tiempo de espera de una llamada de REPL es como máximo de 600000 milisegundos (10 minutos)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le délai d'un appel REPL est d'au plus 600000 millisecondes (10 minutes)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REPL 呼び出しのタイムアウトは最大 600000 ミリ秒（10 分）です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REPL 호출의 시간 제한은 최대 600000밀리초(10분)입니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REPL 调用的超时时间最多为 600000 毫秒（10 分钟）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REPL 呼叫的逾時時間最多為 600000 毫秒（10 分鐘）"
+          }
+        }
+      }
+    },
+    "cli.browser.repl.error.sessionOwned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That REPL session belongs to another client; name a session with --session to share one"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنتمي جلسة REPL هذه إلى عميل آخر؛ سمِّ جلسة باستخدام --session لمشاركتها"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese REPL-Sitzung gehört einem anderen Client; benenne eine Sitzung mit --session, um sie zu teilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa sesión de REPL pertenece a otro cliente; nombra una sesión con --session para compartirla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette session REPL appartient à un autre client ; nommez une session avec --session pour la partager"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この REPL セッションは別のクライアントのものです。共有するには --session でセッションに名前を付けてください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 REPL 세션은 다른 클라이언트의 것입니다. 공유하려면 --session으로 세션 이름을 지정하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该 REPL 会话属于另一个客户端；要共享会话，请用 --session 为其命名"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該 REPL 工作階段屬於另一個用戶端；若要共用，請用 --session 為工作階段命名"
+          }
+        }
+      }
+    },
+    "cli.browser.repl.error.otherUser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The browser REPL accepts only clients that run as the same macOS user as cmux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يقبل REPL المتصفح إلا العملاء الذين يعملون بمستخدم macOS نفسه الذي يعمل به cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Browser-REPL akzeptiert nur Clients, die unter demselben macOS-Benutzer wie cmux laufen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El REPL del navegador solo acepta clientes que se ejecutan con el mismo usuario de macOS que cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le REPL du navigateur n’accepte que les clients exécutés sous le même utilisateur macOS que cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ REPL は cmux と同じ macOS ユーザーで実行されているクライアントのみを受け付けます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 REPL은 cmux와 같은 macOS 사용자로 실행되는 클라이언트만 허용합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器 REPL 只接受以与 cmux 相同的 macOS 用户身份运行的客户端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器 REPL 只接受以與 cmux 相同的 macOS 使用者身分執行的用戶端"
+          }
+        }
+      }
+    },
+    "cli.browser.repl.error.sessionName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A session name is 1 to 64 characters: letters, digits, '.', '_' and '-'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتكون اسم الجلسة من 1 إلى 64 حرفًا: أحرف وأرقام و'.' و'_' و'-'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Sitzungsname hat 1 bis 64 Zeichen: Buchstaben, Ziffern, '.', '_' und '-'"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un nombre de sesión tiene de 1 a 64 caracteres: letras, dígitos, '.', '_' y '-'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un nom de session compte de 1 à 64 caractères : lettres, chiffres, '.', '_' et '-'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション名は 1〜64 文字の英字、数字、'.'、'_'、'-' です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 이름은 1~64자의 문자, 숫자, '.', '_', '-'로 이루어집니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话名称为 1 到 64 个字符：字母、数字、'.'、'_' 和 '-'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段名稱為 1 到 64 個字元：字母、數字、'.'、'_' 和 '-'"
+          }
+        }
+      }
+    },
+    "cli.browser.repl.error.tooManyPrivateSessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many private browser REPL sessions are open (runs without --session); only the client that started one can reset it, so quit REPL clients you no longer use or wait 30 minutes for idle ones to end, or pass --session NAME to use a named session"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد جلسات REPL الخاصة للمتصفح المفتوحة كبير جدًا (التشغيلات دون --session)؛ لا يمكن إعادة تعيين الجلسة إلا من العميل الذي بدأها، لذا أغلق عملاء REPL التي لم تعد تستخدمها أو انتظر 30 دقيقة حتى تنتهي الجلسات الخاملة، أو مرِّر --session NAME لاستخدام جلسة مسماة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu viele private Browser-REPL-Sitzungen sind geöffnet (Läufe ohne --session); nur der Client, der eine gestartet hat, kann sie zurücksetzen. Beenden Sie REPL-Clients, die Sie nicht mehr verwenden, warten Sie 30 Minuten, bis inaktive enden, oder übergeben Sie --session NAME, um eine benannte Sitzung zu verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hay demasiadas sesiones REPL privadas del navegador abiertas (ejecuciones sin --session); solo el cliente que inició una puede restablecerla, así que cierra los clientes REPL que ya no uses, espera 30 minutos a que terminen las inactivas o pasa --session NAME para usar una sesión con nombre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trop de sessions REPL privées du navigateur sont ouvertes (exécutions sans --session) ; seul le client qui en a lancé une peut la réinitialiser : quittez les clients REPL que vous n’utilisez plus, attendez 30 minutes que les sessions inactives se terminent, ou passez --session NAME pour utiliser une session nommée"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いているプライベートなブラウザ REPL セッション（--session なしの実行）が多すぎます。セッションをリセットできるのは開始したクライアントだけです。使わなくなった REPL クライアントを終了するか、アイドル状態のセッションが 30 分で終了するのを待つか、--session NAME を指定して名前付きセッションを使用してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열려 있는 비공개 브라우저 REPL 세션(--session 없이 실행)이 너무 많습니다. 세션은 시작한 클라이언트만 재설정할 수 있으므로 더 이상 사용하지 않는 REPL 클라이언트를 종료하거나, 유휴 세션이 30분 후 종료될 때까지 기다리거나, --session NAME을 전달해 이름 있는 세션을 사용하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开的私有浏览器 REPL 会话（不带 --session 的运行）过多；只有启动会话的客户端才能重置它，请退出不再使用的 REPL 客户端，或等待空闲会话在 30 分钟后结束，或传入 --session NAME 以使用命名会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟的私有瀏覽器 REPL 工作階段（不帶 --session 的執行）過多；只有啟動工作階段的用戶端才能重設它，請結束不再使用的 REPL 用戶端，或等待閒置工作階段在 30 分鐘後結束，或傳入 --session NAME 以使用具名工作階段"
+          }
+        }
+      }
+    },
+    "cli.browser.repl.error.tooManySessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many browser REPL sessions are open; reset one with `cmux browser repl reset NAME` (`cmux browser repl list` lists this workspace's; from outside cmux, `cmux browser repl list --all-workspaces` lists every one)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد جلسات REPL للمتصفح المفتوحة كبير جدًا؛ أعد تعيين إحداها باستخدام `cmux browser repl reset NAME` (يعرض `cmux browser repl list` جلسات مساحة العمل هذه؛ ومن خارج cmux يعرضها جميعًا `cmux browser repl list --all-workspaces`)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu viele Browser-REPL-Sitzungen sind geöffnet; setzen Sie eine mit `cmux browser repl reset NAME` zurück (`cmux browser repl list` listet die dieses Arbeitsbereichs auf; außerhalb von cmux listet `cmux browser repl list --all-workspaces` alle auf)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hay demasiadas sesiones REPL del navegador abiertas; restablece una con `cmux browser repl reset NAME` (`cmux browser repl list` enumera las de este espacio de trabajo; fuera de cmux, `cmux browser repl list --all-workspaces` las enumera todas)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trop de sessions REPL du navigateur sont ouvertes ; réinitialisez-en une avec `cmux browser repl reset NAME` (`cmux browser repl list` liste celles de cet espace de travail ; hors de cmux, `cmux browser repl list --all-workspaces` les liste toutes)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いているブラウザ REPL セッションが多すぎます。`cmux browser repl reset NAME` でいずれかをリセットしてください（`cmux browser repl list` でこのワークスペースのセッションを、cmux の外から `cmux browser repl list --all-workspaces` ですべてを一覧表示できます）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열려 있는 브라우저 REPL 세션이 너무 많습니다. `cmux browser repl reset NAME`으로 하나를 재설정하세요(`cmux browser repl list`는 이 워크스페이스의 세션을, cmux 밖에서 `cmux browser repl list --all-workspaces`는 모든 세션을 나열합니다)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开的浏览器 REPL 会话过多；请使用 `cmux browser repl reset NAME` 重置其中一个（`cmux browser repl list` 列出此工作区的会话；在 cmux 之外，`cmux browser repl list --all-workspaces` 列出全部会话）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟的瀏覽器 REPL 工作階段過多；請使用 `cmux browser repl reset NAME` 重設其中一個（`cmux browser repl list` 會列出此工作區的工作階段；在 cmux 之外，`cmux browser repl list --all-workspaces` 會列出全部）"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.allowSSHClipboardWrites": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow SSH Machine to Write Clipboard"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح لجهاز SSH بالكتابة إلى الحافظة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-Maschine darf Zwischenablage schreiben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que la máquina SSH escriba en el portapapeles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser la machine SSH à écrire dans le presse-papiers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH マシンによるクリップボードへの書き込みを許可"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 머신의 클립보드 쓰기 허용"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许 SSH 机器写入剪贴板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許 SSH 機器寫入剪貼簿"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoli SSH računaru da piše u međuspremnik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillad SSH-maskinen at skrive til udklipsholderen"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti al computer SSH di scrivere negli appunti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យម៉ាស៊ីន SSH សរសេរទៅក្ដារតម្បៀតខ្ទាស់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillat SSH-maskinen å skrive til utklippstavlen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwól maszynie SSH na zapisywanie w schowku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que a máquina SSH escreva na área de transferência"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить машине SSH запись в буфер обмена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตให้เครื่อง SSH เขียนลงในคลิปบอร์ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH makinesinin panoya yazmasına izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити машині SSH записувати в буфер обміну"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.allowSSHClipboardWrites.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allows OSC 52 clipboard writes only from this SSH machine. The existing clipboard-read policy remains unchanged."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يسمح فقط بكتابات OSC 52 من جهاز SSH هذا إلى الحافظة. تظل سياسة قراءة الحافظة الحالية دون تغيير."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erlaubt dieser SSH-Maschine nur OSC-52-Schreibvorgänge in die Zwischenablage. Die bestehende Richtlinie zum Lesen der Zwischenablage bleibt unverändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que esta máquina SSH solo escriba mediante OSC 52 en el portapapeles. La política existente de lectura del portapapeles permanece sin cambios."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autorise uniquement les écritures OSC 52 de cette machine SSH dans le presse-papiers. La politique existante de lecture du presse-papiers reste inchangée."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この SSH マシンからの OSC 52 によるクリップボード書き込みのみを許可します。既存のクリップボード読み取りポリシーは変更されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 SSH 머신의 OSC 52 클립보드 쓰기만 허용합니다. 기존 클립보드 읽기 정책은 변경되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅允许此 SSH 机器通过 OSC 52 写入剪贴板。现有的剪贴板读取策略保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅允許此 SSH 機器透過 OSC 52 寫入剪貼簿。現有的剪貼簿讀取政策維持不變。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoljava samo upis u međuspremnik putem OSC 52 s ovog SSH računara. Postojeća pravila za čitanje međuspremnika ostaju nepromijenjena."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillader kun skrivning til udklipsholderen via OSC 52 fra denne SSH-maskine. Den eksisterende politik for læsning af udklipsholderen forbliver uændret."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consente solo la scrittura negli appunti tramite OSC 52 da questo computer SSH. La politica esistente di lettura degli appunti rimane invariata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតតែការសរសេរទៅក្ដារតម្បៀតខ្ទាស់តាមរយៈ OSC 52 ពីម៉ាស៊ីន SSH នេះប៉ុណ្ណោះ។ គោលការណ៍អានក្ដារតម្បៀតខ្ទាស់ដែលមានស្រាប់នៅដដែល។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillater bare skriving til utklippstavlen via OSC 52 fra denne SSH-maskinen. Den eksisterende politikken for lesing fra utklippstavlen forblir uendret."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwala tej maszynie SSH wyłącznie na zapisywanie w schowku za pomocą OSC 52. Obowiązująca zasada odczytu schowka pozostaje bez zmian."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite apenas gravações na área de transferência via OSC 52 a partir desta máquina SSH. A política existente de leitura da área de transferência permanece inalterada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешает этой машине SSH только записывать данные в буфер обмена через OSC 52. Действующая политика чтения буфера обмена остаётся без изменений."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตให้เครื่อง SSH นี้เขียนลงในคลิปบอร์ดผ่าน OSC 52 เท่านั้น นโยบายการอ่านคลิปบอร์ดที่มีอยู่ยังคงไม่เปลี่ยนแปลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu SSH makinesinin yalnızca OSC 52 aracılığıyla panoya yazmasına izin verir. Mevcut pano okuma politikası değişmeden kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволяє цій машині SSH лише записувати дані в буфер обміну через OSC 52. Чинна політика читання буфера обміну залишається без змін."
           }
         }
       }

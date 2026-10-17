@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxCloud
 import CmuxAppKitSupportUI
 import CMUXMobileCore
@@ -115,6 +116,7 @@ extension Workspace {
                     restorableAgentObservation: restorableAgentIndex?.entryForStablePanel(
                         workspaceId: id,
                         panelId: panelId,
+                        stableSurfaceId: panels[panelId]?.stableSurfaceId,
                         processIdentityProvider: currentAgentProcessIdentity,
                         processPresenceProvider: agentProcessPresence,
                         // Snapshot projection already consumes one index result;
@@ -709,7 +711,8 @@ extension Workspace {
                 hasReceivedExplicitInput: terminalPanel.hasReceivedExplicitInput,
                 claudeBackgroundViewer: localTmuxStartCommand == nil
                     ? claudeBackgroundViewerForSnapshot(panelId: panelId, terminal: terminalPanel)
-                    : nil
+                    : nil,
+                restoreRecovery: terminalPanel.restoreRecovery.sessionSnapshot
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -2067,6 +2070,9 @@ extension Workspace {
                 remotePTYSessionID: restoredRemotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
                 restoredSurfaceId: reusableSurfaceId,
+                restoredStableSurfaceId: snapshot.stableSurfaceId.flatMap {
+                    sessionRestoreIdentityExclusions.shouldAdopt($0) ? $0 : nil
+                },
                 terminalFontSizeCreationPolicy: .sessionRestore(
                     overrideBasePoints: snapshot.terminal?.fontSize,
                     representedChangeTokens: Set(
@@ -2096,7 +2102,8 @@ extension Workspace {
                 }
                 return nil
             }
-            if deferredAgentResumeAdmission { terminalPanel.restoreRecovery.state = .checking }
+            terminalPanel.restoreRecovery.restore(from: snapshot.terminal?.restoreRecovery)
+            if deferredAgentResumeAdmission { terminalPanel.restoreRecovery.markCheckingPreservingFailure() }
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
             if let restoredRemotePTYSessionID {
                 registerRemoteRelayIDAliases(
@@ -2805,7 +2812,23 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// fallback: a workspace that never fired a notification still carries a
     /// real timestamp instead of nothing.
     let createdAt = Date()
-    @Published var title: String
+    private let sidebarTitleDidChangeSubject: CurrentValueSubject<String, Never>
+    @Published var title: String {
+        didSet {
+            // Combine's @Published publisher emits from willSet. The sidebar
+            // snapshot reads the workspace after this property changes, so
+            // publish a second value from didSet for a committed title.
+            sidebarTitleDidChangeSubject.send(title)
+        }
+    }
+    /// Publishes the workspace title after the stored value has been updated.
+    ///
+    /// `@Published` emits from `willSet`; sidebar snapshots must read the
+    /// committed title so the first refresh after a rename cannot cache the
+    /// previous value.
+    var sidebarTitleDidChangePublisher: AnyPublisher<String, Never> {
+        sidebarTitleDidChangeSubject.eraseToAnyPublisher()
+    }
     @Published var customTitle: String?
     /// Provenance of `customTitle`: `.user` for manual renames (sidebar,
     /// CLI, command palette), `.auto` for AI auto-naming. `nil` when no
@@ -4213,6 +4236,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// The MDM resolver every remote-connection and file-transfer gate on this
     /// workspace reads; tests inject a probe-backed one.
     let managedDevicePolicy: ManagedDevicePolicy
+    let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
 
     init(
         id: UUID? = nil,
@@ -4236,6 +4260,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         tabDragTransferRegistry: TabDragTransferRegistry? = nil,
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy(),
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil,
         closeTabWarningDefaults: UserDefaults = .standard,
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
@@ -4259,6 +4284,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.settings = settings
         self.managedDevicePolicy = managedDevicePolicy
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore ?? SSHClipboardWriteTrustStore(defaults: .standard)
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
@@ -4276,6 +4302,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.portOrdinal = portOrdinal
         let admittedAutomaticTitle = AutomaticTerminalTitle(title)?.value ?? String(localized: "notification.desktop.defaultTerminalTitle", defaultValue: "Terminal")
         self.processTitle = admittedAutomaticTitle
+        self.sidebarTitleDidChangeSubject = CurrentValueSubject(admittedAutomaticTitle)
         self.title = admittedAutomaticTitle
         self.customTitle = nil
         self.customTitleSource = nil
@@ -7740,8 +7767,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// which is never a valid env var name) and any value containing a NUL. This is the single
     /// choke point for every entry point (CLI, cmux.json, session restore), so the guard cannot be bypassed.
     // `nonisolated` so the nonisolated socket workspace-create parsing path (`v2WorkspaceCreate`)
-    // can call this pure helper without hopping to the main actor; `Workspace` is `@MainActor`,
-    // so its statics are main-actor-isolated by default.
+    // can call this pure helper without hopping to the main actor.
     nonisolated static func sanitizedWorkspaceEnvironment(_ environment: [String: String]) -> [String: String] {
         environment.reduce(into: [String: String]()) { result, pair in
             let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -9591,6 +9617,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
+        restoredStableSurfaceId: UUID? = nil,
         terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy = .inherit,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
@@ -9613,6 +9640,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
+            restoredStableSurfaceId: restoredStableSurfaceId,
             terminalFontSizeCreationPolicy: terminalFontSizeCreationPolicy,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
@@ -9640,6 +9668,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
+        restoredStableSurfaceId: UUID? = nil,
         terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy = .inherit,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
@@ -9708,6 +9737,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
+            restoredStableSurfaceId: restoredStableSurfaceId,
             terminalFontSizeCreationPolicy: terminalFontSizeCreationPolicy,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
@@ -9733,6 +9763,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remotePTYSessionID: String?,
         suppressWorkspaceRemoteStartupCommand: Bool,
         restoredSurfaceId: UUID?,
+        restoredStableSurfaceId: UUID?,
         terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy,
         inheritWorkingDirectoryFallback: Bool,
         workingDirectoryFallbackSourcePanelId: UUID?,
@@ -9807,6 +9838,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
             additionalEnvironment: effectiveStartupEnvironment,
+            stableSurfaceId: restoredStableSurfaceId,
             isRemoteTerminal: tracksRemoteTerminalSurface,
             runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
                 requestedPolicy: runtimeSpawnPolicy,

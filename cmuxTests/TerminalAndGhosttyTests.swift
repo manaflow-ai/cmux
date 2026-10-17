@@ -6808,7 +6808,14 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
         let panel = TerminalPanel(workspaceId: store.workspaceId)
         store.panels[panel.id] = panel
-        defer { store.closeAllPanels() }
+        defer {
+            // This fixture owns a panel outside the lifecycle suite's tracked
+            // surface list. Release its native runtime before the normal close
+            // path can enqueue an asynchronous teardown, so the suite leak
+            // check observes a deterministic zero-surface baseline.
+            panel.surface.releaseHostedSurfaceForTesting()
+            store.closeAllPanels()
+        }
         let anchor = NSView(frame: NSRect(x: 40, y: 60, width: 420, height: 220))
         contentView.addSubview(anchor)
         TerminalWindowPortalRegistry.bind(

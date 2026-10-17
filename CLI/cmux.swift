@@ -112,6 +112,9 @@ private func agentHookDebugSocketName(_ socketPath: String?) -> String {
 }
 #endif
 struct ClaudeHookSessionRecord: Codable {
+    /// Restart-stable panel identity carried by the managed terminal environment.
+    /// Runtime surface IDs are re-minted when a session is restored.
+    var stableSurfaceId: String? = nil
     /// Persisted beside the session record because it is only meaningful as
     /// the command identity for this record's Cursor approval lifecycle.
     struct PendingCursorShellApproval: Codable, Equatable {
@@ -399,6 +402,8 @@ final class ClaudeHookSessionStore {
     private static let maxAutoNameMessageCharacters = 1_000
 
     private let statePath: String
+    private let stableSurfaceId: String?
+    private let environmentSurfaceId: UUID?
     private let fileManager: FileManager
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
@@ -419,6 +424,10 @@ final class ClaudeHookSessionStore {
             self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
         }
         self.fileManager = fileManager
+        self.environmentSurfaceId = processEnv["CMUX_SURFACE_ID"].flatMap(UUID.init(uuidString:))
+        self.stableSurfaceId = processEnv["CMUX_STABLE_SURFACE_ID"].flatMap { value in
+            UUID(uuidString: value.trimmingCharacters(in: .whitespacesAndNewlines))?.uuidString
+        }
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
@@ -2055,6 +2064,14 @@ final class ClaudeHookSessionStore {
     ) {
         record.workspaceId = workspaceId
         if !surfaceId.isEmpty {
+            // PID/TTY routing can replace stale inherited runtime IDs. Carry a
+            // stable ID only when it belongs to the resolved runtime surface.
+            if let stableSurfaceId, let environmentSurfaceId,
+               UUID(uuidString: surfaceId) == environmentSurfaceId {
+                record.stableSurfaceId = stableSurfaceId
+            } else if record.surfaceId.caseInsensitiveCompare(surfaceId) != .orderedSame {
+                record.stableSurfaceId = nil
+            }
             record.surfaceId = surfaceId
         }
         if let cwd = normalizeOptional(cwd) {
@@ -29785,7 +29802,6 @@ struct CMUXCLI {
                 return
             }
 
-            var target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
             var direction: String
             var anchoredCallerSurfaceId: String?
             if parsed.hasFlag("-h") {
@@ -29801,14 +29817,18 @@ struct CMUXCLI {
             // successfully. Falling back to target.workspaceId would pair
             // the caller's surface with a different workspace, creating an
             // invalid cross-workspace split.
-            if parsed.hasFlag("-h"),
-               let callerWorkspace = tmuxCallerWorkspaceHandle(),
-               let wsId = try? resolveWorkspaceId(callerWorkspace, client: client) {
-                if let anchoredTarget = try? tmuxAnchoredSplitTarget(workspaceId: wsId, client: client) {
-                    target = (wsId, nil, anchoredTarget.targetSurfaceId)
-                    direction = anchoredTarget.direction
-                    anchoredCallerSurfaceId = anchoredTarget.callerSurfaceId
-                }
+            var target: (workspaceId: String, paneId: String?, surfaceId: String)
+            if let callerWorkspace = tmuxCallerWorkspaceHandle(),
+               let wsId = try? resolveWorkspaceId(callerWorkspace, client: client),
+               let anchoredTarget = try? tmuxAnchoredSplitTarget(workspaceId: wsId, client: client) {
+                target = (wsId, nil, anchoredTarget.targetSurfaceId)
+                direction = anchoredTarget.direction
+                anchoredCallerSurfaceId = anchoredTarget.callerSurfaceId
+            } else {
+                // Resolve an ordinary target only after attempting the managed
+                // layout anchor. This lets a stale -t pane/surface fall back to
+                // the live leader when a teammate was closed outside the shim.
+                target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
             }
 
             // tmux semantics: the new pane takes focus unless -d ("don't focus
@@ -30421,10 +30441,12 @@ struct CMUXCLI {
                 if let callerSurface = tmuxCallerSurfaceHandle() {
                     try withLockedTmuxCompatStore { store in
                         let existingColumn = store.mainVerticalLayouts[workspaceId]?.lastColumnSurfaceId
+                        let existingMainPaneWidth = store.mainVerticalLayouts[workspaceId]?.mainPaneWidthFraction
                         let seedColumn = existingColumn ?? store.lastSplitSurface[workspaceId]
                         store.mainVerticalLayouts[workspaceId] = MainVerticalState(
                             mainSurfaceId: callerSurface,
-                            lastColumnSurfaceId: seedColumn
+                            lastColumnSurfaceId: seedColumn,
+                            mainPaneWidthFraction: existingMainPaneWidth
                         )
                     }
                 }
@@ -36086,9 +36108,21 @@ struct CMUXCLI {
         // user's shell (fish/csh/tcsh included), so token-bearing commands are wrapped
         // in `/bin/sh -c '…'` to parse everywhere; the cwd guard below stays outside so
         // cd-prefix rewriting keeps composing. https://github.com/manaflow-ai/cmux/issues/5639
-        var command = kind == "claude"
-            ? AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: resumeCommandParts, quote: cliShellQuote)
-            : resumeCommandParts.map(cliShellQuote).joined(separator: " ")
+        var command: String
+        if kind == "claude" {
+            command = AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
+                parts: resumeCommandParts,
+                quote: cliShellQuote
+            )
+        } else if kind == "antigravity" {
+            command = AgentResumeArgv().renderedPortableManagedResumeShellCommand(
+                parts: resumeCommandParts,
+                kind: kind,
+                quote: cliShellQuote
+            )
+        } else {
+            command = resumeCommandParts.map(cliShellQuote).joined(separator: " ")
+        }
         if kind == "hermes-agent" {
             command = hermesAgentSubrouterResumeCommand(
                 command,
@@ -36212,8 +36246,6 @@ struct CMUXCLI {
             launcher: launchCommand?.launcher,
             arguments: launchCommand?.arguments ?? []
         )
-        guard !selected.isEmpty else { return [:] }
-
         let claudeAuthKeys: Set<String> = [
             "ANTHROPIC_API_KEY",
             "ANTHROPIC_AUTH_TOKEN",
@@ -36225,6 +36257,16 @@ struct CMUXCLI {
             "CLAUDE_CONFIG_DIR"
         ]
         var resolved = selected
+        if kind == "antigravity" {
+            resolved.merge(
+                AgentResumeArgv().managedWrapperCustomExecutableEnvironment(
+                    kind: kind,
+                    executablePath: launchCommand?.executablePath,
+                    arguments: launchCommand?.arguments ?? []
+                )
+            ) { _, captured in captured }
+        }
+        guard !selected.isEmpty || !resolved.isEmpty else { return [:] }
         if kind == "claude" {
             let preservedClaudeKeys = selected.keys.sorted().filter { claudeAuthKeys.contains($0) }
             if !preservedClaudeKeys.isEmpty {
@@ -38574,6 +38616,12 @@ export default {
                 ?? normalizedHookValue(env["PWD"])
                 ?? (def.name == "codex" ? normalizedHookValue(FileManager.default.currentDirectoryPath) : nil)
         let hookTranscriptPath = relayOrigin ? nil : input.transcriptPath
+        if def.name == "codex",
+           codexHookIsInternalSession(input: input, cwd: hookCwd, environment: env) {
+            telemetry.breadcrumb("codex-hook.internal-session-suppressed")
+            print("{}")
+            return
+        }
         func localAgentPID(mapped: ClaudeHookSessionRecord?) -> Int? {
             guard !relayOrigin else { return nil }
             return mapped?.pid ?? inferredPID
