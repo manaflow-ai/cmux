@@ -142,6 +142,15 @@ struct SidebarAccountMenuButton: View {
 
         menu.addSidebarFooterSeparator()
         menu.addSidebarFooterItem(
+            String(
+                localized: "cloud.teamPicker.switchAccount",
+                defaultValue: "Switch Account…"
+            ),
+            identifier: "SidebarAccountSwitchAccountButton"
+        ) {
+            Task { await flow.switchAccount() }
+        }
+        menu.addSidebarFooterItem(
             String(localized: "settings.account.signOut", defaultValue: "Sign Out"),
             identifier: "SidebarAccountSignOutButton"
         ) {
