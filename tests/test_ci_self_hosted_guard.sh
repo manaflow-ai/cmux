@@ -1576,6 +1576,11 @@ CASES
   for file in "$ROOT_DIR"/.github/workflows/*.yml "$ROOT_DIR"/.github/workflows/*.yaml; do
     [ -f "$file" ] || continue
     grep -qE 'runs-on:.*(macos|MACOS_RUNNER)' "$file" || continue
+    # The cmux-next batch queue intentionally keeps pull-request debounce
+    # runs alive; its controller coalesces superseded events inside the job.
+    # The workflow has a dedicated shape guard for that no-cancellation
+    # contract, so do not apply the generic macOS cancellation rule here.
+    [ "$(basename "$file")" = "cmux-next-batch.yml" ] && continue
     if [ -z "$(pr_workflow_events "$file")" ]; then
       # A quoted "on" key, flow mapping or other indentation is not read
       # above. Fail instead of skipping a workflow that may run on pull requests.
