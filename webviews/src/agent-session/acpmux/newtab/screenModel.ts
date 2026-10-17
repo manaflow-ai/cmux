@@ -329,7 +329,7 @@ export function recentChatCards(
     }),
   );
   const fill = [...device]
-    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .sort((a, b) => b.updatedAt - a.updatedAt || a.key.localeCompare(b.key))
     .filter((chat) => !(fold && chat.parent) && !agents.has(chat.key.slice(chat.key.indexOf(":") + 1)))
     .filter((chat) => !shown.has((chat.title ?? "").trim().toLowerCase()))
     .slice(0, Math.max(0, count - live.length))
@@ -393,6 +393,8 @@ function withChildren(
         state: "idle",
       } satisfies ChatCard,
     }));
-  const children = [...own, ...indexed].sort((a, b) => b.at - a.at).map((child) => child.card);
+  const children = [...own, ...indexed]
+    .sort((a, b) => b.at - a.at || a.card.sessionId.localeCompare(b.card.sessionId))
+    .map((child) => child.card);
   return children.length > 0 ? { ...card, children } : card;
 }

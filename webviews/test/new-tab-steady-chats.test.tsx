@@ -9,6 +9,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
+import { recentSessions } from "../src/agent-session/acpmux/NewTabPage";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 
 const scope = globalThis as Record<string, unknown>;
@@ -124,6 +125,18 @@ test("two New Tabs drawn at different moments of one minute show the same age", 
   } finally {
     now.mockRestore();
   }
+});
+
+test("same-time chats keep a deterministic order when the snapshot order changes", () => {
+  const sessions = [
+    lane({ sessionId: "chat-b", updatedAt: T0, name: "Second chat" }),
+    lane({ sessionId: "chat-a", updatedAt: T0, name: "First chat" }),
+  ];
+  expect(recentSessions(sessions, 2, false).map((session) => session.sessionId)).toEqual(["chat-a", "chat-b"]);
+  expect(recentSessions([...sessions].reverse(), 2, false).map((session) => session.sessionId)).toEqual([
+    "chat-a",
+    "chat-b",
+  ]);
 });
 
 test("a lane shows once, by its name, not again by its transcript's first prompt", async () => {

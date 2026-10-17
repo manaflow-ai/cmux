@@ -96,11 +96,12 @@ public nonisolated enum SidebarTunables {
 
     /// The transition used when a workspace row receives its generated or
     /// agent-derived title after creation. This is a debug-only comparison
-    /// point; instant remains the shipped default until the motion is reviewed.
+    /// point; keep the shipped default instant so switching workspaces or
+    /// chats never crossfades two titles in the same slot.
     public static let workspaceTitleMotion = Tunable<SidebarWorkspaceTitleMotionVariant>.choice(
         "sidebar.workspaceTitleMotion", .sidebar, "Workspace title motion",
         help: "Prototype for a late workspace or agent-chat title: instant, crossfade, or a short upward lift in the existing title slot.",
-        default: .crossfade, code: "SidebarTunables.workspaceTitleMotion")
+        default: .instant, code: "SidebarTunables.workspaceTitleMotion")
 
     public static var all: [TunableDescriptor] {
         [groupEdgeFraction, groupExitFraction, sectionTopFraction, workspaceOntoStart, workspaceOntoEnd].map(\.descriptor) + [agentMark.descriptor, presenceDots.descriptor, SidebarRowBadgeStyle.tunable.descriptor, SidebarRowBadgeStackCap.tunable.descriptor, rowBadgePreview.descriptor, collapseMotion.descriptor, workspaceTitleMotion.descriptor, NotificationBadgeLook.tunable.descriptor, NotificationIconLook.tunable.descriptor, updateCardButton.descriptor, SidebarChatsDesign.tunable.descriptor] + SidebarSectionTunables.all
