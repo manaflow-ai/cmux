@@ -20,6 +20,7 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             audioComposer.cancel()
             return
         }
+        guard options.supportsAttachments else { return }
         presentAppsMenu()
     }
 

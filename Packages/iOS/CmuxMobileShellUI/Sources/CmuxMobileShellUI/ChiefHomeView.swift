@@ -337,7 +337,11 @@ private struct ChiefConversationControllerRepresentable: UIViewControllerReprese
                 serviceSubtitle: "Runs your agents on your Mac",
                 unreadCount: conversation.unread,
                 trailingSymbol: "stop.fill",
-                trailingAccessibilityLabel: "Stop Chief"
+                trailingAccessibilityLabel: "Stop Chief",
+                supportsReactions: false,
+                supportsEditing: false,
+                supportsUnsend: false,
+                supportsAttachments: false
             )
         )
         controller.onBack = back

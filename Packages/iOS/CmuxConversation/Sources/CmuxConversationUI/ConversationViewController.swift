@@ -12,6 +12,13 @@ public struct ConversationPresentationOptions {
     public var unreadCount: Int
     public var trailingSymbol: String
     public var trailingAccessibilityLabel: String?
+    /// Optional message operations advertised by the backend. These default
+    /// to the full Messages surface; hosts with a text-only service should
+    /// turn off the operations their backend rejects.
+    public var supportsReactions: Bool
+    public var supportsEditing: Bool
+    public var supportsUnsend: Bool
+    public var supportsAttachments: Bool
 
     public init(
         placeholder: String? = nil,
@@ -19,7 +26,11 @@ public struct ConversationPresentationOptions {
         serviceSubtitle: String? = nil,
         unreadCount: Int = 0,
         trailingSymbol: String = "video",
-        trailingAccessibilityLabel: String? = nil
+        trailingAccessibilityLabel: String? = nil,
+        supportsReactions: Bool = true,
+        supportsEditing: Bool = true,
+        supportsUnsend: Bool = true,
+        supportsAttachments: Bool = true
     ) {
         self.placeholder = placeholder
         self.serviceTitle = serviceTitle
@@ -27,6 +38,10 @@ public struct ConversationPresentationOptions {
         self.unreadCount = unreadCount
         self.trailingSymbol = trailingSymbol
         self.trailingAccessibilityLabel = trailingAccessibilityLabel
+        self.supportsReactions = supportsReactions
+        self.supportsEditing = supportsEditing
+        self.supportsUnsend = supportsUnsend
+        self.supportsAttachments = supportsAttachments
     }
 }
 
@@ -249,6 +264,7 @@ public final class ConversationViewController: UIViewController {
         composer.delegate = self
         composer.linkPreview.fetch = { [weak store] url in await store?.fetchLinkPreview(for: url) }
         if let placeholder = options.placeholder { composer.placeholderText = placeholder }
+        composer.showsMediaActions = options.supportsAttachments
         composerContainer.addSubview(composer)
 
         header.translatesAutoresizingMaskIntoConstraints = false

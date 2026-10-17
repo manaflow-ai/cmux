@@ -45,6 +45,18 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
 
     let plusButton = ComposerPlusButton(type: .system)
     private let plusGlass = makeGlassView(cornerRadius: ConversationTheme.plusButtonSize / 2, interactive: true, clipsContent: false)
+    /// Hosts such as Chief can accept text while rejecting every media
+    /// attachment. Hide the whole media affordance in that case, rather than
+    /// letting a send fail after the user picked a photo or file.
+    var showsMediaActions = true {
+        didSet {
+            guard oldValue != showsMediaActions else { return }
+            plusGlass.isHidden = !showsMediaActions
+            plusButton.isHidden = !showsMediaActions
+            updateSendButton(animated: false)
+            setNeedsLayout()
+        }
+    }
     let fieldGlass = makeGlassView(cornerRadius: ConversationTheme.composerFieldCornerRadius, interactive: false, clipsContent: false)
     /// TextKit 1, so the effect overlay can read glyph geometry.
     /// (Built on an explicit stack: the `usingTextLayoutManager:` factory
@@ -333,7 +345,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         let sideInset = ComposerBarGeometry.sideInset(keyboardProgress: keyboardProgress, restInset: self.sideInset, keyboardInset: keyboardSideInset)
         let row = ComposerBarGeometry.layout(
             width: bounds.width, fieldBottom: bounds.height - 4, fieldHeight: fieldHeight,
-            oneLineHeight: t.composerMinHeight, sideInset: sideInset, scale: traitCollection.displayScale
+            oneLineHeight: t.composerMinHeight, sideInset: sideInset, scale: traitCollection.displayScale,
+            showsPlus: showsMediaActions
         )
         plusGlass.frame = row.plus
         plusButton.frame = plusGlass.bounds
@@ -510,7 +523,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         let apply = {
             self.sendButton.alpha = show ? 1 : 0
             self.sendButton.transform = show ? .identity : CGAffineTransform(scaleX: 0.4, y: 0.4)
-            self.micButton.alpha = show ? 0 : 1
+            self.micButton.alpha = show || !self.showsMediaActions ? 0 : 1
         }
         guard animated, (sendButton.alpha == 1) != show else { apply(); return }
         UIView.animate(withDuration: 0.32, delay: 0, usingSpringWithDamping: 0.72, initialSpringVelocity: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: apply)

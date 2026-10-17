@@ -160,6 +160,10 @@ final class MessageActionOverlay: UIView {
     /// (`ConversationFeatures.customEmojiReactions`).
     private let offersCustomEmoji: Bool
     private let mode: Mode
+    /// Whether this host's backend accepts tapback mutations. The generic
+    /// overlay remains reusable for text-only services by removing the whole
+    /// capsule, including its long-press and double-tap affordance.
+    private let offersReactions: Bool
     /// Long-press lifts the bubble by a fixed 26 pt on its long side
     /// (`MessagePressTiming`); double-tap leaves it in place.
     private var previewScale: CGFloat { mode == .tapbacks ? 1 : MessagePressTiming.liftScale(for: sourceFrame.size) }
@@ -201,10 +205,12 @@ final class MessageActionOverlay: UIView {
         items: [MenuItem],
         mode: Mode,
         reactors: [(name: String, initials: String, reaction: ConversationReaction)],
+        offersReactions: Bool = true,
         offersCustomEmoji: Bool = ConversationFeatures.customEmojiReactions
     ) {
         self.mode = mode
-        self.offersCustomEmoji = offersCustomEmoji
+        self.offersReactions = offersReactions
+        self.offersCustomEmoji = offersReactions && offersCustomEmoji
         self.snapshot = snapshot
         self.sourceFrame = sourceFrame
         self.isOutgoing = isOutgoing
@@ -214,7 +220,9 @@ final class MessageActionOverlay: UIView {
             traits.userInterfaceStyle == .dark ? UIColor(white: 0.16, alpha: 0.85) : UIColor(white: 1, alpha: 0.85)
         })
         menu = makeGlassView(cornerRadius: 26, tint: ConversationTheme.longPressMenuGlassTint)
-        detailCard = mode == .reactionDetail ? makeGlassView(cornerRadius: ReactionDetailCardGeometry.cornerRadius) : nil
+        detailCard = offersReactions && mode == .reactionDetail
+            ? makeGlassView(cornerRadius: ReactionDetailCardGeometry.cornerRadius)
+            : nil
         super.init(frame: frame)
         accessibilityIdentifier = "conversation.actions"
         // Like a context menu: VoiceOver stays inside until it is dismissed.
@@ -259,48 +267,50 @@ final class MessageActionOverlay: UIView {
         pressShade.isUserInteractionEnabled = false
         addSubview(snapshotClip)
 
-        // Tapback capsule: the six tapbacks plus recent emoji, scrollable.
-        addSubview(reactionBar)
-        reactionBar.contentView.addSubview(reactionScroll)
-        reactionScroll.showsHorizontalScrollIndicator = false
-        reactionScroll.clipsToBounds = false
-        // Messages lists recent emoji after the classics; a custom emoji I
-        // already gave leads them, selected, so tapping it removes it.
-        var recents = offersCustomEmoji ? recentEmoji : []
-        if let mine = currentReaction?.emoji {
-            recents.removeAll { $0 == mine }
-            recents.insert(mine, at: 0)
-        }
-        for reaction in ConversationReaction.allCases + recents.map(ConversationReaction.emoji) {
-            let button = UIButton(type: .custom)
-            let glyph: UIView
-            if let emoji = reaction.emoji {
-                let label = UILabel()
-                label.text = emoji
-                label.textAlignment = .center
-                label.font = .systemFont(ofSize: Metrics.recentEmojiFont)
-                glyph = label
-            } else {
-                glyph = TapbackGlyph.view(for: reaction, size: Metrics.barGlyph)
+        if offersReactions {
+            // Tapback capsule: the six tapbacks plus recent emoji, scrollable.
+            addSubview(reactionBar)
+            reactionBar.contentView.addSubview(reactionScroll)
+            reactionScroll.showsHorizontalScrollIndicator = false
+            reactionScroll.clipsToBounds = false
+            // Messages lists recent emoji after the classics; a custom emoji I
+            // already gave leads them, selected, so tapping it removes it.
+            var recents = offersCustomEmoji ? recentEmoji : []
+            if let mine = currentReaction?.emoji {
+                recents.removeAll { $0 == mine }
+                recents.insert(mine, at: 0)
             }
-            glyph.isUserInteractionEnabled = false
-            button.addSubview(glyph)
-            glyph.frame = CGRect(x: 0, y: 0, width: Metrics.barGlyph, height: Metrics.barGlyph)
-            button.layer.cornerRadius = Metrics.barGlyph / 2
-            if reaction == currentReaction {
-                button.backgroundColor = .systemBlue
+            for reaction in ConversationReaction.allCases + recents.map(ConversationReaction.emoji) {
+                let button = UIButton(type: .custom)
+                let glyph: UIView
+                if let emoji = reaction.emoji {
+                    let label = UILabel()
+                    label.text = emoji
+                    label.textAlignment = .center
+                    label.font = .systemFont(ofSize: Metrics.recentEmojiFont)
+                    glyph = label
+                } else {
+                    glyph = TapbackGlyph.view(for: reaction, size: Metrics.barGlyph)
+                }
+                glyph.isUserInteractionEnabled = false
+                button.addSubview(glyph)
+                glyph.frame = CGRect(x: 0, y: 0, width: Metrics.barGlyph, height: Metrics.barGlyph)
+                button.layer.cornerRadius = Metrics.barGlyph / 2
+                if reaction == currentReaction {
+                    button.backgroundColor = .systemBlue
+                }
+                button.accessibilityLabel = ConversationAccessibilityText.tapbackName(reaction)
+                if reaction == currentReaction { button.accessibilityTraits.insert(.selected) }
+                button.accessibilityIdentifier = "conversation.tapback.\(reaction.rawValue)"
+                button.addAction(UIAction { [weak self, weak button] _ in
+                    UISelectionFeedbackGenerator().selectionChanged()
+                    // The pick turns blue at once, then the capsule folds away.
+                    button?.backgroundColor = .systemBlue
+                    self?.onReaction?(reaction)
+                }, for: .touchUpInside)
+                reactionScroll.addSubview(button)
+                reactionButtons.append(button)
             }
-            button.accessibilityLabel = ConversationAccessibilityText.tapbackName(reaction)
-            if reaction == currentReaction { button.accessibilityTraits.insert(.selected) }
-            button.accessibilityIdentifier = "conversation.tapback.\(reaction.rawValue)"
-            button.addAction(UIAction { [weak self, weak button] _ in
-                UISelectionFeedbackGenerator().selectionChanged()
-                // The pick turns blue at once, then the capsule folds away.
-                button?.backgroundColor = .systemBlue
-                self?.onReaction?(reaction)
-            }, for: .touchUpInside)
-            reactionScroll.addSubview(button)
-            reactionButtons.append(button)
         }
 
         // The custom-emoji circle hangs beside the bubble's top corner with a
@@ -443,7 +453,8 @@ final class MessageActionOverlay: UIView {
         let menuSize = menuSize
         let lift = (previewScale - 1) / 2
         var rest = sourceFrame
-        let topLimit = max(safe.top, topInset) + 8 + Metrics.barHeight + Metrics.barGap
+        let reactionClearance = offersReactions ? Metrics.barHeight + Metrics.barGap : 0
+        let topLimit = max(safe.top, topInset) + 8 + reactionClearance
         let bottomLimit = bounds.height - safe.bottom - 8 - (menu.isHidden ? 0 : menuSize.height + Metrics.menuGap)
         // Keep the bubble in place when possible; shift only as far as needed.
         if rest.maxY + rest.height * lift > bottomLimit { rest.origin.y = bottomLimit - rest.height * (1 + lift) }
@@ -466,20 +477,22 @@ final class MessageActionOverlay: UIView {
             ? max(Metrics.barMargin, preview.maxX - width)
             : min(bounds.width - Metrics.barMargin - width, preview.minX)
         finalBarFrame = CGRect(x: barX, y: preview.minY - Metrics.barGap - Metrics.barHeight, width: width, height: Metrics.barHeight)
-        reactionBar.frame = finalBarFrame
-        reactionScroll.frame = reactionBar.bounds
-        for (index, button) in reactionButtons.enumerated() {
-            button.frame = CGRect(
-                x: Metrics.barPadding + CGFloat(index) * Metrics.barCell + (Metrics.barCell - Metrics.barGlyph) / 2,
-                y: (Metrics.barHeight - Metrics.barGlyph) / 2,
-                width: Metrics.barGlyph,
-                height: Metrics.barGlyph
-            )
-        }
-        reactionScroll.contentSize = CGSize(width: barContentWidth, height: Metrics.barHeight)
-        if isOutgoing {
-            // Show the tapbacks first, like Messages.
-            reactionScroll.contentOffset = .zero
+        if offersReactions {
+            reactionBar.frame = finalBarFrame
+            reactionScroll.frame = reactionBar.bounds
+            for (index, button) in reactionButtons.enumerated() {
+                button.frame = CGRect(
+                    x: Metrics.barPadding + CGFloat(index) * Metrics.barCell + (Metrics.barCell - Metrics.barGlyph) / 2,
+                    y: (Metrics.barHeight - Metrics.barGlyph) / 2,
+                    width: Metrics.barGlyph,
+                    height: Metrics.barGlyph
+                )
+            }
+            reactionScroll.contentSize = CGSize(width: barContentWidth, height: Metrics.barHeight)
+            if isOutgoing {
+                // Show the tapbacks first, like Messages.
+                reactionScroll.contentOffset = .zero
+            }
         }
 
         let side: CGFloat = isOutgoing ? -1 : 1
@@ -540,7 +553,10 @@ final class MessageActionOverlay: UIView {
             pressHidden = []
         }
         layoutFinal()
-        UIAccessibility.post(notification: .screenChanged, argument: detailCard ?? reactionButtons.first)
+        UIAccessibility.post(
+            notification: .screenChanged,
+            argument: detailCard ?? reactionButtons.first ?? menuStack.arrangedSubviews.first
+        )
         // Reduce Motion: every piece fades in at its place, as system context
         // menus do; no lift, grow or stretch.
         let reduceMotion = UIAccessibility.isReduceMotionEnabled
@@ -584,35 +600,37 @@ final class MessageActionOverlay: UIView {
             }
         }
 
-        // Capsule: a dot at the bubble's corner swells into a circle, then
-        // stretches into the capsule; the tapbacks pop in left to right.
-        let final = finalBarFrame
-        reactionBar.alpha = 0
-        if reduceMotion {
-            setBarFrame(final)
-            UIView.animate(withDuration: 0.2, delay: 0.05, options: [.allowUserInteraction]) { self.reactionBar.alpha = 1 }
-        } else {
-            // From the menu the capsule grows out of a dot at the corner; from a
-            // tapped badge it grows out of the badge itself (same corner).
-            setBarFrame(detailCard == nil
-                ? barSeed(diameter: 10, centerY: previewTop - 8)
-                : barSeed(diameter: ConversationTheme.reactionBadgeSize, centerY: previewTop - 10, inset: 3))
-            UIView.animate(withDuration: 0.05, delay: 0.08, options: [.allowUserInteraction]) { self.reactionBar.alpha = 1 }
-            UIView.animate(withDuration: 0.1, delay: 0.08, options: [.curveEaseOut, .allowUserInteraction]) {
-                self.setBarFrame(self.barSeed(diameter: 42, centerY: final.midY + 4))
-            } completion: { _ in
-                guard !self.isDismissing else { return }
-                UIView.animate(springDuration: 0.34, bounce: 0, options: [.allowUserInteraction]) {
-                    self.setBarFrame(final)
+        if offersReactions {
+            // Capsule: a dot at the bubble's corner swells into a circle, then
+            // stretches into the capsule; the tapbacks pop in left to right.
+            let final = finalBarFrame
+            reactionBar.alpha = 0
+            if reduceMotion {
+                setBarFrame(final)
+                UIView.animate(withDuration: 0.2, delay: 0.05, options: [.allowUserInteraction]) { self.reactionBar.alpha = 1 }
+            } else {
+                // From the menu the capsule grows out of a dot at the corner; from a
+                // tapped badge it grows out of the badge itself (same corner).
+                setBarFrame(detailCard == nil
+                    ? barSeed(diameter: 10, centerY: previewTop - 8)
+                    : barSeed(diameter: ConversationTheme.reactionBadgeSize, centerY: previewTop - 10, inset: 3))
+                UIView.animate(withDuration: 0.05, delay: 0.08, options: [.allowUserInteraction]) { self.reactionBar.alpha = 1 }
+                UIView.animate(withDuration: 0.1, delay: 0.08, options: [.curveEaseOut, .allowUserInteraction]) {
+                    self.setBarFrame(self.barSeed(diameter: 42, centerY: final.midY + 4))
+                } completion: { _ in
+                    guard !self.isDismissing else { return }
+                    UIView.animate(springDuration: 0.34, bounce: 0, options: [.allowUserInteraction]) {
+                        self.setBarFrame(final)
+                    }
                 }
             }
-        }
-        for (index, button) in reactionButtons.enumerated() {
-            button.alpha = 0
-            button.transform = reduceMotion ? .identity : CGAffineTransform(scaleX: 0.3, y: 0.3)
-            UIView.animate(springDuration: 0.32, bounce: 0.3, initialSpringVelocity: 0, delay: 0.22 + Double(index) * 0.035, options: [.allowUserInteraction]) {
-                button.alpha = 1
-                button.transform = .identity
+            for (index, button) in reactionButtons.enumerated() {
+                button.alpha = 0
+                button.transform = reduceMotion ? .identity : CGAffineTransform(scaleX: 0.3, y: 0.3)
+                UIView.animate(springDuration: 0.32, bounce: 0.3, initialSpringVelocity: 0, delay: 0.22 + Double(index) * 0.035, options: [.allowUserInteraction]) {
+                    button.alpha = 1
+                    button.transform = .identity
+                }
             }
         }
         for (view, delay) in [(tailDot, 0.26), (emojiButton, 0.3)] as [(UIView, Double)] {
@@ -660,21 +678,23 @@ final class MessageActionOverlay: UIView {
                 view.transform = reduceMotion ? .identity : CGAffineTransform(scaleX: 0.4, y: 0.4)
             }
         }
-        UIView.animate(withDuration: 0.12, delay: 0.03, options: [.curveEaseIn, .beginFromCurrentState]) {
-            for button in self.reactionButtons {
-                button.alpha = 0
-                button.transform = reduceMotion ? .identity : CGAffineTransform(scaleX: 0.5, y: 0.5)
+        if offersReactions {
+            UIView.animate(withDuration: 0.12, delay: 0.03, options: [.curveEaseIn, .beginFromCurrentState]) {
+                for button in self.reactionButtons {
+                    button.alpha = 0
+                    button.transform = reduceMotion ? .identity : CGAffineTransform(scaleX: 0.5, y: 0.5)
+                }
             }
-        }
-        if reduceMotion {
-            UIView.animate(withDuration: 0.2, delay: 0.03, options: [.beginFromCurrentState]) { self.reactionBar.alpha = 0 }
-        } else {
-            UIView.animate(withDuration: 0.18, delay: 0.03, options: [.curveEaseInOut, .beginFromCurrentState]) {
-                self.setBarFrame(seed(40, centerY: self.finalBarFrame.midY + 6))
-            } completion: { _ in
-                UIView.animate(withDuration: 0.12, delay: 0, options: [.curveEaseIn, .beginFromCurrentState]) {
-                    self.setBarFrame(seed(4, centerY: corner.y))
-                    self.reactionBar.alpha = 0
+            if reduceMotion {
+                UIView.animate(withDuration: 0.2, delay: 0.03, options: [.beginFromCurrentState]) { self.reactionBar.alpha = 0 }
+            } else {
+                UIView.animate(withDuration: 0.18, delay: 0.03, options: [.curveEaseInOut, .beginFromCurrentState]) {
+                    self.setBarFrame(seed(40, centerY: self.finalBarFrame.midY + 6))
+                } completion: { _ in
+                    UIView.animate(withDuration: 0.12, delay: 0, options: [.curveEaseIn, .beginFromCurrentState]) {
+                        self.setBarFrame(seed(4, centerY: corner.y))
+                        self.reactionBar.alpha = 0
+                    }
                 }
             }
         }
@@ -922,6 +942,7 @@ extension ConversationViewController {
     /// bubble until `commitPressedActions()` (or `cancelPressedActions()`).
     @discardableResult
     func presentActions(for model: MessageRowModel, cell: MessageCell, mode: MessageActionOverlay.Mode, pressing: Bool = false) -> MessageActionOverlay? {
+        guard options.supportsReactions || mode == .menu else { return nil }
         // A tapped badge becomes the tapback capsule, so that preview leaves it out.
         let detail = mode == .reactionDetail && !cell.reactionBadge.isHidden
         let contentFrame = detail ? (cell.cellLayout?.contentFrame ?? cell.liftedContentFrame) : cell.liftedContentFrame
@@ -941,7 +962,9 @@ extension ConversationViewController {
         guard let snapshot else { return nil }
         let source = cell.convert(contentFrame, to: view)
         let message = model.message
-        let mine = message.reactions.first { $0.participantID == store.meID }?.reaction
+        let mine = options.supportsReactions
+            ? message.reactions.first { $0.participantID == store.meID }?.reaction
+            : nil
         var items: [MessageActionOverlay.MenuItem] = [
             .init(title: String(localized: "conversation.menu.reply", defaultValue: "Reply", bundle: .module), symbol: "arrowshape.turn.up.left", handler: { [weak self] in
                 self?.enterReplyMode(for: message)
@@ -960,12 +983,12 @@ extension ConversationViewController {
                 self?.beginTextSelection(rowID: model.rowID)
             })
         }
-        if store.canEdit(message) {
+        if options.supportsEditing, store.canEdit(message) {
             items.insert(.init(title: String(localized: "conversation.menu.edit", defaultValue: "Edit", bundle: .module), symbol: "pencil") { [weak self] in
                 self?.enterEditMode(for: message)
             }, at: 1)
         }
-        if store.canUnsend(message) {
+        if options.supportsUnsend, store.canUnsend(message) {
             let editIndex = items.firstIndex { $0.symbol == "pencil" }.map { $0 + 1 } ?? 1
             items.insert(.init(title: String(localized: "conversation.menu.undoSend", defaultValue: "Undo Send", bundle: .module), symbol: "arrow.uturn.backward.circle") { [weak self] in
                 self?.store.unsend(messageID: message.id)
@@ -993,7 +1016,8 @@ extension ConversationViewController {
             recentEmoji: store.reactionRecents.emoji,
             items: items,
             mode: mode,
-            reactors: reactors
+            reactors: reactors,
+            offersReactions: options.supportsReactions
         )
         cell.setLiftedContentHidden(true)
         let rowID = model.rowID
@@ -1011,6 +1035,7 @@ extension ConversationViewController {
             }
         }
         overlay.onReaction = { [weak self, weak overlay] reaction in
+            guard self?.options.supportsReactions == true else { return }
             overlay?.dismiss {
                 let next = mine == reaction ? nil : reaction
                 self?.store.react(messageID: message.id, reaction: next)

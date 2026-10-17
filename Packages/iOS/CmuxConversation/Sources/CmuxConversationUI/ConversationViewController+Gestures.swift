@@ -49,6 +49,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             pressLiftUptime = nil
         }
         guard gestureRecognizer.name == "conversation.doubleTap" else { return true }
+        guard options.supportsReactions else { return false }
         // Not while bubble text is selected: that tap only ends the selection, at once.
         return !isSelecting && textSelection == nil
             && messageCell(at: touch.location(in: collectionView), requireContentHit: true)?.model?.message.seq != nil
@@ -218,7 +219,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
     }
 
     @objc private func handleDoubleTap(_ tap: UITapGestureRecognizer) {
-        guard tap.state == .ended, tapMayOpenItem(tap),
+        guard options.supportsReactions, tap.state == .ended, tapMayOpenItem(tap),
               let cell = messageCell(at: tap.location(in: collectionView), requireContentHit: true),
               let model = cell.model else { return }
         presentActions(for: model, cell: cell, mode: .tapbacks)
@@ -243,7 +244,7 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             presentNotUnsent(messageID: notice.messageID)
             return
         }
-        if !isSelecting, let cell = reactionBadgeCell(at: point), let model = cell.model {
+        if options.supportsReactions, !isSelecting, let cell = reactionBadgeCell(at: point), let model = cell.model {
             presentActions(for: model, cell: cell, mode: .reactionDetail)
             return
         }
@@ -337,7 +338,8 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
     /// Tapping "(!) Not Unsent": Try Again while the two-minute window is
     /// open, otherwise just the explanation (ChatKit's two alerts).
     func presentNotUnsent(messageID: String) {
-        guard let message = store.message(id: messageID), message.unsendFailed else { return }
+        guard options.supportsUnsend,
+              let message = store.message(id: messageID), message.unsendFailed else { return }
         let title = String(localized: "conversation.notUnsent.title", defaultValue: "Message Not Unsent", bundle: .module)
         let alert: UIAlertController
         if store.canRetryUnsend(message) {

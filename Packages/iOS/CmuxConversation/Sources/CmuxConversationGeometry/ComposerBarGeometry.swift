@@ -106,11 +106,26 @@ public enum ComposerBarGeometry {
     ///   - sideInset: the current side inset (see `sideInset`).
     ///   - scale: the display scale. The "+" and the send capsule land on
     ///     whole pixels the way Messages' do.
-    public static func layout(width: CGFloat, fieldBottom: CGFloat, fieldHeight: CGFloat, oneLineHeight: CGFloat, sideInset: CGFloat, scale: CGFloat) -> Layout {
+    ///   - showsPlus: whether the composer offers media/apps. When false, the
+    ///     field uses the full row width and `plus` is `.zero`.
+    public static func layout(
+        width: CGFloat,
+        fieldBottom: CGFloat,
+        fieldHeight: CGFloat,
+        oneLineHeight: CGFloat,
+        sideInset: CGFloat,
+        scale: CGFloat,
+        showsPlus: Bool = true
+    ) -> Layout {
         let lineMidY = fieldBottom - oneLineHeight / 2
-        let plusY = pixelCeil(lineMidY - plusDiameter / 2, scale: scale)
-        let plus = CGRect(x: sideInset, y: plusY, width: plusDiameter, height: plusDiameter)
-        let fieldX = plus.maxX + plusToFieldGap
+        let plus: CGRect
+        if showsPlus {
+            let plusY = pixelCeil(lineMidY - plusDiameter / 2, scale: scale)
+            plus = CGRect(x: sideInset, y: plusY, width: plusDiameter, height: plusDiameter)
+        } else {
+            plus = .zero
+        }
+        let fieldX = showsPlus ? plus.maxX + plusToFieldGap : sideInset
         let field = CGRect(x: fieldX, y: fieldBottom - fieldHeight, width: max(0, width - sideInset - fieldX), height: fieldHeight)
         let send = CGRect(
             x: field.width - sendTrailingInset - sendSize.width,
