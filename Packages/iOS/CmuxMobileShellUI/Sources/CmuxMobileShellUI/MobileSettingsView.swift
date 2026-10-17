@@ -20,6 +20,10 @@ struct MobileSettingsView: View {
     /// so Settings controls the same gate used by analytics and crash reporting.
     private static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
 
+    private var sshSectionTitle: String {
+        SSHCopy().sectionTitle
+    }
+
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.analyticsClientID) private var analyticsClientID
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
@@ -248,7 +252,7 @@ struct MobileSettingsView: View {
                         }
                         .accessibilityIdentifier("ssh.settings.keys")
                     } header: {
-                        Text(SSHCopy().sectionTitle)
+                        Text(verbatim: sshSectionTitle)
                     } footer: {
                         Text(L10n.string(
                             "mobile.ssh.settings.keys.footer",
