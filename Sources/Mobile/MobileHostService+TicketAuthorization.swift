@@ -241,8 +241,8 @@ extension MobileHostService {
 
         let ticketWorkspaceID = authorization.ticket.workspaceID
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let ticketTerminalID = authorization.ticket.terminalID?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let ticketTerminalID = authorization.ticket.terminalID
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .flatMap { $0.isEmpty ? nil : $0 }
 
         // A Mac-wide ticket may still carry an explicit terminal pin. Treat
