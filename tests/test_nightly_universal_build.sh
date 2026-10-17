@@ -1002,11 +1002,15 @@ if ! grep -Fq "github.event.inputs.build_only == 'true' && format('nightly-measu
   exit 1
 fi
 
-# Main NIGHTLY and nightly-next use the same app identity and Sparkle build
-# ordering. Their full publish runs must share a concurrency group so an older
-# next run cannot finish after a newer main run and fail the cross-feed floor.
-if ! grep -Fq "(github.ref_name == 'main' || github.ref_name == 'nightly-next') && 'nightly-shared'" "$WORKFLOW_FILE"; then
-  echo "FAIL: main and nightly-next publishing runs must share one concurrency group"
+# Main NIGHTLY and nightly-next must not share a workflow-level concurrency
+# group: a long notarization on one track must not starve the other. Their
+# publication checks still reject stale or out-of-order results.
+if ! grep -Fq "github.ref_name == 'nightly-next' && 'nightly-next' || github.ref_name == 'main' && 'nightly-main' || github.ref_name" "$WORKFLOW_FILE"; then
+  echo "FAIL: main and nightly-next need distinct workflow concurrency groups"
+  exit 1
+fi
+if grep -Fq "(github.ref_name == 'main' || github.ref_name == 'nightly-next') && 'nightly-shared'" "$WORKFLOW_FILE"; then
+  echo "FAIL: main and nightly-next must not share the nightly-shared workflow group"
   exit 1
 fi
 
