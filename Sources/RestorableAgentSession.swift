@@ -1632,8 +1632,15 @@ struct RestorableAgentSessionIndex: Sendable {
             Self.shouldPreferStablePanelEntry(rhs, over: lhs)
         }) else { return nil }
         // Equal-ranked durable owners are ambiguous; dictionary iteration must
-        // never choose a random checkpoint after an app restart.
-        guard candidates.filter({ $0.1.updatedAt == selected.updatedAt }).count == 1 else {
+        // never choose a random checkpoint after an app restart. The session
+        // identity tie-breaker is not a rank, so compare ranking fields only.
+        let selectedLivenessRank = Self.stablePanelLivenessRank(selected)
+        let selectedHasLiveProcess = Self.entryHasLiveProcess(selected)
+        guard candidates.filter({ _, entry in
+            Self.stablePanelLivenessRank(entry) == selectedLivenessRank &&
+                Self.entryHasLiveProcess(entry) == selectedHasLiveProcess &&
+                entry.updatedAt == selected.updatedAt
+        }).count == 1 else {
             return nil
         }
         return selected
@@ -2461,6 +2468,7 @@ struct RestorableAgentSessionIndex: Sendable {
         func processDetectedEntry(
             key: PanelKey,
             snapshot: SessionRestorableAgentSnapshot,
+            hookStableSurfaceId: UUID?,
             lifecycle: AgentHibernationLifecycleState?,
             updatedAt: TimeInterval,
             detected: ProcessDetectedSnapshotEntry
@@ -2477,7 +2485,10 @@ struct RestorableAgentSessionIndex: Sendable {
             )
             return Entry(
                 snapshot: snapshot,
-                stableSurfaceId: snapshot.launchCommand?.environment?["CMUX_STABLE_SURFACE_ID"].flatMap(UUID.init(uuidString:)),
+                // The live process environment wins; a reused hook entry keeps
+                // its verified ID when that environment does not carry one.
+                stableSurfaceId: snapshot.launchCommand?.environment?["CMUX_STABLE_SURFACE_ID"]
+                    .flatMap(UUID.init(uuidString:)) ?? hookStableSurfaceId,
                 lifecycle: lifecycle, updatedAt: updatedAt,
                 processLiveness: .running,
                 hasRecordedProcessID: true,
@@ -2530,7 +2541,7 @@ struct RestorableAgentSessionIndex: Sendable {
                    detected: detected,
                    processIdentityProvider: processIdentityProvider
                ) {
-                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, hookStableSurfaceId: panelCandidate.stableSurfaceId, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
             } else if detected.sessionIDSource == .forkParentFallback,
                       Self.forkParentFallbackMustYield(kind: detected.snapshot.kind, toExisting: resolved[key]) {
                 // A nested fork process inside another agent's pane must not displace
@@ -2542,7 +2553,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 // cwd. Prefer the hook-store identity for this stable panel/surface while still carrying
                 // live process evidence for the restored panel. The workspace UUID can rotate during
                 // session restore, but the surface id is intentionally reused on the normal restore path.
-                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, hookStableSurfaceId: panelCandidate.stableSurfaceId, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
             } else if let existing = Self.matchingHookEntry(
                 for: detected.snapshot,
                 resolved: resolved[key],
@@ -2551,9 +2562,9 @@ struct RestorableAgentSessionIndex: Sendable {
                     SessionKey(kind: detected.snapshot.kind, sessionId: detected.snapshot.sessionId)
                 ]
             ) {
-                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, lifecycle: existing.lifecycle, updatedAt: existing.updatedAt, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, hookStableSurfaceId: existing.stableSurfaceId, lifecycle: existing.lifecycle, updatedAt: existing.updatedAt, detected: detected)
             } else {
-                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, lifecycle: nil, updatedAt: 0, detected: detected)
+                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, hookStableSurfaceId: nil, lifecycle: nil, updatedAt: 0, detected: detected)
             }
         }
 

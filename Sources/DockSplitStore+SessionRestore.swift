@@ -612,7 +612,7 @@ extension DockSplitStore {
             )
         }
         if deferredAgentResumeAdmission {
-            terminal.restoreRecovery.state = .checking
+            terminal.restoreRecovery.markCheckingPreservingFailure()
             deferAgentResumeRestore(
                 panelId: terminal.id,
                 restore: DeferredAgentResumeRestore(

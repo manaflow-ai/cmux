@@ -28,7 +28,7 @@ extension DockSplitStore {
                 forPanelId: restore.stablePanelID,
                 kind: expectedKind
             ) else {
-                terminal.restoreRecovery.state = .checking
+                terminal.restoreRecovery.markCheckingPreservingFailure()
                 continue
             }
             guard deferredAgentResumeRestoreMatchesCurrentSession(

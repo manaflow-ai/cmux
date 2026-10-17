@@ -24,6 +24,14 @@ final class AgentRestoreRecoveryPresentation {
         return SessionRestoreRecoverySnapshot(reason: reason, recoveryInput: recoveryInput)
     }
 
+    /// Pending admission keeps a persisted failure visible and durable until
+    /// admission reaches its own outcome; an app quit while checking must not
+    /// drop the recovery input.
+    func markCheckingPreservingFailure() {
+        if case .failed = state { return }
+        state = .checking
+    }
+
     func restore(from snapshot: SessionRestoreRecoverySnapshot?) {
         guard let snapshot else { return }
         state = .failed(reason: snapshot.reason, recoveryInput: snapshot.recoveryInput)

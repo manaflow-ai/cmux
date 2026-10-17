@@ -2093,7 +2093,7 @@ extension Workspace {
                 return nil
             }
             terminalPanel.restoreRecovery.restore(from: snapshot.terminal?.restoreRecovery)
-            if deferredAgentResumeAdmission { terminalPanel.restoreRecovery.state = .checking }
+            if deferredAgentResumeAdmission { terminalPanel.restoreRecovery.markCheckingPreservingFailure() }
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
             if let restoredRemotePTYSessionID {
                 registerRemoteRelayIDAliases(
