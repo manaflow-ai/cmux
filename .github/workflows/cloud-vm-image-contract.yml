@@ -55,6 +55,11 @@ on:
         required: false
         default: ""
         type: string
+      cmux_tui_commit:
+        description: "Optional full commit sha of a published cmux-tui build to bake instead of latest"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -129,11 +134,21 @@ jobs:
       - name: Bake, verify, derive, and stage the manifest
         env:
           CMUX_BAKE_ALLOW_BRANCH: "1"
+          CMUX_TUI_COMMIT: ${{ inputs.cmux_tui_commit }}
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
           PROMOTION_OUT: ${{ runner.temp }}/devbox-promotion.json
           SLUG: cmux-devbox-${{ github.run_id }}
         run: |
           set -euo pipefail
+          # A daemon fix bakes its published build before main's latest/ has it.
+          if [ -n "$CMUX_TUI_COMMIT" ]; then
+            if ! printf '%s' "$CMUX_TUI_COMMIT" | grep -Eqx '[0-9a-f]{40}'; then
+              echo "::error::cmux_tui_commit must be a full 40-character commit sha"
+              exit 1
+            fi
+            export CMUX_VM_CMUX_TUI_MANIFEST_URL="https://files.cmux.com/cmux-tui/$CMUX_TUI_COMMIT/manifest.json"
+            echo "cmux-tui manifest: $CMUX_VM_CMUX_TUI_MANIFEST_URL"
+          fi
           bun run devbox:promote -- freestyle \
             --slug "$SLUG" \
             --pointer-slug none \
