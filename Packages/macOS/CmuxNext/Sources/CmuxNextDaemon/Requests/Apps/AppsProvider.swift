@@ -5,7 +5,7 @@ import Foundation
 /// plans/cmux-next/app-op-routing.md). Only the verified cmux app
 /// connection may register (`client-hello` `user_origin_allowed`); the
 /// registration ends with the connection.
-/// Use ``DaemonConnection/registerAppProvider(families:)`` when the set
+/// Use ``AppProviderRegistration/register(families:)`` when the set
 /// includes `agent_cli`, so older daemons keep the existing families.
 public struct AppsProviderRegisterRequest: DaemonRequest {
     public typealias Response = JSONValue

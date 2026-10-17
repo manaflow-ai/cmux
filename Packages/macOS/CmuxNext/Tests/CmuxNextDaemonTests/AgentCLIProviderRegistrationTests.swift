@@ -44,7 +44,7 @@ struct AgentCLIProviderRegistrationTests {
         let connection = DaemonConnection(endpoint: endpoint, configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))
         do {
             try await connection.start()
-            let result = try await connection.registerAppProvider(families: families)
+            let result = try await AppProviderRegistration(connection: connection).register(families: families)
             await connection.close()
             return result
         } catch {
