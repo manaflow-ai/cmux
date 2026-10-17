@@ -238,7 +238,7 @@
   align-items: center;
   gap: 4px;
   color: var(--page-text-3);
-  font-size: 11px;
+  font-size: var(--text-caption);
   overflow-wrap: anywhere;
 }
 
