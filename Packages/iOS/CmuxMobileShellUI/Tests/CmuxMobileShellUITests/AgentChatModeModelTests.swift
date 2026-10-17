@@ -201,6 +201,88 @@ import Testing
         #expect(model.attachments.isEmpty)
     }
 
+    @Test func regenerateLatestResponseReplaysTheLatestUserPrompt() async {
+        let source = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)],
+            pages: [
+                "session": [ChatHistoryPage(
+                    messages: [
+                        userMessage(id: "prompt", seq: 1, text: "  Inspect this diff  "),
+                        message(id: "response", seq: 2, text: "The diff is safe to merge.")
+                    ],
+                    hasMore: false
+                )]
+            ]
+        )
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await settle()
+
+        #expect(model.latestAgentResponseID == "response")
+        #expect(model.canRegenerateLatestResponse)
+
+        await model.regenerateLatestResponse()
+
+        #expect((await source.sent).map(\.0) == ["Inspect this diff"])
+        #expect((await source.sent).map(\.1) == ["session"])
+        #expect(model.regeneratingSessionIDs.isEmpty)
+    }
+
+    @Test func regenerateIsUnavailableWhenTheLatestTranscriptItemIsNotAnAgentResponse() async {
+        let source = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)],
+            pages: [
+                "session": [ChatHistoryPage(
+                    messages: [
+                        userMessage(id: "prompt", seq: 1, text: "Inspect this diff"),
+                        message(id: "response", seq: 2, text: "The diff is safe to merge."),
+                        userMessage(id: "follow-up", seq: 3, text: "Check the tests too")
+                    ],
+                    hasMore: false
+                )]
+            ]
+        )
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await settle()
+
+        #expect(model.latestAgentResponseID == nil)
+        #expect(!model.canRegenerateLatestResponse)
+
+        await model.regenerateLatestResponse()
+        #expect(await source.sent == [])
+    }
+
+    @Test func regenerateIgnoresDuplicateTapsWhileTheSendIsInFlight() async {
+        let source = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .claude)],
+            pages: [
+                "session": [ChatHistoryPage(
+                    messages: [
+                        userMessage(id: "prompt", seq: 1, text: "Explain the failure"),
+                        message(id: "response", seq: 2, text: "The process exited with code 1.")
+                    ],
+                    hasMore: false
+                )]
+            ]
+        )
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await settle()
+
+        let sendGate = await source.holdSends()
+        let first = Task { await model.regenerateLatestResponse() }
+        await source.waitForSendStart()
+        #expect(model.regeneratingSessionIDs == Set(["session"]))
+
+        await model.regenerateLatestResponse()
+        #expect((await source.sent).map(\.0) == ["Explain the failure"])
+
+        await sendGate.open()
+        await first.value
+        #expect(model.regeneratingSessionIDs.isEmpty)
+    }
+
     @Test func hostStreamFinishingExposesReconnectingState() async {
         let reconnectGate = TestAsyncGate()
         let source = FakeAgentChatSource(

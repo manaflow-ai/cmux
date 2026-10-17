@@ -55,6 +55,10 @@ final class AgentChatModeModel {
     private(set) var sendingSessionIDs: Set<String> = []
     private(set) var interruptingSessionIDs: Set<String> = []
     private(set) var retryingSessionIDs: Set<String> = []
+    /// Agent responses can be regenerated while an otherwise healthy turn is
+    /// idle. Keep this separate from failed-turn retry state so the response
+    /// action has its own in-flight guard and presentation state.
+    private(set) var regeneratingSessionIDs: Set<String> = []
     private(set) var pinnedSessionIDs: Set<String>
     private(set) var archivedSessionIDs: Set<String>
     private(set) var connectionState: ConnectionState = .disconnected
@@ -266,6 +270,33 @@ final class AgentChatModeModel {
         return streamingBySession[selectedSessionID] ?? nil
     }
 
+    /// The latest assistant prose in the selected transcript. A regenerate
+    /// action belongs to this response only; older responses remain immutable
+    /// and can still be copied or edited through their normal message menu.
+    var latestAgentResponseID: String? {
+        guard let selectedSessionID else { return nil }
+        return latestAgentResponse(in: selectedSessionID)?.id
+    }
+
+    /// Whether the latest agent response can be replayed through the ordinary
+    /// send transport. The host's session state remains authoritative: an
+    /// active turn, pending approval/question, queued prompt, or ended session
+    /// must not accept a second turn from a stale context menu.
+    var canRegenerateLatestResponse: Bool {
+        guard let selectedSessionID,
+              let selectedSession,
+              selectedSession.state != .ended,
+              !selectedSession.isWorking,
+              selectedPendingActionableCount == 0,
+              pendingSendsBySession[selectedSessionID, default: []].isEmpty,
+              inFlightSendsBySession[selectedSessionID] == nil,
+              !regeneratingSessionIDs.contains(selectedSessionID),
+              latestAgentResponse(in: selectedSessionID) != nil,
+              let queued = lastTurnBySession[selectedSessionID] else { return false }
+        let latestPrompt = latestUserPrompt(in: selectedSessionID)
+        return latestPrompt == normalizedPrompt(queued.text)
+    }
+
     var selectedTerminalBlocks: [TerminalCommandBlock] {
         guard let selectedSessionID else { return [] }
         return terminalBlocksBySession[selectedSessionID] ?? []
@@ -349,6 +380,7 @@ final class AgentChatModeModel {
         sendingSessionIDs = []
         interruptingSessionIDs = []
         retryingSessionIDs = []
+        regeneratingSessionIDs = []
         guard let next else { return }
         sourceTask = Task { [weak self] in
             await self?.loadAndObserve(source: next, generation: generation)
@@ -675,6 +707,44 @@ final class AgentChatModeModel {
         }
     }
 
+    /// Requests a fresh response for the latest agent prose by replaying the
+    /// exact latest user prompt through the shared send transport. Providers
+    /// do not need a special regenerate RPC: the Mac-side source already
+    /// binds `send` to the selected Claude, Codex, or OpenCode terminal.
+    ///
+    /// The transcript remains authoritative. We only mark the action in flight
+    /// until the host reports the resulting turn, and leave the existing
+    /// response in place so a reconnect or provider rejection cannot erase
+    /// useful history.
+    func regenerateLatestResponse() async {
+        guard let selectedSessionID,
+              let source,
+              let selectedSession,
+              selectedSession.state != .ended,
+              !selectedSession.isWorking,
+              selectedPendingActionableCount == 0,
+              pendingSendsBySession[selectedSessionID, default: []].isEmpty,
+              inFlightSendsBySession[selectedSessionID] == nil,
+              latestAgentResponse(in: selectedSessionID) != nil,
+              let queued = lastTurnBySession[selectedSessionID],
+              latestUserPrompt(in: selectedSessionID) == normalizedPrompt(queued.text),
+              regeneratingSessionIDs.insert(selectedSessionID).inserted else { return }
+        defer { regeneratingSessionIDs.remove(selectedSessionID) }
+        let generation = sourceGeneration
+        guard generation == sourceGeneration, !Task.isCancelled else { return }
+        do {
+            try await source.send(
+                text: queued.text,
+                attachments: queued.attachments.map(\.outbound),
+                sessionID: selectedSessionID
+            )
+            guard generation == sourceGeneration, !Task.isCancelled else { return }
+        } catch {
+            guard generation == sourceGeneration, !Task.isCancelled else { return }
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func answer(optionIndex: Int, requestID: String? = nil) async {
         guard let selectedSessionID, let source, selectedSession?.state != .ended else { return }
         let requestKey = selectedSessionID + ":" + (requestID ?? "__default__")
@@ -954,6 +1024,7 @@ final class AgentChatModeModel {
             answeringRequestKeys = answeringRequestKeys.filter { !$0.hasPrefix("\(sessionID):") }
             sendingSessionIDs.remove(sessionID)
             interruptingSessionIDs.remove(sessionID)
+            regeneratingSessionIDs.remove(sessionID)
             if selectedSessionID == sessionID {
                 if let next = visibleSessions.first {
                     select(next)
@@ -988,6 +1059,7 @@ final class AgentChatModeModel {
             inFlightSendsBySession[sessionID] = nil
             sendingSessionIDs.remove(sessionID)
             lastTurnBySession[sessionID] = nil
+            regeneratingSessionIDs.remove(sessionID)
             if selectedSessionID == sessionID, let source {
                 let generation = sourceGeneration
                 historyReloadTasks[sessionID]?.cancel()
@@ -1029,6 +1101,37 @@ final class AgentChatModeModel {
                   })
                   .first else { return }
         lastTurnBySession[sessionID] = QueuedSend(text: latestPrompt, attachments: [])
+    }
+
+    private func latestAgentResponse(in sessionID: String) -> ChatMessage? {
+        let messages = messagesBySession[sessionID] ?? []
+        guard let response = messages.last(where: { message in
+            guard message.role == .agent else { return false }
+            guard case .prose = message.kind else { return false }
+            return true
+        }),
+        let latestPrompt = messages.last(where: { message in
+            guard message.role == .user else { return false }
+            if case .prose = message.kind { return true }
+            return false
+        }),
+        response.seq > latestPrompt.seq else { return nil }
+        return response
+    }
+
+    private func latestUserPrompt(in sessionID: String) -> String? {
+        (messagesBySession[sessionID] ?? []).last { message in
+            guard message.role == .user else { return false }
+            guard case .prose = message.kind else { return false }
+            return true
+        }.flatMap { message in
+            guard case .prose(let prose) = message.kind else { return nil }
+            return normalizedPrompt(prose.text)
+        }
+    }
+
+    private func normalizedPrompt(_ text: String) -> String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func reconcilePendingPrompts(sessionID: String) {

@@ -736,6 +736,10 @@ private struct AgentChatTranscriptView: View {
                                 if case .prose = message.kind { return true }
                                 return false
                             })?.id
+                            let latestAgentResponseID = model.latestAgentResponseID
+                            let isRegenerating = model.selectedSessionID.map {
+                                model.regeneratingSessionIDs.contains($0)
+                            } == true
                             ForEach(model.selectedMessages) { message in
                                 AgentChatMessageView(
                                     message: message,
@@ -749,7 +753,14 @@ private struct AgentChatTranscriptView: View {
                                             model.editPrompt(message)
                                             composerFocused = true
                                         }
-                                        : nil
+                                        : nil,
+                                    regenerate: message.id == latestAgentResponseID
+                                        ? { Task { await model.regenerateLatestResponse() } }
+                                        : nil,
+                                    isRegenerating: message.id == latestAgentResponseID
+                                        && isRegenerating,
+                                    canRegenerate: message.id == latestAgentResponseID
+                                        && (model.canRegenerateLatestResponse || isRegenerating)
                                 )
                                 .id(message.id)
                             }
@@ -1024,6 +1035,9 @@ private struct AgentChatMessageView: View {
     var answer: ((Int, String) -> Void)?
     var isAnswering: ((String) -> Bool)?
     var edit: (() -> Void)?
+    var regenerate: (() -> Void)? = nil
+    var isRegenerating = false
+    var canRegenerate = false
 
     var body: some View {
         Group {
@@ -1063,7 +1077,13 @@ private struct AgentChatMessageView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .agentMessageActions(copying: copyText, editing: edit)
+        .agentMessageActions(
+            copying: copyText,
+            editing: edit,
+            regenerating: isRegenerating,
+            regenerate: regenerate,
+            canRegenerate: canRegenerate
+        )
     }
 
     /// ChatGPT's long-press message menu is useful for agent output too: it
@@ -1107,9 +1127,14 @@ private struct AgentChatMessageView: View {
 private struct AgentMessageActions: ViewModifier {
     let copyText: String?
     let edit: (() -> Void)?
+    let regenerating: Bool
+    let regenerate: (() -> Void)?
+    let canRegenerate: Bool
 
     func body(content: Content) -> some View {
-        guard let copyText, !copyText.isEmpty else { return AnyView(content) }
+        guard (copyText?.isEmpty == false) || edit != nil || regenerate != nil else {
+            return AnyView(content)
+        }
         return AnyView(
             content
                 .contextMenu {
@@ -1118,25 +1143,54 @@ private struct AgentMessageActions: ViewModifier {
                             Label("Edit prompt", systemImage: "pencil")
                         }
                     }
-                    Button {
-                        UIPasteboard.general.string = copyText
-                    } label: {
-                        Label("Copy", systemImage: "doc.on.doc")
+                    if let regenerate {
+                        Button(action: regenerate) {
+                            Label(
+                                regenerating ? "Regenerating response…" : "Regenerate response",
+                                systemImage: "arrow.clockwise"
+                            )
+                        }
+                        .disabled(regenerating || !canRegenerate)
                     }
-                    ShareLink(item: copyText) {
-                        Label("Share", systemImage: "square.and.arrow.up")
+                    if let copyText, !copyText.isEmpty {
+                        Button {
+                            UIPasteboard.general.string = copyText
+                        } label: {
+                            Label("Copy", systemImage: "doc.on.doc")
+                        }
+                        ShareLink(item: copyText) {
+                            Label("Share", systemImage: "square.and.arrow.up")
+                        }
                     }
                 }
                 .accessibilityAction(named: Text("Copy")) {
-                    UIPasteboard.general.string = copyText
+                    if let copyText, !copyText.isEmpty {
+                        UIPasteboard.general.string = copyText
+                    }
+                }
+                .accessibilityAction(named: Text("Regenerate response")) {
+                    guard !regenerating, canRegenerate else { return }
+                    regenerate?()
                 }
         )
     }
 }
 
 private extension View {
-    func agentMessageActions(copying text: String?, editing edit: (() -> Void)? = nil) -> some View {
-        modifier(AgentMessageActions(copyText: text, edit: edit))
+    func agentMessageActions(
+        copying text: String?,
+        editing edit: (() -> Void)? = nil,
+        regenerating: Bool = false,
+        regenerate: (() -> Void)? = nil,
+        canRegenerate: Bool = false
+    ) -> some View {
+        modifier(AgentMessageActions(
+            copyText: text,
+            edit: edit,
+            regenerating: regenerating,
+            regenerate: regenerate,
+            canRegenerate: canRegenerate
+        ))
     }
 }
 
