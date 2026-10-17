@@ -124,6 +124,42 @@ import Testing
         #expect(endpoint.failureMessage("Rate limit reached.", model: "m") == "Rate limit reached.")
     }
 
+    /// Claude Code retries a 401 up to ten times with growing delays; the parser reports
+    /// the first one so the driver need not wait minutes for a key that will never work.
+    @Test func aRetriedAuthenticationFailureIsReported() {
+        var parser = ClaudeStreamParser()
+        let retry = #"{"type":"system","subtype":"api_retry","attempt":1,"max_retries":10,"retry_delay_ms":500,"error_status":401,"error":"authentication_failed","session_id":"s"}"#
+        #expect(parser.consume(Data(retry.utf8)) == [.rejectedCredential])
+        let rateLimited = #"{"type":"system","subtype":"api_retry","attempt":1,"max_retries":10,"retry_delay_ms":500,"error_status":429,"error":"rate_limit","session_id":"s"}"#
+        #expect(parser.consume(Data(rateLimited.utf8)).isEmpty)
+    }
+
+    /// A rejected key ends the turn at the first retry with the Chief Settings pointer,
+    /// instead of leaving it spinning while `claude` backs off.
+    @Test(.timeLimit(.minutes(1))) func aRejectedKeyEndsTheTurnWithoutWaitingForRetries() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("chief-retry-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fake = directory.appendingPathComponent("claude")
+        try """
+        #!/bin/sh
+        echo '{"type":"system","subtype":"api_retry","attempt":1,"max_retries":10,"retry_delay_ms":500,"error_status":401,"error":"authentication_failed","session_id":"s"}'
+        exec sleep 600
+        """.write(to: fake, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
+        let key = try keyFile("di-bad-key")
+        defer { try? FileManager.default.removeItem(at: key) }
+
+        let pending = ChiefPendingTurns()
+        let token = UUID()
+        pending.register(token, conversation: conversation)
+        let session = ClaudeConversation(configuration: .init(model: "m", executableOverride: fake,
+                                                              endpoint: .deepInfra(keyFile: key, environmentKey: unsetKey)))
+        let (stream, continuation) = AsyncThrowingStream.makeStream(of: ChiefTurnEvent.self, throwing: (any Error).self)
+        await session.start(request(), token: token, continuation: continuation, pending: pending)
+        #expect(try await collect(stream) == [.failed(ChiefText.invalidCredential("DeepInfra"))])
+    }
+
     @Test func theDeepInfraHarnessBuildsAClaudeCodeBrain() {
         #expect(ChiefHarness(lenient: "DeepInfra") == .deepInfra)
         #expect(ChiefHarness.deepInfra.displayName == "DeepInfra")

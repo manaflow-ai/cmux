@@ -329,6 +329,8 @@ actor ClaudeConversation {
                 write(ClaudeStreamParser.permissionResponse(requestID: id, allow: false, input: input))
             case .unsupportedControl(let id, let subtype):
                 write(ClaudeStreamParser.unsupportedResponse(requestID: id, subtype: subtype))
+            case .rejectedCredential:
+                break
             }
         }
     }

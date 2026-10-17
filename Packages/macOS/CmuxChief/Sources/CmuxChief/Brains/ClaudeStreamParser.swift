@@ -13,6 +13,8 @@ enum ClaudeStreamOutput: Sendable, Equatable {
     case stalePermission(requestID: String, input: ChiefJSON)
     /// A control request the driver does not handle; it answers with an error.
     case unsupportedControl(requestID: String, subtype: String)
+    /// The API rejected the credential (401) and Claude Code is retrying it.
+    case rejectedCredential
 }
 
 /// Turns Claude Code's `--output-format stream-json` lines into Chief turn
