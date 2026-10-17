@@ -549,7 +549,9 @@ assert "Verify trusted source workflow run" in resume
 assert "SOURCE_HEAD_SHA" in resume
 assert "resolve-notarization-recovery.py" in resume
 assert "--extract-app" in resume
-assert "scripts/ci/resume-nightly-notarization.sh" in resume
+# The manual resume continues a recovered DMG through the stapled-app wrapper,
+# which calls scripts/ci/resume-nightly-notarization.sh.
+assert "scripts/ci/resume-stapled-app-notarization.sh" in resume
 resume_script = (Path(sys.argv[1]).parents[2] / "scripts/ci/resume-nightly-notarization.sh").read_text(encoding="utf-8")
 assert "verify_computer_use_helper" in resume_script
 assert "standalone_helper" in resume_script
