@@ -12,9 +12,10 @@ public import AppKit
 /// Views find their scope through the view tree (`NSView.themeScope`) and
 /// resolve `Palette` colors inside `performWithTheme`. Nothing is looked up
 /// per frame: a scope recomputes its tokens only when its theme or an
-/// ancestor's changes, then repaints the views it roots (the same hook a
-/// Ghostty config reload uses: `viewDidChangeEffectiveAppearance`) behind a
-/// short crossfade, and calls its `ThemeResponsive` objects.
+/// ancestor's changes, then runs the theme hook (`viewDidChangeEffectiveAppearance`,
+/// the one a Ghostty config reload uses) of the views it draws, once each and
+/// never inside another scope's region, with their layer colors blending on the
+/// render server (`ThemeRepaint`), and calls its `ThemeResponsive` objects.
 @MainActor
 public final class ThemeScope {
     /// The root scope: the Ghostty config theme.
@@ -115,14 +116,30 @@ public final class ThemeScope {
         return parent.themeAccentColor
     }
 
-    private func repaintBackdropArt() {
+    /// What a scope's background draws besides its tokens (art, glass tint, surfaces, tuning),
+    /// as last painted: a child repaints for its parent's change only when what it inherits moved.
+    private struct BackdropKey: Equatable {
+        var selection: BackdropSelection?
+        var tint: Double?
+        var surfaces: SurfaceBackgrounds
+        var tuning: AppearanceTuning
+    }
+    private var displayedBackdrop: BackdropKey?
+
+    /// Repaints this scope's views for a background change, then each child whose inherited
+    /// background changed with it (a child with its own pick keeps its views as they are).
+    private func repaintBackdropArt(force: Bool = true) {
+        let key = BackdropKey(selection: backdropSelection, tint: backdropTintOpacity,
+                              surfaces: surfaceBackgrounds, tuning: appearanceTuning)
+        guard force || key != displayedBackdrop else { return }
+        displayedBackdrop = key
         // Art Color: another work is another accent.
         if ThemeStore.shared.accentFollowsArt { update(animated: false, repaint: false) }
-        repaint(animated: false)
+        repaint(animated: false, from: nil)
         for responder in responders.allObjects {
             (responder as? any ThemeResponsive)?.themeDidChange()
         }
-        for child in children.allObjects { child.repaintBackdropArt() }
+        for child in children.allObjects { child.repaintBackdropArt(force: false) }
     }
 
     public let level: ThemeLevel
@@ -203,7 +220,7 @@ public final class ThemeScope {
 
     /// Sets this scope's own theme. `input` is the spec's resolved colors;
     /// a nil spec (or nil input) clears it and inherits again. Repaints
-    /// what this scope roots, with a crossfade when `animated`.
+    /// what this scope draws, its colors blending when `animated`.
     public func setOverride(_ spec: ThemeSpec?, input: ThemeInput?, animated: Bool = true) {
         let resolved = spec == nil ? nil : input
         self.spec = resolved == nil ? nil : spec
@@ -261,19 +278,22 @@ public final class ThemeScope {
     /// painted: this scope's own colors, the shown scope's, or which of the
     /// two applies changed.
     private func refreshDisplay(animated: Bool, repaint: Bool) {
+        let now = tokens, previous = displayed
         // The windows take the new light/dark first: a child root that compares with it then
         // never inherits the old one for a moment (now that the room follows a workspace of any
         // light/dark).
-        if repaint, tokens != displayed {
+        if repaint, now != previous {
             for window in windows.allObjects where window.appearance?.name != appearance.name { window.appearance = appearance }
         }
-        // A child root's explicit appearance compares with these colors.
-        for child in children.allObjects { for view in child.roots.allObjects { child.applyAppearance(to: view) } }
-        let now = tokens
-        guard now != displayed else { return }
+        // A child root's explicit appearance compares with this scope's light/dark: only a flip
+        // can change it.
+        if now.isDark != previous.isDark {
+            for child in children.allObjects { for view in child.roots.allObjects { child.applyAppearance(to: view) } }
+        }
+        guard now != previous else { return }
         displayed = now
         generation += 1
-        if repaint { self.repaint(animated: animated) }
+        if repaint { self.repaint(animated: animated, from: previous) }
         for responder in responders.allObjects {
             (responder as? any ThemeResponsive)?.themeDidChange()
         }
@@ -309,7 +329,9 @@ public final class ThemeScope {
         input = next
         let derived = level == .config ? ThemeStore.shared.tokens : ThemeTokens.derive(from: next)
         ownTokens = derived
-        for child in children.allObjects { child.update(animated: animated, repaint: false) }
+        // Each child that inherits these colors repaints its own views (this scope's pass stops
+        // at their roots).
+        for child in children.allObjects { child.update(animated: animated, repaint: repaint) }
         refreshDisplay(animated: animated, repaint: repaint)
     }
 
@@ -321,7 +343,7 @@ public final class ThemeScope {
         ThemeScopeRegistry.setScope(self, of: view)
         roots.add(view)
         applyAppearance(to: view)
-        Self.invalidate(view)
+        ThemeRepaint.run(under: [view], scope: self, transition: nil)
     }
 
     /// Makes `window` (a main window or a panel it owns) draw in this scope:
@@ -331,7 +353,7 @@ public final class ThemeScope {
         ThemeScopeRegistry.setScope(self, of: window)
         windows.add(window)
         window.appearance = appearance
-        if let content = window.contentView { Self.invalidate(content) }
+        if let content = window.contentView { ThemeRepaint.run(under: [content], scope: self, transition: nil) }
     }
 
     /// Calls `responder.themeDidChange()` after every change of this scope's
@@ -359,40 +381,20 @@ public final class ThemeScope {
         view.appearance = inherited == tokens.isDark ? nil : appearance
     }
 
-    private func repaint(animated: Bool) {
-        let transition = ColorTransition.current
-        if animated, !transition.isInstant {
-            // One fade per window, before anything repaints: the whole window for a scope that owns
-            // windows, else the areas of the views this scope roots.
-            var regions: [ObjectIdentifier: (window: NSWindow, views: [NSView]?)] = [:]
-            for window in windows.allObjects { regions[ObjectIdentifier(window)] = (window, nil) }
-            for view in roots.allObjects {
-                guard let window = view.window else { continue }
-                let id = ObjectIdentifier(window)
-                if let entry = regions[id] {
-                    if let views = entry.views { regions[id] = (window, views + [view]) }
-                } else {
-                    regions[id] = (window, [view])
-                }
-            }
-            for entry in regions.values { transition.fade(entry.window, regions: entry.views) }
-        }
-        for view in roots.allObjects { Self.invalidate(view) }
+    /// Runs the theme hook of every view this scope's colors draw, once: its windows' content
+    /// and its roots, without the regions of views that root other scopes (I5: a workspace
+    /// switch repaints the room's chrome, never every workspace's content). Animated: each layer
+    /// color the hooks change blends from the color on screen (`ThemeRepaint`).
+    /// - Parameter previous: The tokens painted before (nil: unknown).
+    private func repaint(animated: Bool, from previous: ThemeTokens?) {
+        let now = tokens
+        // A non-opaque window's shadow follows its content's alpha.
+        let shadowMoved = previous.map { $0.backgroundOpacity != now.backgroundOpacity || $0.isDark != now.isDark } ?? true
         for window in windows.allObjects {
-            window.appearance = appearance
-            guard let content = window.contentView else { continue }
-            Self.invalidate(content)
-            window.invalidateShadow()
+            if window.appearance?.name != appearance.name { window.appearance = appearance }
+            if shadowMoved { window.invalidateShadow() }
         }
-    }
-
-    /// Every view re-resolves its colors when its effective appearance
-    /// changes; a theme change is that, even dark to dark, where AppKit
-    /// would not call the hook itself.
-    static func invalidate(_ view: NSView) {
-        view.needsDisplay = true
-        view.needsLayout = true
-        view.viewDidChangeEffectiveAppearance()
-        for subview in view.subviews { invalidate(subview) }
+        let regions = windows.allObjects.compactMap(\.contentView) + roots.allObjects
+        ThemeRepaint.run(under: regions, scope: self, transition: animated ? .current : nil)
     }
 }

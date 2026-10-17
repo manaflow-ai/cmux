@@ -86,9 +86,10 @@ public final class ThemeStore {
             ThemeSnapshot.store(derived)
             // Room, workspace and terminal scopes inherit from the app scope.
             ThemeScope.app.storeDidChange()
-            // A theme, light/dark or Ghostty config change recolors every window in place: the
-            // whole window crossfades (terminal surfaces have no color to blend one by one).
-            // Not the first config of the launch: windows show it as their first colors.
+            // A theme, light/dark or Ghostty config change recolors every window in place: its
+            // layer colors blend from the ones on screen (colors drawn in draw(_:) and terminal
+            // surfaces switch at once). Not the first config of the launch: windows show it as
+            // their first colors.
             for window in NSApp?.windows ?? [] { refresh(window, crossfade: !firstConfig) }
         }
         for responder in responders.allObjects {
@@ -140,7 +141,7 @@ public final class ThemeStore {
     /// Repaints every window and responder as a theme change does, for a
     /// change that moves resolved colors or widths without a new theme
     /// (`appearance.borders`).
-    /// - Parameter crossfade: The change recolors (app theme, accent): windows crossfade
+    /// - Parameter crossfade: The change recolors (app theme, accent): layer colors blend
     ///   (`appearance.colorTransition`). Layout changes (borders, fonts) repaint at once.
     public func repaintAll(crossfade: Bool = false) {
         for window in NSApp?.windows ?? [] { refresh(window, crossfade: crossfade) }
@@ -163,21 +164,18 @@ public final class ThemeStore {
     }
 
     /// Each window takes its own scope's appearance (a light room in a dark
-    /// config stays light).
+    /// config stays light) and every view in it runs its theme hook once: a
+    /// config change can move every scope's colors, and colors outside any
+    /// scope follow the app theme. A recolor blends each layer color from the
+    /// one on screen (`ThemeRepaint`); a layout change (borders, fonts) lays
+    /// the views out again and applies at once.
     private func refresh(_ window: NSWindow, crossfade: Bool = false) {
         window.appearance = window.themeScope.appearance
-        if crossfade { ColorTransition.current.fade(window) }
-        if let contentView = window.contentView { Self.invalidate(contentView) }
+        if let contentView = window.contentView {
+            ThemeRepaint.run(under: [contentView], scope: nil,
+                             transition: crossfade ? ColorTransition.current : nil, layout: !crossfade)
+        }
         window.invalidateShadow()
-    }
-
-    /// Views already re-resolve colors when their effective appearance
-    /// changes (the one hook every chrome view implements), and a theme
-    /// change is exactly that: the colors behind the dynamic tokens moved.
-    /// A dark-to-dark theme switch leaves the appearance name unchanged, so
-    /// AppKit would not call it; the store does.
-    private static func invalidate(_ view: NSView) {
-        ThemeScope.invalidate(view)
     }
 }
 
