@@ -28,6 +28,11 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
 
     /// Provider operations and session transports advertised for this machine.
     public struct Capabilities: Sendable, Hashable, Decodable {
+        /// Operations that a Cloud provider may advertise for one machine.
+        public enum Operation: String, CaseIterable, Sendable, Hashable {
+            case snapshot, restore, fork, exec, stats, restart, ports, desktop, sizing, persistentHome
+        }
+
         public var snapshot: Bool
         public var restore: Bool
         public var fork: Bool
@@ -57,6 +62,26 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
             self.persistentHome = persistentHome
             self.attachTransports = attachTransports
         }
+
+        /// Returns whether the provider advertised an operation before the
+        /// client attempts the corresponding request.
+        public func supports(_ operation: Operation) -> Bool {
+            switch operation {
+            case .snapshot: snapshot
+            case .restore: restore
+            case .fork: fork
+            case .exec: exec
+            case .stats: stats
+            case .restart: restart
+            case .ports: ports
+            case .desktop: desktop
+            case .sizing: sizing
+            case .persistentHome: persistentHome
+            }
+        }
+
+        /// The advertised operations, in stable contract order.
+        public var supportedOperations: [Operation] { Operation.allCases.filter(supports) }
 
         private enum CodingKeys: String, CodingKey {
             case snapshot, restore, fork, exec, stats, restart, ports, desktop, sizing, persistentHome, attachTransports
