@@ -498,21 +498,23 @@ extension TerminalController {
     private nonisolated static func chiefPayload(_ part: ChiefControlPartPayload) -> [String: Any] {
         var payload: [String: Any] = ["kind": part.kind]
         if let work = part.work {
-            payload["work"] = [
+            var workPayload: [String: Any] = [
                 "session": work.session,
-                "host": work.host ?? NSNull(),
                 "title": work.title,
                 "status": work.status.rawValue,
-                "preview": work.preview ?? NSNull(),
             ]
+            workPayload["host"] = work.host ?? NSNull()
+            workPayload["preview"] = work.preview ?? NSNull()
+            payload["work"] = workPayload
         }
         if let approval = part.approval {
-            payload["approval"] = [
+            var approvalPayload: [String: Any] = [
                 "request": approval.request,
                 "prompt": approval.prompt,
                 "options": approval.options,
-                "decided": approval.decided ?? NSNull(),
             ]
+            approvalPayload["decided"] = approval.decided ?? NSNull()
+            payload["approval"] = approvalPayload
         }
         if let question = part.question,
            let data = try? JSONEncoder().encode(question),
