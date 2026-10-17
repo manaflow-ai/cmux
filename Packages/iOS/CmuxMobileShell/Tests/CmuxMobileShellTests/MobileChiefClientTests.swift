@@ -64,6 +64,17 @@ struct MobileChiefClientTests {
     }
 
     @Test
+    func decodesSendCorrelationID() throws {
+        let result = try ChatWireCoding().decode(
+            MobileChiefSendResult.self,
+            from: Data(
+                "{\"conversation\":\"chief-main\",\"client_message_id\":\"client-7\",\"queued\":false}".utf8
+            )
+        )
+        #expect(result.clientMessageID == "client-7")
+    }
+
+    @Test
     func chiefCapabilityGatesReadPaths() {
         #expect(!MobileChiefCapability.isAvailable(in: [MobileChiefCapability.status]))
         #expect(!MobileChiefCapability.isAvailable(in: [MobileChiefCapability.conversations]))

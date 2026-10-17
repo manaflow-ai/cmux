@@ -209,16 +209,23 @@ public struct MobileChiefReadResult: Codable, Equatable, Sendable {
 public struct MobileChiefSendResult: Codable, Equatable, Sendable {
     public let conversation: String
     public let messageID: String?
+    public let clientMessageID: String?
     public let queued: Bool
 
-    public init(conversation: String, messageID: String? = nil, queued: Bool = false) {
+    public init(
+        conversation: String,
+        messageID: String? = nil,
+        clientMessageID: String? = nil,
+        queued: Bool = false
+    ) {
         self.conversation = conversation
         self.messageID = messageID
+        self.clientMessageID = clientMessageID
         self.queued = queued
     }
 
     private enum CodingKeys: String, CodingKey {
-        case conversation, messageID = "message_id", queued
+        case conversation, messageID = "message_id", clientMessageID = "client_message_id", queued
     }
 }
 

@@ -103,7 +103,13 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         }
         do {
             let result = try await client.read(conversation: conversationID, limit: 200)
-            let sent = sendResult.messageID.flatMap { messageID in
+            let exactClientMessageIDs = Set(
+                [draft.clientMessageID, sendResult.clientMessageID].compactMap { $0 }
+            )
+            let sent = result.messages.first { message in
+                guard let clientMessageID = message.clientMessageID else { return false }
+                return exactClientMessageIDs.contains(clientMessageID)
+            } ?? sendResult.messageID.flatMap { messageID in
                 result.messages.first { $0.id == messageID }
             } ?? result.messages
                 .filter {
