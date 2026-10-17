@@ -474,7 +474,8 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-chief-card[data-steering=true]{background:color-mix(in srgb,var(--agent-accent) 8%,transparent)}
 .acpmux-chief-card[data-selected=true]{background:color-mix(in srgb,var(--agent-accent) 13%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent) 36%,transparent)}
 .acpmux-chief-card-main{display:flex;align-items:center;gap:7px;min-width:0;flex:1;width:100%;height:max(var(--ui-row-height,28px),calc(42px * var(--cmux-interface-scale,1)));box-sizing:border-box;padding:4px var(--ui-row-padding-inline,8px);border:0;border-radius:var(--ui-row-radius,5px);background:transparent;color:inherit;text-align:left;cursor:pointer}
-.acpmux-chief-card-main:hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
+.acpmux-chief-card-main:hover{background:color-mix(in srgb,var(--agent-text) 9%,transparent)}
+.acpmux-chief-card-main:active{background:color-mix(in srgb,var(--agent-text) 15%,transparent)}
 .acpmux-chief-card-copy{display:flex;flex-direction:column;min-width:0;gap:1px}
 .acpmux-chief-card-copy strong,.acpmux-chief-card-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-chief-card-copy strong{font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:600}
