@@ -356,6 +356,12 @@ const QUOTE_INDENT = 21;
 /// Code cards: a 45.5px header over 12px monospace on 20px lines that never wraps, 13px inset.
 const CODE_LINE_HEIGHT = 20;
 const CODE_CHROME = 58.5;
+/// The slim code card (`data-chat-code="slim"`, conversation/chatLook.css): a 32px header over 12px.
+const SLIM_CODE_CHROME = 44;
+const codeChrome = () =>
+  typeof document !== "undefined" && document.documentElement.dataset.chatCode === "slim"
+    ? SLIM_CODE_CHROME
+    : CODE_CHROME;
 const CODE_PADDING = 13;
 /// Table rows: 23px lines with 17px of padding.
 const TABLE_ROW_HEIGHT = 40;
@@ -550,7 +556,7 @@ function blockHeight(block: Token, width: number, prepared: Map<string, Prepared
     case "code": {
       const lines = (block as Tokens.Code).text.split("\n");
       const scrolls = lines.some((line) => line.length * CODE_CHAR_WIDTH > width - CODE_PADDING);
-      return CODE_CHROME + lines.length * CODE_LINE_HEIGHT + (scrolls ? SCROLLBAR_HEIGHT : 0);
+      return codeChrome() + lines.length * CODE_LINE_HEIGHT + (scrolls ? SCROLLBAR_HEIGHT : 0);
     }
     case "table":
       return (1 + (block as Tokens.Table).rows.length) * TABLE_ROW_HEIGHT;

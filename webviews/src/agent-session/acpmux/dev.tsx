@@ -7,6 +7,7 @@ import "../../ui/popupSurface.css";
 import "../shared/styles.css";
 import "./styles.css";
 import "./conversation/conversation.css";
+import "./conversation/chatLook.css";
 import "./chips/chips.css";
 import "./previewCard/previewCard.css";
 import "./changes/changes.css";
@@ -41,6 +42,16 @@ if (params.get("recents") === "demo") seedDevRecents();
 // `?data-<name>=<value>` sets what the app's Debug choices set on <html> before the page loads
 // (AgentPaneTunables.documentAttributes), e.g. `?mock&data-thought-style=brain`.
 for (const [name, value] of params) if (/^data-[a-z-]+$/.test(name)) document.documentElement.setAttribute(name, value);
+// `?sleek` turns on every cleaner chat variant at once (conversation/chatLook.css).
+if (params.has("sleek"))
+  for (const [name, value] of Object.entries({
+    "data-chat-bubble": "soft",
+    "data-chat-code": "slim",
+    "data-chat-files": "quiet",
+    "data-chat-inline-code": "soft",
+    "data-chat-composer": "soft",
+  }))
+    document.documentElement.setAttribute(name, value);
 // The dev server has no locales/<code>.js: install the whole string table before the pane loads.
 globalThis.__cmuxPaneStrings ??= (await import("./generated/strings.json")).default;
 await import("./main");
