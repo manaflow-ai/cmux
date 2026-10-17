@@ -105,21 +105,24 @@ import Testing
         #expect(environment["CMUX_SURFACE_ID"] == surfaceID.uuidString)
     }
 
-    @Test func theFirstRunPanelSaysWhatChiefDoes() {
+    @Test func theFirstRunPanelSaysWhatChiefDoes() throws {
         let panel = ChiefFirstRunView(frame: NSRect(x: 0, y: 0, width: 520, height: 720))
+        panel.setShowsActions(true)
         panel.needsLayout = true
         panel.layoutSubtreeIfNeeded()
         #expect(panel.introTitle.stringValue == ChiefStrings.firstRunIntroTitle)
-        #expect(panel.introLines.map(\.stringValue) == [ChiefStrings.firstRunIntroAgents,
-                                                        ChiefStrings.firstRunIntroTerminals,
-                                                        ChiefStrings.firstRunIntroCloud])
-        #expect(!panel.introTitle.isHidden)
-        #expect(panel.introLines.allSatisfy { !$0.isHidden && $0.frame.height > 0 })
-        // Every line sits above the chips, in order, none under the compose field.
-        // No line overlaps the title or the line before it.
-        let frames = [panel.introTitle.frame] + panel.introLines.map(\.frame)
-        #expect(zip(frames, frames.dropFirst()).allSatisfy { $0.maxY <= $1.minY })
-        #expect(panel.introLines.allSatisfy { $0.frame.maxY <= panel.bounds.height - ChiefFirstRunRow.chipHeight })
+        #expect(panel.introBody.stringValue == ChiefStrings.firstRunIntroBody)
+        #expect(!panel.introTitle.isHidden && !panel.introBody.isHidden)
+        // Title, then body, then the action rows, with no overlap.
+        let firstAction = try #require(panel.actionRows.first?.frame)
+        #expect(panel.introTitle.frame.maxY <= panel.introBody.frame.minY)
+        #expect(panel.introBody.frame.maxY <= firstAction.minY)
+        // The body wraps to its full height instead of being cut to one line.
+        let cell = try #require(panel.introBody.cell)
+        let needed = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: panel.introBody.frame.width,
+                                                     height: .greatestFiniteMagnitude)).height
+        #expect(panel.introBody.frame.height >= floor(needed))
+        #expect(needed > ceil(cell.cellSize.height))
     }
 
     @Test func aShortPanelDropsTheIntroBeforeTheActions() {

@@ -317,6 +317,16 @@ import Testing
         #expect(manager.tabs.count == 2)
     }
 
+    @Test func homeDoesNotListItselfUnderYourWorkspaces() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        defer { manager.finalizeAllWorkspacesForWindowClose() }
+        let home = try makeChiefOnlyWorkspace(in: manager, name: "Home", isHome: true)
+        let terminal = try #require(manager.addWorkspaceIfActive(select: false, autoWelcomeIfNeeded: false))
+        let ids = ChiefAgentGlanceSource.glances(in: manager).map(\.workspaceId)
+        #expect(!ids.contains(home.id))
+        #expect(ids.contains(terminal.id))
+    }
+
     @Test func homeSelectionPersistsAsTabs() {
         // Builds without `.home` must still decode the snapshot.
         #expect(SessionSidebarSelection(selection: .home) == .tabs)
