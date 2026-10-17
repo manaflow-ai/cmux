@@ -213,6 +213,12 @@ export class VmHostLeaseTransport {
     private readonly adapters: ReadonlyMap<VmHostLeaseProvider, VmHostLeaseProviderAdapter>,
   ) {}
 
+  /** Composition roots can fail closed before provisioning a remote VM. */
+  hasConfiguredProvider(provider: VmHostLeaseProvider): boolean {
+    const adapter = this.adapters.get(provider);
+    return !!adapter && adapter.provider === provider;
+  }
+
   acquire(input: Omit<VmHostLeaseInput, "operation">): Promise<VmHostLeaseReceipt> {
     return this.execute({ ...input, operation: "acquire" });
   }
