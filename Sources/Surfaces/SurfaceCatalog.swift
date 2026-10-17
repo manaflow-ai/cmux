@@ -739,8 +739,27 @@ final class SurfaceCatalog {
             provider.discardMaterialization(projection)
             throw CancellationError()
         }
+        if let adopted = adoptEarlyRegistration(of: projection) { return (adopted, false) }
         recordMaterializedProjection(projection)
         return (projection, false)
+    }
+
+    /// The pane bound its resource while the provider configured it. That early
+    /// registration can only carry the resource and local pane identity; a Cloud
+    /// browser's selected remote tab arrives in the provider result. Merge the
+    /// provider's placement into the registered projection before reconciliation,
+    /// otherwise the bound-workspace pass sees an unplaced browser and retires it,
+    /// and recording the result as well would leave two projections for one pane.
+    private func adoptEarlyRegistration(of projection: SurfaceProjection) -> SurfaceProjection? {
+        guard let registered = projections.first(where: {
+            $0.panelID == projection.panelID && $0.resource == projection.resource
+        }) else { return nil }
+        var adopted = registered
+        adopted.remoteWorkspaceID = projection.remoteWorkspaceID ?? registered.remoteWorkspaceID
+        adopted.remoteTabID = projection.remoteTabID ?? registered.remoteTabID
+        if adopted != registered { reconcileRemotePlacements([registered: adopted]) }
+        replayMaterializedCloudPlacement(adopted)
+        return adopted
     }
 
     private func awaitMaterialization(
@@ -852,17 +871,7 @@ final class SurfaceCatalog {
             }
             let returnedProjection: SurfaceProjection
             let ownsProjection: Bool
-            if let registered = projections.first(where: { $0.panelID == projection.panelID && $0.resource == id }) {
-                // The pane bound its resource while the provider configured it. That early
-                // registration can only carry the resource and local pane identity; a Cloud
-                // browser's selected remote tab arrives in the provider result. Merge the
-                // provider's placement into the registered projection before reconciliation,
-                // otherwise the bound-workspace pass sees an unplaced browser and retires it.
-                var adopted = registered
-                adopted.remoteWorkspaceID = projection.remoteWorkspaceID ?? registered.remoteWorkspaceID
-                adopted.remoteTabID = projection.remoteTabID ?? registered.remoteTabID
-                if adopted != registered { reconcileRemotePlacements([registered: adopted]) }
-                replayMaterializedCloudPlacement(adopted)
+            if let adopted = adoptEarlyRegistration(of: projection) {
                 returnedProjection = adopted
                 ownsProjection = true
             } else if let existing = projections.first(where: {
