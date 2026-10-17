@@ -163,6 +163,7 @@ final class WorkspaceRowView: SidebarRowView {
         titleArrivalScheduled = false
         titleArrivalActive = false
         title.alphaValue = 1
+        placeholderBar.layer?.removeAllAnimations()
         placeholderBar.alphaValue = 1
     }
 
@@ -211,6 +212,7 @@ final class WorkspaceRowView: SidebarRowView {
             titleArrivalScheduled = false
             titleArrivalActive = false
             title.alphaValue = 1
+            placeholderBar.layer?.removeAllAnimations()
             placeholderBar.alphaValue = 1
         }
         title.stringValue = ws.title
