@@ -1,6 +1,6 @@
 // The [+] header designs (header/headerStyle.ts, layout.json `headerStyle`, Lucas 2026-10-17): `add`
 // puts one [+] in place of the quick-action buttons, listing every tab the chat can open beside it;
-// `add-terminal` keeps Terminal's button. Terminal and Browser add another on every pick. "..." no
+// `add-terminal` keeps Terminal's button; `tray` and `labels` lay every tab out in one group. Terminal and Browser add another on every pick. "..." no
 // longer lists those tabs. Unset, the header is as before.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -106,6 +106,44 @@ test("[+] lists the tabs the chat opens beside it, each pick adding one", async 
   await act(async () => void openPicker("New tab"));
   expect(labels()).toEqual(["Browser", "Changes", "Split Down"]);
 
+  act(() => configureHeaderStyle({}));
+  act(() => root?.unmount());
+  root = undefined;
+});
+
+test("tray and labels show every tab the chat opens beside it, in one group", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
+  const { configureHeaderStyle } = await import("../src/agent-session/acpmux/header/headerStyle");
+  const runs: string[] = [];
+  const render = () => {
+    act(() => root?.unmount());
+    root = createRoot(doc.getElementById("root")!);
+    act(() =>
+      root!.render(
+        <ChatHeaderTools
+          onTerminal={(mode) => runs.push(`terminal:${mode}`)}
+          onBrowser={(mode) => runs.push(`browser:${mode}`)}
+          onSplitDown={(mode) => runs.push(`splitDown:${mode}`)}
+          onFiles={(mode) => runs.push(`files:${mode}`)}
+          hasChanges
+          onChanges={(mode) => runs.push(`changes:${mode}`)}
+          summary={null}
+          menu={() => []}
+        />,
+      ),
+    );
+  };
+  for (const style of ["tray", "labels"]) {
+    act(() => configureHeaderStyle({ headerStyle: style }));
+    render();
+    expect(shown()).toEqual(["terminal", "browser", "changes", "files", "splitDown"]);
+    expect(doc.querySelectorAll(".acpmux-header-tray__label").length).toBe(style === "labels" ? 5 : 0);
+  }
+  const button = (id: string) => doc.querySelector<HTMLElement>(`.acpmux-header-tray [data-quick-action="${id}"]`)!;
+  act(() => button("terminal").click());
+  act(() => button("changes").click());
+  expect(runs).toEqual(["terminal:open", "changes:toggle"]);
   act(() => configureHeaderStyle({}));
   act(() => root?.unmount());
   root = undefined;

@@ -338,7 +338,90 @@ export function ChatHeaderTools({
       });
     return rows;
   };
-  const addTools = tabTools && adds && (
+  // The tray designs: every tab the chat can open beside it, laid out as one group. Terminal,
+  // Browser and Split Down add another on every click; Changes, Preview and Files toggle theirs and
+  // show lit while it is open.
+  const trayed = style === "tray" || style === "labels";
+  const trayItems = (): {
+    key: string;
+    label: string;
+    icon: string;
+    shortcut?: string;
+    pressed?: boolean;
+    run: () => void;
+  }[] => {
+    const items: { key: string; label: string; icon: string; shortcut?: string; pressed?: boolean; run: () => void }[] =
+      [
+        {
+          key: "terminal",
+          label: t("header.terminal"),
+          icon: "terminal",
+          shortcut: terminalKey,
+          run: () => onTerminal("open"),
+        },
+        {
+          key: "browser",
+          label: t("header.browser"),
+          icon: "browser",
+          shortcut: browserKey,
+          run: () => onBrowser("open"),
+        },
+      ];
+    if (onChanges && (hasChanges || lit.includes(HEADER_ACTIONS.changes)))
+      items.push({
+        key: "changes",
+        label: t("header.changes"),
+        icon: "diff.file",
+        shortcut: changesKey,
+        pressed: lit.includes(HEADER_ACTIONS.changes),
+        run: () => onChanges("toggle"),
+      });
+    if (onPreview && (previewUrl || lit.includes(HEADER_ACTIONS.preview)))
+      items.push({
+        key: "preview",
+        label: t("header.preview"),
+        icon: "media.play",
+        pressed: lit.includes(HEADER_ACTIONS.preview),
+        run: () => onPreview(previewUrl, "toggle"),
+      });
+    if (onFiles)
+      items.push({
+        key: "files",
+        label: t("header.files"),
+        icon: "folder",
+        pressed: lit.includes(HEADER_ACTIONS.files),
+        run: () => onFiles("toggle"),
+      });
+    if (onSplitDown)
+      items.push({
+        key: "splitDown",
+        label: t("header.splitDown"),
+        icon: "pane.split.down",
+        shortcut: splitDownKey,
+        run: () => onSplitDown("open"),
+      });
+    return items;
+  };
+  const tray = tabTools && trayed && (
+    <div className={`acpmux-header-tray${style === "labels" ? " acpmux-header-tray--labels" : ""}`} role="group">
+      {trayItems().map((item) => (
+        <button
+          key={item.key}
+          type="button"
+          data-quick-action={item.key}
+          className="acpmux-header-tool"
+          aria-label={item.label}
+          aria-pressed={item.pressed}
+          {...tooltipProps(item.label, item.shortcut)}
+          onClick={item.run}
+        >
+          <Icon name={item.icon} size={15} />
+          {style === "labels" && <span className="acpmux-header-tray__label">{item.label}</span>}
+        </button>
+      ))}
+    </div>
+  );
+  const addTools = tabTools && adds && !trayed && (
     <>
       {style === "add-terminal" && (
         <button
@@ -492,6 +575,7 @@ export function ChatHeaderTools({
         buttons
       )}
       {addTools}
+      {tray}
       {sessionRail}
       {summary}
       <ChatMenu

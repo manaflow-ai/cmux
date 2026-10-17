@@ -106,3 +106,12 @@
 .acpmux-header[data-tab-row] .acpmux-header-status-slot{visibility:hidden}
 .acpmux-header[data-tab-row] .acpmux-handoff-header-tools{pointer-events:auto}
 .acpmux-header[data-tab-row]::after{content:"";position:absolute;inset:100% 0 auto;height:12px;background:linear-gradient(var(--agent-page-bg),transparent);pointer-events:none}
+/* The tray header designs (header/headerStyle.ts tray and labels, Lucas 2026-10-17): every tab the chat
+   opens beside it in one quiet group, a soft fill with the buttons inset, set off from Sources and "...";
+   labels adds a word to each icon, and a narrow pane keeps the icons only. */
+.acpmux-header-tray{flex:none;display:flex;align-items:center;gap:1px;margin-right:4px;padding:2px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 5%,transparent)}
+.acpmux-header-tray .acpmux-header-tool{height:24px;width:26px;color:var(--agent-muted)}
+.acpmux-header-tray .acpmux-header-tool:not(:disabled):hover{color:var(--agent-text)}
+.acpmux-header-tray--labels .acpmux-header-tool{width:auto;gap:5px;padding:0 8px 0 6px}
+.acpmux-header-tray__label{font-size:var(--text-detail);line-height:16px;white-space:nowrap}
+@container (max-width:720px){.acpmux-header-tray--labels .acpmux-header-tray__label{display:none}.acpmux-header-tray--labels .acpmux-header-tool{width:26px;padding:0}}

@@ -5,12 +5,14 @@ import { useSyncExternalStore } from "react";
 /// - `buttons`: today's quick-action buttons (Changes, Preview, Terminal, Browser).
 /// - `add`: one [+] that lists every tab the chat can open beside it; each pick adds one.
 /// - `add-terminal`: Terminal keeps its button; [+] lists the rest.
+/// - `tray`: every tab the chat can open beside it as one quiet group of icons.
+/// - `labels`: that group with a word beside each icon (icons only in a narrow pane).
 ///
 /// Set live by `headerStyle` in `agent-pane/layout.json` (the App pushes the file to every chat), or
 /// in the dev server by `?data-chat-header=add`. Unset or unknown is `buttons`.
-export type HeaderStyle = "buttons" | "add" | "add-terminal";
+export type HeaderStyle = "buttons" | "add" | "add-terminal" | "tray" | "labels";
 
-const STYLES: readonly HeaderStyle[] = ["buttons", "add", "add-terminal"];
+const STYLES: readonly HeaderStyle[] = ["buttons", "add", "add-terminal", "tray", "labels"];
 const isStyle = (value: unknown): value is HeaderStyle => STYLES.includes(value as HeaderStyle);
 
 let fromLayout: HeaderStyle | undefined;
