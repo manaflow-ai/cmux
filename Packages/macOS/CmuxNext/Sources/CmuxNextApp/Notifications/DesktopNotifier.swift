@@ -49,7 +49,6 @@ final class DesktopNotifier: NSObject {
     /// "automation" when this launch never asks.
     private(set) var authorization = DesktopNotifier.usesSystemCenter ? "unknown" : "automation"
     private var center: UNUserNotificationCenter?
-    private var requestedAuthorization = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "notifications")
     private static let postedLimit = 32
 
@@ -149,8 +148,8 @@ final class DesktopNotifier: NSObject {
         center.delegate = self
         center.setNotificationCategories([Self.replyBannerCategory(), AgentApprovalBanners.notificationCategory()])
         self.center = center
-        if !requestedAuthorization {
-            requestedAuthorization = true
+        // Asked once (the center is cached); a GUI job (NX_REMOTE=1, CMUX_TEST_REQUIRE_GUI=1) never asks: the banner catches its clicks.
+        if !["NX_REMOTE", "CMUX_TEST_REQUIRE_GUI"].contains(where: { ProcessInfo.processInfo.environment[$0] == "1" }) {
             center.requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, _ in
                 Task { @MainActor in self?.authorization = granted ? "authorized" : "denied" }
             }
