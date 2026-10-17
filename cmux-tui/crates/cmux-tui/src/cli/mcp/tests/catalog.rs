@@ -28,13 +28,12 @@ fn every_catalog_operation_is_a_tool_or_excluded_with_a_reason() {
 #[test]
 fn every_tool_is_reachable_from_the_cmux_cli_and_no_excluded_operation_is() {
     let cases = crate::cli::command::cases::safe_operation_cases();
-    let sends =
-        |args: &[&str]| match crate::cli::parse(&strings(args), crate::cli::Surface::Cmux) {
-            Ok(ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. }) => {
-                request.operation.name().ok()
-            }
-            _ => None,
-        };
+    let sends = |args: &[&str]| match crate::cli::parse(&strings(args), crate::cli::Surface::Cmux) {
+        Ok(ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. }) => {
+            request.operation.name().ok()
+        }
+        _ => None,
+    };
     for tool in v2_tools::tools() {
         if crate::cli::command::cases::MULTI_REQUEST_OPERATIONS.contains(&tool.wire) {
             continue;
@@ -77,7 +76,12 @@ fn tool_schemas_follow_the_catalog() {
         let schema = tool.input_schema();
         let properties = schema["properties"].as_object().expect("properties");
         assert_eq!(schema["additionalProperties"], false);
-        assert!(!properties.contains_key("machine"), "{} exposes the machine", tool.name);
+        assert_eq!(
+            properties.contains_key("machine"),
+            tool.operation == ResourceOperation::MachineGet,
+            "{}",
+            tool.name
+        );
         // `git.checkpoint.get` looks a create up by the key it ran under.
         let lookup = tool.wire == "git.checkpoint.get";
         let keyed = properties.contains_key("idempotency_key");

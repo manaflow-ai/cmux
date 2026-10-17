@@ -689,6 +689,8 @@ fn json_rpc_lifecycle_and_errors() {
     let names = tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<BTreeSet<_>>();
     for expected in [
         "workspace_list",
+        "machine_list",
+        "machine_get",
         "terminal_input_write",
         "window_list",
         "agents_snapshot",
@@ -696,7 +698,7 @@ fn json_rpc_lifecycle_and_errors() {
     ] {
         assert!(names.contains(expected), "missing {expected}");
     }
-    for absent in ["machine_list", "session_shutdown", "terminal_attach", "app_accounts_connect"] {
+    for absent in ["session_list", "session_shutdown", "terminal_attach", "app_accounts_connect"] {
         assert!(!names.contains(absent), "{absent} must not be a tool");
     }
     assert_eq!(names.len(), tools.len(), "tool names are unique");

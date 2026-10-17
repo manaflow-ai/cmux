@@ -40,7 +40,9 @@ fn cmux_next_machine_catalog_agent_surface_get_selects_metadata_without_routing(
         "no implicit local lookup for a missing selection"
     );
     for extra in ["command", "socket", "endpoint", "expected_machine_id", "idempotency_key"] {
-        assert!(tool.plan(&object(json!({"machine":MACHINE,extra:"value"}))).is_err(), "{extra}");
+        let mut arguments = object(json!({"machine":MACHINE}));
+        arguments.insert(extra.into(), json!("value"));
+        assert!(tool.plan(&arguments).is_err(), "{extra}");
     }
 }
 
@@ -57,4 +59,57 @@ fn cmux_next_machine_catalog_agent_surface_never_admits_session_effects_or_other
     }
     let workspace = v2_tools::find("workspace_get").unwrap();
     assert!(workspace.plan(&object(json!({"workspace":"current","machine":MACHINE}))).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn cmux_next_machine_catalog_agent_surface_prefix_lookup_uses_one_connection_and_no_ancestors() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::os::unix::net::UnixListener;
+    let suffix =
+        crate::cli::wire::random_request_id().unwrap().chars().take(16).collect::<String>();
+    let path = std::env::temp_dir().join(format!("mc-{suffix}.sock"));
+    let listener = UnixListener::bind(&path).unwrap();
+    let worker = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut reader = BufReader::new(stream);
+        let mut seen = Vec::new();
+        loop {
+            let mut line = String::new();
+            if reader.read_line(&mut line).unwrap() == 0 {
+                break;
+            }
+            let request: Value = serde_json::from_str(&line).unwrap();
+            let machine = json!({"id":MACHINE,"origin":"ssh","status":"running","platform":{"os":"linux","arch":"aarch64"}});
+            let response = if request["cmd"] == "identify" {
+                json!({"id":request["id"],"ok":true,"data":{"app":"cmux-tui","protocol":12,"capabilities":[]}})
+            } else {
+                let result =
+                    if request["operation"] == "machine.list" { json!([machine]) } else { machine };
+                seen.push(request.clone());
+                json!({"protocol":"cmux.protocol/2","type":"response","id":request["id"],"ok":true,"result":result})
+            };
+            writeln!(reader.get_mut(), "{response}").unwrap();
+        }
+        seen
+    });
+    let tool = v2_tools::find("machine_get").unwrap();
+    let plan = tool.plan(&object(json!({"machine":"machine_aaaa"}))).unwrap();
+    let global = crate::cli::GlobalArgs {
+        socket: Some(path.clone()),
+        session: Some("catalog-owner".into()),
+        ..Default::default()
+    };
+    let result = transport::resource(&global, plan.plan, &plan.prefixes);
+    let seen = worker.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+    let result = result.unwrap();
+    assert_eq!(result["id"], MACHINE);
+    assert_eq!(result["platform"]["os"], "linux");
+    assert_eq!(seen.len(), 2, "one lookup and one read on the accepted connection");
+    assert_eq!(seen[0]["operation"], "machine.list");
+    assert_eq!(seen[0]["params"], json!({}));
+    assert_eq!(seen[1]["operation"], "machine.get");
+    assert_eq!(seen[1]["params"], json!({"machine":MACHINE}));
 }

@@ -24,3 +24,34 @@ fn cmux_next_machine_catalog_agent_surface_cli_exposes_only_catalog_reads() {
         assert!(parse(&strings(&args), Surface::CmuxTui).is_ok(), "legacy full grammar {args:?}");
     }
 }
+
+#[test]
+fn cmux_next_machine_catalog_agent_surface_cli_routes_session_without_metadata_fields() {
+    for args in [vec!["machine", "list"], vec!["machine", "current", "show"]] {
+        let mut words = vec!["--session", "catalog-owner"];
+        words.extend(args);
+        let ParsedCommand::Command { global, plan: CommandPlan::Protocol(mut plan) } =
+            parse(&strings(&words), Surface::Cmux).unwrap()
+        else {
+            panic!("catalog request")
+        };
+        crate::cli::resolve::apply_global_route(&global, &mut plan).unwrap();
+        assert!(plan.params.get("session").is_none());
+        if plan.operation.name().unwrap() == "machine.list" {
+            assert_eq!(plan.params, serde_json::json!({}));
+        } else {
+            assert_eq!(plan.params, serde_json::json!({"machine":"current"}));
+        }
+    }
+    assert!(
+        parse(&strings(&["machine", "session", "show"]), Surface::Cmux).is_ok(),
+        "a machine name is not session plumbing"
+    );
+    for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
+        let messages = &crate::localization::catalog_for_locale(locale).local_server;
+        assert!(
+            messages.cmux_root_help.lines().any(|line| line.trim_start().starts_with("machine "))
+        );
+    }
+    assert!(!MACHINE_CATALOG_HELP.contains("session"));
+}
