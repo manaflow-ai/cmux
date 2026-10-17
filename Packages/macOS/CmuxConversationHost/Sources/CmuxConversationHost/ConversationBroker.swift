@@ -657,7 +657,9 @@ public actor ConversationBroker: ConversationClient {
     }
 
     private static func readPersistedSessions(directory: URL, adapters: [ConversationProvider: any ConversationProviderAdapter]) throws -> [ConversationID: SessionState] {
-        guard let directories = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isDirectoryKey]) else { return [:] }
+        let directories: [URL]
+        do { directories = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isDirectoryKey]) }
+        catch { throw ConversationJournalError.corruptSession(directory.path) }
         let decoder = JSONDecoder()
         var loaded: [ConversationID: SessionState] = [:]
         for child in directories {
