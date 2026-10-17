@@ -143,7 +143,8 @@ extension CmuxTuiSurfaceProvider {
         }
 
         private static func sanitizedDetail(_ detail: String) -> String {
-            detail.replacingOccurrences(of: "cmux-tui", with: "Cloud service", options: [.caseInsensitive])
+            let serviceName = String(localized: "cloud.service.name", defaultValue: "Cloud service")
+            return detail.replacingOccurrences(of: "cmux-tui", with: serviceName, options: [.caseInsensitive])
         }
     }
 

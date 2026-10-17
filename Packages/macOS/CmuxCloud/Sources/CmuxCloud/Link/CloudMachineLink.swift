@@ -95,6 +95,9 @@ public actor CloudMachineLink {
         case spawnFailed(String)
         case failureMessage(String)
         case exited(status: Int32, output: String)
+        /// The local client exited before it reported a socket, for example
+        /// an older client rejecting a flag. The Cloud service was never reached.
+        case exitedBeforeSocket(status: Int32, output: String)
         case timedOut
         case requestTimedOut
         case inputTooLarge
@@ -104,7 +107,7 @@ public actor CloudMachineLink {
             switch self {
             case .exited, .timedOut:
                 return .daemonUnavailable
-            case .clientMissing, .spawnFailed:
+            case .clientMissing, .spawnFailed, .exitedBeforeSocket:
                 return .clientUnavailable
             case .inputTooLarge:
                 return .requestRejected
@@ -118,7 +121,7 @@ public actor CloudMachineLink {
             case .inputTooLarge:
                 return String(localized: "cloud.link.inputTooLarge", defaultValue: "The machine input chunk is too large. Split it into smaller chunks and retry.")
             case .clientMissing:
-                return String(localized: "cloud.link.clientMissing", defaultValue: "The Cloud connection client is unavailable in this build. Set CMUX_TUI_CLIENT or use a build with Cloud support.")
+                return String(localized: "cloud.link.clientMissing", defaultValue: "The Cloud connection client is unavailable in this build. Use a build with Cloud support or contact support.")
             case .spawnFailed(let detail):
                 return String(
                     format: String(
@@ -129,7 +132,7 @@ public actor CloudMachineLink {
                 )
             case .failureMessage(let detail):
                 return Self.sanitizedDetail(detail)
-            case .exited(let status, let output):
+            case .exited(let status, let output), .exitedBeforeSocket(let status, let output):
                 let tail = output.split(separator: "\n").suffix(3).joined(separator: " · ")
                 let message = String(
                     format: String(
@@ -147,7 +150,8 @@ public actor CloudMachineLink {
         }
 
         private static func sanitizedDetail(_ detail: String) -> String {
-            detail.replacingOccurrences(of: "cmux-tui", with: "Cloud service", options: [.caseInsensitive])
+            let serviceName = String(localized: "cloud.service.name", defaultValue: "Cloud service")
+            return detail.replacingOccurrences(of: "cmux-tui", with: serviceName, options: [.caseInsensitive])
         }
     }
 
@@ -338,7 +342,7 @@ public actor CloudMachineLink {
                     // stderr, not the deadline it never reached.
                     await Self.terminateAndWait(process, exit: processExit, clock: deadlineClock)
                     await Self.awaitStderrDrain(stderrDrain)
-                    throw LinkError.exited(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
+                    throw LinkError.exitedBeforeSocket(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
                 case .timedOut?, nil:
                     throw LinkError.timedOut
                 }

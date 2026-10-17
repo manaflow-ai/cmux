@@ -32,7 +32,7 @@ public enum CloudTuiDaemonAnswer: Equatable, Sendable {
             self = .transportFailure(CloudMachineLink.errorText(linkError))
         case .inputTooLarge:
             self = .unrecognized(CloudMachineLink.errorText(linkError))
-        case let .exited(_, output):
+        case let .exited(_, output), let .exitedBeforeSocket(_, output):
             self = Self.classify(output: output)
         }
     }

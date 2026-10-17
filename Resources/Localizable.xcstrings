@@ -643703,55 +643703,114 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Cloud connection client is unavailable in this build. Set CMUX_TUI_CLIENT or use a build with Cloud support."
+            "value": "The Cloud connection client is unavailable in this build. Use a build with Cloud support or contact support."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عميل اتصال Cloud غير متاح في هذا الإصدار. عيّن CMUX_TUI_CLIENT أو استخدم إصدارًا يدعم Cloud."
+            "value": "عميل اتصال Cloud غير متاح في هذا الإصدار. استخدم إصدارًا يدعم Cloud أو تواصل مع الدعم."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Cloud-Verbindungsclient ist in diesem Build nicht verfügbar. Setzen Sie CMUX_TUI_CLIENT oder verwenden Sie einen Build mit Cloud-Unterstützung."
+            "value": "Der Cloud-Verbindungsclient ist in diesem Build nicht verfügbar. Verwenden Sie einen Build mit Cloud-Unterstützung oder wenden Sie sich an den Support."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El cliente de conexión de Cloud no está disponible en esta compilación. Configura CMUX_TUI_CLIENT o usa una compilación compatible con Cloud."
+            "value": "El cliente de conexión de Cloud no está disponible en esta compilación. Usa una compilación compatible con Cloud o contacta con el soporte."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le client de connexion Cloud est indisponible dans cette version. Définissez CMUX_TUI_CLIENT ou utilisez une version compatible avec Cloud."
+            "value": "Le client de connexion Cloud est indisponible dans cette version. Utilisez une version compatible avec Cloud ou contactez l’assistance."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このビルドでは Cloud 接続クライアントを利用できません。CMUX_TUI_CLIENT を設定するか、Cloud 対応ビルドを使用してください。"
+            "value": "このビルドでは Cloud 接続クライアントを利用できません。Cloud 対応ビルドを使用するか、サポートにお問い合わせください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 빌드에서는 Cloud 연결 클라이언트를 사용할 수 없습니다. CMUX_TUI_CLIENT를 설정하거나 Cloud를 지원하는 빌드를 사용하세요."
+            "value": "이 빌드에서는 Cloud 연결 클라이언트를 사용할 수 없습니다. Cloud를 지원하는 빌드를 사용하거나 지원팀에 문의하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此版本无法使用 Cloud 连接客户端。请设置 CMUX_TUI_CLIENT，或使用支持 Cloud 的版本。"
+            "value": "此版本无法使用 Cloud 连接客户端。请使用支持 Cloud 的版本，或联系支持团队。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此版本無法使用 Cloud 連線用戶端。請設定 CMUX_TUI_CLIENT，或使用支援 Cloud 的版本。"
+            "value": "此版本無法使用 Cloud 連線用戶端。請使用支援 Cloud 的版本，或聯絡支援團隊。"
+          }
+        }
+      }
+    },
+    "cloud.service.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud service"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خدمة Cloud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Dienst"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "servicio de Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "service Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud サービス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 서비스"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 服务"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 服務"
           }
         }
       }
