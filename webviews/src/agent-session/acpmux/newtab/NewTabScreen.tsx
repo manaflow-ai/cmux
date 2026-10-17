@@ -45,7 +45,7 @@ import { useMinuteClock } from "../clock";
 export type NewTabScreenActions = {
   /// Enter on a prompt: a chat with `harness` in `cwd` (the project picked on the page).
   /// `model`: the one the chip names, so the chat starts on what the page showed.
-  onAsk(harness: string, text: string, cwd?: string, model?: string): void;
+  onAsk(harness: string, text: string, cwd?: string, model?: string, noProject?: boolean): void;
   onOpen(url: string): void;
   onSearch(text: string): void;
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
