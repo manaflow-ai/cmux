@@ -123,3 +123,43 @@ struct CEFPopupWindowsTests {
         #expect(runtime.browser(id: 42) == nil)
     }
 }
+
+/// Event order seen on fork API 23: the popup tab's AFTER_CREATED (no
+/// opener) and CMUX_POPUP_WINDOW_CREATED arrive in the same turn, so the
+/// orphan decision runs before the adoption.
+@Suite
+struct CEFPopupWindowEventOrderTests {
+    @MainActor @Test
+    func popupWindowEventInTheSameTurnKeepsTheOrphanTabOpen() {
+        let runtime = CEFRuntime(layout: nil)
+        runtime.popupWindowsEnabled = true
+        var reopened: [URL] = []
+        runtime.openURLWithoutOpener = { url, _ in reopened.append(url) }
+        var created = CEFCreatedBy(opener: 0, disposition: .newForegroundTab, features: nil)
+        created.url = "chrome-extension://abc/popup.html"
+
+        runtime.handle(.afterCreated(browser: 42, request: 0, window: 0, created: created))
+        runtime.handle(.tab(.popupWindowCreated, browser: 42, window: 9, value: 4))
+        runtime.resolveOrphan(42, created: created)
+
+        #expect(reopened.isEmpty)
+    }
+
+    @MainActor @Test
+    func popupTabThatClosedBeforeAdoptionIsNotAdopted() {
+        let runtime = CEFRuntime(layout: nil)
+        runtime.popupWindowsEnabled = true
+        let opener = CEFBrowser(configuration: CEFBrowserConfiguration(profile: UUID()), runtime: runtime)
+        runtime.register(opener, id: 7)
+        runtime.lastShownBrowser = opener
+        var opened = 0
+        opener.onEvent = { event in if case .newBrowser = event { opened += 1 } }
+
+        runtime.handle(.tab(.popupWindowCreated, browser: 42, window: 9, value: 4))
+        runtime.handle(.beforeClose(browser: 42))
+        runtime.adoptPopupWindow(window: 9, browser: 42)
+
+        #expect(opened == 0)
+        #expect(runtime.browser(id: 42) == nil)
+    }
+}
