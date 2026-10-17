@@ -25,6 +25,10 @@ printf '%s\n' \
   | swift run cmux-phone mock-server
 ```
 
+For a persistent local socket, run `swift run cmux-phone tcp-server --port 0`.
+The command prints the selected port and binds only to `127.0.0.1`; clients
+still use the same newline envelopes and session lifecycle.
+
 The protocol is newline-delimited JSON (`cmux.phone` version 1). Requests have
 an id, method, optional session id, and JSON parameters. Responses echo the id;
 events carry a session id and monotonic sequence. Control lines are capped at
