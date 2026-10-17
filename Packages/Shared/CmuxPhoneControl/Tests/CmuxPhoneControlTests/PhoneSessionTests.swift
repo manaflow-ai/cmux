@@ -85,7 +85,7 @@ struct PhoneSessionTests {
     func mismatchedCloseDoesNotDiscardSession() async throws {
         let server = PhoneControlServer(driver: MockPhoneDriver())
         let opened = await server.handle(.request(id: "open", method: "session.open"))
-        let sessionID = try #require(opened.first?.sessionID)
+        _ = try #require(opened.first?.sessionID)
         let rejected = await server.handle(.request(
             id: "close-wrong-session",
             method: "session.close",
