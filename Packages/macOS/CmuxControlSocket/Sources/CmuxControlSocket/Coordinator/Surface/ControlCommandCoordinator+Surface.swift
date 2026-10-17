@@ -536,6 +536,12 @@ extension ControlCommandCoordinator {
                 message: "Invalid renderer (react|solid)",
                 data: .object(["renderer": .string(rawValue)])
             )
+        case .agentSessionRejected(let typeRawValue):
+            return .err(
+                code: "invalid_params",
+                message: "agent-session is no longer supported",
+                data: .object(["type": .string(typeRawValue)])
+            )
         case .invalidPlacement(let rawValue):
             return .err(code: "invalid_params", message: "placement must be one of: workspace, dock", data: .object(["placement": .string(rawValue)]))
         case .dockUnsupportedType(let typeRawValue, let message):

@@ -16,6 +16,9 @@ public enum ControlSurfaceCreateResolution: Sendable, Equatable {
     /// The agent-session `renderer` token was invalid (legacy `invalid_params` /
     /// "Invalid renderer (react|solid)", `data: {"renderer": …}`).
     case invalidRenderer(rawValue: String)
+    /// The retired agent-session surface type is no longer creatable through
+    /// the desktop surface API.
+    case agentSessionRejected(typeRawValue: String)
     /// The `placement` was present but not one of `workspace|dock`
     /// (`invalid_params`, `data: {"placement": rawValue}`). Carries the raw value.
     case invalidPlacement(rawValue: String)
