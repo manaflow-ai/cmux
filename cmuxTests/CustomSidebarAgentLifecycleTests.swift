@@ -130,8 +130,8 @@ struct CustomSidebarAgentLifecycleTests {
             currentSessionID: "session",
             state: .idle,
             agentSource: "claude",
-            panelLifecycles: workspace.agentLifecycleStatesByPanelId[panelId],
-            lifecycleSessionIDs: workspace.agentLifecycleSessionIDsByPanelId[panelId]
+            panelLifecycles: workspace.agentLifecycleStatesByPanelId[panelId] ?? [:],
+            lifecycleSessionIDs: workspace.agentLifecycleSessionIDsByPanelId[panelId] ?? [:]
         ) == "background_work_pending")
     }
 
