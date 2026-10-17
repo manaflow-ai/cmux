@@ -71,7 +71,7 @@ processes or on a person's window run in the cmux app only.
 | `typing-unicode` | Accents, emoji, CJK, ZWJ sequences | Typed text arrives exactly | `edge.typing-unicode` |
 | `composition-events` | IME-style commit | `keyboard.insertText` commits the text with trusted `input` events | `edge.composition` |
 | `ime-only-editor` | A Google Sheets style cell editor that drops text arriving without a keydown or a composition, and an editor that reverts text no trusted `beforeinput` announced | In a `contenteditable` editor, `keyboard.insertText` and `fill` commit through an IME composition, so the editor takes the text; a form field gets one plain `input` event | `edge.ime-only-editor` |
-| `trusted-paste` | An editor that reads a paste from the event's `clipboardData` | Meta+V fires a trusted `paste` event carrying every type on the tab's clipboard; Meta+C fills the tab's clipboard from a trusted `copy`; the system clipboard is untouched | `edge.trusted-paste` |
+| `trusted-paste` | An editor that reads a paste from the event's `clipboardData` | Meta+V fires a `paste` event carrying the tab's clipboard and Meta+C fills the tab's clipboard from a `copy` event; both are dispatched (not trusted), since the tab's clipboard is virtual, so an editor that accepts only a trusted paste ignores it; the system clipboard is untouched | `edge.trusted-paste` |
 | `keyboard-shortcuts` | Shortcuts with modifiers (`ControlOrMeta+a`, `Alt+Shift+K`) | Native key events with the modifiers held | `keyboard.shortcuts` |
 | `hover-menu-delay` | Menu that opens 300 ms after hover | `hover()` then a locator wait finds the menu item | `loc.hover` |
 | `hidden-disabled` | Hidden, disabled and read-only targets | Actions fail naming the failed check (not visible, disabled, not editable) | `loc.failure-kinds` |
@@ -103,6 +103,7 @@ processes or on a person's window run in the cmux app only.
 | Id | Scenario | cmux behavior | Case |
 | --- | --- | --- | --- |
 | `sessions-two-tabs` | Two REPL sessions, each on its own tab, at once | Both finish with their own results; no cross-talk | `edge.sessions-two-tabs` |
-| `sessions-same-tab` | Two sessions on one tab | Both see each other's changes; concurrent clicks both land; closing by one is seen by the other | `edge.sessions-same-tab` |
+| `sessions-same-tab` | Two sessions on one tab | A tab a running session opened is its own: another session lists it with `ownedBy` and `tabs.use()` fails naming the owner; concurrent calls of the one session both land (sessions share a tab by being one `--session`) | `edge.sessions-same-tab` |
+| `legacy-socket-refused` | Another client calls the older `browser.*` socket methods (`cmux browser <surface> eval`, `click`, `snapshot`) on tabs sessions drive | A tab a session opened, and a user's tab it drives with `tabs.use()`, are refused with an error that names `cmux browser repl`; the tab list still shows them; a user's tab no session drives works, also once the session that drove it ended | `tabs.legacy-socket-refused` |
 | `web-process-crash` | The tab's web content process is killed | The page emits `crash`; calls fail as crashed until `reload()` or `goto()`, which recover | `edge.web-process-crash` |
 | `user-click-while-driving` | A person clicks in the pane while a session types | The person's click arrives as trusted input and the session's typing is intact | `edge.user-click-while-driving` |

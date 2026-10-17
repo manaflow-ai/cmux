@@ -36067,9 +36067,21 @@ struct CMUXCLI {
         // user's shell (fish/csh/tcsh included), so token-bearing commands are wrapped
         // in `/bin/sh -c '…'` to parse everywhere; the cwd guard below stays outside so
         // cd-prefix rewriting keeps composing. https://github.com/manaflow-ai/cmux/issues/5639
-        var command = kind == "claude"
-            ? AgentResumeArgv.renderedPortableClaudeResumeShellCommand(parts: resumeCommandParts, quote: cliShellQuote)
-            : resumeCommandParts.map(cliShellQuote).joined(separator: " ")
+        var command: String
+        if kind == "claude" {
+            command = AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
+                parts: resumeCommandParts,
+                quote: cliShellQuote
+            )
+        } else if kind == "antigravity" {
+            command = AgentResumeArgv().renderedPortableManagedResumeShellCommand(
+                parts: resumeCommandParts,
+                kind: kind,
+                quote: cliShellQuote
+            )
+        } else {
+            command = resumeCommandParts.map(cliShellQuote).joined(separator: " ")
+        }
         if kind == "hermes-agent" {
             command = hermesAgentSubrouterResumeCommand(
                 command,
@@ -36193,8 +36205,6 @@ struct CMUXCLI {
             launcher: launchCommand?.launcher,
             arguments: launchCommand?.arguments ?? []
         )
-        guard !selected.isEmpty else { return [:] }
-
         let claudeAuthKeys: Set<String> = [
             "ANTHROPIC_API_KEY",
             "ANTHROPIC_AUTH_TOKEN",
@@ -36206,6 +36216,16 @@ struct CMUXCLI {
             "CLAUDE_CONFIG_DIR"
         ]
         var resolved = selected
+        if kind == "antigravity" {
+            resolved.merge(
+                AgentResumeArgv().managedWrapperCustomExecutableEnvironment(
+                    kind: kind,
+                    executablePath: launchCommand?.executablePath,
+                    arguments: launchCommand?.arguments ?? []
+                )
+            ) { _, captured in captured }
+        }
+        guard !selected.isEmpty || !resolved.isEmpty else { return [:] }
         if kind == "claude" {
             let preservedClaudeKeys = selected.keys.sorted().filter { claudeAuthKeys.contains($0) }
             if !preservedClaudeKeys.isEmpty {
@@ -36827,7 +36847,7 @@ function isTUIProcessServerContext(ctx) {
 const CMUX_SESSION_SERVER_SCOPES_KEY = Symbol.for("cmux.session.server.scopes");
 
 export default {
-  id: "cmux.server",
+  id: "cmux.session",
   async server(ctx) {
     if (!isTUIProcessServerContext(ctx)) return {};
     // Every loader in one plugin scope receives the same ctx. OpenCode keeps
@@ -36926,7 +36946,9 @@ export default {
         try validateOpenCodeTUIPluginDirectory(in: configDir)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         try Self.openCodeTUIPluginPackageSource.write(to: directory.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
-        let serverSource = "// cmux-opencode-tui-plugin-server-marker v2\n" + (try bundledOpenCodePluginSource())
+        let feedSource = try bundledOpenCodePluginSource()
+        let serverSource = "// cmux-opencode-tui-plugin-server-marker v2\n"
+            + feedSource.replacingOccurrences(of: "id: \"cmux.feed\"", with: "id: \"cmux.server\"")
         try serverSource.write(to: directory.appendingPathComponent("index.js"), atomically: true, encoding: .utf8)
         try bundledOpenCodeTUIPluginSource().write(to: directory.appendingPathComponent("tui.js"), atomically: true, encoding: .utf8)
         try (Self.openCodeTUIPluginOwnershipMarker + "\n").write(to: openCodeTUIPluginOwnershipURL(in: configDir), atomically: true, encoding: .utf8)
@@ -38553,6 +38575,12 @@ export default {
                 ?? normalizedHookValue(env["PWD"])
                 ?? (def.name == "codex" ? normalizedHookValue(FileManager.default.currentDirectoryPath) : nil)
         let hookTranscriptPath = relayOrigin ? nil : input.transcriptPath
+        if def.name == "codex",
+           codexHookIsInternalSession(input: input, cwd: hookCwd, environment: env) {
+            telemetry.breadcrumb("codex-hook.internal-session-suppressed")
+            print("{}")
+            return
+        }
         func localAgentPID(mapped: ClaudeHookSessionRecord?) -> Int? {
             guard !relayOrigin else { return nil }
             return mapped?.pid ?? inferredPID
@@ -45753,49 +45781,26 @@ export default {
         \(c7)  ::\(reset)
         """
 
-        // List factory defaults from the shared CmuxSettings table and display
-        // names, so a changed default updates this screen. Welcome describes a
-        // fresh install and never reads the user's settings; the last line
-        // points at where rebound shortcuts are shown.
-        let formatter = ShortcutDisplayFormatter()
-        func defaultKeys(_ action: ShortcutAction) -> String {
-            formatter.displayString(action.defaultShortcut ?? .unbound)
-        }
-        let welcomeActions: [ShortcutAction] = [
-            .newTab,
-            .newSurface,
-            .goToWorkspace,
-            .toggleSidebar,
-            .toggleRightSidebar,
-            .splitRight,
-            .splitDown,
-            .commandPalette,
-            .renameWorkspace,
-            .openBrowser,
-            .jumpToUnread,
-            .toggleUnread,
-        ]
-        let keyColumnWidth = 20
-        var shortcutLines = ["  \(bold)Default shortcuts\(reset)", ""]
-        for action in welcomeActions {
-            let keys = defaultKeys(action)
-            let padding = String(repeating: " ", count: max(1, keyColumnWidth - keys.count))
-            shortcutLines.append("  \(bold)\(keys)\(reset)\(padding)\(subdued)\(action.displayName)\(reset)")
-        }
-        shortcutLines.append("")
-        shortcutLines.append(
-            "  \(subdued)Rebound something? Run \(reset)\(bold)cmux shortcuts\(reset)\(subdued) to see or change your keys"
-                + " (Settings > Keyboard Shortcuts).\(reset)"
-        )
-        shortcutLines.append(
-            "  \(subdued)Press \(reset)\(bold)\(defaultKeys(.commandPalette))\(reset)\(subdued)"
-                + " or use File > Command Palette… for everything else.\(reset)"
-        )
+        let shortcuts = """
+          \(bold)Shortcuts\(reset)
+          \(bold)\u{2318}N\(reset)\(subdued)                  New workspace\(reset)
+          \(bold)\u{2318}T\(reset)\(subdued)                  New tab\(reset)
+          \(bold)\u{2318}P\(reset)\(subdued)                  \(String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…"))\(reset)
+          \(bold)\u{2318}B\(reset)\(subdued)                  \(String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar"))\(reset)
+          \(bold)\u{2318}\u{2325}B\(reset)\(subdued)                 \(String(localized: "shortcut.toggleRightSidebar.label", defaultValue: "Toggle Right Sidebar"))\(reset)
+          \(bold)\u{2318}D\(reset)\(subdued)                  \(String(localized: "shortcut.splitRight.label", defaultValue: "Split Right"))\(reset)
+          \(bold)\u{2318}\u{21E7}D\(reset)\(subdued)                 \(String(localized: "shortcut.splitDown.label", defaultValue: "Split Down"))\(reset)
+          \(bold)\u{2318}\u{21E7}P\(reset)\(subdued)                 \(String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…"))\(reset)
+          \(bold)\u{2318}\u{21E7}R\(reset)\(subdued)                 \(String(localized: "shortcut.renameWorkspace.label", defaultValue: "Rename Workspace"))\(reset)
+          \(bold)\u{2318}\u{21E7}L\(reset)\(subdued)                 New browser\(reset)
+          \(bold)\u{2318}\u{21E7}U\(reset)\(subdued)                 \(String(localized: "shortcut.jumpToUnread.label", defaultValue: "Jump to Latest Unread"))\(reset)
+          \(bold)\u{2325}\u{2318}U\(reset)\(subdued)                 \(String(localized: "shortcut.toggleUnread.label", defaultValue: "Toggle Unread"))\(reset)
+        """
 
         print()
         print(logo)
         print()
-        print(shortcutLines.joined(separator: "\n"))
+        print(shortcuts)
         print()
         print("  \(bold)Docs\(reset)\(subdued)                https://cmux.com/docs\(reset)")
         print("  \(bold)Discord\(reset)\(subdued)             https://discord.gg/xsgFEVrWCZ\(reset)")
@@ -45803,6 +45808,7 @@ export default {
         print("  \(bold)Email\(reset)\(subdued)               founders@cmux.com\(reset)")
         print()
         print("  \(subdued)Run \(reset)\(bold)cmux --help\(reset)\(subdued) for all commands.\(reset)")
+        print("  \(subdued)Run \(reset)\(bold)cmux shortcuts\(reset)\(subdued) to edit shortcuts.\(reset)")
         print("  \(subdued)Run \(reset)\(bold)cmux feedback\(reset)\(subdued) to report a bug.\(reset)")
         print()
     }
