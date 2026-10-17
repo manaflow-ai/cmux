@@ -45,6 +45,79 @@ struct FilePreviewKindResolverTests {
         }
     }
 
+    @Test("Source files stay text when a multi-byte character straddles the sniff window")
+    func sourceFilesStayTextWhenMultiByteCharacterStraddlesSniffWindow() throws {
+        let url = try temporaryFile(
+            extension: "ts",
+            data: multiByteCharacterAtSniffBoundary(prefix: "// ", suffix: "\nexport const value: number = 42;\n")
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(FilePreviewKindResolver.mode(for: url) == .text)
+    }
+
+    @Test("Unknown extensions stay text when a multi-byte character straddles the sniff window")
+    func unknownExtensionsStayTextWhenMultiByteCharacterStraddlesSniffWindow() throws {
+        let url = try temporaryFile(
+            extension: "typ",
+            data: multiByteCharacterAtSniffBoundary(prefix: "= ", suffix: "\nÜberschrift\n")
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(FilePreviewKindResolver.mode(for: url) == .text)
+    }
+
+    @Test("Single-byte encoded text resolves to the text editor")
+    func singleByteEncodedTextResolvesToTextEditor() throws {
+        let data = try #require("Straße;Grüße;Übung\n".data(using: .isoLatin1))
+        let url = try temporaryFile(extension: "dat", data: data)
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(FilePreviewKindResolver.mode(for: url) == .text)
+    }
+
+    @Test("A file shorter than the read window keeps its malformed tail")
+    func aFileShorterThanTheReadWindowKeepsItsMalformedTail() throws {
+        let url = try temporaryFile(extension: "bin", data: Data([0x07, 0xC3]))
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(FilePreviewKindResolver.mode(for: url) == .quickLook)
+    }
+
+    @Test("A non-continuation after a trailing lead byte is not treated as truncated")
+    func aNonContinuationAfterATrailingLeadByteIsNotTreatedAsTruncated() throws {
+        var payload = Data(repeating: 0x61, count: FilePreviewKindResolver.sniffPrefixByteCount - 2)
+        payload.append(0x07)
+        payload.append(0xC3)
+        payload.append(0x61)
+        let url = try temporaryFile(extension: "bin", data: payload)
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(FilePreviewKindResolver.mode(for: url) == .quickLook)
+    }
+
+    @Test("A prefix ending in an invalid lead byte is not treated as truncated")
+    func aPrefixEndingInAnInvalidLeadByteIsNotTreatedAsTruncated() throws {
+        var payload = Data(repeating: 0x61, count: FilePreviewKindResolver.sniffPrefixByteCount - 2)
+        payload.append(0x07)
+        payload.append(0xC0)
+        let url = try temporaryFile(extension: "bin", data: payload)
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(FilePreviewKindResolver.mode(for: url) == .quickLook)
+    }
+
+    @Test("A tail that violates its lead-specific range is not treated as truncated")
+    func aTailThatViolatesItsLeadSpecificRangeIsNotTreatedAsTruncated() throws {
+        var payload = Data(repeating: 0x61, count: FilePreviewKindResolver.sniffPrefixByteCount - 3)
+        payload.append(0x07)
+        payload.append(0xE0)
+        payload.append(0x80)
+        payload.append(contentsOf: Data(repeating: 0x61, count: 16))
+        let url = try temporaryFile(extension: "bin", data: payload)
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(FilePreviewKindResolver.mode(for: url) == .quickLook)
+    }
+
+    private func multiByteCharacterAtSniffBoundary(prefix: String, suffix: String) -> Data {
+        let padding = String(repeating: "a", count: FilePreviewKindResolver.sniffPrefixByteCount - prefix.utf8.count - 1)
+        return Data((prefix + padding + "ä" + suffix).utf8)
+    }
+
     @Test("Movie file extensions keep media preview")
     func movieFileExtensionsKeepMediaPreview() throws {
         for fileExtension in ["mov", "mp4"] {
