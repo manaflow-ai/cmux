@@ -7,6 +7,7 @@ use super::*;
 /// (`app`, `action`, `settings`, `window`, `events`) and `acp` route before
 /// this parser.
 pub(super) const CMUX_SCOPES: &[&str] = &[
+    "machine",
     // The session daemon's lifecycle (`server` on the `cmux-tui` surface);
     // `cmux server` is the machine server, routed before this parser.
     "daemon",
@@ -78,3 +79,9 @@ impl std::fmt::Display for ProgramName {
         })
     }
 }
+
+pub(super) const MACHINE_CATALOG_HELP: &str = "\
+USAGE
+  cmux machine list [--catalog]
+  cmux machine <selector> show [--catalog]
+";
