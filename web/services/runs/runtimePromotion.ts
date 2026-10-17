@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudRuntimeWorkspaces } from "../../db/schema";
-import { attachAttemptToRuntime, createRuntime, getRuntime } from "../vms/runtimeRepository";
+import { createRuntime, getRuntime, promoteAttemptToRuntime } from "../vms/runtimeRepository";
 import type { AttemptPromotionRuntimePort, PromotionRuntimeInput, PromotionRuntimeResult } from "./promotion";
 
 /**
@@ -44,7 +44,7 @@ export function createRuntimePromotionAdapter(): AttemptPromotionRuntimePort {
       const workspace = (await cloudDb().select().from(cloudRuntimeWorkspaces)
         .where(eq(cloudRuntimeWorkspaces.runtimeId, runtime.id)).limit(1))[0];
       if (!workspace) throw new Error("promoted runtime workspace was not persisted");
-      await attachAttemptToRuntime({
+      await promoteAttemptToRuntime({
         ownerTeamId,
         runId: input.runId,
         attemptId: input.attemptId,
@@ -54,7 +54,7 @@ export function createRuntimePromotionAdapter(): AttemptPromotionRuntimePort {
       return {
         runtimeId: runtime.id,
         workspaceId: workspace.workspaceId,
-        state: current?.lifecycleState === "paused" ? "paused" : "ready",
+        state: current?.lifecycleState === "suspended" ? "paused" : "ready",
         sessionId: input.sessionId,
         transport: "cmux-remote",
       };

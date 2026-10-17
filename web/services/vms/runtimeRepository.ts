@@ -249,6 +249,52 @@ export async function attachAttemptToRuntime(input: {
   });
 }
 
+/**
+ * Move a terminal fan-out attempt from its ephemeral execution Runtime into
+ * the persistent Runtime created by promotion. The old Runtime remains
+ * durable for cleanup/audit, while the attempt's current owner is atomically
+ * switched under the same tenant and run locks.
+ */
+export async function promoteAttemptToRuntime(input: {
+  readonly ownerTeamId: string;
+  readonly runId: string;
+  readonly attemptId: string;
+  readonly runtimeId: string;
+}): Promise<typeof runAttempts.$inferSelect> {
+  const ownerTeamId = owner(input.ownerTeamId);
+  return cloudDb().transaction(async (tx) => {
+    const [runtime] = await tx.select().from(cloudRuntimes).where(and(
+      eq(cloudRuntimes.id, input.runtimeId),
+      eq(cloudRuntimes.ownerTeamId, ownerTeamId),
+    )).for("update").limit(1);
+    if (!runtime) throw new RuntimeNotFoundError("runtime not found");
+    if (["draining", "stopped", "released", "failed"].includes(runtime.lifecycleState)) {
+      throw new RuntimeUnavailableError("runtime is not attachable");
+    }
+    const [run] = await tx.select({ userId: runs.userId, billingTeamId: runs.billingTeamId })
+      .from(runs).where(eq(runs.id, input.runId)).for("update").limit(1);
+    if (!run || runOwnerTeamId(run) !== ownerTeamId) throw new RuntimeNotFoundError("runtime not found");
+    const [attempt] = await tx.select().from(runAttempts).where(and(
+      eq(runAttempts.id, input.attemptId),
+      eq(runAttempts.runId, input.runId),
+    )).for("update").limit(1);
+    if (!attempt) throw new RuntimeAttemptNotFoundError("run attempt not found");
+    if (!["succeeded", "failed", "cancelled"].includes(attempt.status)) {
+      throw new RuntimeAttemptConflictError("only terminal attempts can be promoted");
+    }
+    if (attempt.runtimeId === input.runtimeId) return attempt;
+    const [moved] = await tx.update(runAttempts).set({
+      runtimeId: input.runtimeId,
+      updatedAt: now(),
+    }).where(and(
+      eq(runAttempts.id, input.attemptId),
+      eq(runAttempts.runId, input.runId),
+    )).returning();
+    if (!moved) throw new RuntimeAttemptConflictError("run attempt changed while promoting");
+    return moved;
+  });
+}
+
 /** Acquire or renew a runtime lease using a single fenced update. */
 export async function leaseRuntime(input: {
   readonly ownerTeamId: string;

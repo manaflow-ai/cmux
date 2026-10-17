@@ -63,7 +63,8 @@ export function createRunAttemptPromotionStore(): AttemptPromotionStorePort {
         eq(runs.userId, input.userId),
         sql`${runAttempts.result}->${MARKER}->>'requestKey' = ${input.requestKey}`,
       )).limit(1);
-      return storedPromotion(markerFrom(rows[0]?.result));
+      const marker = markerFrom(rows[0]?.result);
+      return marker ? storedPromotion(marker) : null;
     },
 
     async reserve(input): Promise<PromotionReserveResult> {

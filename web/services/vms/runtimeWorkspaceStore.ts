@@ -74,7 +74,9 @@ export function persistentWorkspaceStoreFromRuntime(): PersistentWorkspaceStore 
           .where(and(eq(cloudRuntimeWorkspaces.runtimeId, runtimeId), ...(expectedVersion === undefined ? [] : [eq(cloudRuntimeWorkspaces.version, expectedVersion)])))
           .for("update").limit(1);
         if (!current) throw new Error("workspace version is stale or missing");
-        const nextLifecycle = patch.lifecycle ? lifecycleState(patch.lifecycle) : current.lifecycle;
+        const nextLifecycle = patch.lifecycle
+          ? lifecycleState(patch.lifecycle)
+          : lifecycleState(current.lifecycle as PersistentWorkspaceRecord["lifecycle"]);
         const [updated] = await tx.update(cloudRuntimeWorkspaces).set({
           ...patch,
           lifecycle: nextLifecycle,
