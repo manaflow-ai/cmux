@@ -34,6 +34,25 @@ export type RunBoardProps = {
   pollMs?: number;
 };
 
+export type RunBoardAttachState = "idle" | "attached" | "expired" | "replayed" | "error";
+
+export function attachFailureState(error: unknown): Exclude<RunBoardAttachState, "idle" | "attached"> {
+  if (error instanceof RunApiHttpError) {
+    const code = error.code?.toLowerCase() ?? "";
+    if (error.status === 410 || code.includes("expired") || code.includes("expire")) return "expired";
+    if (error.status === 409 && (code.includes("replay") || code.includes("consum"))) return "replayed";
+  }
+  return "error";
+}
+
+export function attachTicketExpired(ticket: AttachTicket, now = Date.now()): boolean {
+  const unix = ticket.expiresAtUnix;
+  if (typeof unix === "number" && Number.isFinite(unix)) return (unix > 10_000_000_000 ? unix : unix * 1_000) <= now;
+  if (ticket.expiresAt === undefined) return false;
+  const millis = typeof ticket.expiresAt === "number" ? ticket.expiresAt : Date.parse(ticket.expiresAt);
+  return Number.isFinite(millis) && millis <= now;
+}
+
 function AttemptCard({
   attempt,
   selected,
@@ -145,7 +164,7 @@ export function RunBoard({ snapshot, recovered, disconnected = false, client, on
   const [tab, setTab] = useState<"preview" | "activity">("preview");
   const [apiError, setApiError] = useState<string>();
   const [actionPending, setActionPending] = useState<"attach" | "approve">();
-  const [attachState, setAttachState] = useState<"idle" | "attached" | "expired" | "replayed" | "error">("idle");
+  const [attachState, setAttachState] = useState<RunBoardAttachState>("idle");
   const stateRef = useRef<ReturnType<typeof initialBoard> | undefined>(undefined);
   stateRef.current = state;
   const apiSession = useRef<RunBoardApiSession | undefined>(undefined);
@@ -206,21 +225,6 @@ export function RunBoard({ snapshot, recovered, disconnected = false, client, on
   const approved = state.snapshot.attempts.find((item) => item.id === state.approval?.attemptId);
   const done = state.snapshot.attempts.filter((item) => evidenceReady(item)).length;
   const reviewed = Boolean(state.reviewed);
-  const attachFailureState = (error: unknown): "expired" | "replayed" | "error" => {
-    if (error instanceof RunApiHttpError) {
-      const code = error.code?.toLowerCase() ?? "";
-      if (error.status === 410 || code.includes("expired") || code.includes("expire")) return "expired";
-      if (error.status === 409 && (code.includes("replay") || code.includes("consum"))) return "replayed";
-    }
-    return "error";
-  };
-  const ticketExpired = (ticket: AttachTicket): boolean => {
-    const unix = ticket.expiresAtUnix;
-    if (typeof unix === "number" && Number.isFinite(unix)) return (unix > 10_000_000_000 ? unix : unix * 1_000) <= Date.now();
-    if (ticket.expiresAt === undefined) return false;
-    const millis = typeof ticket.expiresAt === "number" ? ticket.expiresAt : Date.parse(ticket.expiresAt);
-    return Number.isFinite(millis) && millis <= Date.now();
-  };
   const attach = async () => {
     if (!attempt || state.connection !== "live" || actionPending) return;
     const intent: AttachTicketIntent = {
@@ -238,7 +242,7 @@ export function RunBoard({ snapshot, recovered, disconnected = false, client, on
         : client?.requestAttachTicket
           ? await client.requestAttachTicket(intent)
           : undefined;
-      if (ticket && ticketExpired(ticket)) {
+      if (ticket && attachTicketExpired(ticket)) {
         throw new RunApiHttpError(410, "This attach ticket has expired. Request a fresh ticket and try again.", "run_attach_expired");
       }
       if (ticket && onAttachTicket) await onAttachTicket(ticket);
