@@ -1112,9 +1112,32 @@ its platform default shell and `-lc`; SDKs never inspect or expand `$SHELL`.
 To choose a specific executable, callers send
 `argv: [executable, "-lc", script]`.
 
-`machine.list` returns one local machine, and `machine.get` resolves only that
-machine. Its origin is always `local`. `session.list`, `session.get`, and
-`session.open` operate only on the mux session owned by this endpoint.
+`machine.list` returns the endpoint's authoritative local machine first, followed
+by any remote metadata published by its verified local app. The local origin is
+`local`; projected origins are `cloud`, `ssh`, or `server`. `machine.get` resolves
+the local machine or one unambiguous published record. Use canonical machine IDs
+to distinguish owners; a display name is not an identity. Without a live, admitted
+publisher, discovery retains its local-only behavior. See
+[machine catalog publication](commands.md#machine-catalog-publication) for the
+negotiation, owner fence, bounds and connection-owned lease.
+
+Machine snapshots may include `platform: {os?, arch?}` and machine-level
+`capabilities`. These are non-secret observations from the selected owner, separate
+from protocol feature negotiation. Omitted legacy metadata remains unknown.
+Capability tokens and `connectable` describe the existing route; they are not
+credentials, enrollment, or permission to execute. Reading the catalog never
+opens a target connection. A remote record disappears when its publication is
+withdrawn or its publishing connection closes.
+
+Catalog projection does not extend session routing: `session.list`, `session.get`,
+and `session.open` operate only on the mux session owned by this endpoint. A
+projected remote ID cannot select a local session or supply a remote carrier.
+Callers need that owner's separately authenticated transport for session work.
+
+`machine.list` accepts no ancestor selectors. `machine.get` accepts its machine
+selector, and `session.list` accepts only its machine ancestor. Clients must not
+add a session default to these reads; explicit unsupported fields remain native
+validation errors.
 
 Sidebar plugin installation and selection are local filesystem operations.
 Transported sidebar view operations never send a `sidebar_plugin_` ID.
@@ -1415,7 +1438,10 @@ use the nested `sidebar view` and `sidebar plugin` grammars.
 Hyphenated action-first commands are usage errors with exit code 2.
 
 Global routing flags are `--machine`, `--session`, and advanced `--socket`.
-They select the one local machine and mux session exposed by the endpoint.
+`--session` and `--socket` select the endpoint. Session-scoped operations remain
+owned by that endpoint's native machine and session; selecting a remote metadata
+record does not reroute execution. For `machine.list/get`, an endpoint-selection
+flag is not serialized as an unsupported session ancestor.
 
 Human output follows the selected locale, currently English and Japanese.
 `--json` prints one result object. `--jsonl` prints one object per result or

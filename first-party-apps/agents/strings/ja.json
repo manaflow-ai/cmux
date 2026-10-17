@@ -22,6 +22,8 @@
   "folded.missing": "未インストール（{n}）",
   "hint.cmux": "cmuxに付属",
   "hint.none": "このCLIのインストール方法はありません",
+  "installation.unknown": "インストール状況不明",
+  "inventory.unknown": "インストール状況は未確認です",
   "job.done": "完了",
   "job.failed": "失敗",
   "job.failedCode": "失敗（終了コード {code}）",

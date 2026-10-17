@@ -2082,9 +2082,22 @@ public final class Client implements AutoCloseable {
                 "status",
                 "connectable",
                 "deleted",
-                "recoverable"
-            )
+                "recoverable", "platform", "capabilities"
+            ),
+            decodeMachinePlatform(fields.get("platform")),
+            fields.containsKey("capabilities") ? Wire.array(fields.get("capabilities"), "machine capabilities")
+                .stream().map(valueItem -> Wire.string(valueItem, "machine capability")).toList() : List.of()
         );
+    }
+
+    static Optional<Snapshots.MachinePlatform> decodeMachinePlatform(Object value) {
+        if (value == null) return Optional.empty();
+        Map<String, Object> fields = Wire.object(value, "machine platform");
+        requireExactFields(fields, "machine platform", "os", "arch");
+        return Optional.of(new Snapshots.MachinePlatform(
+            Optional.ofNullable(fields.get("os")).map(item -> Wire.string(item, "machine OS")),
+            Optional.ofNullable(fields.get("arch")).map(item -> Wire.string(item, "machine architecture"))
+        ));
     }
 
     static Snapshots.SessionSnapshot decodeSession(Object value) {
