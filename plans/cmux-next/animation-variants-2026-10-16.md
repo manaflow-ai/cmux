@@ -52,7 +52,9 @@ The tab suite caught two implementation issues during this pass: the tab source 
 3. Use `debug.motion` with `start`, reproduce the action, then `stop` to capture span duration, frame samples, and display-link count.
 4. Compare each variant against its default and repeat with `debug.motion speed` set to `fast`, `normal`, and `off`, plus `debug.motion reduce` set to `true`.
 
-No live tagged app recording was made in this pass; the focused suites validate the geometry, layer lifetime, default/reset behavior, and reduced-motion paths. The branch is ready for a tagged dogfood recording.
+The initial focused pass did not include a live tagged app recording; the focused suites
+validated the geometry, layer lifetime, default/reset behavior, and reduced-motion paths.
+The tagged dogfood and extended naming reel are recorded below.
 
 ## Tagged dogfood — 2026-10-16
 
