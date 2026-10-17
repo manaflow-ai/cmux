@@ -648,5 +648,17 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .acpmux-mic { transition: none; }
+  .acpmux-mic,
+  .acpmux-mic-meter span { transition: none; }
+}
+
+/* The host's all-zero motion policy is stronger than the browser preference: it is the explicit
+   `ui.animationSpeed: off` setting. Stop every pane animation, including loops owned by a child
+   surface that cannot consume the duration tokens directly. */
+:root[data-agent-motion="off"],
+:root[data-agent-motion="off"] *,
+:root[data-agent-motion="off"] *::before,
+:root[data-agent-motion="off"] *::after {
+  animation: none !important;
+  transition: none !important;
 }
