@@ -330,13 +330,14 @@ export function runSnapshotPromotionSource(snapshot: RunSnapshot, attemptId: str
 export function runRepositoryPromotionSource(): AttemptPromotionSourcePort {
   return {
     find: async ({ userId, runId, attemptId }) => {
+      const { getRun, RunNotFoundError } = await import("./repository");
       try {
         // Keep the pure promotion service importable in dependency-only tests;
         // the database-backed source is loaded only when the app composes it.
-        const { getRun } = await import("./repository");
         return runSnapshotPromotionSource(await getRun(runId, userId), attemptId, userId);
-      } catch {
-        return null;
+      } catch (error) {
+        if (error instanceof RunNotFoundError) return null;
+        throw error;
       }
     },
   };
