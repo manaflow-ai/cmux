@@ -353,8 +353,16 @@ def main():
         wait_for(lambda: "error" not in (rpc("system.ping") or {"error": 1}), 120, 1)
         ident = rpc("system.identify") or {}; app_cli = ident.get("app_cli_path"); pid = ident.get("pid"); started = time.time()
         rpc("debug.window_frame", {"frame": [40, 60, 1400, 1000]}); rpc("debug.focus")
-        reply = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": URL}, "focus": True}, 60)
-        tab = ((reply or {}).get("created") or [None])[0]
+        def open_tab():
+            reply = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": URL}, "focus": True}, 60)
+            if isinstance(reply, dict) and reply.get("created"):
+                return reply["created"][0]
+            # A fresh launch can have no focused pane yet: focus the window, make a tab, try again.
+            rpc("debug.window.focus", {}); rpc("action.run", {"action": "newTab", "origin": "script", "focus": True}, 30)
+            return None
+        tab = wait_for(open_tab, 60, 1)
+        if not tab:
+            raise RuntimeError("openBrowser.chromium never opened a tab")
         wait_for(lambda: (rpc("browser.page.eval", {"script": "document.title", "tab": tab}) or {}).get("value"), 60, 1)
         if not wait_for(lambda: port_up(port), 60, 1):
             check("cmux_remote_debugging", False, why="no DevTools port %d (a Release build ignores CMUX_NEXT_CEF_EXTRA_SWITCHES)" % port)
