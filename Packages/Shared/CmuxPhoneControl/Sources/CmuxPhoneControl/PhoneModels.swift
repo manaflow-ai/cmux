@@ -231,6 +231,7 @@ public struct PhonePoint: Codable, Equatable, Sendable {
         self.y = y
     }
 
+    @discardableResult
     public func validated() throws -> Self {
         guard x.isFinite, y.isFinite, (0...1).contains(x), (0...1).contains(y) else {
             throw PhoneError(code: "invalid_coordinates", message: "normalized coordinates must be within [0, 1]")

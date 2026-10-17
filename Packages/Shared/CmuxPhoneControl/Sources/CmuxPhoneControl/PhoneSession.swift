@@ -1,7 +1,7 @@
 import Foundation
 
 public actor PhoneSession {
-    public let id: String
+    public nonisolated let id: String
 
     private let driver: any PhoneDriver
     private var currentSequence: UInt64 = 0
@@ -181,11 +181,11 @@ public actor PhoneControlServer {
                 let newSession = PhoneSession(driver: driver)
                 session = newSession
                 let result = PhoneJSONValue.object([
-                    "session_id": .string(await newSession.id),
+                    "session_id": .string(newSession.id),
                     "device": try PhoneJSONValue(device),
                     "capabilities": try PhoneJSONValue(device.capabilities),
                 ])
-                return [.response(id: requestID, sessionID: await newSession.id, result: result)]
+                return [.response(id: requestID, sessionID: newSession.id, result: result)]
 
             default:
                 guard let session else {
