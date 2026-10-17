@@ -366,7 +366,12 @@ function fromEntry(entry: Json): HomeConversation {
     // Named once its head is read; until then a Chief is "Chief" and a person their id (the
     // daemon's home-inbox rows name them the same way).
     const chief = entry.kind === "chief";
-    participants.push({ id: peer, kind: peer.startsWith("agent_") ? "agent" : "human", name: chief ? "Chief" : peer, chief });
+    participants.push({
+      id: peer,
+      kind: peer.startsWith("agent_") ? "agent" : "human",
+      name: chief ? "Chief" : peer,
+      chief,
+    });
   }
   return {
     id: String(entry.conversation),
