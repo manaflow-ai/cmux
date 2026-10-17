@@ -132,6 +132,30 @@ gesture. The fixtures "phone grid walkthrough", "a preview attach with counts
 off never shrinks the grid" and "a hidden phone stops counting and counts
 again on its next report" check these rules in both engines.
 
+When a phone or tablet view leaves without being disconnected by someone (its
+link dropped, its connection closed), the cmux-tui daemon keeps the PTY grid
+from growing for 30 seconds; it may still shrink. A reattach inside that
+window finds the grid it left, so the PTY is not resized away and back: an
+inline TUI such as Codex, which rebuilds its scrollback (capped) on every width
+change, would otherwise lose history on each link drop. After 30 seconds the
+grid follows the remaining views. A disconnect by another participant
+(`detach-client`, a view detach, `detach-attached-view`) ends the hold at once.
+This is the daemon applying the engine's decision late, not an engine rule, so
+the fixtures do not change. A Mac, TUI or desktop view that leaves never holds
+the grid.
+
+- The hold covers only the terminals the departed view showed; a disconnect
+  ends the holds of the terminals it touched, not every hold.
+- A phone or tablet view that arrives with a size (the same phone back, or
+  another) ends the hold at once: its own size counts, larger or not.
+- During a hold the published size state is the engine's decision, so a Mac
+  can read a wider size than the PTY has for up to 30 seconds.
+- A phone that closes its attach stream to show another terminal also
+  holds the first terminal's grid; the daemon cannot tell that from a drop.
+- A relay that retires a leaf (`detach-attached-view {view}`) ends the hold,
+  because the relay does not say whether the leaf's link dropped. Relayed
+  phones therefore get no hold yet.
+
 ## Size state (wire format)
 
 Hosts publish one JSON object per change, the same shape on both hosts:

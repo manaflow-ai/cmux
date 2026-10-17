@@ -267,6 +267,7 @@ pub(crate) fn connect_record_at_version(
         // live protocol-v1 hosts whose older implementation registered
         // every connection at the snapshot grid.
         viewer_size: Mutex::new(Some(snapshot_size)),
+        viewer_size_acks: hello_frame.flags & FLAG_VIEWER_SIZE_ACKS != 0,
         launch_process: None,
         launch_activation_pending,
         pty_custody: None,

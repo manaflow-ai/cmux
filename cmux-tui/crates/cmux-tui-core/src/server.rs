@@ -511,6 +511,9 @@ pub const WINDOW_RECORDS_CAPABILITY: &str = "window-records-v1";
 /// tab's `extra.owner` and raw `browser_owner`.
 pub const FRONTEND_BROWSER_OWNER_CAPABILITY: &str = "frontend-browser-owner-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a sized terminal attach waits for its hosted PTY's resize before
+/// it builds the replay anyway (then a `resized` replay follows, as before).
+const INITIAL_HOSTED_RESIZE_TIMEOUT: Duration = Duration::from_secs(1);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
 pub const PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION: u32 = 10;
