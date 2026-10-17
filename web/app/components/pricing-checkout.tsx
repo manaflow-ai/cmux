@@ -242,16 +242,12 @@ export function PricingCheckoutButton({
     <CheckoutButton
       href={pricingDestination(checkoutHref, location, requiresSignIn)}
       resolveHref={() =>
-        pricingDestination(
-          withCheckoutAttribution(
-            checkoutHref,
-            checkoutAttributionParamsFrom(
-              Object.fromEntries(new URLSearchParams(window.location.search)),
-            ),
-          ),
+        resolvePricingCheckoutHref({
+          href: checkoutHref,
           location,
           requiresSignIn,
-        )
+          search: window.location.search,
+        })
       }
       size={size}
       onClick={() => {
@@ -282,6 +278,30 @@ export function PricingCheckoutButton({
     >
       {children}
     </CheckoutButton>
+  );
+}
+
+/** Resolve the click destination without requiring a rendered React tree. */
+export function resolvePricingCheckoutHref({
+  href,
+  location,
+  requiresSignIn,
+  search,
+}: {
+  href: string;
+  location: string;
+  requiresSignIn: boolean;
+  search: string;
+}): string {
+  return pricingDestination(
+    withCheckoutAttribution(
+      href,
+      checkoutAttributionParamsFrom(
+        Object.fromEntries(new URLSearchParams(search)),
+      ),
+    ),
+    location,
+    requiresSignIn,
   );
 }
 

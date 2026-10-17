@@ -478,7 +478,7 @@ async function stripeTeamCheckout(
       portalURL.searchParams.set("scope", "team");
       if (target.teamId) portalURL.searchParams.set("teamId", resolvedTeamId);
       forwardCheckoutAttribution(request.nextUrl.searchParams, portalURL);
-      captureCheckoutDecision(user.id, "team", "team", "manage_billing", attribution);
+      captureCheckoutDecision(user.id, "team", "team", "manage_billing", attribution, interval);
       return NextResponse.redirect(portalURL);
     }
 
