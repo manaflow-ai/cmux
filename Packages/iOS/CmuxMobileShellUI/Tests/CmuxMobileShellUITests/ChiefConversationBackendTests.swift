@@ -131,6 +131,33 @@ struct ChiefConversationBackendTests {
     }
 
     @Test
+    func singleItemOtherQuestionUsesComposerEntryPoint() {
+        let question = MobileChiefQuestion(
+            id: "question-other",
+            source: .init(harness: .chief, session: "chief-main", agentName: "Chief"),
+            items: [.init(
+                id: "q0",
+                prompt: "What should I call the machine?",
+                options: [.init(id: "mac", label: "Mac")],
+                allowsOther: true
+            )]
+        )
+        let message = MobileChiefMessage(
+            id: "question-message-other",
+            seq: 5,
+            authorID: "agent_chief",
+            author: "Chief",
+            authorKind: "chief",
+            text: question.transcriptText,
+            at: Date(),
+            parts: ["question"],
+            partPayloads: [MobileChiefPart(kind: "question", question: question)]
+        )
+        let poll = ChiefConversationBackend.pendingPoll(from: message)
+        #expect(poll?.options.map(\.id) == [ChiefConversationBackend.questionComposerOptionID])
+    }
+
+    @Test
     func pendingPollSkipsEarlierAnsweredOrUnsupportedCards() {
         let unsupportedQuestion = MobileChiefQuestion(
             id: "question-4",
@@ -155,7 +182,8 @@ struct ChiefConversationBackendTests {
                 .init(
                     id: "q0",
                     prompt: "Use the defaults?",
-                    options: [.init(id: "yes", label: "Yes"), .init(id: "no", label: "No")]
+                    options: [.init(id: "yes", label: "Yes"), .init(id: "no", label: "No")],
+                    allowsOther: false
                 )
             ]
         )

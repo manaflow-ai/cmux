@@ -612,6 +612,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
               question.items.count == 1,
               let item = question.items.first,
               !item.multiSelect,
+              !item.allowsOther,
               !item.options.isEmpty else {
             return nil
         }
