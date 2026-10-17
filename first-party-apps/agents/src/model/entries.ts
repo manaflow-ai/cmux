@@ -38,11 +38,21 @@ export type Machine = {
 const CAPABILITY_NAME = /^[a-z][a-z0-9_.-]{0,63}$/
 const MACHINE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 
+/** Validate wire values before formatting them or admitting them to state. */
+function capabilityNames(value: unknown, limit: number): string[] {
+  if (!Array.isArray(value)) return []
+  const names = new Set<string>()
+  for (const name of value) {
+    if (typeof name !== "string" || !CAPABILITY_NAME.test(name)) continue
+    names.add(name)
+    if (names.size === limit) break
+  }
+  return [...names]
+}
+
 /** A bounded, non-secret capability summary suitable for a machine header. */
 export function capabilitySummary(machine: Pick<Machine, "capabilities">): string | null {
-  const names = [...new Set(machine.capabilities ?? [])]
-    .filter((name): name is string => CAPABILITY_NAME.test(name))
-    .slice(0, 8)
+  const names = capabilityNames(machine.capabilities, 8)
   return names.length ? names.map((name) => name.replaceAll("_", " ")).join(" · ") : null
 }
 
@@ -51,9 +61,7 @@ export function sanitizeMachine(machine: Machine): Machine {
   const rawPlatform = machine.platform && typeof machine.platform === "object" ? machine.platform : null
   const os = typeof rawPlatform?.os === "string" && MACHINE_TOKEN.test(rawPlatform.os) ? rawPlatform.os : null
   const arch = typeof rawPlatform?.arch === "string" && MACHINE_TOKEN.test(rawPlatform.arch) ? rawPlatform.arch : null
-  const capabilities = [...new Set(machine.capabilities ?? [])]
-    .filter((name): name is string => CAPABILITY_NAME.test(name))
-    .slice(0, 16)
+  const capabilities = capabilityNames(machine.capabilities, 16)
   return { ...machine, platform: os || arch ? { os, arch } : null, capabilities }
 }
 
