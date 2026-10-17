@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 45b182cb064025ceaefed96e86676e0e5c2bff9a2cde354f77a8fec2299a4cf2. */
+/* cmux-tui mux protocol 12, IR 09340095057e13a293f364ecfe981a8b4d8f2a9d3df8576dfbc9f3a243cbbd55. */
 
 
 import type * as T from "./types.js";
@@ -300,7 +300,12 @@ export type KeybindingsChangedEvent = { event: "keybindings-changed" } & {
 
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type LayoutChangedEvent = { event: "layout-changed" } & {
+  "active_pane"?: T.Id;
+  "layout"?: T.Layout;
   "screen": T.Id;
+  "transaction"?: string;
+  "workspace"?: T.Id;
+  "zoomed_pane"?: (T.Id) | null;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */

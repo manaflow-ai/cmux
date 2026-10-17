@@ -74,6 +74,12 @@ public final class AgentPageRedraw {
         }
     }
 
+    /// The size and appearance this page last gave the app's New Tab frame at, and whether a capture
+    /// is on the way: a page shown again at the same size and appearance gives none (a tab switch
+    /// takes no snapshot), and one capture runs at a time.
+    public var givenNewTabFrame: (size: CGSize, appearance: NSAppearance.Name?)?
+    public var givesNewTabFrame = false
+
     /// The page as it drew out of sight (a parked New Tab spare), at its size and appearance.
     private var remembered: (image: NSImage, size: CGSize, appearance: NSAppearance.Name?)?
 

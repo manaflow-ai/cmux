@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 45b182cb064025ceaefed96e86676e0e5c2bff9a2cde354f77a8fec2299a4cf2.
+// cmux-tui mux protocol 12, IR 09340095057e13a293f364ecfe981a8b4d8f2a9d3df8576dfbc9f3a243cbbd55.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -438,7 +438,17 @@ pub struct KeybindingsChangedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayoutChangedEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub active_pane: Option<T::Id>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub layout: Option<T::Layout>,
     pub screen: T::Id,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub transaction: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub zoomed_pane: Optional<T::Id>,
 }
 
 #[rustfmt::skip]

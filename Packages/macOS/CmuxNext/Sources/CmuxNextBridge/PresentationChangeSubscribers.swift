@@ -4,14 +4,17 @@
 /// single closure property, and input verification replaced the one that
 /// refreshed the browser host's tab list (cx-x3t9). Subscribing again under
 /// the same name replaces only that owner's handler.
-final class PresentationChangeSubscribers {
+@MainActor
+public final class PresentationChangeSubscribers {
+    public init() {}
+
     private var subscribers: [(name: String, handler: () -> Void)] = []
 
     /// The subscriber names in notification order.
-    var names: [String] { subscribers.map(\.name) }
+    public var names: [String] { subscribers.map(\.name) }
 
     /// `handler` runs on every change, after the earlier subscribers.
-    func subscribe(_ name: String, _ handler: @escaping () -> Void) {
+    public func subscribe(_ name: String, _ handler: @escaping () -> Void) {
         if let index = subscribers.firstIndex(where: { $0.name == name }) {
             subscribers[index].handler = handler
         } else {
@@ -19,7 +22,13 @@ final class PresentationChangeSubscribers {
         }
     }
 
-    func notify() {
+    /// The tabs the change being notified is about (nil: any tab), for a
+    /// subscriber whose work is per tab (O(changed tabs), perf-tabs I6).
+    public private(set) var changedKeys: Set<String>?
+
+    public func notify(changed keys: Set<String>? = nil) {
+        changedKeys = keys
+        defer { changedKeys = nil }
         for subscriber in subscribers { subscriber.handler() }
     }
 }

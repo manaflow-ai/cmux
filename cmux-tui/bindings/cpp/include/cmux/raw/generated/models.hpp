@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "45b182cb064025ceaefed96e86676e0e5c2bff9a2cde354f77a8fec2299a4cf2";
+inline constexpr std::string_view kProtocolIrSha256 = "09340095057e13a293f364ecfe981a8b4d8f2a9d3df8576dfbc9f3a243cbbd55";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -3175,7 +3175,12 @@ struct KittyImageAlias {
 };
 
 struct LayoutChangedEvent {
+    std::optional<Id> active_pane{};
+    std::optional<Layout> layout{};
     Id screen{};
+    std::optional<std::string> transaction{};
+    std::optional<Id> workspace{};
+    Field<Id> zoomed_pane{};
     friend bool operator==(const LayoutChangedEvent&, const LayoutChangedEvent&) = default;
 };
 

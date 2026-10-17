@@ -5177,6 +5177,11 @@ class LayoutChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/layout-changed/payload'
     screen: Id
     event: Literal['layout-changed']
+    workspace: Union[Id, MissingType] = field(default=MISSING)
+    active_pane: Union[Id, MissingType] = field(default=MISSING)
+    layout: Union[Layout, MissingType] = field(default=MISSING)
+    transaction: Union[str, MissingType] = field(default=MISSING)
+    zoomed_pane: Union[Id, None, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 

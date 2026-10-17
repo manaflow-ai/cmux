@@ -610,29 +610,53 @@ if [ "$base" = feat-cmux-next ]; then
       'restore GitHub API access, then retry'
   fi
   if ! frozen=$(WINDOW="$window" FREEZE_TOKEN="$freeze_token" python3 -c '
+import datetime as dt
 import os, sys
 token = os.environ["FREEZE_TOKEN"]
 freezes = []
+now = dt.datetime.now(dt.timezone.utc)
 for line in os.environ["WINDOW"].splitlines():
     if not line.startswith("FREEZE:"):
         continue
     words = line[len("FREEZE:"):].split()
-    held = {w.split("=", 1)[1] for w in words if w.startswith("token=")}
+    held = {value for w in words if w.startswith("token=") for value in w.split("=", 1)[1].split(",")}
     if token and token in held:
         continue
-    freezes += [w for w in words if "=" not in w]
+    metadata = {w.split("=", 1)[0]: w.split("=", 1)[1] for w in words if "=" in w}
+    expires = metadata.get("expires")
+    if expires:
+        try:
+            expiry = dt.datetime.fromisoformat(expires.replace("Z", "+00:00"))
+        except ValueError:
+            expiry = None
+        if expiry is not None and expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=dt.timezone.utc)
+        if expiry is not None and expiry <= now:
+            continue
+    prefixes = [w for w in words if "=" not in w]
+    required = ("owner", "pr", "head", "expires")
+    detail = "; ".join(f"{key}={metadata[key]}" for key in required if key in metadata)
+    missing = [key for key in required if key not in metadata]
+    if len(missing) == len(required):
+        detail = "metadata=legacy-unannotated"
+    elif missing:
+        missing_text = ",".join(missing)
+        detail = f"{detail}; metadata=incomplete missing={missing_text}"
+    freezes += [(prefix, detail) for prefix in prefixes]
 for path in sys.stdin.read().split():
-    for prefix in freezes:
+    for prefix, detail in freezes:
         if path == prefix or path.startswith(prefix if prefix.endswith("/") else prefix + "/"):
-            print(f"{path} (FREEZE: {prefix})")
+            suffix = f"; {detail}" if detail else ""
+            print(f"{path} (FREEZE: {prefix}{suffix})")
 ' <<<"$changed"); then
     refuse \
       "not merged: cannot check $ref against the WINDOW freezes" \
       'check with the coordinator before merging'
   fi
   if [ -n "$frozen" ]; then
+    frozen_summary=$(printf '%s\n' "$frozen" | tr '\n' ';' | sed 's/;$//')
     refuse \
-      "not merged: $ref touches frozen paths: $(paste -sd ';' <<<"$frozen" | sed 's/;/; /g')" \
+      "not merged: $ref touches frozen paths: ${frozen_summary//;/; }" \
       'wait for the freeze to lift, or send the PR to the coordinator; only the token holder merges with --freeze-token'
   fi
 fi
@@ -675,11 +699,12 @@ for line in os.environ["WINDOW"].splitlines():
         areas[held.group(1)] = area
     if not line.strip():
         area = None
-    for token in re.findall(r"token=(\S+)", line):
-        if line.startswith("FREEZE:"):
-            frozen.add(token)
-        else:
-            holds.setdefault(token, line.split()[0])
+    for token_group in re.findall(r"token=(\S+)", line):
+        for token in token_group.split(","):
+            if line.startswith("FREEZE:"):
+                frozen.add(token)
+            else:
+                holds.setdefault(token, line.split()[0])
 missing = []
 for token in sys.argv[1:]:
     name = areas.get(token) or holds.get(token) or ("FREEZE" if token in frozen else None)

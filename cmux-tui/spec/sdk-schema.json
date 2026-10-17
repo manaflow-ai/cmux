@@ -25371,6 +25371,56 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "layout-delta-v1"
+     },
+     "active_pane": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "layout-delta-v1"
+     },
+     "zoomed_pane": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "since": 12,
+      "capability": "layout-delta-v1"
+     },
+     "layout": {
+      "type": {
+       "kind": "ref",
+       "name": "Layout"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "layout-delta-v1"
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "layout-delta-v1"
      }
     },
     "additional_properties": false

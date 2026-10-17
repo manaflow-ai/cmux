@@ -88,7 +88,7 @@ final class AgentPageHibernation {
     func followTurns(_ turns: AgentTurnStateStore) {
         turnObservation?.cancel()
         turnObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (turns.states, turns.watching) }) {
+            for await _ in ObservationStream({ (turns.stateRevision, turns.watching) }) {
                 self?.replan()
             }
         }
