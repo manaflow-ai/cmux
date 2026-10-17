@@ -1,3 +1,4 @@
+import CmuxCore
 import Darwin
 import Foundation
 
@@ -67,6 +68,21 @@ enum ListeningPortLookup {
         // "insi_lport" holds a 16-bit port in network byte order.
         let port = Int(UInt16(bigEndian: UInt16(truncatingIfNeeded: tcp.tcpsi_ini.insi_lport)))
         guard port > 0, port <= 65_535 else { return nil }
+        guard port >= 49_152 else { return port }
+
+        // Keep the bind address until after filtering: wildcard and LAN
+        // listeners in the dynamic range can still be development servers.
+        let addressBytes: [UInt8]
+        if tcp.tcpsi_ini.insi_vflag & UInt8(INI_IPV4) != 0 {
+            var address = tcp.tcpsi_ini.insi_laddr.ina_46.i46a_addr4
+            addressBytes = withUnsafeBytes(of: &address) { Array($0) }
+        } else if tcp.tcpsi_ini.insi_vflag & UInt8(INI_IPV6) != 0 {
+            var address = tcp.tcpsi_ini.insi_laddr.ina_6
+            addressBytes = withUnsafeBytes(of: &address) { Array($0) }
+        } else {
+            addressBytes = []
+        }
+        guard SidebarPortPolicy().includes(port: port, addressBytes: addressBytes) else { return nil }
         return port
     }
 
