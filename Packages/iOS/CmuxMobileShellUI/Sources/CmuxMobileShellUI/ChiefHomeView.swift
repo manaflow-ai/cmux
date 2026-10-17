@@ -454,14 +454,24 @@ private struct ChiefQuestionSheet: View {
         _selections = State(initialValue: initial)
     }
 
-    private var otherItem: MobileChiefQuestion.Item? {
-        question.items.first(where: { $0.allowsOther })
+    /// Mirrors `ChiefQuestionAnswer`: `chief.answer` carries one Other value,
+    /// assigned to the first eligible unselected item, or the first eligible
+    /// multi-select item as a fallback.
+    private var otherTargetItem: MobileChiefQuestion.Item? {
+        question.items.first(where: { item in
+            item.allowsOther && (selections[item.id] ?? []).isEmpty
+        }) ?? question.items.first(where: { $0.allowsOther && $0.multiSelect })
+    }
+
+    private var selectedOtherText: String? {
+        let text = otherText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
     }
 
     private var canSubmit: Bool {
         question.items.allSatisfy { item in
             let chosen = selections[item.id] ?? []
-            let hasOther = item.id == otherItem?.id && !otherText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let hasOther = item.id == otherTargetItem?.id && selectedOtherText != nil
             return !chosen.isEmpty || hasOther
         }
     }
@@ -484,6 +494,11 @@ private struct ChiefQuestionSheet: View {
                         Text("Choose an answer for each question before sending it back to your Mac.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
+                        if otherTargetItem != nil {
+                            Text("You can type one custom answer; it is sent to the first question that accepts it.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
                     }
 
                     ForEach(question.items) { item in
@@ -568,7 +583,7 @@ private struct ChiefQuestionSheet: View {
             .padding(.horizontal, 12)
             .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-            if item.id == otherItem?.id {
+            if item.id == otherTargetItem?.id {
                 TextField("Other answer (optional)", text: $otherText, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: otherText) { _, value in
@@ -593,7 +608,7 @@ private struct ChiefQuestionSheet: View {
             if chosen.contains(optionID) { chosen.remove(optionID) } else { chosen.insert(optionID) }
         } else {
             chosen = [optionID]
-            if item.id == otherItem?.id { otherText = "" }
+            if item.id == otherTargetItem?.id { otherText = "" }
         }
         selections[item.id] = chosen
     }
@@ -604,8 +619,7 @@ private struct ChiefQuestionSheet: View {
         errorMessage = nil
         defer { isSubmitting = false }
         do {
-            let text = otherText.trimmingCharacters(in: .whitespacesAndNewlines)
-            try await submit(choices, text.isEmpty ? nil : text)
+            try await submit(choices, selectedOtherText)
             dismiss()
         } catch {
             errorMessage = String(describing: error)
