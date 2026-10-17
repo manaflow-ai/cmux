@@ -32,9 +32,7 @@ final class MobileChatHomeModel {
         let generation = UUID()
         refreshGeneration = generation
         let targetComputerID = store.connectedMacDeviceID
-        if let activeComputerID,
-           let targetComputerID,
-           activeComputerID != targetComputerID {
+        if activeComputerID != targetComputerID {
             openSessionIDs.removeAll()
             messagesBySessionID.removeAll()
             streamingMessageBySessionID.removeAll()
@@ -91,6 +89,10 @@ final class MobileChatHomeModel {
         loadingSessionIDs.insert(sessionID)
         conversationTasks[sessionID] = Task { [weak self] in
             do {
+                // Register the live stream before taking the snapshot. The
+                // source completes its server-side handshake before returning,
+                // and the local stream buffers frames while history loads.
+                let events = await source.events(sessionID: sessionID)
                 let page = try await source.history(
                     sessionID: sessionID,
                     beforeSeq: nil,
@@ -100,13 +102,13 @@ final class MobileChatHomeModel {
                       self?.refreshGeneration == generation else { return }
                 if let self {
                     let local = self.pendingLocalMessages[sessionID, default: []]
+                    let existing = self.messagesBySessionID[sessionID, default: []]
                     self.messagesBySessionID[sessionID] = Self.mergedMessages(
                         serverMessages: page.messages,
-                        localMessages: local
+                        localMessages: existing + local
                     )
                 }
                 self?.loadingSessionIDs.remove(sessionID)
-                let events = await source.events(sessionID: sessionID)
                 for await event in events {
                     guard !Task.isCancelled,
                           self?.refreshGeneration == generation else { return }
