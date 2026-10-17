@@ -53,8 +53,8 @@ struct SurfaceInternalReceiverWorkspaceTests {
             SurfaceRemoteWorkspace(id: "ws-theirs", name: theirs, index: 1, focused: false),
             SurfaceRemoteWorkspace(id: "ws-legacy", name: receiverName, index: 2, focused: false),
         ]
-        #expect(workspaces.allSatisfy(\.isInternalReceiver))
-        #expect(workspaces.map(\.internalReceiverClientID) == ["mac-ours", "mac-theirs", nil])
+        #expect(workspaces.allSatisfy { $0.isInternalReceiver })
+        #expect(workspaces.map { $0.internalReceiverClientID } == ["mac-ours", "mac-theirs", nil])
         #expect(SurfaceRemoteWorkspace.leakedInternalReceiverIDs(
             in: workspaces, deliveriesInFlight: 0, clientID: "mac-ours"
         ) == ["ws-ours"])
