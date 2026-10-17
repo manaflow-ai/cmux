@@ -16,9 +16,9 @@ import QuartzCore
 /// home; `topics/first-run.md`, Cursor's quiet getting-started card). In a
 /// tall pane the group rises up to 24 pt more, so the space under the header
 /// is not all void while the group stays anchored to the composer.
-/// 0. The intro: one line saying what Chief is, then three lines with a
-///    glyph each for what it does (agents, terminals, Cloud machines and
-///    their desktops). Plain text, no buttons.
+/// 0. The intro: a centered title saying what Chief is and one centered
+///    sentence on what it does (agents, terminals, Cloud machines and their
+///    desktops). Plain text, no glyphs or buttons, 24 pt above the actions.
 /// 1. "Open a terminal" and "Start an agent" (when the app wires them), each
 ///    with its configured shortcut at the trailing edge: bordered buttons.
 /// 2. "Your agents": up to five workspaces with an agent, most urgent first,
@@ -56,12 +56,7 @@ final class ChiefFirstRunView: NSView {
     private(set) var agents: [ChiefAgentGlance] = []
     let agentsHeader = NSTextField(labelWithString: ChiefStrings.firstRunAgentsHeader)
     let introTitle = NSTextField(wrappingLabelWithString: ChiefStrings.firstRunIntroTitle)
-    /// The intro's lines, each after its glyph in ``introGlyphs``.
-    let introLines = [ChiefStrings.firstRunIntroAgents, ChiefStrings.firstRunIntroTerminals,
-                      ChiefStrings.firstRunIntroCloud].map(NSTextField.init(wrappingLabelWithString:))
-    private let introGlyphs = ["square.stack.3d.up", "terminal", "display"].map { symbol in
-        NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil) ?? NSImage())
-    }
+    let introBody = NSTextField(wrappingLabelWithString: ChiefStrings.firstRunIntroBody)
     let hint = NSTextField(labelWithString: "")
     private let prompts = ChiefStarterPrompt.all
 
@@ -98,16 +93,12 @@ final class ChiefFirstRunView: NSView {
         content.addSubview(agentsHeader)
         content.addSubview(hint)
         introTitle.font = .systemFont(ofSize: 15, weight: .semibold)
-        for label in [introTitle] + introLines {
+        introBody.font = .systemFont(ofSize: 13)
+        for label in [introTitle, introBody] {
+            label.alignment = .center
             label.isSelectable = false
             label.setAccessibilityRole(.staticText)
             content.addSubview(label)
-        }
-        for line in introLines { line.font = .systemFont(ofSize: 13) }
-        for glyph in introGlyphs {
-            glyph.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
-            glyph.setAccessibilityElement(false)
-            content.addSubview(glyph)
         }
 
         chipGroup.setAccessibilityElement(true)
@@ -245,8 +236,7 @@ final class ChiefFirstRunView: NSView {
         agentsHeader.textColor = theme.textTertiary
         hint.textColor = theme.textTertiary
         introTitle.textColor = theme.textPrimary
-        for line in introLines { line.textColor = theme.textSecondary }
-        for glyph in introGlyphs { glyph.contentTintColor = theme.textSecondary }
+        introBody.textColor = theme.textSecondary
         let pressed = theme.mix(theme.isDark ? 0.17 : 0.11)
         let rowColors = ChiefFirstRunRow.Colors(text: theme.textPrimary, glyph: theme.textSecondary,
                                                 trailing: theme.textTertiary, fill: theme.raisedFill,
@@ -434,11 +424,11 @@ final class ChiefFirstRunView: NSView {
         let row = ChiefFirstRunRow.height, gap: CGFloat = 6, group: CGFloat = 14
         let headerHeight = ceil(agentsHeader.intrinsicContentSize.height)
         let hintHeight = ceil(hint.intrinsicContentSize.height)
-        // The intro's lines wrap inside the column, after a glyph 12 pt in.
-        let glyphSize: CGFloat = 16, textInset: CGFloat = 12 + glyphSize + 8
-        let titleHeight = Self.wrappedHeight(introTitle, width: width - 24)
-        let lineHeights = introLines.map { Self.wrappedHeight($0, width: width - textInset - 12) }
-        let introHeight = titleHeight + lineHeights.reduce(0) { $0 + gap + $1 }
+        // The intro wraps inside the column, 12 pt in like the rows' text.
+        let introGap: CGFloat = 6, introToActions: CGFloat = 24, introWidth = max(0, width - 24)
+        let titleHeight = Self.wrappedHeight(introTitle, width: introWidth)
+        let bodyHeight = Self.wrappedHeight(introBody, width: introWidth)
+        let introHeight = titleHeight + introGap + bodyHeight
         var showsIntro = true
         var showsActions = !actionRows.isEmpty
         var showsHint = !hint.stringValue.isEmpty
@@ -452,7 +442,7 @@ final class ChiefFirstRunView: NSView {
                 blocks += 1
             }
             if showsActions {
-                height += (blocks > 0 ? group : 0) + CGFloat(actionRows.count) * row
+                height += (blocks > 0 ? introToActions : 0) + CGFloat(actionRows.count) * row
                     + CGFloat(actionRows.count - 1) * gap
                 blocks += 1
             }
@@ -480,31 +470,18 @@ final class ChiefFirstRunView: NSView {
         var y = max(0, floor(room - column - lift))
         var placedBlock = false
         setHidden(introTitle, !showsIntro)
-        for (line, glyph) in zip(introLines, introGlyphs) {
-            setHidden(line, !showsIntro)
-            setHidden(glyph, !showsIntro)
-        }
+        setHidden(introBody, !showsIntro)
         if showsIntro {
-            introTitle.alignment = rtl ? .right : .left
-            introTitle.frame = CGRect(x: x + 12, y: y, width: max(0, width - 24), height: titleHeight)
-            y += titleHeight
-            for ((line, glyph), height) in zip(zip(introLines, introGlyphs), lineHeights) {
-                y += gap
-                let textWidth = max(0, width - textInset - 12)
-                line.alignment = rtl ? .right : .left
-                line.frame = CGRect(x: rtl ? x + 12 : x + textInset, y: y, width: textWidth, height: height)
-                let firstLine = line.font.map { ceil(NSLayoutManager().defaultLineHeight(for: $0)) } ?? glyphSize
-                glyph.frame = CGRect(x: rtl ? x + width - 12 - glyphSize : x + 12,
-                                     y: y + max(0, floor((min(height, firstLine) - glyphSize) / 2)),
-                                     width: glyphSize, height: glyphSize)
-                y += height
-            }
+            introTitle.frame = CGRect(x: x + 12, y: y, width: introWidth, height: titleHeight)
+            y += titleHeight + introGap
+            introBody.frame = CGRect(x: x + 12, y: y, width: introWidth, height: bodyHeight)
+            y += bodyHeight
             placedBlock = true
         }
         for (index, actionRow) in actionRows.enumerated() {
             setHidden(actionRow, !showsActions)
             guard showsActions else { continue }
-            if index == 0, placedBlock { y += group }
+            if index == 0, placedBlock { y += introToActions }
             if index > 0 { y += gap }
             actionRow.frame = CGRect(x: x, y: y, width: width, height: row)
             y += row

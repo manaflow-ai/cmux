@@ -658111,179 +658111,61 @@
         }
       }
     },
-    "chief.firstRun.intro.agents": {
+    "chief.firstRun.intro.body": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Starts coding agents, checks on them and reports back."
+            "value": "It starts coding agents and checks on them, works in your terminals, and sets up Cloud machines with a desktop it can use for you."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Startet Coding-Agents, behält sie im Blick und berichtet dir."
+            "value": "Er startet Coding-Agents und behält sie im Blick, arbeitet in deinen Terminals und richtet Cloud-Maschinen mit einem Desktop ein, den er für dich bedienen kann."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lance des agents de code, les surveille et vous fait un compte rendu."
+            "value": "Il lance des agents de code et les surveille, travaille dans vos terminaux et configure des machines Cloud avec un bureau qu’il peut utiliser pour vous."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يشغّل وكلاء البرمجة ويتابعهم ويطلعك على النتائج."
+            "value": "يشغّل وكلاء البرمجة ويتابعهم، ويعمل في الطرفيات لديك، ويُعدّ أجهزة Cloud بسطح مكتب يمكنه استخدامه نيابةً عنك."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inicia agentes de código, los supervisa y te informa."
+            "value": "Inicia agentes de código y los supervisa, trabaja en tus terminales y configura máquinas Cloud con un escritorio que puede usar por ti."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "啟動程式設計代理、追蹤進度並向你回報。"
+            "value": "它會啟動程式設計代理並追蹤進度、在你的終端機中工作，並設定附有桌面的 Cloud 機器，替你操作。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "启动编程代理、跟进进度并向你汇报。"
+            "value": "它会启动编程代理并跟进进度、在你的终端中工作，并设置带桌面的 Cloud 机器，替你操作。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "코딩 에이전트를 시작하고 진행 상황을 확인해 알려 줍니다."
+            "value": "코딩 에이전트를 시작하고 진행 상황을 확인하며, 터미널에서 작업하고, 대신 사용할 수 있는 데스크톱이 있는 Cloud 머신을 설정합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コーディングエージェントを起動し、様子を確認して報告します。"
-          }
-        }
-      }
-    },
-    "chief.firstRun.intro.terminals": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reads and drives your terminals and workspaces."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Liest und bedient deine Terminals und Workspaces."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lit et pilote vos terminaux et vos espaces de travail."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يقرأ الطرفيات ومساحات العمل لديك ويتحكم بها."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lee y controla tus terminales y espacios de trabajo."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "讀取並操作你的終端機和工作區。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "读取并操作你的终端和工作区。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "터미널과 워크스페이스를 읽고 조작합니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルとワークスペースを読み取り、操作します。"
-          }
-        }
-      }
-    },
-    "chief.firstRun.intro.cloud": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Creates Cloud machines and shows their desktops for computer use."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erstellt Cloud-Maschinen und zeigt ihre Desktops für Computer Use."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Crée des machines Cloud et affiche leur bureau pour l’utilisation de l’ordinateur."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ينشئ أجهزة Cloud ويعرض أسطح مكتبها لاستخدام الكمبيوتر."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Crea máquinas Cloud y muestra sus escritorios para el uso de la computadora."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "建立 Cloud 機器並顯示其桌面以操作電腦。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "创建 Cloud 机器并显示其桌面，供 Computer Use 使用。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 머신을 만들고 컴퓨터 사용을 위해 데스크톱을 보여 줍니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud マシンを作成し、コンピュータ操作のためにデスクトップを表示します。"
+            "value": "コーディングエージェントを起動して様子を確認し、ターミナルで作業し、代わりに操作できるデスクトップ付きの Cloud マシンを用意します。"
           }
         }
       }

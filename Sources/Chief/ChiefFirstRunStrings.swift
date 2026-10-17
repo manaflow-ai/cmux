@@ -7,20 +7,10 @@ extension ChiefStrings {
     static var firstRunIntroTitle: String {
         String(localized: "chief.firstRun.intro.title", defaultValue: "Chief runs your coding agents and terminals.")
     }
-    /// The intro's agents line.
-    static var firstRunIntroAgents: String {
-        String(localized: "chief.firstRun.intro.agents",
-               defaultValue: "Starts coding agents, checks on them and reports back.")
-    }
-    /// The intro's terminals line.
-    static var firstRunIntroTerminals: String {
-        String(localized: "chief.firstRun.intro.terminals",
-               defaultValue: "Reads and drives your terminals and workspaces.")
-    }
-    /// The intro's Cloud line.
-    static var firstRunIntroCloud: String {
-        String(localized: "chief.firstRun.intro.cloud",
-               defaultValue: "Creates Cloud machines and shows their desktops for computer use.")
+    /// The intro's sentence under the title: what Chief does.
+    static var firstRunIntroBody: String {
+        String(localized: "chief.firstRun.intro.body",
+               defaultValue: "It starts coding agents and checks on them, works in your terminals, and sets up Cloud machines with a desktop it can use for you.")
     }
     /// Over the agent rows.
     static var firstRunAgentsHeader: String {
