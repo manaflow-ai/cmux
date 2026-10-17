@@ -16,6 +16,8 @@ public struct GitHubPullRequestProbeItem: Decodable, Equatable, Sendable {
     public let updatedAt: String?
     /// ISO-8601 `mergedAt` timestamp, if the PR merged.
     public let mergedAt: String?
+    /// ISO-8601 `closedAt` timestamp, if the PR is closed (merged or not).
+    public let closedAt: String?
     /// The PR's head (source) branch name, if known.
     public let headRefName: String?
     /// The PR's base (target) branch name, if known.
@@ -28,6 +30,7 @@ public struct GitHubPullRequestProbeItem: Decodable, Equatable, Sendable {
         url: String,
         updatedAt: String?,
         mergedAt: String? = nil,
+        closedAt: String? = nil,
         headRefName: String? = nil,
         baseRefName: String? = nil
     ) {
@@ -36,6 +39,7 @@ public struct GitHubPullRequestProbeItem: Decodable, Equatable, Sendable {
         self.url = url
         self.updatedAt = updatedAt
         self.mergedAt = mergedAt
+        self.closedAt = closedAt
         self.headRefName = headRefName
         self.baseRefName = baseRefName
     }
