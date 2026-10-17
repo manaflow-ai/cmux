@@ -47,7 +47,7 @@ extension NewTabPage {
         let started = services.agentTabs.openTab(in: source, newTab: (page, handler), select: false, hidden: true) { [weak source] key in
             opened.value = key
             if let source { Self.moveToSplit(key, from: source, edge: edge, keys: keys) }
-        }
+        } failed: { [weak input] in input?.endIncoming(keys, pageMade: false) }
         if !started { input.endIncoming(keys, pageMade: false) }
     }
 
