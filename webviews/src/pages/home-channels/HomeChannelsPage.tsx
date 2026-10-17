@@ -8,6 +8,7 @@ import { AttachmentContext } from "./AttachmentViews";
 import { AvatarContext } from "./avatars";
 import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
 import { Composer } from "./Composer";
+import { GoalStrip } from "./GoalStrip";
 import { useHostSelection, type HomeSelection } from "./hostSelection";
 import { ConversationList, useStamp } from "./ConversationList";
 import { HomeIcon } from "./icons";
@@ -605,6 +606,7 @@ export function HomeChannelsPage({
                     )}
                     <RunsContext.Provider value={runsWithPeople}>
                       <div className="lg-stage" ref={column} data-drop-zone>
+                        <GoalStrip book={store.runs} conversation={open.id} strings={strings} onOpen={runs.onOpen} />
                         <Timeline
                           conversation={snap.selected}
                           rows={rows}

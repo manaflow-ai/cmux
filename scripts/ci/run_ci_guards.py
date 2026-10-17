@@ -84,7 +84,14 @@ LINUX_ONLY_STEPS = {
 PORTABLE_SUBSTITUTES = {
     "Run canonical CMUX CI guard profile": "scripts/ci/run_ci_guard_payload.sh",
 }
-GROUP_CONDITION = re.compile(r"matrix\.group\s*==\s*'([a-z0-9-]+)'")
+# Keep the optional fast-guard gate attached to the group expression. CI uses
+# this form for the one step that is skipped when the fast guard already
+# failed; stripping only the matrix comparison leaves the `&&` clause as an
+# unexplained condition and rejects the whole plan.
+GROUP_CONDITION = re.compile(
+    r"\$\{\{\s*matrix\.group\s*==\s*'([a-z0-9-]+)'\s*"
+    r"(?:&&\s*steps\.fast-guard\.outputs\.skip\s*!=\s*'true'\s*)?\}\}"
+)
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 SHELL = ["bash", "--noprofile", "--norc", "-eo", "pipefail"]
 # Steps run in their own sessions, so Ctrl-C reaches only this process; it
