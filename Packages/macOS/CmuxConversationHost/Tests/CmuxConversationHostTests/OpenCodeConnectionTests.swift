@@ -49,6 +49,33 @@ import CmuxConversation
         await connection.close()
     }
 
+    @Test(arguments: [("APIError", "failed"), ("MessageAbortedError", "stopped")])
+    func idlePreservesTheNativeFailureOutcome(error: String, expectedState: String) async throws {
+        let transport = OpenCodeFixtureTransport()
+        let connection = try await OpenCodeConnection.open(transport: transport, session: metadata())
+        var iterator = connection.events.makeAsyncIterator()
+        try await connection.send(.startTurn(text: "Test", model: nil, effort: nil))
+        let started = try #require(try await iterator.next())
+        #expect(started.state == "running")
+        await transport.emit(.object(["type": .string("session.error"), "properties": .object(["sessionID": .string("ses_native"), "error": .object(["name": .string(error)])])]))
+        await transport.emit(.object(["type": .string("session.status"), "properties": .object(["sessionID": .string("ses_native"), "status": .object(["type": .string("idle")])])]))
+        let failure = try #require(try await iterator.next())
+        #expect(failure.itemKind == .error)
+        let finished = try #require(try await iterator.next())
+        #expect(finished.state == expectedState)
+        #expect(finished.turnID == started.turnID)
+        try await connection.send(.startTurn(text: "Next", model: nil, effort: nil))
+        let next = try #require(try await iterator.next())
+        #expect(next.state == "running")
+        #expect(next.turnID != started.turnID)
+        await transport.emit(.object(["type": .string("session.idle"), "properties": .object(["sessionID": .string("ses_native")])]))
+        await transport.emit(permission(session: "ses_native", id: "per_next"))
+        let request = try #require(try await iterator.next())
+        #expect(request.kind == .request)
+        #expect(request.turnID == next.turnID)
+        await connection.close()
+    }
+
     @Test func eventFramingHandlesCRLFMultilineAndUTF8() throws {
         var decoder = OpenCodeSSEDecoder()
         let wire = ": heartbeat\r\nevent: update\r\ndata: {\"type\":\"message\",\r\ndata: \"text\":\"مرحبا\"}\r\n\r\n"

@@ -9,6 +9,7 @@ actor OpenCodeConnection: ConversationProviderConnection {
     private let session: ConversationSession
     private var nativeID = ""
     private var activeMessageID: String?
+    private var terminalState: String?
     private var reader: Task<Void, Never>?
     private var closed = false
     private var models: [String: [String: ConversationJSONValue]] = [:]
@@ -82,6 +83,7 @@ actor OpenCodeConnection: ConversationProviderConnection {
             if let model { body["model"] = try nativeModel(model) }
             if let effort { body["variant"] = .string(effort) }
             activeMessageID = messageID
+            terminalState = nil
             try emit(.init(kind: .turn, turnID: .init(rawValue: messageID), state: "running"))
             do { _ = try await call("session.prompt", ["sessionID": .string(nativeID), "body": .object(body)]) }
             catch let error as ConversationProviderError {
@@ -136,14 +138,20 @@ actor OpenCodeConnection: ConversationProviderConnection {
         guard source == nativeID else { return }
         let turn = activeMessageID.map(ConversationTurnID.init(rawValue:))
         switch type {
+        case "session.idle":
+            // The legacy idle notification follows session.status(idle). Only
+            // the status transition finishes the turn, so this cannot finish
+            // a queued turn started between those two notifications.
+            break
         case "session.status":
             let status = value["status"]?.objectValue?["type"]?.stringValue
             if status == "idle" {
-                try emit(.init(kind: .turn, turnID: turn, state: "completed", rawPayload: raw)); activeMessageID = nil; parts.removeAll(); messageRoles.removeAll()
+                try finishTurn(raw: raw)
             } else if status == "busy" || status == "retry" {
                 try emit(.init(kind: .run, turnID: turn, state: "running", rawPayload: raw))
             }
         case "session.error":
+            terminalState = failureState(value["error"])
             try emit(.init(kind: .item, turnID: turn, itemKind: .error, text: "OpenCode reported a provider error", rawPayload: raw))
         case "message.part.updated":
             if let part = value["part"]?.objectValue, let id = part["id"]?.stringValue { parts[id] = part; try emitPart(part, turn: turn, raw: raw) }
@@ -161,6 +169,7 @@ actor OpenCodeConnection: ConversationProviderConnection {
                 for part in parts.values where part["messageID"]?.stringValue == id { try emitPart(part, turn: turn, raw: raw) }
             }
             if let info = value["info"]?.objectValue, info["role"]?.stringValue == "assistant", let id = info["id"]?.stringValue {
+                if let error = info["error"], error != .null { terminalState = failureState(error) }
                 let tokens = info["tokens"]?.objectValue ?? [:]
                 try emit(.init(kind: .item, itemID: .init(rawValue: "usage:" + id), turnID: turn, itemKind: .usage, usage: .init(inputTokens: tokens["input"]?.numberValue.flatMap(Int64.init), outputTokens: tokens["output"]?.numberValue.flatMap(Int64.init), cachedTokens: tokens["cache"]?.objectValue?["read"]?.numberValue.flatMap(Int64.init), model: info["modelID"]?.stringValue), rawPayload: raw))
             }
@@ -182,6 +191,17 @@ actor OpenCodeConnection: ConversationProviderConnection {
             }
         default: try emit(.init(kind: .unknown(type), rawPayload: raw))
         }
+    }
+
+    private func failureState(_ error: ConversationJSONValue?) -> String {
+        error?.objectValue?["name"]?.stringValue == "MessageAbortedError" ? "stopped" : "failed"
+    }
+
+    private func finishTurn(raw: ConversationJSONValue) throws {
+        // Initial idle status has no active turn and must not manufacture success.
+        guard let id = activeMessageID else { return }
+        try emit(.init(kind: .turn, turnID: .init(rawValue: id), state: terminalState ?? "completed", rawPayload: raw))
+        activeMessageID = nil; terminalState = nil; parts.removeAll(); messageRoles.removeAll()
     }
 
     private func emitPart(_ part: [String: ConversationJSONValue], turn: ConversationTurnID?, raw: ConversationJSONValue) throws {
