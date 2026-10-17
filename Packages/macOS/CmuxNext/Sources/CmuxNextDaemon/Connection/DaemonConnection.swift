@@ -1,5 +1,5 @@
 import CmuxNextWakeups
-import Foundation
+public import Foundation
 import CmuxNextCompat
 import os
 
@@ -39,6 +39,8 @@ public actor DaemonConnection {
     }
 
     public nonisolated let events: AsyncThrowingStream<DaemonEventEnvelope, any Error>
+    /// Identifies this event source; pair it with an envelope's connection serial.
+    public nonisolated let eventSourceID: UUID = UUID()
     private nonisolated let continuation: AsyncThrowingStream<DaemonEventEnvelope, any Error>.Continuation
 
     let configuration: Configuration
@@ -167,10 +169,7 @@ public actor DaemonConnection {
     /// once `DaemonStore.appliedSequence` reaches it, the store reflects
     /// every event the daemon emitted before that reply (the reply's
     /// `eventBarrier` is at most this). Sequences grow across reconnects.
-    public func eventSequence() -> UInt64? {
-        guard let ready else { return nil }
-        return DaemonEventEnvelope.sequence(serial: ready.serial, index: ready.transport.routedEventCount)
-    }
+    public func eventSequence() -> UInt64? { ready?.eventSequence }
 
     /// Sends one `cmux.protocol/2` resource request (`ResourceRequestEnvelope`)
     /// on the control socket and decodes its `result`; `timeout` replaces the request deadline.
@@ -187,7 +186,9 @@ public actor DaemonConnection {
     }
 
     /// Delivers an event the connection itself produced, after those routed so far.
-    func yieldEvent(_ envelope: DaemonEventEnvelope) { continuation.yield(envelope) }
+    func yieldEvent(_ envelope: DaemonEventEnvelope) {
+        continuation.yield(DaemonEventEnvelope(sequence: envelope.sequence, event: envelope.event, sourceID: eventSourceID))
+    }
 
     /// The admitted control session, or nil when not connected.
     var ready: DaemonReadyConnection? {
@@ -197,10 +198,7 @@ public actor DaemonConnection {
 
     static func perform<R: DaemonRequest>(_ request: R, on transport: LineTransport,
                                           timeout: Duration? = defaultRequestTimeout) async throws -> R.Response {
-        let response = try await transport.request(cmd: R.command, timeout: timeout) { id in
-            try WireCoding.encodeRequest(request, id: id)
-        }
-        return try WireCoding.decodeResponse(R.Response.self, from: response.line)
+        try await DaemonRequestExecutor(transport: transport).perform(request, timeout: timeout)
     }
 
     // MARK: - Connect / reconnect
@@ -216,12 +214,13 @@ public actor DaemonConnection {
             DaemonLaunchTimings.shared.mark("daemon.socket_connected")
             let gate = EventGate()
             let continuation = continuation
+            let eventSourceID = eventSourceID
             let raw = configuration.role == .pageRelay
             transport.start(
                 onEvent: { [weak self] name, line, index in
                     let envelope = DaemonEventEnvelope(
                         sequence: DaemonEventEnvelope.sequence(serial: serial, index: index),
-                        event: raw ? DaemonEvent.raw(name: name, line: line) : DaemonEvent.decode(name: name, line: line))
+                        event: raw ? DaemonEvent.raw(name: name, line: line) : DaemonEvent.decode(name: name, line: line), sourceID: eventSourceID)
                     if case .sessionState(let item) = envelope.event, item.endsStream {
                         // task-owner: hop onto the actor; a stale serial is ignored there
                         Task { await self?.sessionStreamEvent(item, serial: serial) }
@@ -249,7 +248,7 @@ public actor DaemonConnection {
             healthy.schedule(after: configuration.healthyAfter) { [weak self] in await self?.stayedHealthy(serial: serial) }
             if endpoint.bridge != nil || configuration.localHeartbeat { heartbeat.start(transport, every: configuration.heartbeat, misses: configuration.heartbeatMisses) }
             let connected = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: 0),
-                                                event: .connected(identity, generationChanged: generationChanged))
+                                                event: .connected(identity, generationChanged: generationChanged), sourceID: eventSourceID)
             gate.open(first: connected) { continuation.yield($0) }
             // task-owner: one request with the control deadline; a stale serial returns at once
             Task { [weak self] in await self?.openSessionEvents(serial: serial) }
@@ -276,7 +275,7 @@ public actor DaemonConnection {
         }
         logger.info("cmux-tui connection lost: \(detail, privacy: .public)")
         continuation.yield(DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: DaemonEventEnvelope.lastIndex),
-                                               event: .disconnected(reason: detail)))
+                                               event: .disconnected(reason: detail), sourceID: eventSourceID))
         scheduleReconnect()
     }
 

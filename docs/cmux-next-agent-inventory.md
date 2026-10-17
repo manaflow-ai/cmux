@@ -154,3 +154,13 @@ This is the native carrier. The Swift provider must still connect demand to
 admitted route watches and revalidate each owner, lease and connection epoch
 before reporting an invalidation. Agents already rereads current owners on the
 empty invalidation; end-to-end app/provider watch support remains unconnected.
+
+`DaemonSideEvents.subscribeEnvelopes` preserves the original native envelope
+through tree snapshots and inbox collapse. Match its client-side `sourceID`
+to the captured `DaemonConnection.eventSourceID`, and its `connectionSerial`
+to the admitted ready transport. A replacement connection instance has a new
+source ID even when its serial starts at the same value. Events applied without
+a source ID or envelope never reach this listener. These fields are source
+metadata, not owner identity or permission; existing event-only listeners keep
+their current interface. The provider bridge must use this source-aware path
+before interpreting a demand snapshot or watch notice.
