@@ -216,7 +216,10 @@ export function ComposerPickers({
   // An agent's own default remains an internal sentinel. The picker omits it
   // instead of exposing a separate "Default" row.
   const models: Choice[] = sessionModels(snapshot.catalog, summary);
-  const allModes: Choice[] = (summary?.modes?.availableModes ?? []).map((mode) => ({
+  // A sessionless New Tab has no live mode report yet. Keep the last mode catalog observed for
+  // this harness active so its shield remains a usable picker instead of an inert PendingChip.
+  const modeSource = summary?.modes ?? harnessProfiles.get(summary?.harness)?.modes;
+  const allModes: Choice[] = (modeSource?.availableModes ?? []).map((mode) => ({
     id: mode.id,
     name: mode.name || mode.id,
     description: mode.description,
@@ -224,7 +227,7 @@ export function ComposerPickers({
   const plan = allModes.find((choice) => isPlan(choice.id));
   const modes = allModes.filter((choice) => choice !== plan);
   const hasGrants = (permissionAccess?.grants.length ?? 0) > 0;
-  const currentId = summary?.modes?.currentModeId;
+  const currentId = summary?.modes?.currentModeId ?? modeSource?.currentModeId;
   const planning = plan !== undefined && currentId === plan.id;
   // Leaving Plan returns to the permission mode this session had before it, never another session's.
   const lastMode = useRef<{ sessionId?: string; mode?: string }>({});
