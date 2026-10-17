@@ -30,7 +30,7 @@ struct AgentFeedStoreView: View {
             refreshesOnAppear: true,
             isActive: isActive,
             actions: actions,
-            searchText: searchCoordinator.searchDestinationText(for: .feed),
+            searchText: searchCoordinator.searchDestinationText(for: .chat),
             performanceObserver: store.feedPerformanceObserver
         )
         .onAppear {
