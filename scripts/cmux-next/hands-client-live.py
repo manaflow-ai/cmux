@@ -30,6 +30,9 @@ Checks, through the app's `debug.hands` and `debug.notifications` and the owner'
     (hand-approval-pending), and Deny (the banner's button path) refuses it and removes it;
  7. Allow (install-key signature) lets the write run and removes the banner;
  8. a request that ends unanswered (the hand goes offline) is settled `expired` and removed.
+Steps 1b, 3, 5 and 5b go through Settings > Machines > Hands (debug.page query and click): the hand's row
+and its level, Ask lowers it, Auto asks for presence, and Full for new Mac hands asks for presence too.
+--card-only needs no account: Settings > Machines has a Hands group that says to sign in.
 Ends with the app quit, the tag's daemons stopped, the hand stopped by its own PID and removed
 (DELETE /v1/hands/<hand>), and the owner's session signed out. Writes report.json.
 """
@@ -45,6 +48,7 @@ parser.add_argument("--credentials-file", help="mode-600 KEY=value file (CMUX_UI
 parser.add_argument("--app", default=os.environ.get("NX_APP"))
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="hands-client-"))
 parser.add_argument("--api", default="https://cloud-api-staging.cmux.dev")
+parser.add_argument("--card-only", action="store_true", help="no account: only check that Settings > Machines has a signed-out Hands group")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 
@@ -136,12 +140,15 @@ def http(method, url, headers=None, body=None, timeout=60):
 
 
 STACK = {"x-stack-project-id": DEV_STACK_PROJECT, "x-stack-publishable-client-key": DEV_STACK_CLIENT_KEY, "x-stack-access-type": "client"}
-EMAIL, PASSWORD, APP_SIGN_IN = owner_credentials()
-status, body = http("POST", f"{STACK_API}/auth/password/sign-in", STACK, {"email": EMAIL, "password": PASSWORD})
-PASSWORD = None
-if status != 200 or "access_token" not in body:
-    sys.exit(f"inconclusive: Stack sign-in answered {status} {body.get('code', '')}")
-SESSION = {"access": body["access_token"], "refresh": body["refresh_token"]}
+if opts.card_only:
+    EMAIL, APP_SIGN_IN, SESSION = "", {}, None
+else:
+    EMAIL, PASSWORD, APP_SIGN_IN = owner_credentials()
+    status, body = http("POST", f"{STACK_API}/auth/password/sign-in", STACK, {"email": EMAIL, "password": PASSWORD})
+    PASSWORD = None
+    if status != 200 or "access_token" not in body:
+        sys.exit(f"inconclusive: Stack sign-in answered {status} {body.get('code', '')}")
+    SESSION = {"access": body["access_token"], "refresh": body["refresh_token"]}
 
 
 def api(method, path, body=None, timeout=60):
@@ -229,6 +236,59 @@ def approval_round(label, allow):
     check(bool(wait_for(lambda: not any(p.get("key") == key for p in hands().get("pending", [])), 30)),
           f"{label}: the banner's request is gone from pending ({'allow' if allow else 'deny'})")
 
+
+def page_query(selector):
+    """The Settings page's elements matching `selector` (debug.page query): data-*, classes, text."""
+    reply = rpc("debug.page", {"page": "cmux.settings", "action": "query", "selector": selector})
+    return [e for e in (reply.get("elements") or []) if isinstance(e, dict)]
+
+
+def page_click(selector):
+    return rpc("debug.page", {"page": "cmux.settings", "action": "click", "selector": selector}).get("clicked") is True
+
+
+def open_machines():
+    """Settings > Machines, where the Hands group lives under the saved machines."""
+    rpc("action.run", {"id": "openSettings", "args": {"section": "machines"}, "wait": True})
+    return wait_for(lambda: page_query('[data-card="machines"]'), 60)
+
+
+if opts.card_only:
+    # Red/green check with no account: Settings > Machines has a Hands group that says to sign in.
+    with open(CONFIG, "w") as f:
+        f.write("{}\n")
+    if os.path.exists(SOCKET):
+        os.unlink(SOCKET)
+    teardown = TagTeardown(APP)
+    teardown.install()
+    app = None
+    try:
+        with open(os.path.join(opts.out, "app.log"), "w") as app_log:
+            app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
+                                                  "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG},
+                                   stdout=app_log, stderr=subprocess.STDOUT)
+        if check(bool(wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), 120)), "the app socket answers"):
+            check(bool(open_machines()), "Settings > Machines is open")
+            group = wait_for(lambda: page_query('[data-card="hands"]'), 30)
+            report["steps"]["card"] = group
+            check(bool(group), "card: Settings > Machines has a Hands group")
+            signed_out = page_query("[data-hands-signed-out]")
+            report["steps"]["signed_out"] = signed_out
+            check(bool(signed_out) and "settingsWindow." not in signed_out[0].get("text", ""),
+                  f"card: signed out, the group says to sign in ({signed_out[0].get('text') if signed_out else None!r})")
+    finally:
+        if app is not None:
+            rpc("action.run", {"action": "quitEndSessions"})
+            try:
+                app.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                app.kill()
+        teardown.end()
+        shutil.rmtree(SCRATCH, ignore_errors=True)
+        with open(os.path.join(opts.out, "report.json"), "w") as f:
+            json.dump(report, f, indent=1, default=str)
+    print(f"{len(failures)} failure(s); report {os.path.join(opts.out, 'report.json')}")
+    sys.exit(1 if failures else 0)
 
 HAND = None
 hand_process = None
@@ -322,6 +382,17 @@ try:
     report["steps"]["listed"] = row
     check(bool(row) and row.get("level") == "auto", f"1. the app lists the hand at level auto ({row})")
 
+    # 1b. Settings > Machines > Hands shows it, its level pressed.
+    def card_row():
+        return next((e for e in page_query(f'[data-hand="{HAND}"]') if e.get("data", {}).get("handLevelCurrent")), None)
+
+    def card_level(level):
+        return wait_for(lambda: (card_row() or {}).get("data", {}).get("handLevelCurrent") == level, 30)
+
+    check(bool(open_machines()), "1b. Settings > Machines is open")
+    check(bool(card_level("auto")), f"1b. the Hands group lists the hand at auto ({card_row()})")
+    report["steps"]["card_row"] = card_row()
+
     # 2. Presence key.
     state = hands({"action": "enroll"})
     report["steps"]["enroll"] = state.get("result")
@@ -332,8 +403,9 @@ try:
         check("unavailable" in str(state.get("result")), f"2. no Secure Enclave: enroll refused ({state.get('result')})")
 
     # 3. A lower is a plain PUT.
-    hands({"action": "level", "hand": HAND, "level": "ask"})
+    check(page_click(f'[data-hand="{HAND}"] [data-hand-level="ask"]'), "3. clicked Ask on the hand's row in Settings")
     check(bool(logged(f"level {HAND} ask: ok")), "3. the lower auto -> ask answered ok")
+    check(bool(card_level("ask")), "3. the row shows ask")
     check(server_level(HAND) == "ask", f"3. the server says ask ({server_level(HAND)})")
 
     # 4. A raise without the presence signature is refused.
@@ -343,7 +415,7 @@ try:
     check(server_level(HAND) == "ask", "4. the level stays ask")
 
     # 5. A raise asks for presence; the script cancels the prompt.
-    hands({"action": "level", "hand": HAND, "level": "auto"})
+    check(page_click(f'[data-hand="{HAND}"] [data-hand-level="auto"]'), "5. clicked Auto on the hand's row in Settings")
     if secure_enclave:
         prompt = wait_for(lambda: hands().get("prompt"), 30)
         report["steps"]["prompt"] = prompt
@@ -355,6 +427,17 @@ try:
         ended = logged("raise refused:")
         check(bool(ended), f"5. no Secure Enclave: the raise is refused with the localized text ({ended})")
     check(server_level(HAND) == "ask", "5. the level stays ask")
+    check(bool(card_level("ask")), "5. the row still shows ask")
+
+    # 5b. The default for new Mac hands: a raise (auto -> full) also asks for presence; cancelled, nothing changes.
+    check(page_click('[data-hand-default="mac"] [data-hand-level="full"]'), "5b. clicked Full for new Mac hands")
+    if secure_enclave:
+        prompt = wait_for(lambda: hands().get("prompt"), 30)
+        report["steps"]["default_prompt"] = prompt
+        check(bool(prompt) and "Mac" in prompt, f"5b. the presence prompt was requested for the Mac default ({prompt!r})")
+        check(bool(page_query("[data-hands-prompt]")), "5b. the Hands group says it waits for Touch ID or the password")
+        hands({"action": "cancel_prompt"})
+        check(bool(wait_for(lambda: not hands().get("prompt"), 30)), "5b. the cancelled prompt is gone")
 
     # 6 and 7. A request at ask: Deny, then Allow, through the banner's own path.
     approval_round("deny-round", allow=False)
