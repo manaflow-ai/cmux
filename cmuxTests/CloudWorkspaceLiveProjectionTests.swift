@@ -690,10 +690,15 @@ struct CloudWorkspaceLiveProjectionTests {
 
         // `configureBrowser` records the remote resource before the provider returns its
         // selected view. The catalog must merge that early record with the provider result.
+        let document = SurfaceCatalog.CloudBrowserDocument(
+            url: URL(string: "https://example.com/navigated")!, title: "Navigated",
+            remoteTabID: remoteView.tabID, revision: 1
+        )
         provider.registerDuringMaterialization = { projection in
             catalog.record(SurfaceProjection(
                 resource: browser.id, workspaceID: destinationWorkspace.id, panelID: projection.panelID
             ))
+            catalog.cloudBrowserDocuments[browser.id, default: [:]][projection.panelID] = document
         }
         let opened = try await catalog.project(
             browser.id,
@@ -710,6 +715,7 @@ struct CloudWorkspaceLiveProjectionTests {
         #expect(destination.remoteWorkspaceID == remoteWorkspace.id)
         #expect(destination.remoteTabID == remoteView.tabID)
         #expect(catalog.projections(of: browser.id).count == 2)
+        #expect(catalog.cloudBrowserDocuments[browser.id]?[destination.panelID]?.url == document.url)
     }
 
     @Test("A restored Desktop or port record without provenance joins its bound workspace", arguments: [false, true])

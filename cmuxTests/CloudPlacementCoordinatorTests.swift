@@ -149,6 +149,45 @@ struct CloudPlacementCoordinatorTests {
         })
     }
 
+    @Test func aCloudBrowserSidebarMoveKeepsNativeDocumentsAndOtherTabs() async {
+        let (catalog, provider) = Self.harness(bound: UUID())
+        let other = SurfaceRemoteWorkspace(id: "ws_other", name: "other", index: 2, focused: false)
+        var browser = Self.browser("docs", view: SurfaceRemoteView(tabID: "tab_docs", workspace: Self.main))
+        browser.remoteViews?.append(SurfaceRemoteView(tabID: "tab_other", workspace: other))
+        catalog.replaceResources([browser], on: Self.machine)
+        let dragged = SurfaceProjection(
+            resource: browser.id, workspaceID: UUID(), panelID: UUID(),
+            remoteWorkspaceID: Self.main.id, remoteTabID: "tab_docs"
+        )
+        let untouched = SurfaceProjection(
+            resource: browser.id, workspaceID: UUID(), panelID: UUID(),
+            remoteWorkspaceID: other.id, remoteTabID: "tab_other"
+        )
+        catalog.record(dragged)
+        catalog.record(untouched)
+        let document = SurfaceCatalog.CloudBrowserDocument(
+            url: URL(string: "https://example.com/navigated")!, title: "Navigated",
+            remoteTabID: "tab_docs", revision: 1
+        )
+        catalog.cloudBrowserDocuments[browser.id] = [dragged.panelID: document]
+
+        let task = catalog.cloudPlacementCoordinator.moveRemoteTab(
+            resource: browser.id,
+            tabID: "tab_docs",
+            intoRemoteWorkspace: Self.api.id,
+            catalog: catalog,
+            provider: provider,
+            onFailure: { error in Issue.record("browser move failed: \(error)") }
+        )
+        await task.value
+
+        // Re-placing a view is not closing it: the page the user navigated to survives.
+        #expect(catalog.cloudBrowserDocuments[browser.id]?[dragged.panelID]?.url == document.url)
+        let moved = catalog.projection(forPanel: dragged.panelID)
+        #expect(moved?.remoteWorkspaceID == Self.api.id && moved?.remoteTabID == "tab_docs")
+        #expect(catalog.projection(forPanel: untouched.panelID) == untouched)
+    }
+
     @Test func aCloudBrowserSidebarMoveIgnoresAReplacedProvidersReply() async {
         let (catalog, provider) = Self.harness(bound: UUID())
         let browser = Self.browser("docs", view: SurfaceRemoteView(tabID: "tab_docs", workspace: Self.main))

@@ -137,6 +137,20 @@ struct CloudWorkspaceProjectionPlanTests {
         #expect(plan.missing.isEmpty)
     }
 
+    @Test("A protected pending pane already showing its placement is not reported missing")
+    func protectedPendingPaneSatisfiesItsPlacement() {
+        let browser = SurfaceResourceID(machine: machine, kind: .browser, key: "browser-1")
+        let pendingPanel = UUID()
+        let pending = SurfaceProjection(
+            resource: browser, workspaceID: UUID(), panelID: pendingPanel,
+            remoteWorkspaceID: "workspace", remoteTabID: "tab"
+        )
+        let placement = SurfaceResourcePlacement(resource: browser, remoteWorkspaceID: "workspace", remoteTabID: "tab")
+        let plan = CloudWorkspaceProjectionPlan(desired: [placement], existing: [pending], protectedPanelIDs: [pendingPanel])
+        #expect(plan.obsolete.isEmpty)
+        #expect(plan.missing.isEmpty)
+    }
+
     @Test("A preview whose remote placement was deleted is retired")
     func deletedRemotePlacementIsNotMistakenForPreview() {
         let display = SurfaceResourceID(machine: machine, kind: .display, key: "display:1")
