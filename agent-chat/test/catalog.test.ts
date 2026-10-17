@@ -33,6 +33,13 @@ const payload = {
         defaultServiceTier: "priority",
       }],
     },
+    minimax: {
+      defaultModel: "MiniMax-M3",
+      models: [
+        { id: "MiniMax-M3", label: "MiniMax M3", contextWindow: 1000000, supportsOneMillion: true },
+        { id: "MiniMax-M2.7", label: "MiniMax M2.7", contextWindow: 204800 },
+      ],
+    },
   },
 } as const;
 
@@ -41,6 +48,9 @@ test("catalog validation, provider merges, persistence, and ETag", async () => {
   const parsed = validateAgentModelCatalog(payload);
   expect(parsed.providers.claude?.models).toHaveLength(1);
   expect(parsed.providers.claude?.defaultModel).toBe("claude-new");
+  expect(parsed.providers.minimax?.models).toHaveLength(2);
+  expect(parsed.providers.minimax?.defaultModel).toBe("MiniMax-M3");
+  expect(parsed.providers.minimax?.models[0]?.supportsOneMillion).toBe(true);
 
   const acp = mergeAcpModelOption(
     { id: "model", label: "Model", kind: "select", value: "binary-current", choices: [{ value: "binary-listed", label: "Binary Listed" }] },
