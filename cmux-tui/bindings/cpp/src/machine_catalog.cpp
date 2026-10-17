@@ -1,12 +1,20 @@
 #include "cmux/resource.hpp"
 
 namespace cmux {
+namespace {
+Json::Object catalog_params(MachineReadOptions options) {
+    Json::Object params;
+    if (options.catalog) params.emplace("catalog", true);
+    return params;
+}
+}  // namespace
+
 Result<std::vector<MachineSnapshot>> Client::machines() const {
-    return detail::ResourceReadResult(read(Operation::machine_list));
+    return machines(MachineReadOptions{});
 }
 
 Result<MachineSnapshot> Machine::refresh() const {
-    return read(Operation::machine_get);
+    return refresh(MachineReadOptions{});
 }
 
 Result<std::vector<SessionSnapshot>> Machine::sessions() const {
@@ -21,11 +29,10 @@ Session Machine::session(SessionId id) const {
     return session(Selector<SessionId>::by_id(std::move(id)));
 }
 
-
-Result<std::vector<MachineSnapshot>> Client::machines(MachineReadOptions) const {
-    return machines();
+Result<std::vector<MachineSnapshot>> Client::machines(MachineReadOptions options) const {
+    return detail::ResourceReadResult(read(Operation::machine_list, catalog_params(options)));
 }
-Result<MachineSnapshot> Machine::refresh(MachineReadOptions) const {
-    return refresh();
+Result<MachineSnapshot> Machine::refresh(MachineReadOptions options) const {
+    return read(Operation::machine_get, catalog_params(options));
 }
 }  // namespace cmux

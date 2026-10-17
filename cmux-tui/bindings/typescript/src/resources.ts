@@ -1,3 +1,4 @@
+import { machineCatalogParams } from "./internal/machine-catalog.js";
 import { CmuxProtocolError } from "./errors.js";
 import { decodeBase64, encodeBase64 } from "./base64.js";
 import {
@@ -2623,8 +2624,9 @@ abstract class Handle<Id extends string, Value extends Snapshot<Id>> {
     operation: Operation,
     decode: SnapshotDecoder<Value>,
     options: RequestOptions = {},
+    params: Readonly<Record<string, unknown>> = this.params(),
   ): Promise<Value> {
-    const result = await this.client[readOperation](operation, this.params(), options);
+    const result = await this.client[readOperation](operation, params, options);
     const snapshot = decode(result);
     this.cached = snapshot;
     return snapshot;
@@ -2758,7 +2760,7 @@ export class Client {
   }
 
   async listMachines(options: MachineReadOptions = {}): Promise<Machine[]> {
-    const values = listPayload(await this[readOperation](operations.machineList, {}, options), "machines");
+    const values = listPayload(await this[readOperation](operations.machineList, machineCatalogParams(options.catalog), options), "machines");
     return values.map((value) => {
       const snapshot = machineSnapshot(value);
       return new Machine(this, selectId(snapshot.id), {}, snapshot);
@@ -3116,7 +3118,8 @@ export class Machine extends Handle<MachineId, MachineSnapshot> {
   }
 
   refresh(options: MachineReadOptions = {}): Promise<MachineSnapshot> {
-    return this.refreshWith(operations.machineGet, machineSnapshot, options);
+    return this.refreshWith(operations.machineGet, machineSnapshot, options,
+      { ...this.params(), ...machineCatalogParams(options.catalog) });
   }
 
   async listSessions(options: RequestOptions = {}): Promise<Session[]> {

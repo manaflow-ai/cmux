@@ -48,3 +48,31 @@ fn cmux_next_machine_sdk_catalog_opt_in_preserves_default_frames_and_owner_route
     assert_eq!(requests.len(), 6);
     assert_eq!(rich.platform.unwrap().os.as_deref(), Some("linux"));
 }
+
+#[test]
+fn cmux_next_machine_sdk_catalog_opt_in_returns_list_metadata_without_extra_reads() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let capture = seen.clone();
+    let peer = common::mock(move |stream, reader| {
+        let request = common::request(reader, "machine.list");
+        common::read_ok(
+            stream,
+            &request,
+            json!([{
+                "id":OWNER,"name":"owner","origin":"server","status":"running",
+                "connectable":true,"deleted":false,"recoverable":false,
+                "platform":{"os":"linux"},"capabilities":["terminal"]
+            }]),
+        );
+        capture.lock().unwrap().push(request);
+    });
+    let client = peer.client();
+    let rows = client.machine_snapshots_with(MachineReadOptions { catalog: true }).unwrap();
+    drop(client);
+    peer.finish();
+    let requests = seen.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["params"], json!({"catalog":true}));
+    assert_eq!(rows[0].platform.as_ref().unwrap().os.as_deref(), Some("linux"));
+    assert_eq!(rows[0].capabilities, vec!["terminal"]);
+}

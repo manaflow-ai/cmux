@@ -338,7 +338,7 @@ public final class Client implements AutoCloseable {
 
     public List<Machine> listMachinesWith(Options.MachineRead options) {
         Objects.requireNonNull(options, "options");
-        return listMachines(Options.Read.defaults());
+        return listMachines(new Options.Read(options.params()));
     }
 
     public List<Machine> findMachinesByNameWith(String name, Options.MachineRead options) {

@@ -1232,16 +1232,6 @@ func (p *FrontendProjection) cache(value FrontendProjectionSnapshot) error {
 	return nil
 }
 
-func (m *Machine) Refresh(ctx context.Context) (MachineSnapshot, error) {
-	var snapshot MachineSnapshot
-	if err := m.client.readResource(ctx, wirev2.MachineGet, m.route.params(), &snapshot); err != nil {
-		return MachineSnapshot{}, err
-	}
-	m.mu.Lock()
-	m.snapshot = &snapshot
-	m.mu.Unlock()
-	return snapshot, nil
-}
 func (s *Session) Refresh(ctx context.Context) (SessionSnapshot, error) {
 	var snapshot SessionSnapshot
 	if err := s.client.readResource(ctx, wirev2.SessionGet, s.route.params(), &snapshot); err != nil {

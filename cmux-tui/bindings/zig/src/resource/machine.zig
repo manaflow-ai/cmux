@@ -6,6 +6,10 @@ const raw = @import("../raw.zig");
 /// Explicit response format; catalog metadata grants no execution rights.
 pub const MachineReadOptions = struct { catalog: bool = false };
 
+pub fn addCatalog(params: *raw.wire.Object, options: MachineReadOptions) !void {
+    if (options.catalog) try params.put("catalog", .{ .bool = true });
+}
+
 pub fn Models(comptime MachineId: type) type {
     return struct {
         pub const MachineOrigin = union(enum) {

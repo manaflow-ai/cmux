@@ -3767,22 +3767,20 @@ pub const Client = struct {
     }
 
     pub fn listMachines(self: *Client) !MachineList {
-        var arena = std.heap.ArenaAllocator.init(self.allocator);
-        defer arena.deinit();
-        return decodeTypedList(
-            MachineSnapshot,
-            self.allocator,
-            try self.read(
-                .machine_list,
-                .{ .object = raw.wire.Object.init(arena.allocator()) },
-            ),
-            "machines",
-        );
+        return self.listMachinesWith(.{});
     }
 
     pub fn listMachinesWith(self: *Client, options: MachineReadOptions) !MachineList {
-        _ = options;
-        return self.listMachines();
+        var arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
+        var params = raw.wire.Object.init(arena.allocator());
+        try @import("resource/machine.zig").addCatalog(&params, options);
+        return decodeTypedList(
+            MachineSnapshot,
+            self.allocator,
+            try self.read(.machine_list, .{ .object = params }),
+            "machines",
+        );
     }
 
     pub fn machines(self: *Client) !MachineList {
@@ -13451,12 +13449,20 @@ pub const Machine = struct {
     }
 
     pub fn refresh(self: Self) !OwnedMachineSnapshot {
-        return self.impl().refresh();
+        return self.refreshWith(.{});
     }
 
     pub fn refreshWith(self: Self, options: MachineReadOptions) !OwnedMachineSnapshot {
-        _ = options;
-        return self.refresh();
+        var params = try Params(MachineId).init(self.client.allocator, "machine", &self.target, null);
+        defer params.deinit();
+        try @import("resource/machine.zig").addCatalog(&params.object, options);
+        return decodeRefreshResult(
+            MachineId,
+            "machine",
+            self.client.allocator,
+            self.id(),
+            try self.client.read(.machine_get, params.asValue()),
+        );
     }
 
     pub fn listSessions(self: Self) !SessionList {

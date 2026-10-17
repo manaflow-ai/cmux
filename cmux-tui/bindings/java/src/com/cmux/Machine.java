@@ -39,16 +39,17 @@ public final class Machine {
     }
 
     public Snapshots.MachineSnapshot refresh() {
-        snapshot = Client.decodeMachine(Client.resourcePayload(
-            client.request(Operations.MACHINE_GET, route.params(), null),
-            Wire.MACHINE
-        ));
-        return snapshot;
+        return refresh(Options.MachineRead.defaults());
     }
 
     public Snapshots.MachineSnapshot refresh(Options.MachineRead options) {
         Objects.requireNonNull(options, "options");
-        return refresh();
+        Map<String, Object> params = new java.util.HashMap<>(route.params());
+        params.putAll(options.params());
+        snapshot = Client.decodeMachine(Client.resourcePayload(
+            client.request(Operations.MACHINE_GET, params, null), Wire.MACHINE
+        ));
+        return snapshot;
     }
 
     public Session session(Selector<Ids.SessionId> session) {

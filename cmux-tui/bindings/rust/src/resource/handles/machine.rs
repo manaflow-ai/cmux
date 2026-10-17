@@ -10,37 +10,41 @@ impl Client {
     }
 
     pub fn machines(&self) -> Result<Vec<Machine>> {
-        wire::list::<MachineSnapshot>(
-            &self.read(ops::MACHINE_LIST, Params::new())?,
-            "machines",
-            "machine",
-        )
-        .map(|snapshots| snapshots.into_iter().map(|snapshot| self.machine(snapshot.id)).collect())
+        self.machines_with(MachineReadOptions::default())
     }
 
     pub fn find_machines_by_name(&self, name: &str) -> Result<Vec<Machine>> {
-        Ok(wire::list::<MachineSnapshot>(
-            &self.read(ops::MACHINE_LIST, Params::new())?,
-            "machines",
-            "machine",
-        )?
-        .into_iter()
-        .filter(|snapshot| snapshot.name == name)
-        .map(|snapshot| self.machine(snapshot.id))
-        .collect())
+        self.find_machines_by_name_with(name, MachineReadOptions::default())
     }
 
-    /// Reads an explicitly selected machine catalog format.
-    pub fn machines_with(&self, _options: MachineReadOptions) -> Result<Vec<Machine>> {
-        self.machines()
+    /// Reads the selected format without opening a connection to any catalog entry.
+    pub fn machines_with(&self, options: MachineReadOptions) -> Result<Vec<Machine>> {
+        Ok(self
+            .machine_snapshots_with(options)?
+            .into_iter()
+            .map(|snapshot| self.machine(snapshot.id))
+            .collect())
+    }
+
+    /// Returns the metadata already carried by the list response, without N extra reads.
+    pub fn machine_snapshots_with(
+        &self,
+        options: MachineReadOptions,
+    ) -> Result<Vec<MachineSnapshot>> {
+        wire::list(&self.read(ops::MACHINE_LIST, catalog_params(options))?, "machines", "machine")
     }
 
     pub fn find_machines_by_name_with(
         &self,
         name: &str,
-        _options: MachineReadOptions,
+        options: MachineReadOptions,
     ) -> Result<Vec<Machine>> {
-        self.find_machines_by_name(name)
+        Ok(self
+            .machine_snapshots_with(options)?
+            .into_iter()
+            .filter(|snapshot| snapshot.name == name)
+            .map(|snapshot| self.machine(snapshot.id))
+            .collect())
     }
 }
 
@@ -57,17 +61,18 @@ impl Machine {
     }
 
     pub fn refresh(&self) -> Result<MachineSnapshot> {
-        wire::snapshot(
-            &self
-                .client
-                .read(ops::MACHINE_GET, Params::new().selector(field::MACHINE, &self.selector))?,
-            "machine",
-        )
+        self.refresh_with(MachineReadOptions::default())
     }
 
     /// Refreshes this same owner with explicitly selected catalog metadata.
-    pub fn refresh_with(&self, _options: MachineReadOptions) -> Result<MachineSnapshot> {
-        self.refresh()
+    pub fn refresh_with(&self, options: MachineReadOptions) -> Result<MachineSnapshot> {
+        wire::snapshot(
+            &self.client.read(
+                ops::MACHINE_GET,
+                catalog_params(options).selector(field::MACHINE, &self.selector),
+            )?,
+            "machine",
+        )
     }
 
     pub fn sessions(&self) -> Result<Vec<Session>> {
@@ -129,4 +134,8 @@ impl Machine {
         )?;
         mutation_snapshot(value, "session")
     }
+}
+
+fn catalog_params(options: MachineReadOptions) -> Params {
+    if options.catalog { Params::new().value("catalog", Value::Bool(true)) } else { Params::new() }
 }

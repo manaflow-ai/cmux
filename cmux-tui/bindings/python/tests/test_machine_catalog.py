@@ -73,6 +73,11 @@ class MachineCatalogWireTests(unittest.TestCase):
                 client.list_machines(catalog=True)
                 client.list_machines(catalog=False)
                 owner = client.machine(MachineId(owner_id))
+                for invalid in (1, "true", None):
+                    with self.subTest(catalog=invalid), self.assertRaises(TypeError):
+                        client.list_machines(catalog=invalid)
+                    with self.subTest(catalog=invalid), self.assertRaises(TypeError):
+                        owner.refresh(catalog=invalid)
                 owner.refresh()
                 rich = owner.refresh(catalog=True)
                 owner.refresh(catalog=False)

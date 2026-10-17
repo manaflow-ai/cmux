@@ -24,6 +24,7 @@ from typing import (
     Union,
 )
 
+from ._machine_catalog import catalog_params
 from ._operations import Operation, Operations
 from ._protocol import ProtocolConnection, ResourceStream
 from .client_defaults import (
@@ -2677,8 +2678,11 @@ class _Handle(Generic[IdT, SnapshotT]):
         return {**self._scope, self._selector_key: self.selector.encode()}
 
     def refresh(self) -> SnapshotT:
+        return self._refresh_params(self._params())
+
+    def _refresh_params(self, params: Mapping[str, Any]) -> SnapshotT:
         snapshot = self._decode_snapshot(
-            self._client._read(self._get_operation, self._params())
+            self._client._read(self._get_operation, params)
         )
         self._snapshot = snapshot
         return snapshot
@@ -2776,7 +2780,7 @@ class Client:
 
     def list_machines(self, *, catalog: bool = False) -> List["Machine"]:
         values = _list_payload(
-            self._read(Operations.MACHINE_LIST, {}),
+            self._read(Operations.MACHINE_LIST, catalog_params(catalog)),
             "machines",
         )
         return [
@@ -2791,7 +2795,7 @@ class Client:
     def find_machines_by_name(self, name: str, *, catalog: bool = False) -> List["Machine"]:
         return [
             item
-            for item in self.list_machines()
+            for item in self.list_machines(catalog=catalog)
             if item.snapshot is not None and item.snapshot.name == name
         ]
 
@@ -3208,7 +3212,7 @@ class Machine(_Handle[MachineId, MachineSnapshot]):
     _decode_snapshot = staticmethod(_machine_snapshot)
 
     def refresh(self, *, catalog: bool = False) -> MachineSnapshot:
-        return super().refresh()
+        return self._refresh_params({**self._params(), **catalog_params(catalog)})
 
     def session(self, selector: SelectorInput[SessionId]) -> "Session":
         return Session(

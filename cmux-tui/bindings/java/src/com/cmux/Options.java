@@ -38,6 +38,7 @@ public final class Options {
     /** Machine response format; this grants no session or execution rights. */
     public record MachineRead(boolean catalog) {
         public static MachineRead defaults() { return new MachineRead(false); }
+        Map<String, Object> params() { return catalog ? Map.of("catalog", true) : Map.of(); }
     }
 
     public record Control(Map<String, Object> extra) {
