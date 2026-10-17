@@ -30,6 +30,7 @@
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-effort-item[data-highlighted] { background: var(--acpmux-menu-hover); }
+.acpmux-effort-bolt { flex: none; width: 15px; height: 15px; fill: currentColor; color: var(--agent-accent); }
 .acpmux-effort-item .ui-menu-check {
   grid-column: 1;
   display: inline-flex;
@@ -77,8 +78,7 @@
   border: 0;
   background: color-mix(in srgb, var(--agent-text) 12%, transparent);
 }
-/* The opt-in slider (Debug Settings agent.reasoningSlider): wide enough for Faster, Smarter and the
-   recommended line; the title row names the level the thumb sits on. */
+/* The opt-in slider (Debug Settings agent.reasoningSlider) keeps the native effort control compact. */
 .acpmux-effort-menu:has(.acpmux-effort-slider) {
   width: min(232px, calc(100vw - 24px));
 }
@@ -119,6 +119,7 @@
   height: calc(23.5px * var(--cmux-interface-scale, 1));
   margin-top: calc(12px * var(--cmux-interface-scale, 1));
   border-radius: 12px;
+  overflow: hidden;
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
 }
 .acpmux-effort-fill {
@@ -126,7 +127,7 @@
   inset: 0 auto 0 0;
   width: calc(var(--acpmux-effort-inset) + (100% - 2 * var(--acpmux-effort-inset)) * var(--acpmux-effort));
   border-radius: 12px;
-  background: color-mix(in srgb, var(--agent-text) 45%, transparent);
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 58%, transparent);
   transition: width 160ms ease;
 }
 .acpmux-effort-stop {
@@ -153,35 +154,30 @@
 }
 .acpmux-effort-thumb {
   position: absolute;
-  top: -2.5px;
+  top: 50%;
   left: calc(var(--acpmux-effort-inset) + (100% - 2 * var(--acpmux-effort-inset)) * var(--acpmux-effort));
-  width: 28px;
-  height: 28px;
-  margin-left: -14px;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border: 2px solid var(--agent-accent, var(--agent-text));
   border-radius: 50%;
-  background: var(--agent-text);
-  box-shadow: var(--elevation-1);
+  background: var(--agent-accent, var(--agent-text));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);
   pointer-events: none;
   transition: left 160ms ease;
 }
-/* Faster and Smarter at the track's ends (the track is physical left-to-right, so the row is too),
-   the recommended level on its own centred line under them: a narrow panel never cuts it. */
-.acpmux-effort-ends {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  column-gap: 8px;
-  margin-top: 6px;
-  direction: ltr;
-  font-size: var(--text-detail);
-  line-height: 16px;
-  color: var(--agent-muted);
+/* Debug Settings agent.reasoningSliderStyle=minimal: a quieter comparison treatment that keeps
+   the same stops and interaction while reducing the thumb's visual weight. */
+.acpmux-effort-track[data-slider-style="minimal"] .acpmux-effort-fill {
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 34%, transparent);
 }
-.acpmux-effort-recommended {
-  order: 3;
-  flex-basis: 100%;
-  text-align: center;
-  direction: initial;
+.acpmux-effort-track[data-slider-style="minimal"] .acpmux-effort-thumb {
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-width: 1.5px;
+  background: var(--surface-popup);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 32%, transparent);
 }
 .acpmux-effort-range {
   position: absolute;
@@ -192,10 +188,12 @@
   opacity: 0;
   cursor: default;
 }
-.acpmux-effort-range:focus-visible + .acpmux-effort-thumb,
 .acpmux-effort-track:has(.acpmux-effort-range:focus-visible) .acpmux-effort-thumb {
-  outline: 2px solid color-mix(in srgb, var(--agent-text) 40%, transparent);
-  outline-offset: 1px;
+  outline: 2px solid color-mix(in srgb, var(--agent-accent, var(--agent-text)) 78%, var(--surface-popup));
+  outline-offset: 2px;
+  box-shadow:
+    var(--elevation-1),
+    0 0 0 4px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);
 }
 @media (prefers-reduced-motion: reduce) {
   .acpmux-effort-fill,
