@@ -21217,7 +21217,7 @@ struct CMUXCLI {
         case "billing":
             return String(
                 localized: "cli.billing.help",
-                defaultValue: "Usage: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCreate checkout for the signed-in cmux account. Max is $200/month; Go and Max are monthly-only. Payment requires browser confirmation. --no-open or --json returns the URL without opening a browser.",
+                defaultValue: "Usage: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCreate checkout for the signed-in cmux account. Max is $200/month; annual Max checkout is unavailable through CLI checkout; Go is monthly-only. Payment requires browser confirmation. --no-open or --json returns the URL without opening a browser.",
             )
         case "auth":
             return String(localized: "cli.auth.help", defaultValue: """

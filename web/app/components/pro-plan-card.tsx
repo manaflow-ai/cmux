@@ -114,7 +114,7 @@ export function ProPlanCard({
             {`$${price.monthlyEquivalent}`}
           </span>
           <span className="max-w-44 text-sm leading-snug text-muted">
-            {pricePeriodLabel(interval, labels)}
+            {pricePeriodLabel(action ? "month" : interval, labels)}
           </span>
         </div>
       </div>
