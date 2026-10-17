@@ -65,6 +65,7 @@ extension TerminalController {
             "mobile.panel.artifact.stat",
             "mobile.panel.artifact.thumbnail",
             "mobile.workspace.list",
+            "mobile.task.attachment.upload",
             "mobile.workspace.changes.files",
             "mobile.workspace.changes.file_diff",
             "mobile.workspace.changes.file_stat",
