@@ -406,7 +406,10 @@ extension AgentChatTranscriptService {
         limit: Int
     ) -> (messages: [ChatMessage], hasMore: Bool) {
         let all = (transcript + permissions)
-            .filter { beforeSeq.map { $0.seq < $1 } ?? true }
+            .filter { message in
+                guard let beforeSeq else { return true }
+                return message.seq < beforeSeq
+            }
             .sorted {
                 if $0.seq != $1.seq { return $0.seq < $1.seq }
                 return $0.timestamp < $1.timestamp
