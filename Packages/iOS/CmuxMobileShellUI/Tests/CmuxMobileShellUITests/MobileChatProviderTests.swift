@@ -16,9 +16,16 @@ struct MobileChatProviderTests {
         model.loadPreview()
 
         #expect(model.sessions.count == 3)
-        #expect(model.sessions.map { MobileChatProvider.resolve($0.agentKind) }.contains(.codex))
-        #expect(model.sessions.map { MobileChatProvider.resolve($0.agentKind) }.contains(.claude))
-        #expect(model.sessions.map { MobileChatProvider.resolve($0.agentKind) }.contains(.openCode))
+        let providers = model.sessions.compactMap { MobileChatProvider.resolve($0.agentKind) }
+        #expect(providers.contains(.codex))
+        #expect(providers.contains(.claude))
+        #expect(providers.contains(.openCode))
         #expect(model.messages(for: "preview-codex").count == 3)
+    }
+
+    @Test("does not relabel unknown agents as OpenCode")
+    func unknownProviderIsUnsupported() {
+        #expect(MobileChatProvider.resolve(.other("pi")) == nil)
+        #expect(MobileChatProvider.resolve(.other("opencode")) == .openCode)
     }
 }

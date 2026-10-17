@@ -47,7 +47,11 @@ struct MobileChatNewChatSheet: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-                    .disabled(isStarting || prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(
+                        isStarting
+                            || prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || targetComputer == nil
+                    )
                     .accessibilityIdentifier("MobileChatStart")
                 }
                 .padding(20)
@@ -118,9 +122,7 @@ struct MobileChatNewChatSheet: View {
                 instanceTag: store.connectedMacInstanceTag
             )
         }
-        return store.displayPairedMacs.first.map {
-            MobileChatTarget(macDeviceID: $0.macDeviceID, instanceTag: $0.instanceTag)
-        }
+        return nil
     }
 }
 

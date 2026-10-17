@@ -10,20 +10,22 @@ struct MobileChatActivityView: View {
         List {
             Section {
                 ForEach(sessions) { session in
-                    HStack(spacing: 12) {
-                        MobileChatProviderBadge(provider: MobileChatProvider.resolve(session.agentKind))
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(session.title?.isEmpty == false ? session.title! : "Untitled chat")
-                                .font(.body.weight(.medium))
-                            Text(session.state.displayName)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                    if let provider = MobileChatProvider.resolve(session.agentKind) {
+                        HStack(spacing: 12) {
+                            MobileChatProviderBadge(provider: provider)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(session.title?.isEmpty == false ? session.title! : "Untitled chat")
+                                    .font(.body.weight(.medium))
+                                Text(session.state.displayName)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            MobileChatStateDot(state: session.state)
                         }
-                        Spacer()
-                        MobileChatStateDot(state: session.state)
+                        .padding(.vertical, 5)
+                        .listRowSeparator(.hidden)
                     }
-                    .padding(.vertical, 5)
-                    .listRowSeparator(.hidden)
                 }
             } header: {
                 Text("Agent activity")

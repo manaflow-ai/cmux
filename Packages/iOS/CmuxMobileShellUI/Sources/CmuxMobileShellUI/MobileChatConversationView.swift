@@ -69,13 +69,15 @@ struct MobileChatConversationView: View {
                 .accessibilityIdentifier("MobileChatBackToChats")
             }
             ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 6) {
-                    MobileChatStateDot(state: sessionState)
-                    Text(provider.title)
-                        .font(.subheadline.weight(.semibold))
+                if let provider {
+                    HStack(spacing: 6) {
+                        MobileChatStateDot(state: sessionState)
+                        Text(provider.title)
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(provider.title), \(sessionState.displayName)")
                 }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(provider.title), \(sessionState.displayName)")
             }
         }
         .task(id: sessionID) {
@@ -90,13 +92,13 @@ struct MobileChatConversationView: View {
         model.sessions.first { $0.id == sessionID }
     }
 
-    private var provider: MobileChatProvider {
-        MobileChatProvider.resolve(session?.agentKind ?? .other("opencode"))
+    private var provider: MobileChatProvider? {
+        session.flatMap { MobileChatProvider.resolve($0.agentKind) }
     }
 
     private var sessionTitle: String {
         if let title = session?.title, !title.isEmpty { return title }
-        return "New \(provider.title) chat"
+        return provider.map { "New \($0.title) chat" } ?? "Chat"
     }
 
     private var sessionState: ChatAgentState {

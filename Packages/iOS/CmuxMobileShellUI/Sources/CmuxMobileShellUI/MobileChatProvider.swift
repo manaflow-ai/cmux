@@ -58,12 +58,15 @@ enum MobileChatProvider: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    static func resolve(_ kind: ChatAgentKind) -> Self {
+    /// Returns a native provider only for the providers this surface knows how
+    /// to create and render. Unknown agent kinds must not be presented as
+    /// OpenCode: ``ChatAgentKind`` intentionally round-trips arbitrary sources.
+    static func resolve(_ kind: ChatAgentKind) -> Self? {
         switch kind {
         case .codex: .codex
         case .claude: .claude
         case .other(let source):
-            source.lowercased() == "opencode" ? .openCode : .openCode
+            source.lowercased() == "opencode" ? .openCode : nil
         }
     }
 

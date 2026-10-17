@@ -17,6 +17,7 @@ final class MobileChatHomeModel {
     private var source: MobileChatEventSource?
     private var sessionEventsTask: Task<Void, Never>?
     private var conversationTasks: [String: Task<Void, Never>] = [:]
+    private var openSessionIDs: Set<String> = []
 
     isolated deinit {
         sessionEventsTask?.cancel()
@@ -27,6 +28,8 @@ final class MobileChatHomeModel {
     func refresh(using store: CMUXMobileShellStore) async {
         sessionEventsTask?.cancel()
         sessionEventsTask = nil
+        conversationTasks.values.forEach { $0.cancel() }
+        conversationTasks.removeAll()
         source = store.makeChatEventSource()
         guard let source else {
             sessions = []
@@ -40,9 +43,12 @@ final class MobileChatHomeModel {
         isLoadingSessions = true
         do {
             let loaded = try await source.sessions(workspaceID: nil)
-            sessions = Self.sortedSessions(loaded)
+            sessions = Self.sortedSessions(loaded.filter(Self.isSupported))
             errorMessage = nil
             startSessionEvents(from: source)
+            for sessionID in openSessionIDs {
+                open(sessionID: sessionID)
+            }
         } catch is CancellationError {
             return
         } catch {
@@ -53,6 +59,7 @@ final class MobileChatHomeModel {
 
     /// Loads one transcript and keeps it current while the conversation is open.
     func open(sessionID: String) {
+        openSessionIDs.insert(sessionID)
         guard let source else { return }
         conversationTasks[sessionID]?.cancel()
         loadingSessionIDs.insert(sessionID)
@@ -82,6 +89,7 @@ final class MobileChatHomeModel {
 
     /// Stops work associated with one conversation when its destination closes.
     func close(sessionID: String) {
+        openSessionIDs.remove(sessionID)
         conversationTasks[sessionID]?.cancel()
         conversationTasks[sessionID] = nil
         streamingMessageBySessionID[sessionID] = nil
@@ -236,6 +244,10 @@ final class MobileChatHomeModel {
     }
 
     private func upsertSession(_ descriptor: ChatSessionDescriptor) {
+        guard Self.isSupported(descriptor) else {
+            sessions.removeAll { $0.id == descriptor.id }
+            return
+        }
         if let index = sessions.firstIndex(where: { $0.id == descriptor.id }) {
             sessions[index] = descriptor
         } else {
@@ -256,6 +268,10 @@ final class MobileChatHomeModel {
         sessions.sorted {
             ($0.lastActivityAt ?? .distantPast) > ($1.lastActivityAt ?? .distantPast)
         }
+    }
+
+    private static func isSupported(_ session: ChatSessionDescriptor) -> Bool {
+        MobileChatProvider.resolve(session.agentKind) != nil
     }
 
     private static func previewMessages(now: Date) -> [ChatMessage] {

@@ -110,31 +110,33 @@ private struct MobileChatSessionRow: View {
 
     var body: some View {
         Button(action: onSelect) {
-            HStack(spacing: 13) {
-                MobileChatProviderBadge(provider: MobileChatProvider.resolve(session.agentKind))
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(session.title?.isEmpty == false ? session.title! : "New \(MobileChatProvider.resolve(session.agentKind).title) chat")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        Spacer(minLength: 4)
-                        if let activity = session.lastActivityAt {
-                            Text(activity, format: .relative(presentation: .named))
-                                .font(.caption)
+            if let provider = MobileChatProvider.resolve(session.agentKind) {
+                HStack(spacing: 13) {
+                    MobileChatProviderBadge(provider: provider)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(session.title?.isEmpty == false ? session.title! : "New \(provider.title) chat")
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            if let activity = session.lastActivityAt {
+                                Text(activity, format: .relative(presentation: .named))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        HStack(spacing: 6) {
+                            MobileChatStateDot(state: session.state)
+                            Text(session.state.displayName)
+                                .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    HStack(spacing: 6) {
-                        MobileChatStateDot(state: session.state)
-                        Text(session.state.displayName)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.tertiary)
                 }
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.tertiary)
             }
             .contentShape(Rectangle())
         }
