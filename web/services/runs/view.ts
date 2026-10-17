@@ -150,6 +150,7 @@ function attemptView(
     id: attempt.id,
     ordinal: attempt.ordinal,
     status: attempt.status as AttemptStatus,
+    runtimeId: attempt.runtimeId ?? null,
     placement: placementFor(attempt, backendProvider),
     attachable,
     retainedUntil,
