@@ -411,10 +411,10 @@ private struct AgentChatToolCard: View {
             Text(tool.summary)
                 .font(.callout)
             if let input = tool.inputDetail, !input.isEmpty {
-                AgentChatCodeText(input)
+                AgentChatCodeText(text: input)
             }
             if let output = tool.output, !output.isEmpty {
-                AgentChatCodeText(output)
+                AgentChatCodeText(text: output)
             }
         }
     }
@@ -443,7 +443,7 @@ private struct AgentChatTerminalCard: View {
                     .lineLimit(2)
             }
             if let output = terminal.output, !output.isEmpty {
-                AgentChatCodeText(output)
+                AgentChatCodeText(text: output)
             }
             if let duration = terminal.durationSeconds {
                 Text(String(format: "%.1fs", duration))
@@ -473,7 +473,7 @@ private struct AgentChatTerminalBlockRow: View {
                 }
             }
             if !block.output.isEmpty {
-                AgentChatCodeText(block.output)
+                AgentChatCodeText(text: block.output)
             }
         }
         .padding(12)
@@ -501,7 +501,7 @@ private struct AgentChatFileEditCard: View {
             .font(.caption)
             .foregroundStyle(.secondary)
             if let diff = edit.unifiedDiff, !diff.isEmpty {
-                AgentChatCodeText(diff)
+                AgentChatCodeText(text: diff)
             }
         }
     }
@@ -533,7 +533,7 @@ private struct AgentChatPermissionCard: View {
         VStack(alignment: .leading, spacing: 8) {
             Label(permission.title, systemImage: "lock.shield")
                 .font(.subheadline.weight(.semibold))
-            AgentChatCodeText(permission.subject)
+            AgentChatCodeText(text: permission.subject)
             if let resolution = permission.resolution {
                 Label(resolution.label, systemImage: "checkmark.circle")
                     .font(.caption.weight(.semibold))

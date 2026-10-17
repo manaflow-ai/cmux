@@ -94,4 +94,3 @@ struct AgentChatTimelineState: Equatable {
         return false
     }
 }
-
