@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e73de716bcb97c14bf070f9f5effafa468ff4dde64580b15b84de340ccae59dd. */
+/* cmux-tui mux protocol 12, IR c450054bda0e02b45b916309c70461c7800d01ddfcf0276e9ef621873518cd17. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "e73de716bcb97c14bf070f9f5effafa468ff4dde64580b15b84de340ccae59dd" as const;
+export const SDK_IR_SHA256 = "c450054bda0e02b45b916309c70461c7800d01ddfcf0276e9ef621873518cd17" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3428,6 +3428,22 @@ export const EVENT_METADATA = {
     "capability": null,
     "streams": [
       "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "agent-inventory-changed": {
+    "since": 12,
+    "capability": "agent-inventory-watch-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
+  "agent-inventory-watch-ended": {
+    "since": 12,
+    "capability": "agent-inventory-watch-v1",
+    "streams": [
+      "control"
     ],
     "emission": "emitted"
   },
@@ -26643,6 +26659,88 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "agent-inventory-changed": {
+    "additional_properties": false,
+    "constraints": [
+      "Targeted only to the trusted native control connection that enabled this owner watch; match machine, watch_id and captured control generation before acting. No rows, selectors, commands or job outcomes."
+    ],
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "agent-inventory-changed"
+        }
+      },
+      "machine": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "watch_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "agent-inventory-watch-ended": {
+    "additional_properties": false,
+    "constraints": [
+      "Targeted only to the trusted native control connection that enabled this owner watch; match machine, watch_id and captured control generation before acting. No rows, selectors, commands or job outcomes."
+    ],
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "agent-inventory-watch-ended"
+        }
+      },
+      "machine": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "reason": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "watch_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

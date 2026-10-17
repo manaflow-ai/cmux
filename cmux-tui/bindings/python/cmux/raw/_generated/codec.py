@@ -514,6 +514,8 @@ MODEL_BY_PATH = {
     'commands/zoom-pane/request': models.ZoomPaneRequest,
     'events/activity-changed/payload': models.ActivityChangedEvent,
     'events/agent-changed/payload': models.AgentChangedEvent,
+    'events/agent-inventory-changed/payload': models.AgentInventoryChangedEvent,
+    'events/agent-inventory-watch-ended/payload': models.AgentInventoryWatchEndedEvent,
     'events/agent-presence-changed/payload': models.AgentPresenceChangedEvent,
     'events/bell/payload': models.BellEvent,
     'events/bookmarks-changed/payload': models.BookmarksChangedEvent,

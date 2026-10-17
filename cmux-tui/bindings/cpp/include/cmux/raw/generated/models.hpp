@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e73de716bcb97c14bf070f9f5effafa468ff4dde64580b15b84de340ccae59dd";
+inline constexpr std::string_view kProtocolIrSha256 = "c450054bda0e02b45b916309c70461c7800d01ddfcf0276e9ef621873518cd17";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -543,6 +543,8 @@ struct WsListenRequest;
 struct ZoomPaneRequest;
 struct ActivityChangedEvent;
 struct AgentChangedEvent;
+struct AgentInventoryChangedEvent;
+struct AgentInventoryWatchEndedEvent;
 struct AgentPresenceChangedEvent;
 struct BellEvent;
 struct BookmarksChangedEvent;
@@ -735,6 +737,20 @@ struct AgentChangedEvent {
     Id surface{};
     std::uint64_t updated_at_ms{};
     friend bool operator==(const AgentChangedEvent&, const AgentChangedEvent&) = default;
+};
+
+struct AgentInventoryChangedEvent {
+    std::string machine{};
+    std::uint64_t revision{};
+    std::string watch_id{};
+    friend bool operator==(const AgentInventoryChangedEvent&, const AgentInventoryChangedEvent&) = default;
+};
+
+struct AgentInventoryWatchEndedEvent {
+    std::string machine{};
+    std::string reason{};
+    std::string watch_id{};
+    friend bool operator==(const AgentInventoryWatchEndedEvent&, const AgentInventoryWatchEndedEvent&) = default;
 };
 
 enum class AgentPresenceActivity {
@@ -8919,6 +8935,18 @@ template <>
 struct Codec<AgentChangedEvent> {
     static Result<Json> encode(const AgentChangedEvent& value);
     static Result<AgentChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryChangedEvent> {
+    static Result<Json> encode(const AgentInventoryChangedEvent& value);
+    static Result<AgentInventoryChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryWatchEndedEvent> {
+    static Result<Json> encode(const AgentInventoryWatchEndedEvent& value);
+    static Result<AgentInventoryWatchEndedEvent> decode(const Json& value);
 };
 
 template <>

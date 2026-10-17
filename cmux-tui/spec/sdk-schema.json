@@ -24599,6 +24599,104 @@
     "additional_properties": false
    }
   },
+  "agent-inventory-changed": {
+   "since": 12,
+   "capability": "agent-inventory-watch-v1",
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "agent-inventory-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "machine": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "watch_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Targeted only to the trusted native control connection that enabled this owner watch; match machine, watch_id and captured control generation before acting. No rows, selectors, commands or job outcomes."
+    ]
+   }
+  },
+  "agent-inventory-watch-ended": {
+   "since": 12,
+   "capability": "agent-inventory-watch-v1",
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "agent-inventory-watch-ended"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "machine": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "watch_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "reason": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Targeted only to the trusted native control connection that enabled this owner watch; match machine, watch_id and captured control generation before acting. No rows, selectors, commands or job outcomes."
+    ]
+   }
+  },
   "bell": {
    "since": 5,
    "capability": null,

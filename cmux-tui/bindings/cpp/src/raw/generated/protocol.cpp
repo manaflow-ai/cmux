@@ -32238,6 +32238,124 @@ Result<AgentChangedEvent> Codec<AgentChangedEvent>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<AgentInventoryChangedEvent>::encode(const AgentInventoryChangedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("agent-inventory-changed")));
+    auto encoded_machine = encode_value(value.machine);
+    if (!encoded_machine) return std::move(encoded_machine).error();
+    object.emplace("machine", std::move(encoded_machine).value());
+    auto encoded_revision = encode_value(value.revision);
+    if (!encoded_revision) return std::move(encoded_revision).error();
+    object.emplace("revision", std::move(encoded_revision).value());
+    auto encoded_watch_id = encode_value(value.watch_id);
+    if (!encoded_watch_id) return std::move(encoded_watch_id).error();
+    object.emplace("watch_id", std::move(encoded_watch_id).value());
+    return Json(std::move(object));
+}
+
+Result<AgentInventoryChangedEvent> Codec<AgentInventoryChangedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    AgentInventoryChangedEvent result{};
+    const Json* field_machine = value.find("machine");
+    if (!field_machine) {
+        return make_error(ErrorCode::decode, "missing required field 'machine'");
+    }
+    if (field_machine) {
+        auto decoded = decode_value<std::string>(*field_machine);
+        if (!decoded) return std::move(decoded).error();
+        result.machine = std::move(decoded).value();
+    }
+    const Json* field_revision = value.find("revision");
+    if (!field_revision) {
+        return make_error(ErrorCode::decode, "missing required field 'revision'");
+    }
+    if (field_revision) {
+        auto decoded = decode_value<std::uint64_t>(*field_revision);
+        if (!decoded) return std::move(decoded).error();
+        result.revision = std::move(decoded).value();
+    }
+    const Json* field_watch_id = value.find("watch_id");
+    if (!field_watch_id) {
+        return make_error(ErrorCode::decode, "missing required field 'watch_id'");
+    }
+    if (field_watch_id) {
+        auto decoded = decode_value<std::string>(*field_watch_id);
+        if (!decoded) return std::move(decoded).error();
+        result.watch_id = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("agent-inventory-changed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<AgentInventoryWatchEndedEvent>::encode(const AgentInventoryWatchEndedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("agent-inventory-watch-ended")));
+    auto encoded_machine = encode_value(value.machine);
+    if (!encoded_machine) return std::move(encoded_machine).error();
+    object.emplace("machine", std::move(encoded_machine).value());
+    auto encoded_reason = encode_value(value.reason);
+    if (!encoded_reason) return std::move(encoded_reason).error();
+    object.emplace("reason", std::move(encoded_reason).value());
+    auto encoded_watch_id = encode_value(value.watch_id);
+    if (!encoded_watch_id) return std::move(encoded_watch_id).error();
+    object.emplace("watch_id", std::move(encoded_watch_id).value());
+    return Json(std::move(object));
+}
+
+Result<AgentInventoryWatchEndedEvent> Codec<AgentInventoryWatchEndedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    AgentInventoryWatchEndedEvent result{};
+    const Json* field_machine = value.find("machine");
+    if (!field_machine) {
+        return make_error(ErrorCode::decode, "missing required field 'machine'");
+    }
+    if (field_machine) {
+        auto decoded = decode_value<std::string>(*field_machine);
+        if (!decoded) return std::move(decoded).error();
+        result.machine = std::move(decoded).value();
+    }
+    const Json* field_reason = value.find("reason");
+    if (!field_reason) {
+        return make_error(ErrorCode::decode, "missing required field 'reason'");
+    }
+    if (field_reason) {
+        auto decoded = decode_value<std::string>(*field_reason);
+        if (!decoded) return std::move(decoded).error();
+        result.reason = std::move(decoded).value();
+    }
+    const Json* field_watch_id = value.find("watch_id");
+    if (!field_watch_id) {
+        return make_error(ErrorCode::decode, "missing required field 'watch_id'");
+    }
+    if (field_watch_id) {
+        auto decoded = decode_value<std::string>(*field_watch_id);
+        if (!decoded) return std::move(decoded).error();
+        result.watch_id = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("agent-inventory-watch-ended"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<AgentPresenceChangedEvent>::encode(const AgentPresenceChangedEvent& value) {
     (void)value;
     Json::Object object;
@@ -39765,6 +39883,16 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "agent-inventory-changed") {
+        auto decoded = decode_value<AgentInventoryChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
+    if (name.value() == "agent-inventory-watch-ended") {
+        auto decoded = decode_value<AgentInventoryWatchEndedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "agent-presence-changed") {
         auto decoded = decode_value<AgentPresenceChangedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -40657,9 +40785,11 @@ constexpr std::array<CommandMetadata, 273> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 83> kEvents{{
+constexpr std::array<EventMetadata, 85> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
+    {"agent-inventory-changed", 12U, "agent-inventory-watch-v1", "control", "emitted"},
+    {"agent-inventory-watch-ended", 12U, "agent-inventory-watch-v1", "control", "emitted"},
     {"agent-presence-changed", 12U, "agent-presence-v1", "subscribe", "emitted"},
     {"bell", 5U, "", "subscribe", "emitted"},
     {"bookmarks-changed", 12U, "bookmarks-v1", "subscribe", "emitted"},

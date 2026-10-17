@@ -130,16 +130,17 @@ fn refuse(
     error: Failure,
     opted_in: bool,
 ) -> bool {
-    if opted_in && matches!(error, Failure::Unavailable | Failure::Unsupported | Failure::Busy) {
-        if let Some(mux) = mux {
-            return mux.control_clients.agent_sessions.inventory_watches.refuse(
-                client,
-                &mux.machine_public_id,
-                writer,
-                id,
-                error,
-            );
-        }
+    if opted_in
+        && matches!(error, Failure::Unavailable | Failure::Unsupported | Failure::Busy)
+        && let Some(mux) = mux
+    {
+        return mux.control_clients.agent_sessions.inventory_watches.refuse(
+            client,
+            &mux.machine_public_id,
+            writer,
+            id,
+            error,
+        );
     }
     agent_inventory::reply(writer, id, Err(error))
 }
