@@ -35,6 +35,20 @@ public protocol AgentChatSessionSource: ChatEventSource, Sendable {
 
     /// Produces a portable Markdown transcript for one conversation.
     func exportTranscript(sessionID: String) async throws -> String
+
+    /// Starts a provider-native side chat in a new terminal, preserving the
+    /// source conversation's context. The provider may publish the child
+    /// session asynchronously; the launch result identifies the new terminal
+    /// so the UI can select it when the descriptor arrives.
+    func fork(sessionID: String) async throws -> ChatSessionLaunchResult
+
+    /// Opens a provider session in a new terminal using its durable session
+    /// identifier. This is the action behind both Resume and Reopen in the
+    /// mobile UI; the separate names keep callers expressive while allowing
+    /// older sources to implement only resume.
+    func resume(sessionID: String) async throws -> ChatSessionLaunchResult
+
+    func reopen(sessionID: String) async throws -> ChatSessionLaunchResult
 }
 
 public extension AgentChatSessionSource {
@@ -48,5 +62,17 @@ public extension AgentChatSessionSource {
 
     func exportTranscript(sessionID: String) async throws -> String {
         throw AgentChatSessionActionError.unsupported
+    }
+
+    func fork(sessionID: String) async throws -> ChatSessionLaunchResult {
+        throw AgentChatSessionActionError.unsupported
+    }
+
+    func resume(sessionID: String) async throws -> ChatSessionLaunchResult {
+        throw AgentChatSessionActionError.unsupported
+    }
+
+    func reopen(sessionID: String) async throws -> ChatSessionLaunchResult {
+        try await resume(sessionID: sessionID)
     }
 }

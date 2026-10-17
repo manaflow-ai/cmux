@@ -75,6 +75,21 @@ extension TerminalController {
             return v2MobileChatDelete(params: params)
         case "mobile.chat.export":
             return await v2MobileChatExport(params: params)
+        case "mobile.chat.fork":
+            return await v2MobileChatLaunchSession(
+                params: params,
+                action: .fork
+            )
+        case "mobile.chat.resume":
+            return await v2MobileChatLaunchSession(
+                params: params,
+                action: .resume
+            )
+        case "mobile.chat.reopen":
+            return await v2MobileChatLaunchSession(
+                params: params,
+                action: .reopen
+            )
         case "mobile.chat.history":
             return await v2MobileChatHistory(params: params)
         case "mobile.chat.controls":
@@ -540,6 +555,104 @@ extension TerminalController {
             return .err(code: "not_found", message: "That agent transcript is no longer available.", data: ["session_id": sessionID])
         }
         return .ok(["session_id": sessionID, "text": text, "format": "markdown"])
+    }
+
+    /// `mobile.chat.fork` / `mobile.chat.resume` / `mobile.chat.reopen`:
+    /// materialize a provider-native session in a new sibling terminal. The
+    /// terminal is deliberately created without focus so a phone action never
+    /// steals the user's current Mac selection. Provider hooks may publish the
+    /// resulting child session after this method returns; the terminal id in
+    /// the acknowledgement lets the phone select it once that descriptor
+    /// arrives.
+    func v2MobileChatLaunchSession(
+        params: [String: Any],
+        action: ChatSessionLaunchResult.Action
+    ) async -> V2CallResult {
+        guard let sessionID = v2RawString(params, "session_id"), !sessionID.isEmpty else {
+            return .err(code: "invalid_params", message: "session_id required", data: nil)
+        }
+        guard let service = agentChatTranscriptService,
+              var record = service.sessionRecord(sessionID: sessionID) else {
+            return .err(code: "not_found", message: "That agent session is no longer available.", data: [
+                "session_id": sessionID
+            ])
+        }
+
+        // A completed session can be resumed even though its process is gone.
+        // Refresh only the terminal/transcript bindings; this keeps ended
+        // history usable after a workspace relaunch without reopening a stale
+        // process binding.
+        if let refreshed = await service.refreshSessionBindings(sessionID: sessionID) {
+            record = refreshed
+        }
+        guard let surfaceID = record.surfaceID,
+              UUID(uuidString: surfaceID) != nil,
+              let workspaceID = mobileChatCurrentWorkspaceID(surfaceID: surfaceID) ?? record.workspaceID,
+              let resolved = mobileResolveWorkspaceAndSurface(
+                  params: ["workspace_id": workspaceID, "surface_id": surfaceID],
+                  requireTerminal: true
+              ),
+              let resolvedSurfaceID = resolved.surfaceId,
+              let paneID = resolved.workspace.paneId(forPanelId: resolvedSurfaceID) else {
+            return .err(
+                code: "not_found",
+                message: Self.chatTerminalBindingErrorMessage,
+                data: ["session_id": sessionID]
+            )
+        }
+
+        guard let kind = RestorableAgentKind(rawValue: record.agentKind.sourceName) else {
+            return .err(
+                code: "unsupported",
+                message: "This agent does not support reopening from mobile.",
+                data: ["session_id": sessionID, "agent_kind": record.agentKind.sourceName]
+            )
+        }
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: kind,
+            sessionId: sessionID,
+            workingDirectory: record.workingDirectory
+        )
+        let initialInput: String?
+        switch action {
+        case .fork:
+            initialInput = snapshot.forkStartupInput()
+        case .resume, .reopen:
+            initialInput = snapshot.resumeStartupInput(useLocalRestoreVerb: false)
+        }
+        guard let initialInput else {
+            return .err(
+                code: "unsupported",
+                message: "This agent does not support reopening from mobile.",
+                data: ["session_id": sessionID, "agent_kind": record.agentKind.sourceName]
+            )
+        }
+
+        let panel = resolved.workspace.newTerminalSurface(
+            inPane: paneID,
+            focus: false,
+            workingDirectory: record.workingDirectory,
+            initialInput: initialInput,
+            startupRestoreAgent: action == .fork ? snapshot : nil,
+            preserveFocusWhenUnfocused: true
+        )
+        guard let panel else {
+            return .err(
+                code: "internal_error",
+                message: "The Mac could not create a terminal for this session.",
+                data: ["session_id": sessionID]
+            )
+        }
+        var payload: [String: Any] = [
+            "action": action.rawValue,
+            "parent_session_id": sessionID,
+            "terminal_id": panel.id.uuidString,
+        ]
+        payload["workspace_id"] = resolved.workspace.id.uuidString
+        if let workingDirectory = record.workingDirectory {
+            payload["cwd"] = workingDirectory
+        }
+        return .ok(payload)
     }
 
     /// `mobile.chat.history`: one transcript page for a session.

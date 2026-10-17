@@ -170,6 +170,18 @@ public protocol ControlMobileHostContext: AnyObject, Sendable {
         params: [String: JSONValue]
     ) async -> ControlCallResult
 
+    nonisolated func controlMobileChatFork(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult
+
+    nonisolated func controlMobileChatResume(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult
+
+    nonisolated func controlMobileChatReopen(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult
+
     nonisolated func controlMobileChatReview(
         params: [String: JSONValue]
     ) async -> ControlCallResult
@@ -232,6 +244,24 @@ public extension ControlMobileHostContext {
     }
 
     nonisolated func controlMobileChatExport(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        .err(code: "method_not_found", message: "Agent chat is unavailable", data: nil)
+    }
+
+    nonisolated func controlMobileChatFork(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        .err(code: "method_not_found", message: "Agent chat is unavailable", data: nil)
+    }
+
+    nonisolated func controlMobileChatResume(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        .err(code: "method_not_found", message: "Agent chat is unavailable", data: nil)
+    }
+
+    nonisolated func controlMobileChatReopen(
         params: [String: JSONValue]
     ) async -> ControlCallResult {
         .err(code: "method_not_found", message: "Agent chat is unavailable", data: nil)

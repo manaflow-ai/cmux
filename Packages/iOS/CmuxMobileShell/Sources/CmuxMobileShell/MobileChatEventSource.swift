@@ -138,6 +138,30 @@ public actor MobileChatEventSource: AgentChatSessionSource {
         return text
     }
 
+    public func fork(sessionID: String) async throws -> ChatSessionLaunchResult {
+        try await launchSession(method: "mobile.chat.fork", sessionID: sessionID)
+    }
+
+    public func resume(sessionID: String) async throws -> ChatSessionLaunchResult {
+        try await launchSession(method: "mobile.chat.resume", sessionID: sessionID)
+    }
+
+    public func reopen(sessionID: String) async throws -> ChatSessionLaunchResult {
+        try await launchSession(method: "mobile.chat.reopen", sessionID: sessionID)
+    }
+
+    private func launchSession(
+        method: String,
+        sessionID: String
+    ) async throws -> ChatSessionLaunchResult {
+        let request = try MobileCoreRPCClient.requestData(
+            method: method,
+            params: ["session_id": sessionID]
+        )
+        let result = try await client.sendRequest(request)
+        return try coding.decode(ChatSessionLaunchResult.self, from: result)
+    }
+
     /// Opens the live stream of session-list events for every session the
     /// Mac knows about (not scoped to one conversation).
     ///

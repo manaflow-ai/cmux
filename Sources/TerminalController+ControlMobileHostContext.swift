@@ -141,6 +141,33 @@ extension TerminalController: ControlMobileHostContext {
         bridgeMobileResult(await v2MobileChatExport(params: foundationParams(params)))
     }
 
+    nonisolated func controlMobileChatFork(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        bridgeMobileResult(await v2MobileChatLaunchSession(
+            params: foundationParams(params),
+            action: .fork
+        ))
+    }
+
+    nonisolated func controlMobileChatResume(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        bridgeMobileResult(await v2MobileChatLaunchSession(
+            params: foundationParams(params),
+            action: .resume
+        ))
+    }
+
+    nonisolated func controlMobileChatReopen(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        bridgeMobileResult(await v2MobileChatLaunchSession(
+            params: foundationParams(params),
+            action: .reopen
+        ))
+    }
+
     nonisolated func controlMobileChatReview(
         params: [String: JSONValue]
     ) async -> ControlCallResult {

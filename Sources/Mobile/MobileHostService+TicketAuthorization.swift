@@ -52,6 +52,7 @@ extension MobileHostService {
              "mobile.chat.send", "mobile.chat.interrupt", "mobile.chat.answer",
              "mobile.chat.controls", "mobile.chat.controls.update",
              "mobile.chat.rename", "mobile.chat.delete", "mobile.chat.export",
+             "mobile.chat.fork", "mobile.chat.resume", "mobile.chat.reopen",
              "mobile.chat.review", "mobile.chat.artifact.stat",
              "mobile.chat.artifact.fetch", "mobile.chat.artifact.thumbnail",
              "mobile.chat.artifact.list", "mobile.chat.artifact.gallery":

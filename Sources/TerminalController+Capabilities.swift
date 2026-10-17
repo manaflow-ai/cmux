@@ -68,6 +68,9 @@ extension TerminalController {
             "mobile.chat.rename",
             "mobile.chat.delete",
             "mobile.chat.export",
+            "mobile.chat.fork",
+            "mobile.chat.resume",
+            "mobile.chat.reopen",
             // Socket-reachable panel artifact reads (worker lane); fetch stays
             // behind the authenticated mobile execution context.
             "mobile.panel.artifact.stat",
