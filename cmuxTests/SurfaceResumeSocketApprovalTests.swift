@@ -69,6 +69,40 @@ struct SurfaceResumeSocketApprovalTests {
         }
     }
 
+    @Test
+    func ordinaryProposalMenuOffersExactReviewWithoutRewritingBinding() async throws {
+        await Self.waitForSigningSecret()
+        try withRegisteredWindow { _, workspace, panelID in
+            let sessionID = UUID().uuidString.lowercased()
+            let proposal = SurfaceResumeBindingSnapshot(
+                name: "Review exact proposal",
+                kind: "pi",
+                command: "pi --session \(sessionID)",
+                cwd: "/tmp/cmux-exact-review",
+                checkpointId: sessionID,
+                source: "example-resume-integration",
+                environment: ["AUTH": "synthetic-epoch", "TICKET": "synthetic-ticket"],
+                autoResume: false,
+                updatedAt: 123
+            )
+            #expect(workspace.setSurfaceResumeBinding(proposal, panelId: panelID))
+            let panel = try #require(workspace.focusedTerminalPanel)
+            #expect(panel.id == panelID)
+            let view = panel.hostedView.surfaceView
+            let menu = NSMenu()
+            #expect(view.appendCurrentSurfaceResumeMenuItems(to: menu))
+            let submenu = try #require(menu.items.first?.submenu)
+            // String lookup lets the regression compile before the action exists.
+            // Assert the produced menu, not a source snippet or localized label.
+            let review = try #require(submenu.items.first {
+                $0.action == NSSelectorFromString("reviewCurrentSurfaceResumeApproval:")
+            })
+            #expect(review.target === view)
+            #expect(review.isEnabled)
+            #expect(workspace.surfaceResumeBinding(panelId: panelID) == proposal)
+        }
+    }
+
     // MARK: - Harness
 
     private static func waitForSigningSecret() async {
