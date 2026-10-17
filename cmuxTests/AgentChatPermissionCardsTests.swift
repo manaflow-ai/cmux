@@ -87,9 +87,11 @@ struct AgentChatPermissionCardsTests {
             requestId: "request-2",
             receivedAt: Date(timeIntervalSince1970: 101)
         ))
-        let second = try #require(await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50)).messages.last
+        let secondPage = try #require(await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50))
+        let second = try #require(secondPage.messages.last)
         #expect(service.resolvePermission(sessionID: sessionID, requestID: second.id, optionIndex: 1))
-        let third = try #require(await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50)).messages.last
+        let thirdPage = try #require(await service.history(sessionID: sessionID, beforeSeq: nil, limit: 50))
+        let third = try #require(thirdPage.messages.last)
         guard case .permissionRequest(let alwaysAllowed) = third.kind else {
             Issue.record("Expected second permission card")
             return

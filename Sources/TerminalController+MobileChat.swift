@@ -1006,7 +1006,7 @@ extension TerminalController {
         }
     }
 
-    private static func chatReviewPath(_ path: String, workingDirectory: String) -> URL? {
+    nonisolated private static func chatReviewPath(_ path: String, workingDirectory: String) -> URL? {
         guard !path.isEmpty, !path.contains("\0") else { return nil }
         let root = URL(fileURLWithPath: workingDirectory).standardizedFileURL
         let candidate = (path.hasPrefix("/") ? URL(fileURLWithPath: path) : root.appendingPathComponent(path))
@@ -1020,7 +1020,7 @@ extension TerminalController {
     /// different in-tree file when an untrusted patch's headers disagree with
     /// the card's declared path. `/dev/null` is allowed for create/delete
     /// patches; all other paths must resolve to the same file.
-    static func chatReviewPatchMatchesPath(
+    nonisolated static func chatReviewPatchMatchesPath(
         _ unifiedDiff: String,
         declaredPath: URL,
         workingDirectory: String
