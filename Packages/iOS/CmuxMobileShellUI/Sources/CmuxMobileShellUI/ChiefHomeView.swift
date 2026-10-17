@@ -455,7 +455,7 @@ private struct ChiefQuestionSheet: View {
     }
 
     private var otherItem: MobileChiefQuestion.Item? {
-        question.items.first(where: \.allowsOther)
+        question.items.first(where: { $0.allowsOther })
     }
 
     private var canSubmit: Bool {
