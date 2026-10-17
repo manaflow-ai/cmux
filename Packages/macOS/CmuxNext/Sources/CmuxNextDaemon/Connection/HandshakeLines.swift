@@ -47,7 +47,14 @@ enum HandshakeLines {
             logger.info("client-hello install-key proof \(proved?.verified == true ? "accepted" : "refused", privacy: .public)")
             userOriginAllowed = proved?.verified == true && proved?.userOriginAllowed == true
         }
-        let identity = metadata.isEmpty ? first[0] : fencedMetadata(rest[proof == nil ? 0 : 1], original: first[0])
+        let identity: Result<LineTransport.Response, any Error>
+        if metadata.isEmpty {
+            identity = first[0]
+        } else if let enriched = rest.dropFirst(proof == nil ? 0 : 1).first {
+            identity = fencedMetadata(enriched, original: first[0])
+        } else {
+            identity = .failure(DaemonError.malformedResponse("missing owner metadata reply"))
+        }
         return Replies(lines: [identity] + rest.suffix(2), userOriginAllowed: userOriginAllowed)
     }
 
