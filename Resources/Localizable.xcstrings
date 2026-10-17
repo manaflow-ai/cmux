@@ -655198,6 +655198,65 @@
           }
         }
       }
+    },
+    "cli.billing.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCreate checkout for the signed-in cmux account. Max is $200/month; Go and Max are monthly-only. Payment requires browser confirmation. --no-open or --json returns the URL without opening a browser."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nإنشاء عملية دفع لحساب cmux المسجّل دخوله. سعر Max هو 200 دولار شهريًا؛ Go وMax متاحان شهريًا فقط. يتطلب الدفع تأكيدًا في المتصفح. يعرض --no-open أو --json الرابط من دون فتح المتصفح."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCheckout für das angemeldete cmux-Konto erstellen. Max kostet 200 $/Monat; Go und Max sind nur monatlich verfügbar. Die Zahlung erfordert eine Bestätigung im Browser. --no-open oder --json gibt die URL zurück, ohne einen Browser zu öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCrea el checkout para la cuenta de cmux con sesión iniciada. Max cuesta 200 $/mes; Go y Max solo están disponibles con facturación mensual. El pago requiere confirmación en el navegador. --no-open o --json devuelve la URL sin abrir un navegador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCréer un checkout pour le compte cmux connecté. Max coûte 200 $/mois ; Go et Max sont uniquement mensuels. Le paiement nécessite une confirmation dans le navigateur. --no-open ou --json renvoie l’URL sans ouvrir de navigateur."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nサインイン済みの cmux アカウントのチェックアウトを作成します。Max は月額 200 ドルで、Go と Max は月額プランのみです。支払いにはブラウザでの確認が必要です。--no-open または --json を指定するとブラウザを開かずに URL を返します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux billing checkout --plan <go|pro|max> [--no-open]\n\n로그인한 cmux 계정의 결제를 생성합니다. Max는 월 $200이며 Go와 Max는 월간 요금제만 제공합니다. 결제하려면 브라우저에서 확인해야 합니다. --no-open 또는 --json은 브라우저를 열지 않고 URL을 반환합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux billing checkout --plan <go|pro|max> [--no-open]\n\n为已登录的 cmux 帐户创建结账。Max 为每月 200 美元；Go 和 Max 仅提供月付方案。付款需要在浏览器中确认。--no-open 或 --json 返回网址而不打开浏览器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux billing checkout --plan <go|pro|max> [--no-open]\n\n為已登入的 cmux 帳戶建立結帳。Max 為每月 200 美元；Go 和 Max 僅提供月繳方案。付款需要在瀏覽器中確認。--no-open 或 --json 會回傳網址而不開啟瀏覽器。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
