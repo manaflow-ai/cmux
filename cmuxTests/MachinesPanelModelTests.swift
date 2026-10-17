@@ -471,8 +471,8 @@ final class MachinesPanelModelTests: XCTestCase {
             includeLocalMachine: true
         )
         let ids = CloudTreeNodeBuilder.flattened(nodes).map(\.id)
-        // One machine, many workspaces: the Workspaces group leads (nonempty workspace
-        // pointers), then Ports, VNC Displays (one row per screen), and last, its own
+        // One machine, many workspaces: the Workspaces group leads (including empty
+        // drop targets), then Ports, VNC Displays (one row per screen), and last, its own
         // section, Terminals (every terminal the machine owns).
         XCTAssertEqual(ids, [
             "machine:local",
@@ -485,6 +485,7 @@ final class MachinesPanelModelTests: XCTestCase {
             "machine:vivid-newt/ws/ws_side",
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1/tab:tab_9",
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1/tab:tab_desk",
+            "machine:vivid-newt/ws/ws_empty",
             "machine:vivid-newt/ports",
             "resource:vivid-newt/browser/port:3000",
             "machine:vivid-newt/displays",
@@ -536,7 +537,7 @@ final class MachinesPanelModelTests: XCTestCase {
         if case .workspace(_, _, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_side"]!.kind {
             XCTAssertEqual(openIn, remoteSideLocalWorkspace, "term_1's second remote view uses its own local workspace")
         } else { XCTFail("expected ws_side row") }
-        XCTAssertNil(openByID["machine:vivid-newt/ws/ws_empty"], "empty workspaces are omitted from the Cloud sidebar")
+        XCTAssertNotNil(openByID["machine:vivid-newt/ws/ws_empty"], "empty workspaces remain visible as Cloud drop targets")
         // Desktop rows: a workspace's own display pointer opens inside the local
         // workspace showing that remote workspace; the pool row keeps the global jump.
         if case .display(_, let openIn, _) = openByID["machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1/tab:tab_desk"]!.kind {
@@ -582,7 +583,7 @@ final class MachinesPanelModelTests: XCTestCase {
             XCTAssertEqual(row.resource.agent?.source, "claude")
             XCTAssertEqual(row.remoteView?.tabID, "tab_9")
         } else { XCTFail("expected pointer row") }
-        XCTAssertNil(byID["machine:vivid-newt/ws/ws_empty"], "zero-terminal workspaces are not sidebar rows")
+        XCTAssertNotNil(byID["machine:vivid-newt/ws/ws_empty"], "zero-terminal workspaces remain visible as Cloud drop targets")
         if case .terminalsPool(_, let count) = byID["machine:vivid-newt/terminals"]!.kind {
             XCTAssertEqual(count, 2, "every terminal the machine owns")
         } else { XCTFail("expected terminals pool") }
@@ -613,7 +614,7 @@ final class MachinesPanelModelTests: XCTestCase {
             case .terminal, .display:
                 XCTAssertTrue(node.isDragSource, "\(node.id) should drag")
             case .workspace where !node.machine.isLocal:
-                XCTAssertTrue(node.isDragSource, "\(node.id) should drag")
+                XCTAssertEqual(node.isDragSource, node.dragGroup != nil, "\(node.id) should drag only when it has placements")
             default:
                 XCTAssertFalse(node.isDragSource, "\(node.id) should not drag")
             }

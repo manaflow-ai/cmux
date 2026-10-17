@@ -3668,6 +3668,7 @@
 		D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */; };
 		C935C833B18F4CC18711BD77 /* SurfaceAgentNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 019F9382B99C46AAAEB9C91C /* SurfaceAgentNaming.swift */; };
 		FB3A15A096C8270E929D34B6 /* SurfaceCatalog+AgentIcons.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECA5950A12D41190CC94F10A /* SurfaceCatalog+AgentIcons.swift */; };
+		C6464A2E80C48B0AB6D992E5 /* SurfaceCatalog+BrowserDocuments.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB5F5B6D11CF3E82F933F88F /* SurfaceCatalog+BrowserDocuments.swift */; };
 		CFSF00000000000000000013 /* SurfaceCatalog+ChangeNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFSR00000000000000000013 /* SurfaceCatalog+ChangeNotifications.swift */; };
 		F11347000000000000000007 /* SurfaceCatalog+CloudBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11347000000000000000008 /* SurfaceCatalog+CloudBinding.swift */; };
 		78F8D449BA0D4860AE1162C7 /* SurfaceCatalog+CloudDirectoryMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B2248ED1422420F90E0D71D /* SurfaceCatalog+CloudDirectoryMetadata.swift */; };
@@ -8222,6 +8223,7 @@
 		D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupersededPhoneDismissBuffer.swift; sourceTree = "<group>"; };
 		019F9382B99C46AAAEB9C91C /* SurfaceAgentNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceAgentNaming.swift"; sourceTree = "<group>"; };
 		ECA5950A12D41190CC94F10A /* SurfaceCatalog+AgentIcons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+AgentIcons.swift"; sourceTree = "<group>"; };
+		DB5F5B6D11CF3E82F933F88F /* SurfaceCatalog+BrowserDocuments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+BrowserDocuments.swift"; sourceTree = "<group>"; };
 		CFSR00000000000000000013 /* SurfaceCatalog+ChangeNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+ChangeNotifications.swift"; sourceTree = "<group>"; };
 		F11347000000000000000008 /* SurfaceCatalog+CloudBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+CloudBinding.swift"; sourceTree = "<group>"; };
 		7B2248ED1422420F90E0D71D /* SurfaceCatalog+CloudDirectoryMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+CloudDirectoryMetadata.swift"; sourceTree = "<group>"; };
@@ -9842,6 +9844,7 @@
 				A8E605219F6DC95A95A101BF /* Workspace+CloudBrowserCreation.swift */,
 				0C5BE46EBCE45A43B75BF437 /* CmuxTuiSurfaceProviderRegistry+ForeignTeams.swift */,
 				1EDF2ADBFC385933E793C17E /* CmuxTuiSurfaceProvider+AccessLoss.swift */,
+				DB5F5B6D11CF3E82F933F88F /* SurfaceCatalog+BrowserDocuments.swift */,
 			);
 			name = Surfaces;
 			path = Surfaces;
@@ -16746,6 +16749,7 @@
 				D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */,
 				C935C833B18F4CC18711BD77 /* SurfaceAgentNaming.swift in Sources */,
 				FB3A15A096C8270E929D34B6 /* SurfaceCatalog+AgentIcons.swift in Sources */,
+				C6464A2E80C48B0AB6D992E5 /* SurfaceCatalog+BrowserDocuments.swift in Sources */,
 				CFSF00000000000000000013 /* SurfaceCatalog+ChangeNotifications.swift in Sources */,
 				F11347000000000000000007 /* SurfaceCatalog+CloudBinding.swift in Sources */,
 				78F8D449BA0D4860AE1162C7 /* SurfaceCatalog+CloudDirectoryMetadata.swift in Sources */,
