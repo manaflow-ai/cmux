@@ -661,6 +661,34 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         }
     }
 
+    @Test func scopedChatEventSubscriptionIsRejectedBeforeProcessWideFanout() throws {
+        let scopedTicket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
+        let scopedRequest = MobileHostRPCRequest(
+            id: "chat-events-scoped",
+            method: "mobile.events.subscribe",
+            params: [
+                "stream_id": "chat",
+                "topics": ["chat.message"],
+            ],
+            auth: MobileHostRPCAuth(attachToken: scopedTicket.authToken, stackAccessToken: nil)
+        )
+        #expect(
+            MobileHostService.ticketAuthorizationError(ticket: scopedTicket, request: scopedRequest)?.code == "forbidden"
+        )
+
+        let macWideTicket = try scopedAttachTicket(workspaceID: "", terminalID: nil)
+        let macWideRequest = MobileHostRPCRequest(
+            id: "chat-events-wide",
+            method: "mobile.events.subscribe",
+            params: [
+                "stream_id": "chat",
+                "topics": ["chat.message"],
+            ],
+            auth: MobileHostRPCAuth(attachToken: macWideTicket.authToken, stackAccessToken: nil)
+        )
+        #expect(MobileHostService.ticketAuthorizationError(ticket: macWideTicket, request: macWideRequest) == nil)
+    }
+
     private func scopedAttachTicket(workspaceID: String) throws -> CmxAttachTicket {
         let route = try CmxAttachRoute(
             id: "debug",

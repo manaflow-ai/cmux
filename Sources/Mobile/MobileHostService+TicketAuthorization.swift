@@ -146,11 +146,16 @@ extension MobileHostService {
             // persisted pairing from the same authenticated account.
             return nil
         case "mobile.events.subscribe":
-            // Subscription payloads are revision-only invalidations. The
-            // request already passed connection/account authorization, and the
-            // complete topic set is installed atomically, so ticket-scoping one
-            // topic here would also disable unrelated terminal live events.
-            return nil
+            // Chat frames contain an opaque session id and the process-wide
+            // event fan-out does not carry a per-connection workspace filter.
+            // Do not let a scoped legacy ticket subscribe to every session's
+            // live transcript. Mac-wide tickets and Iroh/account admission
+            // retain the existing all-session stream.
+            guard let topics = request.params["topics"] as? [String],
+                  topics.contains("chat.message") else {
+                return nil
+            }
+            return chatTicketHasResourceScope(authorization) ? scopedTicketError : nil
         case "mobile.events.unsubscribe", "mobile.events.probe":
             return nil
         case "mobile.host.status", "phone_push.status.get", "phone_push.keys.exchange",
@@ -252,6 +257,16 @@ extension MobileHostService {
             return surfaceID == ticketTerminalID
         }
         return true
+    }
+
+    private static func chatTicketHasResourceScope(
+        _ authorization: MobileAttachTicketAuthorization
+    ) -> Bool {
+        let workspaceID = authorization.ticket.workspaceID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let terminalID = authorization.ticket.terminalID?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return !workspaceID.isEmpty || !(terminalID?.isEmpty ?? true)
     }
 
     private static func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {
