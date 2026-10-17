@@ -84,6 +84,9 @@ final class AgentChatModeModel {
     private var answeringRequestKeys: Set<String> = []
     private var answeredRequestKeysBySession: [String: Set<String>] = [:]
     private var removedSessionVersions: [String: Int] = [:]
+    /// Once a host-wide state push carries a revision, the per-session event
+    /// stream's legacy unversioned duplicate must not overwrite it.
+    private var latestVersionedStateBySession: [String: Int] = [:]
     private var sourceGeneration = 0
     private let reconnectDelay: @Sendable (_ attempt: Int) async -> Void
 
@@ -196,6 +199,7 @@ final class AgentChatModeModel {
         answeringRequestKeys = []
         answeredRequestKeysBySession = [:]
         removedSessionVersions = [:]
+        latestVersionedStateBySession = [:]
         loadingSessionIDs = []
         sendingSessionIDs = []
         interruptingSessionIDs = []
@@ -677,7 +681,17 @@ final class AgentChatModeModel {
             // that arrives after a newer snapshot/descriptor event. Older
             // hosts omit the frame revision and retain the best-effort legacy
             // behavior for compatibility.
-            if let version, version <= old.version { return }
+            if let version {
+                latestVersionedStateBySession[sessionID] = max(
+                    version,
+                    latestVersionedStateBySession[sessionID] ?? Int.min
+                )
+                guard version > old.version else { return }
+            } else if latestVersionedStateBySession[sessionID] != nil {
+                // `events(sessionID:)` predates revision-bearing frames and
+                // still carries the same state event without metadata.
+                return
+            }
             upsert(old.withState(state, version: version))
         case .descriptorChanged(let descriptor): upsert(descriptor)
         case .sessionRemoved:
@@ -703,6 +717,7 @@ final class AgentChatModeModel {
             historyHasMore[sessionID] = nil
             transcriptRevisions[sessionID] = nil
             historyResetTokens[sessionID] = nil
+            latestVersionedStateBySession[sessionID] = nil
             pendingSendsBySession[sessionID] = nil
             lastTurnBySession[sessionID] = nil
             answeredRequestKeysBySession[sessionID] = nil
