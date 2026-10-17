@@ -221,7 +221,9 @@ final class AgentChatModeUITests: XCTestCase {
         XCTAssertTrue(composer.waitForExistence(timeout: 8))
         composer.tap()
         composer.typeText("Show the failing test")
-        app.buttons["Send"].tap()
+        let send = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Send")).firstMatch
+        XCTAssertTrue(send.waitForExistence(timeout: 8))
+        send.tap()
         XCTAssertTrue(app.staticTexts["Show the failing test"].waitForExistence(timeout: 5))
     }
 }
