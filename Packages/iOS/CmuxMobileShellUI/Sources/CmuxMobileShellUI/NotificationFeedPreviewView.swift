@@ -49,9 +49,6 @@ public struct NotificationFeedPreviewView: View {
                 NavigationStack {
                     NotificationFeedPreviewWorkspacesView()
                 }
-            } feed: {
-                Text(verbatim: "Agent feed fixture")
-                    .foregroundStyle(.secondary)
             } notifications: {
                 NavigationStack {
                     ScrollViewReader { proxy in
@@ -74,8 +71,6 @@ public struct NotificationFeedPreviewView: View {
                     searchCoordinator: primarySearchCoordinator
                 ) {
                     switch primarySearchCoordinator.scope {
-                    case .feed:
-                        Text(verbatim: "Agent feed fixture")
                     case .workspaces:
                         NotificationFeedPreviewWorkspacesView()
                     case .notifications:

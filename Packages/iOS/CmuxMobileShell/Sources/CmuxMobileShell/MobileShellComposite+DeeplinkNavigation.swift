@@ -13,9 +13,6 @@ public import Foundation
 public enum DeeplinkWorkspaceNavigationOrigin: Equatable, Sendable {
     case external
     case notificationFeed
-    /// Opened from a Feed row: push inside the Feed tab so Back returns to
-    /// the Feed, as a Notifications row returns to Notifications.
-    case agentFeed
 }
 
 public struct DeeplinkWorkspaceNavigationRequest: Equatable, Sendable {
