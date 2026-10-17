@@ -1,6 +1,6 @@
 import CmuxAgentChat
-import CmuxMobileRPC
-import Foundation
+public import CmuxMobileRPC
+public import Foundation
 
 /// The Mac Chief control surface exposed to the classic iOS app.
 ///
@@ -280,12 +280,12 @@ public actor MobileChiefClient {
 
     public func approve(
         conversation: String? = nil,
-        request: String? = nil,
+        request requestID: String? = nil,
         choice: String
     ) async throws -> MobileChiefApprovalResult {
         var params: [String: Any] = ["choice": choice]
         if let conversation { params["conversation"] = conversation }
-        if let request { params["request"] = request }
+        if let requestID { params["request"] = requestID }
         return try await request("chief.approve", params: params, as: MobileChiefApprovalResult.self)
     }
 
