@@ -1,5 +1,4 @@
-import CmuxAgentChat
-import CmuxMobileHost
+@testable import CmuxMobileHost
 import Foundation
 import SQLite3
 import Testing
