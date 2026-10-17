@@ -120,7 +120,7 @@ def summarize(out: Path) -> tuple[str, list[str]]:
     return "\n".join(lines) + "\n", warnings
 
 
-def write_receipt(out: Path, path: Path) -> None:
+def write_receipt(out: Path, path: Path, skip_reason: str | None = None) -> None:
     """Persist the same measurements shown in the run summary.
 
     The frame-pacing job is intentionally warning-only today. Keeping a
@@ -138,11 +138,15 @@ def write_receipt(out: Path, path: Path) -> None:
         "thresholds_enforced": False,
         "modes": {},
     }
-    if not display.startswith("ready"):
+    if skip_reason:
+        payload["status"] = "skipped"
+        payload["reason"] = skip_reason
+    elif not display.startswith("ready"):
         payload["status"] = "skipped"
         payload["reason"] = display or "no display report"
     else:
         payload["status"] = "ok"
+        unmeasured_modes = []
         for mode, name in MODES.items():
             result = load_mode(out, mode)
             if result is None:
@@ -152,12 +156,17 @@ def write_receipt(out: Path, path: Path) -> None:
                     "status": "not_measured",
                     "reason": error.read_text().strip() if error.exists() else "no fling drew a frame",
                 }
+                unmeasured_modes.append(mode)
                 continue
             data = result.receipt()
             data["name"] = name
             payload["modes"][mode] = data
             if data["status"] == "regression":
                 payload["status"] = "regression"
+        if unmeasured_modes and payload["status"] == "ok":
+            payload["status"] = "partial"
+        if unmeasured_modes:
+            payload["unmeasured_modes"] = unmeasured_modes
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
@@ -166,13 +175,14 @@ def main(argv: list[str]) -> int:
     parser = ArgumentParser(description=__doc__)
     parser.add_argument("out", type=Path)
     parser.add_argument("--receipt", type=Path)
+    parser.add_argument("--skip-reason")
     args = parser.parse_args(argv[1:])
     markdown, warnings = summarize(args.out)
     sys.stdout.write(markdown)
     for warning in warnings:
         print(f"::warning title=Agent pane frame pacing::{warning}", file=sys.stderr)
     if args.receipt:
-        write_receipt(args.out, args.receipt)
+        write_receipt(args.out, args.receipt, args.skip_reason)
     return 0
 
 
