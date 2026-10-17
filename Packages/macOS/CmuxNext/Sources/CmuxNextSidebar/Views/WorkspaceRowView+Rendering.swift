@@ -25,8 +25,13 @@ extension WorkspaceRowView {
 
     override func hoverChanged() {
         super.hoverChanged()
-        needsLayout = true
-        guard isHovered, !renaming, !isPlaceholderRow else {
+        // During a scroll the pointer is stationary while rows pass under it.
+        // Rebuilding the full row layout and starting a marquee for every
+        // crossing turns realization into a main-thread hitch. The next real
+        // pointer event reconciles the row's controls after scrolling settles.
+        let followsScroll = (superview as? SidebarListView)?.hoverFollowsScroll == true
+        if !followsScroll { needsLayout = true }
+        guard isHovered, !renaming, !isPlaceholderRow, !followsScroll else {
             title.stopMarquee()
             return
         }
