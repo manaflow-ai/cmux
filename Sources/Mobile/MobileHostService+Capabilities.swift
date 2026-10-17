@@ -33,6 +33,15 @@ extension MobileHostService {
         "mobile.browser.stream.start",
         "mobile.browser.stream.stop",
         "mobile.browser.viewport",
+        "chief.answer",
+        "chief.approve",
+        "chief.conversations",
+        "chief.debug",
+        "chief.open",
+        "chief.read",
+        "chief.send",
+        "chief.status",
+        "chief.stop",
         "mobile.chat.answer",
         "mobile.chat.artifact.fetch",
         "mobile.chat.artifact.gallery",
@@ -284,7 +293,19 @@ extension MobileHostService {
             // workspace.group.collapse/expand from mobile. iOS feature-detects
             // this to render collapsible groups only against a Mac that emits them.
             "workspace.groups.v1",
+            // Chief is a Mac-owned conversation surface. These names are
+            // intentionally the exact RPC methods so older iOS clients can
+            // feature-detect the compact Chief adapter from host status.
+            "chief.open",
+            "chief.send",
+            "chief.status",
+            "chief.conversations",
+            "chief.read",
+            "chief.stop",
         ]
+#if DEBUG
+        capabilities.append(contentsOf: ["chief.approve", "chief.answer", "chief.debug"])
+#endif
         if !includingWorkspaceChanges {
             capabilities.removeAll { $0 == Self.workspaceChangesCapability }
         }

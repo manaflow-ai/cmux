@@ -16,6 +16,42 @@ import MessagesLabHome
 /// user's local Chief conversations and can start Chief turns, which run
 /// commands on this Mac.
 extension TerminalController {
+    /// Runs a `chief.*` request received from the mobile data plane through
+    /// the same parser and Chief conversation-owner path as the local control
+    /// socket. Mobile requests have already passed authenticated host/ticket
+    /// admission; keeping this adapter here makes the owner checks and error
+    /// mapping single-source while avoiding a synthetic control-socket JSON
+    /// round trip.
+    func chiefMobileResult(
+        method: String,
+        params: [String: Any]
+    ) async -> V2CallResult {
+        guard params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] == nil else {
+            return .err(
+                code: "not_authorized",
+                message: String(
+                    localized: "socket.chief.error.remoteDenied",
+                    defaultValue: "Chief is not available through a remote session."
+                ),
+                data: nil
+            )
+        }
+
+        var typedParams: [String: JSONValue] = [:]
+        typedParams.reserveCapacity(params.count)
+        for (key, value) in params {
+            guard let json = JSONValue(foundationObject: value) else {
+                return .err(
+                    code: "invalid_params",
+                    message: "Invalid JSON parameter",
+                    data: ["param": key]
+                )
+            }
+            typedParams[key] = json
+        }
+        return await chiefResult(ControlRequest(id: nil, method: method, params: typedParams))
+    }
+
     nonisolated func chiefResponse(_ request: ControlRequest) async -> String {
         let result = await chiefResult(request)
         return Self.v2Encoder.response(id: request.id, Self.controlCallResult(fromLegacy: result))
