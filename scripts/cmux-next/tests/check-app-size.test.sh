@@ -33,6 +33,7 @@ if "$tmp/scripts/cmux-next/check-app-size.sh" "$tmp"; then
   exit 1
 fi
 
+printf '10\n' > "$tmp/scripts/cmux-next/app-size-baseline.txt"
 echo 'let fourth = 4' >> "$tmp/Packages/macOS/CmuxNext/Sources/CmuxNextApp/Example.swift"
 if "$tmp/scripts/cmux-next/check-app-size.sh" --base HEAD "$tmp"; then
   echo "expected real source growth to fail against the base" >&2
