@@ -118,6 +118,7 @@
   height: calc(23.5px * var(--cmux-interface-scale, 1));
   margin-top: calc(12px * var(--cmux-interface-scale, 1));
   border-radius: 12px;
+  overflow: hidden;
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
 }
 .acpmux-effort-fill {
@@ -154,13 +155,13 @@
   position: absolute;
   top: 50%;
   left: calc(var(--acpmux-effort-inset) + (100% - 2 * var(--acpmux-effort-inset)) * var(--acpmux-effort));
-  width: 24px;
-  height: 24px;
-  margin: -12px 0 0 -12px;
-  border: 2px solid color-mix(in srgb, var(--agent-accent, var(--agent-text)) 76%, var(--surface-popup));
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border: 2px solid var(--agent-accent, var(--agent-text));
   border-radius: 50%;
-  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 16%, var(--surface-popup));
-  box-shadow: var(--elevation-1), 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);
+  background: var(--agent-accent, var(--agent-text));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);
   pointer-events: none;
   transition: left 160ms ease;
 }
