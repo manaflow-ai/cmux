@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxMobileHost
 import Foundation
 
 /// One live coding-agent session shown as a row under its workspace's title

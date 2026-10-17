@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxMobileHost
 import Foundation
 
 /// Posted on the main thread when an agent session's sidebar-visible facts

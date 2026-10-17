@@ -1,4 +1,5 @@
 import CmuxAgentChat
+@testable import CmuxMobileHost
 import Foundation
 import Testing
 

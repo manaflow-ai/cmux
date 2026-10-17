@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxMobileHost
 import Foundation
 
 /// The registry's contribution to the sidebar session rows: the user's last
