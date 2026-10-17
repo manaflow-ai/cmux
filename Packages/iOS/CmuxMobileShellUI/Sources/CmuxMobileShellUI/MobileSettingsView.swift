@@ -307,7 +307,6 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsLegacyTerminalSizingToggle")
 
                     MobileKeyboardCorrectionsToggle(isEnabled: keyboardCorrectionPreference.isEnabled, setEnabled: { keyboardCorrectionPreference.isEnabled = $0 })
-
                     Toggle(isOn: $displaySettings.handoffTerminalSizingWhenInactive) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(L10n.string(
