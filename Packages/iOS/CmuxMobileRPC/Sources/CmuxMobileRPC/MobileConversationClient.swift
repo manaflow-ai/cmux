@@ -16,6 +16,13 @@ public actor MobileConversationClient: ConversationClient {
         self.outbox = try MobileConversationOutbox(fileURL: outboxURL)
     }
 
+    /// Uses a stable store when the underlying connection is replaced.
+    public init(connection: any MobileSyncing, workspaceIDs: Set<String>, storage: MobileConversationStorage) {
+        self.rpc = MobileConversationRPC(connection: connection)
+        self.workspaceIDs = workspaceIDs
+        self.outbox = storage.outbox
+    }
+
     public func listSessions() async throws -> [ConversationSession] {
         var sessions: [ConversationSession] = []
         for workspaceID in workspaceIDs.sorted() {
@@ -88,7 +95,7 @@ public actor MobileConversationClient: ConversationClient {
             }
             let reconciled = receipt ?? ConversationReceipt(
                 id: .init(rawValue: entry.commandID), sessionID: sessionID,
-                state: .uncertain, reason: "Delivery is unconfirmed. This command was not sent again.",
+                state: .uncertain, reason: String(localized: "conversation.error.unconfirmed", defaultValue: "Delivery is unconfirmed. This command was not sent again.", bundle: .module),
                 generation: snapshot.generation, createdAt: entry.createdAt
             )
             try await record(reconciled)
@@ -121,12 +128,12 @@ public actor MobileConversationClient: ConversationClient {
         return events
     }
 
-    public func events(sessionID: ConversationID) async -> AsyncThrowingStream<ConversationEvent, any Error> {
+    public func events(sessionID: ConversationID, after: ConversationCursor = 0) async -> AsyncThrowingStream<ConversationEvent, any Error> {
         let changes = await rpc.changes()
         return AsyncThrowingStream(bufferingPolicy: .bufferingOldest(1_024)) { continuation in
             let task = Task {
                 do {
-                    var cursor: ConversationCursor = 0
+                    var cursor = after
                     // Every hint invalidates the active projection: coalescing
                     // may replace its hint with one for another session.
                     for try await _ in changes {
@@ -170,7 +177,7 @@ public actor MobileConversationClient: ConversationClient {
             // rejection or redispatch it with a fresh command identity.
             let uncertain = ConversationReceipt(
                 id: command.commandID, sessionID: command.sessionID, state: .uncertain,
-                reason: "Delivery is unconfirmed. Reconnect to check its status.",
+                reason: String(localized: "conversation.error.reconcile", defaultValue: "Delivery is unconfirmed. Reconnect to check its status.", bundle: .module),
                 generation: command.expectedGeneration ?? "unknown"
             )
             try await record(uncertain)
@@ -190,6 +197,10 @@ public actor MobileConversationClient: ConversationClient {
             try await record(value)
         }
         return value
+    }
+
+    public func receipt(sessionID: ConversationID, commandID: ConversationCommandID) async throws -> ConversationReceipt? {
+        try await receipt(ConversationReceiptQuery(sessionID: sessionID, commandID: commandID))
     }
 
     private func workspace(for sessionID: ConversationID) async throws -> String {

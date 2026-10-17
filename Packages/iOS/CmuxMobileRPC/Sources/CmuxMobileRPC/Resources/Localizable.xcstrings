@@ -1,0 +1,124 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "conversation.error.unconfirmed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delivery is unconfirmed. This command was not sent again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Zustellung ist unbestätigt. Dieser Befehl wurde nicht erneut gesendet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La réception n’est pas confirmée. Cette commande n’a pas été renvoyée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُؤكَّد التسليم. لم يُرسَل هذا الأمر مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La entrega no está confirmada. Este comando no se volvió a enviar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送尚未確認。此指令未再次傳送。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送尚未确认。此命令未再次发送。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전달이 확인되지 않았습니다. 이 명령은 다시 전송되지 않았습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信を確認できません。このコマンドは再送信されていません。"
+          }
+        }
+      }
+    },
+    "conversation.error.reconcile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delivery is unconfirmed. Reconnect to check its status."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Zustellung ist unbestätigt. Verbinde dich erneut, um den Status zu prüfen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La réception n’est pas confirmée. Reconnectez-vous pour vérifier son état."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُؤكَّد التسليم. أعد الاتصال للتحقق من حالته."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La entrega no está confirmada. Vuelve a conectarte para comprobar su estado."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送尚未確認。請重新連線以查看狀態。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送尚未确认。请重新连接以查看状态。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전달이 확인되지 않았습니다. 다시 연결하여 상태를 확인하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信を確認できません。再接続して状態を確認してください。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

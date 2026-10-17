@@ -4,6 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "CmuxMobileRPC",
+    defaultLocalization: "en",
     platforms: [
         .iOS(.v17),
         .macOS(.v14),
@@ -31,6 +32,7 @@ let package = Package(
                 "CmuxMobileShellModel",
                 "CmuxMobileSupport",
             ],
+            resources: [.process("Resources")],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
