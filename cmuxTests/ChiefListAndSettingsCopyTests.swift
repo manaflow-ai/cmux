@@ -1,3 +1,4 @@
+import AppKit
 import CmuxChief
 import CmuxHomeCore
 import Foundation
@@ -102,6 +103,29 @@ import Testing
         #expect(environment["CMUX_CHIEF_TURN"] == "1")
         #expect(environment["CMUX_WORKSPACE_ID"] == workspaceID.uuidString)
         #expect(environment["CMUX_SURFACE_ID"] == surfaceID.uuidString)
+    }
+
+    @Test func theFirstRunPanelSaysWhatChiefDoes() {
+        let panel = ChiefFirstRunView(frame: NSRect(x: 0, y: 0, width: 520, height: 720))
+        panel.layoutSubtreeIfNeeded()
+        #expect(panel.introTitle.stringValue == ChiefStrings.firstRunIntroTitle)
+        #expect(panel.introLines.map(\.stringValue) == [ChiefStrings.firstRunIntroAgents,
+                                                        ChiefStrings.firstRunIntroTerminals,
+                                                        ChiefStrings.firstRunIntroCloud])
+        #expect(!panel.introTitle.isHidden)
+        #expect(panel.introLines.allSatisfy { !$0.isHidden && $0.frame.height > 0 })
+        // Every line sits above the chips, in order, none under the compose field.
+        let tops = panel.introLines.map(\.frame.minY)
+        #expect(tops == tops.sorted())
+        #expect(panel.introLines.allSatisfy { $0.frame.maxY <= panel.bounds.height - ChiefFirstRunRow.chipHeight })
+    }
+
+    @Test func aShortPanelDropsTheIntroBeforeTheActions() {
+        let panel = ChiefFirstRunView(frame: NSRect(x: 0, y: 0, width: 520, height: 150))
+        panel.setShowsActions(true)
+        panel.layoutSubtreeIfNeeded()
+        #expect(panel.introTitle.isHidden)
+        #expect(panel.actionRows.contains { !$0.isHidden })
     }
 
     @Test func aTurnFindsToolsOnTheLoginShellPath() {

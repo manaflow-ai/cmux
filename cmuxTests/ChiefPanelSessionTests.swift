@@ -288,6 +288,36 @@ import Testing
         #expect(decoded == .chief)
     }
 
+    @Test func aRestoredWindowOpensOnATerminalNotHome() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        defer { manager.finalizeAllWorkspacesForWindowClose() }
+        let home = try makeChiefOnlyWorkspace(in: manager, name: "Home", isHome: true)
+        let terminal = try #require(manager.addWorkspaceIfActive(select: false))
+        manager.selectWorkspace(home)
+        #expect(manager.tabs.first?.id == home.id)
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+
+        let restored = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        defer { restored.finalizeAllWorkspacesForWindowClose() }
+        _ = restored.restoreSessionSnapshot(snapshot)
+        let selected = try #require(restored.selectedWorkspace)
+        #expect(!selected.isChiefHome)
+        #expect(selected.id == restored.tabs.first(where: { !$0.isChiefHome })?.id)
+        #expect(restored.tabs.contains(where: \.isChiefHome))
+        _ = terminal
+    }
+
+    @Test func aHomeOnlyWindowGetsATerminalToOpenOn() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        defer { manager.finalizeAllWorkspacesForWindowClose() }
+        let home = try makeChiefOnlyWorkspace(in: manager, name: "Home", isHome: true)
+        manager.selectWorkspace(home)
+        ChiefHomeNavigation.openOnTerminal(in: manager)
+        let selected = try #require(manager.selectedWorkspace)
+        #expect(!selected.isChiefHome)
+        #expect(manager.tabs.count == 2)
+    }
+
     @Test func homeSelectionPersistsAsTabs() {
         // Builds without `.home` must still decode the snapshot.
         #expect(SessionSidebarSelection(selection: .home) == .tabs)
