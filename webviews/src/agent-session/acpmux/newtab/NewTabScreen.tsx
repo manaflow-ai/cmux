@@ -41,7 +41,7 @@ import { useComposerChrome } from "../composerChrome";
 export type NewTabScreenActions = {
   /// Enter on a prompt: a chat with `harness` in `cwd` (the project picked on the page).
   /// `model`: the one the chip names, so the chat starts on what the page showed.
-  onAsk(harness: string, text: string, cwd?: string, model?: string): void;
+  onAsk(harness: string, text: string, cwd?: string, model?: string, noProject?: boolean): void;
   onOpen(url: string): void;
   onSearch(text: string): void;
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
@@ -125,6 +125,7 @@ export function NewTabScreen(props: Props) {
   /// Return asked with no agent to ask: the note under the field says so until the next edit.
   const [noAgent, setNoAgent] = useState(false);
   const [project, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
+  const [noProject, setNoProject] = useState(false);
   const field = useRef<HTMLInputElement>(null);
   const wholeSelection = useRef(false);
   const composing = useRef(false);
@@ -262,7 +263,7 @@ export function NewTabScreen(props: Props) {
       case "workspace":
         return props.onJump("workspace", row.id);
       case "ask":
-        return props.onAsk(row.harness, row.text, project, row.harness === harness ? chipModel : undefined);
+        return props.onAsk(row.harness, row.text, project, row.harness === harness ? chipModel : undefined, noProject);
     }
   };
   const edit = (next: string) => {
@@ -285,7 +286,7 @@ export function NewTabScreen(props: Props) {
     const prompt = text.trim();
     if (!prompt || isAddress(prompt, home)) return;
     if (!harness) return setNoAgent(true);
-    props.onAsk(harness, prompt, project, chipModel);
+    props.onAsk(harness, prompt, project, chipModel, noProject);
   };
   // One create per page: a double click, or a click while the terminal spawns, opens one tab.
   const created = useRef(false);
@@ -303,7 +304,7 @@ export function NewTabScreen(props: Props) {
     if (created.current) return;
     created.current = true;
     const prompt = shell ? "" : text.trim();
-    props.onAsk(harness, prompt && !isAddress(prompt, home) ? prompt : "", project, chipModel);
+    props.onAsk(harness, prompt && !isAddress(prompt, home) ? prompt : "", project, chipModel, noProject);
   };
   const send = () => {
     touch();
@@ -405,7 +406,14 @@ export function NewTabScreen(props: Props) {
   };
   const pickProject = (cwd: string) => {
     touch();
+    setNoProject(false);
     setProject(cwd);
+    field.current?.focus();
+  };
+  const chooseNoProject = () => {
+    touch();
+    setNoProject(true);
+    setProject(undefined);
     field.current?.focus();
   };
   const browseProject = props.onBrowseProject
@@ -433,8 +441,10 @@ export function NewTabScreen(props: Props) {
             <ProjectChooser
               projects={props.projects ?? []}
               {...(askFolder && askFolderName ? { current: askFolder, currentLabel: askFolderName } : {})}
+              noProject={noProject}
               icon={<FolderIcon />}
               onPick={pickProject}
+              onNoProject={chooseNoProject}
               {...(browseProject ? { onBrowse: browseProject } : {})}
               side="bottom"
             />
