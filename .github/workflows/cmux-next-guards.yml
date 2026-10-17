@@ -101,9 +101,9 @@ jobs:
   # merges grew the App past the cap. This workflow has no path filter, so the
   # check can be a required one.
   # Only the size cap runs here: the god-file checks stay warn-only. A pull
-  # request fails on what it grows (its merge commit's first parent is the
-  # base); a push fails on what it grew over the previous tip (event.before), so
-  # a push that went around safe-push turns the tip run red.
+  # request fails on real source growth against its merge commit's first parent
+  # (the base); comment/blank-line-only merge noise is ignored. A push compares
+  # against event.before, so a push that went around safe-push still turns red.
   app-size:
     name: cmux-next CmuxNextApp size cap
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.

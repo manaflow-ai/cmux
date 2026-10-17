@@ -37,7 +37,7 @@ export function TrustAsk({
                 ? t("trust.untrustedPrivate")
                 : t("trust.untrusted", { folder })}
           </span>
-          <button type="button" className="acpmux-trust-ask-action" onClick={onUndo}>
+          <button type="button" className="acpmux-trust-ask-action" data-action="undo" onClick={onUndo}>
             {t("trust.undo")}
           </button>
         </>
@@ -52,10 +52,10 @@ export function TrustAsk({
                 ? t("trust.askPrivate", { agent })
                 : t("trust.ask", { agent, folder })}
           </span>
-          <button type="button" className="acpmux-trust-ask-action" onClick={onTrust}>
+          <button type="button" className="acpmux-trust-ask-action" data-action="trust" onClick={onTrust}>
             {t("trust.trust")}
           </button>
-          <button type="button" className="acpmux-trust-ask-action" onClick={onDistrust}>
+          <button type="button" className="acpmux-trust-ask-action" data-action="distrust" onClick={onDistrust}>
             {t("trust.distrust")}
           </button>
         </>
