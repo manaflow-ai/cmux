@@ -220,7 +220,11 @@ final class AgentChatModeModel {
         pendingSendsBySession[selectedSessionID, default: []].append(
             QueuedSend(text: text, attachments: pendingAttachments)
         )
-        await drainSendQueue(sessionID: selectedSessionID, source: source)
+        await drainSendQueue(
+            sessionID: selectedSessionID,
+            source: source,
+            generation: sourceGeneration
+        )
     }
 
     func addAttachment(_ attachment: PendingAttachment) {
@@ -498,11 +502,16 @@ final class AgentChatModeModel {
         sessions.sort(by: Self.sortSessions)
     }
 
-    private func drainSendQueue(sessionID: String, source: any AgentChatSessionSource) async {
+    private func drainSendQueue(
+        sessionID: String,
+        source: any AgentChatSessionSource,
+        generation: Int
+    ) async {
         guard sendingSessionIDs.insert(sessionID).inserted else { return }
         defer { sendingSessionIDs.remove(sessionID) }
 
         while let queued = pendingSendsBySession[sessionID]?.first {
+            guard !Task.isCancelled, generation == sourceGeneration else { return }
             pendingSendsBySession[sessionID]?.removeFirst()
             do {
                 try await source.send(
@@ -511,6 +520,7 @@ final class AgentChatModeModel {
                     sessionID: sessionID
                 )
             } catch {
+                guard generation == sourceGeneration, !Task.isCancelled else { return }
                 pendingSendsBySession[sessionID, default: []].insert(queued, at: 0)
                 if selectedSessionID == sessionID,
                    draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
