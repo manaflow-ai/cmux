@@ -218,7 +218,7 @@
    test/composer-row-rhythm.test.ts measures it. */
 .acpmux-composer-bar {
   --acpmux-row-inset: 6px;
-  --acpmux-row-gap: 3px;
+  --acpmux-row-gap: 4px;
   --acpmux-row-group-gap: 10px;
   --acpmux-row-icon-gap: 4px;
   --acpmux-row-edge: 10px;
