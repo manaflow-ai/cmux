@@ -156,7 +156,7 @@ struct ProUpgradeCardModel: Equatable {
         case .appStore:
             String(
                 localized: "settings.account.pro.appStoreSubtitle",
-                defaultValue: "Your Pro subscription is active. Manage it in the App Store.",
+                defaultValue: "Your Pro subscription is active. Manage it through your subscription provider.",
                 bundle: .module
             )
         case .granted:

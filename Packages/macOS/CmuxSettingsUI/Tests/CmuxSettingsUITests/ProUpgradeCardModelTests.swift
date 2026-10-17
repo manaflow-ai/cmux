@@ -27,7 +27,7 @@ import Testing
         let model = ProUpgradeCardModel(
             tier: .pro, isProActive: true, canManageBilling: false, isSignedIn: true, billingSource: .appStore
         )
-        #expect(model.subtitle == "Your Pro subscription is active. Manage it in the App Store.")
+        #expect(model.subtitle == "Your Pro subscription is active. Manage it through your subscription provider.")
         #expect(!model.subtitle.contains("previous billing system"))
         #expect(model.actions == [.upgradeToMax])
     }

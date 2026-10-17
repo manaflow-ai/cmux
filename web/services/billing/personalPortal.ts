@@ -17,6 +17,10 @@ export async function personalPortalSession(input: {
     ["active", "trialing"].includes(status.subscriptionStatus ?? "") &&
     // A switch keeps a scheduled cancellation; the plain portal offers Renew.
     !status.cancelAtPeriodEnd &&
+    // The shared portal lists both destination intervals. Keep yearly
+    // subscribers in the dashboard's interval-aware flow instead of allowing
+    // a direct switch to a monthly Max price.
+    status.subscriptionInterval !== "year" &&
     status.activePlanId !== input.target &&
     // The switch flow fails for a price the portal does not list.
     isPortalSwitchableLookupKey(status.planLookupKey);
