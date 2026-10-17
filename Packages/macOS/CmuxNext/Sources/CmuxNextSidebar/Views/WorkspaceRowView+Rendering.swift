@@ -25,8 +25,9 @@ extension WorkspaceRowView {
 
     override func hoverChanged() {
         super.hoverChanged()
-        needsLayout = true
-        guard isHovered, !renaming, !isPlaceholderRow else {
+        let suppressEffects = suppressesHoverEffects
+        if !suppressEffects { needsLayout = true }
+        guard isHovered, !renaming, !isPlaceholderRow, !suppressEffects else {
             title.stopMarquee()
             return
         }

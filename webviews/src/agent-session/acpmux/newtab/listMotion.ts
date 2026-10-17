@@ -5,7 +5,7 @@
 // Rows are told apart by their keys, never by position. Only transform and opacity animate (Web
 // Animations), and a change mid-motion starts from what is on screen. Reduce Motion keeps the
 // fades and drops the slides (rule 7): its move token is 0.
-import { type RefObject, useLayoutEffect, useRef } from "react";
+import { type RefObject, useLayoutEffect, useMemo, useRef } from "react";
 
 type Places = Map<string, { x: number; y: number }>;
 
@@ -47,11 +47,20 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   const shown = useRef<string>("");
   const shownKeys = useRef<readonly string[]>([]);
   const signature = keys.join("\n");
-  const observed = useRef<{ root: HTMLElement; observer: ResizeObserver } | null>(null);
-  useLayoutEffect(() => () => observed.current?.observer.disconnect(), []);
+  const keyList = useMemo(() => (signature === "" ? [] : signature.split("\n")), [signature]);
+  const observed = useRef<{ root: HTMLElement; rows: string; observer: ResizeObserver } | null>(null);
+  const sampled = useRef<{ root: HTMLElement; rows: string; signature: string } | null>(null);
+  useLayoutEffect(
+    () => () => {
+      observed.current?.observer.disconnect();
+      observed.current = null;
+      sampled.current = null;
+    },
+    [],
+  );
   useLayoutEffect(() => {
     const root = list.current;
-    if (observed.current?.root !== root) {
+    if (observed.current?.root !== root || observed.current?.rows !== rows) {
       observed.current?.observer.disconnect();
       observed.current = null;
       if (root && typeof ResizeObserver !== "undefined") {
@@ -61,25 +70,31 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
             places.current = measure(root, elements, shownKeys.current);
         });
         observer.observe(root);
-        observed.current = { root, observer };
+        observed.current = { root, rows, observer };
       }
     }
+    // A ref object stays the same when React replaces its DOM node. Check its current root on
+    // every commit, but leave geometry alone until the root, selector or row keys change.
+    if (sampled.current?.root === root && sampled.current.rows === rows && sampled.current.signature === signature)
+      return;
     const elements = root ? [...root.querySelectorAll<HTMLElement>(`:scope > ${rows}`)] : [];
-    if (!root || elements.length !== keys.length) {
+    if (!root || elements.length !== keyList.length) {
       places.current = new Map();
       shown.current = "";
+      sampled.current = null;
       return;
     }
     const changed = shown.current !== "" && shown.current !== signature;
     const before = places.current;
     // Reads: where each row is drawn now (running slides included), then its new place.
-    const drawn = new Map(elements.map((element, index) => [keys[index], drawnShift(element)] as const));
+    const drawn = new Map(elements.map((element, index) => [keyList[index], drawnShift(element)] as const));
     if (changed) for (const animation of running.current) animation.cancel();
     if (changed) running.current = [];
-    const after = measure(root, elements, keys);
+    const after = measure(root, elements, keyList);
     places.current = after;
     shown.current = signature;
-    shownKeys.current = keys;
+    shownKeys.current = keyList;
+    sampled.current = { root, rows, signature };
     if (!changed) return;
     const style = getComputedStyle(root);
     const reduced = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -88,7 +103,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     const easing = style.getPropertyValue("--agent-ease-out").trim() || "ease-out";
     // Writes.
     for (const [index, element] of elements.entries()) {
-      const key = keys[index];
+      const key = keyList[index];
       const was = before.get(key);
       const is = after.get(key);
       if (!was || !is) {

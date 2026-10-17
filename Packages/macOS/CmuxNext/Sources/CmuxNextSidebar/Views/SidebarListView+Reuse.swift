@@ -22,6 +22,7 @@ extension SidebarListView {
     /// Per-key callbacks, set on every dequeue so recycled views never keep
     /// a previous row's target.
     func wire(_ view: SidebarRowView, key: SidebarRowKey) {
+        view.sidebarList = self
         switch (key, view) {
         case let (.workspace(id), view as WorkspaceRowView):
             view.wire(id, in: self)

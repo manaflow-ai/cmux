@@ -361,6 +361,7 @@ def hitches(trace, pid):
     except Exception:  # noqa: BLE001 (an older trace without the table)
         pass
     return {"hitches": rows, "p50_ms": percentile(durations, 50), "p95_ms": percentile(durations, 95),
+            "p99_ms": percentile(durations, 99),
             "max_ms": round(max(durations), 2) if durations else None, "total_ms": round(sum(durations), 1),
             "app_updates": len(updates), "update_p50_ms": percentile(updates, 50), "update_p90_ms": percentile(updates, 90),
             "updates_over_8_3_ms": len([u for u in updates if u > 8.34])}
@@ -411,7 +412,9 @@ def tick_phase(pid):
     after = counters()
     if base is not None and after is not None:
         result["counters"] = after
-        result["main_us_per_tick"] = round(after.get("main_ns", 0) / 1e3 / max(ticks, 1), 1)
+        main_ns = after.get("main_ns")
+        if isinstance(main_ns, (int, float)) and not isinstance(main_ns, bool) and ticks > 0:
+            result["main_us_per_tick"] = round(main_ns / 1e3 / ticks, 1)
         visible = summary["visible_ticking_rows"]
         check(after.get("rebuilds", 0) == 0, f"ticks: no structural rebuild (rebuilds {after.get('rebuilds')})")
         check(after.get("list_reloads", 0) == 0, f"ticks: no list reload (list_reloads {after.get('list_reloads')})")

@@ -7,6 +7,7 @@ import QuartzCore
 /// their own buttons.
 class SidebarRowView: NSView {
     var key: SidebarRowKey
+    weak var sidebarList: SidebarListView?
     var isHovered = false { didSet { if isHovered != oldValue { hoverChanged() } } }
     /// The row is the sidebar's selected item and paints the selection fill.
     /// A selection change paints at once, never fades or travels
@@ -92,9 +93,14 @@ class SidebarRowView: NSView {
     @objc dynamic func setTitleHidden(_ hidden: Bool) {}
 
     @objc dynamic func hoverChanged() {
-        fadesNextFill = true
-        fadesNextHover = true
+        let suppressEffects = suppressesHoverEffects
+        fadesNextFill = !suppressEffects
+        fadesNextHover = !suppressEffects
         needsDisplay = true
+    }
+
+    var suppressesHoverEffects: Bool {
+        sidebarList?.hoverFollowsScroll == true || sidebarList?.suppressHoverEffects == true
     }
 
     /// The next fill change came from hover, so it fades in and out
