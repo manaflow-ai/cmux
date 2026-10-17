@@ -209,16 +209,16 @@ struct ConversationFilesSheet: View {
                         .buttonStyle(.plain)
                     }
                 }
+                // Keep a little real table content below the final file row.
+                // A sheet detent can otherwise leave that row exactly on the
+                // presentation boundary, where it exists but has no hit point.
+                Color.clear
+                    .frame(height: 96)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .accessibilityHidden(true)
             }
-            // Keep a little real table content below the final file row. A
-            // sheet detent can otherwise leave that row exactly on the
-            // presentation boundary, where it exists but has no hit point.
-            Color.clear
-                .frame(height: 96)
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-                .accessibilityHidden(true)
             .navigationTitle(ConversationL10n.value("conversation.files", "Files"))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button(ConversationL10n.value("conversation.close", "Close")) { dismiss() } }
