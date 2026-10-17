@@ -562,6 +562,11 @@ public final class ConversationModel {
     private func apply(snapshot: ConversationSnapshot) {
         guard snapshot.session.id == selectedSessionID else { return }
         guard snapshot.cursor >= currentCursor else { return }
+        // A host can close its event stream while its durable snapshot is
+        // still in flight.  Preserve that terminal connection state when the
+        // projection arrives; otherwise applying the snapshot would briefly
+        // (and incorrectly) make a retained, disconnected task writable.
+        let streamAlreadyEnded = connectionState == .disconnected
         items = snapshot.items
         requests = snapshot.pendingRequests
         queue = snapshot.queued
@@ -573,7 +578,7 @@ public final class ConversationModel {
         cursorBySession[snapshot.session.id] = currentCursor
         lastReceipt = snapshot.receipts.last
         snapshotLoading = false
-        connectionState = .connected
+        if !streamAlreadyEnded { connectionState = .connected }
         errorMessage = nil
         let replay = bufferedEvents.sorted { $0.sequence < $1.sequence }
         bufferedEvents.removeAll()

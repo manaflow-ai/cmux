@@ -111,14 +111,21 @@ struct ConversationModelSettingsSheet: View {
             .navigationTitle(ConversationL10n.value("conversation.model_effort", "Model and effort"))
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(ConversationL10n.value("conversation.done", "Done")) {
+                    Button {
                         let session = model.sessions.first(where: { $0.id == model.selectedSessionID })
                         if selectedModel != (session?.model ?? "") || effort != (session?.effort ?? "") || speed != (session?.speed ?? "") {
                             model.configure(model: selectedModel.isEmpty ? nil : selectedModel, effort: effort.isEmpty ? nil : effort, speed: speed.isEmpty ? nil : speed)
                         }
                         dismiss()
+                    } label: {
+                        // Put the identifier on the label rather than the
+                        // toolbar Button container.  iPadOS otherwise exposes
+                        // both the toolbar item and its child with the same
+                        // identifier, so an exact-match automation query
+                        // cannot choose a single target.
+                        Text(ConversationL10n.value("conversation.done", "Done"))
+                            .accessibilityIdentifier("ConversationSettingsDone")
                     }
-                    .accessibilityIdentifier("ConversationSettingsDone")
                 }
             }
             .task {

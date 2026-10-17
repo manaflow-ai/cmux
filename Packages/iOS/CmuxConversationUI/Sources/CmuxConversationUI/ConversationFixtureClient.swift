@@ -173,8 +173,13 @@ public actor ConversationFixtureClient: ConversationArtifactClient {
         continuation.onTermination = { [weak self] _ in
             Task { await self?.removeContinuation(sessionID: sessionID, token: token) }
         }
+        // Close the fixture stream cleanly for disconnected scenarios.  The
+        // model still transitions to its disconnected state when the stream
+        // ends, while a normal completion lets the initial snapshot finish
+        // applying first.  Throwing here raced snapshot recovery and could
+        // leave the retained transcript empty on a slow simulator.
         if scenario == .disconnected || scenario == .reconnectedPending {
-            continuation.finish(throwing: FixtureError.disconnected)
+            continuation.finish()
         }
         return stream
     }

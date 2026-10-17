@@ -143,7 +143,16 @@ private struct ConversationRequestCard: View {
         .padding(14)
         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("ConversationBlockingRequest-\(request.id.rawValue)")
+        // A question card is the actionable blocking surface.  Keep the
+        // request identity in its value for diagnostics, but expose a stable
+        // question landmark at the container level as well.  On iPadOS a
+        // nested accessibility container can hide the identifier attached to
+        // ConversationQuestionCard, leaving UI automation with only the
+        // request wrapper.
+        .accessibilityIdentifier(request.question == nil
+            ? "ConversationBlockingRequest-\(request.id.rawValue)"
+            : "ConversationBlockingQuestion")
+        .accessibilityValue(request.question == nil ? request.id.rawValue : "\(request.id.rawValue)")
         .id(request.id.rawValue)
     }
 }
