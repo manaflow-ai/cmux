@@ -49,6 +49,29 @@ import Testing
         #expect(model.selectedSessionID == nil)
     }
 
+    @Test func idleSessionDoesNotConsumeDraftAsStaleQuestionAnswer() async {
+        let question = questionMessage(
+            id: "question",
+            seq: 1,
+            question: ChatQuestion(
+                prompt: "Which target?",
+                options: [ChatQuestion.Option(label: "iPhone")]
+            )
+        )
+        let source = FakeAgentChatSource(
+            sessions: [descriptor(id: "session", agent: .codex)],
+            pages: ["session": [page(question)]])
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await settle()
+
+        model.draft = "Continue with the implementation"
+        await model.sendDraft()
+
+        #expect((await source.sent).map(\.0) == ["Continue with the implementation"])
+        #expect(await source.answers.isEmpty)
+    }
+
     @Test func sessionSearchMatchesMetadataWithoutChangingProviderFilter() async {
         let source = FakeAgentChatSource(sessions: [
             ChatSessionDescriptor(

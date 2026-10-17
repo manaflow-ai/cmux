@@ -646,6 +646,7 @@ final class AgentChatModeModel {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let pendingAttachments = attachments
         if pendingAttachments.isEmpty,
+           case .needsInput = selectedSession?.state,
            let pendingQuestion = selectedMessages.last(where: { message in
                guard message.role == .agent,
                      case .question(let question) = message.kind else { return false }
