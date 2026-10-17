@@ -21,6 +21,7 @@ import { catalogRow } from "./catalogRow";
 import { harnessProfiles } from "./harnessProfiles";
 import { useStartMode } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
+import { focusWithRing } from "../../ui/focusWithRing";
 import { Popover } from "../../ui/Popover";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
@@ -1035,7 +1036,7 @@ export function Picker({
     setOpen(true);
     // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt. After a
     // key was typed WebKit draws a programmatic focus as keyboard focus, so a press says it is not.
-    trigger.current?.focus(byPointer.current ? { focusVisible: false } : undefined);
+    focusWithRing(trigger.current, byPointer.current ? { focusVisible: false } : undefined);
   };
   const showRef = useRef(show);
   showRef.current = show;

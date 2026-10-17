@@ -71,6 +71,7 @@ fn close_other_tabs_is_one_group_that_keeps_pinned_tabs_and_reopens_whole() {
     assert_eq!(listed.len(), 1, "one gesture, one group: {listed:?}");
     assert_eq!(listed[0]["kind"], "tab");
     assert_eq!(listed[0]["member_count"], 3);
+    assert_eq!(closed["closed_ids"], json!([listed[0]["id"]]), "the call names its group");
 
     let nothing = mutate(
         &mux,
@@ -79,6 +80,7 @@ fn close_other_tabs_is_one_group_that_keeps_pinned_tabs_and_reopens_whole() {
         "right-of-last",
     );
     assert_eq!(nothing["tab_ids"], json!([]));
+    assert_eq!(nothing["closed_ids"], json!([]));
     assert_eq!(groups(&mux).len(), 1, "a preset that closes nothing writes no group");
 
     let reopened = mutate(&mux, "closed.reopen", json!({}), "reopen");

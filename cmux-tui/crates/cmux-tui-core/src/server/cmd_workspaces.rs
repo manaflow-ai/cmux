@@ -251,6 +251,8 @@ pub(super) struct Ending {
     pub terminals: bool,
     pub reason: Option<crate::mux::CloseReason>,
     pub if_empty: bool,
+    /// With `terminals`: answer `closed_ids` (opt-in, version skew).
+    pub report_closed_ids: bool,
 }
 
 pub(super) fn close_workspace(
@@ -265,8 +267,8 @@ pub(super) fn close_workspace(
         anyhow::bail!("bad request: close-workspace takes a reason only with end_terminals");
     }
     let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
-    let result = if ending.terminals {
-        mux.close_workspace_ending_terminals_for(
+    let (result, closed_ids) = if ending.terminals {
+        let (result, outcome) = mux.close_workspace_ending_terminals_for(
             workspace,
             key.as_deref(),
             mutation.expected_generation.as_deref(),
@@ -274,20 +276,22 @@ pub(super) fn close_workspace(
             &workspace_mutation,
             ending.reason,
             ending.if_empty,
-        )?
-        .0
+        )?;
+        let ids = outcome.result.get("closed_ids").filter(|_| ending.report_closed_ids);
+        (result, ids.cloned())
     } else {
-        mux.close_workspace_with_mutation_guarded(
+        let result = mux.close_workspace_with_mutation_guarded(
             workspace,
             key.as_deref(),
             mutation.expected_generation.as_deref(),
             mutation.expected_revision,
             &workspace_mutation,
             ending.if_empty,
-        )?
+        )?;
+        (result, None)
     };
     let (registry_id, generation) = mux.registry_identity();
-    Ok(json!({
+    let mut reply = json!({
         "workspace": result.workspace,
         "key": result.key,
         "index": result.index,
@@ -296,7 +300,13 @@ pub(super) fn close_workspace(
         "replayed": result.replayed,
         "registry_id": registry_id,
         "generation": generation,
-    }))
+    });
+    // With `end_terminals` and `report_closed_ids`: the closed groups this
+    // close stored, oldest first.
+    if let Some(ids) = closed_ids {
+        reply["closed_ids"] = ids;
+    }
+    Ok(reply)
 }
 
 pub(super) fn mark_workspaces_provider_managed(

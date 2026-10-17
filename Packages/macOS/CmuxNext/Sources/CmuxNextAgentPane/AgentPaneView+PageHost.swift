@@ -8,9 +8,10 @@ extension AgentPaneView {
     /// Wires `page` to this view: navigation, crashes, and the state a new page subscriber gets.
     func attachPage(_ page: PageWebView) {
         page.autoresizingMask = [.width, .height]
-        page.onOpenExternal = { [weak self] url in
+        page.onOpenExternal = { [weak self, weak page] url in
             guard let self else { return }
-            _ = AgentPaneNavigation.openOutside(url, gestures: self.model.transport.gestures, open: self.openURL)
+            let other = LinkRouter.isOtherTarget(page?.externalLinkModifiers ?? [])
+            _ = AgentPaneNavigation.openOutside(url, gestures: self.model.transport.gestures) { self.openURL($0, other) }
         }
         page.onNavigate = { [weak self] navigation in
             guard let self else { return .cancel }

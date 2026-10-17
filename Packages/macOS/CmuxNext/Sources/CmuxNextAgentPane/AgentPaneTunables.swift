@@ -5,7 +5,8 @@ import CmuxNextPages
 /// The look of what stands on the composer card's top edge (the location strip of a new chat, the
 /// queued prompts of a started one), for comparing designs: `agentPane.debug.topStripStyle`.
 public nonisolated enum AgentPaneTopStripStyle: String, Sendable, CaseIterable, TunableChoice {
-    /// Today's: a tab of the card's fill on its top edge, sharing its rim.
+    /// Today's: in a chat, a tab of the card's fill on its top edge, sharing its rim; on the New
+    /// Tab, the folder and computer as plain text over the card (Cursor's home, Lucas #21133).
     case `default`
     /// A tab a few px above the card in its own closed hairline (#20789).
     case bump
@@ -16,7 +17,7 @@ public nonisolated enum AgentPaneTopStripStyle: String, Sendable, CaseIterable, 
 
     public var tunableTitle: String {
         switch self {
-        case .default: "Default (tab on the card)"
+        case .default: "Default (chat: tab on the card; New Tab: text above it)"
         case .bump: "Bump (tab a few px above, own hairline)"
         case .plain: "Plain (floating text, no chrome)"
         case .tray: "Tray (filled, tucked under the card)"

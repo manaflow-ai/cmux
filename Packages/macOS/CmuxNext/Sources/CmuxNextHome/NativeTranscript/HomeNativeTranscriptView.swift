@@ -54,6 +54,11 @@ public final class HomeNativeTranscriptView: NSView {
         get { transcript.onAppLink }
         set { transcript.onAppLink = newValue }
     }
+    /// A click on any other link in the transcript (`otherTarget`: Shift-Command held).
+    public var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void {
+        get { transcript.onOpenLink }
+        set { transcript.onOpenLink = newValue }
+    }
     /// The host's shared stop action.
     public var onStop: () -> Void = {} {
         didSet { transcript.onStop = { [weak self] in self?.onStop() } }

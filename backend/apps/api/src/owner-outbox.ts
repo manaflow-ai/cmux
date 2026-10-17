@@ -26,6 +26,8 @@ export const outboxFailure = (channel: string, e: unknown): OutboxFailure => {
 
 /** The class name of a Chief wake queue target (home-core conversation outbox `mux.wake`). */
 const MUX_CLASS = "MuxDO"
+/** A Chief wake queue channel: a person waits on it. */
+export const isWakeChannel = (c: string) => c.startsWith(`${MUX_CLASS}:`)
 
 /**
  * One alarm's outbox work for an owner: each due channel (PlanetScale projections, or one target
@@ -38,7 +40,9 @@ export const drainOutboxChannels = async <S>(
   /** The PlanetScale projector (a fake in tests). */
   project: (env: Env, stream: string, rows: Parameters<typeof projectRows>[2]) => ReturnType<typeof projectRows> = projectRows,
   /** The security mail sender (a fake in tests). */
-  mail: typeof deliverSecurityMail = deliverSecurityMail
+  mail: typeof deliverSecurityMail = deliverSecurityMail,
+  /** Only these channels (the commit-time wake path); no prune or replay then. */
+  only?: (channel: string) => boolean
 ): Promise<void> => {
     const outbox = engine.outbox
     // Each channel (PlanetScale projections, or one target object) reads, fails and backs off on
@@ -48,9 +52,10 @@ export const drainOutboxChannels = async <S>(
     // (automations, integrations) read the projection, so the projection ("") is put first explicitly.
     // (A cross-channel order was never guaranteed: each channel backs off on its own.)
     const due = outbox.dueChannels(Date.now())
-    const wake = (c: string) => c.startsWith(`${MUX_CLASS}:`)
+    const wake = isWakeChannel
     for (const channel of [...due.filter(wake), ...due.filter((c) => c === ""), ...due.filter((c) => c !== "" && !wake(c))]) {
       // After a failure a target channel sends its head alone, so a poison item is found by itself.
+      if (only && !only(channel)) continue
       const rows = outbox.pending(channel, channel !== "" && outbox.isolating(channel) ? 1 : 100)
       if (rows.length === 0) continue
       try {
@@ -88,6 +93,7 @@ export const drainOutboxChannels = async <S>(
         console.error(JSON.stringify({ msg: "outbox delivery failed", stream: engine.stream, channel: channel || "planetscale", error: String(e), ...(dead === null ? {} : { dead_letter: dead }) }))
       }
     }
+  if (only) return
   // Rows an older build marked sent instead of deleting go away a batch per alarm.
   outbox.pruneSent(1000)
   const replayed = outbox.replayDead(Date.now(), { deadBefore: Date.now() - DEAD_REPLAY_MS })

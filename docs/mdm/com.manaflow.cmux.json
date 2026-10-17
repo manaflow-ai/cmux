@@ -584,7 +584,7 @@
       "type" : "string"
     },
     "appearance.chromeStyle" : {
-      "default" : "default",
+      "default" : "flat-sidebar-line",
       "description" : "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.",
       "enum" : [
         "default",
@@ -1276,6 +1276,12 @@
       "title" : "Address Bar Shadow",
       "type" : "boolean"
     },
+    "browser.openLinksInCmuxBrowser" : {
+      "default" : true,
+      "description" : "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser.",
+      "title" : "Open Links in cmux Browser",
+      "type" : "boolean"
+    },
     "browser.openTerminalLinksInCmuxBrowser" : {
       "default" : true,
       "description" : "When off, links clicked in terminal output open in your default browser.",
@@ -1353,7 +1359,7 @@
       "default" : [
 
       ],
-      "description" : "Terminal links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression.",
+      "description" : "Links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression.",
       "items" : {
         "type" : "string"
       },
@@ -1504,6 +1510,12 @@
         "full"
       ],
       "title" : "Copy Terminal Notifications to the Feed",
+      "type" : "string"
+    },
+    "files.textEditor" : {
+      "default" : "",
+      "description" : "The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code.",
+      "title" : "Text Editor",
       "type" : "string"
     },
     "focus.inactiveTabStyle" : {
@@ -3008,7 +3020,7 @@
       "type" : "boolean"
     },
     "ui.animations.newWorkspace" : {
-      "default" : false,
+      "default" : true,
       "description" : "A new workspace row opens in the sidebar. Off shows it there at once.",
       "title" : "Animate New Workspaces",
       "type" : "boolean"

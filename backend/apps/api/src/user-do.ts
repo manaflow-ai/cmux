@@ -469,6 +469,34 @@ export class UserDO extends OwnerDO<UserState> {
     return { ok: true, nonce, expires_at: now + CHALLENGE_TTL_MS }
   }
 
+  /**
+   * A hand's ephemeral frames (hand-do.ts: `hand-approval-pending`, `hand-approval-settled`) to this
+   * person's own subscribed sockets: a person's session or app install, never a Chief token or a
+   * machine install. Never committed (GET /v1/hands/<hand>/approvals is the read after a reconnect).
+   */
+  async handFrame(entity: string, frame: { readonly t: "hand-approval-pending" | "hand-approval-settled" } & Record<string, unknown>): Promise<void> {
+    const text = JSON.stringify(frame)
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = ws.deserializeAttachment() as Attachment | null
+      if (!a?.subscribed || a.principal.user !== entity || a.principal.agent !== undefined || isMachineInstallKind(a.principal.install_kind)) continue
+      if (!this.socketLive(ws, a)) continue
+      try {
+        ws.send(text)
+      } catch {}
+    }
+  }
+
+  /** The key of one of this person's active app installs (mac or ios), for a person proof (hand-levels.ts); null otherwise. */
+  async personKey(entity: string, install: string): Promise<JsonWebKey | null> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return null
+    const state = engine.currentState
+    const inst = state.installs[install]
+    if (!state.user || !inst || inst.revoked_at !== null || (inst.kind !== "mac" && inst.kind !== "ios")) return null
+    const grant = state.grants[inst.grant]
+    return grant && grant.revoked_at === null ? (inst.public_jwk as JsonWebKey) : null
+  }
+
   /** One-time challenge + ES256 signature by the install key + revocation check. */
   async redeem(entity: string, install: string, nonce: string, signature: string, agent?: string): Promise<RedeemResult> {
     const engine = this.existing()

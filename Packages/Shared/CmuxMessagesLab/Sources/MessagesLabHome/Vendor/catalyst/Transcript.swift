@@ -121,6 +121,27 @@ final class TranscriptModel {
         rows.insert(g, at: min(max(0, base), rows.count)) // never past the end
     }
 
+    /// Ask 11 (HostHooks.swift): the rows of message `from` (a streaming bubble) become the rows of message `to` (the
+    /// final message that replaces it): each key "kind:from[:part]" is "kind:to[:part]", with its place, insert time
+    /// and fade. Live rows only: a part the stream dropped keeps fading under its old key. Returns the renamed keys
+    /// (old, new); none when `to` already has a row (its rows stay its own).
+    func renameOwner(_ from: ID, to: ID) -> [(String, String)] {
+        guard !rows.contains(where: { RowBuilder.key($0.spec.key, belongsTo: to) }) else { return [] }
+        var renamed: [(String, String)] = []
+        rows = rows.map { r in
+            guard !r.ghost, RowBuilder.key(r.spec.key, belongsTo: from) else { return r }
+            var r = r
+            var parts = r.spec.key.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+            parts.update(at: 1) { $0 = to }
+            let key = parts.joined(separator: ":")
+            renamed.append((r.spec.key, key))
+            r.spec.key = key
+            return r
+        }
+        if !renamed.isEmpty { rebuild() }
+        return renamed
+    }
+
     /// Paging splice (no animation): replace rows at the two ends.
     func splice(dropHead: Int, newHead: [RowSpec], dropTail: Int, newTail: [RowSpec], at t: Double) {
         let keepEnd = rows.count - dropTail
@@ -431,7 +452,12 @@ final class MotionLedger {
         }
     }
 
-    /// Move entries to a renamed key (a row's key never changes today).
+    /// Moves a row's entries to its new key (ask 11: a streaming bubble's rows become the final message's).
+    func rename(_ key: String, to new: String) {
+        guard let list = entries.removeValue(forKey: key) else { return }
+        entries[new, default: []].append(contentsOf: list)
+    }
+
     var isEmpty: Bool { entries.isEmpty }
 }
 
@@ -456,6 +482,9 @@ final class RowCell: UICollectionViewCell {
     static let id = "row"
     private(set) var spec: RowSpec?
     private(set) var key = ""
+    /// Ask 11: the row this cell shows was renamed (a streaming bubble's row is the final message's now). The cell
+    /// keeps its layers, animations and applied entries; its next configure draws the new spec (the same pixels).
+    func renameRow(to new: String) { key = new }
     /// Ledger entries already added to this cell's layers.
     var applied: AppliedEntries = []
     /// The window's container-motion serial this cell's row was last checked against (-1: not yet).

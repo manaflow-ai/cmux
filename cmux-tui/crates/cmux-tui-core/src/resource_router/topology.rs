@@ -304,6 +304,7 @@ fn dispatch_exact_topology_mutation(
 ) -> Result<Value, ResourceError> {
     let mutation = mutation(&request)?;
     let expected_revision = expected_revision(&request.fields)?;
+    let report = super::close_value::reports_closed_ids(&request.fields);
     let commit = mux
         .resource_topology_operation(
             operation,
@@ -338,9 +339,7 @@ fn dispatch_exact_topology_mutation(
         ResourceOperation::WorkspaceClose
         | ResourceOperation::ScreenClose
         | ResourceOperation::PaneClose
-        | ResourceOperation::TabClose => {
-            mutation_result(mux, json!({}), commit.revision, commit.replayed)
-        }
+        | ResourceOperation::TabClose => super::close_value::of(mux, operation, commit, report),
         ResourceOperation::WorkspaceCreate
         | ResourceOperation::WorkspaceRun
         | ResourceOperation::ScreenCreate

@@ -252,6 +252,13 @@ are in scope for every window (`closed.list`/`closed.reopen` with `window`).
 session's active workspace.
 `closed.reopen` with neither `closed` nor `window` skips window items: only
 an app can show a window again, and it names its window.
+`layout.bulk`, and `workspace.close` with `report_closed_ids: true`, answer
+`closed_ids`: the closed-history items the call stored, oldest first (a
+workspace that a close empties joins the close's item). Without the flag
+`workspace.close` keeps its empty value, which older SDKs decode strictly. `closed.reopen` of each id restores exactly that close,
+also when other closed workspaces have the same name, so an Undo of a bulk
+close reopens what it closed and nothing else. `room.delete` keeps its single
+`closed_id`.
 `workspace-group-icon-v1` gives a personal group an icon:
 `workspace_group.update {icon}` sets it to the shared icon string (one emoji,
 an SF Symbol name, or a stored `image:sha256-<hex>` or `svg:sha256-<hex>`

@@ -1,27 +1,25 @@
 import type { Env } from "./env.ts"
 import { handStub, indexStub, mintPairCode } from "./hand-api.ts"
+import { sandboxProvider } from "./hand-providers.ts"
 import { randomB32, type HandCaller, type HandReply } from "./hand-wire.ts"
 
 /**
- * A new Freestyle sandbox with its hand: mint a pairing code, create the VM, and run the install line
- * in it through the provider's exec (no SSH, no inbound port). The VM is the hand's: removing the
- * hand deletes it, a failed install deletes it at once, an unredeemed code deletes it at expiry, and
- * a sandbox lives at most 24 h (hand-do.ts). Off unless the environment names the sandbox image
- * (HAND_SANDBOX_SNAPSHOT, baked by scripts/bake-hand-sandbox.ts), its own public origin
- * (CLOUD_API_ORIGIN), its VM name prefix (CLOUD_NAME_PREFIX) and the hands-only Freestyle key
- * (HAND_FREESTYLE_API_KEY). An owner has at most HAND_SANDBOX_MAX (default 3) live sandboxes.
+ * A new sandbox with its hand, on a person-chosen provider (hand-providers.ts): mint a pairing code,
+ * make the machine, and run the install line in it through the provider (no SSH, no inbound port).
+ * The machine is the hand's: removing the hand deletes it, a failed install deletes it at once, an
+ * unredeemed code deletes it at expiry, and a sandbox lives at most 24 h (hand-do.ts). Off unless a
+ * provider is ready, the deployment names its own public origin (CLOUD_API_ORIGIN) and its machine
+ * prefix (CLOUD_NAME_PREFIX). An owner has at most HAND_SANDBOX_MAX (default 3) live sandboxes.
+ * A sandbox hand runs at level `full` by default: no classifier and no approvals (hand-levels.ts).
  */
 
 const SANDBOX_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/
-const IDLE_SECONDS = 1800
 const INSTALL_TIMEOUT_MS = 150_000
-const PROVIDER_TIMEOUT_MS = 20_000
-/** VM name prefixes of the non-production environments (FREESTYLE-NAMES; cloud-driver.ts). */
-const PREFIX = /^cmuxnp-(dev|stg|prod)-cld-$/
+/** Machine name prefixes of the environments (FREESTYLE-NAMES; cloud-driver.ts). */
+export const SANDBOX_PREFIX = /^cmuxnp-(dev|stg|prod)-cld-$/
+/** The tests' prefix is accepted only where ENVIRONMENT is "test" (its provider is the test one). */
+const sandboxPrefixOk = (env: Env, prefix: string) => SANDBOX_PREFIX.test(prefix) || (env.ENVIRONMENT === "test" && prefix === "cmuxnp-test-cld-")
 
-const base = (env: Env) => (env.CLOUD_FREESTYLE_API_URL || "https://api.freestyle.sh").replace(/\/+$/, "")
-/** The hands-only Freestyle key (HAND_FREESTYLE_API_KEY): no other code reads it, and sandboxes use no other key. */
-const headers = (env: Env) => ({ authorization: `Bearer ${env.HAND_FREESTYLE_API_KEY}`, "content-type": "application/json" })
 const maxSandboxes = (env: Env) => {
   const n = Number(env.HAND_SANDBOX_MAX ?? "3")
   return Number.isInteger(n) && n >= 0 && n <= 20 ? n : 3
@@ -32,16 +30,18 @@ export interface Sandbox {
   readonly hand: string
   readonly name: string
   readonly vm: string
+  readonly provider: string
   readonly online: boolean
 }
 
-export const createSandbox = async (env: Env, caller: HandCaller, name: string): Promise<HandReply<Sandbox>> => {
-  if (!env.HAND_FREESTYLE_API_KEY || !env.HAND_SANDBOX_SNAPSHOT) return unavailable("sandboxes are off on this deployment")
+export const createSandbox = async (env: Env, caller: HandCaller, name: string, wanted?: string): Promise<HandReply<Sandbox>> => {
+  const provider = sandboxProvider(env, wanted)
+  if (!provider) return unavailable(wanted ? `the sandbox provider ${wanted} is not set up on this deployment (no key configured)` : "sandboxes are off on this deployment")
   // The deployment's own origin only (never a fallback to another environment): the sandbox pairs with it.
   const origin = (env.CLOUD_API_ORIGIN ?? "").replace(/\/$/, "")
   if (!/^https:\/\/[A-Za-z0-9.-]+$/.test(origin)) return unavailable("this deployment names no public https origin; a sandbox cannot reach it")
   const prefix = env.CLOUD_NAME_PREFIX ?? ""
-  if (!PREFIX.test(prefix)) return unavailable("this deployment names no sandbox VM prefix")
+  if (!sandboxPrefixOk(env, prefix)) return unavailable("this deployment names no sandbox name prefix")
   if (!SANDBOX_NAME.test(name)) return { ok: false, error: { code: "request.invalid", message: "name: 1-40 letters, digits, . _ -, starting with a letter or digit" } }
   if (env.PAIR_BEGIN_LIMIT) {
     const { success } = await env.PAIR_BEGIN_LIMIT.limit({ key: `hand-sandbox:${caller.user}` })
@@ -53,52 +53,22 @@ export const createSandbox = async (env: Env, caller: HandCaller, name: string):
   if (!minted.ok) return minted
   const { hand, code } = minted.value
   const stub = handStub(env, hand)
-  const created = await fetch(`${base(env)}/v5/vms`, {
-    method: "POST",
-    headers: headers(env),
-    redirect: "manual",
-    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
-    body: JSON.stringify({
-      slug: `${prefix}hand-${randomB32(12)}`,
-      snapshotId: env.HAND_SANDBOX_SNAPSHOT,
-      idleTimeoutSeconds: IDLE_SECONDS,
-      automaticRestart: false,
-      metadata: { cmux_hand: hand, cmux_owner: caller.user, cmux_deployment: origin },
-      firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }
-    })
-  }).catch(() => null)
-  const body = (await created?.json().catch(() => null)) as { vmId?: string; id?: string } | null
-  const vm = body?.vmId ?? body?.id
-  if (!created?.ok || !vm) {
-    // No VM id came back: the code is dropped now. A VM the provider made anyway is named by
-    // metadata.cmux_hand (UNVERIFIED: no sweep finds it yet).
+  const made = await provider.create(env, { name: `${prefix}hand-${randomB32(12)}`, hand, owner: caller.user, deployment: origin })
+  if (!made) {
+    // No id came back: the code is dropped now; a machine the provider made anyway carries this
+    // deployment's tags, and the hourly sweep deletes it (hand-sweep.ts).
     await stub.discard()
-    return { ok: false, error: { code: "hand.sandbox_failed", message: `the sandbox was not created (${created?.status ?? "no answer"})` } }
+    return { ok: false, error: { code: "hand.sandbox_failed", message: `the ${provider.id} sandbox was not created` } }
   }
-  await stub.setSandbox(vm)
+  await stub.setSandbox(made.id, provider.id)
   // The code and name are checked shapes (PAIR_CODE, SANDBOX_NAME); a login shell gives the
   // image's tools (node, claude, opencode) on the PATH the hand's service keeps.
-  const command = `bash -lc 'curl -fsSL ${origin}/hand/install.sh | sh -s -- --pair ${code} --name ${name}'`
-  const exec = await fetch(`${base(env)}/v5/vms/${encodeURIComponent(vm)}/exec-await`, {
-    method: "POST",
-    headers: headers(env),
-    redirect: "manual",
-    body: JSON.stringify({ command, timeoutMs: INSTALL_TIMEOUT_MS, linuxUser: "root" }),
-    signal: AbortSignal.timeout(INSTALL_TIMEOUT_MS + 10_000)
-  }).catch(() => null)
-  const ran = (await exec?.json().catch(() => null)) as { statusCode?: number | null } | null
-  if (!exec?.ok || ran?.statusCode !== 0) {
-    // The VM's output stays on the VM side: it may hold anything; the answer names only the exit.
+  const exit = await provider.exec(env, made.id, `bash -lc 'curl -fsSL ${origin}/hand/install.sh | sh -s -- --pair ${code} --name ${name}'`, INSTALL_TIMEOUT_MS)
+  if (exit !== 0) {
+    // The machine's output stays there: it may hold anything; the answer names only the exit.
     await stub.discard()
-    return { ok: false, error: { code: "hand.sandbox_install_failed", message: `the hand did not install in the sandbox (exit ${ran?.statusCode ?? exec?.status ?? "none"}); the sandbox was deleted` } }
+    return { ok: false, error: { code: "hand.sandbox_install_failed", message: `the hand did not install in the sandbox (exit ${exit ?? "none"}); the sandbox was deleted` } }
   }
   const online = await stub.waitOnline(30_000)
-  return { ok: true, value: { hand, name, vm, online } }
-}
-
-/** Deletes the sandbox VM of a removed hand by its exact id; true once the provider confirms (2xx or 404). */
-export const deleteSandboxVm = async (env: Env, vm: string): Promise<boolean> => {
-  if (!env.HAND_FREESTYLE_API_KEY) return false
-  const res = await fetch(`${base(env)}/v5/vms/${encodeURIComponent(vm)}`, { method: "DELETE", headers: headers(env), redirect: "manual", signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) }).catch(() => null)
-  return res !== null && ((res.status >= 200 && res.status < 300) || res.status === 404)
+  return { ok: true, value: { hand, name, vm: made.id, provider: provider.id, online } }
 }
