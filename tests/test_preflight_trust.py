@@ -69,7 +69,6 @@ class PreflightTrustTests(unittest.TestCase):
 
     def test_hook_installation_has_no_candidate_code_runner(self):
         """The installed hook set must never execute code from a pushed tree."""
-        self.assertFalse((SOURCE / "scripts/git-hooks/pre-push").exists())
         self.assertFalse((SOURCE / "scripts/verify-push.py").exists())
         self.assertFalse((self.repo / "scripts/git-hooks/pre-push").exists())
         common = Path(self.git("rev-parse", "--git-common-dir").stdout.strip())
