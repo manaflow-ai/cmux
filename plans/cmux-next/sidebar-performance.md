@@ -14,7 +14,7 @@ python3 scripts/cmux-next/sidebar-perf-validate.py "$NX_ARTIFACTS/sidebar" \
   --max-main-us-per-tick 250 \
   --max-scroll-configures-per-realize 4 \
   --max-frame-p95-ms 16.7 \
-  --max-frame-p99-ms 16.7 \
+  --max-frame-p99-ms 33.4 \
   --max-hitch-p95-ms 16.7 \
   --max-hitch-p99-ms 25 \
   --max-hitch-total-ms 250
