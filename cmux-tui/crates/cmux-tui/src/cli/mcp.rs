@@ -343,6 +343,8 @@ pub(super) struct Server<B> {
     initialized: bool,
     /// Where `run` writes, for a call's `notifications/progress`.
     notes: Option<watch::Output>,
+    /// The ids `render` returned in this process: a render may update only one of these.
+    renders: std::collections::HashSet<String>,
 }
 
 impl<B: Backend> Server<B> {
@@ -356,6 +358,7 @@ impl<B: Backend> Server<B> {
             list_changed: false,
             initialized: false,
             notes: None,
+            renders: std::collections::HashSet::new(),
         }
     }
 
@@ -584,7 +587,7 @@ impl<B: Backend> Server<B> {
             return Ok(agent_events_tool::call(&self.backend, &arguments));
         }
         if name == render_tool::NAME {
-            return Ok(match render_tool::receipt(&arguments) {
+            return Ok(match render_tool::receipt(&arguments, &mut self.renders) {
                 Ok(receipt) => success(receipt, false),
                 Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
             });
