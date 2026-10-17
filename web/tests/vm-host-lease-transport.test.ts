@@ -93,6 +93,32 @@ describe("VM host lease transport", () => {
     expect(client.calls).toEqual(["acquire:owner-acquire"]);
   });
 
+  test("fences a concurrent duplicate before provider I/O", async () => {
+    let release!: () => void;
+    const client = fakeClient();
+    const originalAcquire = client.acquire;
+    client.acquire = async (input) => {
+      await new Promise<void>((resolve) => { release = resolve; });
+      return originalAcquire(input);
+    };
+    const transport = transportFor("huge-blue", client);
+    const input = { provider: "huge-blue", leaseId: "lease-concurrent", hostId: "huge-blue:host", ownerId: "worker", generation: 1, effectKey: "same-effect", ttlMs: 1_000, nowMs: 0 } as const;
+    const first = transport.acquire(input);
+    await expect(transport.acquire(input)).rejects.toMatchObject({ code: "lease_conflict" });
+    release();
+    await first;
+    expect(client.calls).toEqual(["acquire:same-effect"]);
+  });
+
+  test.each(PROVIDERS)("does not let a late renewal resurrect a released lease for %s", async (provider) => {
+    const client = fakeClient();
+    const transport = transportFor(provider, client);
+    const base = { provider, leaseId: "lease-release-fence", hostId: `${provider}:host`, ownerId: "worker", generation: 1, ttlMs: 1_000 } as const;
+    await transport.acquire({ ...base, effectKey: "acquire", nowMs: 0 });
+    await transport.release({ ...base, effectKey: "release", nowMs: 100 });
+    await expect(transport.renew({ ...base, effectKey: "late-renew", nowMs: 200 })).rejects.toMatchObject({ code: "lease_expired" });
+  });
+
   test("uses the same semantics for a newly registered host class", async () => {
     const client = fakeClient();
     const adapter = new RegisteredHostLeaseAdapter("mac-mini", client);

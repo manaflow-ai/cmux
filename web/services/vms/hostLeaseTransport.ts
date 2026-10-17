@@ -228,6 +228,9 @@ export class VmHostLeaseTransport {
     const provider = input.provider;
     const reservation = await this.store.reserve(input, provider);
     if (reservation.kind === "replay") return { ...reservation.record, replayed: true };
+    if (reservation.kind === "pending") {
+      throw new VmHostLeaseError("lease_conflict", "the same host lease effect is already in progress");
+    }
     const adapter = this.adapters.get(provider);
     if (!adapter || adapter.provider !== provider) throw new VmHostLeaseError("provider_mismatch", `no adapter configured for ${provider}`);
     let providerResult: VmHostLeaseProviderResult;
@@ -310,6 +313,10 @@ export class MemoryVmHostLeaseStore implements VmHostLeaseStore {
     if (!this.pending.has(key) && !existing) throw new VmHostLeaseError("store_error", "lease completion has no reservation");
     if (existing) assertSameOperation(existing, input, provider);
     const completed = recordFrom(validateVmHostLeaseInput(input), provider, result);
+    const current = this.current.get(currentKey(input));
+    if (current?.state === "released" && input.operation !== "release") {
+      throw new VmHostLeaseError("lease_expired", "a released host lease cannot be renewed");
+    }
     this.pending.delete(key);
     this.operations.set(key, completed);
     this.current.set(currentKey(input), completed);

@@ -3,6 +3,7 @@ import { cloudDb } from "../../db/client";
 import { cloudVmHostLeaseOperations, cloudVmHostLeases } from "../../db/schema";
 import {
   assertCanReserve,
+  MAX_VM_HOST_LEASE_TTL_MS,
   validateVmHostLeaseInput,
   VmHostLeaseError,
   type VmHostLeaseInput,
@@ -37,7 +38,13 @@ export class DrizzleVmHostLeaseStore implements VmHostLeaseStore {
         if (operation.status === "complete" && operation.receipt) {
           return { kind: "replay", record: recordFromJson(operation.receipt, provider) };
         }
-        return { kind: "pending", record: null };
+        // A live reservation owns the provider effect. Reclaim only after the
+        // maximum provider lease window so a crashed invocation can retry with
+        // the same effect key while concurrent callers stay fenced.
+        if (operation.updatedAt.getTime() + MAX_VM_HOST_LEASE_TTL_MS > normalized.nowMs) {
+          return { kind: "pending", record: null };
+        }
+        await tx.delete(cloudVmHostLeaseOperations).where(eq(cloudVmHostLeaseOperations.id, operation.id));
       }
       const currentRow = (await tx.select().from(cloudVmHostLeases).where(and(
         eq(cloudVmHostLeases.hostId, normalized.hostId),
@@ -88,6 +95,9 @@ export class DrizzleVmHostLeaseStore implements VmHostLeaseStore {
       if (currentRow && currentRow.ownerId !== normalized.ownerId) {
         throw new VmHostLeaseError("owner_mismatch", "lease completion belongs to another coordinator");
       }
+      if (currentRow && currentRow.state === "released" && normalized.operation !== "release") {
+        throw new VmHostLeaseError("lease_expired", "a released host lease cannot be renewed");
+      }
       if (currentRow) {
         await tx.update(cloudVmHostLeases).set({
           provider: record.provider,
@@ -125,8 +135,9 @@ export class DrizzleVmHostLeaseStore implements VmHostLeaseStore {
 
 async function lockLeaseTuple(tx: { execute: (query: SQL) => Promise<unknown> }, hostId: string, leaseId: string): Promise<void> {
   // hashtextextended is stable within PostgreSQL and gives us a transaction
-  // scoped lock without inventing a global lock table.
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${hostId} || chr(0) || ${leaseId}, 0))`);
+  // scoped lock without embedding a NUL in text (PostgreSQL rejects NUL in
+  // text values). Two independent hashes avoid delimiter collisions.
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${hostId}, 0) # hashtextextended(${leaseId}, 1))`);
 }
 
 function assertOperationIdentity(
