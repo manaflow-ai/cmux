@@ -34,17 +34,17 @@ from typing import Any, Iterator
 class Budgets:
     rebuilds: int = 0
     list_reloads: int = 0
+    max_frame_p99_ms: float | None = None
+    max_frame_max_ms: float | None = None
+    max_hitch_total_ms: float | None = None
+    max_hitch_max_ms: float | None = None
+    require_counters: bool = False
     max_main_us_per_tick: float | None = None
     max_scroll_row_configures: int | None = None
     max_scroll_configures_per_realize: float | None = None
     max_frame_p95_ms: float | None = None
-    max_frame_p99_ms: float | None = None
-    max_frame_max_ms: float | None = None
     max_hitch_p95_ms: float | None = None
     max_hitch_p99_ms: float | None = None
-    max_hitch_total_ms: float | None = None
-    max_hitch_max_ms: float | None = None
-    require_counters: bool = False
 
 
 def receipt_kind(path: Path) -> str | None:
