@@ -60,6 +60,46 @@ struct PhoneTCPServerTests {
     }
 
     @Test
+    func sessionLeaseIsExclusiveAcrossConnections() async throws {
+        let server = try PhoneTCPServer(port: 0, driver: MockPhoneDriver())
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let first = try await connect(to: port)
+        let second = try await connect(to: port)
+        defer {
+            first.cancel()
+            second.cancel()
+        }
+
+        let firstOpen = try await roundTrip(
+            .request(id: "first-open", method: "session.open"),
+            on: first
+        )
+        #expect(firstOpen.type == .response)
+
+        let rejected = try await roundTrip(
+            .request(id: "second-open", method: "session.open"),
+            on: second
+        )
+        #expect(rejected.type == .error)
+        #expect(rejected.error?.code == "device_busy")
+
+        let sessionID = try #require(firstOpen.sessionID)
+        let closed = try await roundTrip(
+            .request(id: "first-close", method: "session.close", sessionID: sessionID),
+            on: first
+        )
+        #expect(closed.type == .response)
+
+        let reopened = try await roundTrip(
+            .request(id: "second-reopen", method: "session.open"),
+            on: second
+        )
+        #expect(reopened.type == .response)
+    }
+
+    @Test
     func stoppingPreventsRestartAndClearsPort() async throws {
         let server = try PhoneTCPServer(port: 0, driver: MockPhoneDriver())
         _ = try await server.start()

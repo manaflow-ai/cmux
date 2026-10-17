@@ -10,6 +10,8 @@ public final class PhoneTCPServer: @unchecked Sendable {
         let id = UUID()
         var decoder = PhoneLineDecoder(maxLineBytes: PhoneProtocol.maxRequestLineBytes)
         let controlServer: PhoneControlServer
+        /// Mutated only while the owning `PhoneTCPServer.stateLock` is held.
+        var leaseHeld = false
 
         init(driver: any PhoneDriver) {
             controlServer = PhoneControlServer(driver: driver)
@@ -25,6 +27,8 @@ public final class PhoneTCPServer: @unchecked Sendable {
     private var startInProgress = false
     private var stopped = false
     private var connections: [UUID: NWConnection] = [:]
+    private var connectionTasks: [UUID: Task<Void, Never>] = [:]
+    private var leaseOwner: UUID?
 
     public init(
         port: UInt16 = 0,
@@ -100,10 +104,16 @@ public final class PhoneTCPServer: @unchecked Sendable {
         readyContinuation = nil
         readyPort = nil
         let connections = Array(self.connections.values)
+        let tasks = Array(self.connectionTasks.values)
         self.connections.removeAll()
+        self.connectionTasks.removeAll()
+        leaseOwner = nil
         stateLock.unlock()
         continuation?.resume(throwing: PhoneDriverError.transport("TCP listener stopped"))
         listener.cancel()
+        for task in tasks {
+            task.cancel()
+        }
         for connection in connections {
             connection.cancel()
         }
@@ -174,28 +184,11 @@ public final class PhoneTCPServer: @unchecked Sendable {
                         self.receive(on: connection, state: state)
                         return
                     }
-                    Task { [weak self, weak connection, state] in
-                        guard let self, let connection else { return }
-                        do {
-                            var output = Data()
-                            let codec = PhoneWireCodec()
-                            for request in requests {
-                                for response in await state.controlServer.handle(request) {
-                                    output.append(try codec.encode(response))
-                                }
-                            }
-                            connection.send(content: output, completion: .contentProcessed { [weak self, weak connection] error in
-                                guard let self, let connection else { return }
-                                if error != nil {
-                                    self.finishConnection(id: state.id, connection: connection)
-                                } else {
-                                    self.receive(on: connection, state: state)
-                                }
-                            })
-                        } catch {
-                            self.sendErrorAndClose(connection, error: error)
-                        }
-                    }
+                    self.startRequestTask(
+                        requests,
+                        on: connection,
+                        state: state
+                    )
                 } catch {
                     let envelope = PhoneEnvelope.failure(
                         id: nil,
@@ -217,10 +210,143 @@ public final class PhoneTCPServer: @unchecked Sendable {
         }
     }
 
+    private func startRequestTask(
+        _ requests: [PhoneEnvelope],
+        on connection: NWConnection,
+        state: ConnectionState
+    ) {
+        let task = Task { [weak self, weak connection, state] in
+            guard let self, let connection else { return }
+            defer { self.clearTask(id: state.id) }
+
+            do {
+                let codec = PhoneWireCodec()
+                for request in requests {
+                    try Task.checkCancellation()
+                    guard self.isConnectionActive(id: state.id, connection: connection) else {
+                        return
+                    }
+                    let leaseWasHeld = self.leaseHeld(for: state)
+                    if request.method == "session.open" && !leaseWasHeld {
+                        guard self.acquireLease(for: state) else {
+                            let envelope = PhoneEnvelope.failure(
+                                id: request.id,
+                                error: PhoneError(
+                                    code: "device_busy",
+                                    message: "the phone is already controlled by another connection",
+                                    retryable: true
+                                )
+                            )
+                            try await self.send(codec.encode(envelope), on: connection)
+                            continue
+                        }
+                    }
+
+                    let responses = await state.controlServer.handle(request)
+                    let opened = request.method == "session.open"
+                        && responses.contains { $0.type == .response && $0.sessionID != nil }
+                    if request.method == "session.open", !opened, !leaseWasHeld {
+                        self.releaseLease(for: state)
+                    }
+                    let closed = request.method == "session.close"
+                        && responses.contains { $0.type == .response }
+                    for response in responses {
+                        try Task.checkCancellation()
+                        guard self.isConnectionActive(id: state.id, connection: connection) else {
+                            return
+                        }
+                        try await self.send(codec.encode(response), on: connection)
+                    }
+                    if closed {
+                        self.releaseLease(for: state)
+                    }
+                }
+                try Task.checkCancellation()
+                guard self.isConnectionActive(id: state.id, connection: connection) else {
+                    return
+                }
+                self.receive(on: connection, state: state)
+            } catch is CancellationError {
+                self.finishConnection(id: state.id, connection: connection)
+            } catch {
+                self.sendErrorAndClose(connection, error: error)
+            }
+        }
+
+        stateLock.lock()
+        guard !stopped, connections[state.id] === connection else {
+            stateLock.unlock()
+            task.cancel()
+            return
+        }
+        connectionTasks[state.id] = task
+        stateLock.unlock()
+    }
+
+    private func clearTask(id: UUID) {
+        stateLock.lock()
+        connectionTasks.removeValue(forKey: id)
+        stateLock.unlock()
+    }
+
+    private func isConnectionActive(id: UUID, connection: NWConnection) -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return !stopped && connections[id] === connection
+    }
+
+    private func leaseHeld(for state: ConnectionState) -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return state.leaseHeld
+    }
+
+    private func acquireLease(for state: ConnectionState) -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard !stopped, connections[state.id] != nil else { return false }
+        if let leaseOwner, leaseOwner != state.id {
+            return false
+        }
+        leaseOwner = state.id
+        state.leaseHeld = true
+        return true
+    }
+
+    private func releaseLease(for state: ConnectionState) {
+        stateLock.lock()
+        if leaseOwner == state.id {
+            leaseOwner = nil
+        }
+        state.leaseHeld = false
+        stateLock.unlock()
+    }
+
+    private func send(_ data: Data, on connection: NWConnection) async throws {
+        try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                connection.send(content: data, completion: .contentProcessed { error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else {
+                        continuation.resume()
+                    }
+                })
+            }
+        }, onCancel: {
+            connection.cancel()
+        })
+    }
+
     private func finishConnection(id: UUID, connection: NWConnection) {
         stateLock.lock()
         connections.removeValue(forKey: id)
+        let task = connectionTasks.removeValue(forKey: id)
+        if leaseOwner == id {
+            leaseOwner = nil
+        }
         stateLock.unlock()
+        task?.cancel()
         connection.cancel()
     }
 
