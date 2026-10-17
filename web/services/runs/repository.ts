@@ -345,6 +345,8 @@ export async function recordAttemptProviderHandle(input: {
 export async function scheduleAttemptRetention(input: {
   readonly runId: string;
   readonly attemptId: string;
+  readonly leaseToken: string;
+  readonly leaseGeneration: number;
   readonly providerVmId?: string;
   readonly retentionMs?: number;
 }): Promise<typeof runAttempts.$inferSelect> {
@@ -354,9 +356,17 @@ export async function scheduleAttemptRetention(input: {
     terminalRetainUntil: new Date(Date.now() + retentionMs),
     cleanupLeaseToken: null,
     cleanupLeaseExpiresAt: null,
+    leaseToken: null,
+    leaseExpiresAt: null,
     updatedAt: now(),
-  }).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.runId, input.runId))).returning())[0];
-  if (!attempt) throw new RunAttemptNotFoundError("attempt not found");
+  }).where(and(
+    eq(runAttempts.id, input.attemptId),
+    eq(runAttempts.runId, input.runId),
+    eq(runAttempts.leaseToken, input.leaseToken),
+    eq(runAttempts.leaseGeneration, input.leaseGeneration),
+    inArray(runAttempts.status, ["succeeded", "failed", "cancelled"]),
+  )).returning())[0];
+  if (!attempt) throw new RunLeaseConflictError("stale or expired attempt lease");
   return attempt;
 }
 
@@ -450,7 +460,11 @@ export async function ingestRunEvent(input: {
       status,
       ...(typeof payload.providerVmId === "string" ? { providerVmId: payload.providerVmId } : {}),
       ...(terminal ? { finishedAt: now() } : { startedAt: status === "running" ? now() : undefined }),
-      ...(terminal ? { leaseExpiresAt: null, leaseToken: null } : {}),
+      // Keep the lease token until the retention handoff consumes it. The
+      // terminal row is no longer active because its expiry is cleared, while
+      // retaining the token lets the worker fence its finally-block update
+      // against a replacement lease.
+      ...(terminal ? { leaseExpiresAt: null } : {}),
       ...(terminal ? { terminalRetainUntil: new Date(Date.now() + DEFAULT_TERMINAL_RETENTION_MS) } : {}),
       updatedAt: now(),
     }).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.leaseToken, input.leaseToken), eq(runAttempts.leaseGeneration, input.leaseGeneration)));
