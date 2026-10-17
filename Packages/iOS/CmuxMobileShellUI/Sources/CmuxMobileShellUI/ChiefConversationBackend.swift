@@ -189,10 +189,11 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         guard selected else {
             throw ConversationBackendError(code: -1, message: "Chief cards cannot be deselected")
         }
-        guard let part = withState({ state in
+        let pendingPart: MobileChiefPart? = withState { state in
             guard let parts = state.structuredPartsByMessageID[messageID] else { return nil }
             return Self.pendingPollPart(from: parts)
-        }) else {
+        }
+        guard let part = pendingPart else {
             throw unsupported("polls")
         }
         let claimed = withState { state in
