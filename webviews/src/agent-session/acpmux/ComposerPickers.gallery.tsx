@@ -199,11 +199,13 @@ const openMode: Play = async (ctx) => {
   if (labels.length !== expected.length || labels.some((label, index) => label !== expected[index]))
     throw new Error(`Permission mode titles are not in menu order: ${labels.join(" | ")}`);
   for (const [index, item] of [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].entries()) {
-    if (item.querySelector(".ui-menu-check")?.parentElement !== item)
-      throw new Error("Permission mode checkmark is not in its leading column");
+    if (item.querySelector(".ui-menu-check"))
+      throw new Error("Permission mode rows should not render a leading checkmark");
     if (item.querySelector<HTMLElement>(".ui-menu-shortcut")?.textContent?.trim() !== String(index + 1))
       throw new Error("Permission mode shortcut is not a trailing hint");
   }
+  if (document.querySelectorAll('[role="menuitemradio"][aria-checked="true"]').length !== 1)
+    throw new Error("Permission mode selection state is not exposed through aria-checked");
 };
 
 const accessGrants: Play = async (ctx) => {

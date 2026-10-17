@@ -32,7 +32,7 @@
 .nt-row-action{flex:none;margin-left:auto;display:flex;align-items:center;gap:6px;color:var(--acpmux-composer-dim);font-size:12px;opacity:0}
 .nt-row.is-selected .nt-row-action,.nt-row:hover .nt-row-action{opacity:1}
 .nt-row-action kbd{padding:2px 6px;border-radius:5px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft);font:11.5px/1 system-ui}
-.nt-chats{margin-top:20px}
+.nt-chats{margin-top:8px}
 .nt-chats-head{display:flex;align-items:center;gap:14px;height:28px;font-size:13px}
 .nt-chats-tab{color:var(--acpmux-composer-dim)}
 .nt-chats-tab.is-selected{color:var(--agent-text);font-weight:500}
@@ -79,7 +79,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 2px;
+  gap: 0;
   min-height: 34px;
   padding: 0 10px 6px;
   box-sizing: border-box;
@@ -127,17 +127,17 @@
   background: none;
   box-shadow: none;
 }
-/* The create actions are outlined pills, as Cursor's home draws its starters: New terminal, New
-   browser tab and New chat read as buttons, not as text (Lucas #21133). */
+/* The create actions are one compact ghost row. They are controls, but separate pill outlines add
+   a second rhythm under the composer and make the row look detached from Chats. */
 .nt-screen .nt-create {
-  gap: 6px;
-  margin: 10px 0 0;
+  gap: 0;
+  margin: 4px 0 0;
 }
 .nt-screen .nt-create .nt-tool {
   height: 28px;
-  padding: 0 12px 0 10px;
-  border-radius: 999px;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 12%, transparent);
+  padding: 0 8px;
+  border-radius: 6px;
+  box-shadow: none;
   color: var(--agent-soft);
   font-weight: 400;
 }
@@ -255,7 +255,7 @@
 .nt-tool{border:0;background:none;color:var(--acpmux-composer-dim);font-family:inherit;cursor:default}
 .nt-tool:hover,.nt-tool:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 /* The create actions (cx-ag5.7): one quiet ghost row under the box, at its left edge. */
-.nt-create{display:flex;flex-wrap:wrap;margin:8px 4px 0;font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+.nt-create{display:flex;flex-wrap:wrap;margin:4px 4px 0;font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 /* Chats (cx-n0i9): one list under the field. The running and waiting chats lead it with their
    state; every chat on this computer follows, virtualized, newest first. Marks are muted at rest:
    color is for state, not for every row. */

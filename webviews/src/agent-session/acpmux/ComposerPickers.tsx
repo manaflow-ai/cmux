@@ -216,7 +216,10 @@ export function ComposerPickers({
   // An agent's own default remains an internal sentinel. The picker omits it
   // instead of exposing a separate "Default" row.
   const models: Choice[] = sessionModels(snapshot.catalog, summary);
-  const allModes: Choice[] = (summary?.modes?.availableModes ?? []).map((mode) => ({
+  // A sessionless New Tab has no live mode report yet. Keep the last mode catalog observed for
+  // this harness active so its shield remains a usable picker instead of an inert PendingChip.
+  const modeSource = summary?.modes ?? harnessProfiles.get(summary?.harness)?.modes;
+  const allModes: Choice[] = (modeSource?.availableModes ?? []).map((mode) => ({
     id: mode.id,
     name: mode.name || mode.id,
     description: mode.description,
@@ -224,7 +227,7 @@ export function ComposerPickers({
   const plan = allModes.find((choice) => isPlan(choice.id));
   const modes = allModes.filter((choice) => choice !== plan);
   const hasGrants = (permissionAccess?.grants.length ?? 0) > 0;
-  const currentId = summary?.modes?.currentModeId;
+  const currentId = summary?.modes?.currentModeId ?? modeSource?.currentModeId;
   const planning = plan !== undefined && currentId === plan.id;
   // Leaving Plan returns to the permission mode this session had before it, never another session's.
   const lastMode = useRef<{ sessionId?: string; mode?: string }>({});
@@ -530,6 +533,19 @@ export function ComposerPickers({
           ?.name ??
         startMode.modeId)
       : undefined;
+  // A fresh cmux-next chat may know only the start mode until the harness reports its full mode
+  // catalog. Keep that harness-specific full-access id in a real menu so the control is clickable
+  // and still routes through the normal mode setter.
+  const pendingAccessModes: Choice[] =
+    startMode && !startMode.borrowed
+      ? [
+          {
+            id: startMode.modeId,
+            name: startModeName ?? t(PICKER_LABELS.mode),
+            description: t(PICKER_LABELS.fullAccessWarning),
+          },
+        ]
+      : [];
   useEffect(() => {
     if (!awaiting && chipHarness && summary?.sessionId && effortShown)
       rememberLastChips(chipHarness, { effort: effortShown });
@@ -626,15 +642,15 @@ export function ComposerPickers({
       ) : (
         !reported && pendingEffort && <PendingChip kind="effort" label={pendingEffort} />
       )}
-      {modes.length === 0 && !hasGrants && startMode && startModeName && (
+      {modes.length === 0 && !hasGrants && startMode && startModeName && pendingAccessModes.length === 0 && (
         <PendingChip kind="mode" label={startModeName} modeId={startMode.borrowed ? undefined : startMode.modeId} />
       )}
       {/* Granted folder trust and chat allowance stay revocable when the harness offers no modes. */}
-      {(modes.length > 0 || hasGrants) && (
+      {(modes.length > 0 || hasGrants || pendingAccessModes.length > 0) && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
-          modes={modes}
-          current={mode?.id}
+          modes={modes.length > 0 ? modes : pendingAccessModes}
+          current={mode?.id ?? pendingAccessModes[0]?.id}
           sessionId={summary?.sessionId}
           warning={t(PICKER_LABELS.fullAccessWarning)}
           permissionAccess={permissionAccess}
@@ -674,7 +690,17 @@ export function ComposerPickers({
 /// A control the session has not reported yet, as this harness's chats last showed it: the real
 /// chip's face (EffortPicker, AccessMenu), inert until the session's own replaces it in place.
 /// `modeId` is read from storage: only a string names a mode that may skip approvals.
-function PendingChip({ kind, label, modeId }: { kind: "effort" | "mode"; label: string; modeId?: unknown }) {
+function PendingChip({
+  kind,
+  label,
+  modeId,
+  onPick,
+}: {
+  kind: "effort" | "mode";
+  label: string;
+  modeId?: unknown;
+  onPick?(modeId: string): void;
+}) {
   const warning = typeof modeId === "string" && unrestricted(modeId) ? " acpmux-unrestricted" : "";
   return kind === "effort" ? (
     <span className="acpmux-picker acpmux-effort acpmux-chip-pending" aria-hidden="true">
@@ -684,12 +710,21 @@ function PendingChip({ kind, label, modeId }: { kind: "effort" | "mode"; label: 
       </span>
     </span>
   ) : (
-    <span className={`acpmux-mode acpmux-access acpmux-chip-pending${warning}`} aria-hidden="true">
-      <span className="acpmux-picker-button acpmux-access-trigger">
+    <span className={`acpmux-mode acpmux-access acpmux-chip-pending acpmux-pending-access${warning}`}>
+      <button
+        type="button"
+        className="acpmux-picker-button acpmux-access-trigger"
+        aria-label={label}
+        title={label}
+        disabled={typeof modeId !== "string" || onPick === undefined}
+        onClick={() => {
+          if (typeof modeId === "string") onPick?.(modeId);
+        }}
+      >
         <ModeShield modeId={modeId} />
         <span className="acpmux-mode-text">{label}</span>
         <ChevronIcon />
-      </span>
+      </button>
     </span>
   );
 }

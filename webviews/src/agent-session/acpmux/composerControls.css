@@ -214,4 +214,6 @@
 /* A control the session has not reported yet, as this harness's chats last showed it: the real
    chip's face, inert until the session's own replaces it in place (ComposerPickers PendingChip). */
 .acpmux-chip-pending { pointer-events: none; }
+.acpmux-pending-access { pointer-events: auto; }
+.acpmux-pending-access .acpmux-picker-button { cursor: pointer; }
 .acpmux-chip-pending .acpmux-picker-button:hover { background: none; }
