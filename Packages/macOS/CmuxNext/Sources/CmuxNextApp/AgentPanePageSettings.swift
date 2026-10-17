@@ -6,7 +6,7 @@ import Observation
 
 /// The cmux.json keys every agent page shows, followed for ``AgentTabs``: `labs.previewFeatures`,
 /// `agentPane.editedFiles.*`, `agentPane.showContextUsage`, `diff.colors` and the Debug Settings
-/// toggle `agent.reasoningSlider`. Each change reaches every open view; a new view gets the current
+/// toggles `agent.reasoningSlider`/`agent.reasoningSliderStyle`/`agentPane.debug.sidebarPreviewVariant`. Each change reaches every open view; a new view gets the current
 /// values (``apply(to:)``).
 final class AgentPanePageSettings {
     private(set) var previewFeatures = false
@@ -14,20 +14,23 @@ final class AgentPanePageSettings {
     private(set) var zoom = AgentPaneZoomSetting.fallback
     private(set) var composer = AgentPaneComposerSetting.fallback
     /// Diff Colors (`diff.colors`), for the Changes view's added and removed lines.
-    private(set) var diffColors = "theme"
+    private(set) var diffColors = "theme"; private let debugSettings = AgentPaneDebugSettings()
     private var previewObservation: Task<Void, Never>?
     private var editedFilesObservation: Task<Void, Never>?
     private var zoomObservation: Task<Void, Never>?
     private var composerObservation: Task<Void, Never>?
-    private var reasoningSliderObservation: Task<Void, Never>?
     private var diffColorsObservation: Task<Void, Never>?
     /// Where the composer's Hide or Show Context Usage writes (``setComposer(_:_:)``).
     private weak var settings: SettingsController?
 
     /// Follows both keys in `settings`; `push` runs after each change, to reach the open views.
-    func follow(_ settings: SettingsController, push: @escaping () -> Void) {
+    @MainActor
+    func follow(_ settings: SettingsController, push: @escaping @MainActor @Sendable () -> Void) {
         for task in [previewObservation, editedFilesObservation, zoomObservation, composerObservation, diffColorsObservation] { task?.cancel() }  // a new controller replaces, never adds
         self.settings = settings
+        debugSettings.follow(setComposer: { [weak self] slider, style in
+            self?.composer.reasoningSlider = slider; self?.composer.reasoningSliderStyle = style
+        }, push: push)
         // task-owner: lives as long as the tabs; event-driven (Observation)
         previewObservation = Task { [weak self] in
             for await on in ObservationStream({ settings.snapshot.previewFeatures }) {
@@ -57,16 +60,9 @@ final class AgentPanePageSettings {
                 guard let self else { return }
                 // The reasoning slider is the Debug Settings toggle's, not cmux.json's.
                 let reasoningSlider = composer.reasoningSlider
+                let reasoningSliderStyle = composer.reasoningSliderStyle
                 composer = value
-                composer.reasoningSlider = reasoningSlider
-                push()
-            }
-        }
-        // task-owner: lives as long as the tabs; event-driven (Observation)
-        reasoningSliderObservation = Task { [weak self] in
-            for await on in ObservationStream({ AgentPaneTunables.reasoningSlider.value }) {
-                guard let self else { return }
-                composer.reasoningSlider = on
+                composer.reasoningSlider = reasoningSlider; composer.reasoningSliderStyle = reasoningSliderStyle
                 push()
             }
         }
@@ -92,7 +88,7 @@ final class AgentPanePageSettings {
     func apply(to view: AgentPaneView) {
         view.previewFeatures = previewFeatures
         view.editedFiles = editedFiles
-        view.zoom = zoom
+        view.zoom = zoom; debugSettings.apply(to: view)
         composer.push(to: view)
         view.pushDiffColors(diffColors)
     }
