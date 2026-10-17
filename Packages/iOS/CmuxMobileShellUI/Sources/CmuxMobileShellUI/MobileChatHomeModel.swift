@@ -323,8 +323,17 @@ final class MobileChatHomeModel {
         loadingOlderHistorySessionIDs.contains(sessionID)
     }
 
-    /// Sends a prompt to an existing agent session.
-    func send(_ text: String, to sessionID: String) async -> Bool {
+    /// Sends a prompt and any image attachments to an existing agent session.
+    ///
+    /// The host emits the authoritative attachment transcript rows after the
+    /// request is accepted. Text is still inserted optimistically so the
+    /// composer feels immediate; an attachment-only send intentionally waits
+    /// for that host row instead of inventing a local transcript item.
+    func send(
+        _ text: String,
+        attachments: [ChatOutboundAttachment] = [],
+        to sessionID: String
+    ) async -> Bool {
         guard let currentSource = source else {
             errorMessage = "Connect a computer before sending a message."
             return false
@@ -338,21 +347,28 @@ final class MobileChatHomeModel {
             return false
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
+        guard !trimmed.isEmpty || !attachments.isEmpty else { return false }
 
-        let optimisticMessageID = "local-\(UUID().uuidString)"
         let optimisticStartedAt = Date()
-        var transcript = messagesBySessionID[sessionID, default: []]
-        let nextSeq = transcript.map(\.seq).max().map { $0 + 1 } ?? 0
-        transcript.append(ChatMessage(
-            id: optimisticMessageID,
-            seq: nextSeq,
-            role: .user,
-            timestamp: optimisticStartedAt,
-            kind: .prose(ChatProse(text: trimmed))
-        ))
-        messagesBySessionID[sessionID] = transcript
-        pendingLocalMessages[sessionID, default: []].append(transcript.last!)
+        let optimisticMessageID: String?
+        if !trimmed.isEmpty {
+            let id = "local-\(UUID().uuidString)"
+            optimisticMessageID = id
+            var transcript = messagesBySessionID[sessionID, default: []]
+            let nextSeq = transcript.map(\.seq).max().map { $0 + 1 } ?? 0
+            let optimisticMessage = ChatMessage(
+                id: id,
+                seq: nextSeq,
+                role: .user,
+                timestamp: optimisticStartedAt,
+                kind: .prose(ChatProse(text: trimmed))
+            )
+            transcript.append(optimisticMessage)
+            messagesBySessionID[sessionID] = transcript
+            pendingLocalMessages[sessionID, default: []].append(optimisticMessage)
+        } else {
+            optimisticMessageID = nil
+        }
         updateSession(id: sessionID) { descriptor in
             descriptor.withState(
                 .working(since: optimisticStartedAt),
@@ -360,7 +376,7 @@ final class MobileChatHomeModel {
             )
         }
         do {
-            try await source.send(text: trimmed, attachments: [], sessionID: sessionID)
+            try await source.send(text: trimmed, attachments: attachments, sessionID: sessionID)
             guard !Task.isCancelled,
                   refreshGeneration == generation,
                   self.source === source,
@@ -717,7 +733,7 @@ final class MobileChatHomeModel {
 
     private func rollbackOptimisticSend(
         sessionID: String,
-        messageID: String,
+        messageID: String?,
         previousSession: ChatSessionDescriptor,
         startedAt: Date,
         source: MobileChatEventSource,
@@ -731,8 +747,10 @@ final class MobileChatHomeModel {
         // A failed request must not leave a prompt that never reached the Mac
         // in the transcript. If a server echo already reconciled it, the
         // optimistic row has been replaced and this removal is a no-op.
-        messagesBySessionID[sessionID]?.removeAll { $0.id == messageID }
-        pendingLocalMessages[sessionID]?.removeAll { $0.id == messageID }
+        if let messageID {
+            messagesBySessionID[sessionID]?.removeAll { $0.id == messageID }
+            pendingLocalMessages[sessionID]?.removeAll { $0.id == messageID }
+        }
         updateSession(id: sessionID) { descriptor in
             guard descriptor.lastActivityAt == startedAt else { return descriptor }
             return descriptor.withState(

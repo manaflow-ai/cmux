@@ -36,11 +36,21 @@ struct MobileChatMessageRow: View {
 private struct MobileChatProseRow: View {
     let role: ChatRole
     let text: String
+    @State private var feedback: MobileChatFeedback?
 
     var body: some View {
         VStack(alignment: role == .user ? .trailing : .leading, spacing: 7) {
-            HStack {
-                if role == .user { Spacer(minLength: 38) }
+            HStack(alignment: .top, spacing: role == .user ? 0 : 10) {
+                if role == .user {
+                    Spacer(minLength: 38)
+                } else {
+                    Image(systemName: "sparkles")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 24, height: 24)
+                        .background(Color.accentColor.opacity(0.12), in: Circle())
+                        .accessibilityHidden(true)
+                }
                 MobileChatMarkdownText(text: text)
                     .foregroundStyle(.primary)
                     .padding(.horizontal, role == .user ? 14 : 0)
@@ -51,26 +61,41 @@ private struct MobileChatProseRow: View {
                                 .fill(Color.accentColor.opacity(0.14))
                         }
                     }
-                if role != .user { Spacer(minLength: 38) }
+                if role != .user { Spacer(minLength: 26) }
             }
             if role != .user {
                 HStack(spacing: 14) {
                     MobileChatCopyButton(text: text)
-                    Button(action: {}) {
-                        Image(systemName: "hand.thumbsup")
+                    Button {
+                        feedback = feedback == .positive ? nil : .positive
+                    } label: {
+                        Image(systemName: feedback == .positive ? "hand.thumbsup.fill" : "hand.thumbsup")
                     }
-                    Button(action: {}) {
-                        Image(systemName: "hand.thumbsdown")
+                    .foregroundStyle(feedback == .positive ? Color.accentColor : .secondary)
+                    .accessibilityLabel("Good response")
+                    .accessibilityValue(feedback == .positive ? "Selected" : "")
+                    .accessibilityIdentifier("MobileChatThumbsUp")
+                    Button {
+                        feedback = feedback == .negative ? nil : .negative
+                    } label: {
+                        Image(systemName: feedback == .negative ? "hand.thumbsdown.fill" : "hand.thumbsdown")
                     }
+                    .foregroundStyle(feedback == .negative ? Color.accentColor : .secondary)
+                    .accessibilityLabel("Needs improvement")
+                    .accessibilityValue(feedback == .negative ? "Selected" : "")
+                    .accessibilityIdentifier("MobileChatThumbsDown")
                 }
                 .font(.caption)
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
             }
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(role == .user ? "MobileChatUserMessage" : "MobileChatAgentMessage")
     }
+}
+
+private enum MobileChatFeedback {
+    case positive
+    case negative
 }
 
 private struct MobileChatMarkdownText: View {

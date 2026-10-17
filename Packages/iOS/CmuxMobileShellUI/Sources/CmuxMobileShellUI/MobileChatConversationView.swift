@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import PhotosUI
 import SwiftUI
 import UIKit
 
@@ -10,6 +11,9 @@ struct MobileChatConversationView: View {
     let onMenu: () -> Void
 
     @State private var composerText = ""
+    @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var pendingAttachments: [MobileChatComposerAttachment] = []
+    @State private var isLoadingAttachment = false
     @FocusState private var composerFocused: Bool
 
     var body: some View {
@@ -84,7 +88,11 @@ struct MobileChatConversationView: View {
                 isFocused: $composerFocused,
                 isWorking: isWorking,
                 providerTitle: provider?.title ?? "your agent",
+                selectedPhotos: $selectedPhotos,
+                attachments: pendingAttachments,
+                isLoadingAttachment: isLoadingAttachment,
                 onSend: send,
+                onRemoveAttachment: removeAttachment,
                 onStop: {
                     Task { await model.interrupt(sessionID: sessionID) }
                 }
@@ -129,6 +137,10 @@ struct MobileChatConversationView: View {
         .task(id: sessionID) {
             model.open(sessionID: sessionID)
         }
+        .onChange(of: selectedPhotos) { _, items in
+            guard !items.isEmpty else { return }
+            Task { await loadPhotos(items) }
+        }
         .onDisappear {
             model.close(sessionID: sessionID)
         }
@@ -158,9 +170,55 @@ struct MobileChatConversationView: View {
 
     private func send() {
         let text = composerText
+        let attachments = pendingAttachments
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else {
+            return
+        }
         composerText = ""
+        pendingAttachments.removeAll()
         composerFocused = false
-        Task { await model.send(text, to: sessionID) }
+        Task { @MainActor in
+            let didSend = await model.send(
+                text,
+                attachments: attachments.map(\.outbound),
+                to: sessionID
+            )
+            if !didSend {
+                pendingAttachments.insert(contentsOf: attachments, at: 0)
+                composerText = text
+            }
+        }
+    }
+
+    private func loadPhotos(_ items: [PhotosPickerItem]) async {
+        isLoadingAttachment = true
+        defer {
+            selectedPhotos = []
+            isLoadingAttachment = false
+        }
+        for item in items {
+            guard let data = try? await item.loadTransferable(type: Data.self),
+                  let image = UIImage(data: data) else { continue }
+            if let jpeg = image.jpegData(compressionQuality: 0.86) {
+                pendingAttachments.append(
+                    MobileChatComposerAttachment(
+                        image: image,
+                        outbound: ChatOutboundAttachment(data: jpeg, format: .jpeg)
+                    )
+                )
+            } else if let png = image.pngData() {
+                pendingAttachments.append(
+                    MobileChatComposerAttachment(
+                        image: image,
+                        outbound: ChatOutboundAttachment(data: png, format: .png)
+                    )
+                )
+            }
+        }
+    }
+
+    private func removeAttachment(_ attachment: MobileChatComposerAttachment) {
+        pendingAttachments.removeAll { $0.id == attachment.id }
     }
 }
 
@@ -169,72 +227,128 @@ private struct MobileChatComposer: View {
     var isFocused: FocusState<Bool>.Binding
     let isWorking: Bool
     let providerTitle: String
+    @Binding var selectedPhotos: [PhotosPickerItem]
+    let attachments: [MobileChatComposerAttachment]
+    let isLoadingAttachment: Bool
     let onSend: () -> Void
+    let onRemoveAttachment: (MobileChatComposerAttachment) -> Void
     let onStop: () -> Void
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 9) {
-            Menu {
-                Button("Attach a file", systemImage: "paperclip") { }
-                    .disabled(true)
-                Button("Open computer", systemImage: "desktopcomputer") { }
-                    .disabled(true)
-            } label: {
-                Image(systemName: "plus")
-                    .font(.body.weight(.medium))
-                    .frame(width: 30, height: 30)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            if isLoadingAttachment || !attachments.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(attachments) { attachment in
+                            MobileChatAttachmentPreview(
+                                attachment: attachment,
+                                onRemove: { onRemoveAttachment(attachment) }
+                            )
+                        }
+                        if isLoadingAttachment {
+                            ProgressView()
+                                .frame(width: 52, height: 52)
+                                .background(.quaternary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .accessibilityLabel("Loading attachment")
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                }
             }
-            .accessibilityLabel("Add attachment")
-            .accessibilityIdentifier("MobileChatAdd")
-            TextField("Message \(providerTitle)", text: $text, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(1...5)
-                .focused(isFocused)
-                .submitLabel(.send)
-                .onSubmit(onSend)
-                .frame(minHeight: 30)
-                .accessibilityLabel("Message \(providerTitle)")
-                .accessibilityIdentifier("MobileChatComposer")
-            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isWorking {
-                Button(action: {}) {
-                    Image(systemName: "mic.fill")
-                        .font(.caption.weight(.semibold))
+            HStack(alignment: .bottom, spacing: 9) {
+                Menu {
+                    PhotosPicker(
+                        selection: $selectedPhotos,
+                        maxSelectionCount: 4,
+                        matching: .images,
+                        photoLibrary: .shared
+                    ) {
+                        Label("Photo library", systemImage: "photo")
+                    }
+                    Button("Open computer", systemImage: "desktopcomputer") { }
+                        .disabled(true)
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.body.weight(.medium))
                         .frame(width: 30, height: 30)
                         .foregroundStyle(.secondary)
                 }
-                .disabled(true)
-                .accessibilityLabel("Voice input unavailable")
-            } else if isWorking {
-                Button(action: onStop) {
-                    Image(systemName: "stop.fill")
-                        .font(.caption.weight(.bold))
-                        .frame(width: 34, height: 34)
-                        .foregroundStyle(.white)
-                        .background(.red, in: Circle())
+                .accessibilityLabel("Add attachment")
+                .accessibilityIdentifier("MobileChatAdd")
+                TextField("Message \(providerTitle)", text: $text, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...5)
+                    .focused(isFocused)
+                    .submitLabel(.send)
+                    .onSubmit(onSend)
+                    .frame(minHeight: 30)
+                    .accessibilityLabel("Message \(providerTitle)")
+                    .accessibilityIdentifier("MobileChatComposer")
+                if isWorking {
+                    Button(action: onStop) {
+                        Image(systemName: "stop.fill")
+                            .font(.caption.weight(.bold))
+                            .frame(width: 34, height: 34)
+                            .foregroundStyle(.white)
+                            .background(.red, in: Circle())
+                    }
+                    .accessibilityLabel("Stop agent")
+                    .accessibilityIdentifier("MobileChatStop")
+                } else {
+                    Button(action: onSend) {
+                        Image(systemName: "arrow.up")
+                            .font(.caption.weight(.bold))
+                            .frame(width: 34, height: 34)
+                            .foregroundStyle(.white)
+                            .background(Color.accentColor, in: Circle())
+                    }
+                    .disabled(
+                        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            && attachments.isEmpty
+                    )
+                    .accessibilityLabel("Send message")
+                    .accessibilityIdentifier("MobileChatSend")
                 }
-                .accessibilityLabel("Stop agent")
-                .accessibilityIdentifier("MobileChatStop")
-            } else {
-                Button(action: onSend) {
-                    Image(systemName: "arrow.up")
-                        .font(.caption.weight(.bold))
-                        .frame(width: 34, height: 34)
-                        .foregroundStyle(.white)
-                        .background(Color.accentColor, in: Circle())
-                }
-                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityLabel("Send message")
-                .accessibilityIdentifier("MobileChatSend")
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().stroke(.separator.opacity(0.65), lineWidth: 0.7))
+        .padding(.vertical, 10)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 23, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 23, style: .continuous).stroke(.separator.opacity(0.65), lineWidth: 0.7))
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.bar)
+    }
+}
+
+private struct MobileChatComposerAttachment: Identifiable {
+    let id = UUID()
+    let image: UIImage
+    let outbound: ChatOutboundAttachment
+}
+
+private struct MobileChatAttachmentPreview: View {
+    let attachment: MobileChatComposerAttachment
+    let onRemove: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Image(uiImage: attachment.image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 52, height: 52)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            Button(action: onRemove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 19, height: 19)
+                    .background(.regularMaterial, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove attachment")
+        }
+        .accessibilityElement(children: .contain)
     }
 }
 
