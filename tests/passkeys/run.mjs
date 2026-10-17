@@ -102,7 +102,8 @@ function withTimeout(promise, ms, name) {
 async function runScenario(page, name, spec) {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("WebAuthn.enable", { enableUI: false });
-  const { authenticatorId } = await cdp.send("WebAuthn.addVirtualAuthenticator", {
+  // A scenario with `authenticator: null` runs with no virtual authenticator.
+  const { authenticatorId } = spec.authenticator === null ? {} : await cdp.send("WebAuthn.addVirtualAuthenticator", {
     options: { automaticPresenceSimulation: true, ...spec.authenticator },
   });
   try {
@@ -112,7 +113,7 @@ async function runScenario(page, name, spec) {
     }
     return await pending;
   } finally {
-    await cdp.send("WebAuthn.removeVirtualAuthenticator", { authenticatorId }).catch(() => {});
+    if (authenticatorId) await cdp.send("WebAuthn.removeVirtualAuthenticator", { authenticatorId }).catch(() => {});
     await cdp.send("WebAuthn.disable").catch(() => {});
     await cdp.detach().catch(() => {});
   }

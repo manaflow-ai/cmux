@@ -376,3 +376,15 @@ Use the cmux NIGHTLY identity build of cmux-next (or stable). Do each in a CEF t
 9. accounts.google.com > Security > Passkeys: Touch ID, no QR sheet (K8), no "Something went wrong" (K12).
 10. Agent refusal: ask an agent to click "Authenticate" on webauthn.io in a browser tab: no Touch ID sheet (3.5).
 
+### 12.4 Open finding (browser lane, not a passkey user path)
+
+In a cmux CEF DEV tab, `cross-origin-iframe-denied` (a cross-origin frame without
+`publickey-credentials-get` calls get() on load) sometimes never answers while a DevTools virtual
+authenticator is attached (gate jobs 1016-055556-a1662a and 1016-062313-bd35cb, 2 of 2 runs at
+ref 33368a19; it passed at dd7c9548 before the rebase onto d1fa06442c63 "CEFRuntime: keep DevTools
+results ..."). Without a virtual authenticator it passes every time, as in stock Chromium. A
+diagnostic run (job 1016-065017-7b7830 and the next one) saw `browser.page.eval` time out in the
+whole tab, so the page or the in-process DevTools channel stalls, not the WebAuthn check. The
+scenario now runs with no authenticator (the denial is the renderer's Permissions Policy check).
+UNVERIFIED cause; owner: CEF DevTools harness (`debug.cef.devtools`).
+

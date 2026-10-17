@@ -238,8 +238,11 @@
         }
       },
     },
+    // The denial is the renderer's Permissions Policy check, before any
+    // authenticator: run with none. (cmux CEF: with a DevTools virtual
+    // authenticator attached this frame sometimes never answers; passkeys.md 12.4.)
     "cross-origin-iframe-denied": {
-      authenticator: platform,
+      authenticator: null,
       frame: { allow: "", mode: "get" },
     },
     "cross-origin-iframe-allowed": {

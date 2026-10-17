@@ -141,7 +141,8 @@ def scenario(engine, tab, name, spec):
     authenticator = None
     unconfirmed = False
     note = ""
-    if engine == "cef" and not opts.no_virtual_authenticator:
+    needs_authenticator = "authenticator" not in spec or spec.get("authenticator") is not None
+    if engine == "cef" and not opts.no_virtual_authenticator and needs_authenticator:
         devtools("WebAuthn.enable", {"enableUI": False})
         added = devtools("WebAuthn.addVirtualAuthenticator",
                          {"options": {"automaticPresenceSimulation": True, **(spec.get("authenticator") or {})}})
@@ -165,7 +166,7 @@ def scenario(engine, tab, name, spec):
     result = wait(lambda: (lambda v: v if isinstance(v, dict) and v and "__error" not in v else None)(js(tab, "window.__pk")), 35, 0.5)
     if authenticator:
         devtools("WebAuthn.removeVirtualAuthenticator", {"authenticatorId": authenticator})
-    if engine == "cef" and not opts.no_virtual_authenticator:
+    if engine == "cef" and not opts.no_virtual_authenticator and needs_authenticator:
         devtools("WebAuthn.disable")  # drops every virtual authenticator, a timed-out one too
     if not result:
         js(tab, "location.reload()")
@@ -258,7 +259,7 @@ def main():
         for name, spec in specs.items():
             if only and name not in only:
                 continue
-            if (engine == "webkit" or opts.no_virtual_authenticator) and name not in NO_AUTHENTICATOR:
+            if (engine == "webkit" or opts.no_virtual_authenticator) and name not in NO_AUTHENTICATOR and spec.get("authenticator") is not None:
                 row(engine, name, "SKIP", "needs an authenticator; no virtual authenticator here")
                 continue
             status, detail = scenario(engine, tab, name, spec)
