@@ -327,7 +327,9 @@ extension TerminalController {
                 }
                 let sendResult = terminalTarget.sendInputResult(Self.chatShellWord(path))
                 switch sendResult {
-                case .sent, .queued:
+                case .sent:
+                    terminalTarget.forceRefresh(reason: "mobileHost.chatFileAttachment")
+                case .queued:
                     break
                 case .inputQueueFull:
                     return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: nil)
