@@ -75,8 +75,14 @@ final class MachineCatalogAppFixture {
 
     func run(_ verb: String, params: [String: JSONValue] = [:]) async throws -> JSONValue {
         let connection = try #require(local.connection)
-        return try await connection.request(AppsRunRequest(app: package.id, op: "\(package.family).\(verb)",
-                                                            args: .object(params), idempotencyKey: nil, origin: .script), timeout: .seconds(20)).value
+        do {
+            return try await connection.request(AppsRunRequest(app: package.id, op: "\(package.family).\(verb)",
+                                                                args: .object(params), idempotencyKey: nil, origin: .script), timeout: .seconds(20)).value
+        } catch let DaemonError.command(command, message, code, details, retryable) {
+            guard code == "apps.host" else { throw DaemonError.command(cmd: command, message: message, code: code, details: details, retryable: retryable) }
+            let logs = try? await connection.request(AppsLogsRequest(app: package.id, follow: false))
+            throw DaemonError.command(cmd: command, message: "\(verb): \(message); owned app logs: \(String(describing: logs))", code: code)
+        }
     }
 
     func grantInventory(_ allowed: Bool) async throws {
