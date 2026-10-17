@@ -37,6 +37,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_session_attach() {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
+        capabilities.push(AGENT_SESSION_OBSERVE_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_session_start() {

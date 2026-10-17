@@ -1,4 +1,5 @@
-//! Remote agent session attach (`agent-session-attach-v1`): a client that
+//! Remote agent session attach (`agent-session-attach-v1`) and observation
+//! (`agent-session-observe-v1`): a client that
 //! shows an agent chat tab of THIS daemon's store streams the tab's acpmux
 //! session (history replay and live records) and types into it, through
 //! this daemon, which is a local client of this machine's acpmux unix
@@ -23,6 +24,9 @@
 //!   subscribes the connection to the tab's session and answers acpmux's
 //!   attach page `{session, events, hasMore, lastSeq}`. Again on an attached
 //!   tab it only pages.
+//! - `agent-session-observe {surface, after_seq?, before_seq?, limit?, kinds?}`
+//!   does the same attach/replay/stream operation, but the resulting
+//!   attachment rejects prompt, cancel and permission mutations.
 //! - `agent-session-events {surface, after_seq?, before_seq?, limit?, kinds?}`
 //!   pages the log of an attached tab (replay after a disconnect).
 //! - `agent-session-prompt {surface, prompt_id, text}` sends one text prompt
@@ -78,6 +82,7 @@ pub use agent_session_start::{
 pub use agent_session_trust::AGENT_SESSION_TRUST_CAPABILITY;
 
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
+pub const AGENT_SESSION_OBSERVE_CAPABILITY: &str = "agent-session-observe-v1";
 
 pub(crate) const MAX_ATTACHMENTS_PER_CLIENT: usize = 8;
 pub(crate) const MAX_ATTACHMENTS_TOTAL: usize = 64;
@@ -191,6 +196,9 @@ struct Attachment {
     /// The session the tab's store record named at attach; the attachment
     /// ends when the record changes or the tab closes.
     record_session: String,
+    /// Observation attachments can replay and receive records but cannot
+    /// drive the agent session.
+    read_only: AtomicBool,
     mux: Weak<Mux>,
     link: Arc<AcpmuxLink>,
     writer: MessageWriter,
@@ -276,6 +284,7 @@ struct PageParams {
 
 enum AgentSessionCommand {
     Attach(PageParams),
+    Observe(PageParams),
     Events(PageParams),
     Prompt(PromptParams),
     Cancel(SurfaceParams),
@@ -291,6 +300,7 @@ impl AgentSessionCommand {
         use serde_json::from_value;
         Some(match cmd {
             "agent-session-attach" => Self::Attach(from_value(params).ok()?),
+            "agent-session-observe" => Self::Observe(from_value(params).ok()?),
             "agent-session-events" => Self::Events(from_value(params).ok()?),
             "agent-session-prompt" => Self::Prompt(from_value(params).ok()?),
             "agent-session-cancel" => Self::Cancel(from_value(params).ok()?),
@@ -385,6 +395,8 @@ pub(crate) enum Refusal {
     /// `agent-session-start` with `require_person_key`: acpmux holds no
     /// person key for the caller's run (cx-0w0jj).
     NeedsKeyedStart,
+    /// The attachment was created through `agent-session-observe-v1`.
+    ReadOnly,
 }
 
 impl Refusal {
@@ -408,6 +420,7 @@ impl Refusal {
             Self::AboveHome => "agent_session.above_home",
             Self::HomeUnconfirmed => "agent_session.home_unconfirmed",
             Self::NeedsKeyedStart => "agent_session.needs_keyed_start",
+            Self::ReadOnly => "agent_session.read_only",
         }
     }
 
@@ -439,6 +452,7 @@ impl Refusal {
             Self::NeedsKeyedStart => {
                 "acpmux on this machine holds no person key for this caller; restart it with one first"
             }
+            Self::ReadOnly => "this agent session attachment is read-only",
         }
     }
 
@@ -489,7 +503,12 @@ pub(super) fn try_handle(
         return Some(refuse(writer, id, Refusal::Unavailable));
     };
     Some(match command {
-        AgentSessionCommand::Attach(params) => attach(mux, client, id, socket, params, writer),
+        AgentSessionCommand::Attach(params) => {
+            attach(mux, client, id, socket, params, false, writer)
+        }
+        AgentSessionCommand::Observe(params) => {
+            attach(mux, client, id, socket, params, true, writer)
+        }
         AgentSessionCommand::Detach(SurfaceParams { surface }) => {
             if let Some(attachment) = sessions.attachment(client, surface) {
                 sessions.remove(&attachment);
@@ -560,7 +579,9 @@ pub(super) fn routed_trust(
 
 fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
     match command {
-        AgentSessionCommand::Attach(params) | AgentSessionCommand::Events(params) => params.surface,
+        AgentSessionCommand::Attach(params)
+        | AgentSessionCommand::Observe(params)
+        | AgentSessionCommand::Events(params) => params.surface,
         AgentSessionCommand::Prompt(params) => params.surface,
         AgentSessionCommand::Permission(params) => params.surface,
         AgentSessionCommand::Cancel(params) | AgentSessionCommand::Detach(params) => params.surface,
@@ -611,12 +632,24 @@ fn attach(
     id: Option<Value>,
     socket: PathBuf,
     params: PageParams,
+    read_only: bool,
     writer: &MessageWriter,
 ) -> bool {
     let sessions = &mux.control_clients.agent_sessions;
     if let Some(attachment) = sessions.attachment(client, params.surface) {
+        // Observation is monotonic for a connection and tab. A writable
+        // attachment may be upgraded, but a later attach must never
+        // downgrade an observer back to a session driver.
+        if read_only {
+            attachment.read_only.store(true, Ordering::Release);
+        }
         // Already attached: page only, on the attachment's own link.
-        return run_on_worker(mux, attachment, id, AgentSessionCommand::Attach(params), writer);
+        let command = if read_only {
+            AgentSessionCommand::Observe(params)
+        } else {
+            AgentSessionCommand::Attach(params)
+        };
+        return run_on_worker(mux, attachment, id, command, writer);
     }
     let Some(session) = tab_session(mux, params.surface) else {
         return refuse(writer, id, Refusal::UnknownTab);
@@ -653,6 +686,7 @@ fn attach(
                 surface,
                 record_session,
                 acpmux_params,
+                read_only,
                 worker_writer,
             );
         });
@@ -717,6 +751,7 @@ fn connect_and_attach(
     surface: SurfaceId,
     record_session: String,
     params: Value,
+    read_only: bool,
     writer: MessageWriter,
 ) {
     let sessions = &mux.control_clients.agent_sessions;
@@ -784,6 +819,7 @@ fn connect_and_attach(
         surface,
         session: resolved,
         record_session,
+        read_only: AtomicBool::new(read_only),
         mux: Arc::downgrade(&mux),
         link: link.clone(),
         writer: writer.clone(),
@@ -926,6 +962,16 @@ fn run_on_worker(
         attachment.end(Some("detached"));
         return refuse(writer, id, Refusal::UnknownTab);
     }
+    if attachment.read_only.load(Ordering::Acquire)
+        && matches!(
+            &command,
+            AgentSessionCommand::Prompt(_)
+                | AgentSessionCommand::Cancel(_)
+                | AgentSessionCommand::Permission(_)
+        )
+    {
+        return refuse(writer, id, Refusal::ReadOnly);
+    }
     // A cancel is a notification on the link and never waits.
     if let AgentSessionCommand::Cancel(_) = command {
         let sent =
@@ -963,7 +1009,7 @@ fn run_on_worker(
 fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, Refusal> {
     let session = attachment.session.as_str();
     match command {
-        AgentSessionCommand::Attach(params) => {
+        AgentSessionCommand::Attach(params) | AgentSessionCommand::Observe(params) => {
             let newest_first = params.after_seq.is_none() || params.before_seq.is_some();
             let params = page_params(session, &params, true)?;
             let page = attachment.link.call("_acpmux/attach", params, CALL_TIMEOUT);
