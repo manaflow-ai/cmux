@@ -331,10 +331,35 @@ struct SidebarCloudWorkspaceBadgeTests {
             settings: deviceHiddenSettings,
             showsAgentActivity: false
         ).makeSnapshot()
+        let hiddenDeviceModel = Self.makeModel(
+            settings: deviceHiddenSettings,
+            workspaceSnapshot: hiddenDeviceSnapshot
+        )
         let hiddenDeviceCell = SidebarAppKitRowCellTests.configuredCell(
-            model: Self.makeModel(settings: deviceHiddenSettings, workspaceSnapshot: hiddenDeviceSnapshot),
+            model: hiddenDeviceModel,
             tab: deviceWorkspace
         )
+        let hiddenDeviceWidth: CGFloat = 440
+        let hiddenDeviceHeight = hiddenDeviceCell.layoutContent(
+            model: hiddenDeviceModel,
+            width: hiddenDeviceWidth,
+            apply: false
+        )
+        let hiddenDeviceWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: hiddenDeviceWidth, height: hiddenDeviceHeight),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let hiddenDeviceHost = NSView(
+            frame: NSRect(x: 0, y: 0, width: hiddenDeviceWidth, height: hiddenDeviceHeight)
+        )
+        hiddenDeviceWindow.contentView = hiddenDeviceHost
+        hiddenDeviceCell.frame = hiddenDeviceHost.bounds
+        hiddenDeviceHost.addSubview(hiddenDeviceCell)
+        hiddenDeviceCell.needsLayout = true
+        hiddenDeviceCell.layoutSubtreeIfNeeded()
+        defer { hiddenDeviceWindow.contentView = nil }
         let hiddenDeviceBadge = try #require(SidebarAppKitRowCellTests.descendants(of: hiddenDeviceCell).compactMap { $0 as? NSImageView }.first {
             $0.accessibilityIdentifier() == "sidebarCloudBadge"
         })
