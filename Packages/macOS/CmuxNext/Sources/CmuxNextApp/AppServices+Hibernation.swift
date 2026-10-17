@@ -5,7 +5,7 @@ import CmuxNextSettings
 // (plans/cmux-next/tab-lifecycle.md).
 extension AppServices {
     /// Creates the browser and agent page hibernation, follows `browser.hibernation`, and starts the
-    /// memory pressure source that also sizes the terminal warm set and each window's parked workspaces.
+    /// memory pressure source that also sizes the terminal warm set (the one budget of hidden GPU surfaces).
     func startHibernation(settings: SettingsController) {
         let hibernation = BrowserHibernation(cache: cache)
         cache.hibernation = hibernation
@@ -19,6 +19,5 @@ extension AppServices {
     func memoryPressureDidChange(_ level: MemoryPressureLevel) {
         let budget = WarmSetBudget.current(pressure: level)
         cache.setWarmBudget(budget)
-        for controller in windows.controllers { controller.setParkedBudget(budget) }
     }
 }
