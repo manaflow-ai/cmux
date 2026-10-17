@@ -35,6 +35,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         // only Chief/tool output and therefore has no human row to infer it
         // from.
         var meID = "me"
+        var publishedMeID: String?
         var pollTask: Task<Void, Never>?
         var continuation: AsyncStream<ConversationBackendEvent>.Continuation?
         var closed = false
@@ -140,6 +141,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             if let sent {
                 _ = takeCorrelatedMessage(for: draft.clientMessageID)
                 withState { $0.pendingSends.removeValue(forKey: draft.clientMessageID) }
+                publishIdentityIfNeeded(for: sent)
                 var message = map(sent, clientMessageID: draft.clientMessageID)
                 message.clientMessageID = draft.clientMessageID
                 message.delivery = sendResult.queued ? .sending : .sent
@@ -156,6 +158,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         // same id instead of appending the local fallback after the echo.
         if let sent = takeCorrelatedMessage(for: draft.clientMessageID) {
             withState { $0.pendingSends.removeValue(forKey: draft.clientMessageID) }
+            publishIdentityIfNeeded(for: sent)
             var message = map(sent, clientMessageID: draft.clientMessageID)
             message.clientMessageID = draft.clientMessageID
             message.delivery = sendResult.queued ? .sending : .sent
@@ -343,6 +346,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                     ))
                     publishedInfo = mappedInfo.info
                     publishedMeID = mappedInfo.meID
+                    withState { $0.publishedMeID = mappedInfo.meID }
                     continuation.yield(.readState(ConversationReadState(
                         lastReadSeq: safeInt(lastSeq),
                         unreadCount: 0,
@@ -362,6 +366,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                         ))
                         publishedInfo = mappedInfo.info
                         publishedMeID = mappedInfo.meID
+                        withState { $0.publishedMeID = mappedInfo.meID }
                         connected = true
                     } else if mappedInfo.meID != publishedMeID || mappedInfo.info != publishedInfo {
                         // An empty/new conversation starts with the canonical
@@ -375,6 +380,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                         ))
                         publishedInfo = mappedInfo.info
                         publishedMeID = mappedInfo.meID
+                        withState { $0.publishedMeID = mappedInfo.meID }
                     }
                     for message in result.messages {
                         let previous = withState { $0.previousMessagesByID[message.id] }
@@ -603,6 +609,21 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         withState { state in
             state.correlatedMessagesByClientID.removeValue(forKey: clientMessageID)
         }
+    }
+
+    /// A send can discover the first human message before the next poll tick.
+    /// Publish the participant identity immediately so the generic store does
+    /// not briefly render that first outgoing bubble as incoming.
+    private func publishIdentityIfNeeded(for message: MobileChiefMessage) {
+        guard message.authorKind == "human" else { return }
+        let knownMessages = withState { Array($0.previousMessagesByID.values) }
+        let mapped = info(from: knownMessages + [message])
+        let continuation = withState { state -> AsyncStream<ConversationBackendEvent>.Continuation? in
+            guard mapped.meID != state.publishedMeID else { return nil }
+            state.publishedMeID = mapped.meID
+            return state.continuation
+        }
+        continuation?.yield(.connected(info: mapped.info, meID: mapped.meID, lagged: false))
     }
 
     /// Keep enough transcript history to answer cards loaded from an older
