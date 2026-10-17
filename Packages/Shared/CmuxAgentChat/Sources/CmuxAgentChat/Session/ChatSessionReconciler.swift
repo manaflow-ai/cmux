@@ -49,6 +49,7 @@ public struct ChatSessionReconciler: Sendable, Equatable {
             return upsert(descriptor)
         case .stateChanged(let state):
             guard var descriptor = descriptorsByID[sessionID] else { return false }
+            guard descriptor.state != state else { return false }
             descriptor = descriptor.withState(state)
             descriptor.version += 1
             return upsert(descriptor)
