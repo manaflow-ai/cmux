@@ -14,14 +14,17 @@ use serde_json::{Value, json};
 use super::agent_session_attach_tests::{Client, assert_code, run};
 use super::*;
 
-struct Owner {
+pub(super) struct Owner {
     socket: PathBuf,
     frames: Receiver<Value>,
     worker: Option<JoinHandle<()>>,
+    connections: Receiver<UnixStream>,
+    current: Option<UnixStream>,
+    closed: Receiver<()>,
 }
 
 impl Owner {
-    fn new(features: Value, inventory: Value) -> Self {
+    pub(super) fn new(features: Value, inventory: Value) -> Self {
         static SEQUENCE: AtomicU64 = AtomicU64::new(0);
         let socket = PathBuf::from(format!(
             "/tmp/cmux-ai-{}-{}.sock",
@@ -30,8 +33,11 @@ impl Owner {
         ));
         let listener = UnixListener::bind(&socket).unwrap();
         let (sent, frames) = channel();
+        let (connection_tx, connections) = channel();
+        let (closed_tx, closed) = channel();
         let worker = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
+            let _ = connection_tx.send(stream.try_clone().unwrap());
             // The real link closes after its bounded calls; the cleanup
             // connection closes immediately to wake accept. No timeout is
             // set on that already-closed wake socket (EINVAL on macOS).
@@ -44,28 +50,57 @@ impl Owner {
                 let result = match frame["method"].as_str().unwrap() {
                     "initialize" => json!({"_meta":{"acpmux":{"features":features}}}),
                     "_acpmux/harness/health" => inventory.clone(),
+                    "_acpmux/harness/inventory/watch" => inventory.clone(),
                     other => panic!("inventory must not call {other}"),
                 };
                 writeln!(stream, "{}", json!({"jsonrpc":"2.0","id":frame["id"],"result":result}))
                     .unwrap();
             }
+            let _ = closed_tx.send(());
         });
-        Self { socket, frames, worker: Some(worker) }
+        Self { socket, frames, worker: Some(worker), connections, current: None, closed }
     }
 
-    fn mux(&self, name: &str) -> Arc<Mux> {
+    pub(super) fn mux(&self, name: &str) -> Arc<Mux> {
         let mux = Mux::new_for_test(name, crate::SurfaceOptions::default());
         mux.set_acpmux_socket(Some(self.socket.clone()));
         mux
     }
 
-    fn methods(&self) -> Vec<String> {
+    pub(super) fn methods(&self) -> Vec<String> {
         self.frames.try_iter().map(|v| v["method"].as_str().unwrap().to_owned()).collect()
+    }
+
+    pub(super) fn notify(&mut self, value: Value) {
+        if self.current.is_none() {
+            self.current =
+                Some(self.connections.recv_timeout(std::time::Duration::from_secs(5)).unwrap());
+        }
+        let stream = self.current.as_mut().unwrap();
+        writeln!(
+            stream,
+            "{}",
+            json!({"jsonrpc":"2.0","method":"_acpmux/harness_inventory","params":value})
+        )
+        .unwrap();
+        stream.flush().unwrap();
+    }
+
+    pub(super) fn wait_closed(&self) {
+        self.closed
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("owner link stayed open");
     }
 }
 
 impl Drop for Owner {
     fn drop(&mut self) {
+        if let Some(stream) = self.current.take() {
+            let _ = stream.shutdown(std::net::Shutdown::Both);
+        }
+        for stream in self.connections.try_iter() {
+            let _ = stream.shutdown(std::net::Shutdown::Both);
+        }
         // Wake accept when a policy test correctly made no connection.
         let _ = UnixStream::connect(&self.socket);
         let result = self.worker.take().unwrap().join();
