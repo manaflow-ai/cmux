@@ -259,6 +259,7 @@ pub(super) fn make_app(
         transcripts: HashMap::new(),
         details: HashMap::new(),
         attached: HashSet::new(),
+        recovery_in_flight: HashSet::new(),
         input: Editor::default(),
         input_images: Vec::new(),
         command: Editor::default(),
