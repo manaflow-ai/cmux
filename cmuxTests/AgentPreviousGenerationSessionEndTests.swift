@@ -63,6 +63,17 @@ struct AgentPreviousGenerationSessionEndTests {
         #expect(preserve(identity: currentGeneration, localProcess: true) == false)
     }
 
+    /// A process that predates the app and is still running, such as an agent
+    /// under a tmux server that outlived the quit, reports its own real exit.
+    @MainActor
+    @Test
+    func endsSessionFromLiveProcessThatPredatesAppLaunch() throws {
+        let app = try #require(Self.appIdentity)
+        let launchd = try #require(AgentPIDProcessIdentity(pid: 1))
+        #expect(launchd.started(before: app))
+        #expect(preserve(identity: launchd, localProcess: true) == false)
+    }
+
     /// Relay and older hook processes do not vouch that the PID is local, so a
     /// local process clock cannot judge them.
     @MainActor

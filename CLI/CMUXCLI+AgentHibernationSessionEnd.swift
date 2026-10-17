@@ -115,7 +115,8 @@ extension CMUXCLI {
             "pid_start_microseconds": processIdentity.startMicroseconds,
             // A relayed PID names a remote process; only a local one can be
             // ordered against the app's own launch.
-            "local_process": environment[agentHookRelayOriginEnvironmentKey] != "1",
+            "local_process": !client.isRelayBacked
+                && environment[agentHookRelayOriginEnvironmentKey] != "1",
         ]
         do {
             let result = try client.sendV2(
