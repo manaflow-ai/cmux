@@ -125,13 +125,16 @@ public nonisolated struct AgentPaneTunables {
 
     /// The page's `<html>` `data-*` attributes from these tunables.
     static var documentAttributes: [String: String] {
-        attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value)
+        attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value, iconFamily: IconFamily.tunable.value)
     }
 
-    static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle) -> [String: String] {
+    static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
+                           iconFamily: IconFamily = .pack) -> [String: String] {
         var attributes: [String: String] = [:]
         if foldLongThoughts { attributes["fold-long-thoughts"] = "on" }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
+        // Debug Settings `icons.family`: the page lays the same overlay over its icon pack (iconPack.ts).
+        if let overlay = iconFamily.overlay { attributes["icon-family"] = overlay }
         return attributes
     }
 
