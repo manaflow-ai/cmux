@@ -291,6 +291,159 @@ with (state / "opencode-config.lock").open("a") as lock:
 CMUX_OPENCODE_CONFIG
 }
 
+# Computer use is an MCP server local to the VM, not part of the model-plane
+# provider config. Register it in each bundled agent's native config while
+# preserving any user-owned entries. A fresh Cloud VM otherwise has the
+# driver and desktop but no MCP entry, so agents silently launch without
+# computer-use tools. The operation is idempotent and leaves malformed files
+# and symlinks untouched rather than replacing user configuration.
+cmux_write_cua_mcp_config() {
+  local mode="${1-}" driver
+  driver=$(command -v cua-driver 2>/dev/null || true)
+  [ -x "$driver" ] || return 0
+  CMUX_CUA_CONFIG_HOME="$HOME" CMUX_CUA_DRIVER_BIN="$driver" CMUX_CUA_ALLOW_MISSING="$mode" \
+    CMUX_CUA_OPENCODE_CONFIG="${OPENCODE_CONFIG-}" python3 - <<'CMUX_CUA_CONFIG'
+import json
+import os
+import pathlib
+import stat
+import sys
+import tempfile
+
+try:
+    import tomllib
+except ImportError:
+    tomllib = None
+
+home = pathlib.Path(os.environ["CMUX_CUA_CONFIG_HOME"])
+driver = os.environ["CMUX_CUA_DRIVER_BIN"]
+allow_missing = os.environ.get("CMUX_CUA_ALLOW_MISSING") == "allow-missing"
+opencode_config = os.environ.get("CMUX_CUA_OPENCODE_CONFIG")
+
+
+def report_os_error(label):
+    print(f"cmux: unable to update {label} computer-use configuration; keeping existing settings.", file=sys.stderr)
+
+
+def load_json(path, label):
+    # Do not follow a user-owned link, including a dangling one.
+    try:
+        if path.is_symlink():
+            return None
+        if not path.exists():
+            return {}
+        value = json.loads(path.read_text())
+    except OSError:
+        report_os_error(label)
+        return None
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def atomic_write(path, contents, label):
+    temporary = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o600
+        fd, temporary = tempfile.mkstemp(prefix=".cmux-cua-", dir=str(path.parent))
+        with os.fdopen(fd, "w") as stream:
+            stream.write(contents)
+            os.fchmod(stream.fileno(), mode)
+        os.replace(temporary, path)
+        temporary = None
+        return True
+    except OSError:
+        report_os_error(label)
+        return False
+    finally:
+        if temporary is not None and os.path.exists(temporary):
+            try:
+                os.unlink(temporary)
+            except OSError:
+                report_os_error(label)
+
+
+def atomic_json(path, document, label):
+    return atomic_write(path, json.dumps(document, indent=2) + "\n", label)
+
+
+def add_json_server(path, key, name, server, label, create_if_missing=True):
+    document = load_json(path, label)
+    if document is None or (not path.exists() and not create_if_missing):
+        return
+    servers = document.get(key)
+    if servers is None:
+        document[key] = {name: server}
+        atomic_json(path, document, label)
+    elif isinstance(servers, dict) and name not in servers:
+        servers[name] = server
+        atomic_json(path, document, label)
+
+
+# Claude Code stores user-scoped MCP servers alongside its onboarding state.
+add_json_server(
+    home / ".claude.json",
+    "mcpServers",
+    "cua-computer-use",
+    {"command": driver, "args": ["mcp"]},
+    "Claude Code",
+)
+
+
+def toml_document(raw):
+    if tomllib is None:
+        # The image ships Python 3.11+, but older development images may not
+        # have a TOML parser. Refuse to modify a non-empty file there; a
+        # shell startup must never guess at the user's syntax.
+        return {} if not raw else None
+    try:
+        return tomllib.loads(raw)
+    except (ValueError, TypeError):
+        return None
+
+
+def add_codex_server(path):
+    try:
+        if path.is_symlink():
+            return
+        raw = path.read_text() if path.exists() else ""
+    except OSError:
+        report_os_error("Codex")
+        return
+    parsed = toml_document(raw)
+    if parsed is None:
+        return
+    servers = parsed.get("mcp_servers", {}) if isinstance(parsed, dict) else {}
+    if not isinstance(servers, dict) or "cua-driver" in servers:
+        return
+    addition = '\n[mcp_servers.cua-driver]\ncommand = ' + json.dumps(driver) + '\nargs = ["mcp"]\n'
+    candidate = raw.rstrip() + addition
+    if tomllib is not None:
+        try:
+            tomllib.loads(candidate)
+        except (ValueError, TypeError):
+            return
+    atomic_write(path, candidate, "Codex")
+
+
+add_codex_server(home / ".codex" / "config.toml")
+
+# OpenCode's provider discovery is intentionally lazy. Its wrapper calls this
+# function with allow-missing after discovery, so first launch gets the MCP
+# entry without creating a competing provider config during shell startup.
+add_json_server(
+    pathlib.Path(opencode_config) if opencode_config else home / ".config" / "opencode" / "opencode.json",
+    "mcp",
+    "cua-driver",
+    {"type": "local", "command": [driver, "mcp"], "enabled": True},
+    "OpenCode",
+    create_if_missing=allow_missing,
+)
+CMUX_CUA_CONFIG
+  return 0
+}
+
 # Agent sign-in modes: every claude, codex, and opencode launch from a shell
 # goes through its launcher (/etc/cmux/<agent>, which picks team or own login
 # per launch), whatever PATH order the shell has; the base's login PATH puts
@@ -429,6 +582,7 @@ cmux_claude_set_team_env_aside() {
 }
 
 cmux_write_agent_configs
+cmux_write_cua_mcp_config
 cmux_claude_set_team_env_aside
 unset -f cmux_write_agent_configs cmux_claude_set_team_env_aside cmux_claude_plane_pair
 unset cmux_claude_plane_base cmux_claude_plane_key
