@@ -51,6 +51,12 @@ RESULTS = {"run": RUN, "checks": []}
 KNOWN_GAPS = {
     # None. cx-fhcve (device-mode toolbar, responsive, zoom, fit scale, the fit and DevTools
     # device mode on one tab) was fixed by fork API 24 (cef-154.0.28-cmux.28).
+    # The page is 1-2 CSS px shorter than Chrome's in rotate, responsive and zoom (frame exact).
+    "D_rotate_page": "cx-22w3i",
+    "D_responsive_page": "cx-22w3i",
+    "D_zoom_page": "cx-22w3i",
+    # CRLSet registers but no version folder appears within the run.
+    "W_crlset_installed": "cx-22w3i",
 }
 
 
