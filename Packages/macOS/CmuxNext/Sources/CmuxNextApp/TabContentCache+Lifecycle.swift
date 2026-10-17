@@ -80,7 +80,7 @@ extension TabContentCache {
             applyLifecycle(lifecycle.send(.released(key)))
         }
         presenters = presenters.filter { $0.value.value != nil }
-        presentationChanges.notify()
+        presentationChanges.notify(changed: Set(effects.rendering.keys).union(effects.evicted).union(effects.displaced.map(\.key)))
     }
 
     /// A hidden terminal leaves the warm set: its last picture (rendered off the main thread)

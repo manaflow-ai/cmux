@@ -303,7 +303,12 @@ final class AppServices {
         surfaceInvariant.services = self
         surfaceInvariant.observeWindowOcclusion()
         cache.presentationChanges.subscribe("surface-invariant") { [weak self] in self?.surfaceInvariant.noteChange() }
-        cache.presentationChanges.subscribe("browser-host") { [weak self] in self?.browserHost?.provider.refreshTabs() }
+        // Only a browser tab's visibility is in the host's tab list: a terminal or agent switch sends nothing.
+        cache.presentationChanges.subscribe("browser-host") { [weak self] in
+            guard let self, let provider = self.browserHost?.provider else { return }
+            if let changed = self.cache.presentationChanges.changedKeys, !changed.contains(where: { $0.hasPrefix(LocalBrowserTab.prefix) }) { return }
+            provider.refreshTabs()
+        }
         _ = resources  // built here, as before
         _ = windows  // built here, as before
         windows.incognitoHistoryReset = { [weak cache, weak self] in

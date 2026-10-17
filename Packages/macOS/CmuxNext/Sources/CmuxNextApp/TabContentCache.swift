@@ -399,7 +399,7 @@ final class TabContentCache {
         previews.remove(key)
         pageThumbnails.remove(key)
         shownPages.remove(key)
-        presentationChanges.notify()
+        presentationChanges.notify(changed: [key])
     }
 }
 

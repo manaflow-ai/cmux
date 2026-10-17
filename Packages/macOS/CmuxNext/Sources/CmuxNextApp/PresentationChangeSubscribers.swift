@@ -19,7 +19,13 @@ final class PresentationChangeSubscribers {
         }
     }
 
-    func notify() {
+    /// The tabs the change being notified is about (nil: any tab), for a
+    /// subscriber whose work is per tab (O(changed tabs), perf-tabs I6).
+    private(set) var changedKeys: Set<String>?
+
+    func notify(changed keys: Set<String>? = nil) {
+        changedKeys = keys
+        defer { changedKeys = nil }
         for subscriber in subscribers { subscriber.handler() }
     }
 }
