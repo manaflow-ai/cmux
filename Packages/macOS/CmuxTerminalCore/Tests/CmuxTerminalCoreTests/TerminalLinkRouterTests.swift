@@ -7,6 +7,8 @@ import CmuxTerminalCore
 /// HTTPS URL the way the embedded browser's omnibox would treat it.
 private struct StubHostNormalizer: BrowserHostNormalizing {
     var rejectsEveryHost = false
+    /// `nil` accepts every top-level domain.
+    var publicTopLevelDomains: Set<String>?
 
     func normalizedHost(_ rawHost: String) -> String? {
         guard !rejectsEveryHost else { return nil }
@@ -22,6 +24,10 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         if URL(string: trimmed)?.scheme != nil { return URL(string: trimmed) }
         guard trimmed.contains(".") || trimmed.lowercased().hasPrefix("localhost") else { return nil }
         return URL(string: "https://\(trimmed)")
+    }
+
+    func isPublicTopLevelDomain(_ label: String) -> Bool {
+        publicTopLevelDomains?.contains(label) ?? true
     }
 }
 
@@ -115,6 +121,21 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
             return
         }
         #expect(url.host == "example.com")
+    }
+
+    @Test func schemelessPathIsNeverABrowserHost() {
+        // Leo's report (cx-do47): Cmd-clicking build-fleet/ORG-BACKUP.md opened
+        // https://build-fleet/ORG-BACKUP.md. A folder name is not a host.
+        #expect(router.resolveOpenURLTarget("build-fleet/ORG-BACKUP.md") == nil)
+        #expect(router.resolveOpenURLTarget("build-fleet/ORG-BACKUP.md.") == nil)
+        let tldless = TerminalLinkRouter(hostNormalizer: StubHostNormalizer(publicTopLevelDomains: ["com"]))
+        #expect(tldless.resolveOpenURLTarget("docs.internal/readme.md") == nil)
+        #expect(tldless.resolveOpenURLTarget("https://docs.internal/readme.md") != nil)
+    }
+
+    @Test func schemelessPublicHostStaysALink() throws {
+        let tlds = TerminalLinkRouter(hostNormalizer: StubHostNormalizer(publicTopLevelDomains: ["com"]))
+        #expect(try #require(tlds.resolveOpenURLTarget("example.com/docs")).url.host == "example.com")
     }
 
     @Test func emptyTextResolvesToNil() {

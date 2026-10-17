@@ -17,9 +17,27 @@ public struct SidebarActionDispatch: Sendable {
     /// Runs the action on the main actor when a button or tap fires.
     public let run: @MainActor @Sendable (ButtonAction) -> Void
 
-    /// Creates a dispatch from a run closure.
-    public init(run: @escaping @MainActor @Sendable (ButtonAction) -> Void) {
+    /// Writes plain text to the system clipboard for a JS sidebar's
+    /// `clipboard.write(text)`, or `nil` when the host offers no clipboard.
+    ///
+    /// The runtime calls it only while it is dispatching a user gesture and
+    /// only with text inside its size cap; hosts just perform the write.
+    public let writeClipboard: (@MainActor @Sendable (String) -> Void)?
+
+    /// Creates a dispatch from a run closure and an optional clipboard writer.
+    ///
+    /// - Parameters:
+    ///   - run: Runs captured button and tap actions.
+    ///   - writeClipboard: Writes gesture-approved plain text to the system
+    ///     clipboard. Defaults to `nil`, which makes `clipboard.write` reject
+    ///     every call (hosts such as the out-of-process renderer have no
+    ///     clipboard to offer).
+    public init(
+        run: @escaping @MainActor @Sendable (ButtonAction) -> Void,
+        writeClipboard: (@MainActor @Sendable (String) -> Void)? = nil
+    ) {
         self.run = run
+        self.writeClipboard = writeClipboard
     }
 
     /// A dispatch that ignores actions; the environment default.

@@ -7,10 +7,13 @@ import Foundation
 /// channel appcast URL injected by CI. When the `Info.plist` value is missing or empty the
 /// resolver falls back to the latest-release appcast so the updater still has a feed to query.
 ///
-/// Nightly and RC feeds are per architecture. A channel `appcast.xml` (or the older
-/// `appcast-universal.xml`) URL is rewritten to `appcast-arm64.xml` or `appcast-x86_64.xml`
-/// for the host machine, so a universal build migrates itself onto the thin build and an
-/// x86_64 build running under Rosetta moves to the native one.
+/// Nightly, RC and cmux's own stable feeds are per architecture. A channel `appcast.xml` (or
+/// the older `appcast-universal.xml`) URL is rewritten to `appcast-arm64.xml` or
+/// `appcast-x86_64.xml` for the host machine, so a thin build never depends on the universal
+/// feed and an x86_64 build running under Rosetta moves to the native one. Stable keeps
+/// publishing the legacy `appcast.xml` for installs from before this rewrite; its item order
+/// moves those installs onto their architecture in one update (see
+/// `scripts/ci/compose_stable_appcast.py`). Other stable feeds, such as a fork's, are kept.
 ///
 /// ```swift
 /// let resolver = UpdateFeedResolver()
@@ -38,13 +41,19 @@ public struct UpdateFeedResolver: Sendable {
             return .stable
         }
 
-        /// Whether this channel publishes one appcast per architecture.
-        var usesPerArchitectureFeeds: Bool {
+        /// Whether `feedURL`, classified as this channel, has one appcast per architecture.
+        /// Stable does only on cmux's own release feeds.
+        func usesPerArchitectureFeeds(_ feedURL: String) -> Bool {
             switch self {
-            case .stable: false
+            case .stable: Self.officialStableFeedPrefixes.contains { feedURL.hasPrefix($0) }
             case .nightly, .rc: true
             }
         }
+
+        static let officialStableFeedPrefixes = [
+            "https://github.com/manaflow-ai/cmux/releases/",
+            "https://files.cmux.com/stable/",
+        ]
     }
 
     /// The outcome of resolving a feed URL: the URL to use plus how it was classified.
@@ -70,7 +79,7 @@ public struct UpdateFeedResolver: Sendable {
 
     /// The appcast URL used when the `Info.plist` feed URL is missing or empty.
     public let fallbackFeedURL: String
-    /// The architecture nightly and RC feeds are resolved for.
+    /// The architecture every feed is resolved for.
     public let hostArchitecture: UpdateHostArchitecture
 
     /// Creates a resolver.
@@ -78,8 +87,8 @@ public struct UpdateFeedResolver: Sendable {
     /// - Parameters:
     ///   - fallbackFeedURL: The appcast URL to fall back to when the build-time feed URL is
     ///     absent. Defaults to the project's latest-release appcast.
-    ///   - hostArchitecture: The architecture to select nightly and RC feeds for. Defaults to the
-    ///     machine's native architecture.
+    ///   - hostArchitecture: The architecture to select feeds for. Defaults to the machine's
+    ///     native architecture.
     public init(
         fallbackFeedURL: String = "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml",
         hostArchitecture: UpdateHostArchitecture = .current
@@ -94,16 +103,19 @@ public struct UpdateFeedResolver: Sendable {
     /// - Returns: The resolved URL plus its channel and whether the fallback was used.
     public func resolve(infoFeedURL: String?) -> Resolution {
         guard let infoFeedURL, !infoFeedURL.isEmpty else {
-            return Resolution(url: fallbackFeedURL, channel: .stable, usedFallback: true)
+            let url = Channel.stable.usesPerArchitectureFeeds(fallbackFeedURL)
+                ? Self.architectureSpecificFeedURL(fallbackFeedURL, architecture: hostArchitecture)
+                : fallbackFeedURL
+            return Resolution(url: url, channel: .stable, usedFallback: true)
         }
         let channel = Channel.classify(feedURL: infoFeedURL)
-        let url = channel.usesPerArchitectureFeeds
+        let url = channel.usesPerArchitectureFeeds(infoFeedURL)
             ? Self.architectureSpecificFeedURL(infoFeedURL, architecture: hostArchitecture)
             : infoFeedURL
         return Resolution(url: url, channel: channel, usedFallback: false)
     }
 
-    /// Rewrites a nightly or RC feed URL whose file name is the legacy `appcast.xml` or
+    /// Rewrites a feed URL whose file name is the legacy `appcast.xml` or
     /// `appcast-universal.xml` to the per-architecture feed. URLs that already name an
     /// architecture, or use another file name, are returned unchanged.
     static func architectureSpecificFeedURL(_ feedURL: String, architecture: UpdateHostArchitecture) -> String {

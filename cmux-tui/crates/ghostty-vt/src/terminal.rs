@@ -853,6 +853,7 @@ pub struct Terminal {
     palette_override: Box<PaletteOverrideTracker>,
     color_overrides: ColorOverrideTracker,
     c1_normalizer: C1Normalizer,
+    empty_kitty_probe_filter: EmptyKittyProbeFilter,
 }
 
 enum PendingSequenceReplay<'a> {
@@ -1158,6 +1159,38 @@ impl C1Normalizer {
             }
         }
         output.map(Cow::Owned).unwrap_or(Cow::Borrowed(data))
+    }
+}
+
+/// Claude and a few other clients use an empty Kitty graphics APC as a
+/// capability probe. libghostty-vt does not give that malformed no-op a
+/// stable replay representation on every build; retaining it can make a
+/// later formatter report `OutOfSpace` even though the terminal has no image
+/// state. It has no display semantics, so discard the complete probe before
+/// feeding the parser and all replay trackers. The normalizer above converts
+/// 8-bit C1 forms to this same 7-bit spelling first.
+#[derive(Default)]
+struct EmptyKittyProbeFilter;
+
+impl EmptyKittyProbeFilter {
+    fn write<'a>(&mut self, data: Cow<'a, [u8]>) -> Cow<'a, [u8]> {
+        const EMPTY_PROBE: &[u8] = b"\x1b_G\x1b\\";
+        if !data.as_ref().windows(EMPTY_PROBE.len()).any(|window| window == EMPTY_PROBE) {
+            return data;
+        }
+
+        let data = data.as_ref();
+        let mut output = Vec::with_capacity(data.len());
+        let mut cursor = 0;
+        while cursor < data.len() {
+            if data[cursor..].starts_with(EMPTY_PROBE) {
+                cursor += EMPTY_PROBE.len();
+                continue;
+            }
+            output.push(data[cursor]);
+            cursor += 1;
+        }
+        Cow::Owned(output)
     }
 }
 
@@ -2037,6 +2070,7 @@ impl Terminal {
             palette_override: Box::default(),
             color_overrides: ColorOverrideTracker::default(),
             c1_normalizer: C1Normalizer::default(),
+            empty_kitty_probe_filter: EmptyKittyProbeFilter,
         };
         let userdata = &mut *term.callbacks as *mut Callbacks as *mut c_void;
         unsafe {
@@ -2129,6 +2163,7 @@ impl Terminal {
         let previous_history_rows = self.scrollback_rows();
         let history_anchor_missing = previous_history_rows > 0 && self.history_anchor.is_null();
         let normalized = self.c1_normalizer.normalize(data);
+        let normalized = self.empty_kitty_probe_filter.write(normalized);
         self.kitty_inflight.write(&normalized);
         self.vt_boundary.feed(&normalized);
         self.prompt_semantic.feed(&normalized);
@@ -2172,6 +2207,31 @@ impl Terminal {
     /// fresh attachment at a later boundary.
     pub fn vt_replay_resumes_stream(&self) -> bool {
         self.pending_sequence_replay().is_some()
+    }
+
+    /// Abandon a pending VT control sequence that exceeded its replay budget.
+    ///
+    /// Checkpoint capture can continue from the rendered terminal state when
+    /// a client leaves an unbounded control string (most often a Kitty upload)
+    /// open forever. CAN has no screen effect and returns the parser to ground;
+    /// callers must publish the returned bytes to every attached parser before
+    /// resuming the live stream.
+    pub fn discard_unreplayable_replay(&mut self) -> Option<Vec<u8>> {
+        // CAN cannot undo completed multipart chunks. Reject recovery even
+        // when a later control string also exceeds the generic replay budget.
+        if self.kitty_inflight.has_unreplayable_prefix() {
+            return None;
+        }
+        // The generic VT boundary can still retain a complete replay for an
+        // APC while the Kitty-specific tracker has already overflowed its
+        // smaller upload budget. In that case the generic result is not a
+        // usable replay, so CAN recovery is still required.
+        if self.vt_replay_resumes_stream() && !self.kitty_inflight.has_unreplayable_command() {
+            return None;
+        }
+        let normalized = self.vt_write_with_normalized(b"\x18").into_owned();
+        self.kitty_inflight.discard_unreplayable();
+        self.vt_stream_is_ground().then_some(normalized)
     }
 
     /// How the replay reproduces the parser's incomplete sequence, if it can.
@@ -5770,6 +5830,19 @@ mod tests {
             terminal.kitty_inflight.replay_prefix(usize::MAX).is_empty(),
             "a UTF-8 continuation byte that Ghostty parsed as text became a replayable Kitty APC"
         );
+    }
+
+    #[test]
+    fn empty_kitty_probe_does_not_poison_replay_state() {
+        let mut terminal = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
+        assert!(terminal.vt_write_with_normalized(b"ready\x1b_G\x1b\\").ends_with(b"ready"));
+        assert!(terminal.vt_stream_is_ground());
+        assert!(terminal.vt_replay_bounded(1024 * 1024).is_ok());
+
+        let mut c1 = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
+        c1.vt_write(b"\x9fG\x9c");
+        assert!(c1.vt_stream_is_ground());
+        assert!(c1.vt_replay_bounded(1024 * 1024).is_ok());
     }
 
     #[test]

@@ -16,6 +16,9 @@ final class GlobalSearchCoordinator {
         },
         cancelPanelPurge: { [weak self] panelID in
             self?.cancelPanelPurge(forPanelID: panelID)
+        },
+        agentSessionSource: { context in
+            TerminalController.shared.agentChatTranscriptService?.globalSearchSource(surfaceID: context.panelID)
         }
     )
     private lazy var popover = MenubarSearchPopover(coordinator: self)
@@ -99,6 +102,7 @@ final class GlobalSearchCoordinator {
 
             await captureManager.refreshPanelContent(for: context, index: index)
         }
+        await captureManager.pruneAgentSessionReaders()
     }
 
     func captureBrowserPanel(_ panel: BrowserPanel) {
