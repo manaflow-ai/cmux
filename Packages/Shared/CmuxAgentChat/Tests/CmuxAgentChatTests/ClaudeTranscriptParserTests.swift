@@ -291,6 +291,34 @@ struct ClaudeTranscriptParserTests {
         #expect(question.selectedOptionLabel == "Slow")
     }
 
+    @Test("a multi-select AskUserQuestion preserves all selected labels")
+    func multiSelectAskUserQuestion() {
+        let lines = [
+            assistantLine(blocks: [
+                ["type": "tool_use", "id": "toolu_multi_select", "name": "AskUserQuestion",
+                 "input": ["questions": [[
+                    "question": "Which languages?", "header": "Languages", "multiSelect": true,
+                    "options": [
+                        ["label": "Swift", "description": "Apple platforms"],
+                        ["label": "Rust", "description": "Systems work"],
+                        ["label": "Python", "description": "Scripting"],
+                    ],
+                 ]]]],
+            ]),
+            toolResultLine(
+                toolUseID: "toolu_multi_select",
+                content: "Your questions have been answered: \"Which languages?\"=\"Swift, Rust\". Continue."
+            ),
+        ]
+        let result = parser.parse(lines: lines, startingSeq: 0)
+        guard case .question(let question) = result.messages[0].kind else {
+            Issue.record("expected question kind")
+            return
+        }
+        #expect(question.multiSelect)
+        #expect(question.selectedOptionLabel == "Swift, Rust")
+    }
+
     @Test("a multi-question AskUserQuestion resolves every card by its prompt")
     func multiQuestionAskUserQuestion() {
         let lines = [
