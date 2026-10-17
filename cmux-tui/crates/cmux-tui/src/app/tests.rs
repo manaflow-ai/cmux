@@ -289,8 +289,6 @@ fn provider_machine_ui_with_machine_lifecycle() -> MachineUiState {
                 status: MachineStatus::Running,
                 platform: None,
                 capabilities: Vec::new(),
-                platform: None,
-                capabilities: Vec::new(),
             },
             MachineDescriptor {
                 key: MachineKey(42),
@@ -298,8 +296,6 @@ fn provider_machine_ui_with_machine_lifecycle() -> MachineUiState {
                 name: "quiet-forest".into(),
                 subtitle: String::new(),
                 status: MachineStatus::Stopped,
-                platform: None,
-                capabilities: Vec::new(),
                 platform: None,
                 capabilities: Vec::new(),
             },
@@ -313,8 +309,6 @@ fn provider_machine_ui_with_machine_lifecycle() -> MachineUiState {
             id: "00000000-0000-4000-8000-000000000041".into(),
             name: "managed".into(),
             status: ManagedMachineStatus::Active,
-            platform: None,
-            capabilities: Vec::new(),
             version: 7,
             recoverable_until: None,
             capabilities: ManagedMachineCapabilities {
@@ -329,8 +323,6 @@ fn provider_machine_ui_with_machine_lifecycle() -> MachineUiState {
             id: "00000000-0000-4000-8000-000000000042".into(),
             name: "quiet-forest".into(),
             status: ManagedMachineStatus::Recoverable,
-            platform: None,
-            capabilities: Vec::new(),
             version: 12,
             recoverable_until: Some("2030-01-02T03:04:05Z".into()),
             capabilities: ManagedMachineCapabilities {
