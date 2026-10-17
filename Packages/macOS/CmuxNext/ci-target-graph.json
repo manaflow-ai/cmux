@@ -238,6 +238,7 @@
         "CmuxNextAgentCursor",
         "CmuxNextAgentLanes",
         "CmuxNextApp",
+        "CmuxNextApps",
         "CmuxNextBrowserHistory",
         "CmuxNextCompat",
         "CmuxNextComputerUse",

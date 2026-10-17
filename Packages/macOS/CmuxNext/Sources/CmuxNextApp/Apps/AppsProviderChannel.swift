@@ -2,6 +2,7 @@ import CmuxNextApps
 import CmuxNextDaemon
 import CmuxNextWakeups
 import Foundation
+import Observation
 import os
 
 /// One `apps-provider-request` from the app supervisor (app-op-routing.md):
@@ -105,6 +106,7 @@ struct AppsProviderLink {
 /// holds a family (`apps.provider.taken`) or by a transient failure is tried
 /// again on the same connection with exponential backoff, one at a time.
 @MainActor
+@Observable
 final class AppsProviderChannel {
     /// Refusals tried again on the same connection.
     static let retried: Set<String> = ["apps.provider.taken", "failed", "not_connected", "timeout"]
@@ -124,7 +126,7 @@ final class AppsProviderChannel {
     /// The connection epoch the families are registered on (set on success only).
     private var registeredEpoch: Int?
     /// The registration in flight or waiting for its retry (one at a time).
-    private var registering: Task<Void, Never>?
+    @ObservationIgnored private var registering: Task<Void, Never>?
     private var epoch: Int?
     /// DisabledFeatures `apps`: the reason every call is refused with.
     var turnedOff: String? {

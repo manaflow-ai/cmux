@@ -71,19 +71,12 @@ final class AppsService {
             try await router.appControl(method, params)
         }
         let inventory = AgentCLICapabilityHandler { [weak machines = services.machines] in
-            guard let machines else { return [] }
-            return machines.daemons.map { daemon in
-                AgentInventoryRoute(machineID: daemon.identity?.machineResourceID, reader: daemon.connection,
-                                    allowed: !daemon.policyBlock.isBlocked && machines.daemon(machine: daemon.machineID) === daemon, isDefault: daemon.isLocal)
-            }
+            machines?.agentInventoryRoutes() ?? []
         }
         transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: control), inventory]))
         if machineCatalog == nil {
             machineCatalog = MachineCatalogPublisher { [weak machines = services.machines] in
-                guard let machines, let owner = machines.local.identity?.machineResourceID,
-                      let connection = machines.local.connection, !machines.local.policyBlock.isBlocked,
-                      case .connected = machines.local.store.connectionState else { return nil }
-                return MachineCatalogSource(owner: owner, writer: connection, epoch: machines.local.store.connectionEpoch, machines: machines.catalogRecords())
+                machines?.catalogSource()
             }
             machineCatalog?.start()
         }
