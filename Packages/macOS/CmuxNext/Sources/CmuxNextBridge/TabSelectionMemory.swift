@@ -6,11 +6,20 @@ import CmuxNextDesign
 public struct TabSelectionMemory: Sendable, Equatable {
     private var selected: [String: String] = [:]
     private var lastOrder: [String: [String]] = [:]
+    /// Moves on every change of a pane's selected tab, so a reader can tell
+    /// that the selection is the one it read before without comparing it.
+    public private(set) var revision: UInt64 = 0
 
     public init() {}
 
     public mutating func select(_ tab: String, in pane: String) {
+        set(tab, in: pane)
+    }
+
+    private mutating func set(_ tab: String?, in pane: String) {
+        guard selected[pane] != tab else { return }
         selected[pane] = tab
+        revision &+= 1
     }
 
     public func selection(in pane: String) -> String? { selected[pane] }
@@ -23,7 +32,7 @@ public struct TabSelectionMemory: Sendable, Equatable {
     public mutating func resolve(pane: String, tabs: [String], defaultIndex: Int, hidden: Set<String> = []) -> String? {
         defer { lastOrder[pane] = tabs }
         guard !tabs.isEmpty else {
-            selected[pane] = nil
+            set(nil, in: pane)
             return nil
         }
         if let current = selected[pane] {
@@ -31,18 +40,19 @@ public struct TabSelectionMemory: Sendable, Equatable {
             if let old = lastOrder[pane], old.contains(current) {
                 let pick = FocusAfterClose.tab(selected: current, old: old, surviving: tabs,
                                                shown: Set(tabs).subtracting(hidden)) ?? tabs[0]
-                selected[pane] = pick
+                set(pick, in: pane)
                 return pick
             }
         }
         let pick = tabs[min(max(defaultIndex, 0), tabs.count - 1)]
-        selected[pane] = pick
+        set(pick, in: pane)
         return pick
     }
 
     /// Drops panes that no longer exist.
     public mutating func prune(livePanes: Set<String>) {
-        selected = selected.filter { livePanes.contains($0.key) }
+        let kept = selected.filter { livePanes.contains($0.key) }
+        if kept.count != selected.count { selected = kept; revision &+= 1 }
         lastOrder = lastOrder.filter { livePanes.contains($0.key) }
     }
 }
