@@ -92,6 +92,7 @@ const provider = optionValue(rest, "--provider") ?? "freestyle";
 const image = optionValue(rest, "--image");
 const targetUrl = optionValue(rest, "--url") ?? project.url;
 const REQUEST_TIMEOUT_MS = 45_000;
+const EDGE_RETRY_DEADLINE_MS = 45_000;
 
 // "default" omits the provider from the create body, exercising the same
 // server-side default-provider path real clients (CLI, Mac app) use.
@@ -127,14 +128,18 @@ async function timed(name, work) {
   }
 }
 
-async function fetchWithTimeout(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+async function fetchWithTimeout(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS, signal) {
   if (useVercelCurl) return vercelCurlFetch(url, init, timeoutMs);
   const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener("abort", abort, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
   }
 }
 
@@ -395,12 +400,12 @@ try {
     if (edgeCheck) {
       stage = "edge";
       const edgeStartedAt = performance.now();
-      const exec = async (command, timeoutMs = 120_000) => {
+      const exec = async (command, timeoutMs = 120_000, signal) => {
         const response = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/exec`, {
           method: "POST",
           headers: { ...authHeaders, "content-type": "application/json" },
           body: JSON.stringify({ command, timeoutMs }),
-        }, timeoutMs + 30_000);
+        }, timeoutMs + 30_000, signal);
         const text = await response.text();
         if (response.status !== 200) throw new Error(`POST exec expected 200, got ${response.status}: ${text}`);
         return JSON.parse(text);
@@ -411,10 +416,15 @@ try {
       // Freestyle can briefly miss the forwarding-DNS answer after a rule has
       // already answered once. Retry only the idempotent guest edge calls;
       // token-backed agent turns stay single shot.
-      const edgeExec = (command, timeoutMs = 120_000) => retryGuestEdgeRequest(
-        () => exec(command, timeoutMs),
-        host,
-      );
+      /** Runs an idempotent guest edge check with a bounded, cancellable retry budget. */
+      const edgeExec = (command, timeoutMs = 120_000) => {
+        const signal = AbortSignal.timeout(EDGE_RETRY_DEADLINE_MS);
+        return retryGuestEdgeRequest(
+          (attemptSignal) => exec(command, timeoutMs, attemptSignal),
+          host,
+          { signal },
+        );
+      };
       // Any crt_ string under the agent config roots means a token leaked into the guest.
       const leak = await exec("grep -rslE 'crt_[A-Za-z0-9_-]{40,}' /root/.config/cmux /root/.codex /root/.pi /root/.config/opencode /etc/cmux /etc/environment /etc/profile.d 2>/dev/null; true");
       const tokenOnDisk = (leak.stdout ?? "").trim();

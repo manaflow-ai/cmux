@@ -71,7 +71,7 @@ describe("retryGuestEdgeRequest", () => {
     );
 
     expect(calls).toBe(2);
-    expect(result?.stdout).toContain("no_usable_account");
+    expect((result as { stdout?: string } | undefined)?.stdout).toContain("no_usable_account");
   });
 
   test("does not retry an HTTP or authentication failure", async () => {
@@ -86,6 +86,18 @@ describe("retryGuestEdgeRequest", () => {
     );
 
     expect(calls).toBe(1);
-    expect(result?.stdout).toContain("no_usable_account");
+    expect((result as { stdout?: string } | undefined)?.stdout).toContain("no_usable_account");
+  });
+
+  test("cancels a pending retry delay", async () => {
+    const controller = new AbortController();
+    const pending = retryGuestEdgeRequest(
+      async () => ({ stdout: "Could not resolve host: coderouter.cmux.internal", stderr: "", exitCode: 0 }),
+      "coderouter.cmux.internal",
+      { delayMs: 50, signal: controller.signal },
+    );
+    queueMicrotask(() => controller.abort());
+
+    await expect(pending).rejects.toBeTruthy();
   });
 });
