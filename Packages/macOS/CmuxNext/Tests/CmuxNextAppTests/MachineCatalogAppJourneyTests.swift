@@ -38,7 +38,11 @@ struct MachineCatalogAppJourneyTests {
             let beforeWithdrawal = fixture.publisher?.publishedSequence
             _ = fixture.registry.removeServer(removed.machineID)
             do {
-                try await fixture.wait("registry withdrawal") { fixture.publisher?.publishedSequence == 2 }
+                try await fixture.wait("registry withdrawal") {
+                    guard let publisher = fixture.publisher else { return false }
+                    return publisher.publishedOwner?.rawValue == local && publisher.publishedSequence != nil
+                        && publisher.current?.machines.isEmpty == true
+                }
             } catch {
                 let observed = try? await fixture.run("discover")
                 let observedIDs = observed?.arrayValue?.compactMap { $0["id"]?.stringValue }
