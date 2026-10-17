@@ -54,6 +54,15 @@ pub struct MachineError {
     pub at: Option<i64>,
 }
 
+/// Non-secret host metadata that an owner may attach to a machine record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct MachinePlatform {
+    #[serde(default)]
+    pub os: Option<String>,
+    #[serde(default)]
+    pub arch: Option<String>,
+}
+
 /// `CloudMachine`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Machine {
@@ -83,7 +92,21 @@ pub struct Machine {
     pub idle_policy: Option<IdlePolicy>,
     #[serde(default)]
     pub error: Option<MachineError>,
+    /// Optional non-secret platform metadata supplied by the machine owner.
+    #[serde(default)]
+    pub platform: Option<MachinePlatform>,
+    /// Stable capability names; credentials, paths and account labels stay in
+    /// the session-host operations rather than this record.
+    #[serde(default)]
+    pub capabilities: Vec<String>,
     pub revision: Revision,
+}
+
+impl Machine {
+    /// Whether this record advertises one exact capability name.
+    pub fn has_capability(&self, capability: &str) -> bool {
+        self.capabilities.iter().any(|candidate| candidate == capability)
+    }
 }
 
 /// `CloudSnapshot`.
@@ -272,6 +295,22 @@ mod tests {
         assert!(info.daemon.has_capability("fs-v1"));
         assert!(!info.has_service("http"));
         assert!(!info.daemon.has_capability("fs-v2"));
+    }
+
+    #[test]
+    fn machine_metadata_is_optional_and_preserves_non_secret_capabilities() {
+        let machine: super::Machine = serde_json::from_str(
+            r#"{"id":"vm-1","revision":"2","platform":{"os":"linux","arch":"x86_64"},"capabilities":["terminal","agent_session"]}"#,
+        )
+        .expect("machine metadata decodes");
+        assert_eq!(machine.platform.as_ref().and_then(|platform| platform.os.as_deref()), Some("linux"));
+        assert!(machine.has_capability("agent_session"));
+        assert!(!machine.has_capability("provider_secret"));
+
+        let older: super::Machine = serde_json::from_str(r#"{"id":"vm-old","revision":"3"}"#)
+            .expect("older machine decodes");
+        assert!(older.platform.is_none());
+        assert!(older.capabilities.is_empty());
     }
 }
 
