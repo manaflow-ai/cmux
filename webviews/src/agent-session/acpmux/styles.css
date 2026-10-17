@@ -512,7 +512,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-chief-dock-status[data-status=streaming]{color:var(--agent-accent);animation:acpmux-floating-breathe 1.4s var(--agent-ease-out,ease-out) infinite alternate}
 .acpmux-chief-dock-status[data-status=attention]{color:var(--agent-warning)}
 .acpmux-chief-dock-status[data-status=error]{color:var(--agent-danger,var(--agent-warning))}
-.acpmux-chief-dock-status[data-status=complete]{color:var(--agent-success,var(--agent-accent))}
+.acpmux-chief-dock-status[data-status=complete]{color:var(--agent-success,var(--acpmux-add,#3fb950))}
 .acpmux-chief-dock-status[data-status=unread]{color:var(--agent-accent)}
 .acpmux-chief-card:has(:focus-visible){box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--chief-selection) 78%,transparent),var(--elevation-1)}
 .acpmux-chief-card-main:focus-visible{outline:0}
