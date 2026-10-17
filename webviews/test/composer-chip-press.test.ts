@@ -77,8 +77,9 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
     await vite?.close();
   });
 
+  type Stage = { entry: string; variant: string; field: string; chips: string[] };
   /** Each stage and the chips it shows, by accessible name. */
-  const STAGES = [
+  const STAGES: Stage[] = [
     { entry: "agent-pane.composer", variant: "picker-toggle", field: ".acpmux-md", chips: ["Add", "Model", "Mode"] },
     { entry: "agent-pane.composer", variant: "new-chat-reasoning", field: ".acpmux-md", chips: ["Folder", "Effort"] },
     {
@@ -88,6 +89,12 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
       chips: ["Folder", "Model", "Effort"],
     },
   ];
+  const PILL_STAGE: Stage = {
+    entry: "agent-pane.composer-pickers",
+    variant: "pill-rail",
+    field: ".acpmux-composer-gallery-shell",
+    chips: ["Model", "Effort", "Mode"],
+  };
   const chip = (name: string) => `button[aria-haspopup][aria-label="${name}"]`;
 
   const open = async (engine: string, stage: (typeof STAGES)[number], width: number) => {
@@ -256,5 +263,41 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
           await page.close();
         }
       expect(misses).toEqual([]);
+    });
+
+  for (const [engine] of engines)
+    test(`${engine}: the 400 px picker rail uses tonal pills and visible hover/open highlights`, async () => {
+      const page = await open(engine, PILL_STAGE, 400);
+      const state = (name: string) =>
+        page.locator(chip(name)).first().evaluate((element) => {
+          const style = getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          return {
+            background: style.backgroundColor,
+            boxShadow: style.boxShadow,
+            radius: parseFloat(style.borderTopLeftRadius),
+            height: rect.height,
+          };
+        });
+      const idle = await Promise.all(PILL_STAGE.chips.map(state));
+      for (const [index, value] of idle.entries()) {
+        expect(value.background, `${PILL_STAGE.chips[index]} has a tonal idle fill`).not.toBe("rgba(0, 0, 0, 0)");
+        expect(value.radius, `${PILL_STAGE.chips[index]} is pill-shaped`).toBeGreaterThanOrEqual(value.height / 2 - 0.5);
+        expect(value.height, `${PILL_STAGE.chips[index]} remains a usable target`).toBeGreaterThanOrEqual(24);
+      }
+
+      const model = page.locator(chip("Model")).first();
+      const modelBox = (await model.boundingBox())!;
+      await page.mouse.move(modelBox.x + modelBox.width / 2, modelBox.y + modelBox.height / 2);
+      await page.waitForTimeout(100);
+      const hover = await state("Model");
+      expect(hover.background, "hover strengthens the pill fill").not.toBe(idle[0]!.background);
+
+      await page.locator(chip("Effort")).first().click();
+      await page.locator('[role="menuitemradio"][aria-checked="true"]').waitFor();
+      const openEffort = await state("Effort");
+      expect(openEffort.background, "open keeps a stronger pill fill").not.toBe(idle[1]!.background);
+      expect(openEffort.boxShadow, "open has a tonal edge highlight").not.toBe("none");
+      await page.close();
     });
 });
