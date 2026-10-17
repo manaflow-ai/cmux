@@ -1,25 +1,42 @@
 import CmuxConversationCore
 import CmuxConversationUI
 import CmuxMobileShell
+import Foundation
 import SwiftUI
 #if canImport(UIKit)
 import UIKit
 #endif
 
-/// The classic iOS entry point for the Mac Chief conversation list.
+/// The Messages-style Home destination for a Mac's Chief conversations.
+///
+/// Chief is a Mac-owned service, so the Home list is intentionally backed by
+/// the selected Mac's mobile RPC client. The pinned card and transcript use
+/// the same visual language as the iMessage conversation package while the
+/// surrounding shell keeps its existing workspace/feed/cloud destinations.
 struct ChiefHomeView: View {
     let client: MobileChiefClient
-    @Environment(\.dismiss) private var dismiss
     @State private var conversations: [MobileChiefConversation] = []
-    @State private var selectedConversation: MobileChiefConversation?
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var query = ""
+
+    private var pinnedConversation: MobileChiefConversation? {
+        conversations.first(where: \.pinned) ?? conversations.first
+    }
+
+    private var visibleConversations: [MobileChiefConversation] {
+        let pinnedID = pinnedConversation?.id
+        return conversations.filter { conversation in
+            conversation.id != pinnedID && matches(conversation)
+        }
+    }
 
     var body: some View {
         NavigationStack {
             Group {
                 if isLoading && conversations.isEmpty {
                     ProgressView("Loading Chief")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let errorMessage, conversations.isEmpty {
                     ContentUnavailableView(
                         "Chief unavailable",
@@ -33,32 +50,62 @@ struct ChiefHomeView: View {
                         description: Text("Start a conversation from Chief on your Mac.")
                     )
                 } else {
-                    List(conversations) { conversation in
-                        Button {
-                            selectedConversation = conversation
-                        } label: {
-                            ChiefConversationRow(conversation: conversation)
+                    List {
+                        if let pinned = pinnedConversation, matches(pinned) {
+                            Section {
+                                NavigationLink(value: pinned) {
+                                    ChiefPinnedConversationCard(conversation: pinned)
+                                }
+                                .buttonStyle(.plain)
+                                .listRowInsets(EdgeInsets())
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                            }
                         }
-                        .buttonStyle(.plain)
+
+                        if !visibleConversations.isEmpty {
+                            Section {
+                                ForEach(visibleConversations) { conversation in
+                                    NavigationLink(value: conversation) {
+                                        ChiefConversationRow(conversation: conversation)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                                    .listRowBackground(Color.clear)
+                                }
+                            }
+                        }
                     }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
                     .refreshable { await load() }
                 }
             }
-            .navigationTitle("Chief")
+            .navigationTitle("Home")
+            .searchable(text: $query, prompt: "Search conversations")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task { await load() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .accessibilityLabel("Refresh Chief conversations")
                 }
             }
             .task { await load() }
-            .sheet(item: $selectedConversation) { conversation in
-                ChiefConversationControllerRepresentable(
-                    client: client,
-                    conversation: conversation
-                )
-                .ignoresSafeArea(.container, edges: .bottom)
+            .navigationDestination(for: MobileChiefConversation.self) { conversation in
+                ChiefConversationDestination(client: client, conversation: conversation)
             }
         }
+    }
+
+    private func matches(_ conversation: MobileChiefConversation) -> Bool {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return true }
+        return conversation.title.localizedCaseInsensitiveContains(query)
+            || conversation.preview.localizedCaseInsensitiveContains(query)
     }
 
     private func load() async {
@@ -69,10 +116,13 @@ struct ChiefHomeView: View {
             if rows.isEmpty {
                 let status = try? await client.status()
                 if let id = status?.defaultConversation, !id.isEmpty {
-                    rows = [MobileChiefConversation(id: id, title: "Chief")]
+                    rows = [MobileChiefConversation(id: id, title: "Chief", pinned: true)]
                 }
             }
-            conversations = rows
+            conversations = rows.sorted {
+                if $0.pinned != $1.pinned { return $0.pinned && !$1.pinned }
+                return $0.updatedAt > $1.updatedAt
+            }
             errorMessage = nil
         } catch {
             errorMessage = String(describing: error)
@@ -80,54 +130,156 @@ struct ChiefHomeView: View {
     }
 }
 
+private struct ChiefPinnedConversationCard: View {
+    let conversation: MobileChiefConversation
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ZStack(alignment: .topTrailing) {
+                ChiefAvatarView(size: 88)
+                if conversation.working {
+                    ProgressView()
+                        .tint(.white)
+                        .padding(7)
+                        .background(.orange, in: Circle())
+                        .offset(x: 4, y: -4)
+                } else if conversation.unread > 0 {
+                    Text("\(conversation.unread)")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .background(.blue, in: Capsule())
+                        .offset(x: 8, y: -4)
+                }
+            }
+            Text("Chief")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.primary)
+            Text(conversation.preview.isEmpty ? "Ask Chief anything" : conversation.preview)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 180)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 24)
+        .padding(.bottom, 16)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(conversation.working ? "Chief, working" : "Chief")
+        .accessibilityIdentifier("MobileChiefPinnedConversation")
+    }
+}
+
+private struct ChiefAvatarView: View {
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [.blue, .indigo],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            Image(systemName: "sparkles")
+                .font(.system(size: size * 0.38, weight: .semibold))
+                .foregroundStyle(.white)
+        }
+        .frame(width: size, height: size)
+        .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
+    }
+}
+
 private struct ChiefConversationRow: View {
     let conversation: MobileChiefConversation
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: conversation.working ? "bolt.horizontal.circle.fill" : "bubble.left.fill")
-                .font(.title3)
-                .foregroundStyle(conversation.working ? .orange : .blue)
-                .frame(width: 30)
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(conversation.working ? Color.orange : Color.blue)
+                    .frame(width: 45, height: 45)
+                Image(systemName: conversation.working ? "bolt.fill" : "sparkles")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
             VStack(alignment: .leading, spacing: 3) {
-                HStack {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(conversation.title)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    if conversation.pinned {
-                        Image(systemName: "pin.fill")
-                            .font(.caption)
+                        .font(.body.weight(.semibold))
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    if let stamp = relativeDate(conversation.updatedAt) {
+                        Text(stamp)
+                            .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
-                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                HStack(alignment: .top, spacing: 6) {
+                    Text(conversation.preview.isEmpty ? "No messages yet" : conversation.preview)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
                     if conversation.unread > 0 {
-                        Text("\(conversation.unread)")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(.blue, in: Capsule())
+                        Circle()
+                            .fill(.blue)
+                            .frame(width: 7, height: 7)
+                            .padding(.top, 6)
+                            .accessibilityLabel("Unread")
                     }
                 }
-                Text(conversation.preview.isEmpty ? "No messages yet" : conversation.preview)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
             }
         }
-        .padding(.vertical, 7)
+        .padding(.vertical, 10)
         .contentShape(Rectangle())
+        .accessibilityIdentifier("MobileChiefConversationRow-\(conversation.id)")
+    }
+
+    private func relativeDate(_ date: Date) -> String? {
+        guard date != .distantPast else { return nil }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 }
 
 #if canImport(UIKit)
+private struct ChiefConversationDestination: View {
+    let client: MobileChiefClient
+    let conversation: MobileChiefConversation
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ChiefConversationControllerRepresentable(
+            client: client,
+            conversation: conversation,
+            back: { dismiss() }
+        )
+        .ignoresSafeArea()
+        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
+        .navigationBarBackButtonHidden()
+    }
+}
+
 private struct ChiefConversationControllerRepresentable: UIViewControllerRepresentable {
     let client: MobileChiefClient
     let conversation: MobileChiefConversation
+    let back: () -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(client: client, conversationID: conversation.id) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(client: client, conversationID: conversation.id)
+    }
 
-    func makeUIViewController(context: Context) -> UINavigationController {
+    func makeUIViewController(context: Context) -> ConversationViewController {
         let backend = ChiefConversationBackend(
             client: client,
             conversationID: conversation.id,
@@ -140,29 +292,24 @@ private struct ChiefConversationControllerRepresentable: UIViewControllerReprese
             options: ConversationPresentationOptions(
                 placeholder: "Message Chief",
                 serviceTitle: conversation.title,
-                serviceSubtitle: "Mac Chief",
+                serviceSubtitle: "Runs your agents on your Mac",
                 unreadCount: conversation.unread,
                 trailingSymbol: "bolt.horizontal"
             )
         )
-        let navigation = UINavigationController(rootViewController: controller)
-        navigation.modalPresentationStyle = .pageSheet
-        controller.onBack = { [weak navigation] in
-            navigation?.dismiss(animated: true)
-        }
-        controller.navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: "Stop",
-            style: .plain,
-            target: context.coordinator,
-            action: #selector(Coordinator.stop)
-        )
+        controller.onBack = back
         store.start()
-        return navigation
+        return controller
     }
 
-    func updateUIViewController(_ uiViewController: UINavigationController, context: Context) {}
+    func updateUIViewController(_ uiViewController: ConversationViewController, context: Context) {
+        uiViewController.onBack = back
+    }
 
-    static func dismantleUIViewController(_ uiViewController: UINavigationController, coordinator: Coordinator) {
+    static func dismantleUIViewController(
+        _ uiViewController: ConversationViewController,
+        coordinator: Coordinator
+    ) {
         coordinator.store?.stop()
     }
 
@@ -174,10 +321,6 @@ private struct ChiefConversationControllerRepresentable: UIViewControllerReprese
         init(client: MobileChiefClient, conversationID: String) {
             self.client = client
             self.conversationID = conversationID
-        }
-
-        @objc func stop() {
-            Task { _ = try? await client.stop(conversation: conversationID) }
         }
     }
 }

@@ -92,7 +92,7 @@ public struct MobileChiefStatus: Codable, Equatable, Sendable {
 }
 
 /// One row from `chief.conversations`.
-public struct MobileChiefConversation: Codable, Equatable, Sendable, Identifiable {
+public struct MobileChiefConversation: Codable, Equatable, Hashable, Sendable, Identifiable {
     public let id: String
     public let title: String
     public let preview: String
