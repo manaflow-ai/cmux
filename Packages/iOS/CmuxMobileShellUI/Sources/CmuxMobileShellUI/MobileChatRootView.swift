@@ -702,6 +702,7 @@ private struct MobileChatTranscriptView: View {
 
     private func loadPhotos(_ items: [PhotosPickerItem]) {
         guard !items.isEmpty else { return }
+        let sessionID = descriptor.id
         Task {
             var loaded: [ChatOutboundAttachment] = []
             for item in items {
@@ -710,8 +711,12 @@ private struct MobileChatTranscriptView: View {
                 loaded.append(ChatOutboundAttachment(data: data, format: format))
             }
             await MainActor.run {
-                store.stagedAttachments.append(contentsOf: loaded)
                 selectedPhotos = []
+                // Photo decoding may finish after the user changes chats. Do
+                // not attach the old pick to whichever session happens to be
+                // selected when the asynchronous load completes.
+                guard store.selectedSessionID == sessionID else { return }
+                store.stagedAttachments.append(contentsOf: loaded)
             }
         }
     }
