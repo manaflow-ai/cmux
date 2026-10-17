@@ -6,6 +6,38 @@ import Network
 /// Authentication and remote exposure belong above this transport; by design
 /// callers must opt into forwarding this socket beyond loopback.
 public final class PhoneTCPServer: @unchecked Sendable {
+    private final class TaskStartGate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var opened = false
+        private var continuation: CheckedContinuation<Void, Never>?
+
+        func wait() async {
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                if opened {
+                    lock.unlock()
+                    continuation.resume()
+                } else {
+                    self.continuation = continuation
+                    lock.unlock()
+                }
+            }
+        }
+
+        func open() {
+            lock.lock()
+            guard !opened else {
+                lock.unlock()
+                return
+            }
+            opened = true
+            let continuation = self.continuation
+            self.continuation = nil
+            lock.unlock()
+            continuation?.resume()
+        }
+    }
+
     private final class ConnectionState: @unchecked Sendable {
         let id = UUID()
         var decoder = PhoneLineDecoder(maxLineBytes: PhoneProtocol.maxRequestLineBytes)
@@ -215,8 +247,10 @@ public final class PhoneTCPServer: @unchecked Sendable {
         on connection: NWConnection,
         state: ConnectionState
     ) {
+        let startGate = TaskStartGate()
         let task = Task { [weak self, weak connection, state] in
             guard let self, let connection else { return }
+            await startGate.wait()
             defer { self.clearTask(id: state.id) }
 
             do {
@@ -277,10 +311,12 @@ public final class PhoneTCPServer: @unchecked Sendable {
         guard !stopped, connections[state.id] === connection else {
             stateLock.unlock()
             task.cancel()
+            startGate.open()
             return
         }
         connectionTasks[state.id] = task
         stateLock.unlock()
+        startGate.open()
     }
 
     private func clearTask(id: UUID) {
