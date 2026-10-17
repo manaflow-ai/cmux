@@ -270,13 +270,16 @@ if (skipVerify) {
 let sizes: Array<{ imageId: string; size: VmImageSize }> | undefined;
 const sizesResultPath = argValue("--sizes-result");
 if (!skipVerify && sizesResultPath) {
-  const derived = JSON.parse(readFileSync(sizesResultPath, "utf8")) as { master?: string; sizes: Record<string, { imageId: string; size: VmImageSize }> };
+  const derived = JSON.parse(readFileSync(sizesResultPath, "utf8")) as { master?: string; cuaVerified?: boolean; sizes: Record<string, { imageId: string; size: VmImageSize }> };
   if (derived.master !== imageId) {
     throw new Error(`--sizes-result ${sizesResultPath} was derived from ${derived.master ?? "(unknown)"}, not ${imageId}`);
   }
   const rows = Object.values(derived.sizes);
   const missing = sizeNames.filter((name) => !rows.some((row) => row.size.name === name));
   if (missing.length > 0) throw new Error(`--sizes-result ${sizesResultPath} lacks sizes ${missing.join(", ")}`);
+  if (withDesktop && derived.cuaVerified !== true) {
+    throw new Error(`--sizes-result ${sizesResultPath} was not produced with --verify-cua; desktop defaults require CUA verification for every size`);
+  }
   sizes = rows.filter((row) => sizeNames.includes(row.size.name)).map((row) => ({ imageId: row.imageId, size: row.size }));
   console.log(`adopting derived sizes ${sizesResultPath}: ${sizes.map((row) => `${row.size.name}=${row.imageId}`).join(", ")}`);
   validationNotes += ` Sizes derived and re-booted by derive-devbox-sizes.ts: ${sizes.map((row) => `${row.size.name}=${row.imageId}`).join(", ")}.`;
@@ -293,13 +296,17 @@ if (!skipVerify && sizesResultPath) {
     sizeNames.join(","),
     "--out",
     sizesOut,
+    ...(withDesktop ? ["--verify-cua"] : []),
     ...(hasFlag("--replace-slug") ? ["--replace-slug"] : []),
   ]);
   if (deriveStatus !== 0) {
     console.error(`derive sizes failed (exit ${deriveStatus}); nothing promoted`);
     process.exit(deriveStatus);
   }
-  const derived = JSON.parse(readFileSync(sizesOut, "utf8")) as { sizes: Record<string, { imageId: string; size: VmImageSize }> };
+  const derived = JSON.parse(readFileSync(sizesOut, "utf8")) as { cuaVerified?: boolean; sizes: Record<string, { imageId: string; size: VmImageSize }> };
+  if (withDesktop && derived.cuaVerified !== true) {
+    throw new Error(`derive-devbox-sizes.ts did not produce CUA verification evidence for every desktop size`);
+  }
   sizes = Object.values(derived.sizes).map((row) => ({ imageId: row.imageId, size: row.size }));
   validationNotes += ` Sizes derived and re-booted by derive-devbox-sizes.ts: ${sizes.map((row) => `${row.size.name}=${row.imageId}`).join(", ")}.`;
 }

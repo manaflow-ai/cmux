@@ -21,7 +21,9 @@
  */
 // The devbox freestyle bake targets the public platform (see
 // build-devbox-freestyle.ts), the same platform the shipped driver speaks.
-import { Freestyle } from "freestyle";
+import { Freestyle, type Vm } from "freestyle";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { devboxCuaSmokeCommand, readCuaProof } from "./devbox-cua-smoke";
 import { agentLaunchCheck, codexHookTrustCheck } from "./devbox-agent-launch";
 import { DEFAULT_VM_EDGE_ALIAS_DOMAIN } from "../services/coderouter/vmGuestEnv";
 import path from "node:path";
@@ -351,6 +353,27 @@ const IDENTITY_CHECKS: readonly string[] = [
 
 type Exec = (cmd: string, timeoutMs?: number) => Promise<{ exitCode: number; output: string }>;
 
+/** Fail image acceptance unless real MCP capture and input work; retain screenshots for review. */
+async function verifyComputerUse(vm: Vm, exec: Exec, phase: string): Promise<void> {
+  const guestDirectory = `/tmp/cmux-cua-image-proof-${phase}`;
+  const result = await exec(devboxCuaSmokeCommand(guestDirectory), 300_000);
+  console.log(`[computer-use:${phase}] exit=${result.exitCode}\n${result.output}`);
+  const proofDirectory = process.env.CMUX_DEVBOX_CUA_PROOF_DIR;
+  if (proofDirectory) {
+    const destination = path.join(proofDirectory, phase);
+    mkdirSync(destination, { recursive: true });
+    writeFileSync(path.join(destination, "probe.log"), result.output);
+    for (const file of await readCuaProof(() => vm.fs.readDir(guestDirectory))) {
+      if (/^[a-z-]+\.(png|json)$/.test(file.name)) {
+        writeFileSync(path.join(destination, file.name), await readCuaProof(() => vm.fs.readFile(`${guestDirectory}/${file.name}`)));
+      }
+    }
+  }
+  if (result.exitCode !== 0 || !result.output.includes("CUA_SMOKE_PASS ")) {
+    throw new Error(`computer-use ${phase} failed: ${result.output.slice(-2000)}`);
+  }
+}
+
 async function runChecks(label: string, checks: readonly string[], exec: Exec): Promise<boolean> {
   let ok = true;
   for (const cmd of checks) {
@@ -511,6 +534,8 @@ if (provider === "freestyle") {
       const bootShared = field(idA.output, "boot") === field(idB.output, "boot");
       console.log(`machine-id ${machineIdShared ? "SHARED or unreadable" : "differs"} across machines (${machineA.slice(0, 8)}… vs ${machineB.slice(0, 8)}…); boot_id ${bootShared ? "shared" : "differs"}`);
       if (strictCloneIdentity && machineIdShared) cloneIdentityOk = false;
+      const secondDesktop = await exec2("test -f /etc/cmux/desktop-env.sh", 30_000);
+      if (secondDesktop.exitCode === 0) await verifyComputerUse(second.vm, exec2, "clone");
     } finally {
       await second.vm.delete();
       console.log(`deleted ${second.vmId}`);
@@ -536,6 +561,15 @@ if (provider === "freestyle") {
     ], exec) && idleOk && cloneIdentityOk;
     if (!idleOk) console.log("[freestyle] idle-wakeup check FAILED");
     if (!cloneIdentityOk) console.log("[freestyle] clone identity check FAILED (--strict-clone-identity)");
+    if (desktop) {
+      await verifyComputerUse(vm, exec, "fresh");
+      await vm.pause();
+      await vm.start();
+      // systemd owns desktop readiness (Type=notify), including after resume.
+      const ready = await exec(`systemctl start ${DEVBOX_DESKTOP_UNIT}`, 150_000);
+      if (ready.exitCode !== 0) throw new Error("desktop did not become ready after pause/resume");
+      await verifyComputerUse(vm, exec, "resumed");
+    }
   } finally {
     await vm.delete();
     console.log(`deleted ${vmId}`);

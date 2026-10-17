@@ -174,6 +174,15 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
   are the same account, so an app started from a terminal pane joins the
   session bus of the screen a person is watching; root gets `DISPLAY` but not
   that bus (it admits only its owner).
+- `agent-config.sh` registers `cua-driver mcp` in Claude Code's user config
+  (`cua-computer-use`), Codex's config (`cua-driver`), and OpenCode's config
+  (`cua-driver`, created on first launch). Existing servers and user settings
+  are preserved. Start agents as the desktop user from their normal working
+  directory so their MCP subprocesses inherit the display and accessibility bus.
+  Image acceptance checks the real client connections, then captures the screen
+  and clicks, types, and submits a visible browser form through MCP on a fresh
+  machine, a second clone, and after pause/resume. The image workflow retains
+  screenshots and probe results in its `devbox-cua-proof` artifact.
 - Readiness is signalled by its owners, never inferred from elapsed time:
   Xvnc reports its display on `-displayfd` once it accepts connections, the
   accessibility bus is awaited by name (`gdbus wait org.a11y.Bus`), the
@@ -388,7 +397,9 @@ bake happens once on the ladder floor (`freestyle/ubuntu-sm`, 2 vCPU / 4 GiB /
 16 GB) and `derive-devbox-sizes.ts` turns it into one snapshot per size:
 boot the bake, `vm.resize`, snapshot, delete, then boot the derived snapshot
 once more and check `nproc`, memory, the grown root filesystem and the
-daemon/desktop units. Sizes are Freestyle's own ladder
+daemon/desktop units. For a desktop promotion, `--verify-cua` also runs the
+native Claude Code, Codex, and OpenCode MCP screenshot/click/type/Enter smoke
+against every derived size before its id can become a default. Sizes are Freestyle's own ladder
 (`web/services/vms/images/sizes.ts`, verbatim from freestyle-vms
 `catalog/snapshots.json`), so every cmux machine is a shape Freestyle already
 bills and caps:
@@ -481,8 +492,9 @@ bun run devbox:promote -- freestyle --bake-result /tmp/desktop.json --kinds desk
 A promotion that verified and derived but did not write (a refused write, a
 crash after `derive-devbox-sizes.ts`) is resumed without re-deriving:
 `--bake-result <json> --sizes-result <derive --out json>` re-verifies the
-bake and adopts the derived ids (they already exist on the account, each
-booted and checked by that run).
+bake and adopts the derived ids. Desktop resumes require a sizes receipt
+created with `--verify-cua`, so every adopted desktop size has its own MCP
+proof.
 
 Pin the daemon for both with `CMUX_VM_CMUX_TUI_MANIFEST_URL` (one commit's
 `https://files.cmux.com/cmux-tui/<commit>/manifest.json`) so the two ladders
