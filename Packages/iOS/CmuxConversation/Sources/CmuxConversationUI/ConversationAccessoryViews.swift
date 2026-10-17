@@ -11,11 +11,17 @@ final class ConversationAvatarView: UIView {
     /// layer does: iOS 27's scroll edge pocket treats a label under the
     /// header as content to keep clear and stops its blur above the avatar.
     private let monogram = ConversationMonogramLayer()
+    private let imageView = UIImageView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         layer.addSublayer(gradient)
         layer.addSublayer(monogram)
+        imageView.contentMode = .scaleAspectFill
+        imageView.clipsToBounds = true
+        imageView.isUserInteractionEnabled = false
+        imageView.isHidden = true
+        addSubview(imageView)
         // The disc clips itself: a rounded view clipping its sublayers
         // renders them offscreen every frame it moves (scrolling), a rounded
         // leaf layer does not. The initials sit well inside the circle.
@@ -31,12 +37,16 @@ final class ConversationAvatarView: UIView {
     private(set) var initials = ""
     private var usesMonogramGradient = false
 
-    func configure(initials: String, colorHex: String?) {
+    func configure(initials: String, colorHex: String?, image: UIImage? = nil) {
         self.initials = initials
         monogram.text = initials
-        usesMonogramGradient = colorHex == nil
-        guard let colorHex else {
-            applyMonogramGradient()
+        imageView.image = image
+        imageView.isHidden = image == nil
+        monogram.isHidden = image != nil
+        gradient.isHidden = image != nil
+        usesMonogramGradient = colorHex == nil && image == nil
+        guard image == nil, let colorHex else {
+            if image == nil { applyMonogramGradient() }
             return
         }
         let base = ConversationTheme.color(hex: colorHex)
@@ -67,6 +77,8 @@ final class ConversationAvatarView: UIView {
         // tints the border's outer edge.
         let inset = layer.borderWidth / 2
         gradient.frame = bounds.insetBy(dx: inset, dy: inset)
+        imageView.frame = gradient.frame
+        imageView.layer.cornerRadius = imageView.bounds.width / 2
         gradient.cornerRadius = gradient.frame.width / 2
         monogram.contentsScale = window?.screen.scale ?? traitCollection.displayScale
         monogram.frame = bounds.insetBy(dx: bounds.width * 0.08, dy: 0)

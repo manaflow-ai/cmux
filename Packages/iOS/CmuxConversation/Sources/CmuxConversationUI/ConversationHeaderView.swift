@@ -19,6 +19,7 @@ final class ConversationHeaderView: UIView {
     private let unreadLabel = UILabel()
     private let unreadPill = UIView()
     private var avatars: [ConversationAvatarView] = []
+    private var avatarImage: UIImage?
     /// The avatar or group cluster: the details zoom out of (and back into) it.
     let avatarContainer = UIView()
     /// Group chats seat their avatar cluster on a 60 pt glass disc.
@@ -137,7 +138,8 @@ final class ConversationHeaderView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(info: ConversationInfo, meID: String?, unreadCount: Int) {
+    func configure(info: ConversationInfo, meID: String?, unreadCount: Int, avatarImage: UIImage? = nil) {
+        self.avatarImage = avatarImage
         nameLabel.text = info.title
         nameButton.accessibilityLabel = info.title
         let others = info.participants.filter { $0.id != meID }
@@ -145,7 +147,7 @@ final class ConversationHeaderView: UIView {
         avatars.forEach { $0.removeFromSuperview() }
         avatars = shown.map { participant in
             let view = ConversationAvatarView()
-            view.configure(initials: participant.initials, colorHex: nil)
+            view.configure(initials: participant.initials, colorHex: nil, image: avatarImage)
             view.layer.borderWidth = info.kind == .group ? ConversationHeaderGeometry.groupClusterRingWidth : 0
             avatarContainer.addSubview(view)
             return view

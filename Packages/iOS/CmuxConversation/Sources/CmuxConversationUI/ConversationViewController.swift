@@ -9,6 +9,9 @@ public struct ConversationPresentationOptions {
     public var placeholder: String?
     public var serviceTitle: String
     public var serviceSubtitle: String
+    /// Optional contact image used by hosts with a branded participant avatar.
+    /// When nil, the header keeps its initials avatar.
+    public var avatarImage: UIImage?
     public var unreadCount: Int
     public var trailingSymbol: String
     public var trailingAccessibilityLabel: String?
@@ -24,6 +27,7 @@ public struct ConversationPresentationOptions {
         placeholder: String? = nil,
         serviceTitle: String = "iMessage",
         serviceSubtitle: String? = nil,
+        avatarImage: UIImage? = nil,
         unreadCount: Int = 0,
         trailingSymbol: String = "video",
         trailingAccessibilityLabel: String? = nil,
@@ -35,6 +39,7 @@ public struct ConversationPresentationOptions {
         self.placeholder = placeholder
         self.serviceTitle = serviceTitle
         self.serviceSubtitle = serviceSubtitle ?? String(localized: "conversation.start.encrypted", defaultValue: "Encrypted", bundle: .module)
+        self.avatarImage = avatarImage
         self.unreadCount = unreadCount
         self.trailingSymbol = trailingSymbol
         self.trailingAccessibilityLabel = trailingAccessibilityLabel
@@ -700,7 +705,7 @@ public final class ConversationViewController: UIViewController {
         switch change {
         case .connection:
             header.setConnectionStatus(store.connection == .connected ? nil : String(localized: "conversation.header.connecting", defaultValue: "Connecting…", bundle: .module))
-            if let info = store.info { header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount) }
+            if let info = store.info { header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount, avatarImage: options.avatarImage) }
             return
         case .readState:
             updateCatchUp()
@@ -812,11 +817,11 @@ public final class ConversationViewController: UIViewController {
         if let info = store.info, header.window != nil, !hasConfiguredHeader {
             hasConfiguredHeader = true
             configuredHeaderTitle = info.title
-            header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount)
+            header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount, avatarImage: options.avatarImage)
         } else if let info = store.info, hasConfiguredHeader, info.title != configuredHeaderTitle {
             // "… named the conversation": the header takes the new name.
             configuredHeaderTitle = info.title
-            header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount)
+            header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount, avatarImage: options.avatarImage)
         }
         maybeLoadOlder()
         focusComposerIfEmpty()

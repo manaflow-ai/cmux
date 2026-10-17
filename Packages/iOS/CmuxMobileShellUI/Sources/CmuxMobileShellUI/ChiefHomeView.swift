@@ -363,6 +363,7 @@ private struct ChiefConversationControllerRepresentable: UIViewControllerReprese
                 placeholder: "Message Chief",
                 serviceTitle: conversation.title,
                 serviceSubtitle: "Runs your agents on your Mac",
+                avatarImage: UIImage(named: "ChiefAvatar", in: .module, compatibleWith: nil),
                 unreadCount: conversation.unread,
                 trailingSymbol: "stop.fill",
                 trailingAccessibilityLabel: "Stop Chief",
