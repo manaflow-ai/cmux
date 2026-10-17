@@ -7,6 +7,7 @@ import { focusWithRing } from "./focusWithRing";
 export function focusAfterEscape(control: HTMLElement | null | undefined): void {
   if (!control) return;
   setTimeout(() => {
-    if (control.isConnected && !control.closest("[inert]")) focusWithRing(control, { preventScroll: true, focusVisible: true });
+    if (control.isConnected && !control.closest("[inert]"))
+      focusWithRing(control, { preventScroll: true, focusVisible: true });
   });
 }
