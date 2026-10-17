@@ -99,7 +99,7 @@ enum ChiefControlRequest: Equatable, Sendable {
             let beforeSeq = try optionalInt(params, "before_seq")
             if let beforeSeq, beforeSeq < 1 { throw ChiefControlParamError.invalid("before_seq") }
             return .read(conversation: try conversation(params),
-                         beforeSeq: beforeSeq.map(UInt64.init),
+                         beforeSeq: beforeSeq.map { UInt64($0) },
                          limit: min(limit, maxReadLimit))
         case "chief.stop":
             return .stop(conversation: try conversation(params))

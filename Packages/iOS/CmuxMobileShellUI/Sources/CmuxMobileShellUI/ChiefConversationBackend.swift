@@ -185,7 +185,11 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         guard selected else {
             throw ConversationBackendError(code: -1, message: "Chief cards cannot be deselected")
         }
-        guard let part = withState({ $0.structuredPartsByMessageID[messageID]?.first(where: { $0.kind == "approval" || $0.kind == "question" }) }) else {
+        guard let part = withState({ state in
+            state.structuredPartsByMessageID[messageID]?.first { part in
+                part.kind == "approval" || part.kind == "question"
+            }
+        }) else {
             throw unsupported("polls")
         }
         let claimed = withState { state in
@@ -226,7 +230,15 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             throw unsupported("polls")
         }
 
-        let refreshed = try await client.read(conversation: conversationID, limit: 200)
+        let refreshed: MobileChiefReadResult
+        do {
+            refreshed = try await client.read(conversation: conversationID, limit: 200)
+        } catch {
+            if let previous = withState({ $0.previousMessagesByID[messageID] }) {
+                return map(previous, clientMessageID: clientMessageID(for: previous))
+            }
+            throw error
+        }
         if let message = refreshed.messages.first(where: { $0.id == messageID }) {
             return map(message, clientMessageID: clientMessageID(for: message))
         }
