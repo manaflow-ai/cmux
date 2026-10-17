@@ -1,7 +1,7 @@
 //! Native owner and connection fences of the cache-only watch carrier.
-use super::agent_inventory_tests::Owner;
-use super::agent_session_attach_tests::{Client, WAIT, assert_code};
-use super::*;
+use super::super::agent_session_attach_tests::{Client, WAIT, assert_code};
+use super::super::*;
+use super::Owner;
 use serde_json::{Value, json};
 
 fn snapshot(revision: u64) -> Value {
@@ -157,4 +157,72 @@ fn cmux_next_inventory_native_watch_preserves_owner_fenced_cached_reads() {
     assert_eq!(reply["ok"], true, "{reply}");
     assert_eq!(reply["data"], json!({"view":"inventory","cached":true,"harnesses":[]}));
     assert_eq!(owner.methods(), ["initialize", "_acpmux/harness/health"]);
+}
+
+#[test]
+fn cmux_next_inventory_native_watch_refuses_malformed_initial_snapshots() {
+    for initial in [
+        json!({"revision":1}),
+        json!({"view":"inventory","cached":false,"harnesses":[],"revision":1}),
+        json!({"view":"inventory","cached":true,"harnesses":[],"revision":"1"}),
+    ] {
+        let owner = Owner::new(json!(["harnessInventoryWatch"]), initial);
+        let mux = owner.mux("inventory-watch-malformed");
+        let mut client = Client::connect(&mux, "inventory-watch-malformed");
+        assert_code(&client.request(request(&mux, true)), "agent_inventory.invalid_response");
+        owner.wait_closed();
+        assert!(
+            client.named_event("agent-inventory-changed", Duration::from_millis(100)).is_none()
+        );
+    }
+}
+
+#[test]
+fn cmux_next_inventory_native_watch_invalid_notifications_end_the_current_lease() {
+    let mut owner = Owner::new(json!(["harnessInventoryWatch"]), snapshot(1));
+    let mux = owner.mux("inventory-watch-invalid-event");
+    let mut client = Client::connect(&mux, "inventory-watch-invalid-event");
+    let ack = client.request(request(&mux, true));
+    assert_eq!(ack["ok"], true, "{ack}");
+    owner.notify(json!({"revision":2,"diagnostics":"private@example.test secret-token"}));
+    let ended =
+        client.named_event("agent-inventory-watch-ended", WAIT).expect("invalid watch ended");
+    assert_eq!(
+        ended,
+        json!({"event":"agent-inventory-watch-ended","machine":mux.machine_public_id,
+        "watch_id":ack["data"]["watch_id"],"reason":"agent_inventory.invalid_response"})
+    );
+    owner.wait_closed();
+    assert!(client.named_event("agent-inventory-changed", Duration::from_millis(100)).is_none());
+}
+
+#[test]
+fn cmux_next_inventory_native_watch_shares_the_bounded_read_worker_budget() {
+    let owner = Owner::new(json!(["harnessInventoryWatch"]), snapshot(1));
+    let mux = owner.mux("inventory-watch-budget");
+    let mut client = Client::connect(&mux, "inventory-watch-budget");
+    let reads: Vec<_> = (0..8).map(|_| agent_inventory::reserve(&mux).unwrap()).collect();
+    assert_code(&client.request(request(&mux, true)), "agent_inventory.busy");
+    assert!(owner.methods().is_empty());
+    drop(reads);
+    assert_eq!(client.request(request(&mux, true))["ok"], true);
+    drop(client);
+    owner.wait_closed();
+}
+
+#[test]
+fn cmux_next_inventory_native_watch_socket_replacement_cancels_a_pending_handshake() {
+    let mut owner = Owner::paused(json!(["harnessInventoryWatch"]), snapshot(1));
+    let mux = owner.mux("inventory-watch-pending");
+    let mut client = Client::connect(&mux, "inventory-watch-pending");
+    let pending = client.send(request(&mux, true));
+    owner.wait_for_watch();
+    mux.set_acpmux_socket(None);
+    // The peer is holding its reply. Replacement must close the transport
+    // now, rather than waiting for a deadline or accepting its later ACK.
+    owner.assert_transport_closed();
+    assert_code(&client.answer(pending), "agent_inventory.unavailable");
+    owner.release_watch();
+    owner.wait_closed();
+    assert!(client.named_event("agent-inventory-changed", Duration::from_millis(100)).is_none());
 }

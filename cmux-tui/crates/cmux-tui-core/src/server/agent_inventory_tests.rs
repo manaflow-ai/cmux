@@ -1,12 +1,15 @@
 //! Machine inventory stays on the trusted native owner connection. A fake
 //! acpmux records every call, including the handshake before any health view.
 
-use std::io::{BufRead, BufReader, Write};
+#[path = "agent_inventory_watch_tests.rs"]
+mod watch;
+
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, channel};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread::JoinHandle;
 
 use serde_json::{Value, json};
@@ -21,10 +24,20 @@ pub(super) struct Owner {
     connections: Receiver<UnixStream>,
     current: Option<UnixStream>,
     closed: Receiver<()>,
+    watch_ready: Receiver<()>,
+    watch_release: Sender<()>,
 }
 
 impl Owner {
     pub(super) fn new(features: Value, inventory: Value) -> Self {
+        Self::with_gate(features, inventory, false)
+    }
+
+    pub(super) fn paused(features: Value, inventory: Value) -> Self {
+        Self::with_gate(features, inventory, true)
+    }
+
+    fn with_gate(features: Value, inventory: Value, hold_watch: bool) -> Self {
         static SEQUENCE: AtomicU64 = AtomicU64::new(0);
         let socket = PathBuf::from(format!(
             "/tmp/cmux-ai-{}-{}.sock",
@@ -35,6 +48,8 @@ impl Owner {
         let (sent, frames) = channel();
         let (connection_tx, connections) = channel();
         let (closed_tx, closed) = channel();
+        let (watch_ready_tx, watch_ready) = channel();
+        let (watch_release, watch_release_rx) = channel();
         let worker = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let _ = connection_tx.send(stream.try_clone().unwrap());
@@ -50,15 +65,34 @@ impl Owner {
                 let result = match frame["method"].as_str().unwrap() {
                     "initialize" => json!({"_meta":{"acpmux":{"features":features}}}),
                     "_acpmux/harness/health" => inventory.clone(),
-                    "_acpmux/harness/inventory/watch" => inventory.clone(),
+                    "_acpmux/harness/inventory/watch" => {
+                        if hold_watch {
+                            let _ = watch_ready_tx.send(());
+                            let _ =
+                                watch_release_rx.recv_timeout(std::time::Duration::from_secs(5));
+                        }
+                        inventory.clone()
+                    }
                     other => panic!("inventory must not call {other}"),
                 };
-                writeln!(stream, "{}", json!({"jsonrpc":"2.0","id":frame["id"],"result":result}))
-                    .unwrap();
+                if writeln!(stream, "{}", json!({"jsonrpc":"2.0","id":frame["id"],"result":result}))
+                    .is_err()
+                {
+                    break;
+                }
             }
             let _ = closed_tx.send(());
         });
-        Self { socket, frames, worker: Some(worker), connections, current: None, closed }
+        Self {
+            socket,
+            frames,
+            worker: Some(worker),
+            connections,
+            current: None,
+            closed,
+            watch_ready,
+            watch_release,
+        }
     }
 
     pub(super) fn mux(&self, name: &str) -> Arc<Mux> {
@@ -91,10 +125,34 @@ impl Owner {
             .recv_timeout(std::time::Duration::from_secs(5))
             .expect("owner link stayed open");
     }
+
+    pub(super) fn wait_for_watch(&self) {
+        self.watch_ready
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("watch request did not reach the owner");
+    }
+
+    pub(super) fn release_watch(&self) {
+        let _ = self.watch_release.send(());
+    }
+
+    pub(super) fn assert_transport_closed(&mut self) {
+        if self.current.is_none() {
+            self.current =
+                Some(self.connections.recv_timeout(std::time::Duration::from_secs(5)).unwrap());
+        }
+        let stream = self.current.as_mut().unwrap();
+        stream.set_read_timeout(Some(std::time::Duration::from_millis(500))).unwrap();
+        assert_eq!(
+            stream.read(&mut [0u8; 1]).expect("native cancellation did not close the link"),
+            0
+        );
+    }
 }
 
 impl Drop for Owner {
     fn drop(&mut self) {
+        self.release_watch();
         if let Some(stream) = self.current.take() {
             let _ = stream.shutdown(std::net::Shutdown::Both);
         }

@@ -2,6 +2,9 @@
 //! daemon carrier (local, SSH or Cloud). The conversations-only relay never
 //! admits this verb. No client-selected socket, machine or control params.
 
+#[path = "agent_inventory_watch.rs"]
+pub(super) mod watch;
+
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -19,10 +22,10 @@ pub(super) const CAPABILITY: &str = "agent-inventory-v1";
 pub(super) const OWNER_CAPABILITY: &str = "agent-inventory-owner-v1";
 const MAX_READS: usize = 8;
 const MAX_HARNESSES: usize = 256;
-const CALL_TIMEOUT: Duration = Duration::from_secs(2);
+pub(super) const CALL_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Holds one bounded worker until completion, failed spawn or unwinding.
-struct ReadSlot(Arc<Mux>);
+pub(super) struct ReadSlot(Arc<Mux>);
 
 impl Drop for ReadSlot {
     fn drop(&mut self) {
@@ -30,8 +33,8 @@ impl Drop for ReadSlot {
     }
 }
 
-#[derive(Debug)]
-enum Failure {
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Failure {
     NotTrusted,
     BadRequest,
     OwnerMismatch,
@@ -42,7 +45,7 @@ enum Failure {
 }
 
 impl Failure {
-    fn code(&self) -> &'static str {
+    pub(super) fn code(&self) -> &'static str {
         match self {
             Self::NotTrusted => "agent_inventory.not_trusted",
             Self::BadRequest => "agent_inventory.bad_request",
@@ -95,16 +98,10 @@ pub(super) fn try_handle(
     let Some(socket) = mux.control_clients.agent_sessions.socket() else {
         return Some(reply(writer, id, Err(Failure::Unavailable)));
     };
-    if mux
-        .control_clients
-        .agent_sessions
-        .inventory_reads
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < MAX_READS).then_some(n + 1))
-        .is_err()
-    {
-        return Some(reply(writer, id, Err(Failure::Busy)));
-    }
-    let slot = ReadSlot(mux.clone());
+    let slot = match reserve(mux) {
+        Ok(slot) => slot,
+        Err(error) => return Some(reply(writer, id, Err(error))),
+    };
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let spawned = std::thread::Builder::new()
@@ -121,6 +118,34 @@ pub(super) fn try_handle(
     Some(true)
 }
 
+/// Reads and watch handshakes share the same bounded worker budget, including
+/// a cancelled connection whose Unix connect has not finished yet.
+pub(super) fn reserve(mux: &Arc<Mux>) -> Result<ReadSlot, Failure> {
+    if mux
+        .control_clients
+        .agent_sessions
+        .inventory_reads
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < MAX_READS).then_some(n + 1))
+        .is_err()
+    {
+        return Err(Failure::Busy);
+    }
+    Ok(ReadSlot(mux.clone()))
+}
+
+pub(super) fn supports(initialized: &Value, capability: &str) -> bool {
+    initialized.pointer("/_meta/acpmux/features").and_then(Value::as_array).is_some_and(
+        |features| {
+            features.iter().all(Value::is_string)
+                && features.iter().any(|value| value.as_str() == Some(capability))
+        },
+    )
+}
+
+pub(super) fn valid_snapshot(value: &Value) -> bool {
+    serde_json::from_value::<Inventory>(value.clone()).is_ok_and(|inventory| inventory.valid())
+}
+
 fn read(socket: &Path) -> Result<Value, Failure> {
     // Never use agent_session_start::connect: a read must not start or
     // hand off acpmux. Nothing listening is unavailable, not an empty inventory.
@@ -134,14 +159,7 @@ fn read(socket: &Path) -> Result<Value, Failure> {
             CALL_TIMEOUT,
         )
         .map_err(|_| Failure::Unavailable)?;
-    let supported = initialized
-        .pointer("/_meta/acpmux/features")
-        .and_then(Value::as_array)
-        .is_some_and(|features| {
-            features.iter().all(Value::is_string)
-                && features.iter().any(|value| value.as_str() == Some("harnessInventory"))
-        });
-    if !supported {
+    if !supports(&initialized, "harnessInventory") {
         return Err(Failure::Unsupported);
     }
     // Old acpmux builds ignore view and can check or update on this method.
@@ -243,7 +261,11 @@ fn safe_version(version: &str) -> bool {
     version.len() <= 64 && VERSION.is_match(version)
 }
 
-fn reply(writer: &MessageWriter, id: Option<Value>, result: Result<Value, Failure>) -> bool {
+pub(super) fn reply(
+    writer: &MessageWriter,
+    id: Option<Value>,
+    result: Result<Value, Failure>,
+) -> bool {
     let (data, error_code) = match result {
         Ok(data) => (Some(data), None),
         Err(error) => (None, Some(error.code().to_string())),
