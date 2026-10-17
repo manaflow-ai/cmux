@@ -4,7 +4,7 @@ import type { Play } from "../../gallery/play";
 
 const selectHugeBlue: Play = async (ctx) => {
   await ctx.click({ role: "radio", name: /Huge Blue lease/ });
-  await ctx.waitFor(() => ctx.find({ role: "heading", name: "Huge Blue lease" }));
+  await ctx.waitFor(() => ctx.find({ role: "heading", name: "Huge Blue lease receipt" }));
 };
 
 export default componentEntry<{ initialStrategy?: string }>({
