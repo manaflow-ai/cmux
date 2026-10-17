@@ -21,6 +21,7 @@ struct ChiefTurnContextBuilder: Sendable {
             (Self.activeSocketPath(), Self.workspacesSummary(), Self.chiefTarget(conversation: input.conversation))
         }
         let settings = await engine()
+        let loginShellPath = await ChiefLoginShellPath.shared.value()
         let memory = ChiefMemory(paths: ChiefMemoryPaths(home: input.home))
         // Missing profile files are written once; a failure leaves the prompt without them.
         try? memory.ensureDefaults()
@@ -41,7 +42,8 @@ struct ChiefTurnContextBuilder: Sendable {
         return ChiefTurnContext(systemPrompt: ChiefSystemPrompt(context: prompt).build(),
                                 workingDirectory: FileManager.default.homeDirectoryForCurrentUser,
                                 environment: Self.environment(socketPath: socketPath, home: input.home,
-                                                            workspaceID: target?.workspaceID, surfaceID: target?.surfaceID),
+                                                            workspaceID: target?.workspaceID, surfaceID: target?.surfaceID,
+                                                            loginShellPath: loginShellPath),
                                 engine: ChiefTurnEngine(harness: settings.resolvedHarness.rawValue, model: settings.resolvedModel,
                                                         effort: settings.effort.isEmpty ? nil : settings.effort),
                                 turnPreamble: preamble)
@@ -139,14 +141,15 @@ struct ChiefTurnContextBuilder: Sendable {
 
     /// What the brain's process gets on top of the app's environment (the
     /// brain's launcher already drops `CMUX_SURFACE_ID` and
-    /// `CMUX_WORKSPACE_ID`): this app's socket, its bundled CLI first on
-    /// `PATH`, the Chief home for `cmux chief memory`, and `CMUX_CHIEF_TURN`, so a note the
+    /// `CMUX_WORKSPACE_ID`): this app's socket, a `PATH` with the user's
+    /// login-shell directories (``ChiefSearchPath``) and the bundled CLI
+    /// first, the Chief home for `cmux chief memory`, and `CMUX_CHIEF_TURN`, so a note the
     /// turn saves is recorded as saved by Chief (source `chief`), one typed in a terminal as
     /// saved from the command line (`cli`). `CMUX_SOCKET`, an
     /// older override the CLI also honors, is pinned to the same socket so an
     /// inherited value never points the Chief at another cmux.
     static func environment(socketPath: String, home: ChiefHome,
-                            workspaceID: UUID? = nil, surfaceID: UUID? = nil,
+                            workspaceID: UUID? = nil, surfaceID: UUID? = nil, loginShellPath: String? = nil,
                             base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
         var environment: [String: String] = [
             "CMUX_SOCKET_PATH": socketPath,
@@ -156,7 +159,10 @@ struct ChiefTurnContextBuilder: Sendable {
         if let workspaceID { environment["CMUX_WORKSPACE_ID"] = workspaceID.uuidString }
         if let surfaceID { environment["CMUX_SURFACE_ID"] = surfaceID.uuidString }
         if base["CMUX_SOCKET"] != nil { environment["CMUX_SOCKET"] = socketPath }
-        var path = (base["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: ":").map(String.init)
+        var path = ChiefSearchPath.merged(base: base["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin",
+                                          loginShell: loginShellPath,
+                                          home: FileManager.default.homeDirectoryForCurrentUser.path)
+            .split(separator: ":").map(String.init)
         if let cli = bundledCLI {
             environment["CMUX_BUNDLED_CLI_PATH"] = cli.path
             let bin = cli.deletingLastPathComponent().path

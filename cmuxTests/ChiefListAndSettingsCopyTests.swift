@@ -103,4 +103,18 @@ import Testing
         #expect(environment["CMUX_WORKSPACE_ID"] == workspaceID.uuidString)
         #expect(environment["CMUX_SURFACE_ID"] == surfaceID.uuidString)
     }
+
+    @Test func aTurnFindsToolsOnTheLoginShellPath() {
+        let home = ChiefHome(root: URL(fileURLWithPath: "/tmp/chief-home", isDirectory: true))
+        let environment = ChiefTurnContextBuilder.environment(socketPath: "/tmp/cmux.sock", home: home,
+                                                              loginShellPath: "/custom/tools:/usr/bin",
+                                                              base: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"])
+        let path = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
+        #expect(path.contains("/custom/tools"))
+        #expect(path.contains("/opt/homebrew/bin"))
+        #expect(path.contains("/usr/sbin"))
+        if let cli = ChiefTurnContextBuilder.bundledCLI {
+            #expect(path.first == cli.deletingLastPathComponent().path)
+        }
+    }
 }
