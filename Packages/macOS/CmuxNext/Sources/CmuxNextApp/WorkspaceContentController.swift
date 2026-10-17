@@ -54,11 +54,16 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.keepsPanesWhenDetached = true
     }
 
-    /// Shows this parked content again (the window installs its view next).
+    /// Shows this parked content again: its observation kept the tree current, so no re-map or apply.
     func unpark() {
         isParked = false
         layoutView.keepsPanesWhenDetached = false
-        applyCurrent()
+    }
+
+    /// Installed: one topology (the coordinator restores its pane), whose ring draws in this frame.
+    func didShow() {
+        sendTopology()
+        layoutView.syncWithModel()
     }
 
     init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState) {
