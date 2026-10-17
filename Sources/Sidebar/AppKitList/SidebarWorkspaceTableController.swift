@@ -1077,6 +1077,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 #if DEBUG
         cmuxDebugLog("sidebar.table.doubleClick row=\(row) rows=\(rows.count)")
 #endif
+        // The click that activated cmux counts as click 1 of this pair, so
+        // a single deliberate click would otherwise rename (#21227). Only a
+        // double-click whose first press landed in the key window renames;
+        // otherwise the press stays a plain selection click.
+        guard table.currentDoubleClickMayRename else { return }
         guard rows.indices.contains(row),
               rows[row].appKitWorkspaceRowModel != nil,
               let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
