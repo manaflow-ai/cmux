@@ -163,3 +163,36 @@ fn cmux_next_harness_health_npm_update_refuses_legacy_or_mismatched_cached_plans
     row.update.as_mut().unwrap().elevated = true;
     assert!(updatable(&row).is_none(), "prefix binding never permits elevation");
 }
+
+#[test]
+fn cmux_next_harness_health_npm_update_hides_unbound_saved_commands_from_all_consumers() {
+    use acpmux::harness_health::Settings;
+    let root = Scratch::new("cache-read");
+    let cache = root.0.join("health.json");
+    let prefix = root.0.join("selected");
+    let (install, real) = root.install(&prefix);
+    let plan = update_plan(&install, Some(&real), Some(&real), &root.0).unwrap();
+    let mut bound = json!({
+        "id":"bound", "program":"codex", "path":real, "channel":"npm",
+        "package":"@manaflow-ai/codex", "version":"1.0.0", "latest":"2.0.0",
+        "outdated":true, "auth":"unknown", "checkedAt":1, "update":plan
+    });
+    let mut old = bound.clone();
+    old["id"] = json!("legacy");
+    old["update"]["argv"] = json!(["npm", "install", "-g", "@manaflow-ai/codex@latest"]);
+    let mut foreign = bound.clone();
+    foreign["id"] = json!("other-package");
+    foreign["package"] = json!("@openai/codex");
+    bound["id"] = json!("bound");
+    std::fs::write(&cache, json!([old, foreign, bound]).to_string()).unwrap();
+    let service = HealthService::new();
+    service.attach(Settings { cache: Some(cache), home: root.0.clone(), ..Settings::default() });
+    let rows = service.rows();
+    assert_eq!(rows.len(), 3);
+    for row in &rows[..2] {
+        assert!(row.update.is_none(), "{} exposes a stale command to a health consumer", row.id);
+        assert_eq!(row.version.as_deref(), Some("1.0.0"), "observations remain cached");
+    }
+    assert!(rows[2].update.is_some(), "a bound saved plan remains available");
+    assert!(!prefix.join("updated").exists(), "loading a cache must not run an updater");
+}
