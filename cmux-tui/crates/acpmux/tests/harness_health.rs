@@ -17,6 +17,9 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 #[path = "harness_health/update_outcomes.rs"]
 mod update_outcomes;
 
+#[path = "harness_health/inventory_refresh.rs"]
+mod inventory_refresh;
+
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::harness_health::{Settings, latest::Sources};
 use acpmux::hub::Hub;
