@@ -20,6 +20,126 @@ export type RunEventKind =
 
 export const RUN_EVENT_KINDS = ["run.created", "attempt.queued", "attempt.started", "attempt.heartbeat", "attempt.output", "attempt.artifact", "attempt.succeeded", "attempt.failed", "run.cancel_requested", "run.completed"] as const;
 
+/** The execution surface exposed by the Run API. */
+export const EXECUTION_PROVIDERS = ["cloud-vm"] as const;
+export type ExecutionProvider = (typeof EXECUTION_PROVIDERS)[number];
+
+/** Provider adapters are intentionally narrower than the execution surface. */
+export const BACKEND_PROVIDERS = ["freestyle", "huge-blue", "unknown"] as const;
+export type BackendProvider = (typeof BACKEND_PROVIDERS)[number];
+
+export const RUN_ADMISSION_STATES = ["admitted", "denied", "pending", "unavailable"] as const;
+export type RunAdmissionState = (typeof RUN_ADMISSION_STATES)[number];
+
+export const RUN_ADMISSION_REASON_CODES = [
+  "admitted",
+  "account_ineligible",
+  "adapter_not_configured",
+  "provider_unavailable",
+  "provider_unknown",
+] as const;
+export type RunAdmissionReasonCode = (typeof RUN_ADMISSION_REASON_CODES)[number];
+
+export const RUN_ACCOUNT_CLASSES = ["personal", "team", "unknown"] as const;
+export type RunAccountClass = (typeof RUN_ACCOUNT_CLASSES)[number];
+
+/** Safe provider-selection input. Account and machine identifiers never belong here. */
+export type RunRoutingRequest = {
+  readonly requestedProvider?: BackendProvider;
+  readonly accountClass?: RunAccountClass;
+};
+
+export type RunAdmissionLimits = {
+  readonly maxAttempts?: number | null;
+  readonly maxActiveSessions?: number | null;
+};
+
+export type RunAdmissionView = {
+  readonly state: RunAdmissionState;
+  readonly reasonCode: RunAdmissionReasonCode;
+  readonly retryable: boolean;
+  readonly checkedAt: string;
+  readonly limits: RunAdmissionLimits | null;
+};
+
+export type RunRoutingResult = {
+  readonly requestedProvider: BackendProvider | null;
+  readonly selectedProvider: BackendProvider;
+  readonly accountClass: RunAccountClass;
+};
+
+export type RunPlacementView = {
+  readonly executionProvider: ExecutionProvider;
+  readonly backendProvider: BackendProvider;
+  /** Opaque and stable across snapshots; never a provider machine address. */
+  readonly sessionId: string | null;
+};
+
+export type RunAttemptView = {
+  readonly id: string;
+  readonly ordinal: number;
+  readonly status: AttemptStatus;
+  readonly placement: RunPlacementView;
+  readonly attachable: boolean;
+  readonly retainedUntil: string | null;
+  readonly result: Record<string, unknown> | null;
+  readonly exitCode: number | null;
+  readonly error: string | null;
+  readonly startedAt: string | null;
+  readonly finishedAt: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+};
+
+export type RunArtifactView = {
+  readonly id: string;
+  readonly attemptId: string;
+  readonly name: string;
+  readonly mediaType: string;
+  readonly sizeBytes: number;
+  readonly digest: string;
+  readonly uri: string;
+  readonly metadata: Record<string, unknown>;
+  readonly createdAt: string;
+};
+
+export type RunView = {
+  readonly id: string;
+  readonly status: RunStatus;
+  readonly recipe: string;
+  readonly desiredAttempts: number;
+  readonly source: ImmutableRunSource;
+  /** Kept as an alias for existing clients; always `cloud-vm` today. */
+  readonly provider: ExecutionProvider;
+  readonly executionProvider: ExecutionProvider;
+  readonly backendProvider: BackendProvider;
+  readonly routing: RunRoutingResult;
+  readonly admission: RunAdmissionView;
+  readonly error: string | null;
+  readonly cancelRequestedAt: string | null;
+  readonly completedAt: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+};
+
+export type RunSnapshotView = {
+  readonly run: RunView;
+  readonly attempts: readonly RunAttemptView[];
+  readonly artifacts: readonly RunArtifactView[];
+};
+
+export type RunEventView = {
+  readonly id: string;
+  readonly runId: string;
+  readonly attemptId: string | null;
+  readonly sequence: number;
+  readonly attemptSequence: number | null;
+  readonly externalId: string | null;
+  readonly kind: RunEventKind;
+  readonly payload: Record<string, unknown>;
+  readonly createdAt: string;
+};
+
 export function isRunEventKind(value: unknown): value is RunEventKind {
   return typeof value === "string" && (RUN_EVENT_KINDS as readonly string[]).includes(value);
 }

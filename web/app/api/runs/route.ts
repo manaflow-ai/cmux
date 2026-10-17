@@ -2,7 +2,8 @@ import { resolveVmProvisioningAccountScope, runAfterResponse, withAuthedVmApiRou
 import { runError, runJson, jsonBodyObject } from "../../../services/runs/http";
 import { createRun, requestDigest } from "../../../services/runs/repository";
 import { launchQueuedCloudVmAttempts } from "../../../services/runs/dogfood";
-import { ALLOWED_RUN_RECIPES } from "../../../services/runs/model";
+import { ALLOWED_RUN_RECIPES, type RunRoutingRequest } from "../../../services/runs/model";
+import { runAdmissionFor, runRoutingFor } from "../../../services/runs/view";
 
 export const maxDuration = 960;
 
@@ -11,6 +12,7 @@ type ParsedRunBody = {
   readonly recipe: string;
   readonly desiredAttempts: number;
   readonly provider: "cloud-vm";
+  readonly routing: RunRoutingRequest;
 };
 
 function parseCreateRunBody(body: Record<string, unknown>): ParsedRunBody | Response {
@@ -25,11 +27,21 @@ function parseCreateRunBody(body: Record<string, unknown>): ParsedRunBody | Resp
   if (!ALLOWED_RUN_RECIPES.includes(recipe as (typeof ALLOWED_RUN_RECIPES)[number])) return runJson({ error: "run_recipe_required", message: "recipe must be an allowlisted internal recipe." }, 400);
   if (desiredAttempts < 1 || desiredAttempts > 32) return runJson({ error: "run_attempts_invalid", message: "desiredAttempts must be between 1 and 32." }, 400);
   if (body.provider !== undefined && body.provider !== "cloud-vm") return runJson({ error: "run_provider_invalid", message: "The MVP provider is cloud-vm." }, 400);
+  const routingBody = jsonBodyObject(body.routing);
+  const requestedProvider = ({
+    freestyle: "freestyle",
+    "huge-blue": "huge-blue",
+    unknown: "unknown",
+    undefined: undefined,
+  } as const)[String(routingBody?.requestedProvider)];
   return {
     source: { repository, ref: typeof source?.ref === "string" ? source.ref.trim() : undefined, commit },
     recipe,
     desiredAttempts,
     provider: "cloud-vm",
+    routing: {
+      requestedProvider,
+    },
   };
 }
 
@@ -53,6 +65,22 @@ export async function POST(request: Request): Promise<Response> {
       if (!idempotencyKey || idempotencyKey.length > 128) return runJson({ error: "run_idempotency_required", message: "Idempotency-Key is required for Run creation." }, 400);
       const scope = await resolveVmProvisioningAccountScope(user, request);
       if (!scope.ok) return scope.response;
+      if (parsed.routing.requestedProvider === "huge-blue") {
+        return runJson({
+          error: "run_provider_unavailable",
+          reasonCode: "adapter_not_configured",
+          message: "The Huge Blue Run adapter is not configured for this deployment.",
+          retryable: false,
+        }, 409);
+      }
+      if (parsed.routing.requestedProvider === "unknown") {
+        return runJson({
+          error: "run_provider_invalid",
+          reasonCode: "provider_unknown",
+          message: "The requested Run provider is not recognized.",
+          retryable: false,
+        }, 400);
+      }
       try {
         const run = await createRun({
           userId: user.id,
@@ -74,7 +102,17 @@ export async function POST(request: Request): Promise<Response> {
             recipe: run.run.recipe,
           });
         });
-        return runJson({ id: run.run.id, status: run.run.status, attempts: run.attempts.map((attempt) => ({ id: attempt.id, ordinal: attempt.ordinal, status: attempt.status })), createdAt: run.run.createdAt }, 202);
+        const accountClass = scope.entitlements.billingCustomerType === "team" ? "team" : "personal";
+        return runJson({
+          id: run.run.id,
+          status: run.run.status,
+          attempts: run.attempts.map((attempt) => ({ id: attempt.id, ordinal: attempt.ordinal, status: attempt.status })),
+          createdAt: run.run.createdAt,
+          executionProvider: "cloud-vm",
+          backendProvider: "freestyle",
+          routing: runRoutingFor({ routing: parsed.routing, backendProvider: "freestyle", accountClass }),
+          admission: runAdmissionFor({ backendProvider: "freestyle", accountEligible: true, limits: { maxActiveSessions: scope.entitlements.maxActiveVms } }),
+        }, 202);
       } catch (error) {
         return runError(error);
       }
