@@ -54,6 +54,7 @@ export const handsLayer = (env: Env, caller: HandCaller, turn?: HandsTurn) =>
         }),
       bindToken: (jti, hand, session) => Effect.sync(() => void turn?.ledger?.(jti, { op: "bind", hand, session })),
       revokeSession: (hand, session) => Effect.sync(() => void turn?.ledger?.("", { op: "revoke", hand, session })),
+      setLevel: (hand, level) => rpc(() => handStub(env, hand).setLevel(caller, level)),
       newSandbox: (name) => rpc(() => createSandbox(env, caller, name)),
       resolve: (hand) => rpc(() => resolveHand(env, caller, hand)),
       call: (hand, action, params, timeoutMs) => rpc(() => handStub(env, hand).call(caller, action, params, timeoutMs)),
@@ -135,8 +136,8 @@ export const followTurn = (hand: string, handName: string, harness: string, sess
 // --- Tools ---
 
 const HandsArgs = Type.Object({
-  action: Type.Union([Type.Literal("list"), Type.Literal("pair_code"), Type.Literal("new_sandbox"), Type.Literal("read"), Type.Literal("write"), Type.Literal("edit"), Type.Literal("patch"), Type.Literal("ls"), Type.Literal("glob"), Type.Literal("grep"), Type.Literal("exec")], {
-    description: "list: your hands. pair_code: a single-use code + install line for a new machine. new_sandbox: a new cloud sandbox with its hand (name it with name). read/write/edit/patch/ls/glob/grep: files on a hand. exec: run a program (sandbox hands only)."
+  action: Type.Union([Type.Literal("list"), Type.Literal("pair_code"), Type.Literal("new_sandbox"), Type.Literal("set_level"), Type.Literal("read"), Type.Literal("write"), Type.Literal("edit"), Type.Literal("patch"), Type.Literal("ls"), Type.Literal("glob"), Type.Literal("grep"), Type.Literal("exec")], {
+    description: "list: your hands. pair_code: a single-use code + install line for a new machine. new_sandbox: a new cloud sandbox with its hand (name it with name). set_level: lower a hand's permission level (level: auto, ask, read-only); only the person raises it. read/write/edit/patch/ls/glob/grep: files on a hand. exec: run a program (sandbox hands only)."
   }),
   hand: Type.Optional(Type.String({ description: "Hand id (hand_...) or its name. Required except for list and pair_code." })),
   path: Type.Optional(Type.String({ description: "Absolute path (or relative to cwd)." })),
@@ -153,7 +154,8 @@ const HandsArgs = Type.Object({
   argv: Type.Optional(Type.Array(Type.String(), { description: "exec: program and arguments (no shell unless you name one)." })),
   timeout_ms: Type.Optional(Type.Integer()),
   name: Type.Optional(Type.String({ description: "pair_code: a name for the new hand." })),
-  profile: Type.Optional(Type.Union([Type.Literal("sandbox"), Type.Literal("mac")]))
+  profile: Type.Optional(Type.Union([Type.Literal("sandbox"), Type.Literal("mac")])),
+  level: Type.Optional(Type.Union([Type.Literal("full"), Type.Literal("auto"), Type.Literal("ask"), Type.Literal("read-only")]))
 })
 type HandsArgsT = Static<typeof HandsArgs>
 
@@ -185,6 +187,7 @@ export const handsProgram = (a: HandsArgsT) =>
     if (a.action === "list") return yield* hands.list()
     if (a.action === "pair_code") return yield* hands.pairCode(a.name ?? "hand", a.profile ?? "sandbox")
     if (a.action === "new_sandbox") return yield* hands.newSandbox(yield* need(a.name, "name"))
+    if (a.action === "set_level") return yield* hands.setLevel(yield* hands.resolve(yield* need(a.hand, "hand")), yield* need(a.level, "level"))
     const hand = yield* hands.resolve(yield* need(a.hand, "hand"))
     const { action: _a, hand: _h, ...params } = a
     if (a.action === "glob" || a.action === "grep") (params as Record<string, unknown>).root ??= a.cwd ?? a.path
@@ -257,15 +260,57 @@ const run = <A>(env: Env, caller: HandCaller | null, program: Effect.Effect<A, H
  * The `hands` and `agent` tools for a brain whose `who()` names its chief and owner. `report` sends
  * activity and step updates of the current run (the brain hook maps them to BrainEvents).
  */
+const HandsEntryArgs = Type.Object({
+  action: Type.Union([Type.Literal("list"), Type.Literal("pair_code"), Type.Literal("new_sandbox")]),
+  name: Type.Optional(Type.String({ description: "new_sandbox (required) / pair_code: the hand's name." })),
+  profile: Type.Optional(Type.Union([Type.Literal("sandbox"), Type.Literal("mac")]))
+})
+
+type Who = () => { agent: string | null; owner: string | null; run?: string | undefined; conversation?: string | undefined; ledger?: (jti: string, o: LedgerOp) => unknown }
+const callerOf = (who: Who) => (): HandCaller | null => {
+  const { agent, owner, conversation } = who()
+  return agent && owner ? { kind: "chief", user: owner, agent, ...(conversation ? { conversation } : {}) } : null
+}
+
+/**
+ * The compact `hands` tool of a Chief with no hand yet (about 1.8k fewer tokens per request than the full
+ * `hands` + `agent` pair): list, a pairing code for a machine, or a new cloud sandbox. Once a hand exists the
+ * brain continues the run once with the full tools (the tools list never changes inside a pi turn: thinking is signed for it).
+ */
+export const handsEntryTool = (env: Env, who: Who, onHand: (action: string, result: string) => Promise<void>): ToolRegistration<typeof HandsEntryArgs> => ({
+  name: "hands",
+  description: "You have no hand yet (a machine for files, programs and coding agents). list: your hands. pair_code: a code + install line for a machine (name, profile). new_sandbox: a cloud sandbox with its hand (name). When a hand is ready, the full hands and agent tools come right after this step; then continue.",
+  parameters: HandsEntryArgs,
+  replay: "unsafe",
+  execute: async (args) => {
+    const text = await run(env, callerOf(who)(), handsProgram(args as HandsArgsT))
+    // Records a hand found now; the full tools come at the next turn boundary.
+    if ((args.action === "new_sandbox" || args.action === "list") && !text.startsWith("hands error")) await onHand(args.action, text).catch(() => undefined)
+    return { content: [{ type: "text", text }] }
+  }
+})
+
+/** Whether the Chief has at least one hand (one list call; false when it cannot tell). */
+export const hasHand = (env: Env, who: Who): Promise<boolean> => {
+  const caller = callerOf(who)()
+  if (caller === null) return Promise.resolve(false)
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      return yield* (yield* Hands).list()
+    }).pipe(
+      Effect.map((list) => list.length > 0),
+      Effect.catch(() => Effect.succeed(false)),
+      Effect.provide(handsLayer(env, caller))
+    )
+  )
+}
+
 export const handsTools = (
   env: Env,
   who: () => { agent: string | null; owner: string | null; run?: string | undefined; conversation?: string | undefined; ledger?: (jti: string, o: LedgerOp) => unknown },
   report: HandsReporter = () => undefined
 ): [ToolRegistration<typeof HandsArgs>, ToolRegistration<typeof AgentArgs>] => {
-  const caller = (): HandCaller | null => {
-    const { agent, owner, conversation } = who()
-    return agent && owner ? { kind: "chief", user: owner, agent, ...(conversation ? { conversation } : {}) } : null
-  }
+  const caller = callerOf(who)
   return [
     {
       name: "hands",

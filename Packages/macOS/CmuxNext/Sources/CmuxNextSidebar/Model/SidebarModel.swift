@@ -38,7 +38,7 @@ public final class SidebarModel {
         access(keyPath: \.sections)
         return sectionsRevision
     }
-    /// `sectionsRevision` when the user last moved rows (a keyboard move, a drop): the next structural set may scroll to
+    /// `sectionsRevision` when the user last moved rows (a keyboard move; never a drop): the next structural set may scroll to
     /// the moved active row. Nil: no move of the user's waits. Changes from others never move the view (DESIGN.md
     /// scroll reveal, cx-ml98q).
     @ObservationIgnored public private(set) var userMoveRevision: UInt64?
@@ -206,7 +206,7 @@ public final class SidebarModel {
     /// The rows a position-based pick (Cmd+1…9, next/previous sidebar tab,
     /// select first/last, arrow keys) may land on: every row but
     /// placeholders, which are no workspace yet.
-    public var selectableWorkspaces: [SidebarWorkspace] { allWorkspaces.filter { $0.rowState != .placeholder } }
+    public var selectableWorkspaces: [SidebarWorkspace] { allWorkspaces.filter { !$0.rowState.isPending } }
 
     public func workspace(_ id: WorkspaceID) -> SidebarWorkspace? { SidebarEdits.workspace(id, in: sections) }
 
@@ -336,7 +336,7 @@ public final class SidebarModel {
 
     /// A placeholder row (a machine still connecting) is never selected,
     /// renamed, dragged or shown.
-    public func isPlaceholder(_ id: WorkspaceID) -> Bool { workspace(id)?.rowState == .placeholder }
+    public func isPlaceholder(_ id: WorkspaceID) -> Bool { workspace(id)?.rowState.isPending == true }
 
     /// Plain click: select only `id` and activate it.
     public func click(_ id: WorkspaceID) {

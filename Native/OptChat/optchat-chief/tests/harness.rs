@@ -639,9 +639,13 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
     );
     assert_eq!(codex.system_prompt, None);
     let bare = turn_preset(&paths, &home, "codex", Family::Codex, false, "SYS").unwrap();
+    // Only acpmux's cmux MCP server in a turn (cx-4a5w2).
     assert_eq!(
         bare.env,
-        std::collections::BTreeMap::from([("CODEX_PROMPT_CACHE_KEY".to_owned(), key)])
+        std::collections::BTreeMap::from([
+            ("ACPMUX_AGENT_TOOL_SERVERS".to_owned(), "cmux".to_owned()),
+            ("CODEX_PROMPT_CACHE_KEY".to_owned(), key),
+        ])
     );
     let claude = turn_preset(&paths, &home, "claude-sr", Family::Claude, false, "SYS").unwrap();
     assert_eq!(claude.system_prompt.as_deref(), Some("SYS"));

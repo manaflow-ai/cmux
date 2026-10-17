@@ -92,6 +92,6 @@ rust-file	cmux-tui/crates/ghostty-vt/src/kitty.rs	1368	64
 rust-file	cmux-tui/crates/ghostty-vt/src/terminal.rs	3187	163
 swift-type	CmuxNextApp/WindowManager	1128	0
 swift-type	CmuxNextDaemon/DaemonConnection	1446	0
-swift-type	CmuxNextTabs/TabStripView	2066	0
+swift-type	CmuxNextTabs/TabStripView	2046	0
 swift-type	CmuxNextTerminal/TerminalSurfaceView	1032	0
 rust-file	cmux-tui/crates/cmux-tui-hooks/src/lib.rs	3941	139

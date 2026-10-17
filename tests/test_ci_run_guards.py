@@ -116,6 +116,16 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
         # The fast group's steps are independent, which is what makes it fast.
         self.assertFalse(run_ci_guards.is_stateful(by_group["ci"]))
 
+    def test_fast_guard_skip_gate_is_a_supported_group_condition(self) -> None:
+        step = {
+            "name": "gated",
+            "if": "${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}",
+            "run": "true",
+        }
+        units = run_ci_guards.plan(self.workflow(step), "base", "head")
+        ci = next(unit for unit in units if unit.group == "ci")
+        self.assertIn("gated", {step.name for step in ci.steps})
+
 
 class PlanRefusesWhatItCannotRun(unittest.TestCase):
     def workflow(self, step: dict) -> dict:

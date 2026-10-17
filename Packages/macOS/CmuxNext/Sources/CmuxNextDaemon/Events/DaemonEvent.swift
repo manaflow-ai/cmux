@@ -32,8 +32,10 @@ public enum DaemonEvent: Sendable, Hashable {
     /// Full resync barrier: refetch `list-workspaces`. `transaction` echoes
     /// the client transaction id of the command that caused it, when any.
     case treeChanged(transaction: ClientTransactionID?)
-    /// Pane geometry changed on a screen: refetch.
-    case layoutChanged(screen: ScreenID, transaction: ClientTransactionID?)
+    /// Pane geometry changed on a screen. With `layout-delta-v1` it carries
+    /// the screen's new layout, which patches that screen; without one
+    /// (an older daemon) the store refetches.
+    case layoutChanged(screen: ScreenID, layout: ScreenLayoutDelta?, transaction: ClientTransactionID?)
 
     // Surface state.
     case titleChanged(surface: SurfaceID, title: String)

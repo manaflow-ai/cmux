@@ -91,7 +91,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             groups: [
                 group("settings.group.window"), group("settings.group.tabs"), group("settings.group.columns"),
                 group("settings.group.history"), group("settings.group.quit"), group("settings.group.picker"),
-                group("settings.group.tasks"), group("settings.group.diffViewer"), group("settings.group.updates"),
+                group("settings.group.tasks"), group("settings.group.diffViewer"), group("settings.group.files"), group("settings.group.updates"),
                 group("settings.group.announcements"), group("settings.group.chats"),
             ],
             trail: [.spaces], actions: [.general, .rooms], aliases: [.general, .rooms]),
@@ -144,7 +144,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             groups: [
                 group("settings.group.engine"), group("settings.group.addressBar"), group("settings.group.toolbar"),
                 group("settings.group.bookmarks"), group("settings.group.extensions"),
-                group("settings.group.links"), group("settings.group.terminalLinks"), group("settings.group.passwords"),
+                group("settings.group.links"), group("settings.group.openingLinks"), group("settings.group.passwords"),
                 group("settings.group.memory"), group("settings.group.remote"),
             ],
             trail: [.browserProfiles], actions: [.browser], aliases: [.browser]),

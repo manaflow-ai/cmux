@@ -2238,6 +2238,15 @@ if [[ "$LAUNCH" -eq 1 ]]; then
       CMUX_DEV_AUTH_REPLACE_SESSION=1
     )
   fi
+  # nx-remote GUI jobs (cmuxterm-hq build-host/README.md): the tagged launch below
+  # runs through `env -i`, so pass on the job's markers when the caller has them.
+  # NX_REMOTE=1: the app asks for no notification permission (DesktopNotifier);
+  # ACPMUX_AGENT_LAUNCH=deny: the app's acpmux starts no agent.
+  for NX_PASS_VAR in NX_REMOTE ACPMUX_AGENT_LAUNCH; do
+    if [[ -n "${!NX_PASS_VAR:-}" ]]; then
+      TAG_LAUNCH_ENV+=("$NX_PASS_VAR=${!NX_PASS_VAR}")
+    fi
+  done
 
   LAUNCH_CMD=()
   LAUNCH_RETRY_CMD=()

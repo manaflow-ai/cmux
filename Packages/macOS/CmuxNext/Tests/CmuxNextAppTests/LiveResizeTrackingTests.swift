@@ -99,17 +99,17 @@ import Testing
         window.contentView = strip
         strip.frame = NSRect(x: 0, y: 0, width: 1600, height: TabStripView.preferredHeight)
         strip.layoutSubtreeIfNeeded()
-        try #require(!strip.fadedEdges.trailing, "eight tabs overflow a 1600 pt strip")
+        try #require(!strip.edgeFade.edges.trailing, "eight tabs overflow a 1600 pt strip")
 
         Self.liveResize {
             // The window narrows until the tabs no longer fit.
             for width in stride(from: 1400, through: 200, by: -100) {
                 strip.setFrameSize(NSSize(width: CGFloat(width), height: strip.frame.height))
                 strip.layoutSubtreeIfNeeded()
-                #expect((strip.fadeMask.animationKeys() ?? []).isEmpty, "\(width) pt: the edge fade animates mid-resize")
+                #expect((strip.edgeFade.mask.animationKeys() ?? []).isEmpty, "\(width) pt: the edge fade animates mid-resize")
             }
         }
-        #expect(strip.fadedEdges.trailing, "the narrowed strip's tabs fit; the test proves nothing")
+        #expect(strip.edgeFade.edges.trailing, "the narrowed strip's tabs fit; the test proves nothing")
     }
 
     @Test func aWindowIsInALiveResizeFromItsStartToItsEndOrClose() {

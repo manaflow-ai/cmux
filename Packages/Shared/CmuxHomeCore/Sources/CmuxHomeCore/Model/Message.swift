@@ -266,6 +266,8 @@ public struct Message: Hashable, Sendable, Codable, Identifiable {
     public var replyTo: PartRef?
     /// The first message of the thread this message belongs to.
     public var threadRoot: MessageID?
+    /// A thread root's object (title, owner, resolution); nil for other messages.
+    public var thread: ThreadInfo?
 
     public init(
         id: MessageID,

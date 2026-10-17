@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 300
 // How a press on the composer's chips feels (cg-composer item 2, click polish; Codex desktop is the
 // reference): the + menu, model, reasoning and permission chips in the bar, and the folder chip on
 // the location strip, in a chat's composer, a new chat's and the New Tab page's.

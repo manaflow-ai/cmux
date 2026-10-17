@@ -537,7 +537,7 @@ impl Mux {
                 self.with_state(|state| state.resource_indexes.screens.get(&id).copied())
             })
         {
-            self.emit(MuxEvent::LayoutChanged(screen));
+            self.emit_layout_changed(screen, None);
         }
     }
 }

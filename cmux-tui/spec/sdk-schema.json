@@ -3522,6 +3522,18 @@
      "presence": "required",
      "nullable": false
     },
+    "closed_ids": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "close-workspace with end_terminals and report_closed_ids: the closed.list groups the close stored, oldest first; closed.reopen of each restores exactly what it closed."
+    },
     "generation": {
      "type": {
       "kind": "scalar",
@@ -13482,6 +13494,16 @@
       "default": false,
       "capability": "close-workspace-if-empty-v1",
       "description": "Close only when the workspace has no tab at commit time; otherwise workspace_not_empty and no change."
+     },
+     "report_closed_ids": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "description": "With end_terminals: the result names closed_ids, the closed.list groups the close stored. Opt-in so older decoders keep the result shape; a daemon that predates it ignores the field."
      },
      "origin": {
       "type": {
@@ -25340,6 +25362,56 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "layout-delta-v1"
+     },
+     "active_pane": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "layout-delta-v1"
+     },
+     "zoomed_pane": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "since": 12,
+      "capability": "layout-delta-v1"
+     },
+     "layout": {
+      "type": {
+       "kind": "ref",
+       "name": "Layout"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "layout-delta-v1"
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "layout-delta-v1"
      }
     },
     "additional_properties": false

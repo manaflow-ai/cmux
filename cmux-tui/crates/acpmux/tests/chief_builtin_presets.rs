@@ -96,6 +96,11 @@ impl Daemon {
     /// [`Daemon::start`] with `extra` in the daemon's own environment, set
     /// relative to its directory (the starter's leftovers).
     fn start_with(tag: &str, extra: &[(&str, &str)]) -> Self {
+        Self::start_env(tag, extra, &[])
+    }
+
+    /// [`Daemon::start_with`], and `plain` in the daemon's own environment as given.
+    fn start_env(tag: &str, extra: &[(&str, &str)], plain: &[(&str, &str)]) -> Self {
         let dir = std::env::temp_dir().join(format!("acb-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("mux")).unwrap();
@@ -126,6 +131,7 @@ impl Daemon {
             .env("PATH", "/usr/bin:/bin")
             .env("ACPMUX_LOGIN_ENV", "0")
             .envs(extra.iter().map(|(k, v)| (*k, dir.join(v))))
+            .envs(plain.iter().copied())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
@@ -395,5 +401,61 @@ async fn a_built_in_preset_of_an_unknown_chief_is_refused() {
         assert!(message.contains("0badc0de is not a Chief"), "{name}: {r}");
         let r = chief.call("_acpmux/presets", json!({"name": name})).await;
         assert!(r.get("error").is_some(), "{name} was stored: {r}");
+    }
+}
+
+/// A Chief turn gets only the cmux MCP server of the agent tools (cx-4a5w2):
+/// the computer use, secret and session offer servers stay out of its
+/// session. In the app (whose bundle has `cmux-cua`) their tool names and
+/// instructions came after the turn's cache mark, 2,905 uncached tokens per
+/// turn and about 70% read from the cache; a turn reaches that work through
+/// subagents, which keep every server.
+#[tokio::test]
+async fn a_chief_turn_gets_only_the_cmux_mcp_server() {
+    let d = Daemon::start_env(
+        "tools",
+        &[("CMUX_AGENT_TOOLS_BIN_DIR", "tools")],
+        &[("ACPMUX_SECRET_TOOLS", "1"), ("ACPMUX_OFFER_TOOLS", "1")],
+    );
+    let tools = d.dir.join("tools");
+    std::fs::create_dir_all(&tools).unwrap();
+    for name in ["cmux", "cmux-cua"] {
+        use std::os::unix::fs::PermissionsExt;
+        let path = tools.join(name);
+        std::fs::write(&path, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let id = home_id(&d.dir.join("mux"));
+    let mut chief = Rpc::connect(&d.socket).await;
+    let servers = |text: String| -> Vec<String> {
+        let list: Value = serde_json::from_str(&text).unwrap();
+        list.as_array()
+            .unwrap_or_else(|| panic!("mcpServers is a list: {text}"))
+            .iter()
+            .filter_map(|s| s["name"].as_str().map(str::to_owned))
+            .collect()
+    };
+    for (preset, want) in [
+        (Some(format!("optchat-chief-{id}")), vec!["cmux"]),
+        (Some(format!("optchat-chief-codex-{id}")), vec!["cmux"]),
+        (
+            Some(format!("optchat-sub-{id}")),
+            vec!["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux"],
+        ),
+        (None, vec!["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux"]),
+    ] {
+        let mut params = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
+        if let Some(name) = &preset {
+            let harness = if name.contains("-codex-") { "fcodex" } else { "fclaude" };
+            let r = chief
+                .call("_acpmux/presets", json!({"name": name, "set": {"harness": harness}}))
+                .await;
+            assert!(r.get("error").is_none(), "{r}");
+            params["_meta"] = json!({"acpmux": {"preset": name}});
+        }
+        let r = chief.call("session/new", params).await;
+        assert!(r.get("error").is_none(), "{preset:?}: {r}");
+        let session = r["result"]["sessionId"].as_str().unwrap().to_owned();
+        assert_eq!(servers(chief.prompt_text(&session, "mcp").await), want, "{preset:?}");
     }
 }

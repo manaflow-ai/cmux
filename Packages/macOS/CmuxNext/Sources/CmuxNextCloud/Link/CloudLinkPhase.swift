@@ -2,7 +2,7 @@
 
 /// The link from this Mac to a Cloud machine's daemon, as the session sees
 /// its endpoint calls (`CloudMachineSession.linkPhase`).
-nonisolated enum CloudLinkPhase: Hashable, Sendable {
+public enum CloudLinkPhase: Hashable, Sendable {
     /// No connect was asked for (or the link was parked or stopped).
     case idle
     /// The link is starting: attach endpoint, tunnel, remote connect.
@@ -15,7 +15,7 @@ nonisolated enum CloudLinkPhase: Hashable, Sendable {
 }
 
 /// A machine creation's request, before its session exists.
-nonisolated enum CloudCreationPhase: Hashable, Sendable {
+public enum CloudCreationPhase: Hashable, Sendable {
     /// Getting the sign-in token and team.
     case requesting
     /// `POST /api/vm` sent; waiting for the server.

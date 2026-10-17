@@ -2,7 +2,7 @@ import AppKit
 public import CmuxNextDesign
 import CmuxNextWakeups
 import QuartzCore
-// Layout, frame application, edge fades, and the FrameScheduler animation client.
+// Layout, frame application (edge fades: `TabEdgeFade`), and the FrameScheduler animation client.
 extension TabStripView {
     // MARK: - Layout
 
@@ -22,27 +22,9 @@ extension TabStripView {
         if let index = dropPlaceholderIndex {
             let pinnedCount = tabs.count(where: \.isPinned)
             let placeholder = TabLayoutItem(id: Self.placeholderID, groupID: dropPlaceholderGroup, fixedWidth: groups.phantomWidth)
-            Self.insertPlaceholder(placeholder, atTabIndex: max(index, pinnedCount), into: &items)
+            items.insertPlaceholder(placeholder, atTabIndex: max(index, pinnedCount))
         }
         return items
-    }
-
-    /// Inserts a drop gap before the `tabIndex`-th tab of `items`. The gap
-    /// goes before that tab's chip unless it joins that tab's group.
-    static func insertPlaceholder(_ placeholder: TabLayoutItem, atTabIndex tabIndex: Int, into items: inout [TabLayoutItem]) {
-        var seen = 0
-        var position = items.count
-        for (offset, item) in items.enumerated() where !item.isGroupChip {
-            if seen == tabIndex {
-                position = offset
-                break
-            }
-            seen += 1
-        }
-        if position > 0, items[position - 1].isGroupChip, items[position - 1].groupID != placeholder.groupID {
-            position -= 1
-        }
-        items.insert(placeholder, at: position)
     }
 
     /// `growsAdded` (default false): the `added` tabs open the Chrome way (`ui.animations.newTab` on,
@@ -103,7 +85,10 @@ extension TabStripView {
         }
         pinClosingTabs()
         scroll.target = TabScrollMath.clamp(scroll.target, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
-        if keepsSelectedInView, drag == nil, let slot = model.selectedID.flatMap({ result.slot($0) }) { scroll.target = TabScrollMath.offset(revealing: slot, current: scroll.target, contentWidth: result.contentWidth, viewportWidth: viewportWidth, margin: metrics.scrollFadeWidth) }
+        if keepsSelectedInView, drag == nil, let slot = model.selectedID.flatMap({ result.slot($0) }) {
+            scroll.target = TabScrollMath.offset(revealing: slot, current: scroll.target, contentWidth: result.contentWidth, viewportWidth: viewportWidth,
+                                                 margin: metrics.scrollFadeWidth, fixedLeading: scrollMapping.band)
+        }
         if !animated {
             scroll.snap()
             for id in dying { removeTab(id) }
@@ -114,7 +99,7 @@ extension TabStripView {
         TabSeparatorVisibility.apply(to: self)
         startAnimating()
         applyFrames()
-        updateOverflowHint()
+        overflowHints.update()
     }
 
     /// A closing tab's left edge stays on the previous tab's right edge minus the close width (0: our
@@ -146,10 +131,24 @@ extension TabStripView {
             current: scroll.target,
             contentWidth: result.contentWidth,
             viewportWidth: viewportWidth,
-            margin: metrics.scrollFadeWidth
+            margin: metrics.scrollFadeWidth,
+            fixedLeading: scrollMapping.band
         )
         if !animated || reduceMotion { scroll.snap() }
         startAnimating()
+    }
+
+    /// The strip's scroll mapping now: pinned tabs fixed, unpinned tabs at the scroll's current value.
+    var scrollMapping: TabScrollMapping { scrollMapping(offset: scroll.value) }
+
+    /// The scroll mapping of the current layout at `offset` (the target, for settled geometry).
+    func scrollMapping(offset: CGFloat) -> TabScrollMapping {
+        TabScrollMapping(result: result, viewportWidth: viewportWidth, minimumScrollable: metrics.minActiveTabWidth, offset: offset)
+    }
+
+    /// The layer a tab's cell draws in: `tabsClip`'s for a pinned tab, else the clipped scrolling layer.
+    func tabsLayer(isPinned: Bool) -> CALayer? {
+        isPinned ? tabsClip.layer : scrollingLayer
     }
 
     func applyFrames() {
@@ -158,20 +157,28 @@ extension TabStripView {
         defer { CATransaction.commit() }
         let tabHeight = min(metrics.tabHeight, bounds.height)
         let tabY = tabTop
-        let offset = scroll.value
+        let mapping = scrollMapping
+        let offset = mapping.offset(isPinned: false)
         let scale = window?.backingScaleFactor ?? 2
         func pixel(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
+        // The scrolling layer starts after the pinned band, with tabsClip's coordinates inside.
+        let clip = tabsClip.bounds
+        scrollingLayer.frame = CGRect(x: mapping.band, y: clip.minY, width: max(0, clip.width - mapping.band), height: clip.height)
+        scrollingLayer.bounds.origin = CGPoint(x: mapping.band, y: clip.minY)
         var trailing: CGFloat = 0
         for (id, cell) in cells {
             guard let m = motion[id] else { continue }
+            let isPinned = cell.item.isPinned
+            // A tab pinned or unpinned since it was made moves to its region's layer.
+            if let parent = tabsLayer(isPinned: isPinned), cell.layer.superlayer !== parent { parent.addSublayer(cell.layer) }
             let width = max(0, m.width.value)
-            let minX = pixel(m.x.value - offset)
-            cell.frame = CGRect(x: minX, y: tabY, width: pixel(m.x.value - offset + width) - minX, height: tabHeight)
+            let minX = pixel(mapping.viewX(m.x.value, isPinned: isPinned))
+            cell.frame = CGRect(x: minX, y: tabY, width: pixel(mapping.viewX(m.x.value + width, isPinned: isPinned)) - minX, height: tabHeight)
             cell.layer.opacity = Float(min(max(m.alpha.value, 0), 1))
             cell.accessibility.setAccessibilityFrameInParentSpace(tabsClip.convert(cell.frame, to: self))
             trailing = max(trailing, m.x.value + width)
         }
-        TabOcclusion.apply(cells: cells, selected: model.selectedID.flatMap { dying.contains($0) ? nil : $0 }, in: tabsClip.layer)
+        TabOcclusion.apply(cells: cells, selected: model.selectedID.flatMap { dying.contains($0) ? nil : $0 }, in: tabsClip.layer, band: mapping.band)
         for group in groups.chips.keys {
             guard let m = motion[.groupChip(group)] else { continue }
             trailing = max(trailing, m.x.value + max(0, m.width.value))
@@ -181,50 +188,9 @@ extension TabStripView {
         let buttonX = tabsClip.frame.minX + min(trailing - offset, viewportWidth)
         // Square, centered on the tabs: it keeps its size when the tabs are shorter.
         newTabButton.frame = CGRect(x: pixel(buttonX), y: pixel(tabY + (tabHeight - buttonWidth) / 2), width: buttonWidth, height: buttonWidth)
-        updateFadeMask()
+        edgeFade.update()
         // Tabs moved (scroll, reflow, close): what is under a still pointer may differ.
         geometryDidChange()
-    }
-
-    /// Fades the strip's ends only while tabs are hidden beyond them: none
-    /// on the leading edge at offset 0, none on the trailing edge at the
-    /// end, none when every tab fits (rubber band past an end included). An
-    /// edge's band fades in or out with the Motion `hover` token (a short
-    /// crossfade under Reduce Motion, per the Motion policy); the mask comes off once no edge is faded, so a
-    /// strip that fits renders with no offscreen pass.
-    func updateFadeMask() {
-        let width = viewportWidth
-        let edges = width > 0
-            ? TabScrollMath.fadedEdges(offset: scroll.value, contentWidth: result.contentWidth, viewportWidth: width)
-            : (leading: false, trailing: false)
-        let fade = min(metrics.scrollFadeWidth / max(width, 1), 0.5)
-        fadeMask.frame = tabsClip.bounds
-        fadeMask.locations = [0, NSNumber(value: Double(fade)), NSNumber(value: Double(1 - fade)), 1]
-        guard edges != fadedEdges else { return }
-        let wasFaded = fadedEdges.leading || fadedEdges.trailing
-        let isFaded = edges.leading || edges.trailing
-        fadedEdges = edges
-        let opaque = NSColor.black.cgColor
-        let clear = NSColor.clear.cgColor
-        let colors = [edges.leading ? clear : opaque, opaque, opaque, edges.trailing ? clear : opaque]
-        if isFaded, tabsClip.layer?.mask !== fadeMask { tabsClip.layer?.mask = fadeMask }
-        let animates = window != nil && (wasFaded || isFaded) && !Motion.isLiveResizing // in a live resize the edge follows at once
-        CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in
-            MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
-                guard let self, !(self.fadedEdges.leading || self.fadedEdges.trailing) else { return }
-                if self.tabsClip.layer?.mask != nil { self.tabsClip.layer?.mask = nil }
-            }
-        }
-        if animates {
-            // A freshly installed mask starts from fully opaque, not from
-            // the colors it had when it came off.
-            Motion.set(fadeMask, "colors", to: colors, fade: .hover, from: wasFaded ? nil : [opaque, opaque, opaque, opaque])
-        } else {
-            fadeMask.removeAnimation(forKey: "colors")
-            Motion.transaction(nil) { fadeMask.colors = colors }
-        }
-        CATransaction.commit()
     }
 
     // MARK: - Animation

@@ -21,7 +21,14 @@ Write only the message itself: no header, no quoting of the brackets.
 
 In a channel you act on your own: answer when the message is for you or fits your role, start or
 join the work you see. When a channel message is not for you and needs nothing from you, answer
-exactly ${NO_REPLY} and nothing is posted. Never answer ${NO_REPLY} in a direct message.
+exactly ${NO_REPLY} and nothing is posted. Never answer ${NO_REPLY} to a person's direct message.
+
+spawn(tasks) starts subagents that work in parallel and report back later as work messages
+"[Name] ...". Use them for independent pieces of work that take time, and give each task every fact
+it needs. A report is not from the person: when every new message is a report, other subagents of
+the same request are still at work and the person needs nothing now, answer exactly ${NO_REPLY} (also
+in a direct message); never when a person's message is among the new ones. When
+the last report is in, answer the person with the combined result. Check a report before you rely on it.
 
 Summaries keep little of tool output, so say in your reply what you learned that will matter later.`
 

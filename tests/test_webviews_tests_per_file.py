@@ -73,7 +73,7 @@ def path_without_timeout(temp):
 
 
 class PerFileRunner(unittest.TestCase):
-    def run_runner(self, files, without_timeout=False, contents=None):
+    def run_runner(self, files, without_timeout=False, contents=None, shard=None, shard_count=None):
         temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         web = temp / "webviews"
         for name in files:
@@ -103,6 +103,9 @@ class PerFileRunner(unittest.TestCase):
                "BUN_OVERLAPS": str(self.overlaps), "SHARED_VITE_CACHE": str(web / "node_modules" / ".vite"),
                "BUN_DEV": str(self.dev), "BUN_PEAK": str(self.peak), "DEV_RUNNING": str(running),
                "CMUX_WEB_TEST_FILE_TIMEOUT": "2", "CMUX_WEB_TEST_JOBS": "8"}
+        if shard is not None:
+            env["CMUX_WEB_TEST_SHARD"] = str(shard)
+            env["CMUX_WEB_TEST_SHARD_COUNT"] = str(shard_count)
         started = time.monotonic()
         result = subprocess.run(["bash", str(RUNNER)], cwd=web, env=env, capture_output=True, text=True, timeout=40)
         return result, time.monotonic() - started, sorted(calls.read_text(encoding="utf-8").split())
@@ -134,6 +137,13 @@ class PerFileRunner(unittest.TestCase):
         result, _, calls = self.run_runner(["test/a.test.ts", "src/b.test.tsx"])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, ["./src/b.test.tsx", "./test/a.test.ts"])
+
+    def test_shards_cover_each_file_once(self):
+        files = ["test/a.test.ts", "test/b.test.ts", "test/c.test.ts", "src/d.test.tsx", "src/e.test.tsx"]
+        _, _, first = self.run_runner(files, shard=1, shard_count=2)
+        _, _, second = self.run_runner(files, shard=2, shard_count=2)
+        self.assertEqual(sorted(first + second), sorted(f"./{name}" for name in files))
+        self.assertEqual(set(first) & set(second), set())
 
     def test_dev_server_files_run_at_once_each_on_its_own_warm_vite_cache(self):
         # Every file that starts a dev server once ran one at a time after the rest (#19812): on

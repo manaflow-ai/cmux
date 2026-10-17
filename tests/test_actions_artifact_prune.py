@@ -58,14 +58,13 @@ class Prune(unittest.TestCase):
         self.assertEqual((summary["candidates"], summary["candidate_bytes"]), (1, 100))
         self.assertEqual(api.deleted, [])
 
-    def test_build_artifacts_live_3_days_and_gallery_stages_1(self):
+    def test_build_artifacts_live_3_days(self):
         api = FakeAPI([
             art(1, "cmux-tui-x86_64-unknown-linux-musl", 4), art(2, "cmux-tui-x86_64-unknown-linux-musl", 2),
             art(3, "chatmux-relay-aarch64-apple-darwin", 3.5), art(4, "pypi-wheels", 2.9),
-            art(5, "gallery-stage-head-2", 1.5), art(6, "gallery-stage-base-0", 0.5),
         ])
         prune.prune(api, NOW, delete=True, max_deletes=10)
-        self.assertEqual(sorted(api.deleted), [1, 3, 5])
+        self.assertEqual(sorted(api.deleted), [1, 3])
 
     def test_a_release_run_keeps_its_artifacts_30_days(self):
         api = FakeAPI([art(1, "npm-packages", 20, run=77), art(2, "npm-packages", 40, run=77),
@@ -141,7 +140,7 @@ class Prune(unittest.TestCase):
     def test_the_rules_cover_every_build_package_upload(self):
         names = prune.rules()
         self.assertEqual(len([n for n in names if n.startswith("cmux-tui-")]), 5)
-        self.assertEqual(len([n for n in names if n.startswith("gallery-stage-")]), 12)
+        self.assertEqual(len([n for n in names if n.startswith("gallery-stage-")]), 0)
         workflow = (ROOT / ".github/workflows/cmux-tui-build-package.yml")
         if workflow.exists():
             text = workflow.read_text()

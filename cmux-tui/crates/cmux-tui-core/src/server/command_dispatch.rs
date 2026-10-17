@@ -788,8 +788,21 @@ pub(super) fn handle_command_with_cancellation(
         Command::CloseScreen { screen, end_terminals } => {
             cmd_screens::close_screen(mux, actor, screen, end_terminals)
         }
-        Command::CloseWorkspace { workspace, key, end_terminals, reason, if_empty, mutation } => {
-            let ending = cmd_workspaces::Ending { terminals: end_terminals, reason, if_empty };
+        Command::CloseWorkspace {
+            workspace,
+            key,
+            end_terminals,
+            reason,
+            if_empty,
+            report_closed_ids,
+            mutation,
+        } => {
+            let ending = cmd_workspaces::Ending {
+                terminals: end_terminals,
+                reason,
+                if_empty,
+                report_closed_ids,
+            };
             cmd_workspaces::close_workspace(mux, client, workspace, key, ending, mutation)
         }
         Command::MarkWorkspacesProviderManaged { authority } => {

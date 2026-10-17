@@ -1,24 +1,27 @@
 public import Foundation
 
-/// Where a web link clicked in a terminal opens, from classic cmux's keys in
-/// cmux.json (same names, so a classic `cmux.json` keeps working):
+/// Where a web link opens, for every surface that opens one (terminals, agent chats, the Home
+/// transcript, cmux pages, the Help menu, update notes, the feed), from cmux.json:
 ///
 /// ```jsonc
 /// "browser": {
-///   "openTerminalLinksInCmuxBrowser": true,             // false: every link opens in the default browser
+///   "openLinksInCmuxBrowser": true,                     // false: every link opens in the default browser
 ///   "hostsToOpenInEmbeddedBrowser": ["*.example.com"],  // empty: every host opens in cmux
 ///   "urlsToAlwaysOpenExternally": ["re:^https://[^/]*\\.example\\.com/billing"]
 /// }
 /// ```
 ///
-/// External rules match as classic matched them (`BrowserExternalURLPatternMatcher`):
-/// plain text is a substring, `*`/`?` are wildcards, `re:` is a bounded regex.
-public nonisolated struct TerminalLinkRouting: Sendable, Hashable {
+/// `browser.openTerminalLinksInCmuxBrowser`, classic cmux's name for the first key, is still read
+/// when `openLinksInCmuxBrowser` is absent (a classic `cmux.json`, an MDM profile written for it);
+/// the new key wins when both are set, and Settings writes only the new key. External rules
+/// match as classic matched them (`BrowserExternalURLPatternMatcher`): plain text is a
+/// substring, `*`/`?` are wildcards, `re:` is a bounded regex.
+public nonisolated struct LinkRouting: Sendable, Hashable {
     public var opensInCmuxBrowser: Bool
     public var embeddedHosts: [String]
     public var externalRules: [String]
 
-    public static let fallback = TerminalLinkRouting(opensInCmuxBrowser: true, embeddedHosts: [], externalRules: [])
+    public static let fallback = LinkRouting(opensInCmuxBrowser: true, embeddedHosts: [], externalRules: [])
 
     public init(opensInCmuxBrowser: Bool, embeddedHosts: [String], externalRules: [String]) {
         self.opensInCmuxBrowser = opensInCmuxBrowser
@@ -26,9 +29,31 @@ public nonisolated struct TerminalLinkRouting: Sendable, Hashable {
         self.externalRules = externalRules
     }
 
-    static let openPath = ["browser", "openTerminalLinksInCmuxBrowser"]
+    /// Where one link goes.
+    public enum Target: String, Sendable, Hashable {
+        /// A cmux browser tab.
+        case cmuxBrowser
+        /// The system: the default browser for a web link, the scheme's app for any other.
+        case system
+    }
+
+    public static let openPath = ["browser", "openLinksInCmuxBrowser"]
+    /// Classic's key, read when ``openPath`` is absent (``EffectiveSettings`` copies it over).
+    public static let legacyOpenPath = ["browser", "openTerminalLinksInCmuxBrowser"]
     static let hostsPath = ["browser", "hostsToOpenInEmbeddedBrowser"]
     static let rulesPath = ["browser", "urlsToAlwaysOpenExternally"]
+
+    /// Where `url` opens. Only an http(s) link can open in cmux. `otherTarget` (Shift-Command
+    /// on a click) asks for the target the setting does not pick: a link the rules send out
+    /// opens in cmux, and one they keep in cmux opens in the default browser. `explicit` is a
+    /// click that picked a cmux browser profile (the toggle does not apply, the rules do).
+    public func target(for url: URL, otherTarget: Bool = false, explicit: Bool = false) -> Target {
+        let scheme = url.scheme?.lowercased()
+        guard scheme == "http" || scheme == "https" else { return .system }
+        let cmux = opensInCmux(url, explicit: explicit)
+        guard otherTarget else { return cmux ? .cmuxBrowser : .system }
+        return cmux || Self.normalizedHost(url.host ?? "") == nil ? .system : .cmuxBrowser
+    }
 
     /// True when this http(s) link opens in a cmux browser tab, false when it
     /// goes to the default browser: the setting is off (unless `explicit`, a
@@ -78,18 +103,20 @@ public nonisolated struct TerminalLinkRouting: Sendable, Hashable {
         return URL(string: "https://\(trimmed)")?.host ?? trimmed
     }
 
-    static func parse(_ root: JSONValue) -> (TerminalLinkRouting, [SettingsDiagnostic]) {
+    static func parse(_ root: JSONValue) -> (LinkRouting, [SettingsDiagnostic]) {
         var setting = fallback
         var diagnostics: [SettingsDiagnostic] = []
         guard case .object(let browser)? = root["browser"] else { return (setting, diagnostics) }
-        if let value = browser[openPath[1]] {
+        // The new key wins; classic's is read only without it.
+        let path = browser[openPath[1]] != nil ? openPath : legacyOpenPath
+        if let value = browser[path[1]] {
             if let flag = value.boolValue {
                 setting.opensInCmuxBrowser = flag
             } else {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: openPath.joined(separator: "."), message: "expected true or false"))
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path.joined(separator: "."), message: "expected true or false"))
             }
         }
-        for (path, field) in [(hostsPath, \TerminalLinkRouting.embeddedHosts), (rulesPath, \.externalRules)] {
+        for (path, field) in [(hostsPath, \LinkRouting.embeddedHosts), (rulesPath, \.externalRules)] {
             guard let value = browser[path[1]] else { continue }
             // An array, as the Settings rows accept; classic's line text is only in its preferences.
             if case .array = value, let lines = lines(value) {

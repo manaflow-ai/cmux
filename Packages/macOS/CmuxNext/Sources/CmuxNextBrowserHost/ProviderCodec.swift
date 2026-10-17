@@ -124,6 +124,7 @@ public nonisolated struct ProviderCodec {
         var object: [String: Any] = ["targetId": tab.targetID, "engine": tab.engine, "workspace": tab.workspace, "profile": tab.profile,
                                      "url": tab.url, "title": tab.title, "visible": tab.visible]
         if tab.inputScale != 1 { object["inputScale"] = tab.inputScale }
+        if tab.touch { object["touch"] = true }
         return object
     }
 
@@ -132,7 +133,8 @@ public nonisolated struct ProviderCodec {
                             workspace: try f.string("workspace"), profile: try f.string("profile"),
                             url: try f.string("url"), title: (try? f.string("title")) ?? "",
                             visible: (try? f.bool("visible")) ?? false,
-                            inputScale: (f.object["inputScale"] as? NSNumber)?.doubleValue ?? 1)
+                            inputScale: (f.object["inputScale"] as? NSNumber)?.doubleValue ?? 1,
+                            touch: (f.object["touch"] as? Bool) ?? false)
     }
 
     static func leaseObject(_ lease: ProviderLease) -> [String: Any] {

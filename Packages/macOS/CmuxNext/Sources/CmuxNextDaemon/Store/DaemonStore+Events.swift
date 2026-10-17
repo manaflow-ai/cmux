@@ -216,6 +216,9 @@ extension DaemonStore {
             }
             return .none
 
+        case .layoutChanged(let screen, let layout?, let transaction):
+            // `layout-delta-v1`: patch that one screen (I3).
+            return applyLayoutChange(screen: screen, layout: layout, transaction: transaction)
         case .treeChanged, .layoutChanged:
             return .resync
         case .overflow:

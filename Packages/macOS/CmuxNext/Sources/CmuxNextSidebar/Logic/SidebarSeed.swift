@@ -1,8 +1,8 @@
 /// What a window's sidebar shows while its machines are still loading
 /// (snapshot-first launch): the live sections, with each section that is
 /// still loading and has no rows filled from the window's saved sidebar
-/// (`SidebarRowState.stale`), or with placeholder rows when nothing was
-/// saved. While the app is launching, saved sections the live sidebar
+/// (`SidebarRowState.stale`), or, for another machine, with placeholder
+/// rows when nothing was saved. While the app is launching, saved sections the live sidebar
 /// does not list yet (pinned, Cloud machines before the machine list
 /// arrives) keep their place. A section that stopped loading spends its
 /// saved rows, so they never come back later. A section given placeholders
@@ -42,8 +42,10 @@ public struct SidebarSeed {
             var filled = section
             if let saved = sections.first(where: { $0.id == section.id }) {
                 filled.nodes = saved.nodes
-            } else if let machine = section.machine, !failed.contains(machine.id),
+            } else if let machine = section.machine, machine.kind != .local, !failed.contains(machine.id),
                       launching || placeholderSections.contains(section.id) {
+                // Only another machine shows placeholder bars: this Mac's daemon answers within the launch,
+                // so its section stays empty until its rows come, never a loading look (Lawrence 2026-10-16).
                 if launching { placeholderSections.insert(section.id) }
                 filled.nodes = Self.placeholders(machine: machine.id).map(SidebarNode.workspace)
             }

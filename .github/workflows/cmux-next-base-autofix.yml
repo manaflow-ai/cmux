@@ -22,7 +22,12 @@ name: cmux-next base autofix
 # (plans/cmux-next/action-surfaces.json, actions.md, links.json) need a Mac
 # swift test: the action-exports job regenerates them on a Mac
 # (scripts/cmux-next/regenerate-action-exports.sh) and autofix copies them in
-# before it rewrites the docs shortcuts from them.
+# before it rewrites the docs shortcuts from them. The settings exports
+# (schemas/settings/settings-schema.json, docs/mdm, and the source stamp
+# schemas/settings-export/settings-schema.sources.sha256) need one too: the
+# same job regenerates them (scripts/cmux-next/regenerate-settings-exports.sh)
+# when CmuxNextSettings or an export changed, and autofix copies them in before
+# it rewrites the defaults snapshot from them.
 # A separate job pins scripts/ghosttykit-checksums.txt when the ghostty
 # gitlink moves, from our own published GhosttyKit release (waiting for
 # build-ghosttykit.yml when there is none yet).
@@ -53,6 +58,10 @@ on:
       - plans/cmux-next/actions.md
       - plans/cmux-next/links.json
       - scripts/cmux-next/regenerate-action-exports.sh
+      - scripts/cmux-next/regenerate-settings-exports.sh
+      - schemas/settings-export/**
+      - docs/mdm/**
+      - scripts/ci/defaults_guard.py
       - web/scripts/export-docs-shortcuts.ts
       # The app-host generated files (base-autofix.sh --app-host).
       - cmux-tui/spec/resource-operations-v2.json
@@ -95,6 +104,7 @@ jobs:
       contents: read
     outputs:
       actions: ${{ steps.areas.outputs.actions }}
+      settings: ${{ steps.areas.outputs.settings }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -108,17 +118,18 @@ jobs:
           set -euo pipefail
           since="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/cmux-next-base-autofix.yml/runs?branch=feat-cmux-next&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // ""' 2>/dev/null || true)"
           if [[ -z "$since" ]] || ! git fetch --quiet --depth=1 origin "$since"; then
-            scripts/cmux-next/autofix-areas.sh --all | grep '^actions=' | tee -a "$GITHUB_OUTPUT"
+            scripts/cmux-next/autofix-areas.sh --all | grep -E '^(actions|settings)=' | tee -a "$GITHUB_OUTPUT"
           else
-            git diff --name-only "$since" HEAD | scripts/cmux-next/autofix-areas.sh | grep '^actions=' | tee -a "$GITHUB_OUTPUT"
+            git diff --name-only "$since" HEAD | scripts/cmux-next/autofix-areas.sh | grep -E '^(actions|settings)=' | tee -a "$GITHUB_OUTPUT"
           fi
 
-  # Regenerates the action exports on a Mac with a read-only token and hands
-  # them to autofix as the action-exports artifact (files at their repository paths).
+  # Regenerates the action exports and the settings exports on a Mac with a
+  # read-only token and hands them to autofix as the action-exports artifact
+  # (files at their repository paths).
   action-exports:
     name: action exports (Mac)
     needs: action-areas
-    if: needs.action-areas.outputs.actions == 'true'
+    if: needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true'
     # A newer push's regeneration replaces this one (autofix's own group cancels too).
     concurrency:
       group: cmux-next-base-autofix-action-exports
@@ -128,9 +139,11 @@ jobs:
     permissions:
       contents: read
     outputs:
-      exports: ${{ steps.regenerate.outputs.exports }}
+      exports: ${{ steps.actions.outputs.exports == 'true' || steps.settings.outputs.exports == 'true' }}
       # The exports on this tree are current: regenerated, or already fresh.
-      verified: ${{ steps.regenerate.outcome == 'success' }}
+      # Skipped (that area did not change) counts as current.
+      verified: ${{ steps.actions.outcome != 'failure' }}
+      settings_verified: ${{ steps.settings.outcome != 'failure' }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -187,7 +200,8 @@ jobs:
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Regenerate the action exports
-        id: regenerate
+        id: actions
+        if: needs.action-areas.outputs.actions == 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -196,13 +210,33 @@ jobs:
             echo "exports=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # The settings exports and their source stamp, into the same artifact.
+      - name: Regenerate the settings exports
+        id: settings
+        if: needs.action-areas.outputs.settings == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          scripts/cmux-next/regenerate-settings-exports.sh "$RUNNER_TEMP/action-exports" | tee "$RUNNER_TEMP/settings-exports.txt"
+          if grep -q '^regenerated: ' "$RUNNER_TEMP/settings-exports.txt"; then
+            echo "exports=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: steps.regenerate.outputs.exports == 'true'
+        if: steps.actions.outputs.exports == 'true' || steps.settings.outputs.exports == 'true'
         with:
           name: action-exports
           path: ${{ runner.temp }}/action-exports
           if-no-files-found: error
           retention-days: 1
+
+      # A failed regeneration must not end in a successful run: the next run
+      # diffs from the last successful one, and would drop this change.
+      - name: Fail when a regeneration failed
+        if: steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure'
+        run: |
+          echo "::error::regenerating the exports failed (actions: ${{ steps.actions.outcome }}, settings: ${{ steps.settings.outcome }}); the repairs that follow them wait"
+          exit 1
 
   # `vp fmt` needs webviews' installed packages, so it runs here with a
   # read-only token (installed without lifecycle scripts) and hands its diff to
@@ -336,14 +370,17 @@ jobs:
           SHORTCUTS: ${{ steps.areas.outputs.shortcuts }}
           APPHOST: ${{ steps.areas.outputs.apphost }}
           ACTIONS: ${{ steps.areas.outputs.actions }}
+          SETTINGS: ${{ steps.areas.outputs.settings }}
           EXPORTS_VERIFIED: ${{ needs.action-exports.outputs.verified }}
+          SETTINGS_VERIFIED: ${{ needs.action-exports.outputs.settings_verified }}
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
           FMT: ${{ steps.areas.outputs.fmt }}
         run: |
           set -euo pipefail
           args=()
-          # Regenerated action exports: the docs shortcuts and app-host files follow them.
+          # Regenerated action and settings exports: the docs shortcuts, app-host
+          # files and defaults snapshot follow them.
           if [[ -d "$RUNNER_TEMP/action-exports" ]]; then
             args+=(--generated "$RUNNER_TEMP/action-exports")
             SHORTCUTS=true APPHOST=true
@@ -356,6 +393,8 @@ jobs:
           # Dependency order: the shortcuts and app-host files follow the action
           # exports, so they wait while the exports' inputs changed unverified.
           [[ "$ACTIONS" == true && "$EXPORTS_VERIFIED" != true ]] && args+=(--unverified-exports)
+          # The defaults snapshot follows the settings exports the same way.
+          [[ "$SETTINGS" == true && "$SETTINGS_VERIFIED" != true ]] && args+=(--unverified-settings-exports)
           [[ "$RATCHETS" == true ]] && args+=(--ratchets)
           [[ "$CLOUD" == true ]] && args+=(--cloud-clients)
           patch="$RUNNER_TEMP/webviews-fmt/webviews-fmt.patch"
