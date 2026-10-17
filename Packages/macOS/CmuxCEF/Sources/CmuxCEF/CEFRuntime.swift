@@ -377,10 +377,11 @@ public final class CEFRuntime {
         // went into its opener's window (the window request handler), and
         // becomes a browser of its own that the opener's owner places.
         guard browsers[id] == nil else { return }
-        // A popup Chromium has not placed yet: the popup window request
-        // (with the page's size) and the insertion come next, and moving it
-        // into a window of its own fails until then.
-        if window == 0, reported.opener != 0, browsers[reported.opener] != nil {
+        // A tab Chromium has not placed yet (a sized popup, a modified
+        // click's tab): the window request (with the page's size) and the
+        // insertion come next. Its window names its opener when Chromium
+        // reported none, and moving it into a window of its own fails until then.
+        if window == 0 {
             unplacedPopups[id] = reported
             return
         }

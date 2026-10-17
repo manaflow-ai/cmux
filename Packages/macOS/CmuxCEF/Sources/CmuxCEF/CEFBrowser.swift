@@ -270,7 +270,14 @@ public final class CEFBrowser {
         if isPlaceholder {
             // Its popup closed meanwhile (or was freed): nothing moves in.
             guard let owner = placeholderOwner, !owner.isClosed else { return close() }
-            owner.placeholderReady()
+            // Never inside OnAfterCreated (Chromium's tab insertion): moving
+            // a tab between tab strips there fails, and the popup closed
+            // ("could not move into its own window"). cmux Next defers the
+            // same move (`CEFPaneHost.windowCreated`).
+            Task { @MainActor [weak self, weak owner] in
+                guard let owner, !owner.isClosed else { self?.close(); return }
+                owner.placeholderReady()
+            }
             return
         }
         guard let id = browserID, let shim = runtime.shim else { return }
