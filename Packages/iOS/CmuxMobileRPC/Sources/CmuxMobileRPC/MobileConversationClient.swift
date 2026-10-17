@@ -77,7 +77,10 @@ public actor MobileConversationClient: ConversationArtifactClient {
         )
         guard snapshot.session.id == sessionID,
               snapshot.session.workspaceID == workspaceID,
-              snapshot.session.generation == snapshot.generation else {
+              snapshot.session.generation == snapshot.generation,
+              snapshot.receipts.allSatisfy({ $0.sessionID == sessionID }),
+              snapshot.items.allSatisfy({ $0.sequence <= snapshot.cursor }),
+              Set(snapshot.items.map(\.id)).count == snapshot.items.count else {
             throw MobileConversationTransportError.invalidResponse
         }
         // Read-only reconciliation. Absence of a receipt is not permission to
@@ -210,6 +213,9 @@ public actor MobileConversationClient: ConversationArtifactClient {
               value.totalBytes <= 16_777_216, value.data.count <= 65_536,
               value.offset <= value.totalBytes, UInt64(value.data.count) <= value.totalBytes - value.offset,
               value.offset == 0 || value.sha256 == query.expectedSHA256,
+              query.expectedSHA256 == nil || value.sha256 == query.expectedSHA256,
+              value.sha256.utf8.count == 64,
+              value.sha256.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
               !value.data.isEmpty || value.offset == value.totalBytes else {
             throw MobileConversationTransportError.invalidResponse
         }

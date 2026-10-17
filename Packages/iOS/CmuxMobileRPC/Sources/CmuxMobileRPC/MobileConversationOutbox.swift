@@ -25,6 +25,11 @@ actor MobileConversationOutbox {
                 throw OutboxError.capacityExceeded
             }
             entries = try JSONDecoder().decode([String: Entry].self, from: Data(contentsOf: fileURL))
+            guard entries.count <= maximumEntries,
+                  entries.allSatisfy({ key, value in
+                      key == value.commandID && !key.isEmpty && !value.sessionID.isEmpty
+                          && value.command.count <= maximumCommandBytes
+                  }) else { throw OutboxError.invalidStore }
         } else {
             entries = [:]
         }
@@ -61,6 +66,9 @@ actor MobileConversationOutbox {
 
     func record(commandID: String, receipt: Data, settled: Bool) throws {
         guard var entry = entries[commandID] else { return }
+        // A timeout from a retiring connection can arrive after a replacement
+        // connection has reconciled the durable outcome. Final receipts never regress.
+        guard !entry.settled else { return }
         entry.receipt = receipt
         entry.settled = settled
         var next = entries
@@ -82,6 +90,7 @@ actor MobileConversationOutbox {
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(next)
@@ -92,6 +101,7 @@ actor MobileConversationOutbox {
 
     private enum OutboxError: Error {
         case capacityExceeded
+        case invalidStore
         case commandIDCollision
     }
 }

@@ -52,6 +52,19 @@ import Testing
         #expect(await final.pending(sessionID: "session").isEmpty)
     }
 
+    @Test func lateTimeoutCannotUndoAReconciledReceipt() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("commands.json")
+        let store = try MobileConversationOutbox(fileURL: file)
+        try await store.stage(commandID: "id", sessionID: "session", command: Data("prompt".utf8))
+        try await store.record(commandID: "id", receipt: Data("applied".utf8), settled: true)
+        try await store.record(commandID: "id", receipt: Data("uncertain".utf8), settled: false)
+        #expect(await store.pending(sessionID: "session").isEmpty)
+        let reopened = try MobileConversationOutbox(fileURL: file)
+        #expect(await reopened.pending(sessionID: "session").isEmpty)
+    }
+
     @Test func corruptOutboxFailsClosedInsteadOfForgettingUncertainWork() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
