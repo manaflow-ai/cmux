@@ -675,7 +675,7 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
 
     func sessionEvents() async -> AsyncStream<ChatSessionEventFrame> {
         hostSubscriptionCount += 1
-        AsyncStream { continuation in
+        return AsyncStream { continuation in
             Task { await self.setHostContinuation(continuation) }
         }
     }
@@ -691,7 +691,7 @@ private actor FakeAgentChatSource: AgentChatSessionSource {
     }
 
     func events(sessionID: String) async -> AsyncStream<ChatSessionEvent> {
-        AsyncStream { continuation in
+        return AsyncStream { continuation in
             Task { await self.setEventContinuation(continuation, for: sessionID) }
         }
     }
