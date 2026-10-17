@@ -50,6 +50,20 @@ struct ChatSessionReconcilerTests {
         #expect(reducer.descriptor(for: "live")?.version == 5)
     }
 
+    @Test("Snapshot replacement retains a push applied after the request began")
+    func snapshotRace() {
+        var reducer = ChatSessionReconciler()
+        reducer.replace(with: [descriptor("live", version: 1)])
+        let snapshotRevision = reducer.snapshotRevision
+        _ = reducer.upsert(descriptor("new", version: 1, state: .working(since: .now)))
+        reducer.replace(with: [descriptor("live", version: 1)], capturedAt: snapshotRevision)
+        if case .working = reducer.descriptor(for: "new")?.state {
+            #expect(true)
+        } else {
+            #expect(false)
+        }
+    }
+
     @Test("Removal and state pushes are idempotent")
     func eventFolding() {
         var reducer = ChatSessionReconciler()
@@ -64,5 +78,15 @@ struct ChatSessionReconcilerTests {
         #expect(!duplicateStateApplied)
         #expect(removed)
         #expect(!removedAgain)
+    }
+
+    @Test("A stale descriptor cannot resurrect a removed session")
+    func removalTombstone() {
+        var reducer = ChatSessionReconciler()
+        reducer.replace(with: [descriptor("s", version: 3)])
+        #expect(reducer.apply(sessionID: "s", event: .sessionRemoved(version: 4)))
+        #expect(!reducer.upsert(descriptor("s", version: 4)))
+        #expect(!reducer.upsert(descriptor("s", version: 2)))
+        #expect(reducer.descriptor(for: "s") == nil)
     }
 }

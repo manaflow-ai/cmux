@@ -20,6 +20,7 @@ final class MobileChatStore {
     private let sourceProvider: SourceProvider
     private var sessionEventsTask: Task<Void, Never>?
     private var transcriptTask: Task<Void, Never>?
+    private var sendTask: Task<Void, Never>?
     /// Invalidates the session-list stream and action requests when the
     /// connection lifecycle is rebuilt.
     private var operationGeneration: UInt64 = 0
@@ -27,6 +28,10 @@ final class MobileChatStore {
     /// Selecting a different chat must cancel history/events without making a
     /// still-valid session-list listener stop consuming descriptor pushes.
     private var transcriptGeneration: UInt64 = 0
+    /// Separately invalidates prompt sends when the user changes sessions or
+    /// the connection is rebuilt. A global `isSending` flag must never be
+    /// cleared by a completion belonging to another conversation.
+    private var sendGeneration: UInt64 = 0
     private var reconciler = ChatSessionReconciler()
     private var messageByID: [String: ChatMessage] = [:]
     private var blockByID: [Int: TerminalCommandBlock] = [:]
@@ -53,6 +58,7 @@ final class MobileChatStore {
     deinit {
         sessionEventsTask?.cancel()
         transcriptTask?.cancel()
+        sendTask?.cancel()
     }
 
     func start() {
@@ -65,6 +71,7 @@ final class MobileChatStore {
     func stop() {
         operationGeneration &+= 1
         transcriptGeneration &+= 1
+        invalidateSend()
         sessionEventsTask?.cancel()
         transcriptTask?.cancel()
         sessionEventsTask = nil
@@ -81,17 +88,13 @@ final class MobileChatStore {
     }
 
     func refresh() {
-        operationGeneration &+= 1
-        sessionEventsTask?.cancel()
-        transcriptTask?.cancel()
-        transcriptGeneration &+= 1
-        sessionEventsTask = Task { [weak self] in
-            await self?.runSessionLifecycle()
-        }
+        stop()
+        start()
     }
 
     func selectSession(_ id: String) {
         guard selectedSessionID != id else { return }
+        invalidateSend()
         selectedSessionID = id
         UserDefaults.standard.set(id, forKey: Self.selectedSessionKey)
         beginTranscript(id: id)
@@ -118,7 +121,12 @@ final class MobileChatStore {
         isLoadingOlder = true
         let generation = transcriptGeneration
         Task { [weak self] in
-            defer { self?.isLoadingOlder = false }
+            defer {
+                guard let self,
+                      generation == self.transcriptGeneration,
+                      self.selectedSessionID == sessionID else { return }
+                self.isLoadingOlder = false
+            }
             do {
                 let page = try await source.history(
                     sessionID: sessionID,
@@ -147,9 +155,10 @@ final class MobileChatStore {
         draft = ""
         let attachments = stagedAttachments
         stagedAttachments = []
+        sendGeneration &+= 1
+        let sendGeneration = sendGeneration
         isSending = true
         errorMessage = nil
-        let generation = operationGeneration
         // The host will publish the authoritative row. This optimistic row
         // keeps the composer responsive while a remote Mac is waking up.
         if !text.isEmpty {
@@ -163,23 +172,23 @@ final class MobileChatStore {
                 )
             )
         }
-        Task { [weak self] in
+        sendTask = Task { [weak self] in
+            defer {
+                guard let self, self.sendGeneration == sendGeneration else { return }
+                self.isSending = false
+                self.sendTask = nil
+            }
             do {
                 try await source.send(text: text, attachments: attachments, sessionID: sessionID)
                 guard let self,
-                      generation == self.operationGeneration,
+                      sendGeneration == self.sendGeneration,
                       self.selectedSessionID == sessionID else { return }
-                self.isSending = false
             } catch is CancellationError {
-                guard let self,
-                      generation == self.operationGeneration,
-                      self.selectedSessionID == sessionID else { return }
-                self.isSending = false
+                return
             } catch {
                 guard let self,
-                      generation == self.operationGeneration,
+                      sendGeneration == self.sendGeneration,
                       self.selectedSessionID == sessionID else { return }
-                self.isSending = false
                 self.errorMessage = Self.message(for: error)
                 self.draft = text
                 self.stagedAttachments = attachments
@@ -224,6 +233,14 @@ final class MobileChatStore {
     private func runSessionLifecycle() async {
         operationGeneration &+= 1
         let generation = operationGeneration
+        defer {
+            if generation == operationGeneration {
+                // An AsyncStream finishing is the transport's reconnect
+                // signal. Clear the handle so the next connection generation
+                // or foreground start can install a fresh listener.
+                sessionEventsTask = nil
+            }
+        }
         guard let source = sourceProvider() else {
             isConnected = false
             isLoading = false
@@ -237,9 +254,19 @@ final class MobileChatStore {
             // the gap where a new agent could start between the list request
             // and event subscription; the snapshot still wins on ordering.
             let stream = await source.sessionEvents()
+            let eventPump = Task { @MainActor [weak self] in
+                for await frame in stream {
+                    guard let self,
+                          !Task.isCancelled,
+                          generation == self.operationGeneration else { return }
+                    self.applySessionFrame(frame)
+                }
+            }
+            defer { eventPump.cancel() }
+            let snapshotRevision = reconciler.snapshotRevision
             let incoming = try await source.sessions(workspaceID: nil)
             guard generation == operationGeneration else { return }
-            reconciler.replace(with: incoming)
+            reconciler.replace(with: incoming, capturedAt: snapshotRevision)
             publishSessions()
             isConnected = true
             isLoading = false
@@ -262,10 +289,7 @@ final class MobileChatStore {
                 terminalBlocks = []
                 streamingProse = nil
             }
-            for await frame in stream {
-                guard !Task.isCancelled, generation == operationGeneration else { return }
-                applySessionFrame(frame)
-            }
+            await eventPump.value
             guard generation == operationGeneration else { return }
             isConnected = false
         } catch is CancellationError {
@@ -288,6 +312,7 @@ final class MobileChatStore {
         blockByID = [:]
         streamingProse = nil
         hasMoreHistory = false
+        isLoadingOlder = false
         isLoading = true
         errorMessage = nil
         guard let source = sourceProvider() else {
@@ -330,25 +355,12 @@ final class MobileChatStore {
     }
 
     private func applySessionFrame(_ frame: ChatSessionEventFrame) {
-        let wasSelected = selectedSessionID == frame.sessionID
-        let didApply = reconciler.apply(sessionID: frame.sessionID, event: frame.event)
-        if case .sessionRemoved = frame.event, wasSelected, didApply {
-            selectedSessionID = nil
+        if case .sessionRemoved(let version) = frame.event {
+            applySessionRemoval(sessionID: frame.sessionID, version: version)
+            return
         }
+        _ = reconciler.apply(sessionID: frame.sessionID, event: frame.event)
         publishSessions()
-        if case .sessionRemoved = frame.event, wasSelected, didApply {
-            if let replacement = sessions.first?.id {
-                selectedSessionID = replacement
-                UserDefaults.standard.set(replacement, forKey: Self.selectedSessionKey)
-                beginTranscript(id: replacement)
-            } else {
-                UserDefaults.standard.removeObject(forKey: Self.selectedSessionKey)
-                messages = []
-                terminalBlocks = []
-                streamingProse = nil
-                isLoading = false
-            }
-        }
     }
 
     private func apply(event: ChatSessionEvent, sessionID: String) {
@@ -365,7 +377,7 @@ final class MobileChatStore {
                 streamingProse = nil
             }
         case .stateChanged(let state):
-            if let descriptor = selectedSessionID.flatMap({ reconciler.descriptor(for: $0) }) {
+            if let descriptor = reconciler.descriptor(for: sessionID) {
                 _ = reconciler.upsert(descriptor.withState(state))
                 publishSessions()
             }
@@ -379,9 +391,8 @@ final class MobileChatStore {
             terminalBlocks = blockByID.values.sorted { $0.id < $1.id }
         case .reset:
             beginTranscript(id: sessionID)
-        case .sessionRemoved:
-            _ = reconciler.apply(sessionID: sessionID, event: event)
-            publishSessions()
+        case .sessionRemoved(let version):
+            applySessionRemoval(sessionID: sessionID, version: version)
         case .unknown:
             break
         }
@@ -410,9 +421,48 @@ final class MobileChatStore {
 
     private func publishSessions() {
         sessions = reconciler.descriptors
-        if let selectedSessionID, sessions.contains(where: { $0.id == selectedSessionID }) == false {
-            self.selectedSessionID = sessions.first?.id
+    }
+
+    private func applySessionRemoval(sessionID: String, version: Int) {
+        let wasSelected = selectedSessionID == sessionID
+        let didApply = reconciler.apply(
+            sessionID: sessionID,
+            event: .sessionRemoved(version: version)
+        )
+        guard didApply else { return }
+        if wasSelected {
+            selectedSessionID = nil
+            invalidateSend()
         }
+        publishSessions()
+        guard wasSelected else { return }
+        if let replacement = sessions.first?.id {
+            selectSession(replacement)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.selectedSessionKey)
+            clearTranscript()
+        }
+    }
+
+    private func clearTranscript() {
+        transcriptTask?.cancel()
+        transcriptTask = nil
+        transcriptGeneration &+= 1
+        messages = []
+        terminalBlocks = []
+        messageByID = [:]
+        blockByID = [:]
+        streamingProse = nil
+        hasMoreHistory = false
+        isLoadingOlder = false
+        isLoading = false
+    }
+
+    private func invalidateSend() {
+        sendGeneration &+= 1
+        sendTask?.cancel()
+        sendTask = nil
+        isSending = false
     }
 
     private static func message(for error: any Error) -> String {

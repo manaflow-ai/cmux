@@ -7,6 +7,15 @@ import Foundation
 /// only newer revisions, and preserves a stable activity ordering.
 public struct ChatSessionReconciler: Sendable, Equatable {
     private var descriptorsByID: [String: ChatSessionDescriptor] = [:]
+    /// A removal is a tombstone, rather than just a missing dictionary row.
+    /// Without it, an older descriptor push can resurrect a session after the
+    /// host has authoritatively removed it.
+    private var removedVersionByID: [String: Int] = [:]
+    /// Monotonic local mutation cursor used to distinguish a descriptor that
+    /// was already present when a snapshot started from one pushed while that
+    /// snapshot request was in flight.
+    private var mutationRevision: UInt64 = 0
+    private var lastMutationRevisionByID: [String: UInt64] = [:]
 
     public init() {}
 
@@ -15,28 +24,50 @@ public struct ChatSessionReconciler: Sendable, Equatable {
         ChatSessionDescriptor.openable(Array(descriptorsByID.values))
     }
 
+    /// Cursor to capture immediately before an authoritative snapshot request.
+    /// Pass it back to ``replace(with:capturedAt:)`` after the request returns.
+    /// Mutations observed after the cursor survive a snapshot that did not yet
+    /// include them.
+    public var snapshotRevision: UInt64 { mutationRevision }
+
     /// Replaces the authoritative list returned by `mobile.chat.sessions`.
     /// Existing descriptors are retained only when the host returned a newer
-    /// snapshot for the same id; this prevents a stale list response from
-    /// erasing a live push that arrived while the request was in flight.
-    public mutating func replace(with incoming: [ChatSessionDescriptor]) {
+    /// snapshot for the same id, or when a newer local push was applied after
+    /// the request began. This prevents an in-flight snapshot from erasing a
+    /// live push that arrived during the request.
+    public mutating func replace(
+        with incoming: [ChatSessionDescriptor],
+        capturedAt snapshotRevision: UInt64? = nil
+    ) {
+        let snapshotRevision = snapshotRevision ?? mutationRevision
+        var incomingIDs = Set<String>()
         for descriptor in incoming {
             upsert(descriptor)
+            if descriptorsByID[descriptor.id] != nil {
+                incomingIDs.insert(descriptor.id)
+            }
         }
-        let incomingIDs = Set(incoming.map(\.id))
-        descriptorsByID = descriptorsByID.filter { incomingIDs.contains($0.key) }
+        descriptorsByID = descriptorsByID.filter { id, _ in
+            incomingIDs.contains(id)
+                || (lastMutationRevisionByID[id] ?? 0) > snapshotRevision
+        }
     }
 
     /// Applies one authoritative descriptor snapshot.
     @discardableResult
     public mutating func upsert(_ descriptor: ChatSessionDescriptor) -> Bool {
+        guard descriptor.version > (removedVersionByID[descriptor.id] ?? Int.min) else {
+            return false
+        }
         guard let existing = descriptorsByID[descriptor.id] else {
             descriptorsByID[descriptor.id] = descriptor
+            recordMutation(for: descriptor.id)
             return true
         }
         guard descriptor.version >= existing.version else { return false }
         if descriptor == existing { return false }
         descriptorsByID[descriptor.id] = descriptor
+        recordMutation(for: descriptor.id)
         return true
     }
 
@@ -54,10 +85,15 @@ public struct ChatSessionReconciler: Sendable, Equatable {
             descriptor.version += 1
             return upsert(descriptor)
         case .sessionRemoved(let version):
-            guard let existing = descriptorsByID[sessionID], version >= existing.version else {
+            if let existing = descriptorsByID[sessionID], version < existing.version {
                 return false
             }
-            return descriptorsByID.removeValue(forKey: sessionID) != nil
+            let previousRemoval = removedVersionByID[sessionID] ?? Int.min
+            guard version > previousRemoval else { return false }
+            removedVersionByID[sessionID] = version
+            let removed = descriptorsByID.removeValue(forKey: sessionID) != nil
+            recordMutation(for: sessionID)
+            return removed || version > previousRemoval
         case .reset, .appended, .updated, .terminalBlocks, .streamingProse, .unknown:
             return false
         }
@@ -71,6 +107,18 @@ public struct ChatSessionReconciler: Sendable, Equatable {
     /// Drops one session after a `not_found` response or a removal push.
     @discardableResult
     public mutating func remove(id: String) -> Bool {
-        descriptorsByID.removeValue(forKey: id) != nil
+        let existing = descriptorsByID.removeValue(forKey: id)
+        let version = existing?.version ?? (removedVersionByID[id] ?? Int.min)
+        let previousRemoval = removedVersionByID[id] ?? Int.min
+        if version > previousRemoval {
+            removedVersionByID[id] = version
+            recordMutation(for: id)
+        }
+        return existing != nil
+    }
+
+    private mutating func recordMutation(for id: String) {
+        mutationRevision &+= 1
+        lastMutationRevisionByID[id] = mutationRevision
     }
 }

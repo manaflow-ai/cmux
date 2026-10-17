@@ -60,6 +60,9 @@ struct MobileChatRootView: View {
         }
         .task(id: connectionGeneration) { store.restart() }
         .onDisappear { store.stop() }
+        .navigationDestination(for: String.self) { sessionID in
+            transcript(for: sessionID)
+        }
         .accessibilityIdentifier("MobileAgentChat")
     }
 
@@ -91,15 +94,12 @@ struct MobileChatRootView: View {
                 )) {
                     Section {
                         ForEach(filteredSessions) { session in
-                            Button {
-                                store.selectSession(session)
-                            } label: {
+                            NavigationLink(value: session.id) {
                                 MobileChatSessionRow(
                                     session: session,
                                     isSelected: session.id == store.selectedSessionID
                                 )
                             }
-                            .buttonStyle(.plain)
                             .listRowBackground(
                                 session.id == store.selectedSessionID
                                     ? Color.accentColor.opacity(0.13)
@@ -133,7 +133,12 @@ struct MobileChatRootView: View {
 
     @ViewBuilder
     private var transcript: some View {
-        if let descriptor = store.selectedSessionID.flatMap({ id in
+        transcript(for: store.selectedSessionID)
+    }
+
+    @ViewBuilder
+    private func transcript(for sessionID: String?) -> some View {
+        if let descriptor = sessionID.flatMap({ id in
             store.sessions.first(where: { $0.id == id })
         }) {
             MobileChatTranscriptView(
