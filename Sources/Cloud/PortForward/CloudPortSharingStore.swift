@@ -22,8 +22,14 @@ final class CloudPortSharingStore {
 
     @ObservationIgnored private var freshness: CloudPortSharingFreshness
     @ObservationIgnored private var fetchTask: Task<Void, Never>?
+    /// Background reads and `reload()` reads that have not settled yet.
+    @ObservationIgnored private var readsInFlight = 0
+    /// Reads are numbered as they start; a read that finishes after a newer one
+    /// was applied is dropped, so overlapping reads never put an older list back.
+    @ObservationIgnored private var lastReadSequence = 0
+    @ObservationIgnored private var appliedReadSequence = 0
     /// An invalidation that arrives during a read must trigger a second read
-    /// after that read settles; otherwise the stale result can remain visible.
+    /// after the reads settle; otherwise the stale result can remain visible.
     @ObservationIgnored private var refreshAfterFetch = false
     @ObservationIgnored private let fetch: @MainActor () async throws -> [CloudPortPublicationRef]
     @ObservationIgnored private let now: () -> Date
@@ -49,25 +55,22 @@ final class CloudPortSharingStore {
 
     /// Reads publications in the background when the policy says the list is stale.
     func requestRefresh() {
-        if fetchTask != nil {
+        if readsInFlight > 0 {
             refreshAfterFetch = true
             return
         }
         guard freshness.shouldFetch(now: now()) else { return }
-        let token = freshness.begin()
+        let read = beginRead()
         fetchTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
                 let list = try await self.fetch()
-                self.accept(list, token: token)
+                self.accept(list, read: read)
             } catch {
                 self.freshness.fail(now: self.now())
             }
             self.fetchTask = nil
-            if self.refreshAfterFetch {
-                self.refreshAfterFetch = false
-                self.requestRefresh()
-            }
+            self.endRead()
         }
     }
 
@@ -76,10 +79,11 @@ final class CloudPortSharingStore {
     @discardableResult
     func reload() async throws -> [CloudPortPublicationRef] {
         if let fetchTask { await fetchTask.value }
-        let token = freshness.begin()
+        let read = beginRead()
+        defer { endRead() }
         do {
             let list = try await fetch()
-            accept(list, token: token)
+            accept(list, read: read)
             return list
         } catch {
             freshness.fail(now: now())
@@ -90,7 +94,7 @@ final class CloudPortSharingStore {
     /// A publication changed somewhere: read again now, ignoring TTL and backoff.
     func invalidate() {
         freshness.invalidate()
-        if fetchTask != nil {
+        if readsInFlight > 0 {
             refreshAfterFetch = true
         } else {
             requestRefresh()
@@ -102,8 +106,28 @@ final class CloudPortSharingStore {
         await MainActor.run { CloudPortSharingStore.shared.invalidate() }
     }
 
-    private func accept(_ list: [CloudPortPublicationRef], token: Int) {
-        freshness.succeed(token: token, now: now())
+    private struct Read {
+        let token: Int
+        let sequence: Int
+    }
+
+    private func beginRead() -> Read {
+        readsInFlight += 1
+        lastReadSequence += 1
+        return Read(token: freshness.begin(), sequence: lastReadSequence)
+    }
+
+    private func endRead() {
+        readsInFlight -= 1
+        guard readsInFlight == 0, refreshAfterFetch else { return }
+        refreshAfterFetch = false
+        requestRefresh()
+    }
+
+    private func accept(_ list: [CloudPortPublicationRef], read: Read) {
+        guard read.sequence > appliedReadSequence else { return }
+        appliedReadSequence = read.sequence
+        freshness.succeed(token: read.token, now: now())
         if publications != list { publications = list }
         if !hasLoaded { hasLoaded = true }
     }
