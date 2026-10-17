@@ -268,5 +268,5 @@ test("on: the slider is a group the menu names Reasoning", async () => {
   await openMenu({ slider: true });
   const group = range()!.closest("fieldset")!;
   expect(group).not.toBeNull();
-  expect(doc.getElementById(group.getAttribute("aria-labelledby")!)?.textContent).toBe("Reasoning");
+  expect(group.getAttribute("aria-label")).toBe("Reasoning");
 });
