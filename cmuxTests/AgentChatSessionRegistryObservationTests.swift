@@ -52,6 +52,16 @@ struct AgentChatSessionRegistryObservationTests {
                 workingDirectory: "/tmp/project"
             ) == "ses_env"
         )
+        #expect(
+            AgentChatSessionRegistry.openCodeSessionIDForProcess(
+                arguments: ["opencode", "--prompt", "hello"],
+                environment: [
+                    "OPENCODE_DB": databaseURL.path,
+                    "OPENCODE_SESSION_ID": "opencode:"
+                ],
+                workingDirectory: "/tmp/project"
+            ) == "ses_new"
+        )
     }
 
     @Test func mobileChatObserverDetectsOpenCodeSessionArgument() throws {

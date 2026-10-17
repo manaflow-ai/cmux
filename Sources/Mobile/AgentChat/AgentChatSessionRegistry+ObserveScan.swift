@@ -509,8 +509,8 @@ extension AgentChatSessionRegistry {
         }
         for key in ["OPENCODE_SESSION_ID", "OPENCODE_SESSION"] {
             if let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !value.isEmpty {
-                return normalizedOpenCodeSessionID(value)
+               let normalized = normalizedOpenCodeSessionID(value) {
+                return normalized
             }
         }
         guard let rawCWD = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
