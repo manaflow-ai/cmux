@@ -12,9 +12,9 @@
 import type { AcpmuxRow } from "../model";
 import { stripAnsi } from "./toolOutput";
 
-/// Height of the card's thumbnail (`.acpmux-turn-preview-frame` in styles.css, and the unloaded
-/// placeholder in conversation.css); the page draws at four
-/// times its size, scaled down.
+/// Height of the card's thumbnail after the reader clicks Load preview (`.acpmux-turn-preview-frame`
+/// in styles.css); the page draws at four times its size, scaled down. An unloaded card has no
+/// thumbnail box.
 export const PREVIEW_FRAME_HEIGHT = 180;
 
 // The host ends the name (`localhost.evil.com` is not loopback, a sentence's closing dot is fine);
