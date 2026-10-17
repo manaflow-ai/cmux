@@ -959,7 +959,7 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
   font: 500 calc(var(--font-size-code) - 1.5px) var(--font-mono); text-transform: uppercase;
 }
 .orchestration-status-running { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
-.orchestration-status-reserved { background: color-mix(in srgb, #d9a441 17%, transparent); color: #d9a441; }
+.orchestration-status-reserved { background: color-mix(in srgb, var(--amber) 17%, transparent); color: var(--amber); }
 .orchestration-status-queued { background: color-mix(in srgb, var(--text-faint) 15%, transparent); }
 .orchestration-fields { display: grid; gap: 7px; margin: 0; padding: 12px; }
 .orchestration-fields > div { display: grid; grid-template-columns: minmax(86px, .7fr) minmax(0, 1.3fr); gap: 8px; }
@@ -993,9 +993,9 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
   font: 600 calc(var(--font-size-code) - 1.5px) / 1.2 var(--font-mono); letter-spacing: .02em; text-transform: uppercase;
 }
 .orchestration-admission-admit { background: color-mix(in srgb, var(--accent) 17%, transparent); color: var(--accent); }
-.orchestration-admission-hold { background: color-mix(in srgb, #d9a441 18%, transparent); color: #d9a441; }
+.orchestration-admission-hold { background: color-mix(in srgb, var(--amber) 18%, transparent); color: var(--amber); }
 .orchestration-admission-wait { background: color-mix(in srgb, var(--text-faint) 16%, transparent); color: var(--text-dim); }
-.orchestration-admission-reject { background: color-mix(in srgb, #d85b5b 17%, transparent); color: #d85b5b; }
+.orchestration-admission-reject { background: color-mix(in srgb, var(--red) 17%, transparent); color: var(--red); }
 .orchestration-admission-reason { margin: 0; color: var(--text); font: 500 calc(var(--font-size-base) - 1px) / 1.4 var(--font-sans); }
 .orchestration-action-path { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .orchestration-action-step { display: flex; align-items: flex-start; gap: 8px; min-width: 0; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--bg-input) 86%, transparent); }
@@ -1011,12 +1011,12 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 .orchestration-admission-fields ul { display: flex; flex-wrap: wrap; gap: 5px; margin: 0; padding: 0; list-style: none; }
 .orchestration-admission-fields li { padding: 2px 6px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-dim); }
 .orchestration-admission-fields li.met { border-color: color-mix(in srgb, var(--accent) 38%, var(--border)); }
-.orchestration-admission-fields li.missing { border-color: color-mix(in srgb, #d9a441 45%, var(--border)); color: #d9a441; }
+.orchestration-admission-fields li.missing { border-color: color-mix(in srgb, var(--amber) 45%, var(--border)); color: var(--amber); }
 .orchestration-action-kind { color: var(--accent); font-weight: 700; text-transform: uppercase; }
 .orchestration-proposal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
 .orchestration-proposal, .orchestration-authorization { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 9px 10px; border-radius: 8px; background: color-mix(in srgb, var(--bg-input) 78%, transparent); }
 .orchestration-proposal { border-left: 2px solid color-mix(in srgb, var(--accent) 65%, transparent); }
-.orchestration-authorization { border-left: 2px solid color-mix(in srgb, #d9a441 65%, transparent); }
+.orchestration-authorization { border-left: 2px solid color-mix(in srgb, var(--amber) 65%, transparent); }
 .orchestration-proposal-label { color: var(--text-faint); font: 600 calc(var(--font-size-code) - 2px) / 1.2 var(--font-mono); letter-spacing: .03em; text-transform: uppercase; }
 .orchestration-proposal strong, .orchestration-authorization strong { color: var(--text); font: 500 calc(var(--font-size-code) - 1px) / 1.4 var(--font-mono); overflow-wrap: anywhere; }
 .orchestration-receipt-preview {
