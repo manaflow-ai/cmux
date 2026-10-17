@@ -37,8 +37,6 @@ public struct MobileAnalyticsComposition {
     /// One app-open attempt from foreground through a usable terminal, sent to
     /// PostHog and the authenticated Axiom bridge.
     public let initialConnectionReporter: MobileInitialConnectionReporter
-    /// Bounded visible Feed update and scroll callback measurements.
-    public let feedPerformanceReporter: MobileFeedPerformanceReporter
     /// Bounded terminal input-to-visible and render timing aggregates.
     public let terminalLatencyReporter: MobileTerminalLatencyReporter
     /// Slow and failed terminal-operation summaries sent to the same Axiom bridge.
@@ -81,7 +79,6 @@ public struct MobileAnalyticsComposition {
         consent: (any AnalyticsConsentProviding)? = nil,
         session: URLSession? = nil,
         diagnosticLog: DiagnosticLog? = nil,
-        onFeedScrollAnomaly: @escaping @MainActor @Sendable (MobileFeedScrollAnomaly) -> String? = { _ in nil }
     ) {
         let networkSession = session ?? Self.analyticsSession()
         let uploadSession = session ?? Self.analyticsSession()
@@ -141,17 +138,6 @@ public struct MobileAnalyticsComposition {
                     failure: .timedOut
                 )
             }
-        )
-        #if targetEnvironment(simulator)
-        let isSimulator = true
-        #else
-        let isSimulator = false
-        #endif
-        self.feedPerformanceReporter = MobileFeedPerformanceReporter(
-            emitter: networkOutcomeEmitter, consent: consent,
-            buildSHA: Bundle.main.object(forInfoDictionaryKey: "CMUXGitSHA") as? String,
-            isSimulator: isSimulator,
-            onAnomaly: onFeedScrollAnomaly
         )
         self.terminalTraceReporter = MobileTerminalTraceReporter(emitter: networkOutcomeEmitter)
         self.clientConfigContext = ClientConfigEvaluationContext(
