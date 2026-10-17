@@ -44,7 +44,7 @@ fn cmux_next_machine_catalog_agent_surface_cli_routes_session_without_metadata_f
         }
     }
     assert!(
-        parse(&strings(&["machine", "session", "show"]), Surface::Cmux).is_ok(),
+        parse(&strings(&["machine", "name:session", "show"]), Surface::Cmux).is_ok(),
         "a machine name is not session plumbing"
     );
     for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
