@@ -139,7 +139,10 @@ class Tree:
         found, out, offset = {}, result.stdout, 0
         for path in paths:
             header_end = out.index(b"\n", offset)
-            size = int(out[offset:header_end].split()[2])
+            header = out[offset:header_end].split()
+            if len(header) != 3 or header[1] != b"blob":
+                raise SystemExit(f"DEFAULTS tree: {path} is not readable in {self.ref} ({header!r})")
+            size = int(header[2])
             found[path] = out[header_end + 1:header_end + 1 + size]
             offset = header_end + 1 + size + 1
         return found
@@ -532,11 +535,14 @@ def settings_source_digest(tree: Tree) -> str:
 def stamp_freshness(tree: Tree) -> tuple[list[str], list[str]]:
     """(problems, notes) for the settings export stamp of `tree`."""
     stamp = tree.read(SETTINGS_STAMP)
+    if stamp is None and SETTINGS_STAMP.rsplit("/", 1)[1] in (tree.read(SETTINGS_EXPORTER_FILES[1]) or ""):
+        # The tree's exporter writes the stamp, so a missing stamp is a deleted or never-run export.
+        return [f"DEFAULTS exports: {SETTINGS_STAMP} is missing; {STALE_EXPORTS}"], []
     if stamp is None:
         return [], [f"note: {SETTINGS_STAMP} is missing (a commit before the first stamped export); "
                     "the settings exports are not checked against the Swift sources"]
     actual = settings_source_digest(tree)
-    if stamp.strip() != actual:
+    if stamp != actual + "\n":  # exactly what SettingsSchemaExportTests writes and expects
         return [f"DEFAULTS exports: {STALE_EXPORTS}",
                 f"  {SETTINGS_STAMP} says {stamp.strip()[:16]}, the sources hash to {actual[:16]}"], []
     return [], []
