@@ -598,12 +598,11 @@ private struct AgentChatTranscriptView: View {
                                         .id("terminal-\(block.id)")
                                 }
                             }
-                            let latestEditablePromptID = model.selectedMessages.last {
-                                $0.role == .user && {
-                                    if case .prose = $0.kind { return true }
-                                    return false
-                                }()
-                            }?.id
+                            let latestEditablePromptID = model.selectedMessages.last(where: { message in
+                                guard message.role == .user else { return false }
+                                if case .prose = message.kind { return true }
+                                return false
+                            })?.id
                             ForEach(model.selectedMessages) { message in
                                 AgentChatMessageView(
                                     message: message,
