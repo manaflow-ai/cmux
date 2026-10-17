@@ -260,6 +260,38 @@ import Testing
         #expect((await source.historyRequests).map(\.beforeSeq) == [nil, nil])
     }
 
+    @Test func transcriptResetSeedsRetryFromReplacementHistory() async {
+        let source = FakeAgentChatSource(
+            sessions: [
+                ChatSessionDescriptor(
+                    id: "session",
+                    agentKind: .codex,
+                    title: "Failed task",
+                    state: .failed(since: Date(timeIntervalSince1970: 10), reason: "failed"),
+                    lastActivityAt: Date(timeIntervalSince1970: 10),
+                    version: 1
+                ),
+            ],
+            pages: [
+                "session": [
+                    page(userMessage(id: "old", seq: 1, text: "old prompt")),
+                    page(userMessage(id: "new", seq: 2, text: "replacement prompt")),
+                ],
+            ]
+        )
+        let model = AgentChatModeModel()
+        model.updateSource(source)
+        await settle()
+
+        model.draft = "old prompt"
+        await model.sendDraft()
+        await source.emit(sessionID: "session", event: .reset)
+        await settle()
+        await model.retryLastTurn()
+
+        #expect((await source.sent).map(\.0) == ["old prompt", "replacement prompt"])
+    }
+
     @Test func sendAnswerAndInterruptForwardToTheSelectedSession() async {
         let source = FakeAgentChatSource(
             sessions: [descriptor(id: "session", agent: .codex)],
@@ -405,6 +437,16 @@ import Testing
         )
     }
 
+    private static func userMessage(id: String, seq: Int, text: String) -> ChatMessage {
+        ChatMessage(
+            id: id,
+            seq: seq,
+            role: .user,
+            timestamp: Date(timeIntervalSince1970: TimeInterval(seq)),
+            kind: .prose(ChatProse(text: text))
+        )
+    }
+
     private static func proseText(_ message: ChatMessage) -> String? {
         guard case .prose(let prose) = message.kind else { return nil }
         return prose.text
@@ -425,6 +467,10 @@ import Testing
 
     private func message(id: String, seq: Int, text: String) -> ChatMessage {
         Self.message(id: id, seq: seq, text: text)
+    }
+
+    private func userMessage(id: String, seq: Int, text: String) -> ChatMessage {
+        Self.userMessage(id: id, seq: seq, text: text)
     }
 
     private func proseText(_ message: ChatMessage) -> String? {

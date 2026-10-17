@@ -715,6 +715,11 @@ final class AgentChatModeModel {
             streamingBySession[sessionID] = nil
             historyCursors[sessionID] = nil
             historyHasMore[sessionID] = nil
+            // A reset replaces the authoritative transcript. Do not let a
+            // retry replay a prompt from the conversation that was just
+            // discarded; the replacement history will seed the latest user
+            // prompt again when it arrives.
+            lastTurnBySession[sessionID] = nil
             if selectedSessionID == sessionID, let source {
                 let generation = sourceGeneration
                 historyReloadTasks[sessionID]?.cancel()
