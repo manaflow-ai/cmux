@@ -53,6 +53,10 @@ export type Enforcement = {
 
 export type Indicator = "input" | "working" | "failed" | "lost" | "done";
 
+export interface InventoryWatchParams {
+  enabled: boolean;
+}
+
 /** acpmux never claims host isolation. */
 export type Isolation = "unverified";
 
