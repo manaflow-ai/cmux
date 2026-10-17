@@ -16,7 +16,7 @@ private actor MobileArtifactDownloadByteCounter {
     }
 }
 
-private enum MobileChatAttachmentError: Error {
+private enum MobileChatAttachmentError: Error, Sendable {
     case invalidResponse
 }
 
