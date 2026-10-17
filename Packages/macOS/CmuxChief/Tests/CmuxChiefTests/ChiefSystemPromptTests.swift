@@ -79,6 +79,12 @@ import Testing
             #expect(prompt.contains(step), "missing \(step)")
         }
         #expect(!prompt.contains("From a machine terminal, run `cua-driver doctor`"))
+        // Typed text often has an apostrophe; the daemon may serve a machine agent; the
+        // agent's cua-driver tool is written at its first launch, so it is not probed.
+        #expect(prompt.contains("beyond your own shell's single quotes"))
+        #expect(prompt.contains("Leave the driver's daemon running"))
+        #expect(!prompt.contains("cua-driver stop"))
+        #expect(!prompt.contains("grep -q cua-driver"))
     }
 
     @Test func emptyContextOmitsOptionalSections() {
