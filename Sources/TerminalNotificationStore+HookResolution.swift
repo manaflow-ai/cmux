@@ -21,9 +21,6 @@ extension TerminalNotificationStore {
               ) else {
             return
         }
-        guard !isWorkspaceNotificationsMuted(forTabId: initialTarget.tabId) else {
-            return
-        }
         let initialManager = initialTarget.surfaceId.flatMap {
             appDelegate.notificationSurfaceOwner(
                 surfaceID: $0,
@@ -50,18 +47,19 @@ extension TerminalNotificationStore {
         }
         // A remote emitter (ssh relay, cloud machine) never resolves project hooks from a
         // local directory: only the global config the user wrote on this Mac applies.
-        let hooks = await notificationHookCache.hooks(
-            startingFrom: origin.isRemote ? nil : hookDirectory,
-            globalConfigPath: globalConfigPath
-        )
+        // A muted workspace never resolves hooks; `addNotification` records
+        // the entry as read history only.
+        let hooks = isWorkspaceNotificationsMuted(forTabId: initialTarget.tabId)
+            ? []
+            : await notificationHookCache.hooks(
+                startingFrom: origin.isRemote ? nil : hookDirectory,
+                globalConfigPath: globalConfigPath
+            )
         guard !Task.isCancelled else { return }
         guard let target = appDelegate.agentNotificationDeliveryTarget(
                 claimedTabId: tabId,
                 surfaceId: surfaceId
               ) else {
-            return
-        }
-        guard !isWorkspaceNotificationsMuted(forTabId: target.tabId) else {
             return
         }
         let owningManager = target.surfaceId.flatMap {
