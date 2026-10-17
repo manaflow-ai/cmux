@@ -41,6 +41,7 @@ import {
   type ComposerPermissionAccess,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
+import { FastToggle, SpeedToggleHost, type SpeedTiers } from "./FastToggle";
 import { Icon } from "./icons/Icon";
 import { MentionMenu, mentionQuery, mentionResults, mentionText, useMentionSearch } from "./MentionMenu";
 import { Close, FileDoc } from "./conversation/icons";
@@ -327,9 +328,11 @@ export function Composer({
   const hydratedSession = useRef<string | undefined>(undefined);
   const restoringSession = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
-  // The controls row drops its permission labels to icons when it runs out of room (composerRowFit.ts).
+  // The controls row swaps whole units as it narrows (composerRowFit.ts).
   const bar = useRef<HTMLDivElement>(null);
   useRowFit(bar);
+  // The session's speed option, which the chips hand up: the bolt left of the mic (FastToggle.tsx).
+  const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
@@ -1219,7 +1222,10 @@ export function Composer({
             )}
             {/* The granted-permission status gets no slot of its own in this row (hq#1957 item 15
                 compact row): grants live in the permission mode's Access menu, one lock. */}
-            <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
+            {/* The chips hand up the speed option the bolt before the mic draws (FastToggle.tsx). */}
+            <SpeedToggleHost.Provider value={setSpeed}>
+              <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
+            </SpeedToggleHost.Provider>
             <span className="acpmux-composer-actions">
               {/* Steer comes in at the cluster's leading edge, so the mic and Send keep their places
                   when typing during a turn turns Stop into Steer and Send (hq#1957). */}
@@ -1239,7 +1245,13 @@ export function Composer({
                   {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
                 </button>
               )}
-              {accessory}
+              {speed && <FastToggle speed={speed} />}
+              {/* The mic leaves a narrow row (composerRowFit.ts micHidden). */}
+              {accessory && (
+                <span className="acpmux-fit-mic" data-fit-part="mic" data-fit-forms="full">
+                  {accessory}
+                </span>
+              )}
               {stop ? (
                 <button
                   key="stop"
