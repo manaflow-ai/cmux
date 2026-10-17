@@ -19,6 +19,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 | Browser attach v6 | `attach-surface` command on a browser | `browser-state`, `frame`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Control lifecycle notice | No command; sent after a successful `shutdown-daemon` or `session.shutdown` acknowledgment | `daemon-shutdown` |
 | Control input notice | No command; sent to a connection whose queued input for a creating terminal was not written | `terminal-input-unclaimed` |
+| Native owner inventory watch | Trusted Unix `agent-inventory-watch` with `agent-inventory-watch-v1` | `agent-inventory-changed`, `agent-inventory-watch-ended` |
 
 Events and command responses share one full-duplex connection. Each event or response is a complete transport message: a JSON line on Unix or a text frame on WebSocket. Clients must route messages by checking for `event`. If `event` is absent, the message is a command response and should be matched by `id`.
 
@@ -1818,3 +1819,21 @@ Request:
 ```
 
 Filtering applies only to events produced after the subscription is registered. Non-surface events are included only when their event name matches `events` or when `events` is absent.
+
+## agent-inventory-changed
+
+A targeted invalidation on the control connection that enabled the watch:
+`{event:"agent-inventory-changed", machine:"machine_…", watch_id:"inventory_watch_…", revision:2}`.
+The canonical owner, opaque lease ID and unsigned revision identify the current
+subscription. Rows, account labels, paths and commands are not included. Match
+the receipt and captured connection epoch before re-reading an admitted owner's
+cache. Tree snapshots do not supersede this event.
+
+## agent-inventory-watch-ended
+
+`{event:"agent-inventory-watch-ended", machine:"machine_…", watch_id:"inventory_watch_…", reason:"agent_inventory.unavailable"}`
+retires that lease after owner-feed loss, socket replacement or an invalid feed.
+Disable/disconnect also retire the lease; disable does not send an ended event.
+A new connection must negotiate and enable a new watch. See
+[the native inventory carrier](../../docs/cmux-next-agent-inventory.md) for
+admission, bounds and cancellation ordering.
