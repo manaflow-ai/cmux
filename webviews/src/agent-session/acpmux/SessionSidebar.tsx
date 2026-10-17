@@ -621,10 +621,16 @@ const SessionRow = memo(function SessionRow({
     cancelPreviewLeave();
     dismissPreview();
   };
-  const keyboard = listRowKeyboardProps(".acpmux-session-row", (row) => {
-    const sessionId = row.dataset.sessionId;
-    if (sessionId) onSelect(sessionId);
-  });
+  const keyboard = listRowKeyboardProps(
+    ".acpmux-session-row",
+    (row) => {
+      const sessionId = row.dataset.sessionId;
+      if (sessionId) onSelect(sessionId);
+    },
+    (event) => {
+      if (event.key === "Escape") dismissPreviewNow();
+    },
+  );
   const placeLabel =
     place &&
     `${t(PLACE_LABELS[place.kind])} ${place.label}${place.branch ? `, ${t(PLACE_LABELS.branch)} ${place.branch}` : ""}`;
@@ -665,10 +671,6 @@ const SessionRow = memo(function SessionRow({
       onPointerDown={dismissPreviewNow}
       onFocus={(event) => previewText && hoverPreview(event.currentTarget, 0)}
       onBlur={leavePreviewCard}
-      onKeyDown={(event) => {
-        keyboard.onKeyDown?.(event);
-        if (event.key === "Escape") dismissPreviewNow();
-      }}
       onClick={() => onSelect(session.sessionId)}
     >
       <span className="acpmux-session-row-title">{title}</span>
