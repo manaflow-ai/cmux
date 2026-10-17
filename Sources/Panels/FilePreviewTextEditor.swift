@@ -361,6 +361,25 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     }
 }
 
+extension NSTextView {
+    /// Turns off every AppKit typing substitution so the editor saves exactly the
+    /// characters typed.
+    ///
+    /// `NSTextView` inherits these from the macOS "Use smart quotes and dashes",
+    /// text replacement and autocorrect settings, which are on by default. In a
+    /// code editor they rewrite `"` into `“`/`”`, `--` into `—` and so on, so
+    /// saving `.claude/settings.json` wrote invalid JSON and crashed Claude Code.
+    func disableAutomaticTextSubstitutions() {
+        isAutomaticQuoteSubstitutionEnabled = false
+        isAutomaticDashSubstitutionEnabled = false
+        isAutomaticTextReplacementEnabled = false
+        isAutomaticSpellingCorrectionEnabled = false
+        isAutomaticDataDetectionEnabled = false
+        isAutomaticLinkDetectionEnabled = false
+        smartInsertDeleteEnabled = false
+    }
+}
+
 enum FilePreviewTextEditorLayout {
     static let textContainerInset = NSSize(width: 12, height: 10)
     static let lineFragmentPadding: CGFloat = 0
@@ -406,6 +425,7 @@ extension SavingTextView {
         textView.isSelectable = true
         textView.allowsUndo = true
         textView.isRichText = false
+        textView.disableAutomaticTextSubstitutions()
         textView.importsGraphics = false
         textView.usesFindPanel = true
         textView.usesFontPanel = false
