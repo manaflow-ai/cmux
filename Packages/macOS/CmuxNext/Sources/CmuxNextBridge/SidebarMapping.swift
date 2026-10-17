@@ -273,7 +273,7 @@ public struct SidebarMapping {
         guard let status else { return nil }
         let block = SidebarWorkspaceStatus(
             entries: status.entries.filter { $0.key != portsKey && $0.key != pullRequestKey }.map {
-                SidebarWorkspaceStatus.Entry(key: $0.key, text: $0.text, icon: $0.icon, tint: SidebarWorkspaceStatus.Tint($0.color),
+                SidebarWorkspaceStatus.Entry(key: $0.key, text: $0.text, icon: $0.icon, tint: SidebarWorkspaceStatus.Tint($0.color), state: $0.state,
                                              image: $0.icon.flatMap(asset))
             },
             log: status.lastLog.map {
