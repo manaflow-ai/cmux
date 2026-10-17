@@ -50,6 +50,14 @@ extension ControlCommandCoordinator {
             return await context?.controlMobileChatControls(params: request.params)
         case "mobile.chat.controls.update":
             return await context?.controlMobileChatControlsUpdate(params: request.params)
+        case "mobile.chat.rename":
+            return await context?.controlMobileChatRename(params: request.params)
+        case "mobile.chat.delete":
+            return await context?.controlMobileChatDelete(params: request.params)
+        case "mobile.chat.export":
+            return await context?.controlMobileChatExport(params: request.params)
+        case "mobile.chat.review":
+            return await context?.controlMobileChatReview(params: request.params)
         default:
             return nil
         }

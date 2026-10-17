@@ -140,6 +140,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // send/interrupt await terminal input. Neither may hold the main actor.
         "mobile.task.models.list", "mobile.chat.send", "mobile.chat.interrupt",
         "mobile.chat.controls", "mobile.chat.controls.update",
+        "mobile.chat.rename", "mobile.chat.delete", "mobile.chat.export", "mobile.chat.review",
         // Prompt submission suspends between paste and Enter while agent
         // editors commit the paste. The socket worker awaits the final result.
         "mobile.terminal.paste",

@@ -81,6 +81,42 @@ private final class FakeMobileHostControlCommandContext: ControlCommandContext {
         await MainActor.run { record("chat.interrupt", params) }
     }
 
+    nonisolated func controlMobileChatControls(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        await MainActor.run { record("chat.controls", params) }
+    }
+
+    nonisolated func controlMobileChatControlsUpdate(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        await MainActor.run { record("chat.controls.update", params) }
+    }
+
+    nonisolated func controlMobileChatRename(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        await MainActor.run { record("chat.rename", params) }
+    }
+
+    nonisolated func controlMobileChatDelete(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        await MainActor.run { record("chat.delete", params) }
+    }
+
+    nonisolated func controlMobileChatExport(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        await MainActor.run { record("chat.export", params) }
+    }
+
+    nonisolated func controlMobileChatReview(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        await MainActor.run { record("chat.review", params) }
+    }
+
     func controlMobileChatSessionsDump() -> ControlCallResult {
         record("chat.sessions.dump", [:])
     }
@@ -151,6 +187,23 @@ struct ControlCommandCoordinatorMobileHostTests {
         #expect(context.lastMarker == "chat.interrupt")
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.chat.send") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.chat.interrupt") == .socketWorker(mainThreadCallable: false))
+    }
+
+    @Test func workerSurfaceRoutesChatActionsThroughAsyncSeam() async {
+        let (coordinator, context) = makeCoordinator()
+        let actions = [
+            ("mobile.chat.controls", "chat.controls"),
+            ("mobile.chat.controls.update", "chat.controls.update"),
+            ("mobile.chat.rename", "chat.rename"),
+            ("mobile.chat.delete", "chat.delete"),
+            ("mobile.chat.export", "chat.export"),
+            ("mobile.chat.review", "chat.review"),
+        ]
+        for (method, marker) in actions {
+            #expect(await coordinator.handleMobileHostAsync(request(method), context: context) != nil)
+            #expect(context.lastMarker == marker)
+            #expect(ControlCommandExecutionPolicy(forMethod: method) == .socketWorker(mainThreadCallable: false))
+        }
     }
 
     @Test func v2SurfaceUsesPrivateHostStatusVariant() {

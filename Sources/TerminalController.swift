@@ -1423,7 +1423,19 @@ class TerminalController {
                     await self.v2SurfaceReadSelection(params: parsedRequest.params)
                 }
             }
-            if ["mobile.task.models.list", "mobile.chat.send", "mobile.chat.interrupt", "mobile.terminal.paste", "terminal.paste"].contains(request.method) {
+            if [
+                "mobile.task.models.list",
+                "mobile.chat.send",
+                "mobile.chat.interrupt",
+                "mobile.chat.controls",
+                "mobile.chat.controls.update",
+                "mobile.chat.rename",
+                "mobile.chat.delete",
+                "mobile.chat.export",
+                "mobile.chat.review",
+                "mobile.terminal.paste",
+                "terminal.paste",
+            ].contains(request.method) {
                 return v2AsyncResultCall(
                     id: request.id,
                     timeoutSeconds: 7

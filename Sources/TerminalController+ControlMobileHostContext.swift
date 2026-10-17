@@ -123,6 +123,30 @@ extension TerminalController: ControlMobileHostContext {
         bridgeMobileResult(await v2MobileChatControlsUpdate(params: foundationParams(params)))
     }
 
+    nonisolated func controlMobileChatRename(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        bridgeMobileResult(await v2MobileChatRename(params: foundationParams(params)))
+    }
+
+    nonisolated func controlMobileChatDelete(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        bridgeMobileResult(await v2MobileChatDelete(params: foundationParams(params)))
+    }
+
+    nonisolated func controlMobileChatExport(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        bridgeMobileResult(await v2MobileChatExport(params: foundationParams(params)))
+    }
+
+    nonisolated func controlMobileChatReview(
+        params: [String: JSONValue]
+    ) async -> ControlCallResult {
+        bridgeMobileResult(await v2MobileChatReview(params: foundationParams(params)))
+    }
+
     func controlMobileChatSessionsDump() -> ControlCallResult {
         bridgeMobileResult(v2ChatSessionsDump())
     }
