@@ -100,7 +100,12 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     }
     const elements = root ? [...root.querySelectorAll<HTMLElement>(`:scope > ${rows}`)] : [];
     if (!root || elements.length !== currentKeys.length) {
+<<<<<<< HEAD
       cancelRunning(running);
+=======
+      for (const animation of running.current) animation.cancel();
+      running.current = [];
+>>>>>>> a92e66a65e91e (fix(webviews): keep motion effect dependency-safe)
       places.current = new Map();
       shown.current = "";
       shownKeys.current = [];
@@ -117,7 +122,12 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     const before = places.current;
     // Reads: where each row is drawn now (running slides included), then its new place.
     const drawn = new Map(elements.map((element, index) => [currentKeys[index], drawnShift(element)] as const));
+<<<<<<< HEAD
     if (changed) cancelRunning(running);
+=======
+    if (changed) for (const animation of running.current) animation.cancel();
+    if (changed) running.current = [];
+>>>>>>> a92e66a65e91e (fix(webviews): keep motion effect dependency-safe)
     const after = measure(root, elements, currentKeys);
     places.current = after;
     shown.current = signature;
