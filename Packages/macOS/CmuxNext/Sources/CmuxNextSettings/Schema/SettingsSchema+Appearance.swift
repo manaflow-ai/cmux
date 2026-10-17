@@ -251,7 +251,7 @@ nonisolated enum AppearanceSettingsSchema {
                 title: SettingsText.keyed("settings.ui.animations.newWorkspace", "Animate New Workspaces"),
                 help: SettingsText.keyed("settings.ui.animations.newWorkspace.help",
                                         "A new workspace row opens in the sidebar. Off shows it there at once."),
-                kind: .toggle, default: .bool(false), keywords: ["motion", "animation", "workspace", "sidebar"]
+                kind: .toggle, default: .bool(AnimationKindsSetting.defaultEnabled.contains(.newWorkspace)), keywords: ["motion", "animation", "workspace", "sidebar"]
             ),
             SettingDescriptor(
                 AnimationKindsSetting.bouncePath, section: .appearance, group: look,

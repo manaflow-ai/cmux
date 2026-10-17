@@ -97,6 +97,11 @@ public final class LayoutModel {
 
     @ObservationIgnored private var pendingIntents: [PendingKey: LayoutIntent] = [:]
     @ObservationIgnored private var splitOverrides: [SplitID: Override] = [:]
+    /// Until this uptime, a ratio-only change is an explicit equalize the screens spring (Lawrence 2026-10-16).
+    @ObservationIgnored public private(set) var explicitReflowUntil: TimeInterval = 0
+    static let explicitReflowWindow: TimeInterval = 0.6
+    /// An explicit equalize is in its window now.
+    public var animatesReflow: Bool { ProcessInfo.processInfo.systemUptime < explicitReflowUntil }
     @ObservationIgnored private var widthOverrides: [ColumnID: Override] = [:]
 
     private enum PendingKey: Hashable {
@@ -130,6 +135,8 @@ public final class LayoutModel {
     /// Replaces the tree with a daemon snapshot. Keeps client-local focus and
     /// active screen when they still exist, else falls back to the first.
     public func apply(screens newScreens: [LayoutScreen]) {
+        let previous = daemonScreens
+        defer { applyCloseSizing(from: previous, to: newScreens) }
         daemonScreens = newScreens
         splitOverrides = splitOverrides.filter { !$0.value.settled }
         widthOverrides = widthOverrides.filter { !$0.value.settled }
@@ -282,10 +289,13 @@ public final class LayoutModel {
         record(intent, key: .split(split), phase: phase)
     }
 
-    /// Equalizes `split` so every cell in its same-axis chain gets equal size.
+    /// Equalizes `split` so every cell in its same-axis chain gets equal size. An explicit
+    /// equalize springs (`explicitReflowUntil`); the sizing that follows a split or a close moves
+    /// with that gesture instead.
     public func equalizeSplit(_ split: SplitID) {
         guard let tree = screens.lazy.compactMap({ $0.layout.tree(containing: split) }).first,
               let ratio = tree.equalizedRatio(for: split) else { return }
+        explicitReflowUntil = ProcessInfo.processInfo.systemUptime + Self.explicitReflowWindow
         setSplitRatio(split, ratio: ratio, transaction: .make(), phase: .ended)
     }
 
