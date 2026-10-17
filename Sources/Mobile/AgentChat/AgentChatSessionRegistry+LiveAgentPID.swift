@@ -259,7 +259,7 @@ extension AgentChatSessionRegistry {
             return id
         }
         if agentID == "opencode", let details {
-            let workingDirectory = VaultAgentProcessScanner.openCodeWorkingDirectoryForProcess(
+            let workingDirectory = RestorableAgentSessionIndex.openCodeWorkingDirectoryForProcess(
                 arguments: details.arguments,
                 environment: details.environment
             ) ?? details.environment["CMUX_AGENT_LAUNCH_CWD"]

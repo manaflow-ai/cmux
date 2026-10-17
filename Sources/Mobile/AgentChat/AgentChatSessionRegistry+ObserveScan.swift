@@ -283,7 +283,7 @@ extension AgentChatSessionRegistry {
                 guard def.id == "opencode", let loadedDetails else {
                     return observedWorkingDirectory(loadedDetails?.environment)
                 }
-                return VaultAgentProcessScanner.openCodeWorkingDirectoryForProcess(
+                return RestorableAgentSessionIndex.openCodeWorkingDirectoryForProcess(
                     arguments: loadedDetails.arguments,
                     environment: loadedDetails.environment
                 ) ?? observedWorkingDirectory(loadedDetails.environment)
