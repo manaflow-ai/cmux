@@ -3,9 +3,10 @@ import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { session } from "../../gallery/fixtures/acpmux";
-import { EffortPicker } from "./EffortPicker";
+import { ComposerPickers, type ComposerPermissionGrant } from "./ComposerPickers";
 import { EffortTrack } from "./EffortTrack";
 import { SessionSidebar } from "./SessionSidebar";
+import type { AcpmuxSnapshot } from "./model";
 import type { SidebarPreviewVariant } from "./sidebarPreview";
 
 type SliderStyle = "accent" | "minimal";
@@ -55,6 +56,61 @@ const sessions = [
   }),
 ];
 
+const baseComposerSnapshot: AcpmuxSnapshot = {
+  type: "snapshot",
+  protocolVersion: 1,
+  rows: [],
+  sessions: [],
+  connection: "gallery",
+  isWorking: false,
+  queue: [],
+  canLoadOlder: false,
+  catalog: [
+    {
+      id: "codex",
+      name: "Codex",
+      models: [{ id: "gpt-6.1-sol", name: "GPT-6.1 Sol", efforts: ["low", "medium", "high"], defaultEffort: "high", fast: true, contextWindow: 200_000 }],
+    },
+  ],
+  summary: {
+    sessionId: "comparison-composer",
+    harness: "codex",
+    model: "gpt-6.1-sol",
+    turnCount: 1,
+    usage: { used: 48_000, size: 200_000 },
+    modes: {
+      availableModes: [
+        { id: "default", name: "Default", description: "Ask before sensitive actions." },
+        { id: "full-access", name: "Full access", description: "Run actions without asking." },
+        { id: "plan", name: "Plan", description: "Read and propose without editing." },
+      ],
+      currentModeId: "default",
+    },
+    configOptions: [
+      {
+        id: "effort",
+        name: "Effort",
+        category: "thought_level",
+        currentValue: "high",
+        options: [
+          { value: "low", name: "Low" },
+          { value: "medium", name: "Medium" },
+          { value: "high", name: "High" },
+        ],
+      },
+      {
+        id: "fast-mode",
+        name: "Fast mode",
+        currentValue: "off",
+        options: [
+          { value: "off", name: "Off" },
+          { value: "on", name: "On" },
+        ],
+      },
+    ],
+  },
+};
+
 const openSlider: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Effort" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-slider") !== null);
@@ -67,10 +123,28 @@ const hoverSidebar: Play = async (ctx) => {
 
 function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defaultSection = "overview" }: Props) {
   const [effort, setEffort] = useState("high");
+  const [model, setModel] = useState("gpt-6.1-sol");
+  const [mode, setMode] = useState("default");
+  const [fast, setFast] = useState("off");
+  const [grants, setGrants] = useState<ComposerPermissionGrant[]>([
+    { id: "folder", label: "Trusted cmux-tui", onRemove: () => setGrants((current) => current.slice(1)) },
+  ]);
   const [section, setSection] = useState<Props["defaultSection"]>(defaultSection);
   const [preview, setPreview] = useState(previewVariant);
   const showSlider = section === "overview" || section === "slider";
   const showSidebar = section === "overview" || section === "sidebar";
+  const composerSnapshot: AcpmuxSnapshot = {
+    ...baseComposerSnapshot,
+    summary: {
+      ...baseComposerSnapshot.summary!,
+      model,
+      modes: { ...baseComposerSnapshot.summary!.modes!, currentModeId: mode },
+      configOptions: baseComposerSnapshot.summary!.configOptions!.map((option) => ({
+        ...option,
+        currentValue: option.id === "effort" ? effort : option.id === "fast-mode" ? fast : option.currentValue,
+      })),
+    },
+  };
 
   return (
     <main className="cmux-comparison-board">
@@ -173,14 +247,13 @@ function ComparisonBoard({ sliderStyle = "accent", previewVariant = "card", defa
                     ＋
                   </span>
                   <span className="cmux-comparison-compose-hint">Attach files or mention a project</span>
-                  <div className="cmux-comparison-composer-spacer" />
-                  <EffortPicker
-                    label="effort"
-                    efforts={efforts}
-                    current={effort}
-                    onPick={setEffort}
-                    slider
-                    sliderStyle={sliderStyle}
+                  <ComposerPickers
+                    snapshot={composerSnapshot}
+                    permissionAccess={{ grants }}
+                    onModel={setModel}
+                    onMode={setMode}
+                    onEffort={(id, value) => (id === "fast-mode" ? setFast(value) : setEffort(value))}
+                    showPlan
                   />
                   <button type="button" className="cmux-comparison-send" aria-label="Send message">
                     ↑
@@ -238,7 +311,13 @@ export default componentEntry<Props>({
   },
   load: async () => ComparisonBoard,
   styles: () =>
-    Promise.all([import("./styles.css"), import("./composerControls.css"), import("./ComparisonBoard.gallery.css")]),
+    Promise.all([
+      import("./styles.css"),
+      import("./composerControls.css"),
+      import("./modelPicker.css"),
+      import("./ComposerPickers.gallery.css"),
+      import("./ComparisonBoard.gallery.css"),
+    ]),
   variants: {
     "overview-accent-card": {
       note: "Light or dark theme: full glass shell with the accent slider and card preview treatment.",

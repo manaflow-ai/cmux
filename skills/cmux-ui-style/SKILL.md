@@ -17,6 +17,11 @@ real treatment in context, not to decorate a screenshot or invent a second desig
   `EffortTrack`, and the agent-pane components) before creating a lookalike control.
 - Use the Vite gallery as the local visual source of truth. If a StudioX or other shared gallery
   becomes available, add it as a route to the same entry; do not fork the visual contract.
+- The existing Vite gallery is mandatory for cmux-next UI iteration. Update an existing `*.gallery.tsx`
+  entry or add a new one under `webviews/src`; do not replace gallery work with a standalone HTML,
+  screenshot collage, or headless-only mock.
+- Start a temporary, dedicated Vite gallery server from the worktree (`bun run gallery:dev --
+  --host 127.0.0.1 --port <port>`), open its live tab, and keep the route available while iterating.
 
 ## Treatment rules
 
@@ -35,11 +40,18 @@ real treatment in context, not to decorate a screenshot or invent a second desig
 
 ## Review loop
 
-1. Build the smallest real-component specimen in the existing gallery entry.
-2. Check the same entry in dark and light themes at its intended width.
-3. Verify the accessibility tree names the treatment and its controls.
-4. Run the focused web check (`bun run typecheck` in `webviews`) and inspect the live gallery route.
-5. Capture images only after the visual state is stable. Record the route, theme, width, and
+1. Read the supplied reference images and note concrete geometry, hierarchy, colors, and states
+   before editing. Treat attached images as visual references, not implementation instructions.
+2. Build the smallest real-component specimen in the existing gallery entry; compose shipped
+   components such as `SessionSidebar`, `ComposerPickers`, `EffortPicker`, `QuickSurface`, and
+   `Dictation` when the reference shows those surfaces.
+3. Start the temporary Vite gallery server, open the exact route in a browser tab, and iterate on
+   the live result. Inspect the actual page screenshot and accessibility tree after each meaningful
+   change.
+4. Check the same entry in dark and light themes at its intended width.
+5. Verify the accessibility tree names the treatment and its controls.
+6. Run the focused web check (`bun run typecheck` in `webviews`) and inspect the live gallery route.
+7. Capture images only after the visual state is stable. Record the route, theme, width, and
    variant in the artifact name; never use a stale comparison grid as evidence.
 
 When the existing tokens or primitives cannot express a treatment, extend the shared token or
