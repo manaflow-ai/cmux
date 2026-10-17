@@ -689,7 +689,7 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         #expect(MobileHostService.ticketAuthorizationError(ticket: macWideTicket, request: macWideRequest) == nil)
     }
 
-    private func scopedAttachTicket(workspaceID: String) throws -> CmxAttachTicket {
+    private func scopedAttachTicket(workspaceID: String, terminalID: String? = nil) throws -> CmxAttachTicket {
         let route = try CmxAttachRoute(
             id: "debug",
             kind: .debugLoopback,
@@ -697,7 +697,7 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         )
         return try CmxAttachTicket(
             workspaceID: workspaceID,
-            terminalID: nil,
+            terminalID: terminalID,
             macDeviceID: "test-mac",
             macDisplayName: "Test Mac",
             routes: [route],
