@@ -43,8 +43,12 @@ extension SidebarListView {
     private func revealPatchedActive(_ active: SidebarRowKey?) {
         let previous = revealedActive
         revealedActive = active
-        guard let active, active != previous, let row = displayed.row(for: active),
-              let clip = enclosingScrollView?.contentView, case let height = clip.bounds.height, height > 0 else { return }
+        guard let clip = enclosingScrollView?.contentView, case let height = clip.bounds.height, height > 0 else {
+            // No viewport yet: the first reload with one reveals (as `applyKeepingViewport`).
+            revealedActive = nil
+            return
+        }
+        guard let active, active != previous, let row = displayed.row(for: active) else { return }
         let item = ListViewport<SidebarRowKey>.Item(id: active, start: row.y, length: row.height)
         let viewport = ListViewport(items: [item], viewport: height, content: max(displayed.totalHeight, height))
         let offset = clip.bounds.minY
