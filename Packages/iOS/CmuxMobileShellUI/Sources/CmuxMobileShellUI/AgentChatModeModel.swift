@@ -100,6 +100,11 @@ final class AgentChatModeModel {
     /// submit the same decision twice during that window.
     private var answeringRequestKeys: Set<String> = []
     private var answeredRequestKeysBySession: [String: Set<String>] = [:]
+    /// Response sequence captured when regenerate is accepted. The action
+    /// remains disabled after the input RPC returns until a newer response (or
+    /// a working/failed/needs-input state) proves that the host accepted the
+    /// replacement turn.
+    private var regenerationBaselineSeqBySession: [String: Int] = [:]
     private var removedSessionVersions: [String: Int] = [:]
     private var sourceGeneration = 0
     private let reconnectDelay: @Sendable (_ attempt: Int) async -> Void
@@ -378,6 +383,7 @@ final class AgentChatModeModel {
         lastTurnBySession = [:]
         answeringRequestKeys = []
         answeredRequestKeysBySession = [:]
+        regenerationBaselineSeqBySession = [:]
         removedSessionVersions = [:]
         loadingSessionIDs = []
         sendingSessionIDs = []
@@ -728,22 +734,32 @@ final class AgentChatModeModel {
               selectedPendingActionableCount == 0,
               pendingSendsBySession[selectedSessionID, default: []].isEmpty,
               inFlightSendsBySession[selectedSessionID] == nil,
-              latestAgentResponse(in: selectedSessionID) != nil,
+              let baselineResponse = latestAgentResponse(in: selectedSessionID),
               let queued = lastTurnBySession[selectedSessionID],
               latestUserPrompt(in: selectedSessionID) == normalizedPrompt(queued.text),
               regeneratingSessionIDs.insert(selectedSessionID).inserted else { return }
-        defer { regeneratingSessionIDs.remove(selectedSessionID) }
+        regenerationBaselineSeqBySession[selectedSessionID] = baselineResponse.seq
         let generation = sourceGeneration
-        guard generation == sourceGeneration, !Task.isCancelled else { return }
+        guard generation == sourceGeneration, !Task.isCancelled else {
+            clearRegeneration(for: selectedSessionID)
+            return
+        }
         do {
             try await source.send(
                 text: queued.text,
                 attachments: queued.attachments.map(\.outbound),
                 sessionID: selectedSessionID
             )
-            guard generation == sourceGeneration, !Task.isCancelled else { return }
+            guard generation == sourceGeneration, !Task.isCancelled else {
+                clearRegeneration(for: selectedSessionID)
+                return
+            }
         } catch {
-            guard generation == sourceGeneration, !Task.isCancelled else { return }
+            guard generation == sourceGeneration, !Task.isCancelled else {
+                clearRegeneration(for: selectedSessionID)
+                return
+            }
+            clearRegeneration(for: selectedSessionID)
             errorMessage = error.localizedDescription
         }
     }
@@ -992,6 +1008,15 @@ final class AgentChatModeModel {
                 guard version > old.version else { return }
             }
             upsert(old.withState(state, version: version))
+            switch state {
+            case .working, .needsInput, .failed, .ended:
+                clearRegeneration(for: sessionID)
+            case .idle:
+                // An idle push can race the terminal input acknowledgement;
+                // wait for the new response or a non-idle turn state before
+                // re-enabling regenerate.
+                break
+            }
         case .descriptorChanged(let descriptor): upsert(descriptor)
         case .sessionRemoved:
             let version: Int
@@ -1027,7 +1052,7 @@ final class AgentChatModeModel {
             answeringRequestKeys = answeringRequestKeys.filter { !$0.hasPrefix("\(sessionID):") }
             sendingSessionIDs.remove(sessionID)
             interruptingSessionIDs.remove(sessionID)
-            regeneratingSessionIDs.remove(sessionID)
+            clearRegeneration(for: sessionID)
             if selectedSessionID == sessionID {
                 if let next = visibleSessions.first {
                     select(next)
@@ -1062,7 +1087,7 @@ final class AgentChatModeModel {
             inFlightSendsBySession[sessionID] = nil
             sendingSessionIDs.remove(sessionID)
             lastTurnBySession[sessionID] = nil
-            regeneratingSessionIDs.remove(sessionID)
+            clearRegeneration(for: sessionID)
             if selectedSessionID == sessionID, let source {
                 let generation = sourceGeneration
                 historyReloadTasks[sessionID]?.cancel()
@@ -1090,6 +1115,15 @@ final class AgentChatModeModel {
         streamingBySession[sessionID] = nil
         reconcilePendingPrompts(sessionID: sessionID)
         seedRetryPromptIfNeeded(sessionID: sessionID)
+        if let baseline = regenerationBaselineSeqBySession[sessionID],
+           current.contains(where: { isAgentProse($0) && $0.seq > baseline }) {
+            clearRegeneration(for: sessionID)
+        }
+    }
+
+    private func clearRegeneration(for sessionID: String) {
+        regeneratingSessionIDs.remove(sessionID)
+        regenerationBaselineSeqBySession[sessionID] = nil
     }
 
     private func seedRetryPromptIfNeeded(sessionID: String) {
@@ -1108,11 +1142,7 @@ final class AgentChatModeModel {
 
     private func latestAgentResponse(in sessionID: String) -> ChatMessage? {
         let messages = messagesBySession[sessionID] ?? []
-        guard let response = messages.last(where: { message in
-            guard message.role == .agent else { return false }
-            guard case .prose = message.kind else { return false }
-            return true
-        }),
+        guard let response = messages.last(where: { isAgentProse($0) }),
         let latestPrompt = messages.last(where: { message in
             guard message.role == .user else { return false }
             if case .prose = message.kind { return true }
@@ -1120,6 +1150,12 @@ final class AgentChatModeModel {
         }),
         response.seq > latestPrompt.seq else { return nil }
         return response
+    }
+
+    private func isAgentProse(_ message: ChatMessage) -> Bool {
+        guard message.role == .agent else { return false }
+        if case .prose = message.kind { return true }
+        return false
     }
 
     private func latestUserPrompt(in sessionID: String) -> String? {

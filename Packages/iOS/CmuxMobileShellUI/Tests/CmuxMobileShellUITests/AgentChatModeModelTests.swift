@@ -280,6 +280,14 @@ import Testing
 
         await sendGate.open()
         await first.value
+        // The send RPC can return before the host publishes the new turn.
+        // Keep the action disabled until that authoritative state arrives.
+        #expect(model.regeneratingSessionIDs == Set(["session"]))
+        await source.emitHost(
+            sessionID: "session",
+            event: .stateChanged(.working(since: Date(timeIntervalSince1970: 20)))
+        )
+        await settle()
         #expect(model.regeneratingSessionIDs.isEmpty)
     }
 
