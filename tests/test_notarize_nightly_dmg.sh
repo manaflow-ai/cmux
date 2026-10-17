@@ -61,6 +61,10 @@ if [ "${1:-}" = "notarytool" ]; then
   [ "$key_id" = FIXTUREKEY ] && [ "$issuer" = fixture-issuer ] || { echo "fake xcrun: key id or issuer" >&2; exit 94; }
   printf 'notary-key %s\n' "$key" >> "$CMUX_TEST_CALL_LOG"
 fi
+if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "wait" ]; then
+  printf '{"id":"%s","status":"%s"}\n' "${3:-}" "${CMUX_TEST_WAIT_STATUS:-Accepted}"
+  exit 0
+fi
 if [ "${1:-}" = "notarytool" ] && [ "${2:-}" = "submit" ] && [[ "${3:-}" == */stapled-app/* ]]; then
   # The second submission: the DMG rebuilt around the stapled app.
   printf '{"id":"fixture-stapled-id","status":"%s"}\n' "${CMUX_TEST_STAPLED_STATUS:-Accepted}"
@@ -595,6 +599,68 @@ for missing in APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD; do
   fi
 done
 echo "PASS: the shipped DMG carries the stapled app and its own ticket"
+
+# release.yml's thin variants submit the DMG around the stapled app without a
+# wait (CMUX_STAPLED_DMG_HANDOFF_FILE); finish-stapled-app-dmgs.sh then waits
+# for every handed-off submission at once and finishes them.
+HANDOFF="$TMP_DIR/stapled.handoff"
+run_finish() {
+  CMUX_TEST_CALL_LOG="$LOG" \
+  CMUX_TEST_SOURCE_APP="$APP" \
+  CMUX_TEST_DETACH_STATE="$TMP_DIR/detach-retried" \
+  CMUX_XCRUN_TOOL="$FAKE_BIN/xcrun" \
+  CMUX_HDIUTIL_TOOL="$FAKE_BIN/hdiutil" \
+  CMUX_SPCTL_TOOL="$FAKE_BIN/spctl" \
+  CMUX_SMOKE_TOOL="$FAKE_BIN/smoke" \
+  CMUX_VERIFY_METADATA_TOOL="$FAKE_BIN/metadata" \
+  CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
+  ASC_API_KEY_ID=FIXTUREKEY \
+  ASC_API_ISSUER_ID=fixture-issuer \
+  ASC_API_KEY_P8_BASE64="$FIXTURE_P8_BASE64" \
+  "$ROOT_DIR/scripts/ci/finish-stapled-app-dmgs.sh" "$HANDOFF"
+}
+for case in accepted rejected; do
+  : > "$LOG"
+  rm -rf "$TMP_DIR/cmux-nightly-mount" "$TMP_DIR/detach-retried"
+  rm -f "$IMMUTABLE" "$DMG.stapled-app.dmg" "$HANDOFF"
+  if ! CMUX_STAPLED_DMG_HANDOFF_FILE="$HANDOFF" run_stapled >/dev/null 2>"$TMP_DIR/handoff.err"; then
+    echo "FAIL: handing off the stapled-app DMG failed" >&2
+    cat "$TMP_DIR/handoff.err" >&2
+    exit 1
+  fi
+  if ! grep -q '^xcrun notarytool submit .*/stapled-app/cmux-nightly-macos.dmg .*--output-format json$' "$LOG" \
+    || grep -q '^xcrun notarytool submit .*/stapled-app/.*--wait' "$LOG" \
+    || ! grep -Fxq 'submission_id=fixture-stapled-id' "$HANDOFF" \
+    || [ ! -f "$DMG.stapled-app.dmg" ] || [ -e "$IMMUTABLE" ] \
+    || grep -q '^xcrun stapler staple .*\.dmg$' "$LOG"; then
+    echo "FAIL: a handed-off stapled-app DMG is submitted without a wait and left unstapled for the finish step" >&2
+    cat "$LOG" >&2
+    exit 1
+  fi
+  : > "$LOG"
+  if [ "$case" = accepted ]; then
+    if ! run_finish >/dev/null 2>"$TMP_DIR/finish.err"; then
+      echo "FAIL: finishing an accepted stapled-app DMG failed" >&2
+      cat "$TMP_DIR/finish.err" >&2
+      exit 1
+    fi
+    if ! grep -q '^xcrun notarytool wait fixture-stapled-id ' "$LOG" \
+      || ! grep -Fxq "xcrun stapler staple $DMG.stapled-app.dmg" "$LOG" \
+      || ! grep -q '^xcrun stapler validate .*/cmux NIGHTLY.app$' "$LOG" \
+      || [ -e "$DMG.stapled-app.dmg" ] || [ ! -f "$IMMUTABLE" ] || ! cmp -s "$DMG" "$IMMUTABLE"; then
+      echo "FAIL: the finish step must staple the stapled-app DMG, check the app inside, and put it at the release and immutable paths" >&2
+      cat "$LOG" >&2
+      exit 1
+    fi
+  else
+    if CMUX_TEST_WAIT_STATUS=Invalid run_finish >/dev/null 2>&1 \
+      || grep -q '^xcrun stapler staple' "$LOG" || [ -e "$IMMUTABLE" ]; then
+      echo "FAIL: a rejected stapled-app DMG must fail the finish step and publish nothing" >&2
+      exit 1
+    fi
+  fi
+done
+echo "PASS: handed-off stapled-app DMGs are finished together"
 
 # The CI signing keychain must be gone before any launch smoke runs code from
 # the bundle. Give the helper a managed keychain (scripts/ci/signing-keychain.sh

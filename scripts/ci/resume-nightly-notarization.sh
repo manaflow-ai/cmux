@@ -114,6 +114,12 @@ RECORDED_DMG="$(state_value dmg_path)"
 RECORDED_SHA256="$(state_value dmg_sha256)"
 RECORDED_IMMUTABLE="$(state_value immutable_path)"
 RECORDED_CHANNEL="$(state_value channel)"
+# stapled_app=true: this DMG is the one around the stapled app
+# (resume-stapled-app-notarization.sh); the app inside must have its ticket.
+STATE_STAPLED_APP="$(state_value stapled_app)"
+# CMUX_RESUME_APP_ONLY=true: staple and check the app and this DMG, then stop
+# (resume-stapled-app-notarization.sh builds the DMG that ships).
+RESUME_APP_ONLY="${CMUX_RESUME_APP_ONLY:-false}"
 CHANNEL="${CMUX_CHANNEL:-${RECORDED_CHANNEL:-nightly}}"
 if [ -z "$SUBMISSION_ID" ] || [ -z "$RECORDED_DMG" ] || [ -z "$RECORDED_SHA256" ] || [ -z "$RECORDED_IMMUTABLE" ] || [ -z "$RECORDED_CHANNEL" ]; then
   echo "Incomplete notarization state: $STATE_FILE" >&2
@@ -279,12 +285,19 @@ launch_smokes "$APP_PATH"
 
 "$XCRUN_TOOL" stapler staple "$DMG_RELEASE"
 "$XCRUN_TOOL" stapler validate "$DMG_RELEASE"
+if [ "$RESUME_APP_ONLY" = true ]; then
+  echo "Accepted submission $SUBMISSION_ID: the app and this DMG are stapled; the DMG around the stapled app comes next"
+  exit 0
+fi
 MOUNT_DIR="$(mktemp -d "$TMP_DIR/mount.XXXXXX")"
 "$HDIUTIL_TOOL" attach "$DMG_RELEASE" -nobrowse -readonly -mountpoint "$MOUNT_DIR"
 MOUNTED_APP="$(find "$MOUNT_DIR" -maxdepth 1 -name '*.app' -type d -print -quit)"
 if [ -z "$MOUNTED_APP" ]; then
   echo "No app found in mounted recovered DMG" >&2
   exit 1
+fi
+if [ "$STATE_STAPLED_APP" = true ]; then
+  "$XCRUN_TOOL" stapler validate "$MOUNTED_APP"
 fi
 "$SPCTL_TOOL" -a -vv --type execute "$MOUNTED_APP"
 launch_smokes "$MOUNTED_APP"

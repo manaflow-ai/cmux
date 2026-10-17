@@ -594,6 +594,15 @@ assert "sleep 300" in auto
 assert "exact recovery artifacts for manual continuation" in auto
 assert "needs.poll.outputs.all_accepted == 'true'" in auto
 assert "CMUX_OUTER_NOTARY_WAIT_TIMEOUT=40m" in auto
+# A recovered DMG gets the DMG around its stapled app as an outer submission.
+assert "./scripts/ci/resume-stapled-app-notarization.sh" in auto
+assert "steps.prepare-outer.outputs.prepared == 'true'" in auto
+assert "if: env.RECOVERY_KIND == 'computer-use-helper'" not in auto
+assert "./scripts/ci/resume-stapled-app-notarization.sh" in resume
+stapled = (Path(sys.argv[1]).parents[2] / "scripts/ci/resume-stapled-app-notarization.sh").read_text(encoding="utf-8")
+assert "CMUX_RESUME_APP_ONLY=true" in stapled and "CMUX_NOTARY_SUBMIT_ONLY=true" in stapled
+assert "stapled_app=true" in stapled
+assert "STATE_STAPLED_APP" in resume_script and "RESUME_APP_ONLY" in resume_script
 assert "wait-and-staple:" in auto
 assert "matrix:" in auto and "[arm64, x86_64, universal]" in auto
 assert "needs.wait-and-staple.result == 'success'" in auto

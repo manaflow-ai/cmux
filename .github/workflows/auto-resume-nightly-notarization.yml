@@ -366,13 +366,12 @@ jobs:
             printf '%s=%s\n' "$key" "$value" >> "$GITHUB_ENV"
           done < "$RUNNER_TEMP/recovery.env"
 
-      # Only a recovered Computer Use helper needs a signature here: the helper
-      # re-seals the app and the outer DMG is signed. A recovered DMG is
-      # already signed, so that path never imports the certificate.
-      # notarize-nightly-dmg.sh deletes the keychain after the DMG signature,
-      # before the continuation launches the stapled app.
+      # Both kinds sign an outer DMG here: a recovered Computer Use helper
+      # re-seals the app, and a recovered DMG gets the DMG around its stapled
+      # app (resume-stapled-app-notarization.sh). notarize-nightly-dmg.sh deletes
+      # the keychain after the DMG signature, before the continuation checks
+      # the stapled app.
       - name: Import signing certificate for recovered DMG
-        if: env.RECOVERY_KIND == 'computer-use-helper'
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -404,19 +403,32 @@ jobs:
               "$HELPER_STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
               "${APP_ENTITLEMENTS:-cmux.$CHANNEL.entitlements}" "$APPLE_SIGNING_IDENTITY" "$outer_state"
           else
+            # The first DMG is accepted: staple its app, then submit the DMG
+            # around the stapled app and wait for it like an outer DMG.
+            outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
             CMUX_CHANNEL="$CHANNEL" \
+            CHANNEL_RELEASE_TAG="$RELEASE_TAG" \
+            CHANNEL_DMG_PREFIX="$DMG_PREFIX" \
+            NIGHTLY_VARIANT="$VARIANT" \
             CMUX_NOTARY_WAIT_TIMEOUT=2m \
             CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
-            ./scripts/ci/resume-nightly-notarization.sh \
-              "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME"
+            CMUX_OUTER_NOTARY_WAIT_TIMEOUT=40m \
+              ./scripts/ci/resume-stapled-app-notarization.sh \
+              "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
+              "${APP_ENTITLEMENTS:-cmux.$CHANNEL.entitlements}" "$outer_state"
           fi
 
       - name: Prepare outer DMG recovery after bounded wait
-        if: always() && steps.wait-staple.outcome == 'failure' && env.RECOVERY_KIND == 'computer-use-helper'
+        id: prepare-outer
+        if: always() && steps.wait-staple.outcome == 'failure'
         run: |
           set -euo pipefail
           outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
           outer_log="$RUNNER_TEMP/cmux-outer-dmg-notarization.state.log"
+          if [ ! -s "$outer_state" ] && [ "${RECOVERY_KIND:-dmg}" != computer-use-helper ]; then
+            echo "The failure came before the stapled-app DMG was submitted; nothing to hand off."
+            exit 0
+          fi
           for required in "$outer_state" "$outer_log" "$DMG_RELEASE" recovery/cmux-nightly-notarization-recovery-app.tar.gz recovery/cmux-nightly-notarization-recovery.json; do
             [ -s "$required" ] || { echo "missing outer recovery input: $required" >&2; exit 1; }
           done
@@ -479,9 +491,10 @@ jobs:
           archive = pathlib.Path("recovery", original["app_archive_path"])
           pathlib.Path("outer-recovery-staging", original["app_archive_path"]).write_bytes(archive.read_bytes())
           PY
+          echo "prepared=true" >> "$GITHUB_OUTPUT"
 
       - name: Upload outer DMG recovery artifact
-        if: always() && steps.wait-staple.outcome == 'failure' && env.RECOVERY_KIND == 'computer-use-helper'
+        if: always() && steps.prepare-outer.outputs.prepared == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-${{ needs.preflight.outputs.channel }}-outer-notarization-recovery-${{ matrix.variant }}-${{ needs.preflight.outputs.short_sha }}
@@ -491,7 +504,7 @@ jobs:
           retention-days: 14
 
       - name: Upload outer DMG polling metadata
-        if: always() && steps.wait-staple.outcome == 'failure' && env.RECOVERY_KIND == 'computer-use-helper'
+        if: always() && steps.prepare-outer.outputs.prepared == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-${{ needs.preflight.outputs.channel }}-outer-notarization-metadata-${{ matrix.variant }}-${{ needs.preflight.outputs.short_sha }}

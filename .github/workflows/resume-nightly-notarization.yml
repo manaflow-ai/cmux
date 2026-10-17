@@ -162,8 +162,9 @@ jobs:
       # already signed, so that path never imports the certificate.
       # notarize-nightly-dmg.sh deletes the keychain after the DMG signature,
       # before the continuation launches the stapled app.
+      # A recovered DMG also signs the DMG around its stapled app
+      # (resume-stapled-app-notarization.sh).
       - name: Import signing certificate for recovered DMG
-        if: env.RECOVERY_KIND == 'computer-use-helper'
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -190,10 +191,18 @@ jobs:
               "$HELPER_STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
               "${APP_ENTITLEMENTS:-cmux.$REQUESTED_CHANNEL.entitlements}" "$APPLE_SIGNING_IDENTITY" "$outer_state"
           else
+            # A state with stapled_app=true (an outer continuation artifact)
+            # is only continued; any other one gets the DMG around its stapled app.
+            outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
             CMUX_CHANNEL="$REQUESTED_CHANNEL" \
+            NIGHTLY_VARIANT="$REQUESTED_VARIANT" \
+            CHANNEL_RELEASE_TAG="$REQUESTED_CHANNEL" \
+            CHANNEL_DMG_PREFIX="cmux-$REQUESTED_CHANNEL-macos" \
             CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
-            ./scripts/ci/resume-nightly-notarization.sh \
-              "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME"
+            CMUX_OUTER_NOTARY_WAIT_TIMEOUT=60m \
+            ./scripts/ci/resume-stapled-app-notarization.sh \
+              "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
+              "${APP_ENTITLEMENTS:-cmux.$REQUESTED_CHANNEL.entitlements}" "$outer_state"
           fi
 
       - name: Upload verified recovery artifact

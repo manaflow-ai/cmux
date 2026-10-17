@@ -45,6 +45,11 @@ SKIP_NOTARIZATION="${CMUX_SKIP_NOTARIZATION:-false}"
 # false keeps one DMG submission. CMUX_NOTARY_SUBMIT_ONLY never reaches it:
 # resume-nightly-notarization.sh continues that path.
 STAPLE_APP_IN_DMG="${CMUX_STAPLE_APP_IN_DMG:-true}"
+# CMUX_STAPLED_DMG_HANDOFF_FILE: submit the DMG around the stapled app without
+# a wait, keep it as <release-dmg>.stapled-app.dmg, write this record and stop
+# after the app checks; scripts/ci/finish-stapled-app-dmgs.sh waits for several
+# such submissions at once and finishes them (release.yml's thin variants).
+STAPLED_DMG_HANDOFF_FILE="${CMUX_STAPLED_DMG_HANDOFF_FILE:-}"
 case "$STAPLE_APP_IN_DMG" in
   true|false) ;;
   *) echo "CMUX_STAPLE_APP_IN_DMG must be true or false, got: $STAPLE_APP_IN_DMG" >&2; exit 2 ;;
@@ -346,28 +351,52 @@ if [ "$STAPLE_APP_IN_DMG" = true ]; then
   "$SIGNING_KEYCHAIN_TOOL" delete
   RESTAPLE_KEYCHAIN_OPEN=false
   restaple_output="$NOTARY_DIR/stapled-app-dmg-submit-output"
+  restaple_wait=(--wait --timeout "$STAPLED_DMG_WAIT_TIMEOUT")
+  if [ -n "$STAPLED_DMG_HANDOFF_FILE" ]; then
+    restaple_wait=()
+  fi
   set +e
   "$XCRUN_TOOL" notarytool submit "$FINAL_DMG" "${NOTARY_AUTH_ARGS[@]}" \
-    --output-format json --wait --timeout "$STAPLED_DMG_WAIT_TIMEOUT" >"$restaple_output" 2>&1
+    --output-format json ${restaple_wait[@]+"${restaple_wait[@]}"} >"$restaple_output" 2>&1
   restaple_exit=$?
   set -e
   restaple_id="$(extract_notary_value "$restaple_output" id || true)"
   restaple_status="$(extract_notary_value "$restaple_output" status || true)"
-  if [ "$restaple_exit" -ne 0 ] || [ "$restaple_status" != "Accepted" ]; then
+  if [ -n "$STAPLED_DMG_HANDOFF_FILE" ]; then
+    if [ "$restaple_exit" -ne 0 ] || ! [[ "$restaple_id" =~ ^[A-Za-z0-9._-]+$ ]]; then
+      cat "$restaple_output" >&2
+      echo "The DMG around the stapled app was not submitted (exit $restaple_exit); nothing is published" >&2
+      exit 1
+    fi
+    /bin/mv -f "$FINAL_DMG" "$DMG_RELEASE.stapled-app.dmg"
+    {
+      printf 'submission_id=%s\n' "$restaple_id"
+      printf 'stapled_dmg=%s\n' "$DMG_RELEASE.stapled-app.dmg"
+      printf 'release_dmg=%s\n' "$DMG_RELEASE"
+      printf 'immutable_dmg=%s\n' "$DMG_IMMUTABLE"
+      printf 'channel=%s\n' "$CHANNEL"
+    } > "$STAPLED_DMG_HANDOFF_FILE"
+    echo "Submitted the DMG around the stapled app (submission $restaple_id); finish-stapled-app-dmgs.sh finishes it"
+  elif [ "$restaple_exit" -ne 0 ] || [ "$restaple_status" != "Accepted" ]; then
     cat "$restaple_output" >&2
     if [ -n "$restaple_id" ]; then
       "$XCRUN_TOOL" notarytool log "$restaple_id" "${NOTARY_AUTH_ARGS[@]}" >&2 || true
     fi
     echo "Notarization of the DMG around the stapled app failed (submission ${restaple_id:-none}, status ${restaple_status:-unknown}, exit $restaple_exit); nothing is published" >&2
     exit 1
+  else
+    echo "Apple accepted the DMG around the stapled app (submission $restaple_id)"
   fi
-  echo "Apple accepted the DMG around the stapled app (submission $restaple_id)"
 fi
 # Apple is done with this artifact; the app below must not find the key.
 notary_auth_forget "$NOTARY_DIR"
 launch_smokes "$APP_PATH"
 "$VERIFY_METADATA_TOOL" "$APP_PATH" "$CHANNEL"
 "$VERIFY_LICENSES_TOOL" "$APP_PATH"
+if [ "$STAPLE_APP_IN_DMG" = true ] && [ -n "$STAPLED_DMG_HANDOFF_FILE" ]; then
+  # finish-stapled-app-dmgs.sh staples and checks the DMG and the app inside.
+  exit 0
+fi
 
 "$XCRUN_TOOL" stapler staple "$FINAL_DMG"
 "$XCRUN_TOOL" stapler validate "$FINAL_DMG"

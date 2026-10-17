@@ -63,6 +63,7 @@ DELETE = re.compile(
     r"signing-keychain\.sh\s+delete\b|\bsecurity\s+delete-keychain\b"
     # These scripts sign and then delete the keychain themselves (rule 5).
     r"|scripts/ci/notarize-nightly-dmg\.sh|scripts/ci/resume-helper-notarization\.sh"
+    r"|scripts/ci/resume-stapled-app-notarization\.sh"
 )
 BUNDLE_CODE = [
     re.compile(r"smoke-launch-macos-app\.sh"),
@@ -97,6 +98,7 @@ STEP_LEVEL_ONLY = {
 # Scripts that launch the app unless their launch smokes are deferred.
 SMOKING_SCRIPTS = re.compile(
     r"scripts/ci/notarize-nightly-dmg\.sh|scripts/ci/resume-nightly-notarization\.sh|scripts/ci/resume-helper-notarization\.sh"
+    r"|scripts/ci/resume-stapled-app-notarization\.sh|scripts/ci/finish-stapled-app-dmgs\.sh"
 )
 SIGNING_SECRET_REFERENCE = re.compile(r"secrets\.(APPLE_|ASC_API_|IOS_|SPARKLE_|NIGHTLY_SPARKLE_|CMUX_RELEASE_APP_|CONTENT_SIGNING_)")
 VARIABLE_RUNNER = re.compile(r"vars\.[A-Z0-9_]*RUNNER")
@@ -240,6 +242,13 @@ def check_scripts(failures: list[str]) -> None:
     continuation = index_of(resume, '"$RESUME_TOOL"')
     if not (0 <= delete < continuation):
         failures.append("scripts/ci/resume-helper-notarization.sh: delete the signing keychain before the continuation runs the app")
+
+    stapled = read_lines("scripts/ci/resume-stapled-app-notarization.sh", failures)
+    package = index_of(stapled, '"$PACKAGE_TOOL"')
+    delete = index_of(stapled, '"$SIGNING_KEYCHAIN_TOOL" delete', last=True)
+    continuation = index_of(stapled, '"$RESUME_TOOL" "$OUTER_STATE"', last=True)
+    if not (0 <= package < delete < continuation):
+        failures.append("scripts/ci/resume-stapled-app-notarization.sh: delete the signing keychain after the stapled-app DMG signature and before the continuation")
 
     sign = "\n".join(read_lines("scripts/sign-cmux-bundle.sh", failures))
     if '"$SIGNING_KEYCHAIN_TOOL" is-present' not in sign or "SIDECAR_CHECK+=(--static-only)" not in sign:
