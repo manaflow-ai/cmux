@@ -29,7 +29,7 @@ struct PhoneControlClientTests {
         ))
         #expect(receipt.accepted)
         #expect(receipt.screenSequence == frame.sequence + 1)
-        #expect((await client.drainEvents()).contains { $0.method == "ui.changed" })
+        #expect(try await client.nextEvent().method == "ui.changed")
 
         let tree = try await client.accessibilityTree()
         #expect(tree?.role == "window")
