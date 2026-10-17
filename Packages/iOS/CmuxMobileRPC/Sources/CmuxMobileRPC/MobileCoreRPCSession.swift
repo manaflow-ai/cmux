@@ -585,9 +585,26 @@ actor MobileCoreRPCSession {
             cancellationClose = existing.cancellationClose
             connectionTask?.waiters.insert(waiterID)
         } else {
-            switch await connectAttemptRegistry.beginConnect(
+            let admission = await connectAttemptRegistry.beginConnect(
                 key: connectAttemptKey
-            ) {
+            )
+            // Admission crosses an actor boundary. A concurrent request may
+            // have installed the shared dial (or teardown may have begun)
+            // while this waiter was suspended. Release only this waiter's
+            // unused lease and rejoin the current session state before
+            // allocating another transport.
+            let sessionWasRetiring = isTearingDown
+            if sessionWasRetiring || transport != nil || connectionTask != nil {
+                if case .granted(let unusedLease) = admission {
+                    await connectAttemptRegistry.finishConnect(lease: unusedLease)
+                }
+                try Task.checkCancellation()
+                guard !sessionWasRetiring else {
+                    throw MobileShellConnectionError.connectionClosed
+                }
+                return try await ensureConnected(timeoutNanoseconds: timeoutNanoseconds)
+            }
+            switch admission {
             case .granted(let lease):
                 connectLease = lease
             case .busy:

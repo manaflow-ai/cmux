@@ -1,4 +1,4 @@
-public import CmuxAgentChat
+public import CmuxArtifactCore
 
 /// Result payload of `mobile.chat.session` (single-session snapshot pull).
 public struct MobileChatSessionResponse: Sendable, Equatable, Codable {

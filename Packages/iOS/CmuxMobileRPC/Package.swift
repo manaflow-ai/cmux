@@ -4,6 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "CmuxMobileRPC",
+    defaultLocalization: "en",
     platforms: [
         .iOS(.v17),
         .macOS(.v14),
@@ -16,6 +17,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
+        .package(path: "../../Shared/CmuxConversation"),
         .package(path: "../../Shared/CmuxTerminalSizing"),
         .package(path: "../CmuxMobileShellModel"),
         .package(path: "../CmuxMobileSupport"),
@@ -25,10 +27,12 @@ let package = Package(
             name: "CmuxMobileRPC",
             dependencies: [
                 "CMUXMobileCore",
+                "CmuxConversation",
                 "CmuxTerminalSizing",
                 "CmuxMobileShellModel",
                 "CmuxMobileSupport",
             ],
+            resources: [.process("Resources")],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
@@ -39,6 +43,7 @@ let package = Package(
             name: "CmuxMobileRPCTests",
             dependencies: [
                 "CmuxMobileRPC",
+                "CmuxConversation",
                 "CMUXMobileCore",
                 "CmuxMobileShellModel",
                 "CmuxTerminalSizing",

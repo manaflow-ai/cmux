@@ -1,6 +1,6 @@
 #if os(iOS)
-import CmuxAgentChat
-import CmuxAgentChatUI
+import CmuxArtifactCore
+import CmuxArtifactUI
 
 struct TerminalArtifactGalleryItemActions {
     let loader: ChatArtifactLoader

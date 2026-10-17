@@ -1,4 +1,4 @@
-import CmuxAgentChat
+import CmuxArtifactCore
 public import Foundation
 
 /// Reads the per-agent hook session stores (`~/.cmuxterm/<agent>-hook-sessions.json`)

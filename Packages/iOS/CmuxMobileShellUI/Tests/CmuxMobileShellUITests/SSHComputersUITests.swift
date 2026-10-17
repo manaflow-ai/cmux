@@ -59,13 +59,6 @@ struct SSHComputersUITests {
         #expect(state.isIdle)
     }
 
-    @Test func sshFormDoesNotStealChildSheets() {
-        var state = MobileRootPresentationState()
-        state.apply(.presentChild(.workspaceTaskComposer))
-        state.apply(.presentSSHComputerEditor(.new))
-        #expect(state.presentation == .child(.workspaceTaskComposer))
-    }
-
     @Test func swipeDismissClosesSSHForm() {
         var state = MobileRootPresentationState()
         state.apply(.presentSSHComputerEditor(.edit(UUID())))

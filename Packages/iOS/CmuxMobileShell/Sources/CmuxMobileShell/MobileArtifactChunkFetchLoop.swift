@@ -1,4 +1,4 @@
-internal import CmuxAgentChat
+internal import CmuxArtifactCore
 internal import Foundation
 
 /// Runs the offset-driven artifact fetch protocol for chat and terminal scopes.

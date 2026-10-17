@@ -1,5 +1,5 @@
 #if os(iOS)
-import CmuxAgentChat
+import CmuxArtifactCore
 import SwiftUI
 
 struct TerminalArtifactGallerySortMenu: View, Equatable {

@@ -862,6 +862,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Strongly-held observers for every active TabManager. Each observer owns
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
+    private var nativeConversationService: NativeConversationService?
     private let agentChatTranscriptService = AgentChatTranscriptService()
     var settingsRuntime: SettingsRuntime?
     /// Injected before the coordinator is used; the managed-policy extension
@@ -2234,6 +2235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let hasOwnedRuntimeCleanup = !markedForKill.isEmpty
             || !simulatorCleanupTasks.isEmpty
             || mirrorsOwingDetach > 0
+            || nativeConversationService?.hasRuntime == true
         let hasLocalTerminalSurfaces = hasLocalTerminalSurfacesForQuit
         guard hasOwnedRuntimeCleanup || hasLocalTerminalSurfaces
             || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites else { return false }
@@ -2258,6 +2260,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // what would otherwise swallow the goodbye.
                 await self.remoteTmuxController.detachAllAwaitingExit()
                 guard !Task.isCancelled else { return }
+                await self.nativeConversationService?.shutdown()
                 if !markedForKill.isEmpty {
                     await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
                 }
@@ -2788,6 +2791,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // entry). No-op on Release / when the flag is off.
         MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
         TerminalController.shared.attachAuth(coordinator: auth.coordinator, accountFlow: auth.accountFlow)
+        if let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let service = NativeConversationService(
+                auth: auth.coordinator,
+                directory: support.appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.cmuxterm.app", isDirectory: true)
+                    .appendingPathComponent("NativeConversations", isDirectory: true)
+            )
+            nativeConversationService = service
+            TerminalController.shared.nativeConversationService = service
+        }
         TerminalController.shared.attachBrowserDataImportCoordinator(browserDataImportCoordinator)
         TerminalController.shared.attachCaffeineController(caffeineController)
         TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService

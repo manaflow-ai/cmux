@@ -20,6 +20,73 @@ struct MobileSettingsView: View {
     /// so Settings controls the same gate used by analytics and crash reporting.
     private static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
 
+    private var sshSectionTitle: String {
+        SSHCopy().sectionTitle
+    }
+
+    private var terminalSettingsSection: some View {
+        @Bindable var displaySettings = displaySettings
+        return Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
+            Toggle(isOn: $displaySettings.showAltScreenNotice) {
+                Text(L10n.string(
+                    "mobile.settings.altScreenNotice",
+                    defaultValue: "Full-Screen Sizing Notice"
+                ))
+            }
+            .accessibilityIdentifier("MobileSettingsAltScreenNoticeToggle")
+
+            Toggle(isOn: $displaySettings.terminalFolderTapEnabled) {
+                Text(L10n.string(
+                    "mobile.settings.terminalFolderTap",
+                    defaultValue: "Open Folders on Tap"
+                ))
+            }
+            .accessibilityIdentifier("MobileSettingsTerminalFolderTapToggle")
+
+            Toggle(isOn: $displaySettings.useLegacyTerminalSizing) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L10n.string(
+                        "mobile.settings.legacyTerminalSizing",
+                        defaultValue: "Use Full Terminal Height"
+                    ))
+                    Text(L10n.string(
+                        "mobile.settings.legacyTerminalSizing.description",
+                        defaultValue: "Let apps like Vim extend beneath the keyboard and toolbars."
+                    ))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .accessibilityIdentifier("MobileSettingsLegacyTerminalSizingToggle")
+
+            Toggle(isOn: $displaySettings.handoffTerminalSizingWhenInactive) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L10n.string(
+                        "mobile.settings.handoffTerminalSizing",
+                        defaultValue: "Hand Off Terminal Sizing When Inactive"
+                    ))
+                    Text(L10n.string(
+                        "mobile.settings.handoffTerminalSizing.description",
+                        defaultValue: "Let the Mac choose the terminal size while this app is in the background."
+                    ))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .accessibilityIdentifier("MobileSettingsHandoffTerminalSizingToggle")
+
+            Button {
+                showingShortcuts = true
+            } label: {
+                Label(
+                    L10n.string("mobile.workspaces.terminalShortcuts", defaultValue: "Terminal Shortcuts"),
+                    systemImage: "keyboard"
+                )
+            }
+            .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
+        }
+    }
+
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.analyticsClientID) private var analyticsClientID
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
@@ -248,7 +315,7 @@ struct MobileSettingsView: View {
                         }
                         .accessibilityIdentifier("ssh.settings.keys")
                     } header: {
-                        Text(SSHCopy().sectionTitle)
+                        Text(verbatim: sshSectionTitle)
                     } footer: {
                         Text(L10n.string(
                             "mobile.ssh.settings.keys.footer",
@@ -274,65 +341,7 @@ struct MobileSettingsView: View {
                     }
                 }
 
-                Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
-                    Toggle(isOn: $displaySettings.showAltScreenNotice) {
-                        Text(L10n.string(
-                            "mobile.settings.altScreenNotice",
-                            defaultValue: "Full-Screen Sizing Notice"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsAltScreenNoticeToggle")
-
-                    Toggle(isOn: $displaySettings.terminalFolderTapEnabled) {
-                        Text(L10n.string(
-                            "mobile.settings.terminalFolderTap",
-                            defaultValue: "Open Folders on Tap"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsTerminalFolderTapToggle")
-
-                    Toggle(isOn: $displaySettings.useLegacyTerminalSizing) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(L10n.string(
-                                "mobile.settings.legacyTerminalSizing",
-                                defaultValue: "Use Full Terminal Height"
-                            ))
-                            Text(L10n.string(
-                                "mobile.settings.legacyTerminalSizing.description",
-                                defaultValue: "Let apps like Vim extend beneath the keyboard and toolbars."
-                            ))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        }
-                    }
-                    .accessibilityIdentifier("MobileSettingsLegacyTerminalSizingToggle")
-
-                    Toggle(isOn: $displaySettings.handoffTerminalSizingWhenInactive) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(L10n.string(
-                                "mobile.settings.handoffTerminalSizing",
-                                defaultValue: "Hand Off Terminal Sizing When Inactive"
-                            ))
-                            Text(L10n.string(
-                                "mobile.settings.handoffTerminalSizing.description",
-                                defaultValue: "Let the Mac choose the terminal size while this app is in the background."
-                            ))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        }
-                    }
-                    .accessibilityIdentifier("MobileSettingsHandoffTerminalSizingToggle")
-
-                    Button {
-                        showingShortcuts = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.workspaces.terminalShortcuts", defaultValue: "Terminal Shortcuts"),
-                            systemImage: "keyboard"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
-                }
+                terminalSettingsSection
 
                 Section {
                     Toggle(isOn: $displaySettings.hapticFeedbackEnabled) {
@@ -432,22 +441,6 @@ struct MobileSettingsView: View {
                     "mobile.settings.cmuxLabs",
                     defaultValue: "CMUX Labs"
                 )) {
-                    Toggle(isOn: $displaySettings.taskComposerFullLiquidGlass) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(L10n.string(
-                                "mobile.settings.taskComposerFullLiquidGlass",
-                                defaultValue: "Task Composer Liquid Glass"
-                            ))
-                            Text(L10n.string(
-                                "mobile.settings.taskComposerFullLiquidGlassCaption",
-                                defaultValue:
-                                    "Use Liquid Glass controls and a transparent bar in New Task."
-                            ))
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        }
-                    }
-                    .accessibilityIdentifier("MobileSettingsTaskComposerFullLiquidGlass")
 
                     Toggle(isOn: $displaySettings.feedBubbleQuotes) {
                         VStack(alignment: .leading, spacing: 2) {
@@ -466,18 +459,6 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsFeedBubbleQuotes")
 
-                    NavigationLink {
-                        TaskComposerShellIconLabView()
-                    } label: {
-                        Label(
-                            L10n.string(
-                                "mobile.settings.shellIconLab",
-                                defaultValue: "Shell Icon Lab"
-                            ),
-                            systemImage: "terminal"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsShellIconLab")
 
                     NavigationLink {
                         UnreadIndicatorLabView()

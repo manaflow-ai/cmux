@@ -15221,15 +15221,60 @@
     "mobile.pairingOptInUpdate.requirement": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "On your Mac, open Settings > Mobile and turn on Enable iOS pairing."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "Mac で「設定」>「Mobile」を開き、「iOS ペアリングを有効にする」をオンにしてください。"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Öffnen Sie auf dem Mac „Einstellungen“ > „Mobile“ und aktivieren Sie die iOS-Kopplung."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Sur votre Mac, ouvrez Réglages > Mobile et activez le jumelage iOS."}},
-        "ar": {"stringUnit": {"state": "translated", "value": "على جهاز Mac، افتح الإعدادات > الهاتف المحمول وفعّل اقتران iOS."}},
-        "es": {"stringUnit": {"state": "translated", "value": "En tu Mac, abre Ajustes > Móvil y activa el enlace con iOS."}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "請在 Mac 上開啟「設定」>「行動裝置」，並啟用 iOS 配對。"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "请在 Mac 上打开“设置”>“移动”，并启用 iOS 配对。"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "Mac에서 설정 > 모바일을 열고 iOS 페어링을 켜세요."}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On your Mac, open Settings > Mobile and turn on Enable iOS pairing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac で「設定」>「Mobile」を開き、「iOS ペアリングを有効にする」をオンにしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnen Sie auf dem Mac „Einstellungen“ > „Mobile“ und aktivieren Sie die iOS-Kopplung."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur votre Mac, ouvrez Réglages > Mobile et activez le jumelage iOS."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "على جهاز Mac، افتح الإعدادات > الهاتف المحمول وفعّل اقتران iOS."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En tu Mac, abre Ajustes > Móvil y activa el enlace con iOS."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在 Mac 上開啟「設定」>「行動裝置」，並啟用 iOS 配對。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在 Mac 上打开“设置”>“移动”，并启用 iOS 配对。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac에서 설정 > 모바일을 열고 iOS 페어링을 켜세요."
+          }
+        }
       }
     },
     "mobile.pairingOptInUpdate.releaseLabel": {
@@ -20906,55 +20951,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Feed"
+            "value": "Tasks"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フィード"
+            "value": "タスク"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الموجز"
+            "value": "المهام"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Feed"
+            "value": "Aufgaben"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Feed"
+            "value": "Tareas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Flux"
+            "value": "Tâches"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "피드"
+            "value": "작업"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "动态"
+            "value": "任务"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "動態"
+            "value": "任務"
           }
         }
       }
@@ -21434,15 +21479,60 @@
     "mobile.agentFeed.open": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Open"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Öffnen"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Ouvrir"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "فتح"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Abrir"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "開啟"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "打开"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "열기"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "開く"}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開く"
+          }
+        }
       }
     },
     "mobile.agentFeed.openWorkspace": {
@@ -22392,15 +22482,60 @@
     "mobile.workspaces.empty.retryTimedOut": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The connection is taking longer than expected. Try again or check the setup guide."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "接続に時間がかかっています。もう一度試すか、設定ガイドを確認してください。"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Die Verbindung dauert länger als erwartet. Versuchen Sie es erneut oder prüfen Sie die Einrichtungsanleitung."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "La connexion prend plus de temps que prévu. Réessayez ou consultez le guide de configuration."}},
-        "ar": {"stringUnit": {"state": "translated", "value": "يستغرق الاتصال وقتًا أطول من المتوقع. حاول مرة أخرى أو راجع دليل الإعداد."}},
-        "es": {"stringUnit": {"state": "translated", "value": "La conexión está tardando más de lo esperado. Inténtalo de nuevo o consulta la guía de configuración."}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "連線時間比預期長。請再試一次，或查看設定指南。"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "连接时间比预期长。请重试，或查看设置指南。"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "연결에 예상보다 오래 걸리고 있습니다. 다시 시도하거나 설정 가이드를 확인하세요."}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The connection is taking longer than expected. Try again or check the setup guide."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続に時間がかかっています。もう一度試すか、設定ガイドを確認してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Verbindung dauert länger als erwartet. Versuchen Sie es erneut oder prüfen Sie die Einrichtungsanleitung."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion prend plus de temps que prévu. Réessayez ou consultez le guide de configuration."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستغرق الاتصال وقتًا أطول من المتوقع. حاول مرة أخرى أو راجع دليل الإعداد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión está tardando más de lo esperado. Inténtalo de nuevo o consulta la guía de configuración."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線時間比預期長。請再試一次，或查看設定指南。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接时间比预期长。请重试，或查看设置指南。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결에 예상보다 오래 걸리고 있습니다. 다시 시도하거나 설정 가이드를 확인하세요."
+          }
+        }
       }
     },
     "mobile.workspaces.empty.setupGuide": {
@@ -22583,43 +22718,178 @@
     "mobile.settings.handoffTerminalSizing": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Hand Off Terminal Sizing When Inactive"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "非アクティブ時にターミナルサイズを引き継ぐ"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Terminalgröße bei Inaktivität übergeben"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Transférer le dimensionnement du terminal en cas d’inactivité"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "تسليم تحجيم الطرفية عند عدم النشاط"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Ceder el dimensionamiento del terminal cuando está inactivo"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "非使用中時交接終端機大小"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "不活跃时移交终端大小"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "비활성 상태일 때 터미널 크기 넘기기"}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hand Off Terminal Sizing When Inactive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非アクティブ時にターミナルサイズを引き継ぐ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalgröße bei Inaktivität übergeben"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transférer le dimensionnement du terminal en cas d’inactivité"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسليم تحجيم الطرفية عند عدم النشاط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ceder el dimensionamiento del terminal cuando está inactivo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非使用中時交接終端機大小"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不活跃时移交终端大小"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비활성 상태일 때 터미널 크기 넘기기"
+          }
+        }
       }
     },
     "mobile.settings.handoffTerminalSizing.description": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Let the Mac choose the terminal size while this app is in the background."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "このアプリがバックグラウンドにある間は、Macにターミナルサイズを任せます。"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Der Mac wählt die Terminalgröße, während diese App im Hintergrund ist."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Laisser le Mac choisir la taille du terminal lorsque l’app est en arrière-plan."}},
-        "ar": {"stringUnit": {"state": "translated", "value": "السماح لجهاز Mac باختيار حجم الطرفية عندما يكون هذا التطبيق في الخلفية."}},
-        "es": {"stringUnit": {"state": "translated", "value": "Dejar que el Mac elija el tamaño del terminal mientras esta app está en segundo plano."}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "此 App 在背景執行時，讓 Mac 選擇終端機大小。"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "此 App 在后台运行时，让 Mac 选择终端大小。"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "이 앱이 백그라운드에 있을 때 Mac이 터미널 크기를 선택하도록 합니다."}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let the Mac choose the terminal size while this app is in the background."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリがバックグラウンドにある間は、Macにターミナルサイズを任せます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Mac wählt die Terminalgröße, während diese App im Hintergrund ist."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laisser le Mac choisir la taille du terminal lorsque l’app est en arrière-plan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح لجهاز Mac باختيار حجم الطرفية عندما يكون هذا التطبيق في الخلفية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dejar que el Mac elija el tamaño del terminal mientras esta app está en segundo plano."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 App 在背景執行時，讓 Mac 選擇終端機大小。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 App 在后台运行时，让 Mac 选择终端大小。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 앱이 백그라운드에 있을 때 Mac이 터미널 크기를 선택하도록 합니다."
+          }
+        }
       }
     },
     "mobile.ios106PairingUpdate.releaseLabel": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "1.0.6 · September 2026"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "1.0.6 · 2026年9月"}},
-        "de": {"stringUnit": {"state": "translated", "value": "1.0.6 · September 2026"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "1.0.6 · septembre 2026"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "1.0.6 · سبتمبر 2026"}},
-        "es": {"stringUnit": {"state": "translated", "value": "1.0.6 · septiembre de 2026"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "1.0.6 · 2026 年 9 月"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "1.0.6 · 2026 年 9 月"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "1.0.6 · 2026년 9월"}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · September 2026"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · 2026年9月"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · September 2026"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · septembre 2026"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · سبتمبر 2026"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · septiembre de 2026"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · 2026 年 9 月"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · 2026 年 9 月"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · 2026년 9월"
+          }
+        }
       }
     },
     "mobile.agentFeed.question.answer": {
@@ -23389,6 +23659,65 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "conversation.error.storage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved command status could not be read. Tasks are paused to protect unsent work."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der gespeicherte Befehlsstatus konnte nicht gelesen werden. Aufgaben wurden pausiert, um ungesendete Arbeit zu schützen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’état enregistré des commandes n’a pas pu être lu. Les tâches sont suspendues pour protéger le travail non envoyé."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّرت قراءة حالة الأوامر المحفوظة. أُوقفت المهام مؤقتًا لحماية العمل غير المرسل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer el estado guardado de los comandos. Las tareas están en pausa para proteger el trabajo sin enviar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取已儲存的指令狀態。工作已暫停，以保護尚未傳送的內容。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取已保存的命令状态。任务已暂停，以保护尚未发送的内容。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장된 명령 상태를 읽을 수 없습니다. 전송하지 않은 작업을 보호하기 위해 작업을 일시 정지했습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存されたコマンドの状態を読み取れませんでした。未送信の内容を保護するためタスクを一時停止しています。"
           }
         }
       }

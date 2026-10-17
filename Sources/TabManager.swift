@@ -1,7 +1,7 @@
 import CmuxProductAnalytics
 import CmuxSSHClipboardTrust
 import AppKit
-import CmuxAgentChat
+import CmuxArtifactCore
 import CmuxCloudMachines
 import CmuxFoundation
 import CmuxTerminalCore

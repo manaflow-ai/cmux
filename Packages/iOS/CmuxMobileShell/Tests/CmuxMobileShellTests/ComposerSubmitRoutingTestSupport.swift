@@ -61,21 +61,9 @@ actor RoutingHostRouter {
     }
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
-    private var feedPasteSubmitted = true
-    private var feedTextPages: [(text: String, version: Double, nextOffset: Int?)] = []
-    private(set) var feedTextRequests: [(itemID: String?, offset: Int?, version: Double?)] = []
-
-    func setFeedTextPages(_ pages: [(text: String, version: Double, nextOffset: Int?)]) {
-        feedTextPages = pages
-    }
-
-    func setFeedPasteSubmitted(_ submitted: Bool) {
-        feedPasteSubmitted = submitted
-    }
     private(set) var attachmentUploads: [AttachmentUploadRecord] = []
     private var rejectAttachmentUpload = false
     let terminalInputRecorder = RoutingTerminalInputRecorder()
-    private(set) var directorySearchQueries: [String] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
     private(set) var notificationReconciles: [[String]] = []
     private var handledNotificationIDs: [String] = []
@@ -99,15 +87,6 @@ actor RoutingHostRouter {
     private var workspaceCreateError: (code: String?, message: String)?
     private var workspaceCreateResponseCreatedWorkspaceID: String? = "workspace-created"
     private var workspaceCreateResponseIncludesCreatedWorkspace = true
-    private(set) var directoryListRequests: [(path: String, offset: Int, limit: Int)] = []
-    private var directoryListError: (code: String?, message: String)?
-    private var directorySearchError: (code: String?, message: String)?
-    private var taskModelsByProvider: [String: [MobileTaskAgentModel]] = [:]
-    private var taskModelListProviders: [String] = []
-    private var holdTaskModelList = false
-    private var taskModelListHeld = false
-    private var taskModelListContinuation: CheckedContinuation<Void, Never>?
-    private var taskModelListReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var holdFirstWorkspaceCreate = false
     private var firstWorkspaceCreateHeld = false
     private var firstWorkspaceCreateContinuation: CheckedContinuation<Void, Never>?
@@ -174,38 +153,8 @@ actor RoutingHostRouter {
         workspaceCreateResponseIncludesCreatedWorkspace = includesCreatedWorkspace
     }
 
-    func setDirectorySearchError(code: String?, message: String) {
-        directorySearchError = (code, message)
-    }
-
-    func setDirectoryListError(code: String?, message: String) {
-        directoryListError = (code, message)
-    }
-
     func setHostCapabilities(_ capabilities: [String]) {
         hostCapabilities = capabilities
-    }
-
-    func setTaskModels(
-        _ models: [MobileTaskAgentModel],
-        provider: MobileTaskAgentProvider
-    ) {
-        taskModelsByProvider[provider.rawValue] = models
-    }
-
-    func setHoldTaskModelList(_ hold: Bool) {
-        holdTaskModelList = hold
-    }
-
-    func awaitTaskModelListReached() async {
-        if taskModelListHeld { return }
-        await withCheckedContinuation { taskModelListReachedWaiters.append($0) }
-    }
-
-    func releaseTaskModelList() {
-        let continuation = taskModelListContinuation
-        taskModelListContinuation = nil
-        continuation?.resume()
     }
 
     func setHoldFirstWorkspaceCreate(_ hold: Bool) {
@@ -237,11 +186,6 @@ actor RoutingHostRouter {
     func setRejectAttachmentUpload(_ reject: Bool) {
         rejectAttachmentUpload = reject
     }
-    func recordedDirectorySearchQueries() -> [String] { directorySearchQueries }
-    func recordedTaskModelListProviders() -> [String] { taskModelListProviders }
-    func recordedDirectoryListRequests() -> [(path: String, offset: Int, limit: Int)] {
-        directoryListRequests
-    }
     func recordedDismisses() -> [(notificationIDs: [String], clientID: String?)] { dismisses }
     func recordedNotificationFeedMarkAllReadCount() -> Int { notificationFeedMarkAllReadCount }
 
@@ -263,11 +207,6 @@ actor RoutingHostRouter {
         var initialCommand: String?
         var initialEnv: [String: String]?
         var operationID: String?
-        var query: String?
-        var directoryPath: String?
-        var directoryOffset: Int?
-        var directoryLimit: Int?
-        var provider: String?
         var fileName: String?
         var uploadOffset: Int?
         var uploadLast: Bool?
@@ -275,23 +214,12 @@ actor RoutingHostRouter {
         var workspaceID: String?
         var submitKey: String?
         var feedEventID: String?
-        var itemID: String?
-        var feedTextVersion: Double?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
         let method = info.method
         let id = info.id
         switch method {
-        case "feed.text":
-            feedTextRequests.append((info.itemID, info.directoryOffset, info.feedTextVersion))
-            guard !feedTextPages.isEmpty else {
-                return try? Self.resultFrame(id: id, result: ["text": "", "version": 1.0])
-            }
-            let page = feedTextPages.removeFirst()
-            var result: [String: Any] = ["text": page.text, "version": page.version]
-            if let next = page.nextOffset { result["next_offset"] = next }
-            return try? Self.resultFrame(id: id, result: result)
         case "workspace.list", "mobile.workspace.list":
             return try? workspaceListFrame(id: id)
         case "terminal.create":
@@ -370,96 +298,6 @@ actor RoutingHostRouter {
                 result["created_workspace_id"] = workspaceCreateResponseCreatedWorkspaceID
             }
             return try? Self.resultFrame(id: id, result: result)
-        case "mobile.directory.search":
-            directorySearchQueries.append(info.query ?? "")
-            if let directorySearchError {
-                return try? Self.errorFrame(
-                    id: id,
-                    code: directorySearchError.code,
-                    message: directorySearchError.message
-                )
-            }
-            return try? Self.resultFrame(id: id, result: [
-                "directories": [
-                    "/Users/test/Dev/Manaflow/cmux",
-                    "/Users/test/Dev/Manaflow/cmuxterm-hq",
-                ],
-            ])
-        case "mobile.directory.list":
-            let path = info.directoryPath ?? ""
-            let offset = info.directoryOffset ?? 0
-            let limit = info.directoryLimit ?? 50
-            directoryListRequests.append((path, offset, limit))
-            if let directoryListError {
-                return try? Self.errorFrame(
-                    id: id,
-                    code: directoryListError.code,
-                    message: directoryListError.message
-                )
-            }
-            let allEntries: [[String: Any]] = [
-                [
-                    "name": ".hidden",
-                    "path": "/Users/test/.hidden",
-                    "is_hidden": true,
-                    "is_package": false,
-                    "is_symbolic_link": false,
-                    "is_readable": true,
-                ],
-                [
-                    "name": "Projects",
-                    "path": "/Users/test/Projects",
-                    "is_hidden": false,
-                    "is_package": false,
-                    "is_symbolic_link": false,
-                    "is_readable": true,
-                ],
-            ]
-            let boundedOffset = min(max(offset, 0), allEntries.count)
-            let end = min(boundedOffset + max(limit, 0), allEntries.count)
-            return try? Self.resultFrame(id: id, result: [
-                "current_path": "/Users/test",
-                "parent_path": "/Users",
-                "entries": Array(allEntries[boundedOffset..<end]),
-                "offset": boundedOffset,
-                "limit": limit,
-                "total_count": allEntries.count,
-                "next_offset": end < allEntries.count ? end : NSNull() as Any,
-            ])
-        case "mobile.task.models.list":
-            let provider = info.provider ?? ""
-            taskModelListProviders.append(provider)
-            if holdTaskModelList {
-                taskModelListHeld = true
-                let reachedWaiters = taskModelListReachedWaiters
-                taskModelListReachedWaiters = []
-                for waiter in reachedWaiters { waiter.resume() }
-                await withCheckedContinuation { taskModelListContinuation = $0 }
-            }
-            let models: [[String: Any]] = taskModelsByProvider[provider, default: []].map { model in
-                var object: [String: Any] = [
-                    "id": model.id,
-                    "display_name": model.displayName,
-                    "efforts": model.efforts.map { effort in
-                        var effortObject: [String: Any] = [
-                            "id": effort.id,
-                            "display_name": effort.displayName,
-                        ]
-                        if let description = effort.description {
-                            effortObject["description"] = description
-                        }
-                        return effortObject
-                    },
-                ]
-                if let defaultEffortID = model.defaultEffortID {
-                    object["default_effort_id"] = defaultEffortID
-                }
-                return object
-            }
-            return try? Self.resultFrame(id: id, result: [
-                "source": "discovered",
-                "models": models,
-            ])
         case "terminal.paste_image":
             let surfaceID = info.surfaceID ?? ""
             let format = info.imageFormat ?? ""
@@ -486,7 +324,7 @@ actor RoutingHostRouter {
             ))
             return try? Self.resultFrame(
                 id: id,
-                result: method == "mobile.terminal.paste" ? ["submitted": feedPasteSubmitted] : [:]
+                result: [:]
             )
         case "mobile.task.attachment.upload":
             let fileName = info.fileName ?? ""
@@ -662,20 +500,13 @@ private actor RoutingTransport: CmxByteTransport {
                 initialCommand: params?["initial_command"] as? String,
                 initialEnv: params?["initial_env"] as? [String: String],
                 operationID: params?["operation_id"] as? String,
-                query: params?["query"] as? String,
-                directoryPath: params?["path"] as? String,
-                directoryOffset: params?["offset"] as? Int,
-                directoryLimit: params?["limit"] as? Int,
-                provider: params?["provider"] as? String,
                 fileName: params?["file_name"] as? String,
                 uploadOffset: params?["offset"] as? Int,
                 uploadLast: params?["last"] as? Bool,
                 uploadTotalBytes: params?["total_bytes"] as? Int,
                 workspaceID: params?["workspace_id"] as? String,
                 submitKey: params?["submit_key"] as? String,
-                feedEventID: params?["feed_event_id"] as? String,
-                itemID: params?["item_id"] as? String,
-                feedTextVersion: params?["version"] as? Double
+                feedEventID: params?["feed_event_id"] as? String
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else {

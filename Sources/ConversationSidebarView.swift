@@ -1,4 +1,4 @@
-import CmuxAgentChat
+import CmuxArtifactCore
 import CmuxFoundation
 import Foundation
 import SwiftUI

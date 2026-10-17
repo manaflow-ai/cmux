@@ -1,4 +1,4 @@
-internal import CmuxAgentChat
+internal import CmuxArtifactCore
 internal import Darwin
 
 /// Opens repository-relative regular files without following any path-component symlink.

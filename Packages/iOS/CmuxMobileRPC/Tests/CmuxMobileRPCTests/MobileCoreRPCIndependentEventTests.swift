@@ -199,9 +199,12 @@ struct MobileCoreRPCIndependentEventTests {
         let first = try #require(await events.next()?.payloadJSON)
         let second = try #require(await events.next()?.payloadJSON)
         let surfaces = try [first, second].map {
-            try #require(JSONSerialization.jsonObject(with: $0) as? [String: String])["surface_id"]
+            let payload = try #require(JSONSerialization.jsonObject(with: $0) as? [String: String])
+            return try #require(payload["surface_id"])
         }
-        #expect(surfaces == ["terminal-a", "terminal-b"])
+        // Independent lanes preserve their own order, not cross-lane order.
+        // Require one event per surface without imposing a scheduler ordering.
+        #expect(surfaces.sorted() == ["terminal-a", "terminal-b"])
 
         await client.disconnect()
     }

@@ -1,5 +1,5 @@
 public import CMUXMobileCore
-public import CmuxAgentChat
+public import CmuxArtifactCore
 internal import CmuxMobileDiagnostics
 public import CmuxMobileBrowserStream
 public import CmuxMobilePairedMac
@@ -53,7 +53,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "terminal.bytes", "terminal.render_grid", "terminal.set_font",
                     "mobile.terminal.size_state", "mobile.terminal.detached",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
-                    "feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
                     "mobile.compatible_tags.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
@@ -65,7 +64,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "terminal.render_grid", "terminal.set_font",
                     "mobile.terminal.size_state", "mobile.terminal.detached",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
-                    "feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
                     "mobile.compatible_tags.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
@@ -77,7 +75,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     "terminal.bytes", "terminal.set_font",
                     "mobile.terminal.size_state", "mobile.terminal.detached",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
-                    "feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
                     "mobile.compatible_tags.changed",
                     "browser.frame", "browser.state", "browser.closed", "browser.dialog", "browser.dialog.resolved",
@@ -139,9 +136,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let workspaceMutationAccountAuthCapability = "workspace.mutations.account_auth.v1"
     static let workspaceGroupActionsCapability = "workspace.group_actions.v1"
     static let workspaceCreateInGroupCapability = "workspace.create_in_group.v1", workspaceGroupCreateCapability = "workspace.group_create.v1"
-    static let taskCreateCapability = "workspace.task_create.v1"
+    /// Chunked file transfer used by the terminal composer attachment lane.
     static let taskAttachmentCapability = "task.attachments.v1"
-    static let taskModelsCapability = "task.models.v1"
     static let chatArtifactCapability = "chat.artifact.v1"
     static let chatArtifactGalleryCapability = "chat.artifact.gallery.v1"
     static let terminalArtifactCapability = "terminal.artifact.v1"
@@ -452,48 +448,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var notificationFeedStatus: MobileNotificationFeedStatus = .idle
     /// The number of currently retained unread notifications across all Macs.
     public private(set) var notificationFeedUnreadCount: Int = 0
-    /// The immutable, reverse-chronological agent workstream feed aggregated
-    /// across Macs (the Feed tab's rows).
-    public internal(set) var agentFeedItems: [MobileAgentFeedItem] = [] {
-        didSet {
-            agentFeedRevision &+= 1
-            agentFeedNeedsInputCount = agentFeedItems.lazy.filter(\.effectiveNeedsInput).count
-        }
-    }
-    /// Increments when the retained Feed snapshot changes. The Feed child uses
-    /// this scalar to avoid comparing every payload in `onChange`.
-    public private(set) var agentFeedRevision: UInt64 = 0
-    /// The agent feed's current loading and capability state. Shares the
-    /// notification feed's status vocabulary.
-    public internal(set) var agentFeedStatus: MobileNotificationFeedStatus = .idle
-    /// The number of retained agent-feed rows awaiting user input across all Macs.
-    public private(set) var agentFeedNeedsInputCount: Int = 0
-    /// Request ids with an in-flight feed reply, so rows disable their controls.
-    public internal(set) var agentFeedPendingReplyRequestIDs: Set<String> = []
-    /// Completed-turn rows with a terminal reply currently being delivered.
-    public internal(set) var agentFeedPendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID> = []
-    /// Terminal replies that failed, keyed by row, until the user retries or
-    /// a later send to that row succeeds.
-    public internal(set) var agentFeedFailedTerminalReplies: [MobileAgentFeedItemID: MobileAgentFeedFailedReply] = [:]
-    var agentFeedSnapshotsByMac: [String: AgentFeedMacSnapshot] = [:]
-    @ObservationIgnored var agentFeedStopReasonCache = AgentFeedStopReasonCache()
-    var agentFeedKnownRevisionsByMac: [String: Int] = [:]
-    /// Free-text terminal replies this device sent, keyed by the replied row,
-    /// so the row keeps showing what was said across snapshot refreshes.
-    var agentFeedLocalRepliesByItemID: [MobileAgentFeedItemID: String] = [:]
-    /// Local needs-input triage overrides (the Feed's mark-read analogue),
-    /// keyed by row: `false` clears a pending row from the badge and filter
-    /// without answering it; `true` re-flags a row.
-    var agentFeedTriageOverridesByItemID: [MobileAgentFeedItemID: Bool] = [:]
-    /// Rows the user explicitly interacted with (answered, replied, opened,
-    /// read, or swipe-triaged). Every newer row shows as needs-input until
-    /// it appears here. Persisted phone-locally.
-    var agentFeedReadRowKeys: Set<String> = []
-    var agentFeedReadRowKeyOrder: [String] = []
-    var agentFeedUnreadBaseline: Date?
-    var agentFeedRefreshTasksByMac: [String: Task<Void, Never>] = [:]
-    var agentFeedRefreshPendingMacIDs: Set<String> = []
-    var agentFeedSuccessfulMacIDs: Set<String> = []
     /// The group sections the UI renders. A materialized derivation of every
     /// entry in ``workspacesByMac``. Each group's `isCollapsed` reflects this
     /// device's choice (see ``groupCollapseStore``), not the Mac's live value.
@@ -589,23 +543,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Observable mirror of ``MobileWorkspaceSortStore/computerPriority``.
     /// Change through ``setWorkspaceComputerPriority(_:)``.
     public internal(set) var workspaceComputerPriority: [String] = []
-    /// Device-local task templates used by the iOS task composer.
-    @ObservationIgnored public let taskTemplateStore: (any MobileTaskTemplateStoring)?
-    /// Over-the-air fallback used when the selected Mac's agent cannot list models.
-    @ObservationIgnored let taskModelCatalogClient: MobileTaskModelCatalogClient
-    /// Mac/provider model responses observed by the task composer.
-    var taskModelCache: [MobileTaskModelCacheKey: MobileTaskModelCacheEntry] = [:]
-    @ObservationIgnored var taskModelRefreshRequests: [MobileTaskModelCacheKey: MobileTaskModelRefreshRequest] = [:]
-    @ObservationIgnored var taskModelSuccessfulConnections: [MobileTaskModelCacheKey: String] = [:]
-    @ObservationIgnored var taskModelPrefetchTasks:
-        [MobileTaskModelPrefetchKey: Task<MobileTaskModelRefreshOutcome, Never>] = [:]
-    @ObservationIgnored var taskModelPrefetchTaskTokens: [MobileTaskModelPrefetchKey: UUID] = [:]
-    @ObservationIgnored var taskModelPrefetchWorkers: [UUID: Task<Void, Never>] = [:]
-    @ObservationIgnored var taskModelPrefetchDesiredTargets:
-        [MobileTaskModelPrefetchKey: MobileTaskModelPrefetchTarget] = [:]
-    @ObservationIgnored var taskModelPrefetchCompletedKeys: Set<MobileTaskModelPrefetchKey> = []
-    @ObservationIgnored var taskModelPrefetchFailedKeys: Set<MobileTaskModelPrefetchKey> = []
-    @ObservationIgnored var taskModelPrefetchCatalog: MobileTaskModelPrefetchCatalog?
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
@@ -1000,8 +937,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Mac side. Larger than the per-image cap because files are not
     /// re-encoded down; the per-terminal and global byte budgets still bound
     /// the aggregate.
-    public nonisolated static let maxPendingAttachmentFileBytes =
-        TaskComposerAttachment.maximumFileBytes
+    public nonisolated static let maxPendingAttachmentFileBytes = 32 * 1024 * 1024
     /// GLOBAL encoded-bytes budget summed across EVERY terminal's staged set, not
     /// just the target's. The per-terminal cap bounds one draft, but each live
     /// terminal carries its own per-terminal budget, so staging photos across many
@@ -1310,6 +1246,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
+    @ObservationIgnored var conversationStorage: [String: MobileConversationStorage] = [:]
     /// Whether legacy connected-but-clientless shells use local iOS workspace creation.
     public var usesLocalWorkspaceCreationFallback: Bool {
         remoteClient == nil && connectionState == .connected
@@ -2033,8 +1970,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock(),
         connectionHandoffDrainTimeoutNanoseconds: UInt64 = 3_000_000_000,
         terminalInputAckResubscribeClock: any Clock<Duration> = ContinuousClock(),
-        taskTemplateStore: (any MobileTaskTemplateStoring)? = nil,
-        taskModelCatalogClient: MobileTaskModelCatalogClient = .live(),
         browserStreamEvents: (any BrowserStreamEventReceiving)? = nil,
         simulatorStreamStore: MobileSimulatorStreamStore? = nil,
         simulatorStreamStalenessClock: any Clock<Duration> = ContinuousClock(),
@@ -2063,8 +1998,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.connectionHandoffDrainTimeoutNanoseconds =
             connectionHandoffDrainTimeoutNanoseconds
         self.terminalInputAckResubscribeClock = terminalInputAckResubscribeClock
-        self.taskTemplateStore = taskTemplateStore
-        self.taskModelCatalogClient = taskModelCatalogClient
         self.browserStreamEvents = browserStreamEvents
         self.simulatorStreamStore = simulatorStreamStore
         self.simulatorStreamStalenessClock = simulatorStreamStalenessClock
@@ -2282,10 +2215,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         notificationFeedOpenTask?.cancel()
         teamScopeCleanupTask?.cancel()
         cancelAllTerminalReplayTasks()
-        for request in taskModelRefreshRequests.values { request.cancel() }
-        for task in taskModelPrefetchTasks.values { task.cancel() }
-        for worker in taskModelPrefetchWorkers.values { worker.cancel() }
-        taskModelPrefetchCatalog?.cancel()
         teardownSecondaryMacSubscriptions()
         let terminalLaneCoordinator = terminalLaneCoordinator
         Task { await terminalLaneCoordinator?.deactivateAll() }
@@ -2390,21 +2319,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let draftStore {
             enqueueDraftOperation { await draftStore.clearAllDrafts() }
         }
-        taskTemplateStore?.clearAllUserData()
-        for request in taskModelRefreshRequests.values { request.cancel() }
-        taskModelRefreshRequests.removeAll()
-        for task in taskModelPrefetchTasks.values { task.cancel() }
-        taskModelPrefetchTasks.removeAll()
-        taskModelPrefetchTaskTokens.removeAll()
-        for worker in taskModelPrefetchWorkers.values { worker.cancel() }
-        taskModelPrefetchWorkers.removeAll()
-        taskModelPrefetchDesiredTargets.removeAll()
-        taskModelPrefetchCompletedKeys.removeAll()
-        taskModelPrefetchFailedKeys.removeAll()
-        taskModelPrefetchCatalog?.cancel()
-        taskModelPrefetchCatalog = nil
-        taskModelSuccessfulConnections.removeAll()
-        taskModelCache.removeAll()
         // Drop unflushed keystroke snapshots too: an armed flush that runs
         // before the wipe would only write text the wipe then deletes, but the
         // buffer itself must not carry one account's text into the next.
@@ -3866,7 +3780,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // workspace event.
             if oldValue != pairedMacs {
                 recomputeDerivedWorkspaceState()
-                pruneTaskModelStateToPairedMacs()
             }
             guard oldValue.count != pairedMacs.count else { return }
             analytics.setSuperProperties(["paired_mac_count": .int(pairedMacs.count)])
@@ -7580,16 +7493,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
         } else if event.topic == "notification.feed.changed" {
             handleNotificationFeedChangedEvent(
-                event,
-                macDeviceID: ownerKey.pairingID,
-                client: client,
-                displayName: notificationFeedDisplayNameForSecondary(
-                    macDeviceID: ownerKey.pairingID,
-                    fallback: displayName
-                )
-            )
-        } else if event.topic == "feed.changed" {
-            handleAgentFeedChangedEvent(
                 event,
                 macDeviceID: ownerKey.pairingID,
                 client: client,
@@ -14734,16 +14637,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 } else if event.topic == "notification.feed.changed",
                           let macDeviceID = self.normalizedForegroundNotificationFeedMacIDForEvent() {
                     self.handleNotificationFeedChangedEvent(
-                        event,
-                        macDeviceID: macDeviceID,
-                        client: client,
-                        displayName: self.notificationFeedDisplayNameForForeground(
-                            macDeviceID: macDeviceID
-                        )
-                    )
-                } else if event.topic == "feed.changed",
-                          let macDeviceID = self.normalizedForegroundNotificationFeedMacIDForEvent() {
-                    self.handleAgentFeedChangedEvent(
                         event,
                         macDeviceID: macDeviceID,
                         client: client,

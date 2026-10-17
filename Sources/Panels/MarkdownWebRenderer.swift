@@ -1,5 +1,5 @@
 import AppKit
-import CmuxAgentChat
+import CmuxArtifactCore
 import CmuxBrowser
 import SwiftUI
 import WebKit

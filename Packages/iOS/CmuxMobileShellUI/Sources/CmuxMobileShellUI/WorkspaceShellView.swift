@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxConversationUI
 import Foundation
 import CmuxMobilePairedMac
 import CmuxMobileShell
@@ -223,12 +224,12 @@ struct WorkspaceShellView: View {
     var showComputers: () -> Void = {}
     /// Present the SSH computer form (PRD D6). `nil` hides SSH add actions.
     var showAddSSHComputer: (() -> Void)? = nil
-    var taskComposerPresentation = MobileChildSheetPresentation()
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     #if os(iOS)
+    @State private var nativeConversationModel = ConversationModel()
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
     /// One-time What's New notice: the unseen-page snapshot captured when the
     /// sheet presents, so remote list changes mid-presentation cannot mutate
@@ -425,30 +426,24 @@ struct WorkspaceShellView: View {
     #if os(iOS)
     /// Primary destinations retain their own navigation across tab switches.
     /// Workspace tabs keep split navigation at regular widths.
+    private func nativeConversationView() -> some View {
+        NativeConversationShellView(shellStore: store, model: nativeConversationModel)
+    }
+
     private func primaryScaffold(presentation: WorkspaceShellRenderPresentation) -> some View {
         MobilePrimaryTabScaffold(
             selection: $selectedPrimaryTab,
             searchCoordinator: primarySearchCoordinator,
             notificationUnreadCount: presentation.notificationUnreadCount,
-            feedNeedsInputCountProvider: {
-                presentation.selectionScope.agentFeedNeedsInputCount(
-                    from: store.agentFeedItems
-                )
-            },
+            feedNeedsInputCountProvider: { 0 },
             showsNotificationsTab: !displaySettings.feedReplacesNotifications,
-            taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
-                ? nil
-                : taskComposerAction
         ) {
             workspaceTabContent(
                 presentation: presentation
             )
         } feed: {
             NavigationStack(path: $feedNavigationPath) {
-                agentFeedStoreView(
-                    for: presentation,
-                    isActive: selectedPrimaryTab == .feed
-                )
+                nativeConversationView()
                     .toolbar {
                         if feedNavigationPath.isEmpty {
                             rootToolbarContent
@@ -567,7 +562,7 @@ struct WorkspaceShellView: View {
                             )
                         }
                     case .feed:
-                        agentFeedStoreView(for: presentation)
+                        nativeConversationView()
                     case .notifications:
                         NotificationFeedStoreView(
                             store: store,
@@ -649,17 +644,6 @@ struct WorkspaceShellView: View {
             compactNavigationPath = [selectedWorkspaceID]
         }
         #if os(iOS)
-        .taskComposerPresentation(
-            isPresented: taskComposerPresentation.isPresented,
-            onDismiss: taskComposerPresentation.didDismiss
-        ) { launch, switchDraft in
-            TaskComposerSheet(
-                store: store,
-                launchIntent: launch.intent,
-                onSwitchDraft: switchDraft,
-                submitTaskComposer: submitTaskComposerFromShell
-            )
-        }
         // Wait for the first remote-list attempt before presenting, so a
         // cached native page cannot overtake a newer remote announcement.
         // A failed fetch still permits the cached/offline pages.
@@ -813,8 +797,7 @@ struct WorkspaceShellView: View {
     private func stackLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationStack(path: $compactNavigationPath) {
             MobilePrimaryWorkspaceSearchHost(
-                searchCoordinator: primarySearchCoordinator,
-                taskComposerAction: taskComposerAction
+                searchCoordinator: primarySearchCoordinator
             ) { searchText in
                 workspaceList(
                     navigationStyle: .push,
@@ -907,14 +890,6 @@ struct WorkspaceShellView: View {
         }
     }
 
-    private func openTaskComposer() {
-        taskComposerPresentation.present()
-    }
-
-    private var taskComposerAction: (() -> Void)? {
-        guard store.supportsTaskComposer else { return nil }
-        return openTaskComposer
-    }
 
     #if os(iOS)
     private func splitLayout(presentation: WorkspaceShellRenderPresentation) -> some View {
@@ -924,8 +899,7 @@ struct WorkspaceShellView: View {
                 .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
             #else
             MobilePrimaryWorkspaceSearchHost(
-                searchCoordinator: primarySearchCoordinator,
-                taskComposerAction: taskComposerAction
+                searchCoordinator: primarySearchCoordinator
             ) { searchText in
                 workspaceList(
                     navigationStyle: .sidebar,
@@ -964,8 +938,7 @@ struct WorkspaceShellView: View {
     private func splitLayout(canCreateWorkspaceForSelection: Bool) -> some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
             MobilePrimaryWorkspaceSearchHost(
-                searchCoordinator: primarySearchCoordinator,
-                taskComposerAction: taskComposerAction
+                searchCoordinator: primarySearchCoordinator
             ) { searchText in
                 workspaceList(
                     navigationStyle: .sidebar,
@@ -1001,7 +974,7 @@ struct WorkspaceShellView: View {
         return Group {
             switch splitSidebarDestination {
             case .feed:
-                agentFeedStoreView(for: presentation)
+                nativeConversationView()
             case .notifications:
                 NotificationFeedStoreView(
                     store: store,
@@ -1053,7 +1026,7 @@ struct WorkspaceShellView: View {
         .searchScopes(splitSearchScope, activation: .onSearchPresentation) {
             Text(L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"))
                 .tag(MobilePrimarySearchScope.workspaces)
-            Text(L10n.string("mobile.tabs.feed", defaultValue: "Feed"))
+            Text(L10n.string("mobile.tabs.feed", defaultValue: "Tasks"))
                 .tag(MobilePrimarySearchScope.feed)
             Text(L10n.string("mobile.tabs.notifications", defaultValue: "Notifications"))
                 .tag(MobilePrimarySearchScope.notifications)
@@ -1094,7 +1067,7 @@ struct WorkspaceShellView: View {
             WorkspaceSidebarDestinationControl(
                 selection: splitSidebarDestinationSelection,
                 workspacesTitle: L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
-                feedTitle: L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
+                feedTitle: L10n.string("mobile.tabs.feed", defaultValue: "Tasks"),
                 notificationsTitle: notificationsSegmentTitle(unreadCount: unreadCount),
                 showsNotifications: !displaySettings.feedReplacesNotifications,
                 cloudTitle: cloudTabContent == nil
@@ -1104,20 +1077,6 @@ struct WorkspaceShellView: View {
         }
         if #available(iOS 26.0, *) {
             ToolbarSpacer(.flexible, placement: .bottomBar)
-        }
-        if let taskComposerAction {
-            ToolbarItem(placement: .bottomBar) {
-                Button(action: taskComposerAction) {
-                    Image(systemName: "square.and.pencil")
-                }
-                .accessibilityLabel(
-                    L10n.string("mobile.taskComposer.button.accessibilityLabel", defaultValue: "New Task")
-                )
-                .accessibilityHint(
-                    L10n.string("mobile.taskComposer.button.accessibilityHint", defaultValue: "Opens the task composer.")
-                )
-                .accessibilityIdentifier("MobileTaskComposerButton")
-            }
         }
     }
 
@@ -1273,7 +1232,7 @@ struct WorkspaceShellView: View {
     private var splitSearchPrompt: Text {
         switch splitSearchFieldScope {
         case .feed:
-            Text(L10n.string("mobile.agentFeed.search.placeholder", defaultValue: "Search Feed"))
+            Text(L10n.string("mobile.agentFeed.search.placeholder", defaultValue: "Search Tasks"))
         case .workspaces:
             Text(
                 L10n.string(
@@ -1493,17 +1452,6 @@ struct WorkspaceShellView: View {
         )
     }
 
-    private func agentFeedStoreView(
-        for presentation: WorkspaceShellRenderPresentation,
-        isActive: Bool = true
-    ) -> AgentFeedStoreView {
-        AgentFeedStoreView(
-            store: store,
-            selectionScope: presentation.selectionScope,
-            isActive: isActive,
-            searchCoordinator: primarySearchCoordinator
-        )
-    }
 
     private func rootToolbarRenderContext(
         for presentation: WorkspaceShellRenderPresentation
@@ -1608,14 +1556,6 @@ struct WorkspaceShellView: View {
                 if notificationNavigationPath.last != workspaceID {
                     notificationNavigationPath = [workspaceID]
                 }
-            }
-            return
-        }
-        if request.origin == .agentFeed,
-           selectedPrimaryTab == .feed,
-           !primarySearchCoordinator.isPresented {
-            if feedNavigationPath.last != workspaceID {
-                feedNavigationPath = [workspaceID]
             }
             return
         }

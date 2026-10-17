@@ -36,10 +36,6 @@ public final class MobileDisplaySettings {
     private static let feedReplacesNotificationsKey = "cmux.mobile.debug.feedReplacesNotifications.v1"
     private static let feedBubbleQuotesKey = "cmux.mobile.feedBubbleQuotes.v1"
     private static let legacyFeedBubbleQuotesKey = "cmux.mobile.debug.feedBubbleQuotes.v1"
-    #if DEBUG
-    private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
-    private static let taskComposerFullLiquidGlassKey = "cmux.mobile.debug.taskComposerFullLiquidGlass.v1"
-    #endif
 
     /// The preview line counts the "Preview Lines" setting offers.
     public static let workspacePreviewLineCountRange = 1...2
@@ -185,35 +181,9 @@ public final class MobileDisplaySettings {
         }
     }
 
-    #if DEBUG
-    /// Persisted selection for the debug-only Shell icon lab.
-    var taskComposerShellIconVariant: TaskComposerShellIconVariant {
-        didSet {
-            defaults.set(
-                taskComposerShellIconVariant.rawValue,
-                forKey: Self.taskComposerShellIconVariantKey
-            )
-        }
-    }
-
-    /// Persisted CMUX Labs switch for comparing the task composer bar with the
-    /// terminal composer’s full Liquid Glass treatment.
-    var taskComposerFullLiquidGlass: Bool {
-        didSet {
-            defaults.set(
-                taskComposerFullLiquidGlass,
-                forKey: Self.taskComposerFullLiquidGlassKey
-            )
-        }
-    }
-
-    /// DEBUG-only override forcing the rebuilt keyboard dock path on this
-    /// device (iOS ≤26; legacy is the shipping default), exposed in
-    /// Settings > Developer for keyboard-pinning A/B dogfood. Terminal hosts
-    /// snapshot the flag when they mount, so a change applies after the
-    /// workspace is reopened. Writes through to the shared
-    /// `UserDefaults.cmuxForceRebuildKeyboardDockKey` that
-    /// `GhosttySurfaceHostView` reads.
+    /// Whether the Developer settings force the rebuilt keyboard-dock path on
+    /// iOS 26 and earlier. The terminal host reads the same shared defaults key
+    /// when it is created; iOS 27 ignores this override.
     public var forceRebuildKeyboardDock: Bool {
         didSet {
             defaults.set(
@@ -222,12 +192,7 @@ public final class MobileDisplaySettings {
             )
         }
     }
-    #else
-    /// Production builds expose only the shipping Shell icon treatment.
-    var taskComposerShellIconVariant: TaskComposerShellIconVariant { .current }
-    /// The Labs-only treatment is unavailable in production builds.
-    var taskComposerFullLiquidGlass: Bool { false }
-    #endif
+
 
     /// Creates the display settings, seeding stored values from `defaults`.
     /// - Parameter defaults: The store backing the persisted preferences.
@@ -270,15 +235,7 @@ public final class MobileDisplaySettings {
             storedUnreadBadgeDiameter ?? Self.defaultUnreadBadgeDiameter,
             to: Self.unreadBadgeDiameterRange
         )
-        #if DEBUG
-        self.taskComposerShellIconVariant = defaults.string(
-            forKey: Self.taskComposerShellIconVariantKey
-        ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
-        self.taskComposerFullLiquidGlass = defaults.object(
-            forKey: Self.taskComposerFullLiquidGlassKey
-        ) as? Bool ?? false
         self.forceRebuildKeyboardDock = defaults.cmuxForceRebuildKeyboardDock
-        #endif
     }
 
     /// Clamps a stored or assigned preview line count to the supported range.

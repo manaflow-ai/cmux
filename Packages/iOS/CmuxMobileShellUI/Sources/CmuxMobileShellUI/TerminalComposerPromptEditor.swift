@@ -54,8 +54,8 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
         textView.smartDashesType = .no
     }
 
-    func makeCoordinator() -> TaskComposerPromptEditorCoordinator {
-        TaskComposerPromptEditorCoordinator(text: $text, isFocused: $isFocused)
+    func makeCoordinator() -> TerminalComposerPromptEditorCoordinator {
+        TerminalComposerPromptEditorCoordinator(text: $text, isFocused: $isFocused)
     }
 
     func makeUIView(context: Context) -> TerminalComposerPromptTextView {

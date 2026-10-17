@@ -215,4 +215,32 @@ extension MobileShellComposite {
             return data
         }
     }
+
+    /// Resolve a live control subscription for the exact pairing requested by
+    /// the task composer.  The registry is keyed by the stored pairing
+    /// identity, while a visible row may represent a set of canonical device
+    /// aliases, so retain the exact instance-tag authority when falling back
+    /// through those aliases.
+    private func controlSubscriptionMatching(
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> SecondaryMacSubscription? {
+        let requestedKey = MacPairingKey(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        if let subscription = secondaryMacSubscriptions[requestedKey] {
+            return subscription
+        }
+
+        let aliases = Set(
+            pairedMacAliasIDs(for: macDeviceID, instanceTag: instanceTag)
+                .map(cmxCanonicalDeviceID)
+        )
+        guard !aliases.isEmpty else { return nil }
+        return secondaryMacSubscriptions.first { ownerKey, _ in
+            ownerKey.normalizedInstanceTag == requestedKey.normalizedInstanceTag
+                && aliases.contains(ownerKey.canonicalMacDeviceID)
+        }?.value
+    }
 }

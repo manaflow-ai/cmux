@@ -58,8 +58,6 @@ extension TerminalController {
             "mobile.terminal.set_font",
             "mobile.compatible_tags.get",
             "mobile.compatible_tags.set",
-            "mobile.task.attachment.upload",
-            "mobile.task.models.list",
             "mobile.chat.send",
             "mobile.chat.interrupt",
             // Socket-reachable panel artifact reads (worker lane); fetch stays
@@ -67,6 +65,7 @@ extension TerminalController {
             "mobile.panel.artifact.stat",
             "mobile.panel.artifact.thumbnail",
             "mobile.workspace.list",
+            "mobile.task.attachment.upload",
             "mobile.workspace.changes.files",
             "mobile.workspace.changes.file_diff",
             "mobile.workspace.changes.file_stat",
@@ -468,13 +467,6 @@ extension TerminalController {
             "browser.input_keyboard",
             "browser.input_touch",
         ]
-        if !Self.mobileTaskComposerFeatureEnabled {
-            let taskComposerMethods: Set<String> = [
-                "mobile.task.attachment.upload",
-                "mobile.task.models.list",
-            ]
-            methods.removeAll { taskComposerMethods.contains($0) }
-        }
         // Discovery runs off-main; read the same flag snapshot as mobile host
         // capabilities rather than crossing to the main-actor flag store.
         if !CmuxFeatureFlags.offMainEffectiveValue(for: CmuxFeatureFlags.mobileWorkspaceChangesFlag) {

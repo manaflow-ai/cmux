@@ -1,5 +1,5 @@
 import CMUXMobileCore
-import CmuxAgentChat
+import CmuxArtifactCore
 import CmuxIrohTransport
 @testable import CmuxMobileHost
 import CmuxMobileRPC
