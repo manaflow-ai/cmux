@@ -36,19 +36,25 @@ each keyboard or socket native input call:
 - native surface pointer and `runtimeSurfaceGeneration`;
 - native return/handled value and call duration.
 
-The power observer records `workspace.willSleep` and `workspace.didWake`, and
-the app records every live surface's pointer, generation, and pending socket
-queue before and after wake rearming. These probes are DEBUG-only and do not
+The power observer records `systemPower.willSleep` and `systemPower.didWake`,
+and the app logs `systemPower.runtimeState` (with `source=workspace.willSleep`,
+`workspace.didWake.beforeRearm` or `workspace.didWake.afterRearm`) listing every registered surface's
+pointer, generation, `live=0|1`, and pending socket queue before and after wake
+rearming. Pointers use the same `0x...`/`nil` format as the input traces. These probes are DEBUG-only and do not
 retry or reset the runtime.
 
 Reproduce with a tagged DEBUG build and collect the debug log plus a sample of
 the tagged process immediately after the first failed input:
 
 ```sh
-CMUX_TRACE_PTY_INPUT=1 CMUX_TAG=pty-input-18556 scripts/reload.sh --tag pty-input-18556
+# reload.sh forwards CMUX_TRACE_PTY_INPUT=1 into the tagged launch environment.
+CMUX_TRACE_PTY_INPUT=1 scripts/reload.sh --tag pty-input-18556 --launch
 # Keep the long-lived TUI running, sleep/wake the Mac, then send one keyboard
 # key and one `cmux send-key`/`cmux send` request to the affected surface.
-sample "$(pgrep -f 'cmux.*pty-input-18556' | head -1)" 10 -file out/perf-incident-20261008-pty-input/sample-after-failure.txt
+mkdir -p out/perf-incident-20261008-pty-input
+# Match the tagged app executable, not shells or tools in the worktree path.
+sample "$(pgrep -f 'cmux DEV pty-input-18556.app/Contents/MacOS/' | head -1)" 10 \
+  -file out/perf-incident-20261008-pty-input/sample-after-failure.txt
 ```
 
 Interpretation:

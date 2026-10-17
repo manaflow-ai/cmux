@@ -11,7 +11,7 @@ extension AppDelegate {
             .map { surface in
                 let pending = surface.debugPendingSocketInputForTesting()
                 return "surface=\(surface.id.uuidString.prefix(8)) " +
-                    "pointer=\(String(describing: surface.surface)) " +
+                    "pointer=\(surface.surface.map { String(describing: $0) } ?? "nil") " +
                     "generation=\(surface.runtimeSurfaceGeneration) " +
                     "live=\(surface.hasLiveSurface ? 1 : 0) " +
                     "pendingItems=\(pending.items) pendingBytes=\(pending.bytes)"
