@@ -6,6 +6,88 @@ import Testing
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct AgentInventoryProviderBridgeTests {
+    @Test(arguments: ["legacy", "provider"])
+    func oldOwnersKeepCompatibleRegistrationWithoutWatches(mode: String) async throws {
+        let f = InventoryProviderBridgeFixture(mode: mode)
+        do {
+            try await f.start()
+            f.demand(2, true)
+            let calls = try await f.state()
+            #expect(calls.count == 1)
+            #expect(calls.first?["opted_in"] == .bool(false))
+            #expect(calls.first?["families"] == .array((mode == "legacy" ? ["action"] : ["agent_cli", "action"]).map(JSONValue.string)))
+            await f.finish()
+        } catch { await f.finish(); throw error }
+    }
+
+    @Test func sameConnectionReconnectCannotRedirectOldProviderOrWatchCallbacks() async throws {
+        let f = InventoryProviderBridgeFixture()
+        do {
+            try await f.start()
+            f.demand(2, true)
+            try await f.wait("invalidate")
+            let old = try #require(f.session)
+            try await f.reconnect()
+            f.routes = [.init(machine: f.machine, connection: f.connection, epoch: 2, events: f.events)]
+            let fresh = try await AppProviderSession(connection: f.connection)
+            #expect(fresh.serial != old.serial)
+            f.bridge.begin(fresh)
+            let snapshot = try await fresh.register(families: ["agent_cli", "action"])
+            f.bridge.registered(fresh, snapshot: snapshot)
+            f.session = fresh
+            f.demand(2, true)
+            try await f.wait("invalidate")
+            do { try await old.invalidate(sequence: 2); Issue.record("old provider rebound to a new transport") }
+            catch { #expect((error as? DaemonError)?.isLostConnection == true) }
+            do { try await old.answer(requestID: 1, ok: true, body: .object([:])); Issue.record("old answer rebound to a new transport") }
+            catch { #expect((error as? DaemonError)?.isLostConnection == true) }
+            f.changed(revision: 2, serial: old.serial)
+            f.changed(revision: 2)
+            try await f.wait("invalidate", 2)
+            let calls = try await f.state()
+            #expect(calls.filter { $0["kind"] == .string("enable") }.count == 1)
+            #expect(calls.filter { $0["kind"] == .string("invalidate") }.count == 2)
+            await f.finish()
+        } catch { await f.finish(); throw error }
+    }
+
+    @Test func endedBeforeAdmissionReplyRetiresWithoutPublishingOrAutomaticallyReadmitting() async throws {
+        let f = InventoryProviderBridgeFixture(mode: "hold")
+        do {
+            try await f.start()
+            f.demand(2, true)
+            try await f.wait("enable")
+            f.ended()
+            try await f.wait("release", 0)
+            try await f.wait("disable")
+            f.bridge.reconcile()
+            let calls = try await f.state()
+            #expect(calls.map { $0["kind"] } == [.string("register"), .string("enable"), .string("disable")])
+            await f.finish()
+        } catch { await f.finish(); throw error }
+    }
+
+    @Test func delayedOldRegistrationCannotAdmitOrResetItsReplacement() async throws {
+        let f = InventoryProviderBridgeFixture()
+        do {
+            try await f.start()
+            let old = try #require(f.session)
+            let replacement = try await AppProviderSession(connection: f.connection)
+            f.bridge.begin(replacement)
+            f.bridge.registered(old, snapshot: .init(sequence: UInt64.max, enabled: true))
+            let snapshot = try await replacement.register(families: ["agent_cli", "action"])
+            f.bridge.registered(replacement, snapshot: snapshot)
+            f.session = replacement
+            f.demand(2, true)
+            try await f.wait("invalidate")
+            f.bridge.rejected(old)
+            f.changed(revision: 2)
+            try await f.wait("invalidate", 2)
+            #expect(try await f.state().filter { $0["kind"] == .string("enable") }.count == 1)
+            await f.finish()
+        } catch { await f.finish(); throw error }
+    }
+
     @Test func firstAndLastDemandUseExactGenerationAndIgnoreForeignNotices() async throws {
         let f = InventoryProviderBridgeFixture()
         do {

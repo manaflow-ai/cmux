@@ -56,7 +56,7 @@ final class DaemonAppsTransport: AppsTransport {
             guard let self else { return }
             inventory.handle(envelope)
             guard case .unknown(let name, let payload) = envelope.event, DaemonSideEvents.isAppsEvent(name) else { return }
-            if provider.handle(name: name, payload: payload) { return }
+            if provider.handle(envelope) { return }
             if let decoded = AppsWireDecoding.event(name: name, payload: payload) { onEvent?(decoded) }
         }
         let daemon = daemon

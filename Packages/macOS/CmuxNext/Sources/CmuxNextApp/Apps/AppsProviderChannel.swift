@@ -19,16 +19,22 @@ struct AppsProviderLink {
     var answer: (_ connection: AnyObject, _ requestID: UInt64, _ ok: Bool, _ body: AppJSON) async -> Void
     /// Invalidates the inventory generation synchronously when this provider changes carrier.
     var reset: () -> Void = {}
+    /// Whether an original event belongs to the captured registration carrier.
+    var accepts: (DaemonEventEnvelope) -> Bool = { _ in true }
 
     /// Over `daemon`'s connections.
     static func daemon(_ daemon: DaemonService, inventory: AgentInventoryProviderBridge) -> AppsProviderLink {
-        AppsProviderLink(connection: { [weak daemon] in daemon?.connection }, register: { connection, families in
-            guard let connection = connection as? DaemonConnection else { return "not_connected" }
+        var registered: AppProviderSession?
+        return AppsProviderLink(connection: { [weak daemon] in (registered as AnyObject?) ?? daemon?.connection }, register: { connection, families in
             var session: AppProviderSession?
             do {
-                let captured = try await AppProviderSession(connection: connection)
+                let captured: AppProviderSession
+                if let pinned = connection as? AppProviderSession { captured = pinned }
+                else if let connection = connection as? DaemonConnection { captured = try await AppProviderSession(connection: connection) }
+                else { return "not_connected" }
                 session = captured
                 guard !Task.isCancelled else { return "not_connected" }
+                registered = captured
                 inventory.begin(captured)
                 let snapshot = try await captured.register(families: families)
                 inventory.registered(captured, snapshot: snapshot)
@@ -47,9 +53,9 @@ struct AppsProviderLink {
                 return "failed"
             }
         }, answer: { connection, id, ok, body in
-            guard let connection = connection as? DaemonConnection else { return }
-            _ = try? await connection.request(AppsProviderResultRequest(requestID: id, ok: ok, body: body.daemonValue))
-        }, reset: { inventory.reset() })
+            guard let connection = connection as? AppProviderSession else { return }
+            try? await connection.answer(requestID: id, ok: ok, body: body.daemonValue)
+        }, reset: { registered = nil; inventory.reset() }, accepts: { registered?.matches($0) == true })
     }
 }
 
@@ -140,6 +146,13 @@ final class AppsProviderChannel {
 
     var isRegistered: Bool { registeredEpoch != nil && registeredEpoch == epoch }
     var runningCount: Int { running.count }
+
+    /// Source-aware production entrypoint; a retained old event cannot become a new call.
+    func handle(_ envelope: DaemonEventEnvelope) -> Bool {
+        guard case .unknown(let name, let payload) = envelope.event else { return false }
+        guard link.accepts(envelope) else { return name.hasPrefix("apps-provider-") }
+        return handle(name: name, payload: payload)
+    }
 
     /// The policy turned apps off: every running call ends with `apps.disabled`, on its own connection.
     private func answerRunningDisabled(_ reason: String) {

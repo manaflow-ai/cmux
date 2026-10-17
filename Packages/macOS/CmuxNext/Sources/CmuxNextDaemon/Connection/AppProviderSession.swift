@@ -49,4 +49,15 @@ public nonisolated final class AppProviderSession: Sendable {
         _ = try await DaemonRequestExecutor(transport: ready.transport).perform(
             AgentInventoryProviderChangedRequest(demandSequence: sequence), timeout: .seconds(15))
     }
+
+    /// Answers a routed call on its original provider transport, even after reconnect.
+    /// - Parameters:
+    ///   - requestID: The supervisor request on this captured carrier.
+    ///   - ok: Whether the owner handler succeeded.
+    ///   - body: The app ABI result or refusal body.
+    /// - Throws: A captured transport or native reply failure; no replacement is used.
+    public func answer(requestID: UInt64, ok: Bool, body: JSONValue) async throws {
+        _ = try await DaemonRequestExecutor(transport: ready.transport).perform(
+            AppsProviderResultRequest(requestID: requestID, ok: ok, body: body), timeout: .seconds(15))
+    }
 }

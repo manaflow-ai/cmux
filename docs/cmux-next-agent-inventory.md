@@ -104,11 +104,9 @@ retained as exact decimal text (as pairing IDs already are), avoiding the
 revisions remain unsigned JSON numbers. Malformed notices have no usable
 payload, and unrelated event payloads retain their existing shape.
 
-These lease events survive the tree snapshot barrier. The eventual bridge must
-still match the captured ready connection generation, owner and watch ID, then
-recheck route admission. The typed value itself grants no permission. App-facing
-provider subscription/invalidations are not connected or advertised by these
-models.
+These lease events survive the tree snapshot barrier. The provider bridge
+matches the captured ready connection generation, owner and watch ID, then
+rechecks route admission. The typed value itself grants no permission.
 
 `DaemonConnection.agentInventoryWatch(expectedMachineID:)` captures the ready
 control session's shared `AgentInventoryWatch` manager after capability and
@@ -150,10 +148,28 @@ must match current enabled demand; otherwise the owner returns
 subscribers, ordered with revocation and unsubscribe under the supervisor lock.
 The generic daemon event publisher cannot impersonate this family.
 
-This is the native carrier. The Swift provider must still connect demand to
-admitted route watches and revalidate each owner, lease and connection epoch
-before reporting an invalidation. Agents already rereads current owners on the
-empty invalidation; end-to-end app/provider watch support remains unconnected.
+`AgentInventoryProviderBridge` connects this demand to the registry's already
+admitted, policy-allowed ready owner connections. Disconnected, ambiguous and
+blocked routes cannot acquire a lease. The bridge observes registry changes;
+there is no polling or automatic owner start. `AppProviderSession` pins both
+registration and strict invalidations to the actual ready transport. Legacy
+owners retain compatible registration without inventory opt-in.
+
+Demand sequences decode as UInt64 before generic JSON, then remain exact decimal
+text in side events. Registration and events share one monotonic demand state:
+an event received before the registration reply can supersede its older snapshot.
+Every callback rechecks live registry admission, the original source and control
+serial, canonical owner, route epoch and watch ID. An owner change or native
+ended notice cannot redirect a callback or automatically create another lease.
+
+Last unsubscribe, route removal, policy disable and provider replacement invalidate
+callbacks before bounded conditional retirement on the original owner transport.
+A retirement barrier prevents a replacement from reusing an old live receipt
+before cleanup. Uncertain admission or cleanup remains fenced by the shared
+watch manager. One pending invalidation and one dirty follow-up coalesce bursts;
+only `{demand_sequence}` goes to the native carrier, and apps receive only `{}`.
+Agents already rereads current owners on that empty invalidation. Neither cache
+changes nor these notices authorize installs, updates or completion of jobs.
 
 `DaemonSideEvents.subscribeEnvelopes` preserves the original native envelope
 through tree snapshots and inbox collapse. Match its client-side `sourceID`

@@ -19,6 +19,7 @@ final class InventoryProviderBridgeFixture {
     var pump: Task<Void, Never>?
     var bridge: AgentInventoryProviderBridge!
     var session: AppProviderSession!
+    private let handshakes = AsyncStream.makeStream(of: DaemonEventEnvelope.self)
 
     init(mode: String = "normal") {
         let carrier = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", Self.script, mode])
@@ -30,10 +31,15 @@ final class InventoryProviderBridgeFixture {
     func start() async throws {
         try await connection.start()
         routes = [.init(machine: machine, connection: connection, epoch: 1, events: events)]
-        let events = events, connection = connection
+        let events = events, connection = connection, sink = handshakes.continuation
         // task-owner: fixture pump is cancelled and its bounded subprocess closed by finish.
         pump = Task {
-            do { for try await envelope in connection.events { events.deliver(envelope.event, envelope: envelope) } }
+            do {
+                for try await envelope in connection.events {
+                    if case .connected = envelope.event { sink.yield(envelope) }
+                    events.deliver(envelope.event, envelope: envelope)
+                }
+            }
             catch { }
         }
         session = try await AppProviderSession(connection: connection)
@@ -56,6 +62,13 @@ final class InventoryProviderBridgeFixture {
         _ = try await connection.request(Command(kind: kind, count: count), timeout: .seconds(10))
     }
 
+    func reconnect() async throws {
+        let serial = try #require(session?.serial)
+        _ = try await connection.request(Command(kind: "drop"))
+        for await envelope in handshakes.stream where envelope.connectionSerial > serial { return }
+        throw DaemonError.notConnected
+    }
+
     func state() async throws -> [JSONValue] {
         try await connection.request(Command(kind: "state")).arrayValue ?? []
     }
@@ -72,6 +85,12 @@ final class InventoryProviderBridgeFixture {
         let event = DaemonEvent.decode(name: "agent-inventory-changed", line: line)
         let envelope = DaemonEventEnvelope(sequence: (serial ?? session.serial) << 40 | 11, event: event, sourceID: source ?? connection.eventSourceID)
         events.deliver(event, envelope: envelope)
+    }
+
+    func ended() {
+        let line = Data("{\"machine\":\"\(machine.rawValue)\",\"watch_id\":\"inventory_watch_0123456789abcdef0123456789abcdef\",\"reason\":\"agent_inventory.owner_changed\"}".utf8)
+        let event = DaemonEvent.decode(name: "agent-inventory-watch-ended", line: line)
+        events.deliver(event, envelope: .init(sequence: session.serial << 40 | 12, event: event, sourceID: connection.eventSourceID))
     }
 
     static let script = #"""
@@ -97,10 +116,12 @@ final class InventoryProviderBridgeFixture {
     for line in sys.stdin:
         f=json.loads(line); cmd=f.get('cmd')
         if cmd == 'identify':
-            reply(f, {'app':'cmux-tui','protocol':12,'generation':boot, 'machine_id':machine,
-                'capabilities':['apps-v1','agent-cli-app-provider-v1','agent-cli-app-invalidation-v1','agent-inventory-watch-fence-v1']})
+            caps=['apps-v1','agent-inventory-watch-fence-v1']
+            if mode != 'legacy': caps.append('agent-cli-app-provider-v1')
+            if mode not in ['legacy','provider']: caps.append('agent-cli-app-invalidation-v1')
+            reply(f, {'app':'cmux-tui','protocol':12,'generation':boot, 'machine_id':machine,'capabilities':caps})
         elif cmd == 'apps-provider-register':
-            calls.append({'kind':'register','opted_in':f.get('inventory_watch') is True})
+            calls.append({'kind':'register','opted_in':f.get('inventory_watch') is True,'families':f['families']})
             if mode == 'early': print(json.dumps({'event':'apps-agent-inventory-demand','sequence':9007199254740993,'enabled':True}), flush=True)
             reply(f, {'families':f['families'],'inventory_demand':{'sequence':1,'enabled':False}})
         elif cmd == 'agent-inventory-watch':
@@ -112,7 +133,8 @@ final class InventoryProviderBridgeFixture {
             calls.append({'kind':'invalidate','sequence':str(f['demand_sequence']), 'strict':set(f) == {'id','cmd','demand_sequence'}})
             reply(f); release_waiters()
         elif cmd == 'test-control':
-            if f['kind'] == 'state': reply(f, calls)
+            if f['kind'] == 'drop': reply(f); break
+            elif f['kind'] == 'state': reply(f, calls)
             elif f['kind'] == 'release':
                 if pending is not None: reply(pending, receipt()); pending=None
                 reply(f)
