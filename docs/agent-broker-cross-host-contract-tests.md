@@ -20,3 +20,34 @@ expiry, stale owner and stale generation rejection, and receipt ordering across
 restart. They intentionally avoid live Huge Blue or Freestyle credentials; the
 same assertions should be run by an integration suite once both transport
 adapters are available.
+
+## Runtime/workspace verification receipt
+
+`web/scripts/verify-cross-host-broker.ts` runs the provider-neutral verification
+against three configured fixture adapters: Huge Blue, Freestyle, and `mac-mini`.
+Each fixture lane covers adapter registration, effect-key replay, host-lease
+fencing and expiry takeover, persistent workspace create/replay/suspend/resume/
+stop, and run-attempt promotion with a stable attach session. The script prints
+one redacted JSON receipt and never includes fixture tokens or provider handles.
+
+Run it from `web/` with:
+
+```sh
+bun scripts/verify-cross-host-broker.ts
+bun test tests/cross-host-runtime-verification.test.ts
+```
+
+The fixture lanes always run. Live Huge Blue or Freestyle lease probes run only
+when `CMUX_CROSS_HOST_LIVE=1` and all of the corresponding URL, token, and host
+identity variables are set:
+
+- Huge Blue: `HUGE_BLUE_HOST_LEASE_URL`, `HUGE_BLUE_HOST_LEASE_TOKEN` (or
+  `HUGE_BLUE_API_TOKEN`), and `HUGE_BLUE_HOST_ID`.
+- Freestyle: `FREESTYLE_HOST_LEASE_URL`, `FREESTYLE_HOST_LEASE_TOKEN`, and
+  `FREESTYLE_HOST_ID`.
+
+Without those values the report contains explicit `live/skipped` lanes and the
+fixture result remains the verification gate. A live probe only acquires and
+releases a host lease; workspace lifecycle and promotion continue to use the
+fixture lane until a provider workspace SDK is explicitly composed into the
+runtime.
