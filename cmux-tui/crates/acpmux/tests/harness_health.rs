@@ -14,6 +14,9 @@ mod daemon_env;
 // and update checks, which launch-deny would skip.
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
+#[path = "harness_health/update_outcomes.rs"]
+mod update_outcomes;
+
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::harness_health::{Settings, latest::Sources};
 use acpmux::hub::Hub;
