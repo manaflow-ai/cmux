@@ -137,8 +137,7 @@ export function WorkspaceShell() {
   const focusAfterClose = useRef<{ workspaceId: string; tabId: string } | undefined>(undefined);
   const items = rowDetailItems(level, overrides, terminalStyle ? "terminal" : undefined);
   const details = useMemo(() => {
-    const now = Date.now();
-    return new Map(stack.workspaces.map((workspace) => [workspace.id, workspaceDetail(workspace, historyById, now)]));
+    return new Map(stack.workspaces.map((workspace) => [workspace.id, workspaceDetail(workspace, historyById)]));
   }, [stack]);
 
   const showSpaces = useCallback((next: Spaces) => {
