@@ -897,6 +897,13 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     case agentFeedReplySucceeded = 672
     @available(*, deprecated, message: "Reserved diagnostic tombstone; no current producer")
     case agentFeedReplyFailed = 673
+
+    // Swift does not synthesize `CaseIterable` when an enum contains
+    // deprecated cases. Keep the historical tombstones in the raw-value
+    // decoder and expose the same stable raw-value order to callers.
+    public static var allCases: [Self] {
+        (1...673).compactMap(Self.init(rawValue:))
+    }
 }
 
 /// The user's configured connection method, mirrored from the settings picker
