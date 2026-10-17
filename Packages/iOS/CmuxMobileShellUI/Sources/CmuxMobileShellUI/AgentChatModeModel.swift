@@ -100,6 +100,9 @@ final class AgentChatModeModel {
     private(set) var updatingControlsSessionIDs: Set<String> = []
     private(set) var messagesBySession: [String: [ChatMessage]] = [:]
     private(set) var terminalBlocksBySession: [String: [TerminalCommandBlock]] = [:]
+    /// Provider-reported token, context, and allowance state, when the host
+    /// exposes it. Older hosts leave this absent.
+    private(set) var usageBySession: [String: ChatUsageTotals] = [:]
     private(set) var streamingBySession: [String: ChatMessage?] = [:]
     private(set) var loadingSessionIDs: Set<String> = []
     private(set) var sendingSessionIDs: Set<String> = []
@@ -504,6 +507,11 @@ final class AgentChatModeModel {
         return terminalBlocksBySession[selectedSessionID] ?? []
     }
 
+    var selectedUsage: ChatUsageTotals? {
+        guard let selectedSessionID else { return nil }
+        return usageBySession[selectedSessionID]
+    }
+
     var selectedHasMoreHistory: Bool {
         guard let selectedSessionID else { return false }
         return historyHasMore[selectedSessionID] == true
@@ -565,6 +573,7 @@ final class AgentChatModeModel {
         controlsBySession = [:]
         messagesBySession = [:]
         terminalBlocksBySession = [:]
+        usageBySession = [:]
         streamingBySession = [:]
         selectedSessionID = nil
         attachments = []
@@ -1350,6 +1359,11 @@ final class AgentChatModeModel {
                         )
                     }
                 }
+                if let usage = page.usage {
+                    usageBySession[sessionID] = usage
+                } else if resetRequest {
+                    usageBySession[sessionID] = nil
+                }
                 reconcilePendingPrompts(sessionID: sessionID)
                 seedRetryPromptIfNeeded(sessionID: sessionID)
                 historyCursors[sessionID] = page.messages.first?.seq
@@ -1430,6 +1444,7 @@ final class AgentChatModeModel {
             controlsBySession[sessionID] = nil
             messagesBySession[sessionID] = nil
             terminalBlocksBySession[sessionID] = nil
+            usageBySession[sessionID] = nil
             streamingBySession[sessionID] = nil
             historyCursors[sessionID] = nil
             historyHasMore[sessionID] = nil
@@ -1470,6 +1485,8 @@ final class AgentChatModeModel {
                 for block in blocks { byID[block.id] = block }
                 terminalBlocksBySession[sessionID] = byID.values.sorted { $0.id < $1.id }
             }
+        case .usageChanged(let usage):
+            usageBySession[sessionID] = usage
         case .reset:
             transcriptRevisions[sessionID, default: 0] &+= 1
             historyResetTokens[sessionID, default: 0] &+= 1
@@ -1477,6 +1494,7 @@ final class AgentChatModeModel {
             answeringRequestKeys = answeringRequestKeys.filter { !$0.hasPrefix("\(sessionID):") }
             messagesBySession[sessionID] = []
             terminalBlocksBySession[sessionID] = []
+            usageBySession[sessionID] = nil
             streamingBySession[sessionID] = nil
             historyCursors[sessionID] = nil
             historyHasMore[sessionID] = nil

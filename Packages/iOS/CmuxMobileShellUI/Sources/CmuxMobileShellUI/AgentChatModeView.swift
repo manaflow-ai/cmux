@@ -798,6 +798,11 @@ private struct AgentChatTranscriptView: View {
         VStack(spacing: 0) {
             if let session = model.selectedSession {
                 AgentExecutionContextBar(session: session, model: model)
+                if let usage = model.selectedUsage {
+                    AgentUsageContextCard(totals: usage)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 8)
+                }
                 if case .needsInput = session.state {
                     AgentNeedsInputNotice(actionableCount: model.selectedPendingActionableCount)
                 }
