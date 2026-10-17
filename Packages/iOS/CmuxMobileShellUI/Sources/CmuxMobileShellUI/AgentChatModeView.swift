@@ -20,6 +20,10 @@ struct AgentChatModeView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var model = AgentChatModeModel()
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+    /// Compact iPhone navigation is an explicit path. ``NavigationSplitView``
+    /// can keep its sidebar column mounted after a button selection, so merely
+    /// changing its visibility does not reliably push the detail column.
+    @State private var compactNavigationPath: [String] = []
     @State private var searchText = ""
     @State private var isLoading = true
     @State private var isShowingNewSessionComposer = false
@@ -40,29 +44,26 @@ struct AgentChatModeView: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            AgentChatSidebar(
-                model: model,
-                searchText: $searchText,
-                isLoading: isLoading,
-                isConnected: isConnected,
-                selectSession: selectSession,
-                showNewSessionComposer: { isShowingNewSessionComposer = true },
-                refresh: { await refresh() }
-            )
-            .navigationTitle("Agents")
-            .navigationBarTitleDisplayMode(.inline)
-        } detail: {
-            AgentChatDetail(
-                store: store,
-                model: model,
-                isLoading: isLoading,
-                isConnected: isConnected,
-                showSidebar: { columnVisibility = .all },
-                refresh: { await refresh() }
-            )
+        Group {
+            if horizontalSizeClass == .compact {
+                // Use the same explicit path model as the workspace shell's
+                // compact navigation. A button-driven selection updates the
+                // path, which makes the push deterministic on iPhone.
+                NavigationStack(path: $compactNavigationPath) {
+                    sidebarView
+                        .navigationDestination(for: String.self) { _ in
+                            detailView
+                        }
+                }
+            } else {
+                NavigationSplitView(columnVisibility: $columnVisibility) {
+                    sidebarView
+                } detail: {
+                    detailView
+                }
+                .navigationSplitViewStyle(.balanced)
+            }
         }
-        .navigationSplitViewStyle(.balanced)
         .task {
             await updateSourceAndRefresh()
         }
@@ -135,10 +136,45 @@ struct AgentChatModeView: View {
 
     private func selectSession(_ session: ChatSessionDescriptor) {
         model.select(session)
-        // Compact NavigationSplitView presents the detail column as a push;
-        // regular width keeps both columns available for rapid triage.
+        // Compact navigation is an explicit push stack. Regular width keeps
+        // both split columns available for rapid triage.
         if horizontalSizeClass == .compact {
+            compactNavigationPath = [session.id]
+        } else {
             columnVisibility = .detailOnly
+        }
+    }
+
+    private var sidebarView: some View {
+        AgentChatSidebar(
+            model: model,
+            searchText: $searchText,
+            isLoading: isLoading,
+            isConnected: isConnected,
+            selectSession: selectSession,
+            showNewSessionComposer: { isShowingNewSessionComposer = true },
+            refresh: { await refresh() }
+        )
+        .navigationTitle("Agents")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var detailView: some View {
+        AgentChatDetail(
+            store: store,
+            model: model,
+            isLoading: isLoading,
+            isConnected: isConnected,
+            showSidebar: showSidebar,
+            refresh: { await refresh() }
+        )
+    }
+
+    private func showSidebar() {
+        if horizontalSizeClass == .compact {
+            compactNavigationPath.removeAll()
+        } else {
+            columnVisibility = .all
         }
     }
 }
