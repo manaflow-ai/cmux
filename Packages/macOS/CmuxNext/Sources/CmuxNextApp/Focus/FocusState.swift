@@ -13,7 +13,7 @@ import CmuxNextDesign
 /// rules, including what the state resolves to, run there. This view holds
 /// only what the app reads, refreshed from each typed reply, plus the
 /// topology the app last sent (kept equal to the machine's).
-nonisolated struct FocusState: Hashable, Sendable {
+nonisolated struct FocusState: Hashable, Sendable, Codable {
     /// What inside (or outside) the focused pane has the keyboard.
     enum Target: Hashable, Sendable, Codable {
         /// The focused pane's selected tab content (terminal or page).
@@ -191,7 +191,7 @@ nonisolated struct FocusState: Hashable, Sendable {
     var isBrowserFocusModeActive = false
 
     /// What the settle observers act on: they run only when it changed.
-    struct SettleKey: Hashable {
+    struct SettleKey: Hashable, Sendable {
         var windowKey: Bool
         var appActive: Bool
         var workspace: String?

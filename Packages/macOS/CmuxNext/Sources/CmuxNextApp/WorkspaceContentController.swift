@@ -173,6 +173,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // The one topology of this apply (mounts and pane snapshots inside it sent none).
         isApplying = wasApplying
         sendTopology()
+        isApplying = true
         layoutView.syncWithModel() // focus the topology landed (a split's pane) rings in this frame
     }
 
