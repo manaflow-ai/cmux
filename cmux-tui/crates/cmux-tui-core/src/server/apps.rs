@@ -212,20 +212,6 @@ struct CancelRequest {
 /// answered or another connection's changes nothing; the reply is `{}`.
 fn cancel_request(mux: &Arc<Mux>, client: u64, value: Value, writer: &MessageWriter) -> bool {
     let id = value.get("id").cloned();
-    if cmd == "apps-agent-inventory-changed"
-        && value.as_object().is_none_or(|fields| {
-            fields.keys().any(|key| !matches!(key.as_str(), "id" | "cmd" | "demand_sequence"))
-        })
-    {
-        return Some(reply(
-            writer,
-            id,
-            Err(crate::apps::ApiError::new(
-                "bad-request",
-                "inventory invalidation accepts only demand_sequence",
-            )),
-        ));
-    }
     let request = match serde_json::from_value::<CancelRequest>(value) {
         Ok(request) => request,
         Err(e) => {
@@ -269,6 +255,20 @@ pub(super) fn try_handle(
         return None;
     }
     let id = value.get("id").cloned();
+    if cmd == "apps-agent-inventory-changed"
+        && value.as_object().is_none_or(|fields| {
+            fields.keys().any(|key| !matches!(key.as_str(), "id" | "cmd" | "demand_sequence"))
+        })
+    {
+        return Some(reply(
+            writer,
+            id,
+            Err(crate::apps::ApiError::new(
+                "bad-request",
+                "inventory invalidation accepts only demand_sequence",
+            )),
+        ));
+    }
     let request = match serde_json::from_value::<Request>(value) {
         Ok(request) => request,
         Err(e) => {
