@@ -648,7 +648,7 @@ jobs:
         run: python3 tests/test_ci_frame_pacing_app_rpc.py
 
       - name: Validate the golden interactions judge
-        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_frame_pacing_golden.py
 
       - name: Validate the dispatch runner pool's auto pick
@@ -1069,6 +1069,14 @@ jobs:
       - name: Validate the cmux-tui pin duplicate skip
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_pin_duplicate_skip.py
+
+      - name: Validate cmux-tui republishes the same commit
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_republish_same_commit.py
+
+      - name: Validate nightly sign admission
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_sign_admit.py
 
       - name: Validate lane-branch cmux-tui publishes without the daemon tests
         if: ${{ matrix.group == 'release-notary' }}
