@@ -260,7 +260,7 @@ extension CloudHandlers {
     /// than becoming a provider error or an unaudited mutation attempt.
     static func require(_ operation: CloudMachine.Capabilities.Operation, on session: CloudMachineSession) throws {
         guard session.machine.capabilities.supports(operation) else {
-            throw ActionFailure.needsDaemonCapability("cloud-vm-\(operation.rawValue)")
+            throw ActionFailure(message: "The Cloud machine does not advertise the \(operation.rawValue) capability.")
         }
     }
 
