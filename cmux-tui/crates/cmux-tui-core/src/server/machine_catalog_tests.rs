@@ -5,6 +5,9 @@ use super::super::*;
 use crate::{Actor, ResourceMachineRequest, ResourceSelectors};
 use serde_json::{Value, json};
 
+#[path = "machine_catalog_reader_tests.rs"]
+mod reader_tests;
+
 struct Publisher {
     client: u64,
     writer: MessageWriter,
