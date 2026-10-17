@@ -81,8 +81,8 @@ final class WorkspaceStatusView: NSView {
             let width = Self.pillWidth(for: labels[index], maxWidth: bounds.width)
             pills[index].isHidden = false
             pills[index].frame = NSRect(x: 0, y: rowY, width: width, height: labelHeight)
-            labels[index].frame = NSRect(x: pillHorizontalPadding, y: rowY,
-                                         width: max(0, width - pillHorizontalPadding * 2), height: labelHeight)
+            labels[index].frame = NSRect(x: Self.pillHorizontalPadding, y: rowY,
+                                         width: max(0, width - Self.pillHorizontalPadding * 2), height: labelHeight)
             y += lineHeight
         }
     }
