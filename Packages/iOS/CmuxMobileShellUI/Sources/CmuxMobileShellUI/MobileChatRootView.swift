@@ -392,7 +392,7 @@ private struct MobileNewChatSheet: View {
                                 }
                                 Spacer()
                                 Image(systemName: provider == candidate ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(provider == candidate ? Color.accentColor : .tertiary)
+                                    .foregroundStyle(provider == candidate ? Color.accentColor : Color.secondary)
                                     .font(.title3)
                             }
                             .contentShape(Rectangle())
