@@ -93,7 +93,10 @@ final class NativeConversationService {
     }
 
     private func accountDidChange(_ next: AuthenticatedSessionIdentity?) async {
-        guard next == auth.authenticatedSessionIdentity else { return }
+        guard !isShuttingDown, next == auth.authenticatedSessionIdentity else { return }
+        // A token refresh temporarily hides admission identity while keeping
+        // the authenticated generation valid. It must not stop provider work.
+        if next == nil, let identity, auth.isAuthenticatedSessionIdentityCurrent(identity) { return }
         guard identity != next else { return }
         retireRuntime(nextIdentity: next)
         await retirementTask?.value
