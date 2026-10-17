@@ -1,4 +1,8 @@
-# iOS Feed performance
+# iOS Feed performance (archived)
+
+> This document describes the retired Agent Feed telemetry plan. Native Chats
+> is the current iOS agent surface; the Feed performance events below are no
+> longer emitted by the mobile client.
 
 Feed telemetry measures scroll callback pacing and Feed-update work. It does
 not establish the root cause of visible stutter, measure rendered FPS, or

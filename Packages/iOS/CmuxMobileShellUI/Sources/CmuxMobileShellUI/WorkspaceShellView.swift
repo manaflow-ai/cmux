@@ -368,15 +368,6 @@ struct WorkspaceShellView: View {
                     consumePendingPrimarySearchNavigation(for: selectedPrimaryTab)
                 }
             }
-            .onChange(of: displaySettings.feedReplacesNotifications, initial: true) { _, replaces in
-                // A hidden destination cannot stay selected; the Feed is its
-                // replacement. The legacy Feed is retired; keep old settings
-                // snapshots from selecting a destination that is no longer
-                // exposed in production navigation.
-                if replaces, selectedPrimaryTab == .notifications {
-                    selectedPrimaryTab = .workspaces
-                }
-            }
             .onChange(of: selectedPrimaryTab) { oldValue, newValue in
                 if newValue == .feed {
                     // The legacy Feed destination is retired. Redirect a
@@ -444,7 +435,7 @@ struct WorkspaceShellView: View {
             searchCoordinator: primarySearchCoordinator,
             notificationUnreadCount: presentation.notificationUnreadCount,
             feedNeedsInputCountProvider: nil,
-            showsNotificationsTab: !displaySettings.feedReplacesNotifications,
+            showsNotificationsTab: true,
             showsFeedTab: false,
             taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
                 ? nil
@@ -1086,7 +1077,7 @@ struct WorkspaceShellView: View {
                 feedTitle: L10n.string("mobile.tabs.feed", defaultValue: "Chats"),
                 showsFeed: false,
                 notificationsTitle: notificationsSegmentTitle(unreadCount: unreadCount),
-                showsNotifications: !displaySettings.feedReplacesNotifications,
+                showsNotifications: true,
                 cloudTitle: cloudTabContent == nil
                     ? nil
                     : L10n.string("mobile.tabs.cloud", defaultValue: "Cloud")

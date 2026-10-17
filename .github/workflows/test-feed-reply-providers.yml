@@ -41,9 +41,7 @@ jobs:
         run: swift test --package-path Packages/macOS/CMUXAgentLaunch --filter WorkstreamFullTextTests
       - name: Test mobile reading and authorization
         run: |
-          swift test --package-path Packages/iOS/CmuxMobileShell --filter MobileAgentFeedTerminalReplyTests
           swift test --package-path Packages/iOS/CmuxMobileRPC --filter MobileCoreRPCNotificationFeedAuthTests
-          swift test --package-path Packages/iOS/CmuxMobileShellModel --filter MobileAgentFeedItemTests
   verify:
     if: ${{ !inputs.full_text_only }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
@@ -110,10 +108,6 @@ jobs:
           swift test --package-path Packages/macOS/CMUXAgentLaunch \
             --scratch-path "$RUNNER_TEMP/swift-agent-launch" \
             --filter WorkstreamStoreTests 2>&1 | tee "$ARTIFACTS/feed-ingestion.log"
-          swift test --package-path Packages/iOS/CmuxMobileShell \
-            --scratch-path "$RUNNER_TEMP/swift-mobile-shell" \
-            --filter 'MobileAgentFeedTerminalReplyTests|MobileShellAgentFeedStateTests' \
-            2>&1 | tee "$ARTIFACTS/feed-replies.log"
           swift test --package-path Packages/macOS/CmuxControlSocket \
             --scratch-path "$RUNNER_TEMP/swift-control" \
             --filter ControlCommandCoordinatorMobileHostTests \

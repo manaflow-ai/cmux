@@ -50,7 +50,7 @@ public struct NotificationFeedPreviewView: View {
                     NotificationFeedPreviewWorkspacesView()
                 }
             } feed: {
-                Text(verbatim: "Agent feed fixture")
+                Text(verbatim: "Notification fixture")
                     .foregroundStyle(.secondary)
             } notifications: {
                 NavigationStack {
@@ -75,7 +75,7 @@ public struct NotificationFeedPreviewView: View {
                 ) {
                     switch primarySearchCoordinator.scope {
                     case .feed:
-                        Text(verbatim: "Agent feed fixture")
+                        Text(verbatim: "Notification fixture")
                     case .workspaces:
                         NotificationFeedPreviewWorkspacesView()
                     case .notifications:

@@ -815,7 +815,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                     ) {
                         workspaceListStack
                     } feed: {
-                        Text("Agent feed fixture")
+                        Text("Notification fixture")
                             .foregroundStyle(.secondary)
                     } notifications: {
                         Text("Notification feed fixture")
@@ -831,7 +831,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                         ) {
                             switch primarySearchCoordinator.scope {
                             case .feed:
-                                Text(verbatim: "Agent feed fixture")
+                                Text(verbatim: "Notification fixture")
                                     .foregroundStyle(.secondary)
                             case .workspaces:
                                 MobilePrimaryWorkspaceSearchContentHost(

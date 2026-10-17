@@ -4,7 +4,7 @@
 > surface. This document remains as the historical scope record for the Feed
 > backend and migration decisions.
 
-This is the living scope record for the Feed work continued in this session. It includes the existing feature carried forward, subsequent user requests, implementation decisions, evidence, and unfinished work. Code being present does not mean the feature has passed a real phone check.
+This is an archival scope record for the retired Feed work. It preserves the original requirements, implementation decisions, and evidence for historical reference; native Chats now owns the iOS agent conversation surface and the old phone-side Feed mirror is no longer maintained.
 
 - Updated: 2026-09-24. Markdown and multi-question handling are implemented; final visual and device verification are recorded separately below.
 - Branch: `task-ios-feed-tab`.
@@ -19,7 +19,7 @@ Refer to stable IDs below, for example: “remove F04,” “change D03 to allow
 
 After each scope or implementation change, update the affected rows, decisions, evidence, and change log. Keep IDs stable. Mark removed or deferred items instead of deleting their history. Record user requirements separately from engineering choices; changing the latter does not imply the user approved a new product requirement.
 
-**Status:** Built = implementation exists; Partial = part of the requested outcome remains; Pending = unfinished verification or delivery. Evidence is listed separately. All features remain in scope unless explicitly marked otherwise. There are no user-requested removals or deferrals recorded yet.
+**Status:** The feature rows below describe the historical Feed branch. They are retained for traceability and are not current iOS product scope.
 
 ## Capabilities
 
@@ -224,10 +224,9 @@ These are outstanding parts of existing scope or limits that affect its acceptan
 - [Native Chats surface](../Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/AgentChatGUI.swift), [retained content and paging](../Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Workstream/WorkstreamFullText.swift).
 - [Chat transcript and structured attention rows](../Sources/Mobile/AgentChat/AgentChatTranscriptService.swift).
 - [Chat synchronization, routing, submission, and provider replies](../Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileChatEventSource.swift).
-- [Feed synchronization, routing, submission, and stop matching](../Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite+AgentFeed.swift).
-- [Item identity, reply eligibility, and triage semantics](../Packages/iOS/CmuxMobileShellModel/Sources/CmuxMobileShellModel/MobileAgentFeedItem.swift).
+- The former iOS Feed synchronization and row-model sources were removed when native Chats became the production surface; the historical implementation is preserved in this document and the linked PR history.
 - [Mac terminal submission](../Sources/TerminalController.swift), [active-provider submit-key selection](../Sources/TextBoxAgentDetection.swift).
-- [Reply regression tests](../Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileAgentFeedTerminalReplyTests.swift), [Feed state tests](../Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellAgentFeedStateTests.swift).
+- The former Feed reply and state tests were removed with that retired mirror; native Chat behavior is covered by the Chat event-source and transcript tests.
 - [Real terminal harness](../tests_v2/test_mobile_terminal_paste_submit.py), [provider editor harness](../tests_v2/test_mobile_terminal_paste_providers.py), [hosted provider workflow](../.github/workflows/test-feed-reply-providers.yml).
 - [Personal account setup and refresh](../scripts/setup-team-dev.sh), [refresh regression tests](../scripts/setup-team-dev.test.mjs).
 
