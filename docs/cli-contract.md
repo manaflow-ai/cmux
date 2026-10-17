@@ -505,6 +505,51 @@ Surface resume bindings (`surface resume` and `surface-resume`):
 
 The selectors default to the caller's `CMUX_SURFACE_ID` or `CMUX_WORKSPACE_ID` when applicable; `--window` supplies context for refs and indexes. These bindings record how to resume a surface; `session restore` and `restore` perform recovery. `surface --help` and `surface-resume --help` print the same family help without a socket.
 
+Canvas subcommands:
+
+`cmux canvas` drives a workspace's freeform canvas layout over the v2
+`canvas.*` methods. Every subcommand accepts `--workspace <id|ref|index>`,
+resolved in the CLI before the request is sent; `CMUX_WORKSPACE_ID` is not
+consulted. Without `--workspace`, the app targets the workspace that owns the
+named surface, otherwise the selected workspace of the active window. A surface
+is named positionally or with `--surface <id|ref|index>`, and `--surface` wins
+when both are given. Every `--option` consumes the following token as its value,
+so a flag's value is never read as a positional. The subcommand word and the
+`mode`, `align`, `zoom` and `--type` arguments are lowercased before they are
+checked. Socket canvas verbs never animate.
+
+| Command | Contract |
+| --- | --- |
+| `canvas info [--workspace <id\|ref\|index>] [--json]` | `canvas.info`: the workspace's layout `mode` (`canvas` or `splits`) and its `panes` back to front, each with the pane's surface id and ref, `x`, `y`, `width`, `height`, `focused`, the ids and refs of the surfaces it hosts as tabs, and the selected one. `magnification` and `viewport_center` (`x`, `y`) are present only in canvas mode with an attached viewport. Works in either layout mode. The text form prints only `OK workspace:<n>`; read the layout with `--json`. |
+| `canvas mode <canvas\|splits\|toggle>` | `canvas.set_mode`. Works in either layout mode and replies with the resulting `mode`. Any other word is a usage error before the request is sent. |
+| `canvas set-frame <surface> --x <n> --y <n> --width <n> --height <n>` | `canvas.set_frame`: place one pane at an explicit canvas frame. All four values are required and numeric (usage error otherwise); the app rejects a non-positive width or height with `invalid_params`. |
+| `canvas align <tidy\|align-left\|align-right\|align-top\|align-bottom\|equalize-widths\|equalize-heights\|distribute-horizontally\|distribute-vertically>` | `canvas.align`: run one alignment, distribution or tidy command over the workspace's panes. The CLI lowercases the word and forwards it unchecked; the app rejects an unknown one with `invalid_params` naming the accepted set. |
+| `canvas reveal [<surface>]` | `canvas.reveal`: scroll a pane into view without moving focus. Without a surface, the focused pane; `invalid_state` (`No focused pane to target (pass surface_id)`) when the workspace has none. |
+| `canvas overview` | `canvas.overview`: toggle the fit-all overview zoom. |
+| `canvas zoom <in\|out\|reset>` | `canvas.zoom`: step the viewport magnification. Any other word is a usage error before the request is sent. |
+| `canvas set-viewport --x <n> --y <n> [--zoom <n>]` | `canvas.set_viewport`: center the viewport on a canvas point and optionally set its magnification. `--x` and `--y` are required and numeric; `--zoom` must be numeric and the app rejects a non-positive value with `invalid_params`. |
+| `canvas new-pane [--type terminal\|browser\|simulator]` | `canvas.new_pane`: create a free-floating pane, `terminal` by default, and focus it. Any other `--type` is a usage error. The reply adds `surface_id` and `surface_ref`, so the text form prints `OK surface:<n>`. |
+| `canvas join <surface> <target>`, `canvas join <surface> --target <target>` | `canvas.join`: move `<surface>` into the pane that hosts `<target>` as a tab, then focus the moved surface. Both must be canvas panes of the workspace. |
+| `canvas break <surface>` | `canvas.break`: tear a surface out of its multi-tab pane into its own pane, focus it and scroll it into view. |
+| `canvas select-tab <surface>` | `canvas.select_tab`: select a surface as its pane's visible tab and move keyboard focus to it. |
+
+Every subcommand except `info` and `mode` requires the workspace to be in canvas
+layout and otherwise fails with `invalid_state`
+(`Workspace is not in canvas layout (run canvas.set_mode first)`). A surface
+that is not a canvas pane of the resolved workspace fails with `not_found`
+(`Canvas pane not found`) carrying the `surface_id`. On success the text form
+prints `OK`, plus the handles noted above; `--json` prints the reply, which
+always carries the resulting `mode`.
+
+Project subcommands:
+
+| Command | Contract |
+| --- | --- |
+| `project open <path> [--workspace <id\|ref\|index>] [--window <id\|ref\|index>] [--focus <true\|false>] [--json]` | `project.open`: open a project pane for `<path>` as a new tab in the workspace's focused pane. The CLI expands `~` and resolves a relative path from the current directory; the app requires the path to exist (`not_found`, `Project not found at <path>`) and does not check its extension, though the pane expects an `.xcodeproj` or `.xcworkspace`. Without `--workspace` or `--window`, `CMUX_WORKSPACE_ID` is used when set. The app selects the workspace (bringing its window forward) before opening; `--focus` defaults to `true`, accepts `1`/`true`/`yes`/`on` and `0`/`false`/`no`/`off` (anything else is a usage error), and `--focus false` adds the tab without moving focus. A workspace with no focused pane fails with `not_found` (`No focused pane to open project in`). Prints `OK surface=<handle> pane=<handle> project=<path>`; `--json` prints `window_id`, `workspace_id`, `pane_id`, `surface_id` and `path`. |
+| `project <path>` | Accepted as `project open <path>` when `<path>` is the only argument left after the options. A first word other than `open` (matched case-insensitively) followed by further arguments is a usage error (`Unknown project subcommand: <word>`); `project` alone is a usage error naming the `open` form. |
+
+`cmux project` has no pre-socket usage text; see [Current Help Caveats](#current-help-caveats).
+
 Remotes subcommands:
 
 | Command | Contract |
@@ -1167,6 +1212,8 @@ the expected text without connecting to a cmux socket.
 - `cmux focus-webview --help` -> `Legacy alias for 'cmux browser focus-webview'`
 - `cmux is-webview-focused --help` -> `Legacy alias for 'cmux browser is-webview-focused'`
 - `cmux markdown --help` -> `Usage: cmux markdown open <path>`
+- `cmux canvas --help` -> `Usage: cmux canvas <subcommand> [args] [--workspace <id|ref>]`
+- `cmux canvas --help` -> `new-pane [--type terminal|browser|simulator]`
 <!-- cli-contract-help-probes:end -->
 
 For `cmux restore`, `--surface [id|ref]` uses the caller when omitted.
@@ -1193,6 +1240,10 @@ changes them:
   pre-socket help dispatcher.
 - `cmux remote-daemon-status --help` currently prints status because the command
   runs before subcommand help dispatch.
+- `cmux project --help` has no subcommand usage text, so the pre-socket help
+  dispatcher reports `Unknown command 'project'` and exits 2 without
+  connecting to a socket; `project open` itself is documented under
+  [Command Families](#command-families).
 
 ## ArgumentParser Migration Sequence
 
