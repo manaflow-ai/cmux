@@ -306,6 +306,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
     test("Do it here answers the offer here and sends its prompt to this chat", async () => {
       const page = await openChat({ offered: [single] });
       await card(page).getByText(single.title).waitFor({ timeout: 10_000 });
+      // A lone offer's card is headed with the list's own word, no noun (cg-ui-coord, 10-15).
+      expect(await card(page).getByText("Suggested", { exact: true }).count()).toBe(1);
       await card(page).getByRole("button", { name: "Do it here" }).click();
       await waitUntil(() => calls.some((c) => c.method === "session/prompt"));
       const respondAt = calls.findIndex((c) => c.method === "_acpmux/offer_respond");
@@ -371,6 +373,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
         };
       });
       expect(fits).toEqual({ overflow: 0, chevronInside: true, inPane: true, height: 28 });
+      // The title may be cut; the row's tooltip carries it whole.
+      expect(await row.locator(".acpmux-task-row").getAttribute("title")).toBe(accepted.title);
 
       // The chat's turn ends: its attach ends, and the row says it is done.
       socket!.send(
