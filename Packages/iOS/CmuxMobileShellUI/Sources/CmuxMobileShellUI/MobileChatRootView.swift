@@ -128,35 +128,54 @@ struct MobileChatRootView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else {
-                List(selection: Binding(
-                    get: { store.selectedSessionID },
-                    set: { if let value = $0 { store.selectSession(value) } }
-                )) {
-                    Section {
-                        providerFilterControl
+                VStack(spacing: 0) {
+                    if let connectionBannerMessage {
+                        Label(connectionBannerMessage, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal)
+                            .padding(.vertical, 8)
+                            .background(.orange.opacity(0.1))
                     }
-                    Section {
-                        ForEach(filteredSessions) { session in
-                            NavigationLink(value: session.id) {
-                                MobileChatSessionRow(
-                                    session: session,
-                                    isSelected: session.id == store.selectedSessionID
-                                )
-                            }
-                            .listRowBackground(
-                                session.id == store.selectedSessionID
-                                    ? Color.accentColor.opacity(0.13)
-                                    : Color.clear
-                            )
-                            .accessibilityIdentifier("MobileChatSession-\(session.id)")
+                    List(selection: Binding(
+                        get: { store.selectedSessionID },
+                        set: { if let value = $0 { store.selectSession(value) } }
+                    )) {
+                        Section {
+                            providerFilterControl
                         }
-                    } header: {
-                        Text("Recent")
+                        Section {
+                            ForEach(filteredSessions) { session in
+                                NavigationLink(value: session.id) {
+                                    MobileChatSessionRow(
+                                        session: session,
+                                        isSelected: session.id == store.selectedSessionID
+                                    )
+                                }
+                                .listRowBackground(
+                                    session.id == store.selectedSessionID
+                                        ? Color.accentColor.opacity(0.13)
+                                        : Color.clear
+                                )
+                                .accessibilityIdentifier("MobileChatSession-\(session.id)")
+                            }
+                        } header: {
+                            Text("Recent")
+                        }
                     }
+                    .listStyle(.insetGrouped)
                 }
-                .listStyle(.insetGrouped)
             }
         }
+    }
+
+    private var connectionBannerMessage: String? {
+        if let errorMessage = store.errorMessage, !errorMessage.isEmpty {
+            return errorMessage
+        }
+        guard !store.isConnected, !store.isLoading else { return nil }
+        return "Connection lost. Refresh to reconnect."
     }
 
     private var providerFilterControl: some View {

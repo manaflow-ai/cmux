@@ -94,6 +94,11 @@ final class MobileChatStore {
     func selectSession(_ id: String) {
         guard selectedSessionID != id else { return }
         invalidateSend()
+        // Composer state belongs to the conversation being viewed. Clear it
+        // on a real selection change so a draft or attachment cannot be sent
+        // to the newly selected agent by accident.
+        draft = ""
+        stagedAttachments = []
         selectedSessionID = id
         UserDefaults.standard.set(id, forKey: Self.selectedSessionKey)
         beginTranscript(id: id)
