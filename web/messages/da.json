@@ -524,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Genoptag din plan for at ændre den.",
           "granted": "Tildelt af cmux. Der er intet at ændre.",
+          "grantedNoCancel": "Tildelt af cmux, så der er intet at opsige.",
+          "paymentFailed": "Opdater din betalingsmetode, før du skifter abonnement.",
+          "foundersLifetime": "Founder's Edition inkluderer Pro for livet.",
           "adminOnly": "Kun teamadministratorer kan ændre planen."
         },
         "names": {
@@ -566,6 +569,7 @@
       "change": {
         "title": "Skift til {plan}?",
         "upgradeBody": "{plan} starter nu. Du betaler {amount} i dag for resten af denne faktureringsperiode. Fra den {date} betaler du {price} om måneden.",
+        "upgradeBodyYearly": "{plan} starter nu. Du betaler {amount} i dag for resten af denne faktureringsperiode. Fra den {date} betaler du {price} om året.",
         "downgradeBody": "{plan} starter nu. Den ubrugte del af din nuværende plan, {credit}, krediteres dine næste fakturaer. Din næste faktura den {date} er på {amount}.",
         "confirm": "Skift til {plan}",
         "keep": "Behold nuværende plan",
@@ -578,6 +582,8 @@
         "title": "Opsig {plan}?",
         "body": "Du beholder {plan} indtil den {date}. Derefter mister du:",
         "bodyNoDate": "Du beholder {plan} til slutningen af denne faktureringsperiode. Derefter mister du:",
+        "foundersBody": "Dit {plan}-abonnement slutter den {date}. Derefter har du Pro, som Founder's Edition inkluderer for livet.",
+        "foundersBodyNoDate": "Dit {plan}-abonnement slutter ved udgangen af denne faktureringsperiode. Derefter har du Pro, som Founder's Edition inkluderer for livet.",
         "reasonLabel": "Hvorfor opsiger du? (valgfrit)",
         "otherPlaceholder": "Fortæl os mere (valgfrit)",
         "confirm": "Opsig plan",
