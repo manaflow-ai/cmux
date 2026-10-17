@@ -54,6 +54,21 @@ real treatment in context, not to decorate a screenshot or invent a second desig
 7. Capture images only after the visual state is stable. Record the route, theme, width, and
    variant in the artifact name; never use a stale comparison grid as evidence.
 
+## Final live-state gate
+
+Before ending a UI turn, treat the browser as an artifact that can be stale. Restart the Vite
+server from the reviewed checkout when the source or branch changed, then open fresh tabs for every
+requested theme and variant. Record the exact commit shown by the gallery shell and confirm that
+each tab URL matches the requested route, query, theme, width, and variant. Take a fresh screenshot
+and accessibility snapshot from those tabs after the restart; do not rely on an earlier tab,
+HMR-only refresh, exported PNG, or a screenshot whose shell commit differs from the reviewed head.
+
+For controls with a visual contract, verify the rendered pixels against the source-level contract,
+not just DOM presence: track and thumb geometry must share the same coordinate system; visible copy
+must match the requested hierarchy; icons must come from the shared icon/vector treatment rather
+than Unicode or emoji; and transient menus must be reopened after the final restart. If any of
+those checks disagree, keep working and report the mismatch instead of calling the turn complete.
+
 ## Review gate
 
 Before calling a visual change complete, get at least one independent read-only review of the live
