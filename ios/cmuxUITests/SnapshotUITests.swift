@@ -177,7 +177,10 @@ final class AgentChatModeUITests: XCTestCase {
         defer { app.terminate() }
 
         XCTAssertTrue(app.otherElements["MobileAgentChatMode"].waitForExistence(timeout: 12))
-        XCTAssertTrue(app.staticTexts["Implement the authentication flow"].waitForExistence(timeout: 8))
+        let claude = app.buttons["Claude, Implement the authentication flow, Needs input"]
+        XCTAssertTrue(claude.waitForExistence(timeout: 8))
+        claude.tap()
+        XCTAssertTrue(app.otherElements["MobileAgentConversation"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts["Claude wants to run"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["Allow once"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["Local development"].waitForExistence(timeout: 8))
@@ -202,9 +205,10 @@ final class AgentChatModeUITests: XCTestCase {
         defer { app.terminate() }
 
         XCTAssertTrue(app.otherElements["MobileAgentChatMode"].waitForExistence(timeout: 12))
-        let codex = app.staticTexts["Review the networking changes"]
+        let codex = app.buttons["Codex, Review the networking changes, Working"]
         XCTAssertTrue(codex.waitForExistence(timeout: 8))
         codex.tap()
+        XCTAssertTrue(app.otherElements["MobileAgentConversation"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts["Review the networking changes and summarize risks."].waitForExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts["Sources/Network/RetryPolicy.swift"].waitForExistence(timeout: 8))
 
