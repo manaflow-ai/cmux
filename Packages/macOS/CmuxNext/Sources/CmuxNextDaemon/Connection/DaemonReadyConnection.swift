@@ -6,6 +6,9 @@ struct DaemonReadyConnection: Sendable {
     let userOriginAllowed: Bool
     let inventoryWatch: AgentInventoryWatch?
 
+    /// The latest routed position on this captured control transport.
+    var eventSequence: UInt64 { DaemonEventEnvelope.sequence(serial: serial, index: transport.routedEventCount) }
+
     init(transport: LineTransport, serial: UInt64, identity: DaemonIdentity, userOriginAllowed: Bool) {
         self.transport = transport
         self.serial = serial
