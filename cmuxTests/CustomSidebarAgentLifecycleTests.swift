@@ -110,9 +110,7 @@ struct CustomSidebarAgentLifecycleTests {
             sessionID: "unbound",
             currentSessionID: "unbound",
             state: .idle,
-            agentSource: "claude",
-            panelLifecycles: nil,
-            lifecycleSessionIDs: nil
+            agentSource: "claude"
         ) == nil)
     }
 
