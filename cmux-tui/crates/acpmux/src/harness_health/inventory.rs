@@ -3,7 +3,7 @@
 
 use serde_json::{Value, json};
 
-use super::{HarnessHealth, probe};
+use super::HarnessHealth;
 use crate::rpc::RpcError;
 
 /// Select fields individually: health diagnostics include paths, commands
@@ -47,5 +47,25 @@ fn safe_id(id: &str) -> bool {
 /// A saved cache may predate version parsing. Only a complete version
 /// token crosses this boundary; never an error line containing one.
 fn safe_version(value: Option<&str>) -> Option<&str> {
-    value.filter(|v| v.len() <= 64 && probe::parse_version(v).as_deref() == Some(*v))
+    static VERSION: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"^v?[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$")
+            .expect("inventory version pattern") // crash-allow: constant pattern
+    });
+    value.filter(|v| v.len() <= 64 && VERSION.is_match(v))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cmux_next_harness_inventory_preserves_release_version_tokens() {
+        for version in ["1.2", "1.2.3", "v1.2.3", "1.2.3-beta-1.2+build.5"] {
+            assert_eq!(safe_version(Some(version)), Some(version));
+        }
+        for value in ["1.2.3 private@example.test", "1.2.3\n", "token", "1.2.3+", "1.2.3/secret"] {
+            assert_eq!(safe_version(Some(value)), None);
+        }
+        assert_eq!(safe_version(None), None);
+    }
 }
